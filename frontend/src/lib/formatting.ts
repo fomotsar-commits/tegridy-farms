@@ -1,4 +1,5 @@
 export function formatCurrency(value: number, decimals = 2): string {
+  if (value >= 1_000_000_000_000) return `$${(value / 1_000_000_000_000).toFixed(decimals)}T`;
   if (value >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(decimals)}B`;
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(decimals)}M`;
   if (value >= 1_000) return `$${(value / 1_000).toFixed(decimals)}K`;
@@ -7,6 +8,7 @@ export function formatCurrency(value: number, decimals = 2): string {
 }
 
 export function formatNumber(value: number, decimals = 2): string {
+  if (value >= 1_000_000_000_000) return `${(value / 1_000_000_000_000).toFixed(decimals)}T`;
   if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(decimals)}B`;
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(decimals)}M`;
   if (value >= 1_000) return `${value.toLocaleString(undefined, { maximumFractionDigits: decimals })}`;

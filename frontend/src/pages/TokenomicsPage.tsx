@@ -50,7 +50,7 @@ export default function TokenomicsPage() {
         <motion.div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           {[
             { l: 'Token', v: 'TOWELI' },
-            { l: 'Total Supply', v: formatNumber(TOWELI_TOTAL_SUPPLY, 0) },
+            { l: 'Total Supply', v: '420.69T' },
             { l: 'Price', v: formatCurrency(price.priceInUsd, 6) },
             { l: 'FDV', v: price.priceInUsd > 0 ? formatCurrency(TOWELI_TOTAL_SUPPLY * price.priceInUsd) : '–' },
           ].map((i) => (

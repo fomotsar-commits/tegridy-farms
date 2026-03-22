@@ -74,7 +74,7 @@ export function Footer() {
             Unaudited experimental protocol. Use at your own risk. Not financial advice.
           </span>
           <span className="text-white/15 text-[11px]">
-            © 2025 Tegridy Farms
+            © 2026 Tegridy Farms
           </span>
         </div>
       </div>
