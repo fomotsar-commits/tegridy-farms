@@ -5,7 +5,7 @@ import { useToweliPrice } from '../hooks/useToweliPrice';
 import { ART } from '../lib/artConfig';
 import {
   TOWELI_ADDRESS, TEGRIDY_FARM_ADDRESS, FEE_DISTRIBUTOR_ADDRESS,
-  ETHERSCAN_TOKEN, UNISWAP_BUY_URL, DEXSCREENER_URL,
+  ETHERSCAN_TOKEN, UNISWAP_BUY_URL, GECKOTERMINAL_URL,
   TOWELI_TOTAL_SUPPLY,
 } from '../lib/constants';
 import { formatNumber, formatCurrency, shortenAddress } from '../lib/formatting';
@@ -52,7 +52,7 @@ export default function TokenomicsPage() {
             { l: 'Token', v: 'TOWELI' },
             { l: 'Total Supply', v: formatNumber(TOWELI_TOTAL_SUPPLY, 0) },
             { l: 'Price', v: formatCurrency(price.priceInUsd, 6) },
-            { l: 'Market Cap', v: price.priceInUsd > 0 ? formatCurrency(TOWELI_TOTAL_SUPPLY * price.priceInUsd) : '–' },
+            { l: 'FDV', v: price.priceInUsd > 0 ? formatCurrency(TOWELI_TOTAL_SUPPLY * price.priceInUsd) : '–' },
           ].map((i) => (
             <div key={i.l} className="rounded-xl p-4" style={{ background: 'rgba(6,12,26,0.82)', backdropFilter: 'blur(12px)', border: '1px solid rgba(139,92,246,0.12)' }}>
               <p className="text-white/40 text-[11px] uppercase tracking-wider mb-1">{i.l}</p>
@@ -146,7 +146,7 @@ export default function TokenomicsPage() {
           {[
             { href: UNISWAP_BUY_URL, label: 'Trade on Uniswap' },
             { href: ETHERSCAN_TOKEN, label: 'Etherscan' },
-            { href: DEXSCREENER_URL, label: 'DexScreener' },
+            { href: GECKOTERMINAL_URL, label: 'GeckoTerminal' },
           ].map((l) => (
             <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
               className="rounded-xl p-3.5 flex items-center justify-between group"

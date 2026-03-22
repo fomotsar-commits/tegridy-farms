@@ -7,7 +7,7 @@ import { useSwap } from '../hooks/useSwap';
 import { useToweliPrice } from '../hooks/useToweliPrice';
 import { formatTokenAmount, formatCurrency } from '../lib/formatting';
 import { ART } from '../lib/artConfig';
-import { TOWELI_ADDRESS, DEXSCREENER_URL, UNISWAP_BUY_URL } from '../lib/constants';
+import { GECKOTERMINAL_URL, GECKOTERMINAL_EMBED, UNISWAP_BUY_URL, TOWELI_TOTAL_SUPPLY } from '../lib/constants';
 
 export default function SwapPage() {
   const { isConnected, address } = useAccount();
@@ -65,8 +65,8 @@ export default function SwapPage() {
     setCustomSlippage('');
   };
 
-  // Use circulating supply concept — price * total supply for now, but sourced from constant
-  const marketCap = price.priceInUsd > 0 ? formatCurrency(420690000000000 * price.priceInUsd) : '–';
+  // FDV = Fully Diluted Valuation (total supply * price)
+  const fdv = price.priceInUsd > 0 ? formatCurrency(TOWELI_TOTAL_SUPPLY * price.priceInUsd) : '–';
 
   return (
     <div className="-mt-14 relative min-h-screen">
@@ -107,7 +107,7 @@ export default function SwapPage() {
 
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { l: 'Market Cap', v: marketCap },
+                  { l: 'FDV', v: fdv },
                   { l: 'Pair', v: 'Uniswap V2' },
                   { l: 'Chain', v: 'Ethereum' },
                 ].map((s) => (
@@ -119,12 +119,12 @@ export default function SwapPage() {
               </div>
             </div>
 
-            {/* DexScreener Chart */}
+            {/* GeckoTerminal Chart */}
             <div className="relative rounded-xl overflow-hidden" style={{ border: '1px solid rgba(139,92,246,0.12)', height: '280px' }}>
               <iframe
-                src={`https://dexscreener.com/ethereum/${TOWELI_ADDRESS}?embed=1&theme=dark&trades=0&info=0`}
+                src={GECKOTERMINAL_EMBED}
                 className="w-full h-full border-0"
-                title="DexScreener Chart"
+                title="GeckoTerminal Chart"
                 allow="clipboard-write"
                 loading="lazy"
               />
@@ -141,11 +141,11 @@ export default function SwapPage() {
                 </div>
                 <span className="text-white/30 text-[14px] group-hover:text-primary transition-colors">&#8594;</span>
               </a>
-              <a href={DEXSCREENER_URL} target="_blank" rel="noopener noreferrer"
+              <a href={GECKOTERMINAL_URL} target="_blank" rel="noopener noreferrer"
                 className="rounded-xl p-4 flex items-center justify-between group"
                 style={{ background: 'rgba(6,12,26,0.82)', border: '1px solid rgba(139,92,246,0.12)', backdropFilter: 'blur(8px)' }}>
                 <div>
-                  <p className="text-[13px] font-medium text-white group-hover:text-primary transition-colors">DexScreener</p>
+                  <p className="text-[13px] font-medium text-white group-hover:text-primary transition-colors">GeckoTerminal</p>
                   <p className="text-white/30 text-[11px]">Live chart</p>
                 </div>
                 <span className="text-white/30 text-[14px] group-hover:text-primary transition-colors">&#8594;</span>
@@ -263,7 +263,7 @@ export default function SwapPage() {
                   <DetailRow label="Min. Received" value={`${formatTokenAmount(swap.minimumReceived)} ${toToken}`} />
                   <DetailRow label="Slippage" value={`${swap.slippage}%`} />
                   <DetailRow label="Deadline" value={`${swap.deadline} min`} />
-                  <DetailRow label="Route" value="TOWELI <> WETH" />
+                  <DetailRow label="Route" value={swap.direction === 'buy' ? 'ETH → WETH → TOWELI (Uniswap V2)' : 'TOWELI → WETH → ETH (Uniswap V2)'} />
                 </div>
               )}
 

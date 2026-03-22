@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { UNISWAP_BUY_URL, ETHERSCAN_TOKEN, DEXSCREENER_URL, TOWELI_ADDRESS } from '../../lib/constants';
+import { UNISWAP_BUY_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, TOWELI_ADDRESS } from '../../lib/constants';
 import { shortenAddress } from '../../lib/formatting';
 
 export function Footer() {
@@ -49,7 +49,7 @@ export function Footer() {
               {[
                 { href: UNISWAP_BUY_URL, label: 'Trade on Uniswap' },
                 { href: ETHERSCAN_TOKEN, label: 'Etherscan' },
-                { href: DEXSCREENER_URL, label: 'DexScreener' },
+                { href: GECKOTERMINAL_URL, label: 'GeckoTerminal' },
               ].map((l) => (
                 <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
                   className="block text-white/30 text-[13px] hover:text-primary transition-colors">

@@ -4,7 +4,7 @@ import { formatEther } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from 'react-router-dom';
 import { ERC20_ABI } from '../lib/contracts';
-import { TOWELI_ADDRESS, TOWELI_WETH_LP_ADDRESS } from '../lib/constants';
+import { TOWELI_ADDRESS, TOWELI_WETH_LP_ADDRESS, GECKOTERMINAL_URL, GECKOTERMINAL_EMBED } from '../lib/constants';
 import { useUserPosition } from '../hooks/useUserPosition';
 import { usePoolData } from '../hooks/usePoolData';
 import { useToweliPrice } from '../hooks/useToweliPrice';
@@ -119,16 +119,16 @@ export default function DashboardPage() {
         <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <div className="flex items-center justify-between mb-3">
             <h3 className="heading-luxury text-[16px] text-white">Price Chart</h3>
-            <a href={`https://dexscreener.com/ethereum/${TOWELI_ADDRESS}`} target="_blank" rel="noopener noreferrer"
+            <a href={GECKOTERMINAL_URL} target="_blank" rel="noopener noreferrer"
               className="text-primary text-[12px] font-medium hover:opacity-80 transition-opacity">
-              DexScreener →
+              GeckoTerminal &#8594;
             </a>
           </div>
           <div className="relative rounded-xl overflow-hidden" style={{ height: '220px', border: '1px solid rgba(139,92,246,0.12)' }}>
             <iframe
-              src={`https://dexscreener.com/ethereum/${TOWELI_ADDRESS}?embed=1&theme=dark&trades=0&info=0`}
+              src={GECKOTERMINAL_EMBED}
               className="w-full h-full border-0"
-              title="DexScreener Chart"
+              title="GeckoTerminal Chart"
               allow="clipboard-write"
               loading="lazy"
             />
