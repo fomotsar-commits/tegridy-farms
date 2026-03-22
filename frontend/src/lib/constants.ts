@@ -28,6 +28,12 @@ export const TOWELI_DECIMALS = 18;
 export const TOWELI_TOTAL_SUPPLY = 420_690_000_000_000; // 420.69T
 export const INITIAL_REWARDS_FUND = 26_000_000; // 26M TOWELI
 
+// Helper: check if an address is deployed (not zero address)
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+export function isDeployed(address: string): boolean {
+  return address !== ZERO_ADDRESS;
+}
+
 // External links
 export const ETHERSCAN_TOKEN = `https://etherscan.io/token/${TOWELI_ADDRESS}`;
 export const UNISWAP_BUY_URL = `https://app.uniswap.org/swap?outputCurrency=${TOWELI_ADDRESS}&chain=ethereum`;

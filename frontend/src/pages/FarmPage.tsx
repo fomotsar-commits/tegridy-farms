@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { useAccount } from 'wagmi';
 import { PoolCard } from '../components/farm/PoolCard';
 import { ART } from '../lib/artConfig';
 import { TOWELI_WETH_LP_ADDRESS, TOWELI_ADDRESS } from '../lib/constants';
@@ -8,7 +7,6 @@ import { useFarmStats } from '../hooks/useFarmStats';
 import { usePoolData } from '../hooks/usePoolData';
 
 export default function FarmPage() {
-  const { isConnected } = useAccount();
   const stats = useFarmStats();
   const lpPool = usePoolData(0n);
   const toweliPool = usePoolData(1n);

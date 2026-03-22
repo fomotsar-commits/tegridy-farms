@@ -6,7 +6,7 @@ import { ART } from '../lib/artConfig';
 import {
   TOWELI_ADDRESS, TEGRIDY_FARM_ADDRESS, FEE_DISTRIBUTOR_ADDRESS,
   ETHERSCAN_TOKEN, UNISWAP_BUY_URL, DEXSCREENER_URL,
-  TOWELI_TOTAL_SUPPLY, INITIAL_REWARDS_FUND,
+  TOWELI_TOTAL_SUPPLY,
 } from '../lib/constants';
 import { formatNumber, formatCurrency, shortenAddress } from '../lib/formatting';
 
@@ -77,7 +77,7 @@ export default function TokenomicsPage() {
                       background: 'rgba(6,12,26,0.9)', border: '1px solid rgba(139,92,246,0.15)',
                       borderRadius: '8px', fontFamily: "'Inter', sans-serif", color: '#f0ead6', fontSize: '12px',
                     }}
-                    formatter={(v: number) => `${v}%`}
+                    formatter={(v) => `${v}%`}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -128,8 +128,8 @@ export default function TokenomicsPage() {
                   <span className="text-white/60 text-[13px]">{c.label}</span>
                   {c.live ? (
                     <span className="badge badge-success text-[9px]">Live</span>
-                  ) : c.address === '0x0000000000000000000000000000000000000000' ? (
-                    <span className="badge badge-warning text-[9px]">Pending</span>
+                  ) : !c.live ? (
+                    <span className="badge badge-warning text-[9px]">Deployed</span>
                   ) : null}
                 </div>
                 <a href={`https://etherscan.io/address/${c.address}`} target="_blank" rel="noopener noreferrer"

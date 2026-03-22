@@ -81,7 +81,7 @@ export default function DashboardPage() {
         <motion.div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           {[
             { l: 'TOWELI Balance', v: formatTokenAmount(walletToweli.toString(), 0), sub: formatCurrency(walletToweli * price.priceInUsd) },
-            { l: 'ETH Balance', v: ethBalance ? Number(ethBalance.formatted).toFixed(4) : '0', sub: ethBalance ? formatCurrency(Number(ethBalance.formatted) * price.ethUsd) : '$0' },
+            { l: 'ETH Balance', v: ethBalance ? Number(formatEther(ethBalance.value)).toFixed(4) : '0', sub: ethBalance ? formatCurrency(Number(formatEther(ethBalance.value)) * price.ethUsd) : '$0' },
             { l: 'Claimable', v: formatTokenAmount(pendingTotal.toString(), 2), sub: formatCurrency(pendingTotal * price.priceInUsd), accent: true },
             { l: 'TOWELI Price', v: formatCurrency(price.priceInUsd, 6), sub: 'Live' },
           ].map((s) => (

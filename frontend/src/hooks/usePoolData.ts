@@ -1,11 +1,11 @@
-import { useReadContract, useReadContracts } from 'wagmi';
+import { useReadContract } from 'wagmi';
 import { formatEther } from 'viem';
-import { TEGRIDY_FARM_ABI, ERC20_ABI } from '../lib/contracts';
-import { TEGRIDY_FARM_ADDRESS, TOWELI_ADDRESS } from '../lib/constants';
+import { TEGRIDY_FARM_ABI } from '../lib/contracts';
+import { TEGRIDY_FARM_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
 
 export function usePoolData(pid: bigint) {
   const farmAddr = TEGRIDY_FARM_ADDRESS;
-  const isDeployed = farmAddr !== '0x0000000000000000000000000000000000000000';
+  const isDeployed = checkDeployed(farmAddr);
 
   const { data: poolInfo } = useReadContract({
     address: farmAddr,

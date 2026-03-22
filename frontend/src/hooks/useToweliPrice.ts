@@ -1,14 +1,13 @@
 import { useReadContract } from 'wagmi';
-import { formatEther } from 'viem';
 import { UNISWAP_V2_PAIR_ABI, CHAINLINK_FEED_ABI } from '../lib/contracts';
-import { TOWELI_WETH_LP_ADDRESS, ETH_USD_FEED, TOWELI_ADDRESS } from '../lib/constants';
+import { TOWELI_WETH_LP_ADDRESS, ETH_USD_FEED, TOWELI_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
 
 // Maximum staleness for Chainlink data (1 hour)
 const MAX_STALENESS_SECONDS = 3600;
 
 export function useToweliPrice() {
   const pairAddr = TOWELI_WETH_LP_ADDRESS;
-  const hasPair = pairAddr !== '0x0000000000000000000000000000000000000000';
+  const hasPair = checkDeployed(pairAddr);
 
   const { data: reserves } = useReadContract({
     address: pairAddr,

@@ -1,12 +1,12 @@
 import { useAccount, useReadContract } from 'wagmi';
 import { formatEther } from 'viem';
 import { TEGRIDY_FARM_ABI, ERC20_ABI } from '../lib/contracts';
-import { TEGRIDY_FARM_ADDRESS } from '../lib/constants';
+import { TEGRIDY_FARM_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
 
 export function useUserPosition(pid: bigint, lpTokenAddress: `0x${string}`) {
   const { address } = useAccount();
   const farmAddr = TEGRIDY_FARM_ADDRESS;
-  const isDeployed = farmAddr !== '0x0000000000000000000000000000000000000000';
+  const isDeployed = checkDeployed(farmAddr);
   const enabled = isDeployed && !!address;
 
   const { data: userInfo, refetch: refetchUserInfo } = useReadContract({

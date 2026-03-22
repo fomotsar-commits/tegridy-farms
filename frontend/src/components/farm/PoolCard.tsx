@@ -23,7 +23,7 @@ const MOCK = { apr: '–', tvl: '–', staked: '0.00', earned: '0.00' };
 // Minimum claimable amount to avoid wasting gas (0.01 TOWELI)
 const MIN_CLAIM_AMOUNT = 10000000000000000n; // 0.01e18
 
-export function PoolCard({ pid, name, subtitle, tokenSymbol, lpTokenAddress, allocPercent, icon, color }: PoolCardProps) {
+export function PoolCard({ pid, tokenSymbol, lpTokenAddress }: PoolCardProps) {
   const { isConnected } = useAccount();
   const { isWrongNetwork } = useNetworkCheck();
   const [showStake, setShowStake] = useState(false);
