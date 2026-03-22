@@ -2,10 +2,13 @@ import { useReadContracts } from 'wagmi';
 import { formatEther } from 'viem';
 import { TEGRIDY_FARM_ABI } from '../lib/contracts';
 import { TEGRIDY_FARM_ADDRESS, LP_POOL_ID, TOWELI_POOL_ID, isDeployed as checkDeployed } from '../lib/constants';
+import { useToweliPrice } from './useToweliPrice';
+import { formatCurrency } from '../lib/formatting';
 
 export function useFarmStats() {
   const farmAddr = TEGRIDY_FARM_ADDRESS;
   const isDeployed = checkDeployed(farmAddr);
+  const price = useToweliPrice();
 
   const { data } = useReadContracts({
     contracts: [
@@ -38,7 +41,7 @@ export function useFarmStats() {
   if (!isDeployed || !data) {
     return {
       tvl: '–',
-      toweliPrice: '–',
+      toweliPrice: price.isLoaded ? formatCurrency(price.priceInUsd, 6) : '–',
       rewardsDistributed: '–',
       isDeployed,
     };
@@ -51,7 +54,6 @@ export function useFarmStats() {
   const lpStaked = lpPool ? lpPool[4] : 0n;
   const toweliStaked = toweliPool ? toweliPool[4] : 0n;
 
-  // For now, show raw token amounts. In production, multiply by price oracle.
   const totalStakedTokens = Number(formatEther(lpStaked + toweliStaked));
 
   // Rough rewards distributed = initial fund - remaining
@@ -61,7 +63,7 @@ export function useFarmStats() {
 
   return {
     tvl: totalStakedTokens > 0 ? `${totalStakedTokens.toLocaleString()} TOWELI` : '0 TOWELI',
-    toweliPrice: '–',
+    toweliPrice: price.isLoaded ? formatCurrency(price.priceInUsd, 6) : '–',
     rewardsDistributed: `${distributed.toLocaleString()} TOWELI`,
     isDeployed,
   };

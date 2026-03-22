@@ -5,7 +5,7 @@ export const TOWELI_ADDRESS = '0x420698cfdeddea6bc78d59bc17798113ad278f9d' as co
 export const TEGRIDY_FARM_ADDRESS = '0xAA8aD310e541F4bB89C44Ad7faba74F8B4027f2f' as const;
 export const FEE_DISTRIBUTOR_ADDRESS = '0xEfefc0FA229ee0415B803Fa1352cE6aBbe316240' as const;
 
-// Uniswap V2 TOWELI/WETH LP Token - UPDATE AFTER VERIFYING
+// Uniswap V2 TOWELI/WETH LP Token (verified on mainnet)
 export const TOWELI_WETH_LP_ADDRESS = '0x6682ac593513cc0a6c25d0f3588e8fa4ff81104d' as const;
 
 // Uniswap V2

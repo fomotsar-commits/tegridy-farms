@@ -80,7 +80,7 @@ export function StakeModal({ pid, tokenSymbol, lpTokenAddress, action, onClose }
 
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-[16px] font-semibold text-text-primary">{title}</h3>
-          <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="text-text-muted hover:text-danger transition-colors cursor-pointer text-[16px] p-1 z-10 relative">&#10005;</button>
+          <button onClick={(e) => { e.stopPropagation(); onClose(); }} aria-label="Close" className="text-text-muted hover:text-danger transition-colors cursor-pointer text-[16px] p-1 z-10 relative">&#10005;</button>
         </div>
 
         {/* Lock tier selector (only for staking) */}

@@ -80,7 +80,7 @@ export default function SwapPage() {
       <div className="relative z-10 max-w-[960px] mx-auto px-4 md:px-6 pt-20 pb-12">
         <motion.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Swap</h1>
-          <p className="text-white/50 text-[14px]">Trade TOWELI via Uniswap V2</p>
+          <p className="text-white/50 text-[14px]">Trade ETH &#8596; TOWELI via Uniswap V2 Router</p>
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-5">
@@ -159,6 +159,7 @@ export default function SwapPage() {
               <div className="flex items-center justify-between mb-4">
                 <span className="heading-luxury text-[16px] text-white">Swap</span>
                 <button onClick={() => setShowSettings(!showSettings)}
+                  aria-label="Swap settings"
                   className="text-[12px] font-mono text-white/40 hover:text-primary transition-colors cursor-pointer px-2 py-1 rounded-md"
                   style={{ background: showSettings ? 'rgba(139,92,246,0.06)' : 'transparent' }}>
                   &#9881; {swap.slippage}%
@@ -223,7 +224,8 @@ export default function SwapPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   <input type="number" value={swap.inputAmount} onChange={(e) => swap.setInputAmount(e.target.value)}
-                    placeholder="0.00" className="flex-1 bg-transparent font-mono text-2xl text-white outline-none token-input" />
+                    placeholder="0.00" aria-label={`Amount of ${fromToken} to swap`}
+                    className="flex-1 bg-transparent font-mono text-2xl text-white outline-none token-input" />
                   <div className="px-3 py-1.5 rounded-lg text-[13px] font-semibold text-white"
                     style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.15)' }}>
                     {fromToken}
@@ -233,6 +235,7 @@ export default function SwapPage() {
 
               <div className="flex justify-center -my-3 relative z-10">
                 <motion.button onClick={swap.flipDirection}
+                  aria-label="Flip swap direction"
                   className="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer shadow-lg"
                   style={{ background: 'rgba(6,12,26,0.9)', border: '1px solid rgba(139,92,246,0.20)' }}
                   whileHover={{ rotate: 180 }} transition={{ duration: 0.25 }}>
