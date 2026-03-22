@@ -80,14 +80,14 @@ export function StakeModal({ pid, tokenSymbol, lpTokenAddress, action, onClose }
 
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-[16px] font-semibold text-text-primary">{title}</h3>
-          <button onClick={onClose} className="text-text-muted hover:text-danger transition-colors cursor-pointer text-[16px]">&#10005;</button>
+          <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="text-text-muted hover:text-danger transition-colors cursor-pointer text-[16px] p-1 z-10 relative">&#10005;</button>
         </div>
 
         {/* Lock tier selector (only for staking) */}
         {action === 'stake' && (
           <div className="mb-3">
             <p className="text-text-muted text-[11px] uppercase tracking-wider mb-2">Lock Duration & Boost</p>
-            <div className="grid grid-cols-4 gap-1.5">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
               {LOCK_TIERS.map((t, i) => (
                 <button key={i} onClick={() => setSelectedTier(i)}
                   className="rounded-lg p-2 text-center cursor-pointer transition-all"

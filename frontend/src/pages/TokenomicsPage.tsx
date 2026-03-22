@@ -52,7 +52,7 @@ export default function TokenomicsPage() {
             { l: 'Token', v: 'TOWELI' },
             { l: 'Total Supply', v: formatNumber(TOWELI_TOTAL_SUPPLY, 0) },
             { l: 'Price', v: formatCurrency(price.priceInUsd, 6) },
-            { l: 'Market Cap', v: formatCurrency(TOWELI_TOTAL_SUPPLY * price.priceInUsd) },
+            { l: 'Market Cap', v: price.priceInUsd > 0 ? formatCurrency(TOWELI_TOTAL_SUPPLY * price.priceInUsd) : '–' },
           ].map((i) => (
             <div key={i.l} className="rounded-xl p-4" style={{ background: 'rgba(6,12,26,0.82)', backdropFilter: 'blur(12px)', border: '1px solid rgba(139,92,246,0.12)' }}>
               <p className="text-white/40 text-[11px] uppercase tracking-wider mb-1">{i.l}</p>

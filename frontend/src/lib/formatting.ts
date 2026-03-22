@@ -16,7 +16,8 @@ export function formatNumber(value: number, decimals = 2): string {
 export function formatTokenAmount(value: string | number, decimals = 4): string {
   const num = typeof value === 'string' ? parseFloat(value) : value;
   if (isNaN(num) || num === 0) return '0.00';
-  if (num < 0.0001 && num > 0) return '<0.0001';
+  if (num > 0 && num < 0.000001) return num.toExponential(2);
+  if (num > 0 && num < 0.0001) return num.toFixed(8);
   return num.toFixed(decimals);
 }
 
