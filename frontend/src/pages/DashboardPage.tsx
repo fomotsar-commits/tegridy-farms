@@ -80,10 +80,10 @@ export default function DashboardPage() {
         {/* Summary */}
         <motion.div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           {[
-            { l: 'TOWELI Balance', v: formatTokenAmount(walletToweli.toString(), 0), sub: formatCurrency(walletToweli * price.priceInUsd) },
-            { l: 'ETH Balance', v: ethBalance ? Number(formatEther(ethBalance.value)).toFixed(4) : '0', sub: ethBalance ? formatCurrency(Number(formatEther(ethBalance.value)) * price.ethUsd) : '$0' },
-            { l: 'Claimable', v: formatTokenAmount(pendingTotal.toString(), 2), sub: formatCurrency(pendingTotal * price.priceInUsd), accent: true },
-            { l: 'TOWELI Price', v: formatCurrency(price.priceInUsd, 6), sub: 'Live' },
+            { l: 'TOWELI Balance', v: formatTokenAmount(walletToweli.toString(), 0), sub: price.isLoaded ? formatCurrency(walletToweli * price.priceInUsd) : '–' },
+            { l: 'ETH Balance', v: ethBalance ? Number(formatEther(ethBalance.value)).toFixed(4) : '0', sub: ethBalance && price.ethUsd > 0 ? formatCurrency(Number(formatEther(ethBalance.value)) * price.ethUsd) : '–' },
+            { l: 'Claimable', v: formatTokenAmount(pendingTotal.toString(), 2), sub: price.isLoaded ? formatCurrency(pendingTotal * price.priceInUsd) : '–', accent: true },
+            { l: 'TOWELI Price', v: price.isLoaded ? formatCurrency(price.priceInUsd, 6) : '–', sub: price.isLoaded ? 'Live' : 'Loading...' },
           ].map((s) => (
             <div key={s.l} className="rounded-xl p-4" style={{ background: 'rgba(6,12,26,0.82)', backdropFilter: 'blur(12px)', border: '1px solid rgba(139,92,246,0.12)' }}>
               <p className="text-white/40 text-[11px] uppercase tracking-wider mb-1">{s.l}</p>

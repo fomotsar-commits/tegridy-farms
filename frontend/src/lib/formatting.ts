@@ -3,7 +3,8 @@ export function formatCurrency(value: number, decimals = 2): string {
   if (value >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(decimals)}B`;
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(decimals)}M`;
   if (value >= 1_000) return `$${(value / 1_000).toFixed(decimals)}K`;
-  if (value < 0.01 && value > 0) return `$${value.toFixed(6)}`;
+  if (value > 0 && value < 0.000001) return `$${value.toExponential(2)}`;
+  if (value > 0 && value < 0.01) return `$${value.toFixed(Math.max(decimals, 8))}`;
   return `$${value.toFixed(decimals)}`;
 }
 

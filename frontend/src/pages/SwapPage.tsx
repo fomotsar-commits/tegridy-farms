@@ -66,7 +66,7 @@ export default function SwapPage() {
   };
 
   // FDV = Fully Diluted Valuation (total supply * price)
-  const fdv = price.priceInUsd > 0 ? formatCurrency(TOWELI_TOTAL_SUPPLY * price.priceInUsd) : '–';
+  const fdv = price.isLoaded && price.priceInUsd > 0 ? formatCurrency(TOWELI_TOTAL_SUPPLY * price.priceInUsd) : '–';
 
   return (
     <div className="-mt-14 relative min-h-screen">
@@ -97,9 +97,9 @@ export default function SwapPage() {
                     <span className="text-white/40 text-[12px]">/ WETH</span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="stat-value text-[20px] text-primary">{formatCurrency(price.priceInUsd, 6)}</span>
+                    <span className="stat-value text-[20px] text-primary">{price.isLoaded ? formatCurrency(price.priceInUsd, 6) : '–'}</span>
                     <span className={`text-[12px] ${price.oracleStale ? 'text-danger' : 'text-white/40'}`}>
-                      ETH: {formatCurrency(price.ethUsd, 0)}{price.oracleStale ? ' (stale)' : ''}
+                      ETH: {price.ethUsd > 0 ? formatCurrency(price.ethUsd, 0) : '–'}{price.oracleStale ? ' (stale)' : ''}
                     </span>
                   </div>
                 </div>
