@@ -75,17 +75,17 @@ function generateSlices(
 
   for (let i = 0; i < config.sliceCount; i++) {
     const src = shuffled[i % shuffled.length];
-    const height = 8 + rand() * 27; // 8-35%
+    const height = 10 + rand() * 35; // 10-45%
     const top = rand() * (100 - height);
-    const baseOffset = 20 + rand() * 40; // 20-60px
+    const baseOffset = 35 + rand() * 60; // 35-95px
     slices.push({
       src,
       top,
       height,
       offsetX: dirSign * baseOffset,
-      skewX: (rand() - 0.5) * 10, // -5 to 5 deg
-      delay: (i / config.sliceCount) * 200, // stagger over 200ms
-      rgbShift: 3 + rand() * 5,
+      skewX: (rand() - 0.5) * 16, // -8 to 8 deg
+      delay: (i / config.sliceCount) * 150, // faster stagger
+      rgbShift: 5 + rand() * 8,
     });
   }
   return slices;
@@ -163,16 +163,16 @@ export function GlitchTransition({ config }: { config: GlitchConfig }) {
     const h = canvas.height;
     ctx.clearRect(0, 0, w, h);
 
-    const blockSize = 4;
+    const blockSize = 3;
     const cols = Math.ceil(w / blockSize);
     const rows = Math.ceil(h / blockSize);
-    // Sparse random blocks — ~5% coverage for performance
-    const blockCount = Math.floor(cols * rows * 0.05);
+    // Dense blocks — ~12% coverage for visible static
+    const blockCount = Math.floor(cols * rows * 0.12);
 
     for (let i = 0; i < blockCount; i++) {
       const bx = Math.floor(Math.random() * cols) * blockSize;
       const by = Math.floor(Math.random() * rows) * blockSize;
-      const opacity = 0.10 + Math.random() * 0.08; // 10-18%
+      const opacity = 0.15 + Math.random() * 0.15; // 15-30%
       ctx.fillStyle = `rgba(255,255,255,${opacity})`;
       ctx.fillRect(bx, by, blockSize, blockSize);
     }
@@ -269,7 +269,7 @@ export function GlitchTransition({ config }: { config: GlitchConfig }) {
                 backgroundImage: `url(${slice.src})`,
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
-                filter: 'contrast(1.3) brightness(1.1)',
+                filter: 'contrast(1.5) brightness(1.2) saturate(1.3)',
               }}
             />
             {/* Red channel */}
@@ -280,9 +280,9 @@ export function GlitchTransition({ config }: { config: GlitchConfig }) {
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
                 transform: `translateX(${slice.rgbShift}px)`,
-                opacity: 0.5,
+                opacity: 0.7,
                 mixBlendMode: 'screen',
-                filter: 'hue-rotate(-30deg) saturate(2)',
+                filter: 'hue-rotate(-30deg) saturate(3)',
               }}
             />
             {/* Blue channel */}
@@ -293,9 +293,9 @@ export function GlitchTransition({ config }: { config: GlitchConfig }) {
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
                 transform: `translateX(${-slice.rgbShift}px)`,
-                opacity: 0.4,
+                opacity: 0.6,
                 mixBlendMode: 'screen',
-                filter: 'hue-rotate(30deg) saturate(2)',
+                filter: 'hue-rotate(30deg) saturate(3)',
               }}
             />
           </div>
@@ -309,8 +309,9 @@ export function GlitchTransition({ config }: { config: GlitchConfig }) {
             className="absolute left-0 w-full"
             style={{
               top: `${line.top}%`,
-              height: '1.5px',
+              height: '2.5px',
               background: line.color,
+              boxShadow: `0 0 8px ${line.color}`,
               zIndex: 61,
               transformOrigin: config.direction === 'forward' ? 'left' : 'right',
               animation: `glitch-hline-sweep ${120 + i * 20}ms ${line.delay}ms steps(1) forwards`,
@@ -392,7 +393,7 @@ export function GlitchTransition({ config }: { config: GlitchConfig }) {
           style={{
             zIndex: 61,
             background:
-              'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.12) 2px, rgba(0,0,0,0.12) 4px)',
+              'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.2) 2px, rgba(0,0,0,0.2) 4px)',
             animation: 'scanline-scroll 0.1s linear infinite',
             pointerEvents: 'none',
           }}

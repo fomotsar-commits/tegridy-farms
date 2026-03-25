@@ -43,10 +43,10 @@ export default function DashboardPage() {
       }).catch(() => {});
   }, []);
 
-  // Use whichever price source is available
+  // Prefer GeckoTerminal API price (matches embedded chart) over on-chain calc
   const price = {
     ...rawPrice,
-    priceInUsd: rawPrice.priceInUsd > 0 ? rawPrice.priceInUsd : apiPrice,
+    priceInUsd: apiPrice > 0 ? apiPrice : rawPrice.priceInUsd,
     isLoaded: rawPrice.isLoaded || apiPrice > 0,
   };
   const farmActions = useFarmActions();

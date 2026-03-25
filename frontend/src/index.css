@@ -330,53 +330,57 @@ body {
 
 /* ─── Glitch Transition v2 ─── */
 
-/* Glitch slice appearance — jerky VHS steps */
+/* Glitch slice appearance — aggressive VHS steps */
 @keyframes glitch-slice-in {
   0% { opacity: 0; transform: translateX(var(--glitch-dir, 30px)) skewX(var(--glitch-skew, 0deg)); }
-  20% { opacity: 0.9; transform: translateX(var(--glitch-dir, 30px)) skewX(var(--glitch-skew, 0deg)); }
-  40% { opacity: 0.85; transform: translateX(calc(var(--glitch-dir, 30px) * -0.5)) skewX(calc(var(--glitch-skew, 0deg) * -0.5)); }
-  60% { opacity: 0.8; transform: translateX(calc(var(--glitch-dir, 30px) * 0.3)) skewX(calc(var(--glitch-skew, 0deg) * 0.3)); }
-  80% { opacity: 0.4; transform: translateX(calc(var(--glitch-dir, 30px) * -0.1)) skewX(0deg); }
+  15% { opacity: 1; transform: translateX(var(--glitch-dir, 30px)) skewX(var(--glitch-skew, 0deg)); }
+  30% { opacity: 0.95; transform: translateX(calc(var(--glitch-dir, 30px) * -0.7)) skewX(calc(var(--glitch-skew, 0deg) * -0.8)); }
+  45% { opacity: 1; transform: translateX(calc(var(--glitch-dir, 30px) * 0.5)) skewX(calc(var(--glitch-skew, 0deg) * 0.5)); }
+  60% { opacity: 0.9; transform: translateX(calc(var(--glitch-dir, 30px) * -0.3)) skewX(calc(var(--glitch-skew, 0deg) * -0.3)); }
+  75% { opacity: 0.6; transform: translateX(calc(var(--glitch-dir, 30px) * 0.15)) skewX(0deg); }
   100% { opacity: 0; transform: translateX(0) skewX(0); }
 }
 
-/* Noise canvas flicker */
+/* Noise canvas flicker — much more visible */
 @keyframes noise-flicker {
-  0%, 100% { opacity: 0.12; }
-  25% { opacity: 0.18; }
-  50% { opacity: 0.10; }
-  75% { opacity: 0.16; }
+  0%, 100% { opacity: 0.35; }
+  15% { opacity: 0.5; }
+  30% { opacity: 0.25; }
+  50% { opacity: 0.45; }
+  65% { opacity: 0.3; }
+  80% { opacity: 0.5; }
 }
 
-/* Subliminal text flash */
+/* Subliminal text flash — bolder */
 @keyframes subliminal-flash {
-  0% { opacity: 0; transform: translate(var(--sub-x, 0), var(--sub-y, 0)) rotate(var(--sub-rot, 0deg)); }
-  20% { opacity: 0.8; transform: translate(var(--sub-x, 0), var(--sub-y, 0)) rotate(var(--sub-rot, 0deg)); }
-  50% { opacity: 0.9; transform: translate(calc(var(--sub-x, 0px) * 1.5), calc(var(--sub-y, 0px) * 0.8)) rotate(calc(var(--sub-rot, 0deg) * -1)); }
-  80% { opacity: 0.3; }
+  0% { opacity: 0; transform: translate(var(--sub-x, 0), var(--sub-y, 0)) rotate(var(--sub-rot, 0deg)) scale(1); }
+  15% { opacity: 1; transform: translate(var(--sub-x, 0), var(--sub-y, 0)) rotate(var(--sub-rot, 0deg)) scale(1.05); }
+  40% { opacity: 0.95; transform: translate(calc(var(--sub-x, 0px) * 1.5), calc(var(--sub-y, 0px) * 0.8)) rotate(calc(var(--sub-rot, 0deg) * -1)) scale(1.1); }
+  70% { opacity: 0.5; }
   100% { opacity: 0; }
 }
 
-/* Horizontal glitch line sweep */
+/* Horizontal glitch line sweep — bolder, full-width */
 @keyframes glitch-hline-sweep {
   0% { opacity: 0; transform: scaleX(0); }
-  20% { opacity: 1; transform: scaleX(0.4); }
-  50% { opacity: 0.9; transform: scaleX(1); }
-  70% { opacity: 0.6; transform: scaleX(0.7); }
+  15% { opacity: 1; transform: scaleX(0.6); }
+  35% { opacity: 1; transform: scaleX(1.2); }
+  55% { opacity: 0.9; transform: scaleX(1); }
+  75% { opacity: 0.5; transform: scaleX(0.8); }
   100% { opacity: 0; transform: scaleX(0); }
 }
 
-/* Screen flash at peak */
+/* Screen flash at peak — much brighter */
 @keyframes glitch-screen-flash {
   0% { opacity: 0; }
-  30% { opacity: 0.12; }
-  60% { opacity: 0.08; }
+  25% { opacity: 0.3; }
+  50% { opacity: 0.2; }
   100% { opacity: 0; }
 }
 
-/* Afterimage phosphor burn fade */
+/* Afterimage phosphor burn fade — stronger blur */
 @keyframes afterimage-fade {
-  0% { opacity: 1; backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
+  0% { opacity: 1; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
   100% { opacity: 0; backdrop-filter: blur(0px); -webkit-backdrop-filter: blur(0px); }
 }
 

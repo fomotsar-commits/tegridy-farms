@@ -102,13 +102,10 @@ export function useToweliPrice() {
     isLoaded = true;
   }
 
-  // Always use API price as fallback or primary source
+  // Prefer GeckoTerminal API price — it matches the embedded chart and
+  // accounts for actual market conditions better than on-chain reserves
   if (apiFallbackPrice > 0) {
-    // If RPC didn't produce a USD price, use API
-    if (priceInUsd === 0) {
-      priceInUsd = apiFallbackPrice;
-    }
-    // Always mark as loaded if we have any price source
+    priceInUsd = apiFallbackPrice;
     isLoaded = true;
   }
 
