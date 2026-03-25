@@ -54,14 +54,14 @@ function getGlitchConfig(from: string, to: string): GlitchConfig {
 
   // Homepage transitions are heavy
   if (from === '/' || to === '/') {
-    return { intensity: 'heavy', direction, sliceCount: 16, duration: 2000 };
+    return { intensity: 'heavy', direction, sliceCount: 16, duration: 2800 };
   }
   // Adjacent pages are light
   if (Math.abs(fromIdx - toIdx) <= 1) {
-    return { intensity: 'light', direction, sliceCount: 8, duration: 1200 };
+    return { intensity: 'light', direction, sliceCount: 8, duration: 1800 };
   }
   // Everything else is medium
-  return { intensity: 'medium', direction, sliceCount: 12, duration: 1600 };
+  return { intensity: 'medium', direction, sliceCount: 12, duration: 2200 };
 }
 
 function RouteGlitch() {
