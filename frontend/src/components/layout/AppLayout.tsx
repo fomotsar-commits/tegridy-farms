@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom';
 import { TopNav } from './TopNav';
+import { BottomNav } from './BottomNav';
 import { Background } from './Background';
 import { Footer } from './Footer';
 import { Toaster } from 'sonner';
@@ -10,12 +11,14 @@ export function AppLayout() {
       <Background />
       <TopNav />
 
-      <div className="min-h-screen relative z-10 pt-14">
+      <div className="min-h-screen relative z-10 pt-14 pb-16 md:pb-0">
         <main>
           <Outlet />
         </main>
         <Footer />
       </div>
+
+      <BottomNav />
 
       <Toaster
         position="bottom-right"

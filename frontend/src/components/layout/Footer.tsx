@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { UNISWAP_BUY_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, TOWELI_ADDRESS } from '../../lib/constants';
 import { shortenAddress } from '../../lib/formatting';
+import { CopyButton } from '../ui/CopyButton';
 
 export function Footer() {
   return (
@@ -10,7 +11,7 @@ export function Footer() {
         <div className="gold-divider" />
 
         {/* Top section */}
-        <div className="pt-12 pb-8 grid grid-cols-1 md:grid-cols-3 gap-8">
+        <div className="pt-12 pb-8 grid grid-cols-1 md:grid-cols-4 gap-8">
           {/* Brand */}
           <div>
             <div className="flex items-center gap-2 mb-3">
@@ -34,6 +35,8 @@ export function Footer() {
                 { to: '/dashboard', label: 'Dashboard' },
                 { to: '/gallery', label: 'Gallery' },
                 { to: '/tokenomics', label: 'Tokenomics' },
+                { to: '/bounties', label: 'Bounties' },
+                { to: '/restake', label: 'Restake' },
               ].map((l) => (
                 <Link key={l.to} to={l.to} className="block text-white/30 text-[13px] hover:text-primary transition-colors">
                   {l.label}
@@ -59,9 +62,18 @@ export function Footer() {
             </div>
             <div className="mt-4 rounded-lg p-3 inline-block" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.10)' }}>
               <p className="text-white/30 text-[10px] uppercase tracking-wider mb-1">Contract</p>
-              <a href={`https://etherscan.io/token/${TOWELI_ADDRESS}`} target="_blank" rel="noopener noreferrer"
-                className="font-mono text-[12px] text-primary hover:opacity-80 transition-opacity">
-                {shortenAddress(TOWELI_ADDRESS, 6)}
+              <CopyButton text={TOWELI_ADDRESS} display={shortenAddress(TOWELI_ADDRESS, 6)}
+                className="font-mono text-[12px] text-primary" />
+            </div>
+          </div>
+
+          {/* Social */}
+          <div>
+            <h4 className="text-primary/60 text-[11px] uppercase tracking-wider font-semibold mb-3">Social</h4>
+            <div className="space-y-2">
+              <a href="https://x.com/junglebayac" target="_blank" rel="noopener noreferrer"
+                className="block text-white/30 text-[13px] hover:text-primary transition-colors">
+                Twitter / X <span className="text-white/15">↗</span>
               </a>
             </div>
           </div>

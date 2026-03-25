@@ -1,3 +1,4 @@
+import { useRef, useEffect, useState } from 'react';
 import { useReadContract } from 'wagmi';
 import { UNISWAP_V2_PAIR_ABI, CHAINLINK_FEED_ABI } from '../lib/contracts';
 import { TOWELI_WETH_LP_ADDRESS, ETH_USD_FEED, TOWELI_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
@@ -30,7 +31,37 @@ export function useToweliPrice() {
     query: { refetchInterval: 60_000 },
   });
 
-  // Validate Chainlink data: check answer > 0, staleness, and round completeness
+  // ALL hooks MUST be called before any early returns (Rules of Hooks)
+  const prevPriceRef = useRef<number>(0);
+  // Load cached price synchronously so first render has a value
+  const [apiFallbackPrice, setApiFallbackPrice] = useState<number>(() => {
+    try {
+      const cached = localStorage.getItem('tegridy_api_price');
+      if (cached) {
+        const { price: cp, ts } = JSON.parse(cached);
+        if (Date.now() - ts < 600_000 && cp > 0) return cp;
+      }
+    } catch {}
+    return 0;
+  });
+
+  // GeckoTerminal API — always fetch fresh price
+  useEffect(() => {
+
+    // Always fetch fresh price
+    fetch(`https://api.geckoterminal.com/api/v2/simple/networks/eth/token_price/${TOWELI_ADDRESS.toLowerCase()}`)
+      .then(r => r.json())
+      .then(d => {
+        const p = parseFloat(d?.data?.attributes?.token_prices?.[TOWELI_ADDRESS.toLowerCase()] ?? '0');
+        if (p > 0) {
+          setApiFallbackPrice(p);
+          localStorage.setItem('tegridy_api_price', JSON.stringify({ price: p, ts: Date.now() }));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Validate Chainlink data
   let ethUsd = 0;
   let oracleStale = false;
 
@@ -52,35 +83,74 @@ export function useToweliPrice() {
     }
   }
 
-  if (!hasPair || !reserves || !token0) {
-    return {
-      priceInEth: 0,
-      priceInUsd: 0,
-      ethUsd,
-      isLoaded: false,
-      oracleStale,
-    };
-  }
-
-  const isToken0Toweli = token0.toLowerCase() === TOWELI_ADDRESS.toLowerCase();
-  const toweliReserve = isToken0Toweli ? reserves[0] : reserves[1];
-  const wethReserve = isToken0Toweli ? reserves[1] : reserves[0];
-
-  // Use BigInt division for better precision with extreme supply ratios
+  // Compute price (may be 0 if data not loaded)
   let priceInEth = 0;
-  if (toweliReserve > 0n && wethReserve > 0n) {
-    // Scale up for precision: (wethReserve * 1e18) / toweliReserve gives price in wei-per-token
-    const scaledPrice = (wethReserve * 10n ** 18n) / toweliReserve;
-    priceInEth = Number(scaledPrice) / 1e18;
+  let priceInUsd = 0;
+  let isLoaded = false;
+
+  if (hasPair && reserves && token0) {
+    const isToken0Toweli = token0.toLowerCase() === TOWELI_ADDRESS.toLowerCase();
+    const toweliReserve = isToken0Toweli ? reserves[0] : reserves[1];
+    const wethReserve = isToken0Toweli ? reserves[1] : reserves[0];
+
+    if (toweliReserve > 0n && wethReserve > 0n) {
+      const scaledPrice = (wethReserve * 10n ** 18n) / toweliReserve;
+      priceInEth = Number(scaledPrice) / 1e18;
+    }
+
+    priceInUsd = ethUsd > 0 ? priceInEth * ethUsd : 0;
+    isLoaded = true;
   }
 
-  const priceInUsd = ethUsd > 0 ? priceInEth * ethUsd : 0;
+  // Always use API price as fallback or primary source
+  if (apiFallbackPrice > 0) {
+    // If RPC didn't produce a USD price, use API
+    if (priceInUsd === 0) {
+      priceInUsd = apiFallbackPrice;
+    }
+    // Always mark as loaded if we have any price source
+    isLoaded = true;
+  }
+
+  // Track price change vs stored baseline
+  const priceChange = prevPriceRef.current > 0 && priceInUsd > 0
+    ? ((priceInUsd - prevPriceRef.current) / prevPriceRef.current) * 100
+    : 0;
+
+  useEffect(() => {
+    if (priceInUsd <= 0) return;
+
+    // Load baseline on first price load
+    if (prevPriceRef.current === 0) {
+      try {
+        const stored = localStorage.getItem('tegridy_price_baseline');
+        if (stored) {
+          const { price: p, ts } = JSON.parse(stored);
+          if (Date.now() - ts < 86400000 && p > 0) {
+            prevPriceRef.current = p;
+            return; // Don't overwrite on same tick
+          }
+        }
+      } catch {}
+      prevPriceRef.current = priceInUsd;
+    }
+
+    // Throttled write (every 5 min)
+    try {
+      const stored = localStorage.getItem('tegridy_price_baseline');
+      const lastTs = stored ? JSON.parse(stored).ts : 0;
+      if (Date.now() - lastTs > 300000) {
+        localStorage.setItem('tegridy_price_baseline', JSON.stringify({ price: priceInUsd, ts: Date.now() }));
+      }
+    } catch {}
+  }, [priceInUsd]);
 
   return {
     priceInEth,
     priceInUsd,
     ethUsd,
-    isLoaded: true,
+    isLoaded,
     oracleStale,
+    priceChange,
   };
 }

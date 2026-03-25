@@ -4,11 +4,15 @@ import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 
 const NAV = [
+  { to: '/dashboard', label: 'Dashboard' },
   { to: '/farm', label: 'Farm' },
   { to: '/swap', label: 'Swap' },
-  { to: '/dashboard', label: 'Dashboard' },
+  { to: '/restake', label: 'Restake' },
   { to: '/gallery', label: 'Gallery' },
+  { to: '/grants', label: 'Governance' },
+  { to: '/bounties', label: 'Bounties' },
   { to: '/tokenomics', label: 'Tokenomics' },
+  { to: '/lore', label: 'Lore' },
 ];
 
 export function TopNav() {
@@ -31,13 +35,24 @@ export function TopNav() {
           background: 'linear-gradient(90deg, transparent 0%, rgba(139,92,246,0.35) 30%, rgba(139,92,246,0.5) 50%, rgba(139,92,246,0.35) 70%, transparent 100%)',
         }} />
         <div className="max-w-[1200px] mx-auto h-full px-4 md:px-6 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-md overflow-hidden flex-shrink-0" style={{ border: '1px solid rgba(139,92,246,0.25)' }}>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                sessionStorage.removeItem('tegridy_loaded');
+                sessionStorage.removeItem('tf_loaded');
+                window.location.href = '/';
+              }}
+              className="w-7 h-7 rounded-md overflow-hidden flex-shrink-0 cursor-pointer hover:scale-110 transition-transform"
+              style={{ border: '1px solid rgba(139,92,246,0.25)' }}
+              title="Replay splash screen"
+            >
               <img src="/art/bobowelie.jpg" alt="" className="w-full h-full object-cover" />
-            </div>
-            <span className="heading-luxury text-[16px] tracking-wide text-primary">TEGRIDY</span>
-            <span className="text-[15px] font-semibold tracking-tight text-text-primary">FARMS</span>
-          </Link>
+            </button>
+            <Link to="/" className="flex items-center gap-1">
+              <span className="heading-luxury text-[16px] tracking-wide text-primary">TEGRIDY</span>
+              <span className="text-[15px] font-semibold tracking-tight text-text-primary">FARMS</span>
+            </Link>
+          </div>
 
           <nav className="hidden md:flex items-center gap-0.5">
             {NAV.map((n) => (
@@ -49,6 +64,9 @@ export function TopNav() {
           </nav>
 
           <div className="flex items-center gap-2">
+            <NavLink to="/leaderboard" className={({ isActive }) => `nav-link text-[13px] hidden md:block ${isActive ? 'active' : ''}`}>
+              Points
+            </NavLink>
             <ConnectButton.Custom>
               {({ account, chain, openAccountModal, openChainModal, openConnectModal, mounted }) => {
                 const connected = mounted && account && chain;

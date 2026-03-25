@@ -1,81 +1,57 @@
-import { useReadContract } from 'wagmi';
+import { useReadContracts } from 'wagmi';
 import { formatEther } from 'viem';
-import { TEGRIDY_FARM_ABI } from '../lib/contracts';
-import { TEGRIDY_FARM_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
+import { TEGRIDY_STAKING_ABI } from '../lib/contracts';
+import { TEGRIDY_STAKING_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
 
-export function usePoolData(pid: bigint) {
-  const farmAddr = TEGRIDY_FARM_ADDRESS;
-  const isDeployed = checkDeployed(farmAddr);
+export function usePoolData() {
+  const addr = TEGRIDY_STAKING_ADDRESS;
+  const isDeployed = checkDeployed(addr);
 
-  const { data: poolInfo } = useReadContract({
-    address: farmAddr,
-    abi: TEGRIDY_FARM_ABI,
-    functionName: 'poolInfo',
-    args: [pid],
-    query: { enabled: isDeployed },
+  const { data } = useReadContracts({
+    contracts: [
+      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalStaked' },
+      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalBoostedStake' },
+      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalLocked' },
+      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'rewardPerSecond' },
+      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalRewardsFunded' },
+      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalPenaltiesCollected' },
+    ],
+    query: { enabled: isDeployed, refetchInterval: 30_000 },
   });
 
-  const { data: totalAllocPoint } = useReadContract({
-    address: farmAddr,
-    abi: TEGRIDY_FARM_ABI,
-    functionName: 'totalAllocPoint',
-    query: { enabled: isDeployed },
-  });
+  // Safely extract results — if contract call fails, use 0n
+  const totalStaked = (data?.[0]?.status === 'success' ? data[0].result as bigint : 0n);
+  const totalBoostedStake = (data?.[1]?.status === 'success' ? data[1].result as bigint : 0n);
+  const totalLocked = (data?.[2]?.status === 'success' ? data[2].result as bigint : 0n);
+  const rewardPerSecond = (data?.[3]?.status === 'success' ? data[3].result as bigint : 0n);
+  const totalRewardsFunded = (data?.[4]?.status === 'success' ? data[4].result as bigint : 0n);
+  const totalPenalties = (data?.[5]?.status === 'success' ? data[5].result as bigint : 0n);
 
-  const { data: rewardPerSecond } = useReadContract({
-    address: farmAddr,
-    abi: TEGRIDY_FARM_ABI,
-    functionName: 'rewardPerSecond',
-    query: { enabled: isDeployed },
-  });
-
-  const { data: totalRewardsRemaining } = useReadContract({
-    address: farmAddr,
-    abi: TEGRIDY_FARM_ABI,
-    functionName: 'totalRewardsRemaining',
-    query: { enabled: isDeployed },
-  });
-
-  const { data: effectiveRate } = useReadContract({
-    address: farmAddr,
-    abi: TEGRIDY_FARM_ABI,
-    functionName: 'effectiveRewardPerSecond',
-    query: { enabled: isDeployed },
-  });
-
-  // Derive values
-  const totalStaked = poolInfo ? poolInfo[4] : 0n;
-  const allocPoint = poolInfo ? poolInfo[1] : 0n;
-
-  // Calculate APR: (rewardPerSecond * poolShare * secondsPerYear) / totalStaked * 100
   let apr = '0';
-  if (rewardPerSecond && totalAllocPoint && totalAllocPoint > 0n && totalStaked > 0n && allocPoint > 0n) {
+  let aprCapped = false;
+  if (rewardPerSecond > 0n && totalBoostedStake > 0n) {
     const secondsPerYear = 365n * 24n * 60n * 60n;
-    const poolRewardPerYear = (rewardPerSecond * allocPoint * secondsPerYear) / totalAllocPoint;
-    // APR as percentage (reward/staked * 100)
-    const aprBps = (poolRewardPerYear * 10000n) / totalStaked;
-    apr = (Number(aprBps) / 100).toFixed(2);
+    const rewardsPerYear = rewardPerSecond * secondsPerYear;
+    const aprBps = (rewardsPerYear * 10000n) / totalBoostedStake;
+    const aprNum = Number(aprBps);
+    if (aprNum > 999999) {
+      apr = '>9999';
+      aprCapped = true;
+    } else {
+      apr = (aprNum / 100).toFixed(2);
+    }
   }
-
-  // Check if rewards are running low (< 7 days worth at current rate)
-  const rewardsLow = rewardPerSecond && totalRewardsRemaining
-    ? totalRewardsRemaining < rewardPerSecond * 604800n // 7 days in seconds
-    : false;
-
-  // Days of rewards remaining
-  const daysRemaining = rewardPerSecond && rewardPerSecond > 0n && totalRewardsRemaining
-    ? Number(totalRewardsRemaining / (rewardPerSecond * 86400n))
-    : 0;
 
   return {
     totalStaked: formatEther(totalStaked),
-    allocPoint: allocPoint,
+    totalStakedRaw: totalStaked,
+    totalBoostedStake: formatEther(totalBoostedStake),
+    totalLocked: formatEther(totalLocked),
+    rewardPerSecond: formatEther(rewardPerSecond),
+    totalRewardsFunded: formatEther(totalRewardsFunded),
+    totalPenalties: formatEther(totalPenalties),
     apr,
-    totalRewardsRemaining: totalRewardsRemaining ? formatEther(totalRewardsRemaining) : '0',
-    rewardPerSecond: rewardPerSecond ? formatEther(rewardPerSecond) : '0',
-    effectiveRewardPerSecond: effectiveRate ? formatEther(effectiveRate) : '0',
-    rewardsLow,
-    daysRemaining,
+    aprCapped,
     isDeployed,
   };
 }

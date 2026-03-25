@@ -1,0 +1,346 @@
+import { useRef, useCallback, type ReactNode } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import html2canvas from 'html2canvas';
+import {
+  TransactionReceiptContext,
+  useTransactionReceiptState,
+  type ReceiptData,
+  type ReceiptType,
+} from '../hooks/useTransactionReceipt';
+import { formatTokenAmount } from '../lib/formatting';
+
+/* ─── Provider ─── */
+
+export function TransactionReceiptProvider({ children }: { children: ReactNode }) {
+  const state = useTransactionReceiptState();
+  return (
+    <TransactionReceiptContext.Provider value={state}>
+      {children}
+      <AnimatePresence>
+        {state.receiptData && (
+          <TransactionReceiptOverlay
+            receipt={state.receiptData}
+            onClose={state.hideReceipt}
+          />
+        )}
+      </AnimatePresence>
+    </TransactionReceiptContext.Provider>
+  );
+}
+
+/* ─── Type config ─── */
+
+const TYPE_CONFIG: Record<ReceiptType, { label: string; icon: string; verb: string }> = {
+  swap:    { label: 'SWAP CONFIRMED',    icon: '\u{1F504}', verb: 'swapped' },
+  stake:   { label: 'STAKE CONFIRMED',   icon: '\u{1F512}', verb: 'staked' },
+  unstake: { label: 'UNSTAKE CONFIRMED', icon: '\u{1F513}', verb: 'unstaked' },
+  claim:   { label: 'CLAIM CONFIRMED',   icon: '\u{1F4B0}', verb: 'claimed rewards' },
+  vote:    { label: 'VOTE CONFIRMED',    icon: '\u{1F5F3}\u{FE0F}', verb: 'voted' },
+  bounty:  { label: 'BOUNTY POSTED',     icon: '\u{1F3AF}', verb: 'posted a bounty' },
+  lock:    { label: 'LOCK CONFIRMED',    icon: '\u{26D3}\u{FE0F}', verb: 'locked' },
+};
+
+/* ─── Detail rows per type ─── */
+
+function buildDetailRows(receipt: ReceiptData): { label: string; value: string }[] {
+  const { type, data } = receipt;
+  const rows: { label: string; value: string }[] = [];
+
+  switch (type) {
+    case 'swap':
+      if (data.fromAmount && data.fromToken && data.toAmount && data.toToken) {
+        rows.push({ label: 'From', value: `${formatTokenAmount(data.fromAmount, 6)} ${data.fromToken}` });
+        rows.push({ label: 'To', value: `${formatTokenAmount(data.toAmount, 6)} ${data.toToken}` });
+      }
+      if (data.rate) rows.push({ label: 'Rate', value: data.rate });
+      if (data.fee) rows.push({ label: 'Fee', value: data.fee });
+      if (data.slippage) rows.push({ label: 'Slippage', value: data.slippage });
+      break;
+
+    case 'stake':
+    case 'lock':
+      if (data.amount && data.token) {
+        rows.push({ label: 'Amount', value: `${formatTokenAmount(data.amount, 4)} ${data.token}` });
+      }
+      if (data.lockDuration) rows.push({ label: 'Lock Duration', value: data.lockDuration });
+      if (data.boost) rows.push({ label: 'Boost', value: `${data.boost}x` });
+      if (data.estimatedAPR) rows.push({ label: 'Est. APR', value: `${data.estimatedAPR}%` });
+      break;
+
+    case 'unstake':
+      if (data.amount && data.token) {
+        rows.push({ label: 'Withdrawn', value: `${formatTokenAmount(data.amount, 4)} ${data.token}` });
+      }
+      break;
+
+    case 'claim':
+      if (data.rewardAmount && data.token) {
+        rows.push({ label: 'Rewards', value: `${formatTokenAmount(data.rewardAmount, 6)} ${data.token}` });
+      }
+      break;
+
+    case 'vote':
+      if (data.poolName) rows.push({ label: 'Pool', value: data.poolName });
+      if (data.voteWeight) rows.push({ label: 'Weight', value: data.voteWeight });
+      break;
+
+    case 'bounty':
+      if (data.bountyTitle) rows.push({ label: 'Bounty', value: data.bountyTitle });
+      if (data.bountyReward) rows.push({ label: 'Reward', value: `${data.bountyReward} ETH` });
+      break;
+  }
+
+  return rows;
+}
+
+/* ─── Overlay ─── */
+
+function TransactionReceiptOverlay({
+  receipt,
+  onClose,
+}: {
+  receipt: ReceiptData;
+  onClose: () => void;
+}) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const config = TYPE_CONFIG[receipt.type];
+  const rows = buildDetailRows(receipt);
+  const timestamp = new Date().toLocaleString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+
+  const etherscanUrl = receipt.data.txHash
+    ? `https://etherscan.io/tx/${receipt.data.txHash}`
+    : null;
+
+  const handleShareX = useCallback(() => {
+    const verb = config.verb;
+    const text = `Just ${verb} on @TegridyFarms! \u{1F33F} #TOWELI #DeFi`;
+    const url = etherscanUrl ?? 'https://tegridyfarms.io';
+    window.open(
+      `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`,
+      '_blank',
+    );
+  }, [config.verb, etherscanUrl]);
+
+  const handleCopyImage = useCallback(async () => {
+    if (!cardRef.current) return;
+    try {
+      const canvas = await html2canvas(cardRef.current, {
+        backgroundColor: '#060c1a',
+        scale: 2,
+        logging: false,
+        useCORS: true,
+      });
+      canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        try {
+          await navigator.clipboard.write([
+            new ClipboardItem({ 'image/png': blob }),
+          ]);
+        } catch {
+          // Fallback: copy receipt as text
+          const text = buildReceiptText(receipt, config, rows, timestamp);
+          await navigator.clipboard.writeText(text);
+        }
+      }, 'image/png');
+    } catch {
+      // Fallback: copy receipt as text
+      const text = buildReceiptText(receipt, config, rows, timestamp);
+      await navigator.clipboard.writeText(text);
+    }
+  }, [receipt, config, rows, timestamp]);
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[9999] flex items-center justify-center px-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+    >
+      {/* Backdrop */}
+      <motion.div
+        className="absolute inset-0"
+        style={{ background: 'rgba(0, 0, 0, 0.7)', backdropFilter: 'blur(8px)' }}
+        onClick={onClose}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      />
+
+      {/* Card */}
+      <motion.div
+        ref={cardRef}
+        className="relative w-full max-w-[400px] rounded-2xl overflow-hidden"
+        style={{
+          background: 'linear-gradient(145deg, rgba(6,12,26,0.95) 0%, rgba(16,30,54,0.95) 100%)',
+          border: '1px solid rgba(139,92,246,0.25)',
+          boxShadow: '0 0 0 1px rgba(139,92,246,0.08), 0 24px 64px rgba(0,0,0,0.6), 0 0 48px rgba(139,92,246,0.08)',
+        }}
+        initial={{ opacity: 0, y: 40, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 20, scale: 0.97 }}
+        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+      >
+        {/* Gradient top border accent */}
+        <div
+          className="absolute top-0 left-0 right-0 h-[2px]"
+          style={{
+            background: 'linear-gradient(90deg, transparent 0%, rgba(139,92,246,0.6) 30%, rgba(139,92,246,0.8) 50%, rgba(139,92,246,0.6) 70%, transparent 100%)',
+          }}
+        />
+
+        {/* Content */}
+        <div className="p-6">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <span className="text-[18px]">{'\u{1F33F}'}</span>
+              <span
+                className="heading-luxury text-white text-[16px] tracking-wide"
+                style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
+              >
+                Tegridy Farms
+              </span>
+            </div>
+            <div className="badge badge-primary text-[10px] px-2 py-0.5">
+              Mainnet
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="gold-divider mb-5" />
+
+          {/* Type label */}
+          <div className="flex items-center gap-2 mb-5">
+            <span className="text-[20px]">{config.icon}</span>
+            <span
+              className="stat-value text-[18px] text-white tracking-wider"
+              style={{ fontFamily: "'JetBrains Mono', monospace" }}
+            >
+              {config.label}
+            </span>
+          </div>
+
+          {/* Swap hero line */}
+          {receipt.type === 'swap' && receipt.data.fromAmount && receipt.data.toAmount && (
+            <div className="mb-5 px-4 py-3 rounded-xl" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.12)' }}>
+              <div className="flex items-center justify-center gap-3">
+                <span className="stat-value text-[16px] text-white/80">
+                  {formatTokenAmount(receipt.data.fromAmount, 6)} {receipt.data.fromToken}
+                </span>
+                <span className="text-primary text-[16px]">{'\u{2192}'}</span>
+                <span className="stat-value text-[16px] text-primary">
+                  {formatTokenAmount(receipt.data.toAmount, 6)} {receipt.data.toToken}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Detail rows */}
+          <div className="space-y-2.5 mb-5">
+            {rows.map((row) => (
+              <div key={row.label} className="flex items-center justify-between">
+                <span className="text-white/40 text-[12px]">{row.label}</span>
+                <span className="stat-value text-[13px] text-white/80">{row.value}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Tx Hash */}
+          {etherscanUrl && (
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-white/40 text-[12px]">Tx Hash</span>
+              <a
+                href={etherscanUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="stat-value text-[12px] text-primary hover:text-primary/80 transition-colors"
+              >
+                {receipt.data.txHash!.slice(0, 6)}...{receipt.data.txHash!.slice(-4)} {'\u{2197}'}
+              </a>
+            </div>
+          )}
+
+          {/* Timestamp */}
+          <div className="text-white/25 text-[11px] text-center mb-5">
+            {timestamp}
+          </div>
+
+          {/* Divider */}
+          <div className="gold-divider mb-4" />
+
+          {/* Action buttons */}
+          <div className="flex gap-2">
+            <button
+              onClick={handleShareX}
+              className="flex-1 py-2.5 rounded-lg text-[13px] font-semibold cursor-pointer transition-all"
+              style={{
+                background: 'rgba(139,92,246,0.10)',
+                border: '1px solid rgba(139,92,246,0.25)',
+                color: '#8b5cf6',
+              }}
+            >
+              Share to X
+            </button>
+            <button
+              onClick={handleCopyImage}
+              className="flex-1 py-2.5 rounded-lg text-[13px] font-semibold cursor-pointer transition-all"
+              style={{
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                color: 'rgba(255,255,255,0.6)',
+              }}
+            >
+              Copy Image
+            </button>
+            <button
+              onClick={onClose}
+              className="flex-1 py-2.5 rounded-lg text-[13px] font-semibold cursor-pointer transition-all"
+              style={{
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                color: 'rgba(255,255,255,0.4)',
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/* ─── Text fallback for clipboard ─── */
+
+function buildReceiptText(
+  receipt: ReceiptData,
+  config: { label: string },
+  rows: { label: string; value: string }[],
+  timestamp: string,
+): string {
+  const lines = [
+    '\u{1F33F} Tegridy Farms',
+    '━'.repeat(30),
+    '',
+    config.label,
+    '',
+  ];
+  for (const row of rows) {
+    lines.push(`${row.label}: ${row.value}`);
+  }
+  if (receipt.data.txHash) {
+    lines.push('');
+    lines.push(`Tx: https://etherscan.io/tx/${receipt.data.txHash}`);
+  }
+  lines.push('');
+  lines.push(timestamp);
+  return lines.join('\n');
+}

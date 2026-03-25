@@ -1,4 +1,5 @@
 export function formatCurrency(value: number, decimals = 2): string {
+  if (!isFinite(value) || isNaN(value)) return '–';
   if (value >= 1_000_000_000_000) return `$${(value / 1_000_000_000_000).toFixed(decimals)}T`;
   if (value >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(decimals)}B`;
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(decimals)}M`;
@@ -18,7 +19,8 @@ export function formatNumber(value: number, decimals = 2): string {
 
 export function formatTokenAmount(value: string | number, decimals = 4): string {
   const num = typeof value === 'string' ? parseFloat(value) : value;
-  if (isNaN(num) || num === 0) return '0.00';
+  if (!isFinite(num) || isNaN(num)) return '–';
+  if (num === 0) return '0.00';
   if (num > 0 && num < 0.000001) return num.toExponential(2);
   if (num > 0 && num < 0.0001) return num.toFixed(8);
   return num.toFixed(decimals);

@@ -1,11 +1,40 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { ART, GALLERY_ORDER } from '../lib/artConfig';
 import { useFarmStats } from '../hooks/useFarmStats';
 
+import { UNISWAP_BUY_URL, TOWELI_ADDRESS } from '../lib/constants';
+import { Sparkline } from '../components/Sparkline';
+import { PulseDot } from '../components/PulseDot';
+import { useToweliPrice } from '../hooks/useToweliPrice';
+import { usePriceHistory } from '../hooks/usePriceHistory';
+import { formatCurrency } from '../lib/formatting';
+import { FlashValue } from '../components/FlashValue';
+
 export default function HomePage() {
   const stats = useFarmStats();
+  const price = useToweliPrice();
+  const priceHistory = usePriceHistory(price.priceInUsd);
+
+  // Direct API price fallback for homepage
+  const [directPrice, setDirectPrice] = useState<string>(() => {
+    try {
+      const c = localStorage.getItem('tegridy_api_price');
+      if (c) { const { price: p, ts } = JSON.parse(c); if (Date.now() - ts < 3600_000 && p > 0) return formatCurrency(p, 6); }
+    } catch {} return '';
+  });
+  useEffect(() => {
+    if (stats.toweliPrice !== '–') return; // Hook already has price
+    fetch(`https://api.geckoterminal.com/api/v2/simple/networks/eth/token_price/${TOWELI_ADDRESS.toLowerCase()}`)
+      .then(r => r.json()).then(d => {
+        const p = parseFloat(d?.data?.attributes?.token_prices?.[TOWELI_ADDRESS.toLowerCase()] ?? '0');
+        if (p > 0) { setDirectPrice(formatCurrency(p, 6)); localStorage.setItem('tegridy_api_price', JSON.stringify({ price: p, ts: Date.now() })); }
+      }).catch(() => {});
+  }, [stats.toweliPrice]);
+
+  const effectiveToweliPrice = (stats.toweliPrice !== '–') ? stats.toweliPrice : directPrice;
 
   return (
     <div className="-mt-14 relative min-h-screen">
@@ -25,9 +54,11 @@ export default function HomePage() {
               Yield with<br /><span className="text-primary">Tegridy Farms</span>
             </h1>
 
-            <p className="text-white/60 text-base md:text-lg mb-8 max-w-md leading-relaxed">
+            <p className="text-white/60 text-base md:text-lg mb-3 max-w-md leading-relaxed">
               Stake TOWELI & LP tokens to earn rewards. 100% of protocol revenue goes to stakers.
             </p>
+            <p className="text-primary/40 text-[12px] font-mono mb-1">DM+T = Memetic Finance</p>
+            <p className="text-white/25 text-[11px] mb-6">Dank Memes + Time = Real Value. The Jungle Bay formula.</p>
 
             <div className="flex flex-wrap gap-3">
               <ConnectButton.Custom>
@@ -48,20 +79,32 @@ export default function HomePage() {
                   );
                 }}
               </ConnectButton.Custom>
-              <Link to="/swap" className="btn-secondary px-7 py-2.5 text-[14px]">Buy TOWELI</Link>
+              <a href={UNISWAP_BUY_URL} target="_blank" rel="noopener noreferrer"
+                className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all"
+                style={{ background: 'linear-gradient(135deg, #d4a843 0%, #b8892e 100%)', color: '#0a0a0f' }}>
+                Buy TOWELI &#8599;
+              </a>
             </div>
           </motion.div>
 
           <motion.div className="mt-14 flex flex-wrap gap-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
             {[
               { l: 'TVL', v: stats.tvl },
-              { l: 'TOWELI Price', v: stats.toweliPrice },
+              { l: 'TOWELI Price', v: effectiveToweliPrice || '–', showSparkline: true },
               { l: 'Rewards Paid', v: stats.rewardsDistributed },
             ].map((s) => (
-              <div key={s.l} className="flex items-center gap-3 px-4 py-2.5 rounded-lg"
-                style={{ background: 'rgba(6,12,26,0.82)', backdropFilter: 'blur(12px)', border: '1px solid rgba(139,92,246,0.12)' }}>
-                <span className="text-white/40 text-[12px]">{s.l}</span>
-                <span className="stat-value text-white text-[13px]">{s.v}</span>
+              <div key={s.l} className="glass-card flex items-center gap-3 px-4 py-2.5">
+                <span className="text-white/40 text-[12px] flex items-center gap-1.5">{s.l}{s.showSparkline && <PulseDot size={5} />}</span>
+                {s.showSparkline ? (
+                  <FlashValue value={price.priceInUsd}>
+                    <span className="stat-value text-white text-[13px]">{(!s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-white/10 shimmer" /> : s.v}</span>
+                  </FlashValue>
+                ) : (
+                  <span className="stat-value text-white text-[13px]">{(!s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-white/10 shimmer" /> : s.v}</span>
+                )}
+                {s.showSparkline && priceHistory.length > 1 && (
+                  <Sparkline data={priceHistory} width={48} height={16} />
+                )}
               </div>
             ))}
           </motion.div>
@@ -80,13 +123,13 @@ export default function HomePage() {
               { to: '/farm', title: 'Farm', desc: 'Stake TOWELI or LP tokens across two active pools to earn yield.', stat: '2', label: 'Active Pools', art: ART.poolParty.src },
               { to: '/dashboard', title: 'Dashboard', desc: 'Track your portfolio, positions, claimable rewards, and projections.', stat: 'Real-time', label: 'On-chain Data', art: ART.towelieWindow.src },
             ].map((f, i) => (
-              <motion.div key={f.title} initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }} transition={{ delay: i * 0.08 }}>
-                <Link to={f.to} className="block group relative rounded-xl overflow-hidden" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+              <motion.div key={f.title} initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }}
+                viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
+                <Link to={f.to} className="block group relative rounded-xl overflow-hidden glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
                   <div className="absolute inset-0">
                     <img src={f.art} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
                     <div className="absolute inset-0" style={{
-                      background: 'linear-gradient(to bottom, rgba(6,12,26,0.4) 0%, rgba(6,12,26,0.8) 50%, rgba(6,12,26,0.95) 100%)',
+                      background: 'linear-gradient(to bottom, rgba(6,12,26,0.40) 0%, rgba(6,12,26,0.75) 50%, rgba(6,12,26,0.92) 100%)',
                     }} />
                   </div>
                   <div className="relative z-10 p-6 min-h-[220px] flex flex-col">
@@ -117,10 +160,10 @@ export default function HomePage() {
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {GALLERY_ORDER.slice(0, 4).map((piece, i) => (
-              <motion.div key={piece.src} initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }} transition={{ delay: i * 0.06 }}>
+              <motion.div key={piece.src} initial={{ opacity: 0, y: 25, scale: 0.85 }} whileInView={{ opacity: 1, y: 0, scale: 1 }}
+                viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
                 <Link to="/gallery" className="block group">
-                  <div className="rounded-xl aspect-square relative overflow-hidden" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+                  <div className="rounded-xl aspect-square relative overflow-hidden card-hover" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
                     <img src={piece.src} alt={piece.title}
                       className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/35 transition-all flex items-end">
@@ -133,6 +176,52 @@ export default function HomePage() {
                 </Link>
               </motion.div>
             ))}
+          </div>
+        </div>
+
+        {/* Ecosystem */}
+        <div className="pb-16">
+          <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Ecosystem</h2>
+          <p className="text-white/40 text-[12px] mb-5">The Jungle Bay universe</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <motion.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0, type: 'spring', damping: 20, stiffness: 100 }}>
+            <a href="https://opensea.io/collection/junglebay" target="_blank" rel="noopener noreferrer"
+              className="relative overflow-hidden rounded-xl group block" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+              <div className="absolute inset-0">
+                <img src={ART.apeHug.src} alt="" className="w-full h-full object-cover" />
+                <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+              </div>
+              <div className="relative z-10 p-5">
+                <p className="text-white text-[14px] font-semibold group-hover:text-primary transition-colors mb-1">JBAC NFTs</p>
+                <p className="text-white/35 text-[12px]">5,555 customizable apes. The genesis collection that started it all.</p>
+              </div>
+            </a>
+            </motion.div>
+            <motion.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
+            <a href="https://app.uniswap.org/swap?chain=base" target="_blank" rel="noopener noreferrer"
+              className="relative overflow-hidden rounded-xl group block" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+              <div className="absolute inset-0">
+                <img src={ART.beachSunset.src} alt="" className="w-full h-full object-cover" />
+                <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+              </div>
+              <div className="relative z-10 p-5">
+                <p className="text-white text-[14px] font-semibold group-hover:text-primary transition-colors mb-1">$JBM on Base</p>
+                <p className="text-white/35 text-[12px]">The accidental community token. Born from a bot glitch, adopted by the degens.</p>
+              </div>
+            </a>
+            </motion.div>
+            <motion.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.3, type: 'spring', damping: 20, stiffness: 100 }}>
+            <Link to="/lore" className="relative overflow-hidden rounded-xl group block" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+              <div className="absolute inset-0">
+                <img src={ART.jungleDark.src} alt="" className="w-full h-full object-cover" />
+                <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+              </div>
+              <div className="relative z-10 p-5">
+                <p className="text-white text-[14px] font-semibold group-hover:text-primary transition-colors mb-1">The Story</p>
+                <p className="text-white/35 text-[12px]">From rug to riches. How we became the blueprint for community-built DeFi.</p>
+              </div>
+            </Link>
+            </motion.div>
           </div>
         </div>
       </div>
