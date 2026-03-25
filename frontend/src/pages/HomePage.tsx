@@ -41,16 +41,16 @@ export default function HomePage() {
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <img src={ART.galleryCollage.src} alt="" className="w-full h-full object-cover object-center" />
         <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.15) 25%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0.55) 75%, rgba(0,0,0,0.75) 100%)',
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.3) 25%, rgba(0,0,0,0.5) 50%, rgba(0,0,0,0.7) 75%, rgba(0,0,0,0.85) 100%)',
         }} />
       </div>
 
-      <div className="relative z-10 max-w-[1200px] mx-auto px-6">
+      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6">
         <div className="pt-28 pb-20">
           <motion.div className="max-w-xl" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
             <div className="badge badge-primary mb-5 text-[10px]">LIVE ON ETHEREUM</div>
 
-            <h1 className="heading-luxury text-4xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
+            <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
               Yield with<br /><span className="text-primary">Tegridy Farms</span>
             </h1>
 

@@ -37,12 +37,12 @@ export function BottomNav() {
         WebkitBackdropFilter: 'blur(20px)',
         borderTop: '1px solid rgba(139,92,246,0.15)',
       }}>
-      <div className="flex items-center justify-around h-14">
+      <div className="flex items-center justify-around h-16 safe-area-bottom">
         {TABS.map(tab => (
           <NavLink key={tab.to} to={tab.to}
-            className={({ isActive }) => `flex flex-col items-center gap-0.5 px-3 py-1.5 transition-colors ${isActive ? 'text-primary' : 'text-white/30'}`}>
+            className={({ isActive }) => `flex flex-col items-center justify-center gap-0.5 min-w-[56px] min-h-[48px] px-3 py-2 transition-colors ${isActive ? 'text-primary' : 'text-white/40'}`}>
             {tab.icon}
-            <span className="text-[9px] font-medium">{tab.label}</span>
+            <span className="text-[10px] font-medium">{tab.label}</span>
           </NavLink>
         ))}
       </div>

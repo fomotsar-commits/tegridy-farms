@@ -6,14 +6,14 @@ import { CopyButton } from '../ui/CopyButton';
 export function Footer() {
   return (
     <footer className="relative mt-8">
-      <div className="max-w-[1200px] mx-auto px-6">
+      <div className="max-w-[1200px] mx-auto px-4 md:px-6">
         {/* Gold divider */}
         <div className="gold-divider" />
 
         {/* Top section */}
-        <div className="pt-12 pb-8 grid grid-cols-1 md:grid-cols-4 gap-8">
+        <div className="pt-12 pb-8 grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8">
           {/* Brand */}
-          <div>
+          <div className="col-span-2 md:col-span-1">
             <div className="flex items-center gap-2 mb-3">
               <span className="heading-luxury text-[18px]">
                 <span className="text-primary">TEGRIDY</span>{' '}

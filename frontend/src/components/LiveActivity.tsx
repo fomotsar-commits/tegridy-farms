@@ -27,7 +27,7 @@ export function LiveActivity() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, ease: 'easeOut' }}
-      className="fixed bottom-4 right-4 z-50"
+      className="fixed bottom-4 right-4 z-40 hidden md:block"
       style={{ pointerEvents: 'none' }}
     >
       <div

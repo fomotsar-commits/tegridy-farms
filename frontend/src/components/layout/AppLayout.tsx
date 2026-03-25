@@ -11,7 +11,7 @@ export function AppLayout() {
       <Background />
       <TopNav />
 
-      <div className="min-h-screen relative z-10 pt-14 pb-16 md:pb-0">
+      <div className="min-h-screen relative z-10 pt-14 pb-20 md:pb-0">
         <main>
           <Outlet />
         </main>
@@ -21,7 +21,7 @@ export function AppLayout() {
       <BottomNav />
 
       <Toaster
-        position="bottom-right"
+        position="top-right"
         theme="dark"
         toastOptions={{
           style: {

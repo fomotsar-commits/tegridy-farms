@@ -53,7 +53,7 @@ export default function LorePage() {
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <img src={ART.mfersHeaven.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 32%' }} />
         <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.3) 30%, rgba(0,0,0,0.5) 60%, rgba(0,0,0,0.7) 100%)',
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.45) 30%, rgba(0,0,0,0.65) 60%, rgba(0,0,0,0.85) 100%)',
         }} />
       </div>
 

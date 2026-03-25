@@ -43,6 +43,18 @@
   box-sizing: border-box;
 }
 
+/* iOS safe area support for bottom nav */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Prevent iOS zoom on input focus (inputs must be >= 16px) */
+@media (max-width: 767px) {
+  input, select, textarea {
+    font-size: max(16px, inherit) !important;
+  }
+}
+
 body {
   font-family: var(--font-family-body);
   background: var(--color-bg-base);

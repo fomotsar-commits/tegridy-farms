@@ -93,9 +93,9 @@ export function TopNav() {
               }}
             </ConnectButton.Custom>
 
-            <button onClick={() => setOpen(true)} className="md:hidden p-1.5 text-text-muted">
-              <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M3 5h12M3 9h12M3 13h12" />
+            <button onClick={() => setOpen(true)} className="md:hidden p-2.5 -mr-2 text-text-muted min-w-[44px] min-h-[44px] flex items-center justify-center">
+              <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M3 5h14M3 10h14M3 15h14" />
               </svg>
             </button>
           </div>
@@ -110,14 +110,14 @@ export function TopNav() {
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               onClick={() => setOpen(false)} />
             <motion.div
-              className="fixed right-0 top-0 bottom-0 z-50 w-64 md:hidden flex flex-col"
+              className="fixed right-0 top-0 bottom-0 z-50 w-56 md:hidden flex flex-col"
               style={{ background: 'var(--color-bg-surface)', borderLeft: '1px solid rgba(139,92,246,0.15)' }}
               initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}>
               <div className="p-4 flex justify-end">
-                <button onClick={() => setOpen(false)} className="text-text-muted p-1">
-                  <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M5 5l8 8M13 5l-8 8" />
+                <button onClick={() => setOpen(false)} className="text-text-muted p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center">
+                  <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M5 5l10 10M15 5l-10 10" />
                   </svg>
                 </button>
               </div>

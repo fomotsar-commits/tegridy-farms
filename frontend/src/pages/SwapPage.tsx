@@ -189,7 +189,7 @@ export default function SwapPage() {
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <img src={ART.apeHug.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
         <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.25) 25%, rgba(0,0,0,0.5) 55%, rgba(0,0,0,0.8) 100%)',
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.4) 25%, rgba(0,0,0,0.65) 55%, rgba(0,0,0,0.88) 100%)',
         }} />
       </div>
 
