@@ -23,7 +23,7 @@ export function createMorphParticles(
   try { pixelData = ocx.getImageData(0, 0, oc.width, oc.height); } catch { /* tainted */ }
 
   // If next image exists, prepare target positions from it
-  let nextPixelData: ImageData | null = null;
+  let _nextPixelData: ImageData | null = null;
   if (nextImg) {
     const nc = document.createElement('canvas');
     nc.width = Math.floor(artW);
@@ -31,7 +31,7 @@ export function createMorphParticles(
     const ncx = nc.getContext('2d')!;
     const nFit = coverFit(nextImg, artW, artH);
     ncx.drawImage(nextImg, nFit.sx, nFit.sy, nFit.sw, nFit.sh, 0, 0, nc.width, nc.height);
-    try { nextPixelData = ncx.getImageData(0, 0, nc.width, nc.height); } catch { /* tainted */ }
+    try { _nextPixelData = ncx.getImageData(0, 0, nc.width, nc.height); } catch { /* tainted */ }
   }
 
   for (let i = 0; i < count; i++) {

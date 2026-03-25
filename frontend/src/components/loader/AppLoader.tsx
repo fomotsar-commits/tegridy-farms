@@ -7,7 +7,7 @@ import {
 import { preloadImages } from './preload';
 import {
   shuffle, easeInOutCubic, coverFit, getTextPixels,
-  buildSnakePath, buildCrackPaths,
+  buildCrackPaths,
 } from './geometry';
 import { drawGoldenLine, drawPurpleMist, drawVoidPhase } from './phases/void';
 import { drawArtPiece } from './phases/art';

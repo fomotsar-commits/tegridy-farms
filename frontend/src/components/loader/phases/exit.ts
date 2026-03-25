@@ -1,5 +1,5 @@
-import { GOLD, T_CRACK_DURATION } from '../constants';
-import { buildExitShards, buildCrackPaths } from '../geometry';
+import { GOLD } from '../constants';
+import { buildExitShards } from '../geometry';
 import type { LoaderState, CrackSegment } from '../types';
 import { AudioEngine } from '../fx/audio';
 
