@@ -3,7 +3,7 @@ import { coverFit } from '../geometry';
 import { STIFFNESS, DAMPING } from '../constants';
 
 export function createMorphParticles(
-  currentImg: HTMLImageElement, nextImg: HTMLImageElement | null,
+  currentImg: HTMLImageElement, _nextImg: HTMLImageElement | null,
   W: number, H: number,
 ): MorphParticle[] {
   const artW = W * 0.72, artH = H * 0.72;
@@ -22,17 +22,7 @@ export function createMorphParticles(
   let pixelData: ImageData | null = null;
   try { pixelData = ocx.getImageData(0, 0, oc.width, oc.height); } catch { /* tainted */ }
 
-  // If next image exists, prepare target positions from it
-  let _nextPixelData: ImageData | null = null;
-  if (nextImg) {
-    const nc = document.createElement('canvas');
-    nc.width = Math.floor(artW);
-    nc.height = Math.floor(artH);
-    const ncx = nc.getContext('2d')!;
-    const nFit = coverFit(nextImg, artW, artH);
-    ncx.drawImage(nextImg, nFit.sx, nFit.sy, nFit.sw, nFit.sh, 0, 0, nc.width, nc.height);
-    try { _nextPixelData = ncx.getImageData(0, 0, nc.width, nc.height); } catch { /* tainted */ }
-  }
+
 
   for (let i = 0; i < count; i++) {
     const px = Math.random() * oc.width;
