@@ -207,7 +207,7 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
       let pixelData: ImageData | null = null;
       try { pixelData = ocx.getImageData(0, 0, oc.width, oc.height); } catch { /* tainted */ }
 
-      const count = s.isMobile ? 1200 : 2000;
+      const count = s.isMobile ? 1800 : 2000;
       const particles: Particle[] = [];
       const artX = (W - artW) / 2;
       const artY = (H - artH) / 2;
@@ -240,8 +240,9 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
 
     /* Assign text targets */
     function assignTextTargets() {
-      const mainSize = Math.min(130, W * 0.15);
-      const subSize = Math.min(60, W * 0.07);
+      // Larger font sizes on mobile so text has enough pixel targets
+      const mainSize = s.isMobile ? Math.min(130, W * 0.19) : Math.min(130, W * 0.15);
+      const subSize = s.isMobile ? Math.min(60, W * 0.09) : Math.min(60, W * 0.07);
       const mainPts = getTextPixels('TEGRIDY', mainSize, W, H, -subSize * 0.5);
       const subPts = getTextPixels('FARMS', subSize, W, H, mainSize * 0.45);
       const allPts = [...mainPts, ...subPts];
@@ -278,7 +279,7 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
           if (s.images.length === 0) {
             s.phase = 'textForm';
             s.t0 = now;
-            const count = s.isMobile ? 1200 : 2000;
+            const count = s.isMobile ? 1800 : 2000;
             const particles: Particle[] = [];
             for (let i = 0; i < count; i++) {
               particles.push({
@@ -443,8 +444,8 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
           }
         }
         // Ghost text
-        const mainSize = Math.min(130, W * 0.15);
-        const subSize = Math.min(60, W * 0.07);
+        const mainSize = s.isMobile ? Math.min(130, W * 0.26) : Math.min(130, W * 0.15);
+        const subSize = s.isMobile ? Math.min(60, W * 0.12) : Math.min(60, W * 0.07);
         ctx!.save();
         ctx!.globalAlpha = 0.1;
         ctx!.font = `bold ${mainSize}px "Inter", "Helvetica Neue", sans-serif`;

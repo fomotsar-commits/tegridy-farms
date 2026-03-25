@@ -44,7 +44,8 @@ export function getTextPixels(
   cx.fillText(text, W / 2, H / 2 + offsetY);
   const d = cx.getImageData(0, 0, W, H).data;
   const pts: Array<{ x: number; y: number }> = [];
-  const step = Math.max(3, Math.floor(Math.min(W, H) / 250));
+  // Finer step on small screens for denser pixel sampling
+  const step = W < 768 ? 2 : Math.max(3, Math.floor(Math.min(W, H) / 250));
   for (let y = 0; y < H; y += step) {
     for (let x = 0; x < W; x += step) {
       if (d[(y * W + x) * 4 + 3] > 128) pts.push({ x, y });

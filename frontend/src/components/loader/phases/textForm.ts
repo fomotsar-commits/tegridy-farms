@@ -53,7 +53,7 @@ export function drawTextFormPhase(
       p.y += p.vy;
       p.vx *= 0.98;
       p.vy *= 0.98;
-      p.alpha = Math.max(0.05, p.alpha - 0.005);
+      p.alpha = Math.max(0.03, p.alpha - 0.01);
     }
     if (p.alpha > 0.02) {
       ctx.fillStyle = `rgba(${p.r},${p.g},${p.b},${p.alpha})`;
@@ -64,8 +64,9 @@ export function drawTextFormPhase(
   // Ghost text glow
   if (tp > 0.3) {
     const glowAlpha = Math.min(0.1, (tp - 0.3) * 0.15);
-    const mainSize = Math.min(130, W * 0.15);
-    const subSize = Math.min(60, W * 0.07);
+    const isMobile = W < 768;
+    const mainSize = isMobile ? Math.min(130, W * 0.19) : Math.min(130, W * 0.15);
+    const subSize = isMobile ? Math.min(60, W * 0.09) : Math.min(60, W * 0.07);
     ctx.save();
     ctx.globalAlpha = glowAlpha;
     ctx.font = `bold ${mainSize}px "Inter", "Helvetica Neue", sans-serif`;
@@ -83,7 +84,8 @@ export function drawTextFormPhase(
   // Golden underline draws left to right
   if (tp > 0.5) {
     const ulp = (tp - 0.5) / 0.5;
-    const mainSize = Math.min(130, W * 0.15);
+    const isMobileUl = W < 768;
+    const mainSize = isMobileUl ? Math.min(130, W * 0.19) : Math.min(130, W * 0.15);
     const lineY = H / 2 + mainSize * 0.45 + 25;
     const lineW = Math.min(180, W * 0.2) * easeInOutCubic(ulp);
     ctx.save();

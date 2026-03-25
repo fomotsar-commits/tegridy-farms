@@ -103,8 +103,9 @@ export function drawHoldPhase(
   }
 
   // Ghost text
-  const mainSize = Math.min(130, W * 0.15);
-  const subSize = Math.min(60, W * 0.07);
+  const isMobile = W < 768;
+  const mainSize = isMobile ? Math.min(130, W * 0.19) : Math.min(130, W * 0.15);
+  const subSize = isMobile ? Math.min(60, W * 0.09) : Math.min(60, W * 0.07);
   ctx.save();
   ctx.globalAlpha = 0.1;
   ctx.font = `bold ${mainSize}px "Inter", "Helvetica Neue", sans-serif`;
