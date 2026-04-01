@@ -5,7 +5,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { ART, GALLERY_ORDER } from '../lib/artConfig';
 import { useFarmStats } from '../hooks/useFarmStats';
 
-import { UNISWAP_BUY_URL, TOWELI_ADDRESS } from '../lib/constants';
+import { TOWELI_ADDRESS } from '../lib/constants';
 import { Sparkline } from '../components/Sparkline';
 import { PulseDot } from '../components/PulseDot';
 import { useToweliPrice } from '../hooks/useToweliPrice';
@@ -17,6 +17,7 @@ export default function HomePage() {
   const stats = useFarmStats();
   const price = useToweliPrice();
   const priceHistory = usePriceHistory(price.priceInUsd);
+  const { history: priceData, error: priceError } = priceHistory;
 
   // Direct API price fallback for homepage
   const [directPrice, setDirectPrice] = useState<string>(() => {
@@ -79,10 +80,10 @@ export default function HomePage() {
                   );
                 }}
               </ConnectButton.Custom>
-              <a href={UNISWAP_BUY_URL} target="_blank" rel="noopener noreferrer"
+              <a href="/swap"
                 className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all"
                 style={{ background: 'linear-gradient(135deg, #d4a843 0%, #b8892e 100%)', color: '#0a0a0f' }}>
-                Buy TOWELI &#8599;
+                Buy TOWELI
               </a>
             </div>
           </motion.div>
@@ -102,8 +103,11 @@ export default function HomePage() {
                 ) : (
                   <span className="stat-value text-white text-[13px]">{(!s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-white/10 shimmer" /> : s.v}</span>
                 )}
-                {s.showSparkline && priceHistory.length > 1 && (
-                  <Sparkline data={priceHistory} width={48} height={16} />
+                {s.showSparkline && priceData.length > 1 && (
+                  <Sparkline data={priceData} width={48} height={16} />
+                )}
+                {s.showSparkline && priceError && priceData.length === 0 && (
+                  <span className="text-white/30 text-[10px]">Price data unavailable</span>
                 )}
               </div>
             ))}

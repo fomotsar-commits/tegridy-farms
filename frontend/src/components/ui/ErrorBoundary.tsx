@@ -1,7 +1,9 @@
 import { Component, type ReactNode, type ErrorInfo } from 'react';
+import { reportError } from '../../lib/errorReporting';
 
 interface Props {
   children: ReactNode;
+  fallback?: ReactNode;
 }
 
 interface State {
@@ -20,10 +22,14 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
+    reportError(error, errorInfo.componentStack ?? undefined);
   }
 
   render() {
     if (this.state.hasError) {
+      if (this.props.fallback) {
+        return this.props.fallback;
+      }
       return (
         <div className="min-h-screen flex items-center justify-center px-6">
           <div className="text-center max-w-sm">

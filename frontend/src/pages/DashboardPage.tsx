@@ -4,7 +4,7 @@ import { useAccount, useBalance, useReadContract, useWriteContract, useWaitForTr
 import { formatEther } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from 'react-router-dom';
-import { TOWELI_ADDRESS, GECKOTERMINAL_URL, GECKOTERMINAL_EMBED, REVENUE_DISTRIBUTOR_ADDRESS } from '../lib/constants';
+import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, isDeployed } from '../lib/constants';
 import { ERC20_ABI, REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
 import { useUserPosition } from '../hooks/useUserPosition';
 import { usePoolData } from '../hooks/usePoolData';
@@ -22,9 +22,16 @@ import { PulseDot } from '../components/PulseDot';
 import { TegridyScoreMini } from '../components/TegridyScoreMini';
 import { usePriceHistory } from '../hooks/usePriceHistory';
 import { FlashValue } from '../components/FlashValue';
+import { safeSetItem } from '../lib/storage';
+import { PriceChart } from '../components/chart/PriceChart';
+import { ErrorBoundary } from '../components/ui/ErrorBoundary';
+import { usePageTitle } from '../hooks/usePageTitle';
+import { useNetworkCheck } from '../hooks/useNetworkCheck';
 
 export default function DashboardPage() {
+  usePageTitle('Dashboard');
   const { isConnected, address } = useAccount();
+  const { isWrongNetwork } = useNetworkCheck();
   const { data: ethBalance } = useBalance({ address });
   const rawPrice = useToweliPrice();
 
@@ -32,14 +39,19 @@ export default function DashboardPage() {
   const [apiPrice, setApiPrice] = useState<number>(() => {
     try {
       const c = localStorage.getItem('tegridy_api_price');
-      if (c) { const { price: p, ts } = JSON.parse(c); if (Date.now() - ts < 600_000 && p > 0) return p; }
+      if (c) {
+        const parsed = JSON.parse(c);
+        const p = typeof parsed?.price === 'number' ? parsed.price : 0;
+        const ts = typeof parsed?.ts === 'number' ? parsed.ts : 0;
+        if (p > 0 && p < 1e12 && Date.now() - ts < 600_000) return p;
+      }
     } catch {} return 0;
   });
   useEffect(() => {
     fetch(`https://api.geckoterminal.com/api/v2/simple/networks/eth/token_price/${TOWELI_ADDRESS.toLowerCase()}`)
       .then(r => r.json()).then(d => {
         const p = parseFloat(d?.data?.attributes?.token_prices?.[TOWELI_ADDRESS.toLowerCase()] ?? '0');
-        if (p > 0) { setApiPrice(p); localStorage.setItem('tegridy_api_price', JSON.stringify({ price: p, ts: Date.now() })); }
+        if (p > 0) { setApiPrice(p); safeSetItem('tegridy_api_price', JSON.stringify({ price: p, ts: Date.now() })); }
       }).catch(() => {});
   }, []);
 
@@ -55,7 +67,7 @@ export default function DashboardPage() {
   const limitOrders = useLimitOrders();
   const pos = useUserPosition();
   const pool = usePoolData();
-  const priceHistory = usePriceHistory(price.priceInUsd);
+  const { history: priceHistory } = usePriceHistory(price.priceInUsd);
 
   const { data: toweliBalance } = useReadContract({
     address: TOWELI_ADDRESS,
@@ -80,16 +92,10 @@ export default function DashboardPage() {
 
   // Claim handler
   const handleClaim = () => {
-    if (pendingTotal < 0.01 || !pos.hasPosition) return;
+    if (isWrongNetwork || pendingTotal < 0.01 || !pos.hasPosition) return;
     farmActions.claim(pos.tokenId);
   };
 
-  // Deferred iframe rendering
-  const [showChart, setShowChart] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setShowChart(true), 500);
-    return () => clearTimeout(t);
-  }, []);
 
   // Price change indicator
   const priceChangeStr = price.priceChange !== 0
@@ -102,7 +108,7 @@ export default function DashboardPage() {
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
           <img src={ART.busCrew.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 5%' }} />
           <div className="absolute inset-0" style={{
-            background: 'radial-gradient(ellipse at center, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.1) 60%, rgba(0,0,0,0.25) 100%)',
+            background: 'radial-gradient(ellipse at center, rgba(0,0,0,0.80) 0%, rgba(0,0,0,0.85) 60%, rgba(0,0,0,0.96) 100%)',
           }} />
         </div>
         <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
@@ -129,11 +135,16 @@ export default function DashboardPage() {
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <img src={ART.towelieWindow.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 85%' }} />
         <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.35) 30%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,0.8) 100%)',
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.85) 30%, rgba(0,0,0,0.92) 60%, rgba(0,0,0,0.96) 100%)',
         }} />
       </div>
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-12">
+        {isWrongNetwork && (
+          <div className="mb-4 px-4 py-3 rounded-xl bg-warning/10 border border-warning/30 text-warning text-[13px] text-center">
+            Wrong network detected. Please switch to Ethereum Mainnet.
+          </div>
+        )}
         {/* Header with Portfolio Value */}
         <motion.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div className="flex items-center justify-between">
@@ -172,8 +183,8 @@ export default function DashboardPage() {
           ].map((s) => (
             <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
               <div className="absolute inset-0">
-                <img src={s.art} alt="" className="w-full h-full object-cover" />
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.40) 0%, rgba(6,12,26,0.75) 50%, rgba(6,12,26,0.92) 100%)' }} />
+                <img src={s.art} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+                <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
               </div>
               <div className="relative z-10 p-5 pt-8 pb-6">
               <p className="text-white/50 text-[11px] uppercase tracking-wider mb-2">{s.l}</p>
@@ -196,6 +207,7 @@ export default function DashboardPage() {
                     <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>Stale</span>
                   </span>
                 ) : s.sub === 'Live' ? <span className="inline-flex items-center gap-1">Live <PulseDot size={5} /></span> : s.sub}
+                {(s.priceUp || s.priceDown) && <span className="text-white/20 text-[10px] ml-1">since session start</span>}
               </p>
               </div>
             </div>
@@ -227,15 +239,35 @@ export default function DashboardPage() {
         )}
 
         {/* ETH Revenue Sharing */}
-        {address && <ETHRevenueClaim address={address} />}
+        {address && <ETHRevenueClaim address={address} isWrongNetwork={isWrongNetwork} />}
+
+        {/* POL Accumulator */}
+        {!isDeployed(POL_ACCUMULATOR_ADDRESS) && (
+          <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.08)' }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            <div className="absolute inset-0">
+              <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+              <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+            </div>
+            <div className="relative z-10 p-5">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-white text-[15px] font-medium">POL Accumulator</span>
+                <span className="px-2 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase" style={{ background: 'rgba(139,92,246,0.12)', color: '#8b5cf6', border: '1px solid rgba(139,92,246,0.2)' }}>Coming Soon</span>
+              </div>
+              <p className="text-white/35 text-[12px] leading-relaxed max-w-lg">
+                Protocol-Owned Liquidity will automatically accumulate LP positions from a share of swap fees, deepening TOWELI liquidity permanently and reducing reliance on external LPs.
+              </p>
+            </div>
+          </motion.div>
+        )}
 
         {/* DCA Due Alerts */}
         {dca.dueSchedules.length > 0 && (
           <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={ART.porchChill.src} alt="" className="w-full h-full object-cover" />
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+              <img src={ART.porchChill.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+              <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
             </div>
             <div className="relative z-10 p-4 flex items-center justify-between">
               <div>
@@ -252,8 +284,8 @@ export default function DashboardPage() {
           <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" />
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+              <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+              <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
             </div>
             <div className="relative z-10 p-4">
               <p className="text-white/60 text-[13px] font-medium mb-1">{limitOrders.activeOrders.length} active price alert{limitOrders.activeOrders.length > 1 ? 's' : ''}</p>
@@ -268,8 +300,8 @@ export default function DashboardPage() {
           <motion.div className="relative overflow-hidden rounded-xl mb-10 card-hover" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
             <div className="absolute inset-0">
-              <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" />
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+              <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+              <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
             </div>
             <div className="relative z-10 p-5">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -311,8 +343,8 @@ export default function DashboardPage() {
           <motion.div className="relative overflow-hidden rounded-xl mb-10" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={ART.jbChristmas.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 20%' }} />
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+              <img src={ART.jbChristmas.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 20%', opacity: 0.15 }} />
+              <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
             </div>
             <div className="relative z-10 p-8 py-12 text-center">
               <p className="text-white/50 text-[15px] mb-4">No staking position yet</p>
@@ -331,27 +363,9 @@ export default function DashboardPage() {
 
         {/* Chart */}
         <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="heading-luxury text-[16px] text-white">Price Chart</h3>
-            <a href={GECKOTERMINAL_URL} target="_blank" rel="noopener noreferrer"
-              className="text-primary text-[12px] font-medium hover:opacity-80 transition-opacity">
-              GeckoTerminal &#8594;
-            </a>
-          </div>
-          <div className="relative rounded-xl overflow-hidden aspect-square max-h-[500px]" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
-            {showChart ? (
-              <iframe
-                src={GECKOTERMINAL_EMBED}
-                className="w-full h-full border-0"
-                title="GeckoTerminal Chart"
-                allow="clipboard-write"
-                loading="lazy"
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                <span className="text-white/20 text-[13px]">Loading chart...</span>
-              </div>
-            )}
+          <h3 className="heading-luxury text-[16px] text-white mb-3">Price Chart</h3>
+          <div className="relative rounded-xl overflow-hidden h-[400px]" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+            <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white/30 text-[13px]">Chart unavailable</div>}><PriceChart /></ErrorBoundary>
           </div>
         </motion.div>
       </div>
@@ -359,7 +373,7 @@ export default function DashboardPage() {
   );
 }
 
-function ETHRevenueClaim({ address }: { address: string }) {
+function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrongNetwork: boolean }) {
   const { data: pendingETH } = useReadContract({
     address: REVENUE_DISTRIBUTOR_ADDRESS,
     abi: REVENUE_DISTRIBUTOR_ABI,
@@ -387,8 +401,8 @@ function ETHRevenueClaim({ address }: { address: string }) {
       <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
         initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
         <div className="absolute inset-0">
-          <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 55%' }} />
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+          <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 55%', opacity: 0.15 }} />
+          <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
         </div>
         <div className="relative z-10 p-8 py-10 flex items-center justify-between">
           <div>
@@ -396,7 +410,7 @@ function ETHRevenueClaim({ address }: { address: string }) {
             <p className="text-white/40 text-[14px]">Register to earn ETH from protocol fees</p>
           </div>
           <button onClick={() => writeContract({ address: REVENUE_DISTRIBUTOR_ADDRESS, abi: REVENUE_DISTRIBUTOR_ABI, functionName: 'register' })}
-            disabled={isPending || isConfirming}
+            disabled={isPending || isConfirming || isWrongNetwork}
             className="btn-primary px-6 py-3 text-[14px] disabled:opacity-35">
             {isPending || isConfirming ? 'Registering...' : 'Register'}
           </button>
@@ -410,8 +424,8 @@ function ETHRevenueClaim({ address }: { address: string }) {
       <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
         initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
         <div className="absolute inset-0">
-          <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 55%' }} />
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+          <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 55%', opacity: 0.15 }} />
+          <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
         </div>
         <div className="relative z-10 p-4 flex items-center justify-between">
           <div>
@@ -419,7 +433,7 @@ function ETHRevenueClaim({ address }: { address: string }) {
             <span className="stat-value text-[16px] text-success"><AnimatedCounter value={pending} decimals={6} suffix=" ETH" /></span>
           </div>
           <button onClick={() => writeContract({ address: REVENUE_DISTRIBUTOR_ADDRESS, abi: REVENUE_DISTRIBUTOR_ABI, functionName: 'claim' })}
-            disabled={isPending || isConfirming}
+            disabled={isPending || isConfirming || isWrongNetwork}
             className="btn-primary px-5 py-2.5 text-[13px] disabled:opacity-35">
             {isPending || isConfirming ? 'Claiming...' : 'Claim ETH'}
           </button>
