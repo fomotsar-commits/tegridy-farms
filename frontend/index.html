@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <link rel="icon" href="/art/bobowelie.jpg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- SECURITY FIX: CSP for dev mode (production CSP is in vercel.json headers) -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://rpc.flashbots.net https://*.publicnode.com https://*.llamarpc.com https://api.geckoterminal.com https://api.swapapi.dev https://api.etherscan.io https://*.walletconnect.com https://*.walletconnect.org wss://*.walletconnect.com wss://*.walletconnect.org https://rpc.walletconnect.com https://explorer-api.walletconnect.com https://*.infura.io https://cloudflare-eth.com https://verify.walletconnect.com https://verify.walletconnect.org http://localhost:* ws://localhost:*; frame-src https://www.geckoterminal.com https://verify.walletconnect.com https://verify.walletconnect.org; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" />
     <title>Tegridy Farms | TOWELI Yield Farm</title>
     <meta property="og:title" content="Tegridy Farms | TOWELI Yield Farm" />
     <meta property="og:description" content="Art-first yield farming on Ethereum. Stake TOWELI & earn rewards. 100% of protocol revenue goes to stakers." />
@@ -13,10 +15,13 @@
     <meta name="twitter:title" content="Tegridy Farms | TOWELI Yield Farm" />
     <meta name="twitter:description" content="Art-first yield farming on Ethereum. Stake TOWELI & earn rewards." />
     <meta name="twitter:image" content="/art/gallery-collage.jpg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Playfair+Display:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- Self-hosted fonts — no third-party requests (#71) -->
+    <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="/fonts/playfair-display-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="/fonts/fonts.css">
     <link rel="preload" as="image" href="/art/mfers-heaven.jpg">
+    <link rel="preload" as="image" href="/art/mumu-bull.jpg">
+    <link rel="preload" as="image" href="/art/bobowelie.jpg">
   </head>
   <body>
     <div id="root"></div>

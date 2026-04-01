@@ -19,7 +19,192 @@ import { usePriceHistory } from '../hooks/usePriceHistory';
 import { useTransactionReceipt } from '../hooks/useTransactionReceipt';
 import type { ReceiptType } from '../hooks/useTransactionReceipt';
 import { useConfetti } from '../hooks/useConfetti';
+import { useNetworkCheck } from '../hooks/useNetworkCheck';
+import { usePoolTVL } from '../hooks/usePoolTVL';
+import { usePageTitle } from '../hooks/usePageTitle';
 
+/* ── Native LP Pools ─────────────────────────────────────────────────── */
+interface LPPool {
+  id: string;
+  name: string;
+  tokenA: { symbol: string; logo: string; };
+  tokenB: { symbol: string; logo: string; };
+  fee: string;
+  tvl: string;
+  apr: string;
+  volume24h: string;
+  status: 'live' | 'new' | 'hot' | 'soon';
+  art: string;
+  artPos: string;
+}
+
+const UPCOMING_POOLS: Omit<LPPool, 'tvl' | 'apr' | 'volume24h'>[] = [
+  {
+    id: 'usdt-usdc',
+    name: 'USDT / USDC',
+    tokenA: { symbol: 'USDT', logo: '💵' },
+    tokenB: { symbol: 'USDC', logo: '🔵' },
+    fee: '0.05%',
+    status: 'soon',
+    art: '/art/beach-sunset.jpg',
+    artPos: 'center 40%',
+  },
+  {
+    id: 'eth-wbtc',
+    name: 'ETH / WBTC',
+    tokenA: { symbol: 'ETH', logo: '⟠' },
+    tokenB: { symbol: 'WBTC', logo: '₿' },
+    fee: '0.3%',
+    status: 'soon',
+    art: '/art/boxing-ring.jpg',
+    artPos: 'center 20%',
+  },
+  {
+    id: 'dot-eth',
+    name: 'DOT / ETH',
+    tokenA: { symbol: 'DOT', logo: '●' },
+    tokenB: { symbol: 'ETH', logo: '⟠' },
+    fee: '0.3%',
+    status: 'soon',
+    art: '/art/forest-scene.jpg',
+    artPos: 'center 30%',
+  },
+  {
+    id: 'mana-eth',
+    name: 'MANA / ETH',
+    tokenA: { symbol: 'MANA', logo: '🌐' },
+    tokenB: { symbol: 'ETH', logo: '⟠' },
+    fee: '0.3%',
+    status: 'soon',
+    art: '/art/jungle-dark.jpg',
+    artPos: 'center 20%',
+  },
+];
+
+function PoolStatusBadge({ status }: { status: LPPool['status'] }) {
+  const styles = {
+    live: { bg: 'rgba(45,139,78,0.15)', border: 'rgba(45,139,78,0.35)', color: '#2D8B4E', label: 'LIVE' },
+    new: { bg: 'rgba(139,92,246,0.15)', border: 'rgba(139,92,246,0.35)', color: '#8b5cf6', label: 'NEW' },
+    hot: { bg: 'rgba(239,68,68,0.15)', border: 'rgba(239,68,68,0.35)', color: '#ef4444', label: '🔥 HOT' },
+    soon: { bg: 'rgba(139,92,246,0.12)', border: 'rgba(139,92,246,0.30)', color: '#a78bfa', label: 'COMING SOON' },
+  };
+  const s = styles[status];
+  return (
+    <span className="text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-full"
+      style={{ background: s.bg, border: `1px solid ${s.border}`, color: s.color }}>
+      {s.label}
+    </span>
+  );
+}
+
+/** Live TOWELI/ETH pool card with on-chain data */
+function LivePoolCard({ poolData }: { poolData: ReturnType<typeof usePoolTVL> }) {
+  return (
+    <div className="relative overflow-hidden rounded-xl card-hover group" style={{ border: '1px solid rgba(239,68,68,0.15)' }}>
+      <div className="absolute inset-0">
+        <img src="/art/pool-party.jpg" alt="" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" style={{ objectPosition: 'center 30%', opacity: 0.15 }} />
+        <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+      </div>
+      <div className="relative z-10 p-5">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="flex -space-x-2">
+              <span className="w-9 h-9 rounded-full flex items-center justify-center text-[16px]"
+                style={{ background: 'rgba(139,92,246,0.15)', border: '2px solid rgba(139,92,246,0.3)' }}>
+                🧻
+              </span>
+              <span className="w-9 h-9 rounded-full flex items-center justify-center text-[16px]"
+                style={{ background: 'rgba(45,139,78,0.15)', border: '2px solid rgba(45,139,78,0.3)' }}>
+                ⟠
+              </span>
+            </div>
+            <div>
+              <p className="text-white font-semibold text-[15px]">TOWELI / ETH</p>
+              <p className="text-white/30 text-[11px]">Fee: 0.3%</p>
+            </div>
+          </div>
+          <PoolStatusBadge status="hot" />
+        </div>
+
+        {/* Stats Grid — live data */}
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          <div className="rounded-lg p-2.5" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.08)' }}>
+            <p className="text-white/30 text-[10px] uppercase tracking-wider mb-0.5">TVL</p>
+            <p className="stat-value text-[14px] text-white">{poolData.tvlFormatted}</p>
+          </div>
+          <div className="rounded-lg p-2.5" style={{ background: 'rgba(45,139,78,0.04)', border: '1px solid rgba(45,139,78,0.08)' }}>
+            <p className="text-white/30 text-[10px] uppercase tracking-wider mb-0.5">Est. APR</p>
+            <p className="stat-value text-[14px] text-primary">{poolData.apr}</p>
+          </div>
+          <div className="rounded-lg p-2.5" style={{ background: 'rgba(212,160,23,0.04)', border: '1px solid rgba(212,160,23,0.08)' }}>
+            <p className="text-white/30 text-[10px] uppercase tracking-wider mb-0.5">Est. 24h Vol</p>
+            <p className="stat-value text-[14px] text-white/80">{poolData.vol24hFormatted}</p>
+          </div>
+        </div>
+
+        <p className="text-white/20 text-[10px] mb-3 text-center">APR &amp; volume estimated from on-chain reserves</p>
+
+        {/* Action */}
+        <Link to="/liquidity" className="btn-primary w-full py-2.5 text-[13px] text-center block">
+          Provide Liquidity
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+/** Coming soon pool card */
+function UpcomingPoolCard({ pool }: { pool: typeof UPCOMING_POOLS[number] }) {
+  return (
+    <div className="relative overflow-hidden rounded-xl card-hover group" style={{ border: '1px solid rgba(139,92,246,0.10)' }}>
+      <div className="absolute inset-0">
+        <img src={pool.art} alt="" className="w-full h-full object-cover grayscale" style={{ objectPosition: pool.artPos, opacity: 0.08 }} />
+        <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.95)' }} />
+      </div>
+      <div className="relative z-10 p-5">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="flex -space-x-2">
+              <span className="w-9 h-9 rounded-full flex items-center justify-center text-[16px]"
+                style={{ background: 'rgba(255,255,255,0.05)', border: '2px solid rgba(255,255,255,0.10)' }}>
+                {pool.tokenA.logo}
+              </span>
+              <span className="w-9 h-9 rounded-full flex items-center justify-center text-[16px]"
+                style={{ background: 'rgba(255,255,255,0.05)', border: '2px solid rgba(255,255,255,0.10)' }}>
+                {pool.tokenB.logo}
+              </span>
+            </div>
+            <div>
+              <p className="text-white/60 font-semibold text-[15px]">{pool.name}</p>
+              <p className="text-white/20 text-[11px]">Fee: {pool.fee}</p>
+            </div>
+          </div>
+          <PoolStatusBadge status="soon" />
+        </div>
+
+        {/* Placeholder Stats */}
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          {['TVL', 'APR', '24h Vol'].map((label) => (
+            <div key={label} className="rounded-lg p-2.5" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)' }}>
+              <p className="text-white/20 text-[10px] uppercase tracking-wider mb-0.5">{label}</p>
+              <p className="stat-value text-[14px] text-white/20">–</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Action — link to liquidity page */}
+        <Link to="/liquidity" className="w-full py-2.5 text-[13px] text-center rounded-lg font-semibold block transition-colors"
+          style={{ background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.25)', color: '#a78bfa' }}>
+          Add Liquidity
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+/* ── Staking Lock Options ────────────────────────────────────────────── */
 const LOCK_OPTIONS = [
   { label: '7 Days', seconds: 7 * 86400 },
   { label: '30 Days', seconds: 30 * 86400 },
@@ -40,7 +225,9 @@ function calculateBoost(durationSec: number): number {
 }
 
 export default function FarmPage() {
+  usePageTitle('Farm');
   const { isConnected } = useAccount();
+  const { isWrongNetwork } = useNetworkCheck();
   const stats = useFarmStats();
   const pool = usePoolData();
   const pos = useUserPosition();
@@ -48,6 +235,7 @@ export default function FarmPage() {
   const nft = useNFTBoost();
   const price = useToweliPrice();
   const priceHistory = usePriceHistory(price.priceInUsd);
+  const { history: priceData, error: priceError } = priceHistory;
 
   const { showReceipt } = useTransactionReceipt();
   const confetti = useConfetti();
@@ -58,6 +246,8 @@ export default function FarmPage() {
   const [selectedLock, setSelectedLock] = useState(LOCK_OPTIONS[2]); // Default 90 days
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   const [confirmEarlyWithdraw, setConfirmEarlyWithdraw] = useState(false);
+
+  const poolTVL = usePoolTVL();
 
   const boostBps = calculateBoost(selectedLock.seconds);
   const nftBonus = nft.holdsJBAC ? JBAC_BONUS_BPS : 0;
@@ -71,9 +261,11 @@ export default function FarmPage() {
   const seasonEnd = new Date(CURRENT_SEASON.endDate).getTime();
   const daysLeft = Math.max(0, Math.ceil((seasonEnd - Date.now()) / 86400000));
 
+  const stakeNeedsApproval = pos.allowance < (amtNum > 0 ? BigInt(Math.floor(amtNum * 1e18)) : 0n);
+
   const handleStake = () => {
     if (amtNum <= 0) return;
-    if (pos.needsApproval) {
+    if (stakeNeedsApproval) {
       actions.approve(stakeAmount);
     } else {
       lastActionRef.current = 'stake';
@@ -124,18 +316,25 @@ export default function FarmPage() {
         confetti.fire();
       }
     }
-  }, [actions.isSuccess, actions.hash]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [actions.isSuccess, actions.hash, showReceipt, confetti, stakeAmount, selectedLock.label, boostDisplay, pool.isDeployed, pool.apr, pos.pendingFormatted, pos.stakedFormatted]);
 
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <img src={ART.jungleBus.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 20%' }} />
         <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.35) 30%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,0.8) 100%)',
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.85) 30%, rgba(0,0,0,0.92) 60%, rgba(0,0,0,0.96) 100%)',
         }} />
       </div>
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-12">
+        {/* Wrong network banner (#82 audit) */}
+        {isWrongNetwork && (
+          <div className="mb-4 px-5 py-4 rounded-xl text-[14px] font-semibold text-yellow-200 flex items-center gap-3" style={{ background: 'rgba(234,179,8,0.18)', border: '2px solid rgba(234,179,8,0.4)' }}>
+            <span className="text-[20px]" aria-hidden="true">&#9888;</span>
+            Wrong network detected &mdash; please switch to Ethereum Mainnet to use this app.
+          </div>
+        )}
         <motion.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Farm</h1>
           <p className="text-white/50 text-[14px]">Stake TOWELI and earn rewards &middot; <span className="text-primary/40">FAFO</span></p>
@@ -145,21 +344,24 @@ export default function FarmPage() {
         <motion.div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           {[
             { l: 'Total Value Locked', v: stats.tvl, art: ART.apeHug.src, pos: 'center 30%' },
-            { l: 'TOWELI Price', v: stats.toweliPrice, art: ART.roseApe.src, pos: 'center 30%' },
-            { l: 'Base APR', v: pool.isDeployed ? `${pool.apr}%` : '–', accent: true, art: ART.wrestler.src, pos: 'center 0%' },
+            { l: 'TOWELI Price', v: stats.toweliPrice + (price.displayPriceStale ? ' (stale)' : ''), art: ART.roseApe.src, pos: 'center 30%' },
+            { l: 'Base APR', v: pool.isDeployed ? `${pool.apr}%` : '–', accent: true, art: ART.wrestler.src, pos: 'center 0%', sub: pool.aprDisclaimer },
             { l: 'Season', v: `${daysLeft}d left`, sub: CURRENT_SEASON.name, art: ART.beachSunset.src, pos: 'center 30%' },
           ].map((s) => (
             <div key={s.l} className="relative overflow-hidden rounded-xl card-hover" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
               <div className="absolute inset-0">
-                <img src={s.art} alt="" className="w-full h-full object-cover" style={{ objectPosition: s.pos }} />
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.40) 0%, rgba(6,12,26,0.75) 50%, rgba(6,12,26,0.92) 100%)' }} />
+                <img src={s.art} alt="" className="w-full h-full object-cover" style={{ objectPosition: s.pos, opacity: 0.15 }} />
+                <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
               </div>
               <div className="relative z-10 p-5 pt-8 pb-6">
               <p className="text-white/50 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5">{s.l}{s.l === 'TOWELI Price' && <PulseDot size={5} />}</p>
               <div className="flex items-center gap-2">
                 <p className={`stat-value text-2xl ${s.accent ? 'text-primary' : 'text-white'}`}>{s.v}</p>
-                {s.l === 'TOWELI Price' && priceHistory.length > 1 && (
-                  <Sparkline data={priceHistory} width={48} height={18} />
+                {s.l === 'TOWELI Price' && priceData.length > 1 && (
+                  <Sparkline data={priceData} width={48} height={18} />
+                )}
+                {s.l === 'TOWELI Price' && priceError && priceData.length === 0 && (
+                  <span className="text-white/30 text-[10px]">Price data unavailable</span>
                 )}
               </div>
               {s.sub && <p className="text-white/30 text-[11px] mt-1">{s.sub}</p>}
@@ -172,8 +374,8 @@ export default function FarmPage() {
         <motion.div className="relative overflow-hidden rounded-xl mb-8" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div className="absolute inset-0">
-            <img src={ART.bobowelie.src} alt="" className="w-full h-full object-cover" />
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+            <img src={ART.bobowelie.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
           </div>
           <div className="relative z-10 p-6 py-8 flex items-center justify-between">
             <div>
@@ -194,13 +396,32 @@ export default function FarmPage() {
           </div>
         </motion.div>
 
+        {/* ── Native LP Pools ── */}
+        <motion.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h2 className="heading-luxury text-white text-[22px] tracking-tight">Liquidity Pools</h2>
+              <p className="text-white/40 text-[13px] mt-0.5">Provide liquidity to native pairs &middot; earn trading fees</p>
+            </div>
+            <Link to="/liquidity" className="text-primary/60 text-[12px] hover:text-primary transition-colors">
+              View all pools &#8594;
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <LivePoolCard poolData={poolTVL} />
+            {UPCOMING_POOLS.map((pool) => (
+              <UpcomingPoolCard key={pool.id} pool={pool} />
+            ))}
+          </div>
+        </motion.div>
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12">
           {/* Staking Card */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
             <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
               <div className="absolute inset-0">
-                <img src={ART.poolParty.src} alt="" className="w-full h-full object-cover" />
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.40) 0%, rgba(6,12,26,0.75) 50%, rgba(6,12,26,0.92) 100%)' }} />
+                <img src={ART.poolParty.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+                <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
               </div>
               <div className="relative z-10 p-6">
               <h3 className="heading-luxury text-white text-[20px] mb-5">
@@ -233,7 +454,7 @@ export default function FarmPage() {
 
                   <div className="flex flex-col gap-2">
                     <button onClick={() => { lastActionRef.current = 'claim'; actions.claim(pos.tokenId); }}
-                      disabled={actions.isPending || actions.isConfirming || Number(pos.pendingFormatted) < 0.01}
+                      disabled={actions.isPending || actions.isConfirming || pos.isLoading || Number(pos.pendingFormatted) < 0.01}
                       className="btn-primary w-full py-3 text-[14px] disabled:opacity-35 disabled:cursor-not-allowed">
                       {actions.isPending || actions.isConfirming ? 'Processing...' : 'Claim Rewards'}
                     </button>
@@ -324,8 +545,8 @@ export default function FarmPage() {
                         Balance: {formatTokenAmount(pos.walletBalanceFormatted, 0)}
                       </button>
                     </div>
-                    <input type="number" value={stakeAmount} onChange={(e) => setStakeAmount(e.target.value)}
-                      placeholder="0" min="0"
+                    <input type="number" value={stakeAmount} onChange={(e) => setStakeAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                      placeholder="0" min="0" step="any"
                       className="w-full rounded-lg p-4 font-mono text-xl text-white outline-none token-input"
                       style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.12)' }} />
                   </div>
@@ -378,7 +599,7 @@ export default function FarmPage() {
                     className="btn-primary w-full py-3.5 text-[14px] disabled:opacity-35 disabled:cursor-not-allowed">
                     {actions.isPending || actions.isConfirming
                       ? 'Processing...'
-                      : pos.needsApproval ? 'Approve TOWELI' : amtNum <= 0 ? 'Enter Amount' : `Stake & Lock for ${selectedLock.label}`}
+                      : stakeNeedsApproval ? 'Approve TOWELI' : amtNum <= 0 ? 'Enter Amount' : `Stake & Lock for ${selectedLock.label}`}
                   </button>
 
                   <p className="text-white/20 text-[10px] text-center mt-3">
@@ -394,8 +615,8 @@ export default function FarmPage() {
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
             <div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
               <div className="absolute inset-0">
-                <img src={ART.boxingRing.src} alt="" className="w-full h-full object-cover" />
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.40) 0%, rgba(6,12,26,0.75) 50%, rgba(6,12,26,0.92) 100%)' }} />
+                <img src={ART.boxingRing.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+                <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
               </div>
               <div className="relative z-10 p-6">
               <h3 className="heading-luxury text-white text-[20px] mb-5">Boost Schedule</h3>
@@ -423,8 +644,8 @@ export default function FarmPage() {
 
               <div className="mt-6 relative overflow-hidden rounded-lg" style={{ border: '1px solid rgba(255,178,55,0.12)' }}>
                 <div className="absolute inset-0">
-                  <img src={ART.chaosScene.src} alt="" className="w-full h-full object-cover" />
-                  <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+                  <img src={ART.chaosScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+                  <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
                 </div>
                 <div className="relative z-10 p-4">
                   <p className="text-warning/80 text-[12px] font-medium mb-1">Early Withdrawal</p>
@@ -436,8 +657,8 @@ export default function FarmPage() {
 
               <div className="mt-4 relative overflow-hidden rounded-lg" style={{ border: '1px solid rgba(139,92,246,0.10)' }}>
                 <div className="absolute inset-0">
-                  <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" />
-                  <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+                  <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+                  <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
                 </div>
                 <div className="relative z-10 p-4">
                   <p className="text-primary/80 text-[12px] font-medium mb-1">Auto-Max Lock</p>

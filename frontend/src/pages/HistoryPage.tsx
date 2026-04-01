@@ -3,9 +3,15 @@ import { motion } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { ART } from '../lib/artConfig';
-import { TEGRIDY_STAKING_ADDRESS, UNISWAP_V2_ROUTER, TOWELI_ADDRESS } from '../lib/constants';
+import {
+  TEGRIDY_STAKING_ADDRESS, TEGRIDY_RESTAKING_ADDRESS, UNISWAP_V2_ROUTER,
+  SWAP_FEE_ROUTER_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS,
+  COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, PREMIUM_ACCESS_ADDRESS,
+  TOWELI_ADDRESS, VOTE_INCENTIVES_ADDRESS,
+} from '../lib/constants';
 import { shortenAddress, formatTimeAgo } from '../lib/formatting';
 import { Skeleton } from '../components/ui/Skeleton';
+import { usePageTitle } from '../hooks/usePageTitle';
 
 interface TxRecord {
   hash: string;
@@ -16,28 +22,96 @@ interface TxRecord {
   value: string;
 }
 
+function isValidTxRecord(tx: unknown): tx is TxRecord {
+  if (!tx || typeof tx !== 'object') return false;
+  const r = tx as Record<string, unknown>;
+  return typeof r.hash === 'string' && typeof r.timeStamp === 'string' && typeof r.to === 'string'
+    && typeof r.functionName === 'string' && typeof r.isError === 'string' && typeof r.value === 'string';
+}
+
+function truncateTxFields(tx: TxRecord): TxRecord {
+  return {
+    hash: tx.hash.slice(0, 66),
+    timeStamp: tx.timeStamp.slice(0, 12),
+    to: tx.to.slice(0, 42),
+    functionName: tx.functionName.slice(0, 128),
+    isError: tx.isError,
+    value: tx.value.slice(0, 32),
+  };
+}
+
 function categorizeTx(tx: TxRecord): { type: string; color: string } {
   const fn = tx.functionName?.split('(')[0] || '';
   const to = tx.to.toLowerCase();
 
-  if (to === UNISWAP_V2_ROUTER.toLowerCase()) {
-    if (fn.includes('swap')) return { type: 'Swap', color: 'text-primary' };
+  // Swap routers
+  if (to === SWAP_FEE_ROUTER_ADDRESS.toLowerCase() || to === UNISWAP_V2_ROUTER.toLowerCase()) {
+    if (fn.includes('swap') || fn.includes('Swap')) return { type: 'Swap', color: 'text-primary' };
     return { type: 'Router', color: 'text-white/50' };
   }
+  // Staking
   if (to === TEGRIDY_STAKING_ADDRESS.toLowerCase()) {
-    if (fn === 'deposit') return { type: 'Stake', color: 'text-success' };
+    if (fn === 'stake') return { type: 'Stake', color: 'text-success' };
     if (fn === 'withdraw') return { type: 'Unstake', color: 'text-warning' };
-    if (fn === 'claim') return { type: 'Claim', color: 'text-primary' };
-    if (fn === 'emergencyWithdraw') return { type: 'Emergency', color: 'text-danger' };
+    if (fn === 'getReward') return { type: 'Claim', color: 'text-primary' };
+    if (fn === 'earlyWithdraw') return { type: 'Early Exit', color: 'text-danger' };
+    if (fn === 'toggleAutoMaxLock') return { type: 'Auto-Lock', color: 'text-white/50' };
     return { type: 'Farm', color: 'text-white/50' };
   }
-  if (to === TOWELI_ADDRESS.toLowerCase() && fn === 'approve') {
+  // Restaking
+  if (to === TEGRIDY_RESTAKING_ADDRESS.toLowerCase()) {
+    if (fn === 'restake') return { type: 'Restake', color: 'text-success' };
+    if (fn === 'unrestake') return { type: 'Unrestake', color: 'text-warning' };
+    if (fn === 'claimAll') return { type: 'Claim', color: 'text-primary' };
+    return { type: 'Restake', color: 'text-white/50' };
+  }
+  // Revenue & Referrals
+  if (to === REVENUE_DISTRIBUTOR_ADDRESS.toLowerCase()) {
+    if (fn === 'register') return { type: 'Register', color: 'text-success' };
+    if (fn === 'claim') return { type: 'Revenue', color: 'text-primary' };
+    return { type: 'Revenue', color: 'text-white/50' };
+  }
+  if (to === REFERRAL_SPLITTER_ADDRESS.toLowerCase()) {
+    if (fn === 'claimReferralRewards') return { type: 'Referral', color: 'text-primary' };
+    if (fn === 'setReferrer') return { type: 'Referral', color: 'text-success' };
+    return { type: 'Referral', color: 'text-white/50' };
+  }
+  // Governance
+  if (to === COMMUNITY_GRANTS_ADDRESS.toLowerCase()) {
+    if (fn === 'createProposal') return { type: 'Proposal', color: 'text-primary' };
+    if (fn === 'voteOnProposal') return { type: 'Vote', color: 'text-success' };
+    if (fn === 'finalizeProposal') return { type: 'Finalize', color: 'text-warning' };
+    return { type: 'Grants', color: 'text-white/50' };
+  }
+  // Bounties
+  if (to === MEME_BOUNTY_BOARD_ADDRESS.toLowerCase()) {
+    if (fn === 'createBounty') return { type: 'Bounty', color: 'text-primary' };
+    if (fn === 'submitWork') return { type: 'Submit', color: 'text-success' };
+    if (fn === 'voteForSubmission') return { type: 'Vote', color: 'text-success' };
+    return { type: 'Bounty', color: 'text-white/50' };
+  }
+  // Premium
+  if (to === PREMIUM_ACCESS_ADDRESS.toLowerCase()) {
+    if (fn === 'subscribe') return { type: 'Subscribe', color: 'text-primary' };
+    if (fn === 'claimNFTAccess') return { type: 'NFT Claim', color: 'text-success' };
+    return { type: 'Premium', color: 'text-white/50' };
+  }
+  // Vote Incentives (Bribes)
+  if (to === VOTE_INCENTIVES_ADDRESS.toLowerCase()) {
+    if (fn === 'depositBribe' || fn === 'depositBribeETH') return { type: 'Bribe', color: 'text-primary' };
+    if (fn === 'claimBribes' || fn === 'claimBribesBatch') return { type: 'Claim Bribe', color: 'text-success' };
+    if (fn === 'advanceEpoch') return { type: 'Epoch', color: 'text-white/50' };
+    return { type: 'Bribes', color: 'text-white/50' };
+  }
+  // Token approvals
+  if (fn === 'approve') {
     return { type: 'Approve', color: 'text-white/40' };
   }
   return { type: 'Other', color: 'text-white/30' };
 }
 
 export default function HistoryPage() {
+  usePageTitle('History');
   const { isConnected, address } = useAccount();
   const [txs, setTxs] = useState<TxRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -51,24 +125,32 @@ export default function HistoryPage() {
     try {
       const cached = localStorage.getItem(cacheKey);
       if (cached) {
-        const { data, ts } = JSON.parse(cached);
-        if (Date.now() - ts < 300000) { // 5 min cache
-          setTxs(data);
+        const parsed = JSON.parse(cached);
+        if (parsed && typeof parsed.ts === 'number' && Array.isArray(parsed.data) && Date.now() - parsed.ts < 300000) {
+          setTxs(parsed.data.filter(isValidTxRecord).map(truncateTxFields));
           return;
         }
       }
     } catch {}
 
     setLoading(true);
-    const contracts = [UNISWAP_V2_ROUTER, TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS].map(a => a.toLowerCase());
+    const contracts = [
+      SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, TEGRIDY_STAKING_ADDRESS,
+      TEGRIDY_RESTAKING_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS,
+      COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, PREMIUM_ACCESS_ADDRESS,
+      TOWELI_ADDRESS, VOTE_INCENTIVES_ADDRESS,
+    ].map(a => a.toLowerCase());
 
-    fetch(`https://api.etherscan.io/api?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&sort=desc&apikey=YourApiKeyToken`)
+    // Etherscan free-tier API key via VITE_ env var — intentionally public/client-side.
+    // This key is rate-limited (5 req/s) and carries no privileged access.
+    const etherscanKey = import.meta.env.VITE_ETHERSCAN_API_KEY || '';
+    fetch(`https://api.etherscan.io/api?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&sort=desc&apikey=${etherscanKey}`)
       .then(r => r.json())
       .then(data => {
         if (data.status === '1' && Array.isArray(data.result)) {
-          const relevant = data.result.filter((tx: TxRecord) =>
-            contracts.includes(tx.to?.toLowerCase())
-          ).slice(0, 50);
+          const relevant = data.result.filter((tx: unknown) =>
+            isValidTxRecord(tx) && contracts.includes(tx.to?.toLowerCase())
+          ).slice(0, 50).map(truncateTxFields);
           setTxs(relevant);
           try {
             localStorage.setItem(cacheKey, JSON.stringify({ data: relevant, ts: Date.now() }));
@@ -89,7 +171,7 @@ export default function HistoryPage() {
       <div className="-mt-14 relative min-h-screen">
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
           <img src={ART.jungleDark.src} alt="" className="w-full h-full object-cover" />
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.7) 100%)' }} />
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.96) 100%)' }} />
         </div>
         <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
           <motion.div className="text-center max-w-sm" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}>
@@ -113,7 +195,7 @@ export default function HistoryPage() {
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <img src={ART.jungleDark.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%' }} />
         <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.45) 30%, rgba(0,0,0,0.7) 60%, rgba(0,0,0,0.88) 100%)',
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.85) 30%, rgba(0,0,0,0.92) 60%, rgba(0,0,0,0.96) 100%)',
         }} />
       </div>
 
@@ -177,7 +259,7 @@ export default function HistoryPage() {
         </motion.div>
 
         <p className="text-white/15 text-[10px] text-center mt-4">
-          Showing interactions with Tegridy Farm, Uniswap Router, and TOWELI contracts.
+          Showing interactions with all Tegridy Farms protocol contracts.
         </p>
       </div>
     </div>

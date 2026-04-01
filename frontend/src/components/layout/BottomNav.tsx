@@ -1,4 +1,6 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
+import { useState, useRef, useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 
 const TABS = [
   { to: '/swap', label: 'Swap', icon: (
@@ -19,32 +21,124 @@ const TABS = [
       <rect x="14" y="14" width="7" height="7" rx="1" />
     </svg>
   )},
-  { to: '/gallery', label: 'Gallery', icon: (
+  { to: '/premium', label: 'Gold Card', icon: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <circle cx="8.5" cy="8.5" r="1.5" />
-      <path d="M21 15l-5-5L5 21" />
+      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
     </svg>
-  )},
+  ), gold: true },
 ];
 
+const MORE_PAGES = [
+  { to: '/liquidity', label: 'Liquidity' },
+  { to: '/restake', label: 'Restake' },
+  { to: '/leaderboard', label: 'Points' },
+  { to: '/gallery', label: 'Gallery' },
+  { to: '/grants', label: 'Governance' },
+  { to: '/bounties', label: 'Bounties' },
+  { to: '/bribes', label: 'Bribes' },
+  { to: '/tokenomics', label: 'Tokenomics' },
+  { to: '/lore', label: 'Lore' },
+  { to: '/history', label: 'History' },
+];
+
+const MORE_PATHS = MORE_PAGES.map(p => p.to);
+
 export function BottomNav() {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const location = useLocation();
+  const isMoreActive = MORE_PATHS.includes(location.pathname);
+
+  // Close on route change
+  useEffect(() => { setOpen(false); }, [location.pathname]);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden"
+    <nav aria-label="Main navigation" className="fixed bottom-0 left-0 right-0 z-50 md:hidden"
       style={{
         background: 'rgba(6,12,26,0.95)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
         borderTop: '1px solid rgba(139,92,246,0.15)',
       }}>
+
+      {/* More menu popup */}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            ref={menuRef}
+            className="absolute bottom-full left-0 right-0 px-3 pb-2"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            transition={{ duration: 0.15 }}
+          >
+            <div className="rounded-xl overflow-hidden py-1"
+              style={{
+                background: 'rgba(10,16,32,0.97)',
+                border: '1px solid rgba(139,92,246,0.2)',
+                backdropFilter: 'blur(20px)',
+                boxShadow: '0 -8px 30px rgba(0,0,0,0.5)',
+              }}>
+              <div className="grid grid-cols-3 gap-0.5 p-2">
+                {MORE_PAGES.map(page => (
+                  <NavLink
+                    key={page.to}
+                    to={page.to}
+                    className={({ isActive }) =>
+                      `flex items-center justify-center py-2.5 px-2 rounded-lg text-[12px] font-medium transition-colors ${
+                        isActive ? 'text-primary bg-primary/10' : 'text-white/50 hover:text-white hover:bg-white/5'
+                      }`
+                    }
+                  >
+                    {page.label}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="flex items-center justify-around h-16 safe-area-bottom">
         {TABS.map(tab => (
-          <NavLink key={tab.to} to={tab.to}
-            className={({ isActive }) => `flex flex-col items-center justify-center gap-0.5 min-w-[56px] min-h-[48px] px-3 py-2 transition-colors ${isActive ? 'text-primary' : 'text-white/40'}`}>
+          <NavLink key={tab.to} to={tab.to} aria-label={tab.label}
+            className={({ isActive }) =>
+              `flex flex-col items-center justify-center gap-0.5 min-w-[52px] min-h-[48px] px-2 py-2 transition-colors ${
+                isActive ? (tab.gold ? 'text-[#d4a017]' : 'text-primary') : (tab.gold ? 'text-[#d4a017]/50' : 'text-white/40')
+              }`
+            }>
             {tab.icon}
-            <span className="text-[10px] font-medium">{tab.label}</span>
+            <span className={`text-[10px] font-medium ${tab.gold ? '' : ''}`}>{tab.label}</span>
           </NavLink>
         ))}
+
+        {/* More button */}
+        <button
+          onClick={() => setOpen(!open)}
+          aria-label="More pages"
+          className={`flex flex-col items-center justify-center gap-0.5 min-w-[52px] min-h-[48px] px-2 py-2 transition-colors cursor-pointer ${
+            isMoreActive || open ? 'text-primary' : 'text-white/40'
+          }`}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <circle cx="5" cy="12" r="1.5" />
+            <circle cx="12" cy="12" r="1.5" />
+            <circle cx="19" cy="12" r="1.5" />
+          </svg>
+          <span className="text-[10px] font-medium">More</span>
+        </button>
       </div>
     </nav>
   );

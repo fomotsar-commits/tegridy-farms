@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { UNISWAP_V2_ROUTER_ABI, UNISWAP_V2_FACTORY_ABI, ERC20_ABI, UNISWAP_V2_PAIR_ABI, SWAP_FEE_ROUTER_ABI } from '../lib/contracts';
 import { UNISWAP_V2_ROUTER, WETH_ADDRESS, UNISWAP_V2_FACTORY, SWAP_FEE_ROUTER_ADDRESS } from '../lib/constants';
 import { type TokenInfo } from '../lib/tokenList';
-import { getAggregatorPrice } from '../lib/aggregator';
+import { getAggregatorPrice, calculateAggregatorSpread, type AggregatorSpread } from '../lib/aggregator';
 
 // Which router function to use based on input/output token types
 type SwapType = 'ethForTokens' | 'tokensForEth' | 'tokensForTokens';
@@ -83,16 +83,34 @@ export function useSwap() {
 
   const hasDirectPair = directPair && directPair !== '0x0000000000000000000000000000000000000000';
 
-  // Get reserves for price impact on the primary pair
-  const primaryPairAddr = path.length === 2
-    ? directPair
-    : undefined; // For multi-hop we skip detailed price impact for now
+  // For direct swaps, use the directPair; for multi-hop, look up both leg pairs
+  const isMultiHop = path.length > 2;
+  const primaryPairAddr = !isMultiHop ? directPair : undefined;
+
+  const { data: leg1Pair } = useReadContract({
+    address: UNISWAP_V2_FACTORY,
+    abi: UNISWAP_V2_FACTORY_ABI,
+    functionName: 'getPair',
+    args: [path[0] as `0x${string}`, WETH_ADDRESS],
+    query: { enabled: isMultiHop && path.length === 3 && parsedAmount > 0n },
+  });
+
+  const { data: leg2Pair } = useReadContract({
+    address: UNISWAP_V2_FACTORY,
+    abi: UNISWAP_V2_FACTORY_ABI,
+    functionName: 'getPair',
+    args: [WETH_ADDRESS, path[2] as `0x${string}`],
+    query: { enabled: isMultiHop && path.length === 3 && parsedAmount > 0n },
+  });
+
+  const validLeg1 = leg1Pair && leg1Pair !== '0x0000000000000000000000000000000000000000';
+  const validLeg2 = leg2Pair && leg2Pair !== '0x0000000000000000000000000000000000000000';
 
   const { data: reserves } = useReadContract({
     address: primaryPairAddr as `0x${string}`,
     abi: UNISWAP_V2_PAIR_ABI,
     functionName: 'getReserves',
-    query: { enabled: !!primaryPairAddr && primaryPairAddr !== '0x0000000000000000000000000000000000000000' && parsedAmount > 0n },
+    query: { enabled: !!primaryPairAddr && primaryPairAddr !== '0x0000000000000000000000000000000000000000' && parsedAmount > 0n, refetchInterval: 15_000 },
   });
 
   const { data: token0 } = useReadContract({
@@ -100,6 +118,34 @@ export function useSwap() {
     abi: UNISWAP_V2_PAIR_ABI,
     functionName: 'token0',
     query: { enabled: !!primaryPairAddr && primaryPairAddr !== '0x0000000000000000000000000000000000000000' },
+  });
+
+  const { data: leg1Reserves } = useReadContract({
+    address: leg1Pair as `0x${string}`,
+    abi: UNISWAP_V2_PAIR_ABI,
+    functionName: 'getReserves',
+    query: { enabled: !!validLeg1 && parsedAmount > 0n, refetchInterval: 15_000 },
+  });
+
+  const { data: leg1Token0 } = useReadContract({
+    address: leg1Pair as `0x${string}`,
+    abi: UNISWAP_V2_PAIR_ABI,
+    functionName: 'token0',
+    query: { enabled: !!validLeg1 && parsedAmount > 0n },
+  });
+
+  const { data: leg2Reserves } = useReadContract({
+    address: leg2Pair as `0x${string}`,
+    abi: UNISWAP_V2_PAIR_ABI,
+    functionName: 'getReserves',
+    query: { enabled: !!validLeg2 && parsedAmount > 0n, refetchInterval: 15_000 },
+  });
+
+  const { data: leg2Token0 } = useReadContract({
+    address: leg2Pair as `0x${string}`,
+    abi: UNISWAP_V2_PAIR_ABI,
+    functionName: 'token0',
+    query: { enabled: !!validLeg2 && parsedAmount > 0n },
   });
 
   // Token balances
@@ -171,13 +217,23 @@ export function useSwap() {
   // Output calculation
   const uniOutputAmount = amountsOut ? amountsOut[amountsOut.length - 1] : 0n;
 
-  // Compare: use aggregator if it gives >0.5% better output
-  const aggOutputAmount = aggQuoteResult?.amountOut ? BigInt(aggQuoteResult.amountOut) : 0n;
-  const aggBetter = aggOutputAmount > 0n && uniOutputAmount > 0n
-    ? ((aggOutputAmount - uniOutputAmount) * 10000n) / uniOutputAmount > 50n
-    : false;
+  // Aggregator spread calculation (1inch/Paraswap positive slippage model)
+  let aggOutputAmount = 0n;
+  try {
+    aggOutputAmount = aggQuoteResult?.amountOut ? BigInt(aggQuoteResult.amountOut) : 0n;
+  } catch {
+    // Invalid amountOut from aggregator — ignore
+  }
 
-  const outputAmount = useAggregator && aggBetter ? aggOutputAmount : uniOutputAmount;
+  const aggSpread: AggregatorSpread = useMemo(
+    () => calculateAggregatorSpread(uniOutputAmount, aggOutputAmount),
+    [uniOutputAmount, aggOutputAmount],
+  );
+
+  const aggBetter = aggSpread.shouldUseAggregator;
+
+  // When using aggregator, user receives the spread-adjusted amount (always > direct Uniswap)
+  const outputAmount = useAggregator && aggBetter ? aggSpread.userReceives : uniOutputAmount;
   const outputFormatted = formatUnits(outputAmount, toDecimals);
 
   // Intermediate amount (for multi-hop route display)
@@ -185,12 +241,43 @@ export function useSwap() {
 
   // Price impact calculation
   const priceImpact = useMemo(() => {
-    if (!reserves || !token0 || parsedAmount === 0n || outputAmount === 0n || !fromToken || !toToken) return 0;
+    if (parsedAmount === 0n || outputAmount === 0n || !fromToken || !toToken) return 0;
+
     if (path.length > 2) {
       if (!amountsOut || amountsOut.length < 3) return 0;
-      // Rough estimate: compare expected vs actual output
-      return 0.5; // Show "~0.5%" as minimum estimate for multi-hop
+      if (!leg1Reserves || !leg1Token0 || !leg2Reserves || !leg2Token0) return 0.5;
+
+      try {
+        const fromAddr = (fromToken.isNative ? WETH_ADDRESS : fromToken.address).toLowerCase();
+        const isLeg1Token0From = leg1Token0.toLowerCase() === fromAddr;
+        const r1In = isLeg1Token0From ? leg1Reserves[0] : leg1Reserves[1];
+        const r1Out = isLeg1Token0From ? leg1Reserves[1] : leg1Reserves[0];
+        if (r1In <= 0n || r1Out <= 0n) return 0.5;
+
+        const midPrice1 = (r1Out * 10n ** 18n) / r1In;
+        const execPrice1 = (amountsOut[1] * 10n ** 18n) / amountsOut[0];
+        const ratio1 = midPrice1 > 0n ? (execPrice1 * 10n ** 18n) / midPrice1 : 10n ** 18n;
+
+        const isLeg2Token0Weth = leg2Token0.toLowerCase() === WETH_ADDRESS.toLowerCase();
+        const r2In = isLeg2Token0Weth ? leg2Reserves[0] : leg2Reserves[1];
+        const r2Out = isLeg2Token0Weth ? leg2Reserves[1] : leg2Reserves[0];
+        if (r2In <= 0n || r2Out <= 0n) return 0.5;
+
+        const midPrice2 = (r2Out * 10n ** 18n) / r2In;
+        const execPrice2 = (amountsOut[2] * 10n ** 18n) / amountsOut[1];
+        const ratio2 = midPrice2 > 0n ? (execPrice2 * 10n ** 18n) / midPrice2 : 10n ** 18n;
+
+        const combinedRatio = (ratio1 * ratio2) / 10n ** 18n;
+        const impactBps = combinedRatio < 10n ** 18n
+          ? ((10n ** 18n - combinedRatio) * 10000n) / 10n ** 18n
+          : 0n;
+        return Number(impactBps) / 100;
+      } catch {
+        return 0.5;
+      }
     }
+
+    if (!reserves || !token0) return 0;
 
     try {
       const fromAddr = fromToken.isNative ? WETH_ADDRESS : fromToken.address;
@@ -210,7 +297,7 @@ export function useSwap() {
     } catch {
       return 0;
     }
-  }, [reserves, token0, parsedAmount, outputAmount, fromToken, toToken, path, amountsOut]);
+  }, [reserves, token0, parsedAmount, outputAmount, fromToken, toToken, path, amountsOut, leg1Reserves, leg1Token0, leg2Reserves, leg2Token0]);
 
   // Slippage-protected minimum
   const minimumReceived = useMemo(() => {
@@ -279,12 +366,14 @@ export function useSwap() {
     const deadlineTs = BigInt(Math.floor(Date.now() / 1000) + deadline * 60);
 
     // Route through SwapFeeRouter (0.3% fee to treasury) instead of Uniswap directly
+    // maxFeeBps = 100 (1%) protects against fee frontrunning during timelock changes
+    const maxFeeBps = 100n;
     if (swapType === 'ethForTokens') {
       writeContract({
         address: SWAP_FEE_ROUTER_ADDRESS,
         abi: SWAP_FEE_ROUTER_ABI,
         functionName: 'swapExactETHForTokens',
-        args: [minimumReceived, path, address, deadlineTs],
+        args: [minimumReceived, path, address, deadlineTs, maxFeeBps],
         value: parsedAmount,
       });
     } else if (swapType === 'tokensForEth') {
@@ -292,14 +381,14 @@ export function useSwap() {
         address: SWAP_FEE_ROUTER_ADDRESS,
         abi: SWAP_FEE_ROUTER_ABI,
         functionName: 'swapExactTokensForETH',
-        args: [parsedAmount, minimumReceived, path, address, deadlineTs],
+        args: [parsedAmount, minimumReceived, path, address, deadlineTs, maxFeeBps],
       });
     } else {
       writeContract({
         address: SWAP_FEE_ROUTER_ADDRESS,
         abi: SWAP_FEE_ROUTER_ABI,
         functionName: 'swapExactTokensForTokens',
-        args: [parsedAmount, minimumReceived, path, address, deadlineTs],
+        args: [parsedAmount, minimumReceived, path, address, deadlineTs, maxFeeBps],
       });
     }
   }, [address, fromToken, toToken, parsedAmount, insufficientBalance, swapType, deadline, minimumReceived, path, writeContract]);
@@ -365,5 +454,9 @@ export function useSwap() {
     useAggregator,
     setUseAggregator,
     txHash: hash,
+    // Aggregator revenue spread info
+    aggSpread,
+    aggUserReceivesFormatted: aggSpread.shouldUseAggregator ? formatUnits(aggSpread.userReceives, toDecimals) : null,
+    aggProtocolCaptureFormatted: aggSpread.protocolCapture > 0n ? formatUnits(aggSpread.protocolCapture, toDecimals) : null,
   };
 }

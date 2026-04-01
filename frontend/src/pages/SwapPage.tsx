@@ -5,7 +5,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useSwap } from '../hooks/useSwap';
 import { useToweliPrice } from '../hooks/useToweliPrice';
 import { formatTokenAmount, formatCurrency } from '../lib/formatting';
-import { GECKOTERMINAL_URL, GECKOTERMINAL_EMBED, UNISWAP_BUY_URL, TOWELI_TOTAL_SUPPLY, TOWELI_ADDRESS, TOWELI_WETH_LP_ADDRESS } from '../lib/constants';
+import { GECKOTERMINAL_URL, GECKOTERMINAL_EMBED, UNISWAP_BUY_URL, TOWELI_TOTAL_SUPPLY, TOWELI_ADDRESS, TOWELI_WETH_LP_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { TokenSelectModal } from '../components/swap/TokenSelectModal';
 import { LimitOrderTab } from '../components/swap/LimitOrderTab';
 import { DCATab } from '../components/swap/DCATab';
@@ -23,6 +23,7 @@ export default function SwapPage() {
   const swap = useSwap();
   const price = useToweliPrice();
   const priceHistory = usePriceHistory(price.priceInUsd);
+  const { history: priceData, error: priceError } = priceHistory;
   const points = usePoints();
   const nft = useNFTBoost();
   const swapLoggedRef = useRef<string | null>(null);
@@ -228,7 +229,7 @@ export default function SwapPage() {
                     {chartToken.isToweli && (
                       <div className="flex items-center gap-2">
                         <span className="stat-value text-[14px] text-primary">{price.isLoaded ? formatCurrency(price.priceInUsd, 6) : '–'}</span>
-                        {priceHistory.length > 1 && <Sparkline data={priceHistory} width={48} height={16} />}
+                        {priceData.length > 1 ? <Sparkline data={priceData} width={48} height={16} /> : priceError && <span className="text-white/30 text-[10px]">Price data unavailable</span>}
                         {price.isLoaded && <span className="text-white/25 text-[11px]">FDV {fdv}</span>}
                       </div>
                     )}
@@ -258,7 +259,12 @@ export default function SwapPage() {
               </button>
             </div>
             <div className={`flex-1 min-h-[400px] ${mobileChartOpen ? '' : 'hidden lg:block'}`}>
-              {showChart ? (
+              {CHAIN_ID !== 1 ? (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-2">
+                  <span className="text-white/30 text-[14px]">Chart unavailable on testnet</span>
+                  <span className="text-white/15 text-[11px]">GeckoTerminal only supports mainnet pools</span>
+                </div>
+              ) : showChart ? (
                 <iframe
                   key={chartEmbedUrl}
                   src={chartEmbedUrl}
@@ -400,6 +406,13 @@ export default function SwapPage() {
                 className="flex-1 bg-transparent font-mono text-[24px] text-white outline-none token-input min-w-0" />
               <TokenButton token={swap.fromToken} onClick={() => setTokenSelectSide('from')} />
             </div>
+            {swap.inputAmount && parseFloat(swap.inputAmount) > 0 && (() => {
+              const amt = parseFloat(swap.inputAmount);
+              const usd = swap.fromToken?.isNative || swap.fromToken?.symbol === 'WETH'
+                ? amt * price.ethUsd
+                : swap.fromToken?.symbol === 'TOWELI' ? amt * price.priceInUsd : 0;
+              return usd > 0 ? <p className="text-white/25 text-[11px] font-mono mt-1">(${formatCurrency(usd)})</p> : null;
+            })()}
           </div>
 
           {/* FLIP BUTTON */}
@@ -440,6 +453,13 @@ export default function SwapPage() {
               </p>
               <TokenButton token={swap.toToken} onClick={() => setTokenSelectSide('to')} />
             </div>
+            {swap.outputFormatted && parseFloat(swap.outputFormatted) > 0 && (() => {
+              const amt = parseFloat(swap.outputFormatted);
+              const usd = swap.toToken?.isNative || swap.toToken?.symbol === 'WETH'
+                ? amt * price.ethUsd
+                : swap.toToken?.symbol === 'TOWELI' ? amt * price.priceInUsd : 0;
+              return usd > 0 ? <p className="text-white/25 text-[11px] font-mono mt-1">(${formatCurrency(usd)})</p> : null;
+            })()}
           </div>
 
           {/* ROUTE + DETAILS */}
@@ -472,12 +492,30 @@ export default function SwapPage() {
 
               <div className="h-px" style={{ background: 'rgba(139,92,246,0.06)' }} />
 
-              {/* Aggregator better price indicator */}
+              {/* Aggregator savings breakdown */}
               {swap.aggBetter && swap.aggOutputFormatted && (
-                <div className="px-4 py-2" style={{ background: 'rgba(49,208,170,0.06)', borderBottom: '1px solid rgba(49,208,170,0.10)' }}>
+                <div className="px-4 py-2.5 space-y-1.5" style={{ background: 'rgba(49,208,170,0.06)', borderBottom: '1px solid rgba(49,208,170,0.10)' }}>
                   <div className="flex items-center justify-between">
-                    <span className="text-success text-[11px] font-medium">Better price found via aggregator</span>
-                    <span className="stat-value text-[11px] text-success">{formatTokenAmount(swap.aggOutputFormatted)} {swap.toToken!.symbol}</span>
+                    <span className="text-success text-[11px] font-medium">Better price via aggregator</span>
+                    <span className="text-success text-[10px] font-mono">+{swap.aggSpread.userSavingsBps / 100}% savings</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-white/30">Direct (Uniswap V2)</span>
+                    <span className="text-white/40 font-mono">{formatTokenAmount(String(swap.outputFormatted))} {swap.toToken!.symbol}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-white/30">Aggregator route</span>
+                    <span className="text-white/40 font-mono">{formatTokenAmount(swap.aggOutputFormatted)} {swap.toToken!.symbol}</span>
+                  </div>
+                  {swap.aggProtocolCaptureFormatted && (
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-white/20">Optimization fee</span>
+                      <span className="text-white/25 font-mono">{formatTokenAmount(swap.aggProtocolCaptureFormatted)} {swap.toToken!.symbol}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-success/70 font-medium">You receive</span>
+                    <span className="stat-value text-[11px] text-success">{swap.aggUserReceivesFormatted ? formatTokenAmount(swap.aggUserReceivesFormatted) : formatTokenAmount(swap.aggOutputFormatted)} {swap.toToken!.symbol}</span>
                   </div>
                 </div>
               )}

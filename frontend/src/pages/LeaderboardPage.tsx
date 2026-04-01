@@ -5,10 +5,13 @@ import { usePoints } from '../hooks/usePoints';
 import { useNFTBoost } from '../hooks/useNFTBoost';
 import { TIER_THRESHOLDS, BADGES } from '../lib/pointsEngine';
 import { CopyButton } from '../components/ui/CopyButton';
+import { CURRENT_SEASON } from '../lib/constants';
 import { TegridyScore } from '../components/TegridyScore';
 import { AnimatedCounter } from '../components/AnimatedCounter';
+import { usePageTitle } from '../hooks/usePageTitle';
 
 export default function LeaderboardPage() {
+  usePageTitle('Leaderboard');
   const { isConnected } = useAccount();
   const points = usePoints();
   const nft = useNFTBoost();
@@ -18,14 +21,14 @@ export default function LeaderboardPage() {
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <img src={ART.jbChristmas.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
         <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.45) 30%, rgba(0,0,0,0.7) 60%, rgba(0,0,0,0.88) 100%)',
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.85) 30%, rgba(0,0,0,0.92) 60%, rgba(0,0,0,0.96) 100%)',
         }} />
       </div>
 
       <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-20 pb-12">
         <motion.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Leaderboard</h1>
-          <p className="text-white/50 text-[14px]">Season 1 — Earn points by using the protocol</p>
+          <p className="text-white/50 text-[14px]">{CURRENT_SEASON.name} — Earn points by using the protocol</p>
         </motion.div>
 
         {/* Tegridy Score */}
@@ -40,8 +43,8 @@ export default function LeaderboardPage() {
           <motion.div className="relative overflow-hidden rounded-xl mb-6" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
             <div className="absolute inset-0">
-              <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%' }} />
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+              <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%', opacity: 0.15 }} />
+              <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
             </div>
             <div className="relative z-10 p-5">
             <div className="flex items-center justify-between mb-4">
@@ -119,8 +122,8 @@ export default function LeaderboardPage() {
         <motion.div className="relative overflow-hidden rounded-xl mb-6" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
           <div className="absolute inset-0">
-            <img src={ART.jbChristmas.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%' }} />
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+            <img src={ART.jbChristmas.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%', opacity: 0.15 }} />
+            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
           </div>
           <div className="relative z-10 p-5">
             <h3 className="text-white text-[15px] font-semibold mb-3">How Points Work</h3>
@@ -140,7 +143,7 @@ export default function LeaderboardPage() {
                 </div>
               ))}
             </div>
-            <p className="text-white/20 text-[10px] mt-3">Streak multipliers: 7d = 1.5x, 14d = 2x, 30d = 3x. Gold Card holders get 2x on all points.</p>
+            <p className="text-white/20 text-[10px] mt-3">Streak multipliers: 7d = 1.5x, 14d = 2x, 30d = 3x. Points are local and unverified.</p>
           </div>
         </motion.div>
 
@@ -148,8 +151,8 @@ export default function LeaderboardPage() {
         <motion.div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
           <div className="absolute inset-0">
-            <img src={ART.beachSunset.src} alt="" className="w-full h-full object-cover" />
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+            <img src={ART.beachSunset.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
           </div>
           <div className="relative z-10 p-5">
             <h3 className="text-white text-[15px] font-semibold mb-3">Tiers</h3>
@@ -169,8 +172,8 @@ export default function LeaderboardPage() {
         <motion.div className="relative overflow-hidden rounded-xl mt-6" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
           <div className="absolute inset-0">
-            <img src={ART.jbacSkeleton.src} alt="" className="w-full h-full object-cover" />
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+            <img src={ART.jbacSkeleton.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
           </div>
           <div className="relative z-10 p-5">
             <h3 className="text-white text-[15px] font-semibold mb-3">All Badges</h3>
