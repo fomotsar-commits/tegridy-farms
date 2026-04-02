@@ -35,14 +35,16 @@ export function useSwap() {
   const [fromToken, setFromToken] = useState<TokenInfo | null>(null);
   const [toToken, setToToken] = useState<TokenInfo | null>(null);
   const [inputAmount, setInputAmount] = useState('');
-  const [slippage, setSlippage] = useState(5);
+  const [slippageRaw, setSlippageRaw] = useState(0.5);
+  const slippage = Math.min(Math.max(slippageRaw, 0), 49);
+  const setSlippage = useCallback((val: number) => {
+    setSlippageRaw(Math.min(Math.max(val, 0), 49));
+  }, []);
   const [deadline, setDeadline] = useState(5);
   const [customTokens, setCustomTokens] = useState<TokenInfo[]>([]);
-  const [unlimitedApproval, setUnlimitedApproval] = useState(() => {
-    try { return localStorage.getItem('tegridy_unlimited_approval') === 'true'; } catch { return false; }
-  });
+  const [unlimitedApproval, setUnlimitedApproval] = useState(false);
 
-  const { data: ethBalance } = useBalance({ address });
+  const { data: ethBalance } = useBalance({ address, chainId: 1, query: { refetchInterval: 30_000 } });
 
   // Derived values
   const swapType = fromToken && toToken ? getSwapType(fromToken, toToken) : null;
@@ -154,7 +156,8 @@ export function useSwap() {
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: [address!],
-    query: { enabled: !!address && !!fromToken && !fromToken.isNative },
+    chainId: 1,
+    query: { enabled: !!address && !!fromToken && !fromToken.isNative, refetchInterval: 30_000 },
   });
 
   const { data: toTokenBalance } = useReadContract({
@@ -162,7 +165,8 @@ export function useSwap() {
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: [address!],
-    query: { enabled: !!address && !!toToken && !toToken.isNative },
+    chainId: 1,
+    query: { enabled: !!address && !!toToken && !toToken.isNative, refetchInterval: 30_000 },
   });
 
   // Allowance check (only for ERC20 input)
@@ -302,8 +306,8 @@ export function useSwap() {
   // Slippage-protected minimum
   const minimumReceived = useMemo(() => {
     if (outputAmount === 0n) return 0n;
-    const slippageBps = BigInt(Math.round(slippage * 10));
-    return outputAmount - (outputAmount * slippageBps) / 1000n;
+    const slippageBps = BigInt(Math.round(slippage * 100));
+    return outputAmount - (outputAmount * slippageBps) / 10000n;
   }, [outputAmount, slippage]);
 
   const needsApproval = !!fromToken && !fromToken.isNative && parsedAmount > 0n && (allowance ?? 0n) < parsedAmount;
@@ -358,7 +362,6 @@ export function useSwap() {
 
   const toggleUnlimitedApproval = useCallback((val: boolean) => {
     setUnlimitedApproval(val);
-    try { localStorage.setItem('tegridy_unlimited_approval', String(val)); } catch {}
   }, []);
 
   const executeSwap = useCallback(() => {

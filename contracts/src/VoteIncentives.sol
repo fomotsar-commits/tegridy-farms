@@ -30,6 +30,12 @@ interface ITegridyFactory {
     function getPair(address tokenA, address tokenB) external view returns (address pair);
 }
 
+/// @dev Interface for TegridyPair to read token addresses (H-04 fix).
+interface ITegridyPair {
+    function token0() external view returns (address);
+    function token1() external view returns (address);
+}
+
 /// @title VoteIncentives — Bribe Market for veTOWELI Voters
 /// @notice External protocols deposit ETH or ERC20 bribes for specific pool pairs.
 ///         veTOWELI holders claim proportional to their votingPowerAtTimestamp().
@@ -77,6 +83,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     // ─── Immutables ──────────────────────────────────────────────────
     IVotingEscrow public immutable votingEscrow;
     IWETH public immutable weth;
+    ITegridyFactory public immutable factory;
 
     // ─── State ───────────────────────────────────────────────────────
     address public treasury;
@@ -107,6 +114,17 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     mapping(address => uint256) public pendingETHWithdrawals;
     mapping(address => mapping(address => uint256)) public pendingTokenWithdrawals;
     uint256 public totalPendingETH;
+
+    // C-01/C-02 FIX: Track total unclaimed bribe amounts to prevent sweep from draining active bribes
+    mapping(address => uint256) public totalUnclaimedBribes;  // token => total unclaimed amount
+    uint256 public totalUnclaimedETHBribes;
+
+    // C-02 FIX: Track first deposit timestamp per epoch for orphaned bribe rescue
+    mapping(uint256 => uint256) public epochBribeFirstDeposit; // epoch => first deposit timestamp
+    uint256 public constant BRIBE_RESCUE_DELAY = 30 days;
+
+    // H-03 FIX: Accumulated treasury ETH fees (pull pattern)
+    uint256 public accumulatedTreasuryETH;
 
     // ─── Pending Values (for timelocked changes) ─────────────────────
     uint256 public pendingFeeBps;
@@ -160,12 +178,14 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         address _votingEscrow,
         address _treasury,
         address _weth,
+        address _factory,
         uint256 _bribeFeeBps
     ) OwnableNoRenounce(msg.sender) {
-        if (_votingEscrow == address(0) || _treasury == address(0) || _weth == address(0)) revert ZeroAddress();
+        if (_votingEscrow == address(0) || _treasury == address(0) || _weth == address(0) || _factory == address(0)) revert ZeroAddress();
         if (_bribeFeeBps > MAX_FEE_BPS) revert FeeTooHigh();
         votingEscrow = IVotingEscrow(_votingEscrow);
         weth = IWETH(_weth);
+        factory = ITegridyFactory(_factory);
         treasury = _treasury;
         bribeFeeBps = _bribeFeeBps;
     }
@@ -215,6 +235,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (token == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
         if (!whitelistedTokens[token]) revert TokenNotWhitelisted();
+        _validatePair(pair);
 
         // Balance-diff for FoT tokens (same pattern as SwapFeeRouter)
         uint256 balBefore = IERC20(token).balanceOf(address(this));
@@ -243,6 +264,12 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         }
 
         epochBribes[epoch][pair][token] += netBribe;
+        totalUnclaimedBribes[token] += netBribe;
+
+        // C-02 FIX: Track first deposit timestamp for orphaned bribe rescue
+        if (epochBribeFirstDeposit[epoch] == 0) {
+            epochBribeFirstDeposit[epoch] = block.timestamp;
+        }
 
         emit BribeDeposited(epoch, pair, token, msg.sender, netBribe, fee);
     }
@@ -252,15 +279,15 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     function depositBribeETH(address pair) external payable nonReentrant whenNotPaused {
         if (pair == address(0)) revert InvalidPair();
         if (msg.value == 0) revert ZeroAmount();
+        _validatePair(pair);
 
         // Take bribe fee
         uint256 fee = (msg.value * bribeFeeBps) / BPS;
         uint256 netBribe = msg.value - fee;
 
-        // Send fee to treasury
+        // H-03 FIX: Accumulate treasury fees (pull pattern) to prevent DoS if treasury rejects ETH
         if (fee > 0) {
-            (bool ok,) = treasury.call{value: fee}("");
-            require(ok, "FEE_TRANSFER_FAILED");
+            accumulatedTreasuryETH += fee;
         }
 
         // Current epoch = epochs.length
@@ -274,6 +301,12 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         }
 
         epochBribes[epoch][pair][address(0)] += netBribe;
+        totalUnclaimedETHBribes += netBribe;
+
+        // C-02 FIX: Track first deposit timestamp for orphaned bribe rescue
+        if (epochBribeFirstDeposit[epoch] == 0) {
+            epochBribeFirstDeposit[epoch] = block.timestamp;
+        }
 
         emit BribeDepositedETH(epoch, pair, msg.sender, netBribe, fee);
     }
@@ -313,6 +346,13 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
             claimed[msg.sender][epoch][pair][token] = true;
             anyClaimed = true;
+
+            // C-01 FIX: Safe subtraction to prevent underflow from rounding dust
+            if (token == address(0)) {
+                totalUnclaimedETHBribes = totalUnclaimedETHBribes > share ? totalUnclaimedETHBribes - share : 0;
+            } else {
+                totalUnclaimedBribes[token] = totalUnclaimedBribes[token] > share ? totalUnclaimedBribes[token] - share : 0;
+            }
 
             if (token == address(0)) {
                 // ETH bribe — try direct transfer, fallback to pending
@@ -368,6 +408,13 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
                 claimed[msg.sender][e][pair][token] = true;
                 anyClaimed = true;
+
+                // C-01 FIX: Safe subtraction to prevent underflow from rounding dust
+                if (token == address(0)) {
+                    totalUnclaimedETHBribes = totalUnclaimedETHBribes > share ? totalUnclaimedETHBribes - share : 0;
+                } else {
+                    totalUnclaimedBribes[token] = totalUnclaimedBribes[token] > share ? totalUnclaimedBribes[token] - share : 0;
+                }
 
                 if (token == address(0)) {
                     (bool ok,) = msg.sender.call{value: share, gas: 10000}("");
@@ -443,6 +490,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
     function proposeFeeChange(uint256 newFee) external onlyOwner {
         if (newFee > MAX_FEE_BPS) revert FeeTooHigh();
+        require(newFee > 0, "FEE_CANNOT_BE_ZERO"); // M-08 FIX
         pendingFeeBps = newFee;
         _propose(FEE_CHANGE, FEE_CHANGE_DELAY);
         emit FeeChangeProposed(bribeFeeBps, newFee, _executeAfter[FEE_CHANGE]);
@@ -537,28 +585,83 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
 
+    // ─── H-03 FIX: Pull-Pattern Treasury Fees ─────────────────────────
+
+    /// @notice Withdraw accumulated treasury ETH fees (pull pattern).
+    function withdrawTreasuryFees() external nonReentrant {
+        uint256 amount = accumulatedTreasuryETH;
+        require(amount > 0, "NO_FEES");
+        accumulatedTreasuryETH = 0;
+        (bool ok,) = treasury.call{value: amount}("");
+        require(ok, "TRANSFER_FAILED");
+    }
+
+    // ─── C-02 FIX: Orphaned Bribe Rescue ────────────────────────────
+
+    /// @notice Rescue bribes from an un-snapshotted epoch after BRIBE_RESCUE_DELAY.
+    ///         Only callable if the epoch has NOT been snapshotted (i.e., epoch >= epochs.length).
+    function rescueOrphanedBribes(uint256 epoch, address pair, address token) external onlyOwner nonReentrant {
+        require(epoch >= epochs.length, "EPOCH_ALREADY_SNAPSHOTTED");
+        require(epochBribeFirstDeposit[epoch] != 0, "NO_BRIBES_IN_EPOCH");
+        require(block.timestamp >= epochBribeFirstDeposit[epoch] + BRIBE_RESCUE_DELAY, "RESCUE_TOO_EARLY");
+
+        uint256 amount = epochBribes[epoch][pair][token];
+        require(amount > 0, "NO_BRIBE");
+
+        epochBribes[epoch][pair][token] = 0;
+        if (token == address(0)) {
+            totalUnclaimedETHBribes = totalUnclaimedETHBribes > amount ? totalUnclaimedETHBribes - amount : 0;
+            (bool ok,) = treasury.call{value: amount}("");
+            require(ok, "ETH_TRANSFER_FAILED");
+        } else {
+            totalUnclaimedBribes[token] = totalUnclaimedBribes[token] > amount ? totalUnclaimedBribes[token] - amount : 0;
+            IERC20(token).safeTransfer(treasury, amount);
+        }
+    }
+
     // ─── Admin: Emergency Sweep ──────────────────────────────────────
 
-    /// @notice Sweep stuck ETH beyond what's owed to claimers.
-    ///         Only excess ETH (not reserved for pending withdrawals) can be swept.
+    /// @notice Sweep stuck ETH beyond what's owed to claimers and active bribes.
+    ///         Reserves: unclaimed ETH bribes + pending pull-pattern withdrawals + accumulated treasury fees.
     function sweepExcessETH() external onlyOwner nonReentrant {
         uint256 balance = address(this).balance;
-        uint256 sweepable = balance > totalPendingETH ? balance - totalPendingETH : 0;
+        uint256 reserved = totalUnclaimedETHBribes + totalPendingETH + accumulatedTreasuryETH;
+        uint256 sweepable = balance > reserved ? balance - reserved : 0;
         if (sweepable == 0) revert ZeroAmount();
         (bool ok,) = treasury.call{value: sweepable}("");
         require(ok, "SWEEP_FAILED");
     }
 
-    /// @notice Sweep stuck ERC20 tokens that aren't reserved as bribes.
-    ///         This is for tokens sent accidentally, not for draining active bribes.
+    /// @notice Sweep stuck ERC20 tokens beyond what's reserved as active bribes.
+    ///         Only excess tokens (accidentally sent) can be swept — active bribes are protected.
     function sweepToken(address token) external onlyOwner nonReentrant {
         if (token == address(0)) revert ZeroAddress();
         uint256 balance = IERC20(token).balanceOf(address(this));
-        if (balance == 0) revert ZeroAmount();
-        IERC20(token).safeTransfer(treasury, balance);
+        uint256 reserved = totalUnclaimedBribes[token];
+        uint256 sweepable = balance > reserved ? balance - reserved : 0;
+        if (sweepable == 0) revert ZeroAmount();
+        IERC20(token).safeTransfer(treasury, sweepable);
     }
 
     // ─── Internal ────────────────────────────────────────────────────
+
+    /// @dev Validate that pair is a registered factory pair (H-04 fix).
+    ///      Reads token0/token1 from the pair contract, then verifies with factory.getPair().
+    ///      Prevents bribes to arbitrary/non-existent/unregistered addresses.
+    function _validatePair(address pair) internal view {
+        if (pair.code.length == 0) revert InvalidPair();
+        // H-04 FIX: Verify pair is a registered factory pair by reading its tokens
+        // and checking against factory.getPair()
+        try ITegridyPair(pair).token0() returns (address t0) {
+            try ITegridyPair(pair).token1() returns (address t1) {
+                if (factory.getPair(t0, t1) != pair) revert InvalidPair();
+            } catch {
+                revert InvalidPair();
+            }
+        } catch {
+            revert InvalidPair();
+        }
+    }
 
     /// @dev Check if the staking contract is paused (same pattern as RevenueDistributor).
     function _isStakingPaused() internal view returns (bool) {

@@ -1,5 +1,6 @@
+import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { useAccount, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from 'react-router-dom';
@@ -19,7 +20,7 @@ export default function RestakePage() {
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
   // Read restaking info
-  const { data: restakeData } = useReadContracts({
+  const { data: restakeData, refetch } = useReadContracts({
     contracts: [
       { address: TEGRIDY_RESTAKING_ADDRESS, abi: TEGRIDY_RESTAKING_ABI, functionName: 'restakers', args: [address!] },
       { address: TEGRIDY_RESTAKING_ADDRESS, abi: TEGRIDY_RESTAKING_ABI, functionName: 'pendingBonus', args: [address!] },
@@ -30,6 +31,15 @@ export default function RestakePage() {
     query: { enabled: isDeployed && !!address, refetchInterval: 10_000 },
   });
 
+  // Check NFT approval separately (different ABI)
+  const { data: approvedAddress, refetch: refetchApproval } = useReadContract({
+    address: TEGRIDY_STAKING_ADDRESS,
+    abi: TEGRIDY_STAKING_ABI,
+    functionName: 'getApproved',
+    args: [pos.tokenId],
+    query: { enabled: isDeployed && !!address && pos.tokenId > 0n, refetchInterval: 10_000 },
+  });
+
   const restaker = restakeData?.[0]?.result as readonly [bigint, bigint, bigint, bigint, bigint] | undefined;
   const pendingBonus = (restakeData?.[1]?.result as bigint) ?? 0n;
   const pendingBase = (restakeData?.[2]?.result as bigint) ?? 0n;
@@ -37,22 +47,41 @@ export default function RestakePage() {
 
   const isRestaked = restaker && restaker[0] > 0n;
   const restakedAmount = restaker ? restaker[1] : 0n;
+  const isNFTApproved = (approvedAddress as string)?.toLowerCase() === TEGRIDY_RESTAKING_ADDRESS.toLowerCase();
 
-  if (isSuccess && hash) {
-    toast.success('Transaction confirmed', {
-      id: hash,
-      action: { label: 'Etherscan', onClick: () => window.open(`https://etherscan.io/tx/${hash}`, '_blank') },
-    });
-  }
+  // Refetch + toast on success (moved into useEffect to avoid firing during render)
+  const prevHashRef = useRef<string | undefined>();
+  useEffect(() => {
+    if (isSuccess && hash && hash !== prevHashRef.current) {
+      prevHashRef.current = hash;
+      toast.success('Transaction confirmed', {
+        id: hash,
+        action: { label: 'Etherscan', onClick: () => window.open(`https://etherscan.io/tx/${hash}`, '_blank') },
+      });
+      refetch();
+      refetchApproval();
+    }
+  }, [isSuccess, hash, refetch, refetchApproval]);
 
-  const handleRestake = () => {
+  // Step 1: Approve NFT
+  const handleApprove = () => {
     if (!pos.hasPosition) return;
-    // First approve the NFT transfer
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'approve',
       args: [TEGRIDY_RESTAKING_ADDRESS, pos.tokenId],
+    });
+  };
+
+  // Step 2: Deposit NFT into restaking contract
+  const handleDeposit = () => {
+    if (!pos.hasPosition) return;
+    writeContract({
+      address: TEGRIDY_RESTAKING_ADDRESS,
+      abi: TEGRIDY_RESTAKING_ABI,
+      functionName: 'restake',
+      args: [pos.tokenId],
     });
   };
 
@@ -161,9 +190,27 @@ export default function RestakePage() {
               </ConnectButton.Custom>
             </div>
           ) : !isDeployed ? (
-            <div className="text-center py-8">
-              <p className="text-white/40 text-[13px]">Restaking contract not yet deployed</p>
-              <p className="text-white/20 text-[11px] mt-1">Coming soon</p>
+            <div className="py-8 px-2">
+              <div className="flex items-center justify-center gap-2 mb-4">
+                <span className="text-white text-[16px] font-medium">Restaking</span>
+                <span className="px-2 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase" style={{ background: 'rgba(139,92,246,0.12)', color: '#8b5cf6', border: '1px solid rgba(139,92,246,0.2)' }}>Coming Soon</span>
+              </div>
+              <p className="text-white/35 text-[12px] leading-relaxed text-center max-w-md mx-auto mb-5">
+                Restaking will let you deposit your tsTOWELI staking NFT to earn bonus WETH yield from protocol fees on top of your base TOWELI rewards. Double-dip your staking position without unstaking.
+              </p>
+              <div className="grid grid-cols-3 gap-2 max-w-sm mx-auto">
+                {[
+                  { title: 'Base Rewards', desc: 'Keep earning TOWELI' },
+                  { title: 'Bonus WETH', desc: 'From protocol fees' },
+                  { title: 'Flexible', desc: 'Unrestake anytime' },
+                ].map((item) => (
+                  <div key={item.title} className="rounded-lg p-2.5 text-center" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.08)' }}>
+                    <p className="text-white/60 text-[11px] font-medium mb-0.5">{item.title}</p>
+                    <p className="text-white/25 text-[10px]">{item.desc}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-white/15 text-[10px] text-center mt-4">Contract deployment pending. Check back soon.</p>
             </div>
           ) : isRestaked ? (
             /* Active restake position */
@@ -203,7 +250,7 @@ export default function RestakePage() {
               <Link to="/farm" className="btn-primary px-6 py-2.5 text-[13px]">Go to Farm &#8594;</Link>
             </div>
           ) : (
-            /* Has position, not restaked */
+            /* Has position, not restaked — two-step: approve then deposit */
             <div className="text-center py-6">
               <p className="text-white text-[14px] font-medium mb-2">Ready to Restake</p>
               <p className="text-white/40 text-[12px] mb-4 max-w-md mx-auto">
@@ -214,11 +261,33 @@ export default function RestakePage() {
                 <p className="stat-value text-[18px] text-white">{formatTokenAmount(pos.stakedFormatted, 2)} TOWELI</p>
                 <p className="text-primary/50 text-[11px]">{pos.boostMultiplier.toFixed(2)}x boost</p>
               </div>
-              <button onClick={handleRestake}
-                disabled={isPending || isConfirming}
-                className="btn-primary px-8 py-3 text-[14px] disabled:opacity-35 disabled:cursor-not-allowed">
-                {isPending || isConfirming ? 'Processing...' : 'Approve & Restake NFT'}
-              </button>
+              {/* Step indicator */}
+              <div className="flex items-center justify-center gap-3 mb-4">
+                <div className={`flex items-center gap-1.5 ${isNFTApproved ? 'opacity-40' : ''}`}>
+                  <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px]" style={{ background: isNFTApproved ? 'rgba(34,197,94,0.3)' : 'rgba(139,92,246,0.2)', color: isNFTApproved ? '#22c55e' : '#8b5cf6' }}>
+                    {isNFTApproved ? '\u2713' : '1'}
+                  </span>
+                  <span className="text-white/50 text-[11px]">Approve</span>
+                </div>
+                <span className="text-white/20 text-[10px]">&rarr;</span>
+                <div className={`flex items-center gap-1.5 ${!isNFTApproved ? 'opacity-40' : ''}`}>
+                  <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px]" style={{ background: 'rgba(139,92,246,0.2)', color: '#8b5cf6' }}>2</span>
+                  <span className="text-white/50 text-[11px]">Deposit</span>
+                </div>
+              </div>
+              {!isNFTApproved ? (
+                <button onClick={handleApprove}
+                  disabled={isPending || isConfirming}
+                  className="btn-secondary px-8 py-3 text-[14px] disabled:opacity-35 disabled:cursor-not-allowed">
+                  {isPending || isConfirming ? 'Approving...' : 'Step 1: Approve NFT'}
+                </button>
+              ) : (
+                <button onClick={handleDeposit}
+                  disabled={isPending || isConfirming}
+                  className="btn-primary px-8 py-3 text-[14px] disabled:opacity-35 disabled:cursor-not-allowed">
+                  {isPending || isConfirming ? 'Depositing...' : 'Step 2: Deposit & Restake'}
+                </button>
+              )}
               <p className="text-white/20 text-[10px] mt-3">
                 Your NFT will be held by the restaking contract. Unrestake anytime to get it back.
               </p>

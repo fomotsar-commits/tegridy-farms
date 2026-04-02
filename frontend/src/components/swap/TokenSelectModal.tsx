@@ -1,8 +1,23 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useReadContract } from 'wagmi';
+import { toast } from 'sonner';
 import { ERC20_ABI } from '../../lib/contracts';
-import { DEFAULT_TOKENS, isValidAddress, type TokenInfo } from '../../lib/tokenList';
+import { DEFAULT_TOKENS, isValidAddress, validateAddress, type TokenInfo } from '../../lib/tokenList';
+
+function FallbackIcon({ symbol, size, bg }: { symbol: string; size: string; bg: string }) {
+  return (
+    <span className={`${size} rounded-full flex items-center justify-center text-[8px] font-bold text-white/50`} style={{ background: bg }}>
+      {symbol.charAt(0)}
+    </span>
+  );
+}
+
+function SafeTokenImg({ src, symbol, size, fallbackBg }: { src: string; symbol: string; size: string; fallbackBg: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <FallbackIcon symbol={symbol} size={size} bg={fallbackBg} />;
+  return <img src={src} alt="" className={`${size} rounded-full`} onError={() => setFailed(true)} />;
+}
 
 interface TokenSelectModalProps {
   open: boolean;
@@ -13,12 +28,31 @@ interface TokenSelectModalProps {
   onAddCustomToken: (token: TokenInfo) => void;
 }
 
+const RECENT_TOKENS_KEY = 'tegridy_recent_tokens';
+const MAX_RECENT = 4;
+
+function getRecentTokens(): string[] {
+  try {
+    const stored = localStorage.getItem(RECENT_TOKENS_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch { return []; }
+}
+
+function saveRecentToken(symbol: string) {
+  try {
+    const recent = getRecentTokens().filter(s => s !== symbol);
+    recent.unshift(symbol);
+    localStorage.setItem(RECENT_TOKENS_KEY, JSON.stringify(recent.slice(0, MAX_RECENT)));
+  } catch { /* ignore */ }
+}
+
 export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, customTokens, onAddCustomToken }: TokenSelectModalProps) {
   const [search, setSearch] = useState('');
   const [importAddress, setImportAddress] = useState('');
   const [importRiskAccepted, setImportRiskAccepted] = useState(false);
   const [importError, setImportError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const [recentSymbols, setRecentSymbols] = useState<string[]>(getRecentTokens);
 
   useEffect(() => {
     if (open) {
@@ -31,6 +65,12 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
   }, [open]);
 
   const allTokens = useMemo(() => [...DEFAULT_TOKENS, ...customTokens], [customTokens]);
+
+  const handleSelect = (token: TokenInfo) => {
+    saveRecentToken(token.symbol);
+    setRecentSymbols(getRecentTokens());
+    onSelect(token);
+  };
 
   const filtered = useMemo(() => {
     if (!search) return allTokens;
@@ -48,10 +88,19 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
   }, [search, allTokens]);
 
   // Detect when search is a valid address not in the list — trigger import
+  // Uses EIP-55 checksum validation via viem's getAddress
   useEffect(() => {
     setImportError('');
-    if (isValidAddress(search) && !allTokens.find(t => t.address.toLowerCase() === search.toLowerCase())) {
-      setImportAddress(search);
+    if (isValidAddress(search)) {
+      const checksummed = validateAddress(search);
+      if (!checksummed) {
+        setImportError('Invalid address checksum');
+        setImportAddress('');
+      } else if (!allTokens.find(t => t.address.toLowerCase() === checksummed.toLowerCase())) {
+        setImportAddress(checksummed);
+      } else {
+        setImportAddress('');
+      }
     } else {
       setImportAddress('');
     }
@@ -86,17 +135,40 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
     return () => clearTimeout(timer);
   }, [isImporting, importSymbol, importDecimals]);
 
+  // SECURITY FIX: Detect symbol spoofing — warn if symbol matches a known token at a different address
+  const isSpoofedSymbol = useMemo(() => {
+    if (!importSymbol) return false;
+    const sym = (importSymbol as string).toUpperCase();
+    return DEFAULT_TOKENS.some(t =>
+      t.symbol.toUpperCase() === sym &&
+      t.address.toLowerCase() !== importAddress.toLowerCase()
+    );
+  }, [importSymbol, importAddress]);
+
   const handleImport = () => {
     if (!importSymbol || importDecimals === undefined) return;
+    // SECURITY FIX: Block import of spoofed known tokens entirely
+    if (isSpoofedSymbol) return;
+    // L-04: Validate decimals range
+    if (Number(importDecimals) > 18 || Number(importDecimals) < 0) {
+      toast.error('Invalid token: decimals must be 0-18');
+      return;
+    }
+    // L-05: Sanitize symbol — strip non-printable ASCII characters
+    const rawSymbol = String(importSymbol);
+    const sanitizedSymbol = rawSymbol.replace(/[^\x20-\x7E]/g, '').slice(0, 12);
+    if (sanitizedSymbol !== rawSymbol.slice(0, 12)) {
+      toast.warning('Token symbol contains non-standard characters');
+    }
     const token: TokenInfo = {
       address: importAddress,
-      symbol: importSymbol as string,
-      name: importSymbol as string,
+      symbol: sanitizedSymbol,
+      name: sanitizedSymbol,
       decimals: Number(importDecimals),
       logoURI: '',
     };
     onAddCustomToken(token);
-    onSelect(token);
+    handleSelect(token);
   };
 
   if (!open) return null;
@@ -158,7 +230,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
               return (
                 <button
                   key={sym}
-                  onClick={() => !isDisabled && onSelect(token)}
+                  onClick={() => !isDisabled && handleSelect(token)}
                   disabled={isDisabled}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] font-medium transition-all cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed"
                   style={{
@@ -167,15 +239,53 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
                     color: isDisabled ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.8)',
                   }}
                 >
-                  {token.logoURI && (
-                    <img src={token.logoURI} alt="" className="w-4 h-4 rounded-full"
-                      onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  {token.logoURI ? (
+                    <SafeTokenImg src={token.logoURI} symbol={token.symbol} size="w-4 h-4" fallbackBg="rgba(139,92,246,0.15)" />
+                  ) : (
+                    <FallbackIcon symbol={token.symbol} size="w-4 h-4" bg="rgba(139,92,246,0.15)" />
                   )}
                   {sym}
                 </button>
               );
             })}
           </div>
+
+          {/* Recently used */}
+          {recentSymbols.length > 0 && !search && (
+            <div className="px-4 pb-2">
+              <span className="text-white/20 text-[10px] uppercase tracking-wider font-medium">Recent</span>
+              <div className="flex flex-wrap gap-1.5 mt-1">
+                {recentSymbols.map(sym => {
+                  const token = allTokens.find(t => t.symbol === sym);
+                  if (!token) return null;
+                  const isDisabled = token.address.toLowerCase() === disabledAddress?.toLowerCase();
+                  return (
+                    <button
+                      key={`recent-${sym}`}
+                      onClick={() => !isDisabled && handleSelect(token)}
+                      disabled={isDisabled}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] font-medium transition-all cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed"
+                      style={{
+                        background: 'rgba(212,160,23,0.06)',
+                        border: '1px solid rgba(212,160,23,0.15)',
+                        color: isDisabled ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.7)',
+                      }}
+                    >
+                      {token.logoURI ? (
+                        <SafeTokenImg src={token.logoURI} symbol={token.symbol} size="w-4 h-4" fallbackBg="rgba(212,160,23,0.15)" />
+                      ) : (
+                        <FallbackIcon symbol={token.symbol} size="w-4 h-4" bg="rgba(212,160,23,0.15)" />
+                      )}
+                      {sym}
+                      {!DEFAULT_TOKENS.some(t => t.address.toLowerCase() === token.address.toLowerCase()) && (
+                        <span className="text-[8px] text-warning/70 font-semibold ml-0.5">!</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="mx-4 h-px" style={{ background: 'rgba(139,92,246,0.1)' }} />
 
@@ -186,23 +296,25 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
               return (
                 <button
                   key={token.address}
-                  onClick={() => !isDisabled && onSelect(token)}
+                  onClick={() => !isDisabled && handleSelect(token)}
                   disabled={isDisabled}
                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed hover:bg-white/[0.03]"
                 >
                   <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center"
                     style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.12)' }}>
                     {token.logoURI ? (
-                      <img src={token.logoURI} alt="" className="w-full h-full object-cover"
-                        onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                      <SafeTokenImg src={token.logoURI} symbol={token.symbol} size="w-full h-full" fallbackBg="transparent" />
                     ) : (
-                      <span className="text-[11px] font-bold text-white/40">{token.symbol.slice(0, 2)}</span>
+                      <span className="text-[11px] font-bold text-white/40">{token.symbol.charAt(0)}</span>
                     )}
                   </div>
                   <div className="flex-1 text-left">
                     <p className="text-white text-[13px] font-semibold leading-tight">{token.symbol}</p>
                     <p className="text-white/35 text-[11px] leading-tight">{token.name}</p>
                   </div>
+                  {!DEFAULT_TOKENS.some(t => t.address.toLowerCase() === token.address.toLowerCase()) && (
+                    <span className="text-[9px] text-warning/70 font-semibold px-1.5 py-0.5 rounded" style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.20)' }}>Unverified</span>
+                  )}
                   {token.isNative && (
                     <span className="text-[10px] text-primary/60 font-mono">Native</span>
                   )}
@@ -237,20 +349,36 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
                       </div>
                     </div>
                     <div className="px-3 py-2.5" style={{ background: 'rgba(255,178,55,0.06)' }}>
-                      <p className="text-warning text-[11px] font-medium mb-2">This token is not on any verified list. Anyone can create a token with any name. DYOR.</p>
-                      <label className="flex items-center gap-2 cursor-pointer mb-2">
-                        <input type="checkbox" checked={importRiskAccepted} onChange={e => setImportRiskAccepted(e.target.checked)}
-                          className="w-3.5 h-3.5 rounded accent-primary cursor-pointer" />
-                        <span className="text-white/50 text-[11px]">I understand the risks</span>
-                      </label>
-                      <button
-                        onClick={handleImport}
-                        disabled={!importRiskAccepted}
-                        className="w-full py-2 rounded-lg text-[12px] font-semibold cursor-pointer transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                        style={{ background: 'rgba(139,92,246,0.15)', color: 'var(--color-primary)', border: '1px solid rgba(139,92,246,0.25)' }}
-                      >
-                        Import Token
-                      </button>
+                      <div className="flex items-center gap-1.5 px-2.5 py-1.5 mb-2 rounded-lg" style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.25)' }}>
+                        <span className="text-warning text-[13px]">&#9888;</span>
+                        <p className="text-warning text-[11px] font-medium">This token has not been verified. Trade at your own risk.</p>
+                      </div>
+                      <p className="text-white/35 text-[10px] mb-2">Anyone can create a token with any name. Always do your own research.</p>
+                      {isSpoofedSymbol && (
+                        <div className="flex items-center gap-1.5 px-2.5 py-1.5 mb-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)' }}>
+                          <span className="text-red-400 text-[13px]">&#128683;</span>
+                          <p className="text-red-400 text-[11px] font-semibold">
+                            SCAM WARNING: This token uses the symbol &quot;{importSymbol as string}&quot; but is NOT the real {importSymbol as string}. The contract address does not match the verified token. Import blocked.
+                          </p>
+                        </div>
+                      )}
+                      {!isSpoofedSymbol && (
+                        <>
+                          <label className="flex items-center gap-2 cursor-pointer mb-2">
+                            <input type="checkbox" checked={importRiskAccepted} onChange={e => setImportRiskAccepted(e.target.checked)}
+                              className="w-3.5 h-3.5 rounded accent-primary cursor-pointer" />
+                            <span className="text-white/50 text-[11px]">I understand the risks</span>
+                          </label>
+                          <button
+                            onClick={handleImport}
+                            disabled={!importRiskAccepted}
+                            className="w-full py-2 rounded-lg text-[12px] font-semibold cursor-pointer transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                            style={{ background: 'rgba(139,92,246,0.15)', color: 'var(--color-primary)', border: '1px solid rgba(139,92,246,0.25)' }}
+                          >
+                            Import Token
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 ) : (
