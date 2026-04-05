@@ -6,15 +6,16 @@ import { ART } from '../lib/artConfig';
 import {
   TOWELI_ADDRESS, TEGRIDY_STAKING_ADDRESS, SWAP_FEE_ROUTER_ADDRESS,
   COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS,
-  REFERRAL_SPLITTER_ADDRESS, PREMIUM_ACCESS_ADDRESS,
+  REFERRAL_SPLITTER_ADDRESS, PREMIUM_ACCESS_ADDRESS, POL_ACCUMULATOR_ADDRESS,
   ETHERSCAN_TOKEN, UNISWAP_BUY_URL, GECKOTERMINAL_URL,
-  TOWELI_TOTAL_SUPPLY,
+  TOWELI_TOTAL_SUPPLY, isDeployed,
 } from '../lib/constants';
 import { formatNumber, shortenAddress } from '../lib/formatting';
 import { CopyButton } from '../components/ui/CopyButton';
 import { AnimatedCounter } from '../components/AnimatedCounter';
 import { Sparkline } from '../components/Sparkline';
 import { usePriceHistory } from '../hooks/usePriceHistory';
+import { usePageTitle } from '../hooks/usePageTitle';
 
 const SUPPLY_DATA = [
   { name: 'Circulating', value: 65, color: '#8b5cf6' },
@@ -32,14 +33,17 @@ const CONTRACTS = [
   { label: 'MemeBountyBoard', address: MEME_BOUNTY_BOARD_ADDRESS, live: true },
   { label: 'ReferralSplitter', address: REFERRAL_SPLITTER_ADDRESS, live: true },
   { label: 'PremiumAccess', address: PREMIUM_ACCESS_ADDRESS, live: true },
+  { label: 'POLAccumulator', address: POL_ACCUMULATOR_ADDRESS, live: false },
 ];
 
 export default function TokenomicsPage() {
+  usePageTitle('Tokenomics');
   const price = useToweliPrice();
   const pool = usePoolData();
   const priceHistory = usePriceHistory(price.priceInUsd);
+  const { history: priceData, error: priceError } = priceHistory;
 
-  const rewardPerDay = parseFloat(pool.rewardPerSecond) * 86400;
+  const rewardPerDay = parseFloat(pool.rewardRate) * 86400;
   const totalFunded = parseFloat(pool.totalRewardsFunded);
   const daysLeft = rewardPerDay > 0 ? totalFunded / rewardPerDay : 0;
 
@@ -48,7 +52,7 @@ export default function TokenomicsPage() {
       <div className="fixed inset-0 z-0">
         <img src={ART.swordOfLove.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 25%' }} />
         <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.4) 30%, rgba(0,0,0,0.6) 60%, rgba(0,0,0,0.8) 100%)',
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.85) 30%, rgba(0,0,0,0.92) 60%, rgba(0,0,0,0.96) 100%)',
         }} />
       </div>
 
@@ -68,8 +72,8 @@ export default function TokenomicsPage() {
           ].map((i) => (
             <div key={i.l} className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
               <div className="absolute inset-0">
-                <img src={i.art} alt="" className="w-full h-full object-cover" style={{ objectPosition: i.pos }} />
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.40) 0%, rgba(6,12,26,0.75) 50%, rgba(6,12,26,0.92) 100%)' }} />
+                <img src={i.art} alt="" className="w-full h-full object-cover" style={{ objectPosition: i.pos, opacity: 0.15 }} />
+                <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
               </div>
               <div className="relative z-10 p-5 pt-8 pb-6">
               <p className="text-white/50 text-[11px] uppercase tracking-wider mb-2">{i.l}</p>
@@ -79,8 +83,11 @@ export default function TokenomicsPage() {
                 ) : (
                   <AnimatedCounter value={i.numVal!} prefix={i.prefix} decimals={i.decimals} className="stat-value text-2xl text-white" />
                 )}
-                {i.showSparkline && priceHistory.length > 1 && (
-                  <Sparkline data={priceHistory} width={48} height={18} />
+                {i.showSparkline && priceData.length > 1 && (
+                  <Sparkline data={priceData} width={48} height={18} />
+                )}
+                {i.showSparkline && priceError && priceData.length === 0 && (
+                  <span className="text-white/30 text-[10px]">Price data unavailable</span>
                 )}
               </div>
               </div>
@@ -93,8 +100,8 @@ export default function TokenomicsPage() {
           <motion.div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}>
             <div className="absolute inset-0">
-              <img src={ART.danceNight.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+              <img src={ART.danceNight.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%', opacity: 0.15 }} />
+              <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
             </div>
             <div className="relative z-10 p-5">
             <h3 className="heading-luxury text-[15px] text-white mb-3">Supply Distribution</h3>
@@ -129,15 +136,15 @@ export default function TokenomicsPage() {
           <motion.div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>
             <div className="absolute inset-0">
-              <img src={ART.jbChristmas.src} alt="" className="w-full h-full object-cover" />
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+              <img src={ART.jbChristmas.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+              <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
             </div>
             <div className="relative z-10 p-5">
             <h3 className="heading-luxury text-[15px] text-white mb-3">Emission Schedule</h3>
             <div className="space-y-3">
               {[
                 { l: 'Rewards / Day', v: pool.isDeployed ? `${formatNumber(rewardPerDay, 0)} TOWELI` : '–' },
-                { l: 'Rewards / Second', v: pool.isDeployed ? `${parseFloat(pool.rewardPerSecond).toFixed(4)} TOWELI` : '–' },
+                { l: 'Rewards / Second', v: pool.isDeployed ? `${parseFloat(pool.rewardRate).toFixed(4)} TOWELI` : '–' },
                 { l: 'Total Funded', v: pool.isDeployed ? `${formatNumber(totalFunded, 0)} TOWELI` : '–' },
                 { l: 'Est. Duration', v: pool.isDeployed && daysLeft > 0 ? `~${Math.floor(daysLeft)} days` : '–' },
               ].map((r) => (
@@ -159,8 +166,8 @@ export default function TokenomicsPage() {
         <motion.div className="relative overflow-hidden rounded-xl mb-8" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <div className="absolute inset-0">
-            <img src={ART.beachVibes.src} alt="" className="w-full h-full object-cover" />
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+            <img src={ART.beachVibes.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
           </div>
           <div className="relative z-10 p-5">
             <div className="flex items-center justify-between mb-3">
@@ -180,7 +187,7 @@ export default function TokenomicsPage() {
               </div>
               <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.08)' }}>
                 <p className="text-white/30 text-[10px] uppercase tracking-wider mb-0.5">Emission Rate</p>
-                <p className="stat-value text-[13px] text-white">{(parseFloat(pool.rewardPerSecond) * 86400).toFixed(2)} / day</p>
+                <p className="stat-value text-[13px] text-white">{(parseFloat(pool.rewardRate) * 86400).toFixed(2)} / day</p>
               </div>
               <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.08)' }}>
                 <p className="text-white/30 text-[10px] uppercase tracking-wider mb-0.5">Est. Duration</p>
@@ -194,27 +201,36 @@ export default function TokenomicsPage() {
         <motion.div className="relative overflow-hidden rounded-xl mb-8" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <div className="absolute inset-0">
-            <img src={ART.jbacSkeleton.src} alt="" className="w-full h-full object-cover" />
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+            <img src={ART.jbacSkeleton.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
           </div>
           <div className="relative z-10 p-5">
             <h3 className="heading-luxury text-[15px] text-white mb-3">Contracts</h3>
             <div className="space-y-1.5">
-              {CONTRACTS.map((c) => (
-                <div key={c.label} className="rounded-lg p-3 flex items-center justify-between flex-wrap gap-2"
-                  style={{ background: 'rgba(139,92,246,0.03)', border: '1px solid rgba(139,92,246,0.08)' }}>
-                  <div className="flex items-center gap-2">
-                    <span className="text-white/60 text-[13px]">{c.label}</span>
-                    {c.live ? (
-                      <span className="badge badge-success text-[9px]">Live</span>
-                    ) : !c.live ? (
-                      <span className="badge badge-warning text-[9px]">Deployed</span>
-                    ) : null}
+              {CONTRACTS.map((c) => {
+                const deployed = isDeployed(c.address);
+                return (
+                  <div key={c.label} className="rounded-lg p-3 flex items-center justify-between flex-wrap gap-2"
+                    style={{ background: 'rgba(139,92,246,0.03)', border: '1px solid rgba(139,92,246,0.08)', opacity: deployed ? 1 : 0.6 }}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-white/60 text-[13px]">{c.label}</span>
+                      {deployed && c.live ? (
+                        <span className="badge badge-success text-[9px]">Live</span>
+                      ) : !deployed ? (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: 'rgba(139,92,246,0.12)', color: '#8b5cf6' }}>Pending</span>
+                      ) : (
+                        <span className="badge badge-warning text-[9px]">Deployed</span>
+                      )}
+                    </div>
+                    {deployed ? (
+                      <CopyButton text={c.address} display={shortenAddress(c.address, 6)}
+                        className="font-mono text-[11px] text-primary" />
+                    ) : (
+                      <span className="text-white/20 text-[11px]">Not yet deployed</span>
+                    )}
                   </div>
-                  <CopyButton text={c.address} display={shortenAddress(c.address, 6)}
-                    className="font-mono text-[11px] text-primary" />
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </motion.div>

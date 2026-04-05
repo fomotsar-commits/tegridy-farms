@@ -183,8 +183,8 @@ export default function DashboardPage() {
           ].map((s) => (
             <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
               <div className="absolute inset-0">
-                <img src={s.art} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
-                <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+                <img src={s.art} alt="" className="w-full h-full object-cover" style={{ opacity: 0.35 }} />
+                <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
               </div>
               <div className="relative z-10 p-5 pt-8 pb-6">
               <p className="text-white/50 text-[11px] uppercase tracking-wider mb-2">{s.l}</p>
@@ -215,9 +215,13 @@ export default function DashboardPage() {
         </motion.div>
 
         {/* Tegridy Score */}
-        <motion.div className="relative overflow-hidden rounded-xl mb-6 p-4" style={{ border: '1px solid rgba(139,92,246,0.12)', background: 'rgba(6,12,26,0.82)', backdropFilter: 'blur(12px)' }}
+        <motion.div className="relative overflow-hidden rounded-xl mb-6" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-          <div className="flex items-center justify-between">
+          <div className="absolute inset-0">
+            <img src={ART.danceNight.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.35 }} />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+          </div>
+          <div className="relative z-10 p-4 flex items-center justify-between">
             <TegridyScoreMini />
             <Link to="/leaderboard" className="text-[11px] text-primary/50 hover:text-primary transition-colors">
               View Breakdown &#8594;
@@ -246,8 +250,8 @@ export default function DashboardPage() {
           <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.08)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
-              <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+              <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.35 }} />
+              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
             </div>
             <div className="relative z-10 p-5">
               <div className="flex items-center gap-2 mb-2">
@@ -266,8 +270,8 @@ export default function DashboardPage() {
           <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={ART.porchChill.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
-              <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+              <img src={ART.porchChill.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.35 }} />
+              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
             </div>
             <div className="relative z-10 p-4 flex items-center justify-between">
               <div>
@@ -284,8 +288,8 @@ export default function DashboardPage() {
           <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
-              <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+              <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.35 }} />
+              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
             </div>
             <div className="relative z-10 p-4">
               <p className="text-white/60 text-[13px] font-medium mb-1">{limitOrders.activeOrders.length} active price alert{limitOrders.activeOrders.length > 1 ? 's' : ''}</p>
@@ -300,8 +304,8 @@ export default function DashboardPage() {
           <motion.div className="relative overflow-hidden rounded-xl mb-10 card-hover" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
             <div className="absolute inset-0">
-              <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
-              <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+              <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.35 }} />
+              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
             </div>
             <div className="relative z-10 p-5">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -343,8 +347,8 @@ export default function DashboardPage() {
           <motion.div className="relative overflow-hidden rounded-xl mb-10" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={ART.jbChristmas.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 20%', opacity: 0.15 }} />
-              <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+              <img src={ART.jbChristmas.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 20%', opacity: 0.35 }} />
+              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
             </div>
             <div className="relative z-10 p-8 py-12 text-center">
               <p className="text-white/50 text-[15px] mb-4">No staking position yet</p>
@@ -382,13 +386,8 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
     query: { enabled: !!address },
   });
 
-  const { data: isRegistered } = useReadContract({
-    address: REVENUE_DISTRIBUTOR_ADDRESS,
-    abi: REVENUE_DISTRIBUTOR_ABI,
-    functionName: 'hasRegistered',
-    args: [address as `0x${string}`],
-    query: { enabled: !!address },
-  });
+  // No registration needed — RevenueDistributor is checkpoint-based
+  const isRegistered = true;
 
   const { writeContract, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash });
@@ -401,8 +400,8 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
       <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
         initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
         <div className="absolute inset-0">
-          <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 55%', opacity: 0.15 }} />
-          <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+          <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 55%', opacity: 0.35 }} />
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
         </div>
         <div className="relative z-10 p-8 py-10 flex items-center justify-between">
           <div>
@@ -424,8 +423,8 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
       <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
         initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
         <div className="absolute inset-0">
-          <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 55%', opacity: 0.15 }} />
-          <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+          <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 55%', opacity: 0.35 }} />
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
         </div>
         <div className="relative z-10 p-4 flex items-center justify-between">
           <div>
