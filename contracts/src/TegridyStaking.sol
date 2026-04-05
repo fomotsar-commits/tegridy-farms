@@ -54,6 +54,8 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     uint256 public constant JBAC_BONUS_BPS = 5000; // +0.5x
     uint256 public constant BPS = 10000;
     uint256 public constant TRANSFER_COOLDOWN = 24 hours;
+    uint256 public constant TRANSFER_RATE_LIMIT = 1 hours; // SECURITY FIX: Prevent rapid-fire NFT transfers for reward drain
+    mapping(uint256 => uint256) public lastTransferTime; // tokenId => last transfer timestamp
     uint256 private constant ACC_PRECISION = 1e12;
     uint256 public constant MIN_STAKE = 100e18; // AUDIT FIX #33: Minimum stake amount
     uint256 public constant MIN_NOTIFY_AMOUNT = 1000e18; // AUDIT FIX #61: Minimum fund amount to prevent dust funding
@@ -190,6 +192,15 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     error EmergencyExitDelayNotElapsed(); // AUDIT FIX C-05: 7-day delay not yet passed
     error EmergencyExitAlreadyRequested(); // AUDIT FIX C-05: prevent duplicate requests
     error TransferCooldownActive();
+    // SIZE FIX: Custom errors replacing require strings (saves ~120 bytes)
+    error BoostOverflow();
+    error MustUseWithdraw();
+    error Unauthorized();
+    error TransferRateLimited();
+    error CannotSweepRewardToken();
+    error ZeroBalance();
+    error IntOverflow();
+    error InvalidTokenId();
 
     // ─── Constructor ──────────────────────────────────────────────────
 
@@ -212,6 +223,11 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     function rewardRateChangeTime() external view returns (uint256) { return _executeAfter[REWARD_RATE_CHANGE]; }
     function treasuryChangeTime() external view returns (uint256) { return _executeAfter[TREASURY_CHANGE]; }
     function restakingChangeReadyAt() external view returns (uint256) { return _executeAfter[RESTAKING_CHANGE]; }
+
+    // SIZE FIX: Helper to consolidate 4 duplicate reserved-token calculations (~120 bytes saved)
+    function _reserved() internal view returns (uint256) {
+        return totalStaked + totalPenaltyUnclaimed + totalUnsettledRewards;
+    }
 
     // ─── View Functions ───────────────────────────────────────────────
 
@@ -289,7 +305,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             // SECURITY FIX: Subtract totalPenaltyUnclaimed and totalUnsettledRewards from
             // the reward pool to prevent double-counting penalty tokens (already distributed
             // via rewardPerTokenStored) and to reserve unsettled rewards for their owners.
-            uint256 reserved = totalStaked + totalPenaltyUnclaimed + totalUnsettledRewards;
+            uint256 reserved = _reserved();
             if (available > reserved) {
                 uint256 rewardPool = available - reserved;
                 if (reward > rewardPool) reward = rewardPool;
@@ -347,7 +363,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
         totalStaked += _amount;
         totalBoostedStake += boosted;
-        totalLocked += _amount;
+        // totalLocked removed (redundant with totalStaked per audit L-22)
 
         _mint(msg.sender, tokenId); // _update() sets userTokenId[msg.sender] = tokenId
         rewardToken.safeTransferFrom(msg.sender, address(this), _amount);
@@ -376,7 +392,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
                 newBoost += JBAC_BONUS_BPS;
             }
             totalBoostedStake -= p.boostedAmount;
-            require(newBoost <= type(uint16).max, "BOOST_OVERFLOW"); // AUDIT FIX L-07
+            if (newBoost > type(uint16).max) revert BoostOverflow();
             p.boostBps = uint16(newBoost);
             p.boostedAmount = (p.amount * newBoost) / BOOST_PRECISION;
             totalBoostedStake += p.boostedAmount;
@@ -412,7 +428,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         }
 
         totalBoostedStake -= p.boostedAmount;
-        require(newBoost <= type(uint16).max, "BOOST_OVERFLOW"); // AUDIT FIX L-07
+        if (newBoost > type(uint16).max) revert BoostOverflow();
         p.boostBps = uint16(newBoost);
         p.boostedAmount = (p.amount * newBoost) / BOOST_PRECISION;
         totalBoostedStake += p.boostedAmount;
@@ -438,7 +454,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         uint256 amount = p.amount;
         totalStaked -= amount;
         totalBoostedStake -= p.boostedAmount;
-        totalLocked -= amount;
+        // totalLocked removed (redundant with totalStaked per audit L-22)
 
         delete positions[tokenId];
         userTokenId[msg.sender] = 0;
@@ -457,6 +473,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
         Position storage p = positions[tokenId];
         if (p.amount == 0) revert NoPosition();
+        // SECURITY FIX H-3: Prevent accidental 25% penalty on already-unlockable positions.
+        // Users with expired locks should use withdraw() (no penalty) instead.
+        if (block.timestamp >= p.lockEnd) revert MustUseWithdraw();
 
         _getReward(tokenId, p);
 
@@ -466,7 +485,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
         totalStaked -= amount;
         totalBoostedStake -= p.boostedAmount;
-        totalLocked -= amount;
+        // totalLocked removed (redundant with totalStaked per audit L-22)
         totalPenaltiesCollected += penalty;
 
         delete positions[tokenId];
@@ -511,7 +530,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     function revalidateBoost(uint256 tokenId) external nonReentrant whenNotPaused updateReward {
         address positionOwner = ownerOf(tokenId); // reverts if token doesn't exist
         // AUDIT FIX M-23: Allow restaking contract to call revalidateBoost on behalf of the position owner
-        require(msg.sender == positionOwner || msg.sender == restakingContract, "UNAUTH");
+        if (msg.sender != positionOwner && msg.sender != restakingContract) revert Unauthorized();
         Position storage p = positions[tokenId];
         if (p.amount == 0) revert NoPosition();
 
@@ -540,7 +559,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             }
 
             totalBoostedStake -= p.boostedAmount;
-            require(newBoost <= type(uint16).max, "BOOST_OVERFLOW"); // AUDIT FIX L-07
+            if (newBoost > type(uint16).max) revert BoostOverflow();
             p.boostBps = uint16(newBoost);
             p.boostedAmount = (p.amount * newBoost) / BOOST_PRECISION;
             totalBoostedStake += p.boostedAmount;
@@ -566,6 +585,13 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         // Prevent NFT transfers within 24h of staking to mitigate flash-loan lock bypass
         if (from != address(0) && to != address(0)) {
             if (block.timestamp < positions[tokenId].stakeTimestamp + TRANSFER_COOLDOWN) revert TransferCooldownActive();
+            // SECURITY FIX: Rate-limit transfers to prevent rapid-fire reward drain via unsettledRewards
+            // (Convex pattern — limits transfer frequency to prevent reward manipulation)
+            // Exempt contracts (e.g. TegridyRestaking) which need to transfer for restake/unrestake
+            if (from.code.length == 0 && to.code.length == 0) {
+                if (block.timestamp < lastTransferTime[tokenId] + TRANSFER_RATE_LIMIT) revert TransferRateLimited();
+            }
+            lastTransferTime[tokenId] = block.timestamp;
         }
 
         // AUDIT FIX C-04: Settle pending rewards to the `from` address BEFORE transfer
@@ -622,7 +648,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             uint256 pending = uint256(diff);
             // AUDIT FIX M-03: Cap reward to available balance excluding reserved tokens
             uint256 available = rewardToken.balanceOf(address(this));
-            uint256 reserved = totalStaked + totalPenaltyUnclaimed + totalUnsettledRewards;
+            uint256 reserved = _reserved();
             uint256 rewardPool = available > reserved ? available - reserved : 0;
             if (pending > rewardPool) pending = rewardPool;
             if (pending > 0) {
@@ -649,7 +675,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             uint256 elapsed = block.timestamp - lastUpdateTime;
             uint256 reward = elapsed * rewardRate;
             // SECURITY FIX: Match updateReward — exclude reserved tokens from reward pool
-            uint256 reserved = totalStaked + totalPenaltyUnclaimed + totalUnsettledRewards;
+            uint256 reserved = _reserved();
             if (cachedBalance > reserved) {
                 uint256 rewardPool = cachedBalance - reserved;
                 if (reward > rewardPool) reward = rewardPool;
@@ -672,7 +698,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         int256 diff = accumulated - p.rewardDebt;
         if (diff > 0) {
             uint256 pending = uint256(diff);
-            uint256 reserved = totalStaked + totalPenaltyUnclaimed + totalUnsettledRewards;
+            uint256 reserved = _reserved();
             uint256 rewardPool = cachedBalance > reserved ? cachedBalance - reserved : 0;
             uint256 actualSettled = 0; // AUDIT FIX C-04: Track actual amount settled
             if (pending > rewardPool) {
@@ -761,7 +787,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     ///         Prevents rewards from being indefinitely locked if the original recipient never claims.
     function claimUnsettledFor(address _user) external nonReentrant whenNotPaused {
         // AUDIT FIX: Authorization check — only user, restaking contract, or owner can claim on behalf
-        require(msg.sender == _user || msg.sender == restakingContract || msg.sender == owner(), "UNAUTH");
+        if (msg.sender != _user && msg.sender != restakingContract && msg.sender != owner()) revert Unauthorized();
         uint256 amount = unsettledRewards[_user];
         if (amount == 0) revert ZeroAmount();
         uint256 available = rewardToken.balanceOf(address(this));
@@ -788,7 +814,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         uint256 amount = p.amount;
         totalStaked -= amount;
         totalBoostedStake -= p.boostedAmount;
-        totalLocked -= amount;
+        // totalLocked removed (redundant with totalStaked per audit L-22)
 
         delete positions[tokenId];
         userTokenId[msg.sender] = 0;
@@ -818,7 +844,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         uint256 amount = p.amount;
         totalStaked -= amount;
         totalBoostedStake -= p.boostedAmount;
-        totalLocked -= amount;
+        // totalLocked removed (redundant with totalStaked per audit L-22)
 
         delete positions[tokenId];
         delete emergencyExitRequests[tokenId];
@@ -872,7 +898,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         uint256 amount = p.amount;
         totalStaked -= amount;
         totalBoostedStake -= p.boostedAmount;
-        totalLocked -= amount;
+        // totalLocked removed (redundant with totalStaked per audit L-22)
 
         uint256 penalty;
         uint256 userReceives;
@@ -974,9 +1000,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     ///         Cannot sweep the staking reward token to protect user funds.
     /// @param token The ERC-20 token address to sweep
     function sweepToken(address token) external onlyOwner nonReentrant {
-        require(token != address(rewardToken), "!");
+        if (token == address(rewardToken)) revert CannotSweepRewardToken();
         uint256 balance = IERC20(token).balanceOf(address(this));
-        require(balance > 0, "ZERO");
+        if (balance == 0) revert ZeroBalance();
         IERC20(token).safeTransfer(treasury, balance);
     }
 
@@ -1015,7 +1041,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     ///      rewardPerTokenStored grows by (reward * 1e12) / totalBoostedStake per second.
     ///      With realistic values (1B supply, 100/s rate), overflow would take >1000 years.
     function _safeInt256(uint256 value) private pure returns (int256) {
-        require(value <= uint256(type(int256).max), "OVF");
+        if (value > uint256(type(int256).max)) revert IntOverflow();
         return int256(value);
     }
 
@@ -1025,7 +1051,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
     /// @notice Minimal tokenURI — full on-chain SVG metadata in a future reader contract.
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
-        require(_ownerOf(tokenId) != address(0), "ID");
+        if (_ownerOf(tokenId) == address(0)) revert InvalidTokenId();
         return "";
     }
 }

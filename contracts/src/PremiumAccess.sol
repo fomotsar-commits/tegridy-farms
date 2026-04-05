@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 
@@ -24,7 +25,7 @@ import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 /// Battle-tested sources:
 ///  - OwnableNoRenounce: OZ Ownable2Step (industry standard)
 ///  - TimelockAdmin: MakerDAO DSPause pattern (billions TVL, never compromised)
-contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
+contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, TimelockAdmin {
     using SafeERC20 for IERC20;
 
     // ─── Timelock Operation Keys ─────────────────────────────────────
@@ -182,7 +183,7 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     ///         to enable pro-rata refunds on cancellation.
     /// @param months Number of months to subscribe
     /// @param maxCost Maximum TOWELI the caller is willing to pay (front-running protection)
-    function subscribe(uint256 months, uint256 maxCost) external nonReentrant {
+    function subscribe(uint256 months, uint256 maxCost) external nonReentrant whenNotPaused {
         if (months == 0) revert ZeroMonths();
 
         uint256 cost = monthlyFeeToweli * months;
@@ -244,7 +245,7 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     /// @notice SECURITY FIX #17: Cancel subscription and receive pro-rata refund for unused time.
     ///         AUDIT FIX M-43: Refund uses userEscrow (actual amount paid at subscription-time fee rate),
     ///         not the current monthlyFeeToweli, so fee changes after subscription don't affect refunds.
-    function cancelSubscription() external nonReentrant {
+    function cancelSubscription() external nonReentrant whenNotPaused {
         Subscription storage sub = subscriptions[msg.sender];
         if (sub.expiresAt <= block.timestamp) revert NoActiveSubscription();
         // AUDIT FIX M-18: Prevent same-block subscribe+cancel to avoid free premium window exploit
@@ -356,6 +357,11 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     function setMonthlyFee(uint256) external pure {
         revert("Use proposeFeeChange()");
     }
+
+    // SECURITY FIX M-3: Emergency pause/unpause (OpenZeppelin Pausable pattern).
+    // Halts subscribe() and cancelSubscription() during security incidents.
+    function pause() external onlyOwner { _pause(); }
+    function unpause() external onlyOwner { _unpause(); }
 
     /// @notice AUDIT FIX v2: Propose a monthly fee change (takes effect after 24h delay)
     function proposeFeeChange(uint256 _fee) external onlyOwner {

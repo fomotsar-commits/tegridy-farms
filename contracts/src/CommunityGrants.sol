@@ -15,6 +15,7 @@ interface IVotingEscrowGrants {
     function votingPowerAtTimestamp(address user, uint256 ts) external view returns (uint256);
     function totalLocked() external view returns (uint256);
     function totalBoostedStake() external view returns (uint256);
+    function userTokenId(address user) external view returns (uint256); // SECURITY FIX C1: Track proposer's NFT
 }
 
 /// @title CommunityGrants
@@ -65,10 +66,12 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         ProposalStatus status;
         uint256 snapshotTimestamp; // Timestamp for voting power snapshot (L2-safe)
         uint256 snapshotTotalStake; // SECURITY FIX: snapshot total boosted stake at creation
+        uint256 proposerTokenId; // SECURITY FIX: Track proposer's staking NFT to prevent self-vote via transfer
     }
 
     Proposal[] public proposals;
     mapping(uint256 => mapping(address => bool)) public hasVotedOnProposal;
+    mapping(uint256 => uint256) public proposalUniqueVoters; // SECURITY FIX H-6: Track voter diversity
     mapping(address => uint256) public lastProposalTimestamp;
 
     uint256 public constant VOTING_PERIOD = 7 days;
@@ -80,6 +83,12 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     uint256 public constant MIN_ABSOLUTE_QUORUM = 1000e18; // A4-M-14: Reduced from 10000e18 — old value blocked governance when total stake < 10k tokens
     uint256 public constant MAX_GRANT_PERCENT_BPS = 5000; // H-04: max 50% of contract balance per grant
     uint256 public constant MAX_ACTIVE_PROPOSALS = 50; // AUDIT FIX M-13: Cap to prevent unbounded storage growth
+    // SECURITY FIX H-4: Voting delay before votes can be cast (Compound GovernorBravo pattern)
+    uint256 public constant VOTING_DELAY = 1 days;
+    // SECURITY FIX H-5: Mandatory execution delay for ALL callers (GovernorBravo timelock pattern)
+    uint256 public constant EXECUTION_DELAY = 1 days;
+    // SECURITY FIX H-6: Minimum unique voters to prevent whale governance capture (Nouns DAO pattern)
+    uint256 public constant MIN_UNIQUE_VOTERS = 3;
 
     uint256 public totalGranted;
     uint256 public totalRefundableDeposits; // TOWELI held for active proposal refunds
@@ -207,7 +216,8 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             deadline: block.timestamp + VOTING_PERIOD,
             status: ProposalStatus.Active,
             snapshotTimestamp: block.timestamp > 0 ? block.timestamp - 1 : 0,
-            snapshotTotalStake: votingEscrow.totalBoostedStake() // SECURITY FIX: snapshot quorum denominator
+            snapshotTotalStake: votingEscrow.totalBoostedStake(), // SECURITY FIX: snapshot quorum denominator
+            proposerTokenId: votingEscrow.userTokenId(msg.sender) // SECURITY FIX: snapshot proposer's NFT position
         }));
 
         activeProposalCount++;
@@ -224,15 +234,24 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         Proposal storage proposal = proposals[_proposalId];
 
         if (proposal.status != ProposalStatus.Active) revert ProposalNotActive();
+        // SECURITY FIX H-4: Voting delay gives community time to review proposals before voting starts.
+        // Prevents flash-governance where proposer + allies vote immediately (GovernorBravo pattern).
+        require(block.timestamp >= proposal.createdAt + VOTING_DELAY, "VOTING_NOT_STARTED");
         if (block.timestamp > proposal.deadline) revert VotingEnded();
         if (hasVotedOnProposal[_proposalId][msg.sender]) revert AlreadyVoted();
         // AUDIT FIX M-29: Prevent proposer from voting on their own proposal
+        // SECURITY FIX: Check by staking position NFT, not just address — prevents
+        // bypass via transferring NFT to sybil address (Compound Governor Bravo pattern)
         require(msg.sender != proposal.proposer, "PROPOSER_CANNOT_VOTE");
+        if (proposal.proposerTokenId != 0) {
+            require(votingEscrow.userTokenId(msg.sender) != proposal.proposerTokenId, "PROPOSER_POSITION_CANNOT_VOTE");
+        }
 
         uint256 power = votingEscrow.votingPowerAtTimestamp(msg.sender, proposal.snapshotTimestamp);
         if (power == 0) revert NoVotingPower();
 
         hasVotedOnProposal[_proposalId][msg.sender] = true;
+        proposalUniqueVoters[_proposalId]++; // SECURITY FIX H-6: Track voter diversity
 
         if (_support) {
             proposal.votesFor += power;
@@ -263,6 +282,9 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if ((totalVotes * 10000) / totalVotingPower < MIN_QUORUM_BPS) {
             revert QuorumNotMet();
         }
+        // SECURITY FIX H-6: Require minimum unique voters to prevent whale governance capture.
+        // Pattern from MemeBountyBoard MIN_UNIQUE_VOTERS (Nouns DAO voter diversity).
+        require(proposalUniqueVoters[_proposalId] >= MIN_UNIQUE_VOTERS, "INSUFFICIENT_VOTERS");
 
         uint256 refundable = PROPOSAL_FEE / 2;
 
@@ -298,7 +320,9 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (proposal.status != ProposalStatus.Approved) revert NotApproved();
         // H-03: enforce execution deadline
         if (block.timestamp > proposal.deadline + EXECUTION_DEADLINE) revert ExecutionDeadlineExpired();
-        // AUDIT FIX H-21: Owner can execute immediately; anyone else must wait PERMISSIONLESS_EXECUTION_DELAY after voting ends
+        // SECURITY FIX H-5: Mandatory delay for ALL callers including owner (GovernorBravo timelock pattern).
+        // Gives token holders at least EXECUTION_DELAY to react to any approved proposal.
+        require(block.timestamp >= proposal.deadline + EXECUTION_DELAY, "EXECUTION_DELAY");
         if (msg.sender != owner()) {
             require(block.timestamp >= proposal.deadline + PERMISSIONLESS_EXECUTION_DELAY, "EXECUTION_DELAY_NOT_MET");
         }
@@ -558,7 +582,9 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///      AUDIT FIX H-04: If WETH transfer fails after wrapping, unwrap back to ETH to prevent
     ///      WETH from being permanently stuck in the contract (no WETH sweep function).
     function _transferETHOrWETH(address recipient, uint256 amount) internal returns (bool) {
-        (bool success,) = recipient.call{value: amount}("");
+        // SECURITY FIX H-9: Use 10000 gas stipend to prevent cross-contract reentrancy.
+        // Matches WETHFallbackLib.safeTransferETHOrWrap() pattern (Solmate/Seaport lineage).
+        (bool success,) = recipient.call{value: amount, gas: 10000}("");
         if (success) return true;
         // ETH transfer failed — try WETH fallback
         try IWETH(weth).deposit{value: amount}() {

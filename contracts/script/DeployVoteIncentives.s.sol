@@ -10,10 +10,12 @@ import "../src/VoteIncentives.sol";
 ///      with dynamic fee tiers and premium discount support.
 contract DeployVoteIncentivesScript is Script {
     // ─── Mainnet Constants ───────────────────────────────────────────
-    address constant TEGRIDY_STAKING = 0x044A925839ac3CEC0bccC93d00230f39FFbeEe44;
+    // Updated to new audit-fixed staking contract (April 2026 deployment)
+    address constant TEGRIDY_STAKING = 0xc2072846A493b92E2722dEE8eAFA78690f099bBD;
     address constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     address constant TREASURY = 0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e;
     address constant TOWELI = 0x420698CFdEDdEa6bc78D59bC17798113ad278F9D;
+    address constant TEGRIDY_FACTORY = 0x8B786163aA3beb97822d480a0c306DfD6dEbdCB6;
 
     uint256 constant BRIBE_FEE_BPS = 300; // 3%
 
@@ -34,6 +36,7 @@ contract DeployVoteIncentivesScript is Script {
             TEGRIDY_STAKING,
             TREASURY,
             WETH,
+            TEGRIDY_FACTORY,
             BRIBE_FEE_BPS
         );
         console.log("1. VoteIncentives deployed:", address(vi));
@@ -49,14 +52,12 @@ contract DeployVoteIncentivesScript is Script {
         console.log("   NOTE: Whitelist WETH after executing TOWELI whitelist in 24h");
 
         // 4. Transfer ownership to multisig (Ownable2Step — multisig must acceptOwnership)
-        address multisig = vm.envOr("MULTISIG", address(0));
-        if (multisig != address(0)) {
+        address multisig = vm.envAddress("MULTISIG");
+        require(multisig != address(0), "MULTISIG env var required");
+        {
             vi.transferOwnership(multisig);
             console.log("3. Ownership transfer initiated to:", multisig);
             console.log("   Multisig must call acceptOwnership()");
-        } else {
-            console.log("3. SKIPPED ownership transfer (no MULTISIG env var)");
-            console.log("   Owner remains:", deployer);
         }
 
         vm.stopBroadcast();

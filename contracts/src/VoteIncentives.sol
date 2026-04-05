@@ -73,7 +73,9 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     uint256 public constant BPS = 10_000;
     uint256 public constant MAX_FEE_BPS = 500;         // Max 5% bribe fee
     uint256 public constant MAX_BRIBE_TOKENS = 20;     // Max unique tokens per pair per epoch
+    uint256 public constant MIN_BRIBE_AMOUNT = 0.001 ether; // SECURITY FIX: Prevent dust spam DoS (Velodrome pattern)
     uint256 public constant MAX_CLAIM_EPOCHS = 500;     // Same as RevenueDistributor
+    uint256 public constant MAX_BATCH_ITERATIONS = 200;  // SECURITY FIX H-8: Prevent block gas limit DoS
     uint256 public constant MIN_EPOCH_INTERVAL = 1 hours;
     uint256 public constant FEE_CHANGE_DELAY = 24 hours;
     uint256 public constant TREASURY_CHANGE_DELAY = 48 hours;
@@ -126,6 +128,9 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     // H-03 FIX: Accumulated treasury ETH fees (pull pattern)
     uint256 public accumulatedTreasuryETH;
 
+    // SECURITY FIX H-7: Per-token minimum bribe amounts (supports non-18-decimal tokens)
+    mapping(address => uint256) public minBribeAmounts;
+
     // ─── Pending Values (for timelocked changes) ─────────────────────
     uint256 public pendingFeeBps;
     address public pendingTreasury;
@@ -139,6 +144,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     event BribeClaimed(address indexed user, uint256 indexed epoch, address indexed pair, address token, uint256 amount);
     event PendingETHCredited(address indexed user, uint256 amount);
     event PendingETHWithdrawn(address indexed user, uint256 amount);
+    event PendingTokenCredited(address indexed user, address indexed token, uint256 amount);
     event PendingTokenWithdrawn(address indexed user, address indexed token, uint256 amount);
     event FeeUpdated(uint256 oldFee, uint256 newFee);
     event FeeChangeProposed(uint256 currentFee, uint256 proposedFee, uint256 executeAfter);
@@ -242,6 +248,12 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         uint256 actualReceived = IERC20(token).balanceOf(address(this)) - balBefore;
         if (actualReceived == 0) revert ZeroAmount();
+        // SECURITY FIX H-7: Per-token minimum bribe (supports non-18-decimal tokens like USDC).
+        // Whitelist alone provides spam protection; per-token min is optional defense-in-depth.
+        uint256 tokenMin = minBribeAmounts[token];
+        if (tokenMin > 0) {
+            require(actualReceived >= tokenMin, "BRIBE_TOO_SMALL");
+        }
 
         // Take bribe fee
         uint256 fee = (actualReceived * bribeFeeBps) / BPS;
@@ -279,6 +291,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     function depositBribeETH(address pair) external payable nonReentrant whenNotPaused {
         if (pair == address(0)) revert InvalidPair();
         if (msg.value == 0) revert ZeroAmount();
+        // SECURITY FIX: Enforce minimum bribe to prevent dust spam DoS (Velodrome pattern)
+        require(msg.value >= MIN_BRIBE_AMOUNT, "BRIBE_TOO_SMALL");
         _validatePair(pair);
 
         // Take bribe fee
@@ -347,6 +361,10 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             claimed[msg.sender][epoch][pair][token] = true;
             anyClaimed = true;
 
+            // SECURITY FIX C-2: Decrement epochBribes to guarantee solvency (Velodrome pattern).
+            // Late claimers compute against remaining pool, preventing aggregate over-claim.
+            epochBribes[epoch][pair][token] = bribeAmount - share;
+
             // C-01 FIX: Safe subtraction to prevent underflow from rounding dust
             if (token == address(0)) {
                 totalUnclaimedETHBribes = totalUnclaimedETHBribes > share ? totalUnclaimedETHBribes - share : 0;
@@ -363,8 +381,18 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
                     emit PendingETHCredited(msg.sender, share);
                 }
             } else {
-                // ERC20 bribe — safe transfer
-                IERC20(token).safeTransfer(msg.sender, share);
+                // SECURITY FIX C-3: Wrap ERC20 transfer in try/catch (Aave pull pattern).
+                // If transfer fails (blacklisted user, paused token), credit to pending
+                // instead of blocking ALL claims for this epoch/pair.
+                try IERC20(token).transfer(msg.sender, share) returns (bool success) {
+                    if (!success) {
+                        pendingTokenWithdrawals[msg.sender][token] += share;
+                        emit PendingTokenCredited(msg.sender, token, share);
+                    }
+                } catch {
+                    pendingTokenWithdrawals[msg.sender][token] += share;
+                    emit PendingTokenCredited(msg.sender, token, share);
+                }
             }
 
             emit BribeClaimed(msg.sender, epoch, pair, token, share);
@@ -385,6 +413,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (epochEnd - epochStart > MAX_CLAIM_EPOCHS) revert TooManyUnclaimedEpochs();
 
         bool anyClaimed = false;
+        uint256 totalIterations;
 
         for (uint256 e = epochStart; e < epochEnd; e++) {
             EpochInfo memory ep = epochs[e];
@@ -409,12 +438,19 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
                 claimed[msg.sender][e][pair][token] = true;
                 anyClaimed = true;
 
+                // SECURITY FIX C-2: Decrement epochBribes (Velodrome solvency pattern)
+                epochBribes[e][pair][token] = bribeAmount - share;
+
                 // C-01 FIX: Safe subtraction to prevent underflow from rounding dust
                 if (token == address(0)) {
                     totalUnclaimedETHBribes = totalUnclaimedETHBribes > share ? totalUnclaimedETHBribes - share : 0;
                 } else {
                     totalUnclaimedBribes[token] = totalUnclaimedBribes[token] > share ? totalUnclaimedBribes[token] - share : 0;
                 }
+
+                // SECURITY FIX H-8: Track total iterations to prevent block gas limit DoS
+                totalIterations++;
+                require(totalIterations <= MAX_BATCH_ITERATIONS, "TOO_MANY_ITERATIONS");
 
                 if (token == address(0)) {
                     (bool ok,) = msg.sender.call{value: share, gas: 10000}("");
@@ -424,7 +460,16 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
                         emit PendingETHCredited(msg.sender, share);
                     }
                 } else {
-                    IERC20(token).safeTransfer(msg.sender, share);
+                    // SECURITY FIX C-3: Wrap ERC20 transfer in try/catch (Aave pull pattern)
+                    try IERC20(token).transfer(msg.sender, share) returns (bool success) {
+                        if (!success) {
+                            pendingTokenWithdrawals[msg.sender][token] += share;
+                            emit PendingTokenCredited(msg.sender, token, share);
+                        }
+                    } catch {
+                        pendingTokenWithdrawals[msg.sender][token] += share;
+                        emit PendingTokenCredited(msg.sender, token, share);
+                    }
                 }
 
                 emit BribeClaimed(msg.sender, e, pair, token, share);
@@ -447,6 +492,19 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         WETHFallbackLib.safeTransferETHOrWrap(address(weth), msg.sender, amount);
 
         emit PendingETHWithdrawn(msg.sender, amount);
+    }
+
+    /// @notice Withdraw pending ERC20 tokens credited from a failed bribe claim transfer.
+    /// @dev SECURITY FIX C-3: Pull-pattern for ERC20 bribes (Aave V3 pattern).
+    function withdrawPendingToken(address token) external nonReentrant {
+        uint256 amount = pendingTokenWithdrawals[msg.sender][token];
+        if (amount == 0) revert NoPendingWithdrawal();
+
+        pendingTokenWithdrawals[msg.sender][token] = 0;
+
+        IERC20(token).safeTransfer(msg.sender, amount);
+
+        emit PendingTokenWithdrawn(msg.sender, token, amount);
     }
 
     // ─── View Functions ──────────────────────────────────────────────

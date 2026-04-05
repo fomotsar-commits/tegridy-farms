@@ -181,10 +181,13 @@ contract TegridyFactory is TimelockAdmin {
         feeToSetter = pendingFeeToSetter;
         pendingFeeToSetter = address(0);
         feeToSetterChangeTime = 0;
-        // Clear any pending feeTo change proposed by the old setter
+        // SECURITY FIX C6: Clear any pending feeTo change proposed by the old setter
+        // Prevents old setter's queued malicious feeTo from executing after transition
         if (_executeAfter[FEE_TO_CHANGE] != 0) {
+            address cancelledFeeTo = pendingFeeTo;
             _executeAfter[FEE_TO_CHANGE] = 0;
             pendingFeeTo = address(0);
+            emit FeeToChangeCancelled(cancelledFeeTo); // AUDIT: Make silent cancellation auditable
         }
         emit FeeToSetterAccepted(oldSetter, feeToSetter);
     }

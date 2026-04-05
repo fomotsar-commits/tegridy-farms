@@ -4,18 +4,29 @@ out = "out"
 libs = ["lib"]
 solc = "0.8.26"
 optimizer = true
-optimizer_runs = 200
+optimizer_runs = 100 # Reduced from 200 to fit TegridyStaking under 24KB EIP-170 limit
+# AUDIT #91: via_ir=false may compile significantly faster and should be tested.
+# Only enable via_ir when needed for deep stack or complex optimizations.
 via_ir = true
+# NOTE: cancun is required by OpenZeppelin v5.6.1 (uses mcopy opcode).
+# For L2 deployment (Arbitrum, Optimism), compile with cancun but verify L2 opcode support.
+# PUSH0 (shanghai+) is now supported on major L2s as of 2025.
+evm_version = "cancun"
+# Ignore code size limit for testnet deployments (TegridyStaking is slightly over 24KB)
+code_size_limit = 50000
 
 remappings = [
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
     "forge-std/=lib/forge-std/src/",
     "@uniswap/v4-core/=lib/v4-core/",
     "@uniswap/v4-periphery/=lib/v4-periphery/",
+    "solmate/=lib/solmate/src/",
 ]
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=1" }
+sepolia = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=11155111" }
 
 [rpc_endpoints]
 mainnet = "${ETH_RPC_URL}"
+sepolia = "${SEPOLIA_RPC_URL}"

@@ -152,6 +152,9 @@ contract TegridyRouter is ReentrancyGuard {
         require(to != address(0), "ZERO_TO"); // L-18: to validation
         // H-09: Prevent swapping output to the pair itself
         require(to != _pairFor(path[path.length - 2], path[path.length - 1]), "INVALID_TO");
+        // SECURITY FIX H5: Validate path BEFORE any token transfers to prevent
+        // tokens getting stuck in pairs on cyclic path revert
+        _validatePathNoCycles(path);
         amounts = getAmountsOut(amountIn, path);
         require(amounts[amounts.length - 1] >= amountOutMin, "INSUFFICIENT_OUTPUT_AMOUNT");
         IERC20(path[0]).safeTransferFrom(msg.sender, _pairFor(path[0], path[1]), amounts[0]);
@@ -167,6 +170,7 @@ contract TegridyRouter is ReentrancyGuard {
         require(to != address(0), "ZERO_TO"); // L-18: to validation
         // H-09: Prevent swapping output to the pair itself
         require(to != _pairFor(path[path.length - 2], path[path.length - 1]), "INVALID_TO");
+        _validatePathNoCycles(path); // SECURITY FIX H5
         amounts = getAmountsOut(msg.value, path);
         require(amounts[amounts.length - 1] >= amountOutMin, "INSUFFICIENT_OUTPUT_AMOUNT");
         IWETH(WETH).deposit{value: amounts[0]}();
@@ -184,6 +188,7 @@ contract TegridyRouter is ReentrancyGuard {
         require(to != address(0), "ZERO_TO"); // L-18: to validation
         // H-09: Prevent swapping output to the pair itself
         require(to != _pairFor(path[path.length - 2], path[path.length - 1]), "INVALID_TO");
+        _validatePathNoCycles(path); // SECURITY FIX H5
         amounts = getAmountsOut(amountIn, path);
         require(amounts[amounts.length - 1] >= amountOutMin, "INSUFFICIENT_OUTPUT_AMOUNT");
         IERC20(path[0]).safeTransferFrom(msg.sender, _pairFor(path[0], path[1]), amounts[0]);
@@ -204,6 +209,8 @@ contract TegridyRouter is ReentrancyGuard {
         require(to != address(0), "ZERO_TO");
         // H-09: Prevent swapping output to the pair itself
         require(to != _pairFor(path[path.length - 2], path[path.length - 1]), "INVALID_TO");
+        // SECURITY FIX M-2: Validate path before transfer (matching exact-input swap pattern)
+        _validatePathNoCycles(path);
         amounts = getAmountsIn(amountOut, path);
         require(amounts[0] <= amountInMax, "EXCESSIVE_INPUT_AMOUNT");
         IERC20(path[0]).safeTransferFrom(msg.sender, _pairFor(path[0], path[1]), amounts[0]);
@@ -220,6 +227,8 @@ contract TegridyRouter is ReentrancyGuard {
         require(to != address(0), "ZERO_TO");
         // H-09: Prevent swapping output to the pair itself
         require(to != _pairFor(path[path.length - 2], path[path.length - 1]), "INVALID_TO");
+        // SECURITY FIX M-2: Validate path before transfer (matching exact-input swap pattern)
+        _validatePathNoCycles(path);
         amounts = getAmountsIn(amountOut, path);
         require(amounts[0] <= amountInMax, "EXCESSIVE_INPUT_AMOUNT");
         IERC20(path[0]).safeTransferFrom(msg.sender, _pairFor(path[0], path[1]), amounts[0]);
@@ -238,6 +247,8 @@ contract TegridyRouter is ReentrancyGuard {
         require(to != address(0), "ZERO_TO");
         // H-09: Prevent swapping output to the pair itself
         require(to != _pairFor(path[path.length - 2], path[path.length - 1]), "INVALID_TO");
+        // SECURITY FIX M-2: Validate path before transfer (matching exact-input swap pattern)
+        _validatePathNoCycles(path);
         amounts = getAmountsIn(amountOut, path);
         require(amounts[0] <= msg.value, "EXCESSIVE_INPUT_AMOUNT");
         IWETH(WETH).deposit{value: amounts[0]}();
@@ -345,6 +356,22 @@ contract TegridyRouter is ReentrancyGuard {
     }
 
     // ─── Internal ─────────────────────────────────────────────────────
+
+    /// @dev SECURITY FIX H5: Validate path has no cyclic pairs BEFORE any token transfers.
+    /// Prevents tokens getting stuck in pairs when cyclic path reverts after transfer.
+    function _validatePathNoCycles(address[] memory path) internal view {
+        uint256 hops = path.length - 1;
+        if (hops < 2) return; // No cycles possible with 1 hop
+        address[] memory pairs = new address[](hops);
+        for (uint256 i = 0; i < hops; i++) {
+            pairs[i] = _pairFor(path[i], path[i + 1]);
+        }
+        for (uint256 i = 0; i < hops; i++) {
+            for (uint256 j = i + 1; j < hops; j++) {
+                require(pairs[i] != pairs[j], "CYCLIC_PATH");
+            }
+        }
+    }
 
     function _swap(uint256[] memory amounts, address[] memory path, address _to) internal {
         uint256 hops = path.length - 1;

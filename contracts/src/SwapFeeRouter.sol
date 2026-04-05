@@ -273,7 +273,9 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         } else if (amountOutMin <= type(uint256).max / BPS) {
             adjustedMin = (amountOutMin * BPS + BPS - effectiveFee - 1) / (BPS - effectiveFee);
         } else {
-            adjustedMin = amountOutMin;
+            // SECURITY FIX M-4: Revert instead of silently weakening slippage protection.
+            // Previously fell through to unadjusted amountOutMin, defeating fee compensation.
+            revert AdjustedMinOverflow();
         }
 
         uint256 ethBefore = address(this).balance;
@@ -517,23 +519,24 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     // ─── Admin: Fee Withdrawal ───────────────────────────────────────
 
     /// @notice Pull-pattern fee withdrawal to treasury
+    /// SECURITY FIX H6: Use WETHFallbackLib to prevent ETH getting permanently stuck
+    /// if treasury is a contract that can't receive ETH (same pattern used in swapExactTokensForETH)
     function withdrawFees() external onlyOwner nonReentrant {
         uint256 amount = accumulatedETHFees;
         if (amount == 0) revert ZeroAmount();
         accumulatedETHFees = 0;
-        (bool ok,) = treasury.call{value: amount}("");
-        require(ok, "Fee withdrawal failed");
+        WETHFallbackLib.safeTransferETHOrWrap(WETH, treasury, amount);
         emit FeesWithdrawn(treasury, amount);
     }
 
     /// @notice Sweep any stuck ETH to treasury (non-fee dust)
+    /// SECURITY FIX H6: Use WETHFallbackLib for same reason
     function sweepETH() external onlyOwner nonReentrant {
         uint256 balance = address(this).balance;
         if (balance == 0) revert ZeroAmount();
         uint256 sweepable = balance > accumulatedETHFees ? balance - accumulatedETHFees : 0;
         if (sweepable == 0) revert ZeroAmount();
-        (bool ok,) = treasury.call{value: sweepable}("");
-        require(ok, "ETH sweep failed");
+        WETHFallbackLib.safeTransferETHOrWrap(WETH, treasury, sweepable);
         emit FeesWithdrawn(treasury, sweepable);
     }
 

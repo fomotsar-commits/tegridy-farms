@@ -89,6 +89,10 @@ contract TegridyPair is ERC20, ReentrancyGuard {
     // ─── Mint LP tokens ───────────────────────────────────────────────
 
     function mint(address to) external nonReentrant returns (uint256 liquidity) {
+        // SECURITY FIX M-1: Block minting on disabled/blocked pairs (matching swap() lines 165-167).
+        // Without this, users can add liquidity to dead pairs and lose their tokens.
+        require(!ITegridyFactory(factory).disabledPairs(address(this)), "PAIR_DISABLED");
+        require(!ITegridyFactory(factory).blockedTokens(token0) && !ITegridyFactory(factory).blockedTokens(token1), "TOKEN_BLOCKED");
         (uint112 _reserve0, uint112 _reserve1,) = getReserves();
         uint256 balance0 = IERC20(token0).balanceOf(address(this));
         uint256 balance1 = IERC20(token1).balanceOf(address(this));

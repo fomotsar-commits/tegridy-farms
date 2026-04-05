@@ -68,17 +68,15 @@ function getGlitchConfig(from: string, to: string): GlitchConfig {
     toIdx > fromIdx ? 'forward' : 'backward';
   const mobile = typeof window !== 'undefined' && window.innerWidth < 768;
 
-  // #88 audit: shorter transition durations (max 400ms desktop, snappier mobile)
-  // Homepage transitions are heavy
+  // Desktop: 1000ms for all transitions — premium glitch art experience
+  // Mobile: unchanged — snappy and responsive
   if (from === '/' || to === '/') {
-    return { intensity: 'heavy', direction, sliceCount: mobile ? 6 : 12, duration: mobile ? 350 : 400 };
+    return { intensity: 'heavy', direction, sliceCount: mobile ? 6 : 16, duration: mobile ? 350 : 1000 };
   }
-  // Adjacent pages are light
   if (Math.abs(fromIdx - toIdx) <= 1) {
-    return { intensity: 'light', direction, sliceCount: mobile ? 4 : 8, duration: mobile ? 250 : 300 };
+    return { intensity: 'light', direction, sliceCount: mobile ? 4 : 12, duration: mobile ? 250 : 1000 };
   }
-  // Everything else is medium
-  return { intensity: 'medium', direction, sliceCount: mobile ? 5 : 10, duration: mobile ? 300 : 350 };
+  return { intensity: 'medium', direction, sliceCount: mobile ? 5 : 14, duration: mobile ? 300 : 1000 };
 }
 
 function RouteGlitch() {
@@ -161,6 +159,11 @@ function App() {
           <TransactionReceiptProvider>
           <ParticleBackground />
           <RouteGlitch />
+          {/* Migration Banner for v2 contract upgrade */}
+          <div className="bg-yellow-900/80 border-b border-yellow-600 text-yellow-100 text-center py-2 px-4 text-sm">
+            <strong>Security Upgrade:</strong> Contracts have been upgraded. If you had staked positions, please withdraw from the old contracts and re-stake.{' '}
+            <a href="https://etherscan.io/address/0x626644523d34B84818df602c991B4a06789C4819" target="_blank" rel="noopener noreferrer" className="underline text-yellow-300">New Staking Contract</a>
+          </div>
           <Suspense fallback={<PageSkeleton />}>
             <AnimatedRoutes />
           </Suspense>

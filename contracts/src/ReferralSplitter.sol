@@ -298,17 +298,10 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     ///         A4-C-01 FIX: votingPowerOf wrapped in try/catch — if staking contract reverts,
     ///         claim is blocked (not silently allowed) but funds remain claimable once staking recovers.
     function claimReferralRewards() external nonReentrant {
-        // SECURITY FIX #16: Require active stake to prevent Sybil reward farming
-        // A4-C-01: Wrap in try/catch to prevent broken staking contract from permanently locking funds
-        uint256 claimerPower;
-        try stakingContract.votingPowerOf(msg.sender) returns (uint256 power) {
-            claimerPower = power;
-        } catch {
-            // Staking contract reverted — block claim but don't lock funds permanently.
-            // User can retry when staking contract recovers.
-            revert ReferrerNotStaked();
-        }
-        if (claimerPower < MIN_REFERRAL_STAKE_POWER) revert ReferrerNotStaked();
+        // SECURITY FIX H1: Removed voting power requirement from CLAIMING.
+        // Stake check is enforced in recordFee() when EARNING new referrals.
+        // Earned rewards must always be claimable regardless of current stake.
+        // (Curve/Convex pattern — earned rewards are unconditionally claimable)
         if (referrerRegisteredAt[msg.sender] == 0 || block.timestamp < referrerRegisteredAt[msg.sender] + MIN_REFERRAL_AGE) revert ReferralAgeTooRecent();
         uint256 amount = pendingETH[msg.sender];
         if (amount == 0) revert NothingToClaim();

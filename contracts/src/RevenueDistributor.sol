@@ -185,7 +185,7 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     /// @notice Create a new distribution epoch with NEW ETH (not already earmarked).
     ///         Permissionless — anyone can trigger (e.g., keeper, user, or admin).
     ///         Uses votingEscrow.totalBoostedStake() for the epoch's totalLocked snapshot.
-    function distribute() external whenNotPaused {
+    function distribute() external nonReentrant whenNotPaused {
         _distribute();
     }
 
@@ -198,7 +198,7 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     /// is temporarily low, concentrating the epoch's revenue to the remaining stakers (including themselves).
     uint256 public constant MIN_DISTRIBUTE_STAKE = 1000e18; // Minimum 1000 TOWELI equivalent staked
 
-    function distributePermissionless() external whenNotPaused {
+    function distributePermissionless() external nonReentrant whenNotPaused {
         // AUDIT FIX M-12: Prevent distribution at low stake levels to avoid concentration attacks
         require(votingEscrow.totalBoostedStake() >= MIN_DISTRIBUTE_STAKE, "STAKE_TOO_LOW");
         uint256 reserved = (totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0) + totalPendingWithdrawals;
@@ -419,11 +419,14 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         if (totalOwed == 0) revert NothingToClaim();
 
         lastClaimedEpoch[msg.sender] = actualEndEpoch;
-        totalClaimed += totalOwed;
 
-        // Try to send ETH, fallback to pendingWithdrawals
+        // SECURITY FIX C5: Only increment totalClaimed on successful direct transfer.
+        // Failed transfers go to pendingWithdrawals — totalClaimed is incremented in withdrawPending().
+        // Prevents totalEarmarked drift that permanently locks ETH (MakerDAO DSR pull-pattern).
         (bool success,) = msg.sender.call{value: totalOwed}("");
-        if (!success) {
+        if (success) {
+            totalClaimed += totalOwed;
+        } else {
             pendingWithdrawals[msg.sender] += totalOwed;
             totalPendingWithdrawals += totalOwed;
             emit PendingWithdrawalCredited(msg.sender, totalOwed);
@@ -459,11 +462,14 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         if (totalOwed == 0) revert NothingToClaim();
 
         lastClaimedEpoch[msg.sender] = actualEndEpoch;
-        totalClaimed += totalOwed;
 
-        // Try to send ETH, fallback to pendingWithdrawals
+        // SECURITY FIX C5: Only increment totalClaimed on successful direct transfer.
+        // Failed transfers go to pendingWithdrawals — totalClaimed is incremented in withdrawPending().
+        // Prevents totalEarmarked drift that permanently locks ETH (MakerDAO DSR pull-pattern).
         (bool success,) = msg.sender.call{value: totalOwed}("");
-        if (!success) {
+        if (success) {
+            totalClaimed += totalOwed;
+        } else {
             pendingWithdrawals[msg.sender] += totalOwed;
             totalPendingWithdrawals += totalOwed;
             emit PendingWithdrawalCredited(msg.sender, totalOwed);
@@ -546,6 +552,8 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
 
         pendingWithdrawals[msg.sender] = 0;
         totalPendingWithdrawals -= amount;
+        // SECURITY FIX C5: Increment totalClaimed here (was previously in claim() before transfer success check)
+        totalClaimed += amount;
 
         WETHFallbackLib.safeTransferETHOrWrap(address(weth), msg.sender, amount);
 

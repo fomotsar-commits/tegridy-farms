@@ -40,6 +40,8 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     uint256 public constant MIN_VOTE_BALANCE = 1000 ether; // Must hold 1000 TOWELI to vote
     uint256 public constant MIN_DEADLINE_DURATION = 1 days; // Minimum time between creation and deadline
     uint256 public constant MIN_COMPLETION_VOTES = 3000e18; // AUDIT FIX H-07: Minimum stake-weighted votes for quorum (3000 TOWELI equivalent)
+    uint256 public constant MIN_UNIQUE_VOTERS = 3; // SECURITY FIX H3: Prevent whale single-handedly completing bounties (Nouns DAO pattern)
+    mapping(uint256 => uint256) public uniqueVoterCount; // bountyId => number of unique voters
     uint256 public constant DISPUTE_PERIOD = 2 days; // SECURITY FIX #15: dispute window after deadline
     uint256 public constant GRACE_PERIOD = 30 days; // SECURITY FIX: after deadline + dispute, creator has 30 days before anyone can complete
     uint256 public constant MAX_SUBMISSIONS_PER_BOUNTY = 100; // L-05: cap submissions to prevent griefing
@@ -263,6 +265,8 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
         // H-02: Set both mappings — per-bounty (primary check) and per-submission (backwards compat)
         hasVotedOnBounty[_bountyId][msg.sender] = true;
+        // SECURITY FIX H3: Track unique voters for diversity requirement (Nouns DAO pattern)
+        uniqueVoterCount[_bountyId]++;
         hasVotedOnSubmission[_bountyId][_submissionId][msg.sender] = true;
         // AUDIT FIX H-07: Use stake-weighted voting to prevent Sybil attacks
         submissions[_bountyId][_submissionId].votes += voterPower;
@@ -302,6 +306,8 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
         // SECURITY FIX #15: Require minimum vote threshold for completion (quorum)
         if (topVotes < MIN_COMPLETION_VOTES) revert QuorumNotMet();
+        // SECURITY FIX H3: Require minimum voter diversity — prevents whale solo-completing bounties
+        require(uniqueVoterCount[_bountyId] >= MIN_UNIQUE_VOTERS, "INSUFFICIENT_VOTER_DIVERSITY");
 
         address winner = submissions[_bountyId][topSubmissionId[_bountyId]].submitter;
         bounty.winner = winner;
@@ -381,7 +387,10 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (block.timestamp < bounty.deadline + DISPUTE_PERIOD + GRACE_PERIOD) revert GracePeriodNotExpired();
         // AUDIT FIX: Only allow refund if no submission met the completion quorum.
         // If a valid winner exists, use completeBounty() instead — prevents creator front-running.
-        if (topSubmissionVotes[_bountyId] >= MIN_COMPLETION_VOTES) revert WinnerExists();
+        // SECURITY FIX C-1: Check BOTH vote quorum AND voter diversity (matching completeBounty).
+        // Without the diversity check, a whale solo-vote creates a deadlock: completeBounty fails
+        // on diversity, but refundStaleBounty reverts on WinnerExists. ETH is permanently locked.
+        if (topSubmissionVotes[_bountyId] >= MIN_COMPLETION_VOTES && uniqueVoterCount[_bountyId] >= MIN_UNIQUE_VOTERS) revert WinnerExists();
 
         // No submission met quorum — refund creator
         bounty.status = BountyStatus.Cancelled;
@@ -430,8 +439,9 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (bounty.status != BountyStatus.Open) revert BountyNotOpen();
         // Must wait at least 7 days after the deadline
         if (block.timestamp < bounty.deadline + EMERGENCY_FORCE_CANCEL_DELAY) revert ForceCancelTooEarly();
-        // AUDIT FIX: Cannot force-cancel when a legitimate winner exists
-        if (topSubmissionVotes[_bountyId] >= MIN_COMPLETION_VOTES) revert WinnerExists();
+        // SECURITY FIX C-1: Check BOTH vote quorum AND voter diversity (matching completeBounty).
+        // Without the diversity check, a whale solo-vote creates a deadlock.
+        if (topSubmissionVotes[_bountyId] >= MIN_COMPLETION_VOTES && uniqueVoterCount[_bountyId] >= MIN_UNIQUE_VOTERS) revert WinnerExists();
         // AUDIT FIX M-17: Also block force-cancel when aggregate engagement is high
         // (multiple submissions with significant votes, even if none individually meet quorum).
         // Uses 2x MIN_COMPLETION_VOTES as the aggregate threshold.

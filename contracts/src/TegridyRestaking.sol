@@ -395,17 +395,20 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             }
         }
 
-        // 2. Claim bonus rewards (may have already been claimed by auto-refresh above)
+        // 2. Claim bonus rewards (skip if auto-refresh above already settled and reset debt)
+        // SECURITY FIX C4: Explicit guard — only claim if debt drift exists after refresh
         // M-27: Safe int256 cast via _safeInt256 helper
-        int256 accumulated = _safeInt256((info.boostedAmount * accBonusPerShare) / ACC_PRECISION);
-        int256 diff = accumulated - info.bonusDebt;
-        info.bonusDebt = accumulated;
-        uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
+        if (info.boostedAmount > 0) {
+            int256 accumulated = _safeInt256((info.boostedAmount * accBonusPerShare) / ACC_PRECISION);
+            int256 diff = accumulated - info.bonusDebt;
+            info.bonusDebt = accumulated;
+            uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
 
-        if (bonusPending > 0) {
-            bonusRewardToken.safeTransfer(msg.sender, bonusPending);
-            totalBonusDistributed += bonusPending;
-            emit BonusClaimed(msg.sender, bonusPending);
+            if (bonusPending > 0) {
+                bonusRewardToken.safeTransfer(msg.sender, bonusPending);
+                totalBonusDistributed += bonusPending;
+                emit BonusClaimed(msg.sender, bonusPending);
+            }
         }
     }
 
