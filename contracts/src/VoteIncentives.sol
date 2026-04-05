@@ -361,9 +361,11 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             claimed[msg.sender][epoch][pair][token] = true;
             anyClaimed = true;
 
-            // SECURITY FIX C-2: Decrement epochBribes to guarantee solvency (Velodrome pattern).
-            // Late claimers compute against remaining pool, preventing aggregate over-claim.
-            epochBribes[epoch][pair][token] = bribeAmount - share;
+            // NOTE: epochBribes is NOT decremented. Each user gets their proportional share
+            // of the ORIGINAL deposit: (bribeAmount * userPower) / totalPower.
+            // Solvency is guaranteed by the cap on line 346 (userPower <= totalPower),
+            // which ensures sum(shares) <= bribeAmount. The `claimed` mapping prevents
+            // double-claims. Rounding dust stays in the contract and is sweepable.
 
             // C-01 FIX: Safe subtraction to prevent underflow from rounding dust
             if (token == address(0)) {
@@ -438,8 +440,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
                 claimed[msg.sender][e][pair][token] = true;
                 anyClaimed = true;
 
-                // SECURITY FIX C-2: Decrement epochBribes (Velodrome solvency pattern)
-                epochBribes[e][pair][token] = bribeAmount - share;
+                // NOTE: epochBribes NOT decremented — proportional share from original deposit.
+                // Solvency guaranteed by userPower cap (line 426).
 
                 // C-01 FIX: Safe subtraction to prevent underflow from rounding dust
                 if (token == address(0)) {
