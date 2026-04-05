@@ -29,6 +29,7 @@ export default function LeaderboardPage() {
         <motion.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Leaderboard</h1>
           <p className="text-white/50 text-[14px]">{CURRENT_SEASON.name} — Earn points by using the protocol</p>
+          <p className="text-amber-400/50 text-[11px] mt-1">Points are tracked locally for fun. Any future rewards will be based on on-chain activity only.</p>
         </motion.div>
 
         {/* Tegridy Score */}

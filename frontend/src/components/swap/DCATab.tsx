@@ -14,7 +14,7 @@ const INTERVALS = [
 
 export function DCATab() {
   const { isConnected } = useAccount();
-  const { activeSchedules, dueSchedules, createSchedule, cancelSchedule } = useDCA();
+  const { activeSchedules, dueSchedules, createSchedule, cancelSchedule, pauseSchedule, resumeSchedule } = useDCA();
   const [amount, setAmount] = useState('');
   const [intervalIdx, setIntervalIdx] = useState(0); // daily
   const [totalSwaps, setTotalSwaps] = useState('30');
@@ -25,8 +25,8 @@ export function DCATab() {
   const handleCreate = () => {
     if (!amount || parseFloat(amount) <= 0 || !totalSwaps || parseInt(totalSwaps) <= 0) return;
     createSchedule({
-      fromToken: { symbol: fromToken.symbol, address: fromToken.address, decimals: fromToken.decimals },
-      toToken: { symbol: toToken.symbol, address: toToken.address, decimals: toToken.decimals },
+      fromToken: { symbol: fromToken.symbol, address: fromToken.address, decimals: fromToken.decimals, ...(fromToken.isNative && { isNative: true }) },
+      toToken: { symbol: toToken.symbol, address: toToken.address, decimals: toToken.decimals, ...(toToken.isNative && { isNative: true }) },
       amountPerSwap: amount,
       interval: INTERVALS[intervalIdx].value,
       totalSwaps: parseInt(totalSwaps),
@@ -39,7 +39,8 @@ export function DCATab() {
 
   return (
     <div className="p-5">
-      <p className="text-white/30 text-[11px] mb-4">Automatically buy TOWELI at regular intervals. Reduce timing risk with dollar-cost averaging.</p>
+      <p className="text-white/30 text-[11px] mb-2">Automatically buy TOWELI at regular intervals. Reduce timing risk with dollar-cost averaging.</p>
+      <p className="text-amber-400/60 text-[10px] mb-4 bg-amber-900/20 rounded px-2 py-1 border border-amber-700/30">⚠️ Browser-only feature: DCA schedules only run while this tab is open. Closing the browser stops all scheduled swaps. A keeper-based on-chain DCA is planned for v2.</p>
 
       {/* Amount per swap */}
       <div className="mb-3">
@@ -73,6 +74,7 @@ export function DCATab() {
         <label className="text-white/40 text-[11px] mb-1.5 block">Number of Swaps</label>
         <input type="number" value={totalSwaps} onChange={e => setTotalSwaps(e.target.value)}
           placeholder="30" min="1" max="365"
+          onBlur={() => { const v = parseInt(totalSwaps); if (v > 365) setTotalSwaps('365'); if (v < 1) setTotalSwaps('1'); }}
           className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-3 py-2.5 rounded-lg token-input"
           style={{ border: '1px solid rgba(255,255,255,0.06)' }} />
       </div>
@@ -112,7 +114,10 @@ export function DCATab() {
       )}
 
       <p className="text-white/15 text-[10px] text-center mt-2">
-        Note: DCA schedules are saved locally as price alerts. You'll need to execute each swap manually.
+        Swaps execute automatically when due. Keep this tab open — your wallet will prompt for approval.
+      </p>
+      <p className="text-amber-400/40 text-[10px] text-center mt-1">
+        Schedules are stored in your browser. Clearing browser data or switching devices will remove them.
       </p>
 
       {/* Active DCA Schedules */}
@@ -132,6 +137,17 @@ export function DCATab() {
                 {dueSchedules.some(d => d.id === s.id) && (
                   <span className="badge badge-warning text-[9px]">Due</span>
                 )}
+                {s.status === 'active' ? (
+                  <button onClick={() => pauseSchedule(s.id)}
+                    className="text-white/20 hover:text-warning text-[10px] cursor-pointer transition-colors">
+                    Pause
+                  </button>
+                ) : s.status === 'paused' ? (
+                  <button onClick={() => resumeSchedule(s.id)}
+                    className="text-primary/60 hover:text-primary text-[10px] cursor-pointer transition-colors">
+                    Resume
+                  </button>
+                ) : null}
                 <button onClick={() => cancelSchedule(s.id)}
                   className="text-white/20 hover:text-danger text-[10px] cursor-pointer transition-colors">
                   Cancel

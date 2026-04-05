@@ -15,6 +15,9 @@ const EXPIRY_OPTIONS = [
 export function LimitOrderTab() {
   const { isConnected } = useAccount();
   const { activeOrders, pastOrders, createOrder, cancelOrder } = useLimitOrders();
+
+  // Honest disclaimer — this runs in the browser only
+  const DISCLAIMER = "⚠️ Browser-only: Orders are stored locally and only execute while this tab is open. Not a true on-chain limit order.";
   const [amount, setAmount] = useState('');
   const [targetPrice, setTargetPrice] = useState('');
   const [expiryIdx, setExpiryIdx] = useState(2); // default 7 days
@@ -25,8 +28,8 @@ export function LimitOrderTab() {
   const handleCreate = () => {
     if (!amount || !targetPrice || parseFloat(amount) <= 0 || parseFloat(targetPrice) <= 0) return;
     createOrder({
-      fromToken: { symbol: fromToken.symbol, address: fromToken.address, decimals: fromToken.decimals },
-      toToken: { symbol: toToken.symbol, address: toToken.address, decimals: toToken.decimals },
+      fromToken: { symbol: fromToken.symbol, address: fromToken.address, decimals: fromToken.decimals, ...(fromToken.isNative && { isNative: true }) },
+      toToken: { symbol: toToken.symbol, address: toToken.address, decimals: toToken.decimals, ...(toToken.isNative && { isNative: true }) },
       amount,
       targetPrice,
       expiresAt: Date.now() + EXPIRY_OPTIONS[expiryIdx].ms,
@@ -37,7 +40,8 @@ export function LimitOrderTab() {
 
   return (
     <div className="p-5">
-      <p className="text-white/30 text-[11px] mb-4">Set a price target. Orders are saved locally as price alerts — they are not auto-executed. You'll need to execute each swap manually.</p>
+      <p className="text-white/30 text-[11px] mb-3">Set a price target. When the market price reaches your target, the swap executes automatically — your wallet will prompt for approval.</p>
+      <p className="text-amber-400/60 text-[10px] mb-4 bg-amber-900/20 rounded px-2 py-1 border border-amber-700/30">⚠️ Browser-only feature: Orders only execute while this tab is open. This is not an on-chain limit order — closing the tab cancels all pending orders. Use for convenience, not reliability.</p>
 
       {/* Amount */}
       <div className="mb-3">
