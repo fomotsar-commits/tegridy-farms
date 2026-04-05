@@ -11,7 +11,7 @@ import "../src/VoteIncentives.sol";
 contract DeployVoteIncentivesScript is Script {
     // ─── Mainnet Constants ───────────────────────────────────────────
     // Updated to new audit-fixed staking contract (April 2026 deployment)
-    address constant TEGRIDY_STAKING = 0xc2072846A493b92E2722dEE8eAFA78690f099bBD;
+    address constant TEGRIDY_STAKING = 0x626644523d34B84818df602c991B4a06789C4819;
     address constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     address constant TREASURY = 0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e;
     address constant TOWELI = 0x420698CFdEDdEa6bc78D59bC17798113ad278F9D;
