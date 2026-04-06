@@ -162,7 +162,7 @@ function App() {
           {/* Migration Banner for v2 contract upgrade */}
           <div className="bg-yellow-900/80 border-b border-yellow-600 text-yellow-100 text-center py-2 px-4 text-sm">
             <strong>Security Upgrade:</strong> Contracts have been upgraded. If you had staked positions, please withdraw from the old contracts and re-stake.{' '}
-            <a href="https://etherscan.io/address/0x626644523d34B84818df602c991B4a06789C4819" target="_blank" rel="noopener noreferrer" className="underline text-yellow-300">New Staking Contract</a>
+            <a href="https://etherscan.io/address/0x65D8b87917c59a0B33009493fB236bCccF1Ea421" target="_blank" rel="noopener noreferrer" className="underline text-yellow-300">New Staking Contract</a>
           </div>
           <Suspense fallback={<PageSkeleton />}>
             <AnimatedRoutes />
