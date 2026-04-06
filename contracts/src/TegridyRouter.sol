@@ -18,6 +18,18 @@ interface ITegridyFactoryRouter {
 ///
 ///         All swaps go through Tegridy's own pools — protocol keeps all fees.
 contract TegridyRouter is ReentrancyGuard {
+    // ─── Custom Errors (gas-optimized vs string reverts) ─────────────
+    error InvalidPath();
+    error PathTooLong();
+    error PairNotFound();
+    error PairDisabled();
+    error CyclicPath();
+    error InsufficientOutputAmount();
+    error ExcessiveInputAmount();
+    error InsufficientAAmount();
+    error InsufficientBAmount();
+    error InvalidRecipient();
+
     using SafeERC20 for IERC20;
 
     address public immutable factory;
@@ -148,15 +160,15 @@ contract TegridyRouter is ReentrancyGuard {
         uint256 amountIn, uint256 amountOutMin,
         address[] calldata path, address to, uint256 deadline
     ) external nonReentrant ensure(deadline) returns (uint256[] memory amounts) {
-        require(path.length >= 2, "INVALID_PATH");
-        require(to != address(0), "ZERO_TO"); // L-18: to validation
+        if (path.length < 2) revert InvalidPath();
+        if (to == address(0)) revert InvalidRecipient();
         // H-09: Prevent swapping output to the pair itself
-        require(to != _pairFor(path[path.length - 2], path[path.length - 1]), "INVALID_TO");
+        if (to == _pairFor(path[path.length - 2], path[path.length - 1])) revert InvalidRecipient();
         // SECURITY FIX H5: Validate path BEFORE any token transfers to prevent
         // tokens getting stuck in pairs on cyclic path revert
         _validatePathNoCycles(path);
         amounts = getAmountsOut(amountIn, path);
-        require(amounts[amounts.length - 1] >= amountOutMin, "INSUFFICIENT_OUTPUT_AMOUNT");
+        if (amounts[amounts.length - 1] < amountOutMin) revert InsufficientOutputAmount();
         IERC20(path[0]).safeTransferFrom(msg.sender, _pairFor(path[0], path[1]), amounts[0]);
         _swap(amounts, path, to);
         emit Swap(msg.sender, path, amounts[0], amounts[amounts.length - 1], to);
@@ -165,14 +177,14 @@ contract TegridyRouter is ReentrancyGuard {
     function swapExactETHForTokens(
         uint256 amountOutMin, address[] calldata path, address to, uint256 deadline
     ) external payable nonReentrant ensure(deadline) returns (uint256[] memory amounts) {
-        require(path.length >= 2, "INVALID_PATH");
-        require(path[0] == WETH, "INVALID_PATH");
-        require(to != address(0), "ZERO_TO"); // L-18: to validation
+        if (path.length < 2) revert InvalidPath();
+        if (path[0] != WETH) revert InvalidPath();
+        if (to == address(0)) revert InvalidRecipient();
         // H-09: Prevent swapping output to the pair itself
-        require(to != _pairFor(path[path.length - 2], path[path.length - 1]), "INVALID_TO");
+        if (to == _pairFor(path[path.length - 2], path[path.length - 1])) revert InvalidRecipient();
         _validatePathNoCycles(path); // SECURITY FIX H5
         amounts = getAmountsOut(msg.value, path);
-        require(amounts[amounts.length - 1] >= amountOutMin, "INSUFFICIENT_OUTPUT_AMOUNT");
+        if (amounts[amounts.length - 1] < amountOutMin) revert InsufficientOutputAmount();
         IWETH(WETH).deposit{value: amounts[0]}();
         require(IWETH(WETH).transfer(_pairFor(path[0], path[1]), amounts[0]), "WETH_TRANSFER_FAILED"); // L-08
         _swap(amounts, path, to);
@@ -183,14 +195,14 @@ contract TegridyRouter is ReentrancyGuard {
         uint256 amountIn, uint256 amountOutMin,
         address[] calldata path, address to, uint256 deadline
     ) external nonReentrant ensure(deadline) returns (uint256[] memory amounts) {
-        require(path.length >= 2, "INVALID_PATH");
-        require(path[path.length - 1] == WETH, "INVALID_PATH");
-        require(to != address(0), "ZERO_TO"); // L-18: to validation
+        if (path.length < 2) revert InvalidPath();
+        if (path[path.length - 1] != WETH) revert InvalidPath();
+        if (to == address(0)) revert InvalidRecipient();
         // H-09: Prevent swapping output to the pair itself
-        require(to != _pairFor(path[path.length - 2], path[path.length - 1]), "INVALID_TO");
+        if (to == _pairFor(path[path.length - 2], path[path.length - 1])) revert InvalidRecipient();
         _validatePathNoCycles(path); // SECURITY FIX H5
         amounts = getAmountsOut(amountIn, path);
-        require(amounts[amounts.length - 1] >= amountOutMin, "INSUFFICIENT_OUTPUT_AMOUNT");
+        if (amounts[amounts.length - 1] < amountOutMin) revert InsufficientOutputAmount();
         IERC20(path[0]).safeTransferFrom(msg.sender, _pairFor(path[0], path[1]), amounts[0]);
         _swap(amounts, path, address(this));
         IWETH(WETH).withdraw(amounts[amounts.length - 1]);
@@ -205,14 +217,14 @@ contract TegridyRouter is ReentrancyGuard {
         uint256 amountOut, uint256 amountInMax,
         address[] calldata path, address to, uint256 deadline
     ) external nonReentrant ensure(deadline) returns (uint256[] memory amounts) {
-        require(path.length >= 2, "INVALID_PATH");
-        require(to != address(0), "ZERO_TO");
+        if (path.length < 2) revert InvalidPath();
+        if (to == address(0)) revert InvalidRecipient();
         // H-09: Prevent swapping output to the pair itself
-        require(to != _pairFor(path[path.length - 2], path[path.length - 1]), "INVALID_TO");
+        if (to == _pairFor(path[path.length - 2], path[path.length - 1])) revert InvalidRecipient();
         // SECURITY FIX M-2: Validate path before transfer (matching exact-input swap pattern)
         _validatePathNoCycles(path);
         amounts = getAmountsIn(amountOut, path);
-        require(amounts[0] <= amountInMax, "EXCESSIVE_INPUT_AMOUNT");
+        if (amounts[0] > amountInMax) revert ExcessiveInputAmount();
         IERC20(path[0]).safeTransferFrom(msg.sender, _pairFor(path[0], path[1]), amounts[0]);
         _swap(amounts, path, to);
         emit Swap(msg.sender, path, amounts[0], amounts[amounts.length - 1], to);
@@ -222,15 +234,15 @@ contract TegridyRouter is ReentrancyGuard {
         uint256 amountOut, uint256 amountInMax,
         address[] calldata path, address to, uint256 deadline
     ) external nonReentrant ensure(deadline) returns (uint256[] memory amounts) {
-        require(path.length >= 2, "INVALID_PATH");
-        require(path[path.length - 1] == WETH, "INVALID_PATH");
-        require(to != address(0), "ZERO_TO");
+        if (path.length < 2) revert InvalidPath();
+        if (path[path.length - 1] != WETH) revert InvalidPath();
+        if (to == address(0)) revert InvalidRecipient();
         // H-09: Prevent swapping output to the pair itself
-        require(to != _pairFor(path[path.length - 2], path[path.length - 1]), "INVALID_TO");
+        if (to == _pairFor(path[path.length - 2], path[path.length - 1])) revert InvalidRecipient();
         // SECURITY FIX M-2: Validate path before transfer (matching exact-input swap pattern)
         _validatePathNoCycles(path);
         amounts = getAmountsIn(amountOut, path);
-        require(amounts[0] <= amountInMax, "EXCESSIVE_INPUT_AMOUNT");
+        if (amounts[0] > amountInMax) revert ExcessiveInputAmount();
         IERC20(path[0]).safeTransferFrom(msg.sender, _pairFor(path[0], path[1]), amounts[0]);
         _swap(amounts, path, address(this));
         IWETH(WETH).withdraw(amountOut);
@@ -242,15 +254,15 @@ contract TegridyRouter is ReentrancyGuard {
     function swapETHForExactTokens(
         uint256 amountOut, address[] calldata path, address to, uint256 deadline
     ) external payable nonReentrant ensure(deadline) returns (uint256[] memory amounts) {
-        require(path.length >= 2, "INVALID_PATH");
-        require(path[0] == WETH, "INVALID_PATH");
-        require(to != address(0), "ZERO_TO");
+        if (path.length < 2) revert InvalidPath();
+        if (path[0] != WETH) revert InvalidPath();
+        if (to == address(0)) revert InvalidRecipient();
         // H-09: Prevent swapping output to the pair itself
-        require(to != _pairFor(path[path.length - 2], path[path.length - 1]), "INVALID_TO");
+        if (to == _pairFor(path[path.length - 2], path[path.length - 1])) revert InvalidRecipient();
         // SECURITY FIX M-2: Validate path before transfer (matching exact-input swap pattern)
         _validatePathNoCycles(path);
         amounts = getAmountsIn(amountOut, path);
-        require(amounts[0] <= msg.value, "EXCESSIVE_INPUT_AMOUNT");
+        if (amounts[0] > msg.value) revert ExcessiveInputAmount();
         IWETH(WETH).deposit{value: amounts[0]}();
         require(IWETH(WETH).transfer(_pairFor(path[0], path[1]), amounts[0]), "WETH_TRANSFER_FAILED");
         _swap(amounts, path, to);
@@ -272,15 +284,16 @@ contract TegridyRouter is ReentrancyGuard {
         uint256 amountIn, uint256 amountOutMin,
         address[] calldata path, address to, uint256 deadline
     ) external nonReentrant ensure(deadline) {
-        require(path.length >= 2, "INVALID_PATH");
-        require(path.length <= 10, "PATH_TOO_LONG");
-        require(to != address(0), "ZERO_TO");
-        require(to != _pairFor(path[path.length - 2], path[path.length - 1]), "INVALID_TO");
+        if (path.length < 2) revert InvalidPath();
+        if (path.length > 10) revert PathTooLong();
+        if (to == address(0)) revert InvalidRecipient();
+        if (to == _pairFor(path[path.length - 2], path[path.length - 1])) revert InvalidRecipient();
+        _validatePathNoCycles(path);
         IERC20(path[0]).safeTransferFrom(msg.sender, _pairFor(path[0], path[1]), amountIn);
         uint256 balanceBefore = IERC20(path[path.length - 1]).balanceOf(to);
         _swapSupportingFeeOnTransferTokens(path, to);
         uint256 amountOut = IERC20(path[path.length - 1]).balanceOf(to) - balanceBefore;
-        require(amountOut >= amountOutMin, "INSUFFICIENT_OUTPUT_AMOUNT");
+        if (amountOut < amountOutMin) revert InsufficientOutputAmount();
         emit Swap(msg.sender, path, amountIn, amountOut, to);
     }
 
@@ -288,18 +301,19 @@ contract TegridyRouter is ReentrancyGuard {
     function swapExactETHForTokensSupportingFeeOnTransferTokens(
         uint256 amountOutMin, address[] calldata path, address to, uint256 deadline
     ) external payable nonReentrant ensure(deadline) {
-        require(path.length >= 2, "INVALID_PATH");
-        require(path.length <= 10, "PATH_TOO_LONG");
-        require(path[0] == WETH, "INVALID_PATH");
-        require(to != address(0), "ZERO_TO");
-        require(to != _pairFor(path[path.length - 2], path[path.length - 1]), "INVALID_TO");
+        if (path.length < 2) revert InvalidPath();
+        if (path.length > 10) revert PathTooLong();
+        if (path[0] != WETH) revert InvalidPath();
+        if (to == address(0)) revert InvalidRecipient();
+        if (to == _pairFor(path[path.length - 2], path[path.length - 1])) revert InvalidRecipient();
+        _validatePathNoCycles(path);
         uint256 amountIn = msg.value;
         IWETH(WETH).deposit{value: amountIn}();
         require(IWETH(WETH).transfer(_pairFor(path[0], path[1]), amountIn), "WETH_TRANSFER_FAILED");
         uint256 balanceBefore = IERC20(path[path.length - 1]).balanceOf(to);
         _swapSupportingFeeOnTransferTokens(path, to);
         uint256 amountOut = IERC20(path[path.length - 1]).balanceOf(to) - balanceBefore;
-        require(amountOut >= amountOutMin, "INSUFFICIENT_OUTPUT_AMOUNT");
+        if (amountOut < amountOutMin) revert InsufficientOutputAmount();
         emit Swap(msg.sender, path, amountIn, amountOut, to);
     }
 
@@ -308,16 +322,17 @@ contract TegridyRouter is ReentrancyGuard {
         uint256 amountIn, uint256 amountOutMin,
         address[] calldata path, address to, uint256 deadline
     ) external nonReentrant ensure(deadline) {
-        require(path.length >= 2, "INVALID_PATH");
-        require(path.length <= 10, "PATH_TOO_LONG");
-        require(path[path.length - 1] == WETH, "INVALID_PATH");
-        require(to != address(0), "ZERO_TO");
-        require(to != _pairFor(path[path.length - 2], path[path.length - 1]), "INVALID_TO");
+        if (path.length < 2) revert InvalidPath();
+        if (path.length > 10) revert PathTooLong();
+        if (path[path.length - 1] != WETH) revert InvalidPath();
+        if (to == address(0)) revert InvalidRecipient();
+        if (to == _pairFor(path[path.length - 2], path[path.length - 1])) revert InvalidRecipient();
+        _validatePathNoCycles(path);
         IERC20(path[0]).safeTransferFrom(msg.sender, _pairFor(path[0], path[1]), amountIn);
         uint256 balanceBefore = IERC20(WETH).balanceOf(address(this));
         _swapSupportingFeeOnTransferTokens(path, address(this));
         uint256 amountOut = IERC20(WETH).balanceOf(address(this)) - balanceBefore;
-        require(amountOut >= amountOutMin, "INSUFFICIENT_OUTPUT_AMOUNT");
+        if (amountOut < amountOutMin) revert InsufficientOutputAmount();
         IWETH(WETH).withdraw(amountOut);
         WETHFallbackLib.safeTransferETHOrWrap(WETH, to, amountOut);
         emit Swap(msg.sender, path, amountIn, amountOut, to);
@@ -326,8 +341,8 @@ contract TegridyRouter is ReentrancyGuard {
     // ─── View Functions ───────────────────────────────────────────────
 
     function getAmountsOut(uint256 amountIn, address[] memory path) public view returns (uint256[] memory amounts) {
-        require(path.length >= 2, "INVALID_PATH");
-        require(path.length <= 10, "PATH_TOO_LONG"); // L-06: path length limit
+        if (path.length < 2) revert InvalidPath();
+        if (path.length > 10) revert PathTooLong(); // L-06: path length limit
         amounts = new uint256[](path.length);
         amounts[0] = amountIn;
         for (uint256 i = 0; i < path.length - 1; i++) {
@@ -338,8 +353,8 @@ contract TegridyRouter is ReentrancyGuard {
     }
 
     function getAmountsIn(uint256 amountOut, address[] memory path) public view returns (uint256[] memory amounts) {
-        require(path.length >= 2, "INVALID_PATH");
-        require(path.length <= 10, "PATH_TOO_LONG"); // L-06: path length limit
+        if (path.length < 2) revert InvalidPath();
+        if (path.length > 10) revert PathTooLong(); // L-06: path length limit
         amounts = new uint256[](path.length);
         amounts[amounts.length - 1] = amountOut;
         for (uint256 i = path.length - 1; i > 0; i--) {
@@ -368,7 +383,7 @@ contract TegridyRouter is ReentrancyGuard {
         }
         for (uint256 i = 0; i < hops; i++) {
             for (uint256 j = i + 1; j < hops; j++) {
-                require(pairs[i] != pairs[j], "CYCLIC_PATH");
+                if (pairs[i] == pairs[j]) revert CyclicPath();
             }
         }
     }
@@ -379,12 +394,7 @@ contract TegridyRouter is ReentrancyGuard {
         for (uint256 i = 0; i < hops; i++) {
             pairs[i] = _pairFor(path[i], path[i + 1]);
         }
-        // SECURITY FIX H-02: Reject cyclic paths — no pair should appear twice in the same swap.
-        for (uint256 i = 0; i < hops; i++) {
-            for (uint256 j = i + 1; j < hops; j++) {
-                require(pairs[i] != pairs[j], "CYCLIC_PATH");
-            }
-        }
+        // NOTE: Cycle check removed — callers validate via _validatePathNoCycles before transfer
         for (uint256 i = 0; i < hops; i++) {
             (address input, address output) = (path[i], path[i + 1]);
             require(input != output, "IDENTICAL_CONSECUTIVE_TOKENS");
@@ -403,12 +413,7 @@ contract TegridyRouter is ReentrancyGuard {
         for (uint256 i = 0; i < hops; i++) {
             pairs[i] = _pairFor(path[i], path[i + 1]);
         }
-        // SECURITY FIX H-02: Reject cyclic paths
-        for (uint256 i = 0; i < hops; i++) {
-            for (uint256 j = i + 1; j < hops; j++) {
-                require(pairs[i] != pairs[j], "CYCLIC_PATH");
-            }
-        }
+        // NOTE: Cycle check removed — callers validate via _validatePathNoCycles before transfer
         for (uint256 i = 0; i < hops; i++) {
             (address input, address output) = (path[i], path[i + 1]);
             require(input != output, "IDENTICAL_CONSECUTIVE_TOKENS");
@@ -433,8 +438,8 @@ contract TegridyRouter is ReentrancyGuard {
     ///      and keeps the router upgradeable without redeployment.
     function _pairFor(address tokenA, address tokenB) internal view returns (address pair) {
         pair = ITegridyFactoryRouter(factory).getPair(tokenA, tokenB);
-        require(pair != address(0), "PAIR_NOT_FOUND"); // H-04: pair existence check
-        require(!ITegridyFactoryRouter(factory).disabledPairs(pair), "PAIR_DISABLED");
+        if (pair == address(0)) revert PairNotFound(); // H-04: pair existence check
+        if (ITegridyFactoryRouter(factory).disabledPairs(pair)) revert PairDisabled();
     }
 
     function _getReserves(address pair, address tokenA, address tokenB) internal view returns (uint112 reserveA, uint112 reserveB) {

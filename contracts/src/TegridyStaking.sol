@@ -299,7 +299,8 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     // ─── Modifiers ────────────────────────────────────────────────────
 
     modifier updateReward() {
-        if (block.timestamp > lastUpdateTime && totalBoostedStake > 0) {
+        uint256 _totalBoosted = totalBoostedStake;
+        if (block.timestamp > lastUpdateTime && _totalBoosted > 0) {
             uint256 elapsed = block.timestamp - lastUpdateTime;
             uint256 reward = elapsed * rewardRate;
             uint256 available = rewardToken.balanceOf(address(this));
@@ -314,7 +315,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
                 reward = 0;
             }
             if (reward > 0) {
-                rewardPerTokenStored += (reward * ACC_PRECISION) / totalBoostedStake;
+                rewardPerTokenStored += (reward * ACC_PRECISION) / _totalBoosted;
                 // V2: totalRewardsAccumulated removed (dead penalty drain code cleaned up)
             }
         }

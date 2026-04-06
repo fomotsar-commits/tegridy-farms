@@ -138,6 +138,10 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     error DeadlineTooFar();
     error FeeExceedsMax();
     error AdjustedMinOverflow();
+    error PathStartMismatch();
+    error PathEndMismatch();
+    error InsufficientOutput();
+    error DuplicateTokenInPath();
 
     // Legacy error aliases (kept for test compatibility during V2 migration)
     // Note: ProposalExpired() removed — use TimelockAdmin.ProposalExpired(bytes32) instead
@@ -233,10 +237,10 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         uint256 effectiveFee = _getEffectiveFeeBps(path[0], msg.sender);
         if (effectiveFee > maxFeeBps) revert FeeExceedsMax();
         if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
-        require(path.length >= 2 && path.length <= 10, "INVALID_PATH");
-        require(path[0] == router.WETH(), "PATH_START");
+        if (path.length < 2 || path.length > 10) revert InvalidPath();
+        if (path[0] != router.WETH()) revert PathStartMismatch();
         _validateNoDuplicates(path);
-        require(to != address(0) && to != address(this), "INVALID_TO");
+        if (to == address(0) || to == address(this)) revert InvalidRecipient();
 
         uint256 fee = (msg.value * effectiveFee) / BPS;
         if (fee == 0 && effectiveFee > 0) fee = 1;
@@ -250,7 +254,7 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         }
 
         amounts = router.swapExactETHForTokens{value: amountAfterFee}(amountOutMin, path, to, deadline);
-        require(amounts[amounts.length - 1] >= amountOutMin, "INSUFFICIENT_OUTPUT");
+        if (amounts[amounts.length - 1] < amountOutMin) revert InsufficientOutput();
 
         emit SwapExecuted(msg.sender, address(0), path[path.length - 1], msg.value, fee);
     }
@@ -268,10 +272,10 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         uint256 effectiveFee = _getEffectiveFeeBps(path[0], msg.sender);
         if (effectiveFee > maxFeeBps) revert FeeExceedsMax();
         if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
-        require(path.length >= 2 && path.length <= 10, "INVALID_PATH");
-        require(path[path.length - 1] == router.WETH(), "PATH_END");
+        if (path.length < 2 || path.length > 10) revert InvalidPath();
+        if (path[path.length - 1] != router.WETH()) revert PathEndMismatch();
         _validateNoDuplicates(path);
-        require(to != address(0) && to != address(this), "INVALID_TO");
+        if (to == address(0) || to == address(this)) revert InvalidRecipient();
 
         uint256 balBefore = IERC20(path[0]).balanceOf(address(this));
         IERC20(path[0]).safeTransferFrom(msg.sender, address(this), amountIn);
@@ -327,9 +331,9 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         uint256 effectiveFee = _getEffectiveFeeBps(path[0], msg.sender);
         if (effectiveFee > maxFeeBps) revert FeeExceedsMax();
         if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
-        require(path.length >= 2 && path.length <= 10, "INVALID_PATH");
+        if (path.length < 2 || path.length > 10) revert InvalidPath();
         _validateNoDuplicates(path);
-        require(to != address(0) && to != address(this), "INVALID_TO");
+        if (to == address(0) || to == address(this)) revert InvalidRecipient();
 
         uint256 balBefore = IERC20(path[0]).balanceOf(address(this));
         IERC20(path[0]).safeTransferFrom(msg.sender, address(this), amountIn);
@@ -642,7 +646,7 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     function _validateNoDuplicates(address[] calldata path) internal pure {
         for (uint256 i = 0; i < path.length; i++) {
             for (uint256 j = i + 1; j < path.length; j++) {
-                require(path[i] != path[j], "DUPLICATE_TOKEN_IN_PATH");
+                if (path[i] == path[j]) revert DuplicateTokenInPath();
             }
         }
     }
