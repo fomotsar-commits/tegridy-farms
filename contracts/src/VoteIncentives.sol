@@ -131,6 +131,15 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     // SECURITY FIX H-7: Per-token minimum bribe amounts (supports non-18-decimal tokens)
     mapping(address => uint256) public minBribeAmounts;
 
+    // V2: Gauge Voting — Velodrome/Aerodrome pattern
+    // Users must vote() to allocate power to specific pairs before claiming that pair's bribes.
+    // gaugeVotes[user][epoch][pair] = voting power allocated to that pair
+    mapping(address => mapping(uint256 => mapping(address => uint256))) public gaugeVotes;
+    // totalGaugeVotes[epoch][pair] = total votes for that pair (denominator for share calc)
+    mapping(uint256 => mapping(address => uint256)) public totalGaugeVotes;
+    // userTotalVotes[user][epoch] = total power user has allocated across all pairs (capped at votingPower)
+    mapping(address => mapping(uint256 => uint256)) public userTotalVotes;
+
     // ─── Pending Values (for timelocked changes) ─────────────────────
     uint256 public pendingFeeBps;
     address public pendingTreasury;
@@ -156,6 +165,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     event TokenRemovedFromWhitelist(address indexed token);
     event WhitelistChangeProposed(address indexed token, bool add, uint256 executeAfter);
     event WhitelistChangeCancelled(address indexed token);
+    event GaugeVoted(address indexed user, uint256 indexed epoch, address indexed pair, uint256 power);
 
     // ─── Errors ──────────────────────────────────────────────────────
     error ZeroAddress();
@@ -227,6 +237,33 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @notice Get total number of completed epochs.
     function epochCount() external view returns (uint256) {
         return epochs.length;
+    }
+
+    // ─── V2: Gauge Voting (Velodrome/Aerodrome Pattern) ────────────────
+
+    /// @notice Allocate voting power to a specific pair for a snapshotted epoch.
+    ///         Users must vote() before claiming bribes for that pair — only voters share bribes.
+    ///         Can be called multiple times to allocate power across multiple pairs.
+    /// @param epoch The snapshotted epoch index to vote on
+    /// @param pair The pool pair to vote for
+    /// @param power Amount of voting power to allocate to this pair
+    function vote(uint256 epoch, address pair, uint256 power) external whenNotPaused {
+        if (epoch >= epochs.length) revert InvalidEpoch();
+        if (pair == address(0)) revert InvalidPair();
+        if (power == 0) revert ZeroAmount();
+
+        EpochInfo memory ep = epochs[epoch];
+        uint256 userPower = votingEscrow.votingPowerAtTimestamp(msg.sender, ep.timestamp);
+        if (userPower == 0) revert NothingToClaim();
+
+        // Cap total allocated power at user's voting power for this epoch
+        require(userTotalVotes[msg.sender][epoch] + power <= userPower, "EXCEEDS_POWER");
+
+        gaugeVotes[msg.sender][epoch][pair] += power;
+        totalGaugeVotes[epoch][pair] += power;
+        userTotalVotes[msg.sender][epoch] += power;
+
+        emit GaugeVoted(msg.sender, epoch, pair, power);
     }
 
     // ─── Bribe Deposits ──────────────────────────────────────────────
@@ -328,7 +365,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     // ─── Claiming ────────────────────────────────────────────────────
 
     /// @notice Claim all bribe tokens for a specific epoch and pair.
-    ///         Share = (userPower / totalPower) * bribeAmount per token.
+    ///         V2: Share = (userGaugeVotes / totalGaugeVotes) * bribeAmount per token.
+    ///         Users must call vote() first to allocate power to this pair.
     /// @param epoch The epoch index to claim from
     /// @param pair The pool pair to claim bribes for
     function claimBribes(uint256 epoch, address pair) external nonReentrant whenNotPaused {
@@ -336,14 +374,12 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (epoch >= epochs.length) revert InvalidEpoch();
         if (pair == address(0)) revert InvalidPair();
 
-        EpochInfo memory ep = epochs[epoch];
-        if (ep.totalPower == 0) revert NothingToClaim();
+        // V2: Use gauge votes instead of raw voting power
+        uint256 userVoteForPair = gaugeVotes[msg.sender][epoch][pair];
+        if (userVoteForPair == 0) revert NothingToClaim();
 
-        uint256 userPower = votingEscrow.votingPowerAtTimestamp(msg.sender, ep.timestamp);
-        if (userPower == 0) revert NothingToClaim();
-
-        // Cap userPower to totalPower (same safety as RevenueDistributor)
-        if (userPower > ep.totalPower) userPower = ep.totalPower;
+        uint256 totalVotesForPair = totalGaugeVotes[epoch][pair];
+        if (totalVotesForPair == 0) revert NothingToClaim();
 
         address[] memory tokens = epochBribeTokens[epoch][pair];
         bool anyClaimed = false;
@@ -355,16 +391,17 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             uint256 bribeAmount = epochBribes[epoch][pair][token];
             if (bribeAmount == 0) continue;
 
-            uint256 share = (bribeAmount * userPower) / ep.totalPower;
+            // V2: Share proportional to gauge votes, not raw voting power
+            uint256 share = (bribeAmount * userVoteForPair) / totalVotesForPair;
             if (share == 0) continue;
 
             claimed[msg.sender][epoch][pair][token] = true;
             anyClaimed = true;
 
             // NOTE: epochBribes is NOT decremented. Each user gets their proportional share
-            // of the ORIGINAL deposit: (bribeAmount * userPower) / totalPower.
-            // Solvency is guaranteed by the cap on line 346 (userPower <= totalPower),
-            // which ensures sum(shares) <= bribeAmount. The `claimed` mapping prevents
+            // of the ORIGINAL deposit: (bribeAmount * userVoteForPair) / totalVotesForPair.
+            // Solvency is guaranteed because sum(gaugeVotes) == totalGaugeVotes,
+            // so sum(shares) <= bribeAmount. The `claimed` mapping prevents
             // double-claims. Rounding dust stays in the contract and is sweepable.
 
             // C-01 FIX: Safe subtraction to prevent underflow from rounding dust
@@ -404,6 +441,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     }
 
     /// @notice Batch claim bribes across multiple epochs for a single pair.
+    ///         V2: Uses gauge votes — user must have voted for this pair in each epoch.
     /// @param epochStart First epoch to claim from (inclusive)
     /// @param epochEnd Last epoch to claim from (exclusive)
     /// @param pair The pool pair to claim bribes for
@@ -418,12 +456,12 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 totalIterations;
 
         for (uint256 e = epochStart; e < epochEnd; e++) {
-            EpochInfo memory ep = epochs[e];
-            if (ep.totalPower == 0) continue;
+            // V2: Use gauge votes instead of raw voting power
+            uint256 userVoteForPair = gaugeVotes[msg.sender][e][pair];
+            if (userVoteForPair == 0) continue;
 
-            uint256 userPower = votingEscrow.votingPowerAtTimestamp(msg.sender, ep.timestamp);
-            if (userPower == 0) continue;
-            if (userPower > ep.totalPower) userPower = ep.totalPower;
+            uint256 totalVotesForPair = totalGaugeVotes[e][pair];
+            if (totalVotesForPair == 0) continue;
 
             address[] memory tokens = epochBribeTokens[e][pair];
 
@@ -434,14 +472,15 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
                 uint256 bribeAmount = epochBribes[e][pair][token];
                 if (bribeAmount == 0) continue;
 
-                uint256 share = (bribeAmount * userPower) / ep.totalPower;
+                // V2: Share proportional to gauge votes
+                uint256 share = (bribeAmount * userVoteForPair) / totalVotesForPair;
                 if (share == 0) continue;
 
                 claimed[msg.sender][e][pair][token] = true;
                 anyClaimed = true;
 
                 // NOTE: epochBribes NOT decremented — proportional share from original deposit.
-                // Solvency guaranteed by userPower cap (line 426).
+                // Solvency guaranteed by sum(gaugeVotes) == totalGaugeVotes.
 
                 // C-01 FIX: Safe subtraction to prevent underflow from rounding dust
                 if (token == address(0)) {
@@ -512,26 +551,27 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     // ─── View Functions ──────────────────────────────────────────────
 
     /// @notice Preview claimable bribe amounts for a user in a specific epoch/pair.
+    ///         V2: Uses gauge votes — returns 0 if user hasn't voted for this pair.
     function claimable(address user, uint256 epoch, address pair) external view returns (
         address[] memory tokens,
         uint256[] memory amounts
     ) {
         if (epoch >= epochs.length) return (new address[](0), new uint256[](0));
 
-        EpochInfo memory ep = epochs[epoch];
-        if (ep.totalPower == 0) return (new address[](0), new uint256[](0));
-
-        uint256 userPower = votingEscrow.votingPowerAtTimestamp(user, ep.timestamp);
-        if (userPower > ep.totalPower) userPower = ep.totalPower;
+        // V2: Use gauge votes
+        uint256 userVoteForPair = gaugeVotes[user][epoch][pair];
+        uint256 totalVotesForPair = totalGaugeVotes[epoch][pair];
 
         tokens = epochBribeTokens[epoch][pair];
         amounts = new uint256[](tokens.length);
 
+        if (userVoteForPair == 0 || totalVotesForPair == 0) return (tokens, amounts);
+
         for (uint256 i = 0; i < tokens.length; i++) {
             if (claimed[user][epoch][pair][tokens[i]]) continue;
             uint256 bribeAmount = epochBribes[epoch][pair][tokens[i]];
-            if (bribeAmount > 0 && userPower > 0) {
-                amounts[i] = (bribeAmount * userPower) / ep.totalPower;
+            if (bribeAmount > 0) {
+                amounts[i] = (bribeAmount * userVoteForPair) / totalVotesForPair;
             }
         }
     }

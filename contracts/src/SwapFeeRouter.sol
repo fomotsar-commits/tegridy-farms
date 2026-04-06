@@ -68,6 +68,7 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     uint256 public constant PAIR_FEE_CHANGE_DELAY = 24 hours;
     uint256 public constant PREMIUM_DISCOUNT_CHANGE_DELAY = 24 hours;
     uint256 public constant PREMIUM_ACCESS_CHANGE_DELAY = 48 hours;
+    uint256 public constant REV_DIST_CHANGE_DELAY = 48 hours;
     uint256 public constant MAX_DEADLINE = 30 minutes;
     uint256 public constant MAX_PREMIUM_DISCOUNT_BPS = 7500; // Max 75% discount
 
@@ -83,6 +84,11 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     // ─── Premium Discount (Gold Card holders get reduced fees) ────────
     IPremiumAccess public premiumAccess;
     uint256 public premiumDiscountBps; // e.g. 5000 = 50% off fees
+
+    // V2: Revenue pipeline — direct fee routing to RevenueDistributor
+    address public revenueDistributor;
+    bytes32 public constant REV_DIST_CHANGE = keccak256("REV_DIST_CHANGE");
+    address public pendingRevenueDistributor;
 
     // ─── Pending Values (for timelocked changes) ─────────────────────
     uint256 public pendingFeeBps;
@@ -117,6 +123,10 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     event PremiumAccessUpdated(address indexed oldAccess, address indexed newAccess);
     event PremiumAccessChangeProposed(address indexed newAccess, uint256 executeAfter);
     event PremiumAccessChangeCancelled(address indexed cancelledAccess);
+    event FeesDistributed(address indexed distributor, uint256 amount);
+    event RevenueDistributorUpdated(address indexed oldDistributor, address indexed newDistributor);
+    event RevenueDistributorChangeProposed(address indexed newDistributor, uint256 executeAfter);
+    event RevenueDistributorChangeCancelled(address indexed cancelledDistributor);
 
     // ─── Errors ──────────────────────────────────────────────────────
     error FeeTooHigh();
@@ -147,6 +157,7 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     function pairFeeChangeTime() external view returns (uint256) { return _executeAfter[PAIR_FEE_CHANGE]; }
     function premiumDiscountChangeTime() external view returns (uint256) { return _executeAfter[PREMIUM_DISCOUNT_CHANGE]; }
     function premiumAccessChangeTime() external view returns (uint256) { return _executeAfter[PREMIUM_ACCESS_CHANGE]; }
+    function revenueDistributorChangeTime() external view returns (uint256) { return _executeAfter[REV_DIST_CHANGE]; }
 
     constructor(address _router, address _treasury, uint256 _feeBps, address _referralSplitter)
         OwnableNoRenounce(msg.sender)
@@ -509,6 +520,48 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         address cancelled = pendingPremiumAccess;
         pendingPremiumAccess = address(0);
         emit PremiumAccessChangeCancelled(cancelled);
+    }
+
+    // ─── V2: Revenue Pipeline (Permissionless Fee Distribution) ─────
+
+    /// @notice Permissionless: anyone can trigger fee distribution to RevenueDistributor.
+    ///         Pattern: Curve FeeDistributor — keeper/bot/user pushes accumulated fees forward.
+    ///         Sends all accumulatedETHFees to the configured revenueDistributor address.
+    function distributeFeesToStakers() external nonReentrant {
+        if (revenueDistributor == address(0)) revert ZeroAddress();
+        uint256 amount = accumulatedETHFees;
+        if (amount == 0) revert ZeroAmount();
+        accumulatedETHFees = 0;
+        (bool ok,) = revenueDistributor.call{value: amount}("");
+        require(ok, "TRANSFER_FAILED");
+        emit FeesDistributed(revenueDistributor, amount);
+    }
+
+    // ─── Admin: Timelocked Revenue Distributor Change (48h) ──────────
+
+    /// @notice Propose a revenue distributor change (48h timelock, MakerDAO DSPause pattern)
+    function proposeRevenueDistributor(address _newDistributor) external onlyOwner {
+        if (_newDistributor == address(0)) revert ZeroAddress();
+        pendingRevenueDistributor = _newDistributor;
+        _propose(REV_DIST_CHANGE, REV_DIST_CHANGE_DELAY);
+        emit RevenueDistributorChangeProposed(_newDistributor, _executeAfter[REV_DIST_CHANGE]);
+    }
+
+    /// @notice Execute a previously proposed revenue distributor change after the timelock
+    function executeRevenueDistributor() external onlyOwner {
+        _execute(REV_DIST_CHANGE);
+        address old = revenueDistributor;
+        revenueDistributor = pendingRevenueDistributor;
+        pendingRevenueDistributor = address(0);
+        emit RevenueDistributorUpdated(old, revenueDistributor);
+    }
+
+    /// @notice Cancel a pending revenue distributor change
+    function cancelRevenueDistributor() external onlyOwner {
+        _cancel(REV_DIST_CHANGE);
+        address cancelled = pendingRevenueDistributor;
+        pendingRevenueDistributor = address(0);
+        emit RevenueDistributorChangeCancelled(cancelled);
     }
 
     // ─── Admin: Pause ────────────────────────────────────────────────
