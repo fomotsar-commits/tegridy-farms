@@ -136,7 +136,7 @@ export default function Onboarding({ onComplete }) {
 
   // ── First-visit detection ──
   useEffect(() => {
-    if (localStorage.getItem(storageKey) === "true") return;
+    try { if (localStorage.getItem(storageKey) === "true") return; } catch { return; }
     injectKeyframes();
     // small delay so the page has time to render target elements
     const timer = setTimeout(() => setActive(true), 600);

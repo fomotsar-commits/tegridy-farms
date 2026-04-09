@@ -147,7 +147,9 @@ export async function isSubscribed() {
  * Send a local notification (for testing / immediate alerts).
  */
 export async function sendLocalNotification(title, body, url = "/") {
-  if (Notification.permission !== "granted") return;
+  try {
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  if (!("serviceWorker" in navigator)) return;
 
   const registration = await navigator.serviceWorker.ready;
   await registration.showNotification(title, {
@@ -157,4 +159,5 @@ export async function sendLocalNotification(title, body, url = "/") {
     tag: "local-" + Date.now(),
     vibrate: [100, 50, 100],
   });
+  } catch { /* SW unavailable on mobile private mode */ }
 }

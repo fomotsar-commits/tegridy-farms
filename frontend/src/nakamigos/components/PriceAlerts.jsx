@@ -65,10 +65,12 @@ export function usePriceAlerts(tokens = [], addToast) {
   }, [collection.contract, collection.slug, collection.openseaSlug]);
 
   const requestNotificationPermission = useCallback(async () => {
-    if (typeof Notification === "undefined") return "denied";
-    const perm = await Notification.requestPermission();
-    setNotificationPermission(perm);
-    return perm;
+    try {
+      if (typeof Notification === "undefined") return "denied";
+      const perm = await Notification.requestPermission();
+      setNotificationPermission(perm);
+      return perm;
+    } catch { return "denied"; }
   }, []);
 
   const addAlert = useCallback(
