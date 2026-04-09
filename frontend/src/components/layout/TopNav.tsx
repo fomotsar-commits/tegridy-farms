@@ -13,6 +13,7 @@ const PRIMARY_NAV = [
 
 const MORE_NAV = [
   { to: '/gallery', label: 'Gallery' },
+  { to: '/nakamigos', label: 'Marketplace' },
   { to: '/grants', label: 'Governance' },
   { to: '/bounties', label: 'Bounties' },
   { to: '/bribes', label: 'Bribes' },
@@ -35,7 +36,7 @@ export function TopNav() {
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
-  const isMoreActive = MORE_PATHS.includes(location.pathname);
+  const isMoreActive = MORE_PATHS.some(p => location.pathname === p || location.pathname.startsWith(p + '/'));
 
   // Close dropdown on outside click
   useEffect(() => {

@@ -33,6 +33,7 @@ const MORE_PAGES = [
   { to: '/restake', label: 'Restake' },
   { to: '/leaderboard', label: 'Points' },
   { to: '/gallery', label: 'Gallery' },
+  { to: '/nakamigos', label: 'Marketplace' },
   { to: '/grants', label: 'Governance' },
   { to: '/bounties', label: 'Bounties' },
   { to: '/bribes', label: 'Bribes' },
@@ -47,7 +48,7 @@ export function BottomNav() {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
-  const isMoreActive = MORE_PATHS.includes(location.pathname);
+  const isMoreActive = MORE_PATHS.some(p => location.pathname === p || location.pathname.startsWith(p + '/'));
 
   // Close on route change
   useEffect(() => { setOpen(false); }, [location.pathname]);
