@@ -116,7 +116,6 @@ const TAB_KEYS = {
 
 // Service worker disabled when embedded in Tegriddy Farms
 // (Tegriddy has its own SW at a different scope)
-}
 
 function AppInner() {
   const { theme: themeName, cycleTheme } = useTheme();
