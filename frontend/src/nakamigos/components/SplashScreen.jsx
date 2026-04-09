@@ -289,7 +289,7 @@ function usePhysics(pieces, containerRef, phase) {
               const speed = Math.sqrt(dvx * dvx + dvy * dvy);
               // Impact flash for hard hits
               if (speed > 2) flashDecay = Math.min(speed * 0.15, 0.6);
-              const count = Math.min(Math.floor(speed * 4) + 3, 12);
+              const count = Math.min(Math.floor(speed * 2) + 2, 6);
               for (let s = 0; s < count; s++) {
                 const ang = Math.random() * Math.PI * 2;
                 const spd = 1 + Math.random() * 4 * Math.min(speed, 3);
@@ -306,7 +306,10 @@ function usePhysics(pieces, containerRef, phase) {
 
       // ═══ Update sparks ═══
       const activeSparks = sparksRef.current;
-      activeSparks.push(...newSparks);
+      // Cap total sparks for performance
+      if (activeSparks.length + newSparks.length < 80) {
+        activeSparks.push(...newSparks);
+      }
       for (let i = activeSparks.length - 1; i >= 0; i--) {
         const s = activeSparks[i];
         s.x += s.vx * dt;
@@ -316,30 +319,32 @@ function usePhysics(pieces, containerRef, phase) {
         if (s.life <= 0) activeSparks.splice(i, 1);
       }
       sparksRef.current = activeSparks;
-      setSparks(activeSparks.map(s => ({ ...s })));
-
-      // Constellation lines removed — visual disabled, skip O(n^2) per frame
 
       // ═══ Impact flash decay ═══
       flashDecay *= 0.92;
       if (flashDecay < 0.01) flashDecay = 0;
+
+      // ═══ Batched state update — single setState to avoid multiple re-renders per frame ═══
+      const nextPositions = new Array(bodies.length);
+      for (let i = 0; i < bodies.length; i++) {
+        const b = bodies[i];
+        nextPositions[i] = {
+          x: b.x, y: b.y, rot: b.rot,
+          glow: Math.sin(b.glowPulse) * 0.5 + 0.5,
+          glitch: b.glitch || 0,
+          trail: b.trail.slice(),
+          breath: 1 + Math.sin(b.breathPhase) * 0.025,
+          holo: (Math.sin(b.holoPhase) * 0.5 + 0.5),
+          speed: b.speed,
+          tiltX: b.vy * 3,
+          tiltY: -b.vx * 3,
+          mouseDist: b.mouseDist || 9999,
+        };
+      }
+      setPositions(nextPositions);
+      setSparks(activeSparks.length > 0 ? activeSparks.slice() : []);
       setImpactFlash(flashDecay);
-
-      // ═══ Mouse pos for spotlight ═══
-      setMousePos({ ...mouse });
-
-      setPositions(bodies.map(b => ({
-        x: b.x, y: b.y, rot: b.rot,
-        glow: Math.sin(b.glowPulse) * 0.5 + 0.5,
-        glitch: b.glitch || 0,
-        trail: b.trail.map(t => ({ ...t })),
-        breath: 1 + Math.sin(b.breathPhase) * 0.025,
-        holo: (Math.sin(b.holoPhase) * 0.5 + 0.5),
-        speed: b.speed,
-        tiltX: b.vy * 3,
-        tiltY: -b.vx * 3,
-        mouseDist: b.mouseDist || 9999,
-      })));
+      setMousePos(mouse);
 
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -1113,14 +1118,13 @@ export default function SplashScreen({ onComplete }) {
             {/* Main image */}
             <div style={{
               position: "absolute",
-              left: pos.x - piece.size / 2, top: pos.y - piece.size / 2,
+              left: 0, top: 0,
               width: piece.size,
               zIndex: piece.pixel ? 3 : 2,
               pointerEvents: "none",
-              transform: `rotate(${pos.rot}deg) scale(${pos.breath}) perspective(800px) rotateX(${pos.tiltX * 1.3}deg) rotateY(${pos.tiltY * 1.3}deg) translateZ(${(i % 3) * 15}px)`,
-              willChange: "transform, left, top",
-              filter: `blur(${depthBlur}px)`,
-              transition: "filter 0.3s ease-out",
+              transform: `translate3d(${pos.x - piece.size / 2}px, ${pos.y - piece.size / 2}px, 0) rotate(${pos.rot}deg) scale(${pos.breath}) perspective(800px) rotateX(${pos.tiltX * 1.3}deg) rotateY(${pos.tiltY * 1.3}deg)`,
+              willChange: "transform",
+              filter: depthBlur > 0.5 ? `blur(${depthBlur}px)` : "none",
             }}>
               {/* Luxury multi-color glow aura */}
               <div style={{
