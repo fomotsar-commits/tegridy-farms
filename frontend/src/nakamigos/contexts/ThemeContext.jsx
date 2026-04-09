@@ -87,27 +87,30 @@ function applyTheme(themeId) {
   const themeDef = themes.find((t) => t.id === themeId);
   if (!themeDef) return;
 
-  // Apply CSS variables to the .nakamigos-app wrapper (scoped, not :root)
-  const appEl = document.querySelector(".nakamigos-app");
-  if (appEl) {
-    Object.entries(themeDef.vars).forEach(([prop, value]) => {
-      appEl.style.setProperty(prop, value);
-    });
-    // Theme classes on the wrapper element (CSS is scoped to .nakamigos-app.theme-*)
-    themeIds.forEach((id) => appEl.classList.remove(`theme-${id}`));
-    appEl.classList.add(`theme-${themeId}`);
-    appEl.setAttribute("data-theme", themeId);
-  }
+  try {
+    // Apply CSS variables to the .nakamigos-app wrapper (scoped, not :root)
+    const appEl = document.querySelector(".nakamigos-app");
+    if (appEl) {
+      Object.entries(themeDef.vars).forEach(([prop, value]) => {
+        appEl.style.setProperty(prop, value);
+      });
+      themeIds.forEach((id) => appEl.classList.remove(`theme-${id}`));
+      appEl.classList.add(`theme-${themeId}`);
+      appEl.setAttribute("data-theme", themeId);
+    }
 
-  // Also set on body for the Background component which reads document.body.className
-  themeIds.forEach((id) => document.body.classList.remove(`theme-${id}`));
-  document.body.classList.add(`theme-${themeId}`);
-  document.documentElement.setAttribute("data-theme", themeId);
+    // Also set on body for the Background component which reads document.body.className
+    themeIds.forEach((id) => document.body.classList.remove(`theme-${id}`));
+    document.body.classList.add(`theme-${themeId}`);
+    document.documentElement.setAttribute("data-theme", themeId);
 
-  // Update meta theme-color so the browser chrome matches the theme
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta && THEME_BG[themeId]) {
-    meta.setAttribute("content", THEME_BG[themeId]);
+    // Update meta theme-color so the browser chrome matches the theme
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta && THEME_BG[themeId]) {
+      meta.setAttribute("content", THEME_BG[themeId]);
+    }
+  } catch {
+    // SecurityError on some mobile browsers (private mode, sandboxed iframe)
   }
 }
 

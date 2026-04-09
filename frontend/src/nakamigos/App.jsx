@@ -114,11 +114,8 @@ const TAB_KEYS = {
   "6": "collection",
 };
 
-// ═══ Register Service Worker ═══
-if ("serviceWorker" in navigator && import.meta.env.PROD) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
-  });
+// Service worker disabled when embedded in Tegriddy Farms
+// (Tegriddy has its own SW at a different scope)
 }
 
 function AppInner() {
@@ -263,7 +260,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   const nfts = useNfts({ onChainSupply: stats?.supply });
   const { listings, listingsLoading, listingsError, listingsSource, refreshListings, lastRefresh } = useListings();
   const { tier: holderTier, count: holderCount } = useHolderStatus(wallet, collection.contract);
-  const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem(`${collectionSlug}_onboarded`));
+  const [showOnboarding, setShowOnboarding] = useState(() => { try { return !localStorage.getItem(`${collectionSlug}_onboarded`); } catch { return true; } });
 
   // Lite mode: redirect away from hidden tabs
   useEffect(() => {
