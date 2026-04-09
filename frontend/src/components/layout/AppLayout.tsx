@@ -15,7 +15,6 @@ import { ConfettiProvider } from '../Confetti';
 import { TransactionReceiptProvider } from '../TransactionReceipt';
 import { ParticleBackground } from '../ParticleBackground';
 import { LiveActivity } from '../LiveActivity';
-import { GlitchTransition, type GlitchConfig } from '../GlitchTransition';
 
 function useIsMobile() {
   const [mobile, setMobile] = useState(false);

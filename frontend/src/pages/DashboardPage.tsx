@@ -408,7 +408,7 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
             <p className="text-white text-[20px] font-medium mb-2">ETH Revenue Sharing</p>
             <p className="text-white/40 text-[14px]">Register to earn ETH from protocol fees</p>
           </div>
-          <button onClick={() => writeContract({ address: REVENUE_DISTRIBUTOR_ADDRESS, abi: REVENUE_DISTRIBUTOR_ABI, functionName: 'register' })}
+          <button onClick={() => writeContract({ address: REVENUE_DISTRIBUTOR_ADDRESS, abi: REVENUE_DISTRIBUTOR_ABI, functionName: 'register' as any })}
             disabled={isPending || isConfirming || isWrongNetwork}
             className="btn-primary px-6 py-3 text-[14px] disabled:opacity-35">
             {isPending || isConfirming ? 'Registering...' : 'Register'}
