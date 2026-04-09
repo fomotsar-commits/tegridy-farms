@@ -16,8 +16,6 @@ export function LimitOrderTab() {
   const { isConnected } = useAccount();
   const { activeOrders, pastOrders, createOrder, cancelOrder } = useLimitOrders();
 
-  // Honest disclaimer — this runs in the browser only
-  const _DISCLAIMER = "⚠️ Browser-only: Orders are stored locally and only execute while this tab is open. Not a true on-chain limit order.";
   const [amount, setAmount] = useState('');
   const [targetPrice, setTargetPrice] = useState('');
   const [expiryIdx, setExpiryIdx] = useState(2); // default 7 days
