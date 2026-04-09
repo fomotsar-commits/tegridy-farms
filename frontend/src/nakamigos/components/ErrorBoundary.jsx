@@ -25,18 +25,22 @@ export default class ErrorBoundary extends React.Component {
     console.error("ErrorBoundary caught:", error, errorInfo);
 
     // Auto-reload on chunk load failures (stale deployment cache) — max 3 attempts
-    if (isChunkLoadError(error)) {
-      const reloadKey = "app_chunk_reload";
-      const countKey = "app_chunk_reload_count";
-      const lastReload = sessionStorage.getItem(reloadKey);
-      const reloadCount = parseInt(sessionStorage.getItem(countKey) || "0", 10);
-      const now = Date.now();
-      if (reloadCount < 3 && (!lastReload || now - parseInt(lastReload, 10) > 30000)) {
-        sessionStorage.setItem(reloadKey, String(now));
-        sessionStorage.setItem(countKey, String(reloadCount + 1));
-        window.location.reload();
-        return;
+    try {
+      if (isChunkLoadError(error)) {
+        const reloadKey = "app_chunk_reload";
+        const countKey = "app_chunk_reload_count";
+        const lastReload = sessionStorage.getItem(reloadKey);
+        const reloadCount = parseInt(sessionStorage.getItem(countKey) || "0", 10);
+        const now = Date.now();
+        if (reloadCount < 3 && (!lastReload || now - parseInt(lastReload, 10) > 30000)) {
+          sessionStorage.setItem(reloadKey, String(now));
+          sessionStorage.setItem(countKey, String(reloadCount + 1));
+          window.location.reload();
+          return;
+        }
       }
+    } catch {
+      // sessionStorage unavailable (mobile private mode)
     }
   }
 

@@ -13,6 +13,16 @@ const WalletStateContext = createContext(undefined);
 const WalletActionsContext = createContext(undefined);
 const WalletUIContext = createContext(undefined);
 
+// Safe wrapper for useConnectModal — can throw on some mobile browsers
+function useSafeConnectModal() {
+  try {
+    const result = useConnectModal();
+    return result?.openConnectModal || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * WalletProvider — no longer creates its own WagmiProvider/QueryClientProvider.
  * Simply reads from the parent and provides the same context API.
@@ -22,7 +32,7 @@ export function WalletProvider({ children }) {
   const { connect, connectors, isPending, error: connectError } = useConnect();
   const { disconnect } = useDisconnect();
   const { switchChain, isPending: isSwitching } = useSwitchChain();
-  const { openConnectModal } = useConnectModal();
+  const openConnectModal = useSafeConnectModal();
 
   const walletName = activeConnector?.name || null;
   const isWrongNetwork = isConnected && chain?.id !== mainnet.id;
