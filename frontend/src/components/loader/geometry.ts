@@ -53,9 +53,10 @@ export function getTextPixels(
   const d = cx.getImageData(0, 0, W, H).data;
   const pts: Array<{ x: number; y: number }> = [];
   // Step size balances coverage density vs total target count
-  // Mobile: step=3 keeps targets ~1200-1500 (close to 1000 particle count)
-  // Desktop: step=3-4 keeps targets ~2000-3000 (close to 2000 particles)
-  const step = W < 768 ? 3 : Math.max(3, Math.floor(Math.min(W, H) / 250));
+  // Small mobile (≤480): step=2 for dense coverage (1000+ targets for small text)
+  // Large mobile/tablet: step=3
+  // Desktop: step=3-4
+  const step = W <= 480 ? 2 : W < 768 ? 3 : Math.max(3, Math.floor(Math.min(W, H) / 250));
   for (let y = 0; y < H; y += step) {
     for (let x = 0; x < W; x += step) {
       if (d[(y * W + x) * 4 + 3] > 128) pts.push({ x, y });

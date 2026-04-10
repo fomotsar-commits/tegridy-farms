@@ -471,9 +471,9 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
 
         // Draw animated cracks
         const crackElapsed = now - s.exitStart;
-        drawCracks(ctx!, s.exitCracks, crackElapsed, T_CRACK_DURATION);
+        drawCracks(ctx!, s.exitCracks, crackElapsed, T_CRACK_DURATION, W);
         if (crackElapsed > T_CRACK_DURATION * 0.8) {
-          drawSpiderWeb(ctx!, s.exitCracks, Math.min(1, (crackElapsed - T_CRACK_DURATION * 0.8) / (T_CRACK_DURATION * 0.2)));
+          drawSpiderWeb(ctx!, s.exitCracks, Math.min(1, (crackElapsed - T_CRACK_DURATION * 0.8) / (T_CRACK_DURATION * 0.2)), W);
         }
         bloomIntensity = 0.8;
         caStrength = 0.006;

@@ -147,10 +147,10 @@ export function drawHoldPhase(
   ctx.save();
   ctx.globalAlpha = ctaAlpha;
   ctx.fillStyle = '#fff';
-  ctx.font = `200 ${isMob ? 11 : 13}px "Inter", "Helvetica Neue", sans-serif`;
+  ctx.font = `200 ${isMob ? Math.max(12, Math.floor(W * 0.035)) : 13}px "Inter", "Helvetica Neue", sans-serif`;
   ctx.textAlign = 'center';
   ctx.letterSpacing = '8px';
-  ctx.fillText('CLICK TO ENTER', W / 2, lineY + 40);
+  ctx.fillText(isMob ? 'TAP TO ENTER' : 'CLICK TO ENTER', W / 2, lineY + 40);
   ctx.restore();
 
 }

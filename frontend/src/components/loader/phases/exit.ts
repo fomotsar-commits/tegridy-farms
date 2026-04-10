@@ -6,7 +6,7 @@ import { AudioEngine } from '../fx/audio';
 /* Draw animated crack lines on canvas */
 function drawCracks(
   ctx: CanvasRenderingContext2D, cracks: CrackSegment[],
-  elapsed: number, totalDuration: number,
+  elapsed: number, totalDuration: number, W = 1080,
 ) {
   for (const crack of cracks) {
     const crackProgress = Math.max(0, Math.min(1, (elapsed / totalDuration - crack.delay) / (1 - crack.delay)));
@@ -22,7 +22,7 @@ function drawCracks(
     ctx.strokeStyle = GOLD;
     ctx.lineWidth = crack.width;
     ctx.shadowColor = 'rgba(212,160,23,0.8)';
-    ctx.shadowBlur = 6;
+    ctx.shadowBlur = W < 768 ? 3 : 6;
     ctx.globalAlpha = 0.9;
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
@@ -46,14 +46,14 @@ function drawCracks(
 
     // Draw children recursively
     if (crack.children.length > 0) {
-      drawCracks(ctx, crack.children, elapsed, totalDuration);
+      drawCracks(ctx, crack.children, elapsed, totalDuration, W);
     }
   }
 }
 
 /* Spider web effect — connecting lines between crack endpoints */
 function drawSpiderWeb(
-  ctx: CanvasRenderingContext2D, cracks: CrackSegment[], alpha: number,
+  ctx: CanvasRenderingContext2D, cracks: CrackSegment[], alpha: number, W = 1080,
 ) {
   if (alpha <= 0) return;
   const endpoints: Array<{ x: number; y: number }> = [];
@@ -75,7 +75,8 @@ function drawSpiderWeb(
       const dx = endpoints[i].x - endpoints[j].x;
       const dy = endpoints[i].y - endpoints[j].y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 150) {
+      const maxConnectDist = 150 * Math.min(1, W / 1080);
+      if (dist < maxConnectDist) {
         ctx.beginPath();
         ctx.moveTo(endpoints[i].x, endpoints[i].y);
         ctx.lineTo(endpoints[j].x, endpoints[j].y);
@@ -114,17 +115,18 @@ export function buildExitDOM(
 
   // Inject keyframes
   const style = document.createElement('style');
+  const sk = Math.min(1, Math.min(W, H) / 1080);
   style.textContent = `
     @keyframes exitShake {
       0%, 100% { transform: translate(0,0); }
-      10% { transform: translate(-8px, 4px); }
-      20% { transform: translate(6px, -5px); }
-      30% { transform: translate(-4px, 6px); }
-      40% { transform: translate(5px, -3px); }
-      50% { transform: translate(-3px, 4px); }
-      60% { transform: translate(4px, -2px); }
-      70% { transform: translate(-2px, 3px); }
-      80% { transform: translate(2px, -1px); }
+      10% { transform: translate(${-8 * sk}px, ${4 * sk}px); }
+      20% { transform: translate(${6 * sk}px, ${-5 * sk}px); }
+      30% { transform: translate(${-4 * sk}px, ${6 * sk}px); }
+      40% { transform: translate(${5 * sk}px, ${-3 * sk}px); }
+      50% { transform: translate(${-3 * sk}px, ${4 * sk}px); }
+      60% { transform: translate(${4 * sk}px, ${-2 * sk}px); }
+      70% { transform: translate(${-2 * sk}px, ${3 * sk}px); }
+      80% { transform: translate(${2 * sk}px, ${-1 * sk}px); }
     }
     @keyframes exitFlash { to { opacity: 0; } }
     @keyframes exitRing {
@@ -208,9 +210,10 @@ export function buildExitDOM(
     `;
     shakeWrap.appendChild(offCvs);
 
-    // Initial velocity: explosive outward from click
+    // Initial velocity: explosive outward from click (scaled to viewport)
+    const vScale = Math.min(1, Math.min(W, H) / 1080);
     const outAngle = Math.atan2(sh.origCy - cy, sh.origCx - cx);
-    const speed = 8 + Math.random() * 12;
+    const speed = (8 + Math.random() * 12) * vScale;
 
     ragdollShards.push({
       el: offCvs,
@@ -255,9 +258,10 @@ export function buildExitDOM(
   for (let i = 0; i < 20; i++) {
     const spark = document.createElement('div');
     const angle = Math.random() * Math.PI * 2;
-    const dist = 80 + Math.random() * 250;
+    const sparkScale = Math.min(1, Math.min(W, H) / 1080);
+    const dist = (80 + Math.random() * 250) * sparkScale;
     const sparkX = Math.cos(angle) * dist;
-    const sparkY = Math.sin(angle) * dist - 40;
+    const sparkY = Math.sin(angle) * dist - 40 * sparkScale;
     const size = 2 + Math.random() * 3;
     spark.style.cssText = `
       position:absolute;left:${cx}px;top:${cy}px;
@@ -289,7 +293,8 @@ export function buildExitDOM(
 export function tickRagdollShards(
   shards: RagdollShard[], W: number, H: number, now: number,
 ): boolean {
-  const gravity = 0.6;
+  const vScale = Math.min(1, Math.min(W, H) / 1080);
+  const gravity = 0.6 * vScale;
   const restitution = 0.7;
   const maxBounces = 3;
   let allDone = true;

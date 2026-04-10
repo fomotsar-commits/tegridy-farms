@@ -78,10 +78,11 @@ export function drawArtPiece(
     ctx.save();
     ctx.globalAlpha = titleAlpha * 0.3;
     ctx.fillStyle = '#ffffff';
-    ctx.font = '200 12px "Inter", "Helvetica Neue", sans-serif';
+    const titleSize = isMobile ? Math.max(10, Math.floor(W * 0.028)) : 12;
+    ctx.font = `200 ${titleSize}px "Inter", "Helvetica Neue", sans-serif`;
     ctx.textAlign = 'center';
-    ctx.letterSpacing = '8px';
-    ctx.fillText(title.toUpperCase(), W / 2, artY + artH + 30);
+    ctx.letterSpacing = isMobile ? '4px' : '8px';
+    ctx.fillText(title.toUpperCase(), W / 2, artY + artH + (isMobile ? 20 : 30));
     ctx.restore();
   }
 }

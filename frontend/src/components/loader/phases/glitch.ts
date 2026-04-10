@@ -4,8 +4,11 @@ export function drawGlitchCut(
   ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement,
   W: number, H: number, progress: number, dpr: number, elapsed: number, isMobile = false,
 ) {
-  // Heavy oscillating chromatic aberration (stronger shift range)
-  const offset = 10 + Math.sin(elapsed * 0.025) * 12;
+  // Viewport-relative scaling — effects proportional to screen size
+  const vScale = Math.min(1, W / 1080);
+
+  // Heavy oscillating chromatic aberration (scaled to viewport)
+  const offset = (10 + Math.sin(elapsed * 0.025) * 12) * vScale;
   try {
     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imgData.data;
@@ -35,8 +38,8 @@ export function drawGlitchCut(
   try {
     for (let i = 0; i < blockCount; i++) {
       const by = Math.floor(Math.random() * H);
-      const bh = Math.max(4, Math.floor(10 + Math.random() * 40));
-      const bOffset = (Math.random() - 0.5) * 60;
+      const bh = Math.max(4, Math.floor((10 + Math.random() * 40) * vScale));
+      const bOffset = (Math.random() - 0.5) * 60 * vScale;
       const blockData = ctx.getImageData(0, by * dpr, canvas.width, Math.max(1, bh * dpr));
       ctx.putImageData(blockData, bOffset * dpr, by * dpr);
     }
@@ -47,7 +50,7 @@ export function drawGlitchCut(
   const bandH = 20 + Math.sin(elapsed * 0.01) * 12;
   try {
     const bandData = ctx.getImageData(0, Math.max(0, bandY * dpr), canvas.width, Math.max(1, Math.floor(bandH * dpr)));
-    ctx.putImageData(bandData, (Math.sin(elapsed * 0.06) * 18) * dpr, Math.max(0, bandY * dpr));
+    ctx.putImageData(bandData, (Math.sin(elapsed * 0.06) * 18 * vScale) * dpr, Math.max(0, bandY * dpr));
   } catch { /* skip */ }
   // Bright band overlay
   ctx.save();
@@ -60,7 +63,7 @@ export function drawGlitchCut(
   const band2H = 12 + Math.sin(elapsed * 0.015) * 6;
   try {
     const band2Data = ctx.getImageData(0, Math.max(0, band2Y * dpr), canvas.width, Math.max(1, Math.floor(band2H * dpr)));
-    ctx.putImageData(band2Data, (Math.cos(elapsed * 0.04) * 14) * dpr, Math.max(0, band2Y * dpr));
+    ctx.putImageData(band2Data, (Math.cos(elapsed * 0.04) * 14 * vScale) * dpr, Math.max(0, band2Y * dpr));
   } catch { /* skip */ }
 
   // Horizontal color bleed bands — more and bolder
@@ -82,7 +85,7 @@ export function drawGlitchCut(
   try {
     for (let i = 0; i < tearCount; i++) {
       const ty = Math.floor(Math.random() * H);
-      const tOffset = (Math.random() - 0.5) * 40;
+      const tOffset = (Math.random() - 0.5) * 40 * vScale;
       const stripH = Math.max(2, Math.floor(3 + Math.random() * 12));
       const tearData = ctx.getImageData(0, ty * dpr, canvas.width, stripH * dpr);
       ctx.putImageData(tearData, tOffset * dpr, ty * dpr);
@@ -143,8 +146,8 @@ export function drawGlitchCut(
       const sk = ctx.getImageData(0, 0, canvas.width, canvas.height);
       ctx.clearRect(0, 0, W, H);
       ctx.save();
-      ctx.translate(5, 0);
-      ctx.transform(1, 0, 0.02, 1, 0, 0);
+      ctx.translate(5 * vScale, 0);
+      ctx.transform(1, 0, 0.02 * vScale, 1, 0, 0);
       ctx.putImageData(sk, 0, 0);
       ctx.restore();
     } catch { /* skip */ }
@@ -170,11 +173,12 @@ export function drawSubliminalText(ctx: CanvasRenderingContext2D, W: number, H: 
   ctx.font = `900 ${fontSize}px "Courier New", monospace`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  // RGB split ghost layers — more pronounced
+  // RGB split ghost layers — scaled to viewport
+  const splitOffset = Math.max(2, 5 * Math.min(1, W / 1080));
   ctx.fillStyle = 'rgba(255,0,0,0.4)';
-  ctx.fillText(word, 5, 0);
+  ctx.fillText(word, splitOffset, 0);
   ctx.fillStyle = 'rgba(0,0,255,0.4)';
-  ctx.fillText(word, -5, 0);
+  ctx.fillText(word, -splitOffset, 0);
   ctx.fillStyle = 'rgba(255,255,255,0.5)';
   ctx.fillText(word, 0, 0);
   // Screen-blend overlay for extra punch
