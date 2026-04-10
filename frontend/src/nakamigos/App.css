@@ -1858,6 +1858,21 @@ details[open] .details-arrow { transform: rotate(90deg); }
   display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 14px; margin-bottom: 28px;
 }
+@media (max-width: 1024px) {
+  .listings-grid { grid-template-columns: repeat(5, 1fr) !important; gap: 10px; }
+}
+@media (max-width: 768px) {
+  .listings-grid { grid-template-columns: repeat(4, 1fr) !important; gap: 8px; }
+  .listing-card-body { padding: 10px 10px; }
+  .listing-card-name { font-size: 11px; }
+  .listing-card-price { font-size: 12px; }
+}
+@media (max-width: 480px) {
+  .listings-grid { grid-template-columns: repeat(3, 1fr) !important; gap: 6px; }
+  .listing-card-body { padding: 8px 8px; }
+  .listing-card-name { font-size: 10px; }
+  .listing-card-price { font-size: 11px; }
+}
 .listing-card {
   position: relative;
   background: var(--surface-glass);
@@ -4119,7 +4134,8 @@ details[open] .details-arrow { transform: rotate(90deg); }
   .load-more-wrap { padding: 16px 12px 48px; }
   .analytics-overview { grid-template-columns: 1fr 1fr; }
   .trait-categories-grid { grid-template-columns: 1fr; }
-  .listings-grid { grid-template-columns: repeat(2, 1fr); }
+  .listings-grid { grid-template-columns: repeat(3, 1fr) !important; }
+  .listings-section { padding-left: 8px !important; padding-right: 8px !important; }
   .sweep-breakdown { grid-template-columns: 1fr; }
   .header-inner { padding: 6px 10px; gap: 6px; }
   .nav-tab { font-size: 6px; padding: 6px 8px; }
