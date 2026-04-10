@@ -6,7 +6,7 @@ import { BottomNav } from './BottomNav';
 import { Background } from './Background';
 import { Footer } from './Footer';
 import { Toaster } from 'sonner';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { CHAIN_ID } from '../../lib/constants';
 import { AppLoader } from '../loader';
@@ -15,6 +15,46 @@ import { ConfettiProvider } from '../Confetti';
 import { TransactionReceiptProvider } from '../TransactionReceipt';
 import { ParticleBackground } from '../ParticleBackground';
 import { LiveActivity } from '../LiveActivity';
+import { GlitchTransition, type GlitchConfig } from '../GlitchTransition';
+
+const NAV_ORDER = [
+  '/', '/dashboard', '/farm', '/swap', '/gallery', '/tokenomics', '/lore',
+  '/leaderboard', '/grants', '/bounties', '/restake', '/liquidity', '/premium', '/history',
+];
+
+function getGlitchConfig(from: string, to: string): GlitchConfig {
+  const fromIdx = NAV_ORDER.indexOf(from);
+  const toIdx = NAV_ORDER.indexOf(to);
+  const direction: GlitchConfig['direction'] = toIdx > fromIdx ? 'forward' : 'backward';
+  const mobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  if (from === '/' || to === '/') {
+    return { intensity: 'heavy', direction, sliceCount: mobile ? 6 : 16, duration: mobile ? 350 : 1000 };
+  }
+  if (Math.abs(fromIdx - toIdx) <= 1) {
+    return { intensity: 'light', direction, sliceCount: mobile ? 4 : 12, duration: mobile ? 250 : 1000 };
+  }
+  return { intensity: 'medium', direction, sliceCount: mobile ? 5 : 14, duration: mobile ? 300 : 1000 };
+}
+
+function RouteGlitch() {
+  const location = useLocation();
+  const [glitchConfig, setGlitchConfig] = useState<GlitchConfig | null>(null);
+  const prevPath = useRef(location.pathname);
+  const isFirst = useRef(true);
+
+  useEffect(() => {
+    if (isFirst.current) { isFirst.current = false; prevPath.current = location.pathname; return; }
+    if (location.pathname !== prevPath.current) {
+      const cfg = getGlitchConfig(prevPath.current, location.pathname);
+      prevPath.current = location.pathname;
+      setGlitchConfig(cfg);
+      const t = setTimeout(() => setGlitchConfig(null), cfg.duration);
+      return () => clearTimeout(t);
+    }
+  }, [location.pathname]);
+
+  return glitchConfig ? <GlitchTransition config={glitchConfig} /> : null;
+}
 
 function useIsMobile() {
   const [mobile, setMobile] = useState(false);
@@ -42,6 +82,7 @@ export function AppLayout() {
       <ParticleBackground />
       <Background />
       <TopNav />
+      <RouteGlitch />
 
       {/* #82 audit: wrong-network banner */}
       {wrongNetwork && (

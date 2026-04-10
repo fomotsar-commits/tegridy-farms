@@ -2,8 +2,11 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { COLLECTIONS, DEFAULT_COLLECTION, LOADING_MESSAGES } from "../constants";
 
-// ═══ Art pieces config — SPLASH ONLY (10 unique images, no overlap with background) ═══
-const ART_PIECES = [
+const IS_MOBILE = typeof window !== "undefined" && window.innerWidth < 768;
+
+// ═══ Art pieces config — SPLASH ONLY ═══
+// Mobile: fewer pieces, smaller sizes for performance
+const ART_PIECES_DESKTOP = [
   { src: "/splash/watercolor.png", size: 420, pixel: false },
   { src: "/splash/HBbsuPEacAAX0VA.jpg", size: 400, pixel: false },
   { src: "/splash/G24BZRrakAA1M_9.jpg", size: 380, pixel: false },
@@ -15,6 +18,14 @@ const ART_PIECES = [
   { src: "/splash/HA5Fd6kWMAAMqL_.jpg", size: 340, pixel: false },
   { src: "/splash/HC6HNXsW4AA-UwM.jpg", size: 420, pixel: false },
 ];
+const ART_PIECES_MOBILE = [
+  { src: "/splash/skeleton.png", size: 140, pixel: true },
+  { src: "/splash/frogking.png", size: 160, pixel: true },
+  { src: "/splash/watercolor.png", size: 200, pixel: false },
+  { src: "/splash/HBbsuPEacAAX0VA.jpg", size: 180, pixel: false },
+  { src: "/splash/G24BZRrakAA1M_9.jpg", size: 170, pixel: false },
+];
+const ART_PIECES = IS_MOBILE ? ART_PIECES_MOBILE : ART_PIECES_DESKTOP;
 
 // ═══ Nakamigo face formation positions (normalized 0-1) ═══
 const FACE_FORMATION = [
@@ -377,7 +388,7 @@ const DUST_COLORS = [
   "#ffffff", "#ddeeff", "#eeeeff",
 ];
 
-function PixelDust({ count = 60 }) {
+function PixelDust({ count = IS_MOBILE ? 20 : 60 }) {
   const particles = useRef(
     Array.from({ length: count }, () => {
       const color = DUST_COLORS[Math.floor(Math.random() * DUST_COLORS.length)];
@@ -673,26 +684,26 @@ export default function SplashScreen({ onComplete }) {
     setPhase("reveal");
 
     // Glitch phase — CSS animation on the container
+    // Mobile: faster transitions for snappy feel
+    const t = IS_MOBILE ? { glitch: 400, flash: 100, cover: 600, collapse: 300 }
+                        : { glitch: 900, flash: 150, cover: 1200, collapse: 400 };
     setExitPhase("glitch");
     setTimeout(() => {
-      // Flash phase — brief white/gold burst before blocks
       setExitPhase("flash");
       setTimeout(() => {
-        // Cover phase — dark blocks sweep in
         setExitPhase("cover");
-        // CRT collapse after blocks cover
         setTimeout(() => {
           setExitPhase("collapse");
-          setTimeout(() => onComplete(), 400);
-        }, 1200);
-      }, 150);
-    }, 900);
+          setTimeout(() => onComplete(), t.collapse);
+        }, t.cover);
+      }, t.flash);
+    }, t.glitch);
   };
 
   // Generate dark blocks for the cover phase
   const renderExitBlocks = () => {
-    const COLS = 12;
-    const ROWS = 10;
+    const COLS = IS_MOBILE ? 6 : 12;
+    const ROWS = IS_MOBILE ? 5 : 10;
     const blocks = [];
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
