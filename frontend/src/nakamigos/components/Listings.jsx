@@ -630,7 +630,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       )}
 
       {/* Main content: grid + sweep calculator sidebar */}
-      <div className="listings-main-grid" style={{ display: "grid", gridTemplateColumns: hasRealListings ? "1fr 320px" : "1fr", gap: 24, alignItems: "start" }}>
+      <div className="listings-main-grid" style={{ display: "grid", gridTemplateColumns: (!isLite && hasRealListings) ? "1fr 320px" : "1fr", gap: 24, alignItems: "start" }}>
         <div>
           {/* Section label + sort controls when showing recent sales */}
           {!hasRealListings && hasRecentSales && (

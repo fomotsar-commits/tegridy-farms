@@ -1338,7 +1338,6 @@
   .analytics-grid { grid-template-columns: 1fr; }
   .health-dashboard > div:last-child { grid-template-columns: 1fr; }
   .listings-section > div:last-child { grid-template-columns: 1fr !important; }
-  .listings-main-grid { grid-template-columns: 1fr !important; }
 }
 
 @media (max-width: 768px) {
@@ -1827,6 +1826,7 @@
 @media (max-width: 1024px) {
   .listings-sidebar { flex: 1 1 100% !important; max-width: 100% !important; order: 2 !important; }
   .listings-content { flex: 1 1 100% !important; width: 100% !important; order: 1 !important; }
+  .listings-main-grid { grid-template-columns: 1fr !important; }
 }
 /* Collapsible sidebar arrow rotation */
 details summary::-webkit-details-marker { display: none; }
@@ -1864,15 +1864,18 @@ details[open] .details-arrow { transform: rotate(90deg); }
 }
 @media (max-width: 1024px) {
   .listings-grid { grid-template-columns: repeat(5, 1fr) !important; gap: 10px; }
-  .listing-card-body { padding: 10px 12px; }
-  .listing-card-name { font-size: 12px; }
-  .listing-card-price { font-size: 13px; }
+  .listing-card-body { padding: 8px 10px; }
+  .listing-card-name { font-size: 10px; white-space: normal; line-height: 1.3; }
+  .listing-card-price { font-size: 11px; }
+  .listing-card-actions { margin-top: 6px; }
+  .listing-card-actions .btn-primary,
+  .listing-card-actions .btn-secondary { font-size: 9px; padding: 6px 8px; }
 }
 @media (max-width: 480px) {
   .listings-grid { grid-template-columns: repeat(3, 1fr) !important; gap: 8px; }
-  .listing-card-body { padding: 8px 8px; }
-  .listing-card-name { font-size: 10px; }
-  .listing-card-price { font-size: 11px; }
+  .listing-card-body { padding: 6px 8px; }
+  .listing-card-name { font-size: 9px; }
+  .listing-card-price { font-size: 10px; }
 }
 .listing-card {
   position: relative;
