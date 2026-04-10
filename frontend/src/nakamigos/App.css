@@ -1338,6 +1338,7 @@
   .analytics-grid { grid-template-columns: 1fr; }
   .health-dashboard > div:last-child { grid-template-columns: 1fr; }
   .listings-section > div:last-child { grid-template-columns: 1fr !important; }
+  .listings-main-grid { grid-template-columns: 1fr !important; }
 }
 
 @media (max-width: 768px) {
@@ -1435,7 +1436,7 @@
   .analytics-sales-grid { grid-template-columns: 1fr; }
   .rarest-grid { grid-template-columns: 1fr; }
   .listings-stats { grid-template-columns: 1fr 1fr; }
-  .listings-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+  .listings-grid { grid-template-columns: repeat(2, 1fr); }
   .trait-categories-grid { grid-template-columns: 1fr; }
 }
 
@@ -4118,7 +4119,7 @@ details[open] .details-arrow { transform: rotate(90deg); }
   .load-more-wrap { padding: 16px 12px 48px; }
   .analytics-overview { grid-template-columns: 1fr 1fr; }
   .trait-categories-grid { grid-template-columns: 1fr; }
-  .listings-grid { grid-template-columns: 1fr; }
+  .listings-grid { grid-template-columns: repeat(2, 1fr); }
   .sweep-breakdown { grid-template-columns: 1fr; }
   .header-inner { padding: 6px 10px; gap: 6px; }
   .nav-tab { font-size: 6px; padding: 6px 8px; }
