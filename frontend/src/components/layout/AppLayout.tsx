@@ -28,12 +28,12 @@ function getGlitchConfig(from: string, to: string): GlitchConfig {
   const direction: GlitchConfig['direction'] = toIdx > fromIdx ? 'forward' : 'backward';
   const mobile = typeof window !== 'undefined' && window.innerWidth < 768;
   if (from === '/' || to === '/') {
-    return { intensity: 'heavy', direction, sliceCount: mobile ? 6 : 16, duration: mobile ? 350 : 1000 };
+    return { intensity: 'heavy', direction, sliceCount: mobile ? 6 : 16, duration: 1000 };
   }
   if (Math.abs(fromIdx - toIdx) <= 1) {
-    return { intensity: 'light', direction, sliceCount: mobile ? 4 : 12, duration: mobile ? 250 : 1000 };
+    return { intensity: 'light', direction, sliceCount: mobile ? 4 : 12, duration: 1000 };
   }
-  return { intensity: 'medium', direction, sliceCount: mobile ? 5 : 14, duration: mobile ? 300 : 1000 };
+  return { intensity: 'medium', direction, sliceCount: mobile ? 5 : 14, duration: 1000 };
 }
 
 function RouteGlitch() {
