@@ -5,10 +5,10 @@ export function drawArtPiece(
   ctx: CanvasRenderingContext2D, W: number, H: number,
   img: HTMLImageElement, alpha: number, zoom: number,
   borderAlpha: number, title: string, titleAlpha: number,
-  mouseX: number, mouseY: number,
+  mouseX: number, mouseY: number, isMobile = false,
 ) {
   ctx.save();
-  const artScale = 0.72;
+  const artScale = isMobile ? 0.88 : 0.72;
   const artW = W * artScale;
   const artH = H * artScale;
   const artX = (W - artW) / 2;

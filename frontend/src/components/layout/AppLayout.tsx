@@ -86,7 +86,7 @@ export function AppLayout() {
 
       {/* #82 audit: wrong-network banner */}
       {wrongNetwork && (
-        <div className="fixed top-14 left-0 right-0 z-50 bg-red-600/95 backdrop-blur-sm text-white text-center py-2 px-4 text-[13px] font-medium shadow-lg">
+        <div className="fixed top-14 left-0 right-0 z-50 bg-red-600/95 backdrop-blur-sm text-white text-center py-2 px-4 text-[12px] md:text-[13px] font-medium shadow-lg" style={{ paddingLeft: 'max(1rem, env(safe-area-inset-left))', paddingRight: 'max(1rem, env(safe-area-inset-right))' }}>
           You are connected to <strong>{chain.name ?? `chain ${chain.id}`}</strong>.
           Please switch to Ethereum Mainnet.
           {switchChain && (
@@ -101,7 +101,7 @@ export function AppLayout() {
       )}
 
       {/* Migration Banner for v2 contract upgrade */}
-      <div className="bg-yellow-900/80 border-b border-yellow-600 text-yellow-100 text-center py-2 px-4 text-sm fixed top-14 left-0 right-0 z-40">
+      <div className="bg-yellow-900/80 border-b border-yellow-600 text-yellow-100 text-center py-2 px-4 text-[12px] md:text-sm fixed top-14 left-0 right-0 z-40" style={{ paddingLeft: 'max(1rem, env(safe-area-inset-left))', paddingRight: 'max(1rem, env(safe-area-inset-right))' }}>
         <strong>Security Upgrade:</strong> Contracts have been upgraded. If you had staked positions, please withdraw from the old contracts and re-stake.{' '}
         <a href="https://etherscan.io/address/0x65D8b87917c59a0B33009493fB236bCccF1Ea421" target="_blank" rel="noopener noreferrer" className="underline text-yellow-300">New Staking Contract</a>
       </div>

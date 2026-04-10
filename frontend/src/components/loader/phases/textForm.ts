@@ -90,7 +90,7 @@ export function drawTextFormPhase(
     const isMobileUl = W < 768;
     const mainSize = isMobileUl ? Math.min(130, W * 0.19) : Math.min(130, W * 0.15);
     const lineY = H / 2 + mainSize * 0.45 + 25;
-    const lineW = Math.min(180, W * 0.2) * easeInOutCubic(ulp);
+    const lineW = Math.min(180, W * 0.3) * easeInOutCubic(ulp);
     ctx.save();
     ctx.strokeStyle = GOLD;
     ctx.globalAlpha = 0.5;

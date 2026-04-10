@@ -85,9 +85,9 @@ export default function LorePage() {
                   background: 'rgba(6,12,26,0.92)',
                 }} />
               </div>
-              <div className="relative z-10 p-8 md:p-10">
-                <div className="flex items-start gap-5 md:gap-8">
-                  <span className="stat-value text-[40px] md:text-[52px] text-primary/20 leading-none flex-shrink-0">{item.phase}</span>
+              <div className="relative z-10 p-5 md:p-10">
+                <div className="flex items-start gap-4 md:gap-8">
+                  <span className="stat-value text-[32px] md:text-[52px] text-primary/20 leading-none flex-shrink-0">{item.phase}</span>
                   <div>
                     <h3 className="heading-luxury text-xl md:text-2xl text-white mb-3">{item.title}</h3>
                     <div className="gold-divider mb-4" />

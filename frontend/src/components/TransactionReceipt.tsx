@@ -202,7 +202,7 @@ function TransactionReceiptOverlay({
       {/* Card */}
       <motion.div
         ref={cardRef}
-        className="relative w-full max-w-[400px] rounded-2xl overflow-hidden"
+        className="relative w-full max-w-[400px] mx-4 rounded-2xl overflow-hidden"
         style={{
           background: 'linear-gradient(145deg, rgba(6,12,26,0.95) 0%, rgba(16,30,54,0.95) 100%)',
           border: '1px solid rgba(139,92,246,0.25)',
@@ -256,12 +256,12 @@ function TransactionReceiptOverlay({
           {/* Swap hero line */}
           {receipt.type === 'swap' && receipt.data.fromAmount && receipt.data.toAmount && (
             <div className="mb-5 px-4 py-3 rounded-xl" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.12)' }}>
-              <div className="flex items-center justify-center gap-3">
-                <span className="stat-value text-[16px] text-white/80">
+              <div className="flex items-center justify-center gap-2 md:gap-3 flex-wrap">
+                <span className="stat-value text-[14px] md:text-[16px] text-white/80">
                   {formatTokenAmount(receipt.data.fromAmount, 6)} {sanitize(receipt.data.fromToken)}
                 </span>
-                <span className="text-primary text-[16px]">{'\u{2192}'}</span>
-                <span className="stat-value text-[16px] text-primary">
+                <span className="text-primary text-[14px] md:text-[16px]">{'\u{2192}'}</span>
+                <span className="stat-value text-[14px] md:text-[16px] text-primary">
                   {formatTokenAmount(receipt.data.toAmount, 6)} {sanitize(receipt.data.toToken)}
                 </span>
               </div>

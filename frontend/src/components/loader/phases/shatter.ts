@@ -29,7 +29,7 @@ export function drawShatterPhase(
       else { sw = lastImg.width; sh = sw / aA; sx = 0; sy = Math.min((lastImg.height - sh) * 0.35, lastImg.height - sh); }
       ctx.drawImage(lastImg, sx, sy, sw, sh, artX, artY, artW, artH);
       ctx.restore();
-      drawGlitchCut(ctx, canvas, W, H, gp * 0.8, s.dpr, elapsed);
+      drawGlitchCut(ctx, canvas, W, H, gp * 0.8, s.dpr, elapsed, s.isMobile);
       for (let i = 0; i < 100; i++) {
         ctx.fillStyle = `rgba(255,255,255,${0.1 + Math.random() * 0.1})`;
         ctx.fillRect(Math.random() * W, Math.random() * H, 4, 4);

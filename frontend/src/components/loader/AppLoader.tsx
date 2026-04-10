@@ -196,8 +196,9 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
     /* Create particles from last art image */
     function createParticles(img: HTMLImageElement) {
       const oc = document.createElement('canvas');
-      const artW = W * 0.72;
-      const artH = H * 0.72;
+      const artScale = s.isMobile ? 0.82 : 0.72;
+      const artW = W * artScale;
+      const artH = H * artScale;
       oc.width = Math.floor(artW);
       oc.height = Math.floor(artH);
       const ocx = oc.getContext('2d')!;
@@ -340,23 +341,23 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
           const fp = pieceTime / 600;
           const alpha = easeInOutCubic(fp);
           const zoom = 1 + fp * 0.01;
-          drawArtPiece(ctx!, W, H, img, alpha, zoom, alpha * 0.4, title, alpha, s.mouseX, s.mouseY);
+          drawArtPiece(ctx!, W, H, img, alpha, zoom, alpha * 0.4, title, alpha, s.mouseX, s.mouseY, s.isMobile);
         } else if (pieceTime < 1400) {
           const hp = (pieceTime - 600) / 800;
           const zoom = 1.01 + hp * 0.015;
-          drawArtPiece(ctx!, W, H, img, 1, zoom, 0.4, title, 1, s.mouseX, s.mouseY);
+          drawArtPiece(ctx!, W, H, img, 1, zoom, 0.4, title, 1, s.mouseX, s.mouseY, s.isMobile);
         } else if (pieceTime < 1920) {
           const glitchTime = pieceTime - 1400;
           if (glitchTime < 200) {
             const zoom = 1.025 + (glitchTime / 200) * 0.015;
-            drawArtPiece(ctx!, W, H, img, 1, zoom, 0.4, title, 1, s.mouseX, s.mouseY);
-            drawGlitchCut(ctx!, canvas!, W, H, glitchTime / 200, s.dpr, elapsed);
+            drawArtPiece(ctx!, W, H, img, 1, zoom, 0.4, title, 1, s.mouseX, s.mouseY, s.isMobile);
+            drawGlitchCut(ctx!, canvas!, W, H, glitchTime / 200, s.dpr, elapsed, s.isMobile);
           } else if (glitchTime < 440) {
             const tp = (glitchTime - 200) / 240;
             const fadeAlpha = 1 - easeInOutCubic(tp);
             if (fadeAlpha > 0.05) {
-              drawArtPiece(ctx!, W, H, img, fadeAlpha, 1.04, 0, '', 0, s.mouseX, s.mouseY);
-              if (tp < 0.5) drawGlitchCut(ctx!, canvas!, W, H, 0.5 + tp, s.dpr, elapsed);
+              drawArtPiece(ctx!, W, H, img, fadeAlpha, 1.04, 0, '', 0, s.mouseX, s.mouseY, s.isMobile);
+              if (tp < 0.5) drawGlitchCut(ctx!, canvas!, W, H, 0.5 + tp, s.dpr, elapsed, s.isMobile);
             }
           }
           if (glitchTime >= 440 && glitchTime < 520) {
@@ -613,10 +614,10 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
               background: 'rgba(0,0,0,0.4)',
               border: '1px solid rgba(212,160,23,0.3)',
               borderRadius: 8,
-              padding: '6px 10px',
+              padding: '10px 14px',
               cursor: 'pointer',
               color: GOLD,
-              fontSize: 16,
+              fontSize: 18,
               lineHeight: 1,
               opacity: 0.6,
               transition: 'opacity 0.2s',

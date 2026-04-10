@@ -102,7 +102,7 @@ export function drawHoldPhase(
     ctx.globalAlpha = tp.alpha;
     ctx.fillStyle = GOLD;
     ctx.shadowColor = GOLD;
-    ctx.shadowBlur = tp.size * 3;
+    ctx.shadowBlur = isMob ? tp.size : tp.size * 3;
     ctx.beginPath();
     ctx.arc(tp.x, tp.y, tp.size, 0, Math.PI * 2);
     ctx.fill();
@@ -131,7 +131,7 @@ export function drawHoldPhase(
 
   // Golden underline (pulsing)
   const lineY = H / 2 + mainSize * 0.45 + 25;
-  const lineW = Math.min(180, W * 0.2);
+  const lineW = Math.min(180, W * 0.3);
   ctx.save();
   ctx.strokeStyle = GOLD;
   ctx.globalAlpha = 0.35 + Math.sin(breathT) * 0.15;
@@ -147,7 +147,7 @@ export function drawHoldPhase(
   ctx.save();
   ctx.globalAlpha = ctaAlpha;
   ctx.fillStyle = '#fff';
-  ctx.font = '200 13px "Inter", "Helvetica Neue", sans-serif';
+  ctx.font = `200 ${isMob ? 11 : 13}px "Inter", "Helvetica Neue", sans-serif`;
   ctx.textAlign = 'center';
   ctx.letterSpacing = '8px';
   ctx.fillText('CLICK TO ENTER', W / 2, lineY + 40);

@@ -2,7 +2,7 @@ import { SUBLIMINAL } from '../constants';
 
 export function drawGlitchCut(
   ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement,
-  W: number, H: number, progress: number, dpr: number, elapsed: number,
+  W: number, H: number, progress: number, dpr: number, elapsed: number, isMobile = false,
 ) {
   // Heavy oscillating chromatic aberration (stronger shift range)
   const offset = 10 + Math.sin(elapsed * 0.025) * 12;
@@ -90,7 +90,7 @@ export function drawGlitchCut(
   } catch { /* skip */ }
 
   // Noise grain — much denser, block noise like GlitchTransition
-  const noiseCount = Math.floor(400 + progress * 800);
+  const noiseCount = isMobile ? Math.floor(150 + progress * 250) : Math.floor(400 + progress * 800);
   ctx.save();
   for (let i = 0; i < noiseCount; i++) {
     const nSize = 2 + Math.floor(Math.random() * 4);

@@ -11,7 +11,7 @@ export function Footer() {
         <div className="gold-divider" />
 
         {/* Top section */}
-        <div className="pt-12 pb-8 grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8">
+        <div className="pt-12 pb-8 grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8">
           {/* Brand */}
           <div className="col-span-2 md:col-span-1">
             <div className="flex items-center gap-2 mb-3">

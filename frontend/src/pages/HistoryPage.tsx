@@ -227,7 +227,7 @@ export default function HistoryPage() {
           ) : (
             <div>
               {/* Header */}
-              <div className="px-5 py-3 flex items-center gap-4 text-[11px] text-white/30 uppercase tracking-wider"
+              <div className="px-4 md:px-5 py-3 hidden md:flex items-center gap-4 text-[11px] text-white/30 uppercase tracking-wider"
                 style={{ borderBottom: '1px solid rgba(139,92,246,0.08)' }}>
                 <span className="w-20">Type</span>
                 <span className="w-24">Function</span>
@@ -238,21 +238,39 @@ export default function HistoryPage() {
 
               {/* Rows */}
               {categorized.map(tx => (
-                <div key={tx.hash} className="px-5 py-3 flex items-center gap-4 hover:bg-white/[0.02] transition-colors"
+                <a key={tx.hash} href={`https://etherscan.io/tx/${tx.hash}`} target="_blank" rel="noopener noreferrer"
+                  className="block px-4 md:px-5 py-3 hover:bg-white/[0.02] transition-colors"
                   style={{ borderBottom: '1px solid rgba(139,92,246,0.04)' }}>
-                  <span className={`w-20 text-[12px] font-semibold ${tx.color}`}>{tx.type}</span>
-                  <span className="w-24 text-[11px] text-white/25 font-mono truncate">{tx.functionName?.split('(')[0] || '–'}</span>
-                  <a href={`https://etherscan.io/tx/${tx.hash}`} target="_blank" rel="noopener noreferrer"
-                    className="flex-1 text-[11px] font-mono text-primary/70 hover:text-primary transition-colors truncate">
-                    {shortenAddress(tx.hash, 8)}
-                  </a>
-                  <span className="w-20 text-right text-[11px] text-white/25">
-                    {formatTimeAgo(parseInt(tx.timeStamp))}
-                  </span>
-                  <span className={`w-16 text-right text-[11px] font-medium ${tx.isError === '0' ? 'text-success' : 'text-danger'}`}>
-                    {tx.isError === '0' ? 'OK' : 'Failed'}
-                  </span>
-                </div>
+                  {/* Desktop row */}
+                  <div className="hidden md:flex items-center gap-4">
+                    <span className={`w-20 text-[12px] font-semibold ${tx.color}`}>{tx.type}</span>
+                    <span className="w-24 text-[11px] text-white/25 font-mono truncate">{tx.functionName?.split('(')[0] || '–'}</span>
+                    <span className="flex-1 text-[11px] font-mono text-primary/70 truncate">
+                      {shortenAddress(tx.hash, 8)}
+                    </span>
+                    <span className="w-20 text-right text-[11px] text-white/25">
+                      {formatTimeAgo(parseInt(tx.timeStamp))}
+                    </span>
+                    <span className={`w-16 text-right text-[11px] font-medium ${tx.isError === '0' ? 'text-success' : 'text-danger'}`}>
+                      {tx.isError === '0' ? 'OK' : 'Failed'}
+                    </span>
+                  </div>
+                  {/* Mobile row */}
+                  <div className="md:hidden flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`text-[12px] font-semibold flex-shrink-0 ${tx.color}`}>{tx.type}</span>
+                      <span className="text-[11px] font-mono text-primary/70 truncate">
+                        {shortenAddress(tx.hash, 6)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-[11px] text-white/25">{formatTimeAgo(parseInt(tx.timeStamp))}</span>
+                      <span className={`text-[11px] font-medium ${tx.isError === '0' ? 'text-success' : 'text-danger'}`}>
+                        {tx.isError === '0' ? 'OK' : 'Fail'}
+                      </span>
+                    </div>
+                  </div>
+                </a>
               ))}
             </div>
           )}
