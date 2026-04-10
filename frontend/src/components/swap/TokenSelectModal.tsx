@@ -184,8 +184,9 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
 
         {/* Modal */}
         <motion.div
-          className="relative w-full max-w-[420px] max-h-[70vh] flex flex-col rounded-2xl overflow-hidden"
+          className="relative w-full max-w-[420px] flex flex-col rounded-2xl overflow-hidden"
           style={{
+            maxHeight: 'calc(100vh - 160px)',
             background: 'linear-gradient(180deg, #0f1a2e 0%, #0a1020 100%)',
             border: '1px solid rgba(139,92,246,0.2)',
             boxShadow: '0 24px 80px rgba(0,0,0,0.6), 0 0 1px rgba(139,92,246,0.3)',

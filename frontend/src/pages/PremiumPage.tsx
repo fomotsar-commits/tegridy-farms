@@ -300,7 +300,7 @@ export default function PremiumPage() {
             {address && !premium.isLifetime && (
               <button onClick={premium.claimNFTAccess}
                 disabled={premium.isPending || premium.isConfirming}
-                className="px-5 py-2 rounded-lg text-[13px] font-semibold flex-shrink-0"
+                className="px-5 py-3 rounded-lg text-[13px] font-semibold flex-shrink-0"
                 style={{
                   background: 'linear-gradient(135deg, #d4a017 0%, #b8892e 100%)',
                   color: '#0a0a0f',

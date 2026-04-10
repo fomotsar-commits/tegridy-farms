@@ -205,7 +205,7 @@ export default function SwapPage() {
           <p className="text-white/50 text-[13px]">Trade any token via Uniswap V2</p>
         </motion.div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-4 items-stretch">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] xl:grid-cols-[1fr_420px] gap-4 items-stretch">
 
         {/* Left column: unified chart card */}
         <motion.div className="flex flex-col" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
@@ -262,7 +262,7 @@ export default function SwapPage() {
                 <span>{mobileChartOpen ? '▲' : '▼'}</span>
               </button>
             </div>
-            <div className={`flex-1 min-h-[400px] ${mobileChartOpen ? '' : 'hidden lg:block'}`}>
+            <div className={`flex-1 min-h-[280px] md:min-h-[400px] ${mobileChartOpen ? '' : 'hidden lg:block'}`}>
               {CHAIN_ID !== 1 ? (
                 <div className="w-full h-full flex flex-col items-center justify-center gap-2">
                   <span className="text-white/30 text-[14px]">Chart unavailable on testnet</span>

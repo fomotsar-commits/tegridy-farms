@@ -250,7 +250,7 @@ export default function LiquidityPage() {
         <div className="flex gap-2">
           {(['add', 'remove'] as Tab[]).map(t => (
             <button key={t} onClick={() => { setTab(t); liq.reset(); }}
-              className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-all ${
                 tab === t ? 'text-white' : 'text-white/30 hover:text-white/60'
               }`}
               style={tab === t ? { background: 'rgba(139,92,246,0.25)', border: '1px solid rgba(139,92,246,0.4)' } : { border: '1px solid rgba(255,255,255,0.05)' }}
@@ -303,7 +303,7 @@ export default function LiquidityPage() {
                     if (tokenA?.isNative && ethBal) handleInputAChange((parseFloat(ethBal.formatted) * 0.95).toFixed(6));
                     else handleInputAChange(liq.tokenABalanceFormatted);
                   }}
-                    className="px-3 py-2 rounded-xl text-xs font-semibold text-purple-300 bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
+                    className="px-4 py-3 rounded-xl text-sm font-semibold text-purple-300 bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
                   >MAX</button>
                 </div>
               </div>
@@ -331,7 +331,7 @@ export default function LiquidityPage() {
                     if (tokenB?.isNative && ethBal) handleInputBChange((parseFloat(ethBal.formatted) * 0.95).toFixed(6));
                     else handleInputBChange(liq.tokenBBalanceFormatted);
                   }}
-                    className="px-3 py-2 rounded-xl text-xs font-semibold text-purple-300 bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
+                    className="px-4 py-3 rounded-xl text-sm font-semibold text-purple-300 bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
                   >MAX</button>
                 </div>
               </div>
@@ -419,7 +419,7 @@ export default function LiquidityPage() {
                     className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-medium outline-none focus:border-purple-500/40 transition-colors"
                   />
                   <button onClick={() => setLpInput(liq.lpBalanceFormatted)}
-                    className="px-3 py-2 rounded-xl text-xs font-semibold text-purple-300 bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
+                    className="px-4 py-3 rounded-xl text-sm font-semibold text-purple-300 bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
                   >MAX</button>
                 </div>
               </div>

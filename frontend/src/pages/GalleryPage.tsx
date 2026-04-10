@@ -76,7 +76,7 @@ export default function GalleryPage() {
           <p className="text-white/40 text-[11px]">Votes are for fun only — stored locally in your browser, not on-chain.</p>
         </div>
 
-        <div className="columns-2 md:columns-3 gap-3 space-y-3">
+        <div className="columns-2 sm:columns-3 gap-3 space-y-3">
           {[...GALLERY_ORDER].sort((a, b) => (votes[b.src] || 0) - (votes[a.src] || 0)).map((piece, i) => (
             <motion.button key={piece.src} onClick={() => setSelectedIndex(i)}
               className="w-full block relative group cursor-pointer break-inside-avoid rounded-xl overflow-hidden card-hover"
