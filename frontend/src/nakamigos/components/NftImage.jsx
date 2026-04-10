@@ -61,8 +61,29 @@ export default memo(function NftImage({ nft, style, className, large, priority }
 
   useEffect(() => {
     setFailCount(0);
-    setDynamicSrc(getCachedUrl(cacheKey));
-  }, [cacheKey, primarySrc]);
+    const cached = getCachedUrl(cacheKey);
+    setDynamicSrc(cached);
+
+    // If no image URL at all, immediately try metadata API
+    if (!cached && !primarySrc && nft.id) {
+      (async () => {
+        try {
+          const res = await fetch(alchemyMetadataProxy(nft.id, collection.contract));
+          if (res.ok) {
+            const data = await res.json();
+            const url = data.image?.cachedUrl || data.image?.pngUrl || data.image?.thumbnailUrl || data.image?.originalUrl || data.raw?.metadata?.image;
+            if (url) {
+              setDynamicSrc(url);
+              setCachedUrl(cacheKey, url);
+              return;
+            }
+          }
+        } catch { /* fall through */ }
+        setCachedFailed(cacheKey);
+        setFailCount(3);
+      })();
+    }
+  }, [cacheKey, primarySrc, nft.id, collection.contract]);
 
   const handleError = async () => {
     if (failCount === 0 && nft.id) {
@@ -81,7 +102,7 @@ export default memo(function NftImage({ nft, style, className, large, priority }
         const res = await fetch(alchemyMetadataProxy(nft.id, collection.contract));
         if (res.ok) {
           const data = await res.json();
-          const url = data.image?.cachedUrl || data.image?.pngUrl || data.image?.originalUrl || data.raw?.metadata?.image;
+          const url = data.image?.cachedUrl || data.image?.pngUrl || data.image?.thumbnailUrl || data.image?.originalUrl || data.raw?.metadata?.image;
           if (url) {
             setDynamicSrc(url);
             setCachedUrl(cacheKey, url);
