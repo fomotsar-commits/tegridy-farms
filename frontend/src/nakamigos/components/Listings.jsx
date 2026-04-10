@@ -398,6 +398,12 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
           : `Live floor price and recent market activity for ${collection.name}.`}
       </div>
 
+      {/* Two-column layout: listings left, stats/orderbook right */}
+      <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
+
+      {/* RIGHT COLUMN — Stats, Order Book, Offers (rendered first for mobile stacking) */}
+      <div style={{ flex: "0 0 380px", maxWidth: 420, order: 2 }} className="listings-sidebar">
+
       {/* Stats Row */}
       <div className="listings-stats">
         <div className="listings-stat-card">
@@ -533,6 +539,11 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
           )}
         </div>
       </div>
+
+      </div>{/* end sidebar */}
+
+      {/* LEFT COLUMN — Listings grid */}
+      <div style={{ flex: "1 1 0", minWidth: 0, order: 1 }}>
 
       {/* Loading state with skeleton cards — show while listings load,
           or while activities load when listings are empty (so we don't flash
@@ -886,6 +897,9 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
           </button>
         </div>
       )}
+
+      </div>{/* end left column */}
+      </div>{/* end flex container */}
 
       {/* Trait Offer Modal */}
       {showTraitOfferModal && (

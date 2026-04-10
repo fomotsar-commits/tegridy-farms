@@ -122,11 +122,10 @@ function ThemeIconSvg({ theme }) {
 }
 
 const PRIMARY_NAV = [
+  ["listings", "Floor"],
   ["gallery", "Gallery"],
   ["deals", "Deals"],
-  ["listings", "Floor"],
   ["traits", "Traits"],
-  ["analytics", "Analytics"],
   ["activity", "Activity"],
   ["collection", "My NFTs"],
   ["portfolio", "P&L"],

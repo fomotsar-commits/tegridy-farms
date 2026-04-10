@@ -82,7 +82,7 @@ function parseRoute(pathname) {
 
   // Check if the first segment is a known collection slug
   if (COLLECTIONS[first]) {
-    const second = segments[1] || "gallery";
+    const second = segments[1] || "listings";
     // Deep link: /:collection/nft/:id
     if (second === "nft" && segments[2]) {
       const id = parseInt(segments[2], 10);

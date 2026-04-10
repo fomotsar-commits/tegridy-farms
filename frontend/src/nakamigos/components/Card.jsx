@@ -69,7 +69,7 @@ export default memo(function Card({ nft, idx, onPick, view, isFavorite, onToggle
         <div className="card-footer">
           <div className="card-info">
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div className="card-name" style={{ fontSize: isGallery ? 14 : 12 }}>{nft.name}</div>
+              <div className="card-name" style={{ fontSize: isGallery ? 16 : 14 }}>{nft.name}</div>
               <div className="card-trait">
                 {nft.attributes?.[0]
                   ? `${nft.attributes[0].key}: ${nft.attributes[0].value}`
