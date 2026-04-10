@@ -764,7 +764,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
                         onClick={(e) => handleBuy(nft, e)}
                         style={{ cursor: buying === nft.id ? "wait" : "pointer" }}
                       >
-                        {buying === nft.id ? "Buying..." : !wallet ? "Connect & Buy" : `Buy ${nft.price.toFixed(4)} ETH`}
+                        {buying === nft.id ? "Buying..." : !wallet ? "Connect & Buy" : "Buy Now"}
                       </button>
                     ) : (
                       <a

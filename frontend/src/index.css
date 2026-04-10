@@ -60,6 +60,12 @@
   input, select, textarea {
     font-size: max(16px, inherit) !important;
   }
+  /* iOS 44px minimum touch targets for buttons */
+  .btn-primary, .btn-secondary {
+    min-height: 44px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
 }
 
 body {

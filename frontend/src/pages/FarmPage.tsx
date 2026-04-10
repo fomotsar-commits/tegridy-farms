@@ -478,7 +478,7 @@ export default function FarmPage() {
                     {/* User position */}
                     {lpFarm.stakedBalance > 0n && (
                       <div className="rounded-lg p-4 mb-4" style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.15)' }}>
-                        <div className="grid grid-cols-3 gap-4 text-center">
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-center">
                           <div>
                             <p className="text-white/30 text-[10px]">Your Staked LP</p>
                             <p className="text-white font-mono text-[14px]">{formatTokenAmount(lpFarm.stakedBalanceFormatted)}</p>

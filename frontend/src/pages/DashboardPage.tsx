@@ -368,7 +368,7 @@ export default function DashboardPage() {
         {/* Chart */}
         <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <h3 className="heading-luxury text-[16px] text-white mb-3">Price Chart</h3>
-          <div className="relative rounded-xl overflow-hidden h-[400px]" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+          <div className="relative rounded-xl overflow-hidden h-[280px] md:h-[400px]" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
             <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white/30 text-[13px]">Chart unavailable</div>}><PriceChart /></ErrorBoundary>
           </div>
         </motion.div>

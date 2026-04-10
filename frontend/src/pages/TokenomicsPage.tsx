@@ -180,7 +180,7 @@ export default function TokenomicsPage() {
             <p className="text-white/30 text-[12px] mb-3">
               100% of protocol revenue is distributed to stakers. The farm contract holds all staked tokens and manages reward distribution transparently on-chain.
             </p>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
               <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.08)' }}>
                 <p className="text-white/30 text-[10px] uppercase tracking-wider mb-0.5">Rewards Remaining</p>
                 <p className="stat-value text-[13px] text-primary">{pool.totalRewardsFunded || '0'} TOWELI</p>
