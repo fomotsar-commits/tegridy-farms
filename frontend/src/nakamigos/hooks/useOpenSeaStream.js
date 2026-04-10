@@ -98,70 +98,74 @@ export default function useOpenSeaStream(collectionSlug) {
 
     // Track whether we've received at least one event (= connected)
     let connected = false;
+    let client = null;
 
-    // Create the client
-    const client = new OpenSeaStreamClient({
-      network: Network.MAINNET,
-      token: OS_API_KEY,
-      onError: (err) => {
-        console.warn("useOpenSeaStream: error", err);
-        if (mountedRef.current) dispatch({ type: "set_connected", value: false });
-        connected = false;
-      },
-      onEvent: () => {
-        // Mark connected on first event received
-        if (!connected && mountedRef.current) {
-          connected = true;
-          dispatch({ type: "set_connected", value: true });
-        }
-        return true; // allow event to propagate to subscribers
-      },
-    });
+    try {
+      // Create the client — can throw "insecure operation" on mobile Safari
+      // when WebSocket connections are blocked by CSP or browser restrictions
+      client = new OpenSeaStreamClient({
+        network: Network.MAINNET,
+        token: OS_API_KEY,
+        onError: (err) => {
+          console.warn("useOpenSeaStream: error", err);
+          if (mountedRef.current) dispatch({ type: "set_connected", value: false });
+          connected = false;
+        },
+        onEvent: () => {
+          if (!connected && mountedRef.current) {
+            connected = true;
+            dispatch({ type: "set_connected", value: true });
+          }
+          return true;
+        },
+      });
 
-    clientRef.current = client;
-    client.connect();
+      clientRef.current = client;
+      client.connect();
 
-    // Subscribe to the four event types
-    const unsubs = [];
+      // Subscribe to the four event types
+      const unsubs = [];
 
-    unsubs.push(
-      client.onItemListed(collectionSlug, (event) =>
-        pushEvent("item_listed", event)
-      )
-    );
+      unsubs.push(
+        client.onItemListed(collectionSlug, (event) =>
+          pushEvent("item_listed", event)
+        )
+      );
 
-    unsubs.push(
-      client.onItemSold(collectionSlug, (event) =>
-        pushEvent("item_sold", event)
-      )
-    );
+      unsubs.push(
+        client.onItemSold(collectionSlug, (event) =>
+          pushEvent("item_sold", event)
+        )
+      );
 
-    unsubs.push(
-      client.onItemReceivedBid(collectionSlug, (event) =>
-        pushEvent("item_received_bid", event)
-      )
-    );
+      unsubs.push(
+        client.onItemReceivedBid(collectionSlug, (event) =>
+          pushEvent("item_received_bid", event)
+        )
+      );
 
-    unsubs.push(
-      client.onItemCancelled(collectionSlug, (event) =>
-        pushEvent("item_cancelled", event)
-      )
-    );
+      unsubs.push(
+        client.onItemCancelled(collectionSlug, (event) =>
+          pushEvent("item_cancelled", event)
+        )
+      );
 
-    unsubsRef.current = unsubs;
+      unsubsRef.current = unsubs;
+    } catch (err) {
+      // WebSocket blocked on mobile Safari — degrade gracefully
+      console.warn("useOpenSeaStream: failed to connect (mobile?)", err);
+    }
 
     return () => {
       mountedRef.current = false;
 
-      // Unsubscribe all handlers
       for (const unsub of unsubsRef.current) {
         try { unsub(); } catch { /* ignore */ }
       }
       unsubsRef.current = [];
 
-      // Disconnect client
       try {
-        client.disconnect();
+        if (client) client.disconnect();
       } catch { /* ignore */ }
       clientRef.current = null;
     };
