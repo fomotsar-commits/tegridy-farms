@@ -31,7 +31,7 @@ export const DAMPING = 0.87;
 /* Timings (ms) */
 export const T_VOID_END = 1500;
 export const T_ART_START = T_VOID_END;
-export const T_ART_DURATION = 2000;
+export const T_ART_DURATION = 2600;
 export const T_ART_COUNT = 4;
 export const T_ART_END = T_ART_START + T_ART_DURATION * T_ART_COUNT;
 export const T_SHATTER_END = 11000;

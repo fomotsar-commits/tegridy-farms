@@ -333,7 +333,7 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
 
         // Particle morph during glitch window
         if (s.morphParticles.length > 0) {
-          const morphProgress = Math.min(1, (pieceTime - 1400) / 520);
+          const morphProgress = Math.min(1, (pieceTime - 1400) / 1120);
           if (morphProgress > 0) {
             updateMorphParticles(ctx!, s, morphProgress);
           }
@@ -348,21 +348,23 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
           const hp = (pieceTime - 600) / 800;
           const zoom = 1.01 + hp * 0.015;
           drawArtPiece(ctx!, W, H, img, 1, zoom, 0.4, title, 1, s.mouseX, s.mouseY, s.isMobile);
-        } else if (pieceTime < 1920) {
+        } else if (pieceTime < 2520) {
           const glitchTime = pieceTime - 1400;
-          if (glitchTime < 200) {
-            const zoom = 1.025 + (glitchTime / 200) * 0.015;
+          if (glitchTime < 500) {
+            // Extended glitch cut phase — 500ms of heavy distortion
+            const zoom = 1.025 + (glitchTime / 500) * 0.02;
             drawArtPiece(ctx!, W, H, img, 1, zoom, 0.4, title, 1, s.mouseX, s.mouseY, s.isMobile);
-            drawGlitchCut(ctx!, canvas!, W, H, glitchTime / 200, s.dpr, elapsed, s.isMobile);
-          } else if (glitchTime < 440) {
-            const tp = (glitchTime - 200) / 240;
+            drawGlitchCut(ctx!, canvas!, W, H, glitchTime / 500, s.dpr, elapsed, s.isMobile);
+          } else if (glitchTime < 900) {
+            // Extended fade-out with glitch — 400ms
+            const tp = (glitchTime - 500) / 400;
             const fadeAlpha = 1 - easeInOutCubic(tp);
             if (fadeAlpha > 0.05) {
               drawArtPiece(ctx!, W, H, img, fadeAlpha, 1.04, 0, '', 0, s.mouseX, s.mouseY, s.isMobile);
-              if (tp < 0.5) drawGlitchCut(ctx!, canvas!, W, H, 0.5 + tp, s.dpr, elapsed, s.isMobile);
+              if (tp < 0.6) drawGlitchCut(ctx!, canvas!, W, H, 0.5 + tp, s.dpr, elapsed, s.isMobile);
             }
           }
-          if (glitchTime >= 440 && glitchTime < 520) {
+          if (glitchTime >= 900 && glitchTime < 1040) {
             drawSubliminalText(ctx!, W, H);
           }
           // Spawn morph particles at start of glitch
