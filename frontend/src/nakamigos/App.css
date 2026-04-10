@@ -1363,7 +1363,7 @@
   .footer-tags { justify-content: center; }
   .analytics-section { padding: 24px 16px 60px; }
   .my-collection-section { padding: 24px 16px 60px; }
-  .listings-section { padding: 24px 16px 60px; }
+  .listings-section { padding: 24px 10px 60px; }
   .trait-explorer { padding: 24px 16px 60px; }
   .hero-side-item { min-width: auto; }
   .nft-marquee { padding: 10px 0; }
@@ -1862,13 +1862,16 @@ details[open] .details-arrow { transform: rotate(90deg); }
   gap: 14px; margin-bottom: 28px;
 }
 @media (max-width: 1024px) {
-  .listings-grid { grid-template-columns: repeat(3, 1fr) !important; gap: 10px; }
+  .listings-grid { grid-template-columns: repeat(5, 1fr) !important; gap: 10px; }
+  .listing-card-body { padding: 10px 12px; }
+  .listing-card-name { font-size: 12px; }
+  .listing-card-price { font-size: 13px; }
 }
 @media (max-width: 480px) {
-  .listings-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 8px; }
-  .listing-card-body { padding: 10px 10px; }
-  .listing-card-name { font-size: 11px; }
-  .listing-card-price { font-size: 12px; }
+  .listings-grid { grid-template-columns: repeat(3, 1fr) !important; gap: 8px; }
+  .listing-card-body { padding: 8px 8px; }
+  .listing-card-name { font-size: 10px; }
+  .listing-card-price { font-size: 11px; }
 }
 .listing-card {
   position: relative;
@@ -4131,7 +4134,7 @@ details[open] .details-arrow { transform: rotate(90deg); }
   .load-more-wrap { padding: 16px 12px 48px; }
   .analytics-overview { grid-template-columns: 1fr 1fr; }
   .trait-categories-grid { grid-template-columns: 1fr; }
-  .listings-grid { grid-template-columns: repeat(2, 1fr) !important; }
+  .listings-grid { grid-template-columns: repeat(3, 1fr) !important; }
   .listings-section { padding-left: 8px !important; padding-right: 8px !important; }
   .sweep-breakdown { grid-template-columns: 1fr; }
   .header-inner { padding: 6px 10px; gap: 6px; }
