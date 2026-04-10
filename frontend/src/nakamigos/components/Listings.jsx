@@ -490,7 +490,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       </div>{/* end sidebar */}
 
       {/* LEFT COLUMN — Listings grid */}
-      <div style={{ flex: "1 1 0", minWidth: 0, order: 1 }}>
+      <div className="listings-content" style={{ flex: "1 1 0", minWidth: 0, order: 1 }}>
 
       {/* Loading state with skeleton cards — show while listings load,
           or while activities load when listings are empty (so we don't flash

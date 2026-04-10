@@ -1825,7 +1825,8 @@
   flex: 0 0 380px; max-width: 420px; order: 2;
 }
 @media (max-width: 1024px) {
-  .listings-sidebar { flex: 1 1 100%; max-width: 100%; order: 1; }
+  .listings-sidebar { flex: 1 1 100% !important; max-width: 100% !important; order: 2 !important; }
+  .listings-content { flex: 1 1 100% !important; width: 100% !important; order: 1 !important; }
 }
 /* Collapsible sidebar arrow rotation */
 details summary::-webkit-details-marker { display: none; }
