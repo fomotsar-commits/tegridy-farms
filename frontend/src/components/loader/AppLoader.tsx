@@ -454,16 +454,15 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
             ctx!.fillRect(p.x, p.y, p.size, p.size);
           }
         }
-        // Ghost text — lighter shadowBlur on mobile to avoid Safari rendering issues
-        {
-        const mainSize = s.isMobile ? Math.min(130, W * 0.19) : Math.min(130, W * 0.15);
-        const subSize = s.isMobile ? Math.min(60, W * 0.09) : Math.min(60, W * 0.07);
+        // Ghost text — desktop only (Safari renders canvas shadowBlur way too bright on mobile)
+        if (!s.isMobile) {
+        const mainSize = Math.min(130, W * 0.15);
+        const subSize = Math.min(60, W * 0.07);
         ctx!.save();
-        ctx!.globalAlpha = s.isMobile ? 0.06 : 0.1;
+        ctx!.globalAlpha = 0.1;
         ctx!.font = `bold ${mainSize}px "Inter", "Helvetica Neue", sans-serif`;
         ctx!.textAlign = 'center'; ctx!.textBaseline = 'middle';
-        ctx!.fillStyle = '#fff'; ctx!.shadowColor = '#fff';
-        ctx!.shadowBlur = s.isMobile ? 6 : 20;
+        ctx!.fillStyle = '#fff'; ctx!.shadowColor = '#fff'; ctx!.shadowBlur = 20;
         ctx!.fillText('TEGRIDY', W / 2, H / 2 - subSize * 0.5);
         ctx!.font = `bold ${subSize}px "Inter", "Helvetica Neue", sans-serif`;
         ctx!.fillText('FARMS', W / 2, H / 2 + mainSize * 0.45);
