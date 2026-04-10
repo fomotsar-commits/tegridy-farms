@@ -6,7 +6,9 @@ export function createMorphParticles(
   currentImg: HTMLImageElement, _nextImg: HTMLImageElement | null,
   W: number, H: number,
 ): MorphParticle[] {
-  const artW = W * 0.72, artH = H * 0.72;
+  const isMob = typeof window !== 'undefined' && window.innerWidth < 768;
+  const artScale = isMob ? 0.88 : 0.72;
+  const artW = W * artScale, artH = H * artScale;
   const artX = (W - artW) / 2, artY = (H - artH) / 2;
   const count = 400;
   const particles: MorphParticle[] = [];

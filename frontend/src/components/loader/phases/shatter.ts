@@ -16,7 +16,8 @@ export function drawShatterPhase(
       // Import drawArtPiece would create circular dep, so inline minimal version
       ctx.save();
       ctx.globalAlpha = alpha;
-      const artW = W * 0.72, artH = H * 0.72;
+      const artScale = s.isMobile ? 0.88 : 0.72;
+      const artW = W * artScale, artH = H * artScale;
       const artX = (W - artW) / 2, artY = (H - artH) / 2;
       ctx.beginPath(); ctx.rect(artX, artY, artW, artH); ctx.clip();
       ctx.translate(W / 2, H / 2);

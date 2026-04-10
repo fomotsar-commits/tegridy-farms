@@ -161,10 +161,12 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('touchmove', onTouchMove);
 
-    /* WebGL post-processing (desktop only) */
-    if (!s.isMobile && overlayRef.current) {
+    /* WebGL post-processing — enabled on all devices (iPhones/iPads have great WebGL2)
+       Mobile uses 1x DPR for the PostFX pass to keep GPU usage reasonable */
+    if (overlayRef.current) {
+      const pfxDpr = s.isMobile ? 1 : s.dpr;
       const pfx = new PostFX();
-      if (pfx.init(overlayRef.current, W * s.dpr, H * s.dpr)) {
+      if (pfx.init(overlayRef.current, W * pfxDpr, H * pfxDpr)) {
         postfxRef.current = pfx;
       }
     }
@@ -330,7 +332,7 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
         const title = s.titles[pieceIdx] || '';
 
         // Particle morph during glitch window
-        if (!s.isMobile && s.morphParticles.length > 0) {
+        if (s.morphParticles.length > 0) {
           const morphProgress = Math.min(1, (pieceTime - 1400) / 520);
           if (morphProgress > 0) {
             updateMorphParticles(ctx!, s, morphProgress);
@@ -364,7 +366,7 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
             drawSubliminalText(ctx!, W, H);
           }
           // Spawn morph particles at start of glitch
-          if (!s.isMobile && glitchTime < 50 && s.morphParticles.length === 0) {
+          if (glitchTime < 50 && s.morphParticles.length === 0) {
             const nextIdx = pieceIdx + 1;
             const nextImg = nextIdx < s.images.length ? s.images[nextIdx] : null;
             s.morphParticles = createMorphParticles(img, nextImg, W, H);
@@ -450,15 +452,16 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
             ctx!.fillRect(p.x, p.y, p.size, p.size);
           }
         }
-        // Ghost text — desktop only (Safari canvas shadowBlur too bright on mobile)
-        if (!s.isMobile) {
-        const mainSize = Math.min(130, W * 0.15);
-        const subSize = Math.min(60, W * 0.07);
+        // Ghost text — lighter shadowBlur on mobile to avoid Safari rendering issues
+        {
+        const mainSize = s.isMobile ? Math.min(130, W * 0.19) : Math.min(130, W * 0.15);
+        const subSize = s.isMobile ? Math.min(60, W * 0.09) : Math.min(60, W * 0.07);
         ctx!.save();
-        ctx!.globalAlpha = 0.1;
+        ctx!.globalAlpha = s.isMobile ? 0.06 : 0.1;
         ctx!.font = `bold ${mainSize}px "Inter", "Helvetica Neue", sans-serif`;
         ctx!.textAlign = 'center'; ctx!.textBaseline = 'middle';
-        ctx!.fillStyle = '#fff'; ctx!.shadowColor = '#fff'; ctx!.shadowBlur = 20;
+        ctx!.fillStyle = '#fff'; ctx!.shadowColor = '#fff';
+        ctx!.shadowBlur = s.isMobile ? 6 : 20;
         ctx!.fillText('TEGRIDY', W / 2, H / 2 - subSize * 0.5);
         ctx!.font = `bold ${subSize}px "Inter", "Helvetica Neue", sans-serif`;
         ctx!.fillText('FARMS', W / 2, H / 2 + mainSize * 0.45);
