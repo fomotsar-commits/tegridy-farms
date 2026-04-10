@@ -1821,8 +1821,11 @@
   position: relative; z-index: 1; max-width: 1440px;
   margin: 0 auto; padding: 40px 32px 80px;
 }
-@media (max-width: 900px) {
-  .listings-sidebar { flex: 1 1 100% !important; max-width: 100% !important; order: 1 !important; }
+.listings-sidebar {
+  flex: 0 0 380px; max-width: 420px; order: 2;
+}
+@media (max-width: 1024px) {
+  .listings-sidebar { flex: 1 1 100%; max-width: 100%; order: 1; }
 }
 /* Collapsible sidebar arrow rotation */
 details summary::-webkit-details-marker { display: none; }

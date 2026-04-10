@@ -386,7 +386,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
 
       {/* RIGHT COLUMN — Order Book, Offers (collapsible) */}
-      <div style={{ flex: "0 0 380px", maxWidth: 420, order: 2 }} className="listings-sidebar">
+      <div className="listings-sidebar">
 
       <details style={{ marginBottom: 0 }}>
         <summary style={{
