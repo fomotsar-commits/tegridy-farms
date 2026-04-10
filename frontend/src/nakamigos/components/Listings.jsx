@@ -398,13 +398,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
           : `Live floor price and recent market activity for ${collection.name}.`}
       </div>
 
-      {/* Two-column layout: listings left, stats/orderbook right */}
-      <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
-
-      {/* RIGHT COLUMN — Stats, Order Book, Offers (rendered first for mobile stacking) */}
-      <div style={{ flex: "0 0 380px", maxWidth: 420, order: 2 }} className="listings-sidebar">
-
-      {/* Stats Row */}
+      {/* Stats Row — stays on top, full width */}
       <div className="listings-stats">
         <div className="listings-stat-card">
           <div className="listings-stat-label">FLOOR PRICE</div>
@@ -455,6 +449,12 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
           </div>
         )}
       </div>
+
+      {/* Two-column layout: listings left, orderbook/offers right */}
+      <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
+
+      {/* RIGHT COLUMN — Order Book, Offers */}
+      <div style={{ flex: "0 0 380px", maxWidth: 420, order: 2 }} className="listings-sidebar">
 
       {/* Order Book Depth */}
       <OrderBookPanel listings={listings} collectionOffers={collectionOffers} floorPrice={stats?.floor} wallet={wallet} onConnect={onConnect} addToast={addToast} />
