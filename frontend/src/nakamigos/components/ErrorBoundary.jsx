@@ -87,15 +87,21 @@ export default class ErrorBoundary extends React.Component {
           <p
             style={{
               fontFamily: "var(--mono, monospace)",
-              fontSize: 13,
+              fontSize: 11,
               color: "var(--text-dim)",
               lineHeight: 1.6,
               marginBottom: 20,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-all",
+              textAlign: "left",
+              userSelect: "text",
+              maxHeight: 300,
+              overflow: "auto",
             }}
           >
             {isChunk
               ? "A new version of the app is available. Please reload to get the latest version."
-              : this.state.error?.message || "An unexpected error occurred. Please try again."}
+              : (this.state.error?.message || "An unexpected error occurred.") + "\n\n" + (this.state.error?.stack || "")}
           </p>
           <button
             onClick={() => {
