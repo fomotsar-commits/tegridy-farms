@@ -9,6 +9,25 @@ import {
 } from '../hooks/useTransactionReceipt';
 import { formatTokenAmount } from '../lib/formatting';
 
+/* ─── Sanitize text to prevent HTML/script injection in rendered receipts ─── */
+function sanitize(str: string | undefined): string {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
+/** Sanitize and validate an Ethereum tx hash */
+function sanitizeTxHash(hash: string | undefined): string | undefined {
+  if (!hash) return undefined;
+  // Tx hash must be 0x + 64 hex chars
+  if (/^0x[a-fA-F0-9]{64}$/.test(hash)) return hash;
+  return undefined;
+}
+
 /* ─── Provider ─── */
 
 export function TransactionReceiptProvider({ children }: { children: ReactNode }) {
@@ -38,6 +57,11 @@ const TYPE_CONFIG: Record<ReceiptType, { label: string; icon: string; verb: stri
   vote:    { label: 'VOTE CONFIRMED',    icon: '\u{1F5F3}\u{FE0F}', verb: 'voted' },
   bounty:  { label: 'BOUNTY POSTED',     icon: '\u{1F3AF}', verb: 'posted a bounty' },
   lock:    { label: 'LOCK CONFIRMED',    icon: '\u{26D3}\u{FE0F}', verb: 'locked' },
+  approve: { label: 'APPROVAL CONFIRMED', icon: '\u{2705}', verb: 'approved' },
+  liquidity_add: { label: 'LIQUIDITY ADDED', icon: '\u{1F4A7}', verb: 'added liquidity' },
+  liquidity_remove: { label: 'LIQUIDITY REMOVED', icon: '\u{1F4A8}', verb: 'removed liquidity' },
+  subscribe: { label: 'GOLD CARD ACTIVATED', icon: '\u{1F451}', verb: 'subscribed to Gold Card' },
+  claim_revenue: { label: 'REVENUE CLAIMED', icon: '\u{1F4B0}', verb: 'claimed revenue' },
 };
 
 /* ─── Detail rows per type ─── */
@@ -49,44 +73,44 @@ function buildDetailRows(receipt: ReceiptData): { label: string; value: string }
   switch (type) {
     case 'swap':
       if (data.fromAmount && data.fromToken && data.toAmount && data.toToken) {
-        rows.push({ label: 'From', value: `${formatTokenAmount(data.fromAmount, 6)} ${data.fromToken}` });
-        rows.push({ label: 'To', value: `${formatTokenAmount(data.toAmount, 6)} ${data.toToken}` });
+        rows.push({ label: 'From', value: `${formatTokenAmount(data.fromAmount, 6)} ${sanitize(data.fromToken)}` });
+        rows.push({ label: 'To', value: `${formatTokenAmount(data.toAmount, 6)} ${sanitize(data.toToken)}` });
       }
-      if (data.rate) rows.push({ label: 'Rate', value: data.rate });
-      if (data.fee) rows.push({ label: 'Fee', value: data.fee });
-      if (data.slippage) rows.push({ label: 'Slippage', value: data.slippage });
+      if (data.rate) rows.push({ label: 'Rate', value: sanitize(data.rate) });
+      if (data.fee) rows.push({ label: 'Fee', value: sanitize(data.fee) });
+      if (data.slippage) rows.push({ label: 'Slippage', value: sanitize(data.slippage) });
       break;
 
     case 'stake':
     case 'lock':
       if (data.amount && data.token) {
-        rows.push({ label: 'Amount', value: `${formatTokenAmount(data.amount, 4)} ${data.token}` });
+        rows.push({ label: 'Amount', value: `${formatTokenAmount(data.amount, 4)} ${sanitize(data.token)}` });
       }
-      if (data.lockDuration) rows.push({ label: 'Lock Duration', value: data.lockDuration });
-      if (data.boost) rows.push({ label: 'Boost', value: `${data.boost}x` });
-      if (data.estimatedAPR) rows.push({ label: 'Est. APR', value: `${data.estimatedAPR}%` });
+      if (data.lockDuration) rows.push({ label: 'Lock Duration', value: sanitize(data.lockDuration) });
+      if (data.boost) rows.push({ label: 'Boost', value: `${sanitize(data.boost)}x` });
+      if (data.estimatedAPR) rows.push({ label: 'Est. APR', value: `${sanitize(data.estimatedAPR)}%` });
       break;
 
     case 'unstake':
       if (data.amount && data.token) {
-        rows.push({ label: 'Withdrawn', value: `${formatTokenAmount(data.amount, 4)} ${data.token}` });
+        rows.push({ label: 'Withdrawn', value: `${formatTokenAmount(data.amount, 4)} ${sanitize(data.token)}` });
       }
       break;
 
     case 'claim':
       if (data.rewardAmount && data.token) {
-        rows.push({ label: 'Rewards', value: `${formatTokenAmount(data.rewardAmount, 6)} ${data.token}` });
+        rows.push({ label: 'Rewards', value: `${formatTokenAmount(data.rewardAmount, 6)} ${sanitize(data.token)}` });
       }
       break;
 
     case 'vote':
-      if (data.poolName) rows.push({ label: 'Pool', value: data.poolName });
-      if (data.voteWeight) rows.push({ label: 'Weight', value: data.voteWeight });
+      if (data.poolName) rows.push({ label: 'Pool', value: sanitize(data.poolName) });
+      if (data.voteWeight) rows.push({ label: 'Weight', value: sanitize(data.voteWeight) });
       break;
 
     case 'bounty':
-      if (data.bountyTitle) rows.push({ label: 'Bounty', value: data.bountyTitle });
-      if (data.bountyReward) rows.push({ label: 'Reward', value: `${data.bountyReward} ETH` });
+      if (data.bountyTitle) rows.push({ label: 'Bounty', value: sanitize(data.bountyTitle) });
+      if (data.bountyReward) rows.push({ label: 'Reward', value: `${sanitize(data.bountyReward)} ETH` });
       break;
   }
 
@@ -114,8 +138,9 @@ function TransactionReceiptOverlay({
     timeZoneName: 'short',
   });
 
-  const etherscanUrl = receipt.data.txHash
-    ? `https://etherscan.io/tx/${receipt.data.txHash}`
+  const safeTxHash = sanitizeTxHash(receipt.data.txHash);
+  const etherscanUrl = safeTxHash
+    ? `https://etherscan.io/tx/${safeTxHash}`
     : null;
 
   const handleShareX = useCallback(() => {
@@ -233,11 +258,11 @@ function TransactionReceiptOverlay({
             <div className="mb-5 px-4 py-3 rounded-xl" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.12)' }}>
               <div className="flex items-center justify-center gap-3">
                 <span className="stat-value text-[16px] text-white/80">
-                  {formatTokenAmount(receipt.data.fromAmount, 6)} {receipt.data.fromToken}
+                  {formatTokenAmount(receipt.data.fromAmount, 6)} {sanitize(receipt.data.fromToken)}
                 </span>
                 <span className="text-primary text-[16px]">{'\u{2192}'}</span>
                 <span className="stat-value text-[16px] text-primary">
-                  {formatTokenAmount(receipt.data.toAmount, 6)} {receipt.data.toToken}
+                  {formatTokenAmount(receipt.data.toAmount, 6)} {sanitize(receipt.data.toToken)}
                 </span>
               </div>
             </div>
@@ -263,7 +288,7 @@ function TransactionReceiptOverlay({
                 rel="noopener noreferrer"
                 className="stat-value text-[12px] text-primary hover:text-primary/80 transition-colors"
               >
-                {receipt.data.txHash!.slice(0, 6)}...{receipt.data.txHash!.slice(-4)} {'\u{2197}'}
+                {safeTxHash!.slice(0, 6)}...{safeTxHash!.slice(-4)} {'\u{2197}'}
               </a>
             </div>
           )}
@@ -336,9 +361,10 @@ function buildReceiptText(
   for (const row of rows) {
     lines.push(`${row.label}: ${row.value}`);
   }
-  if (receipt.data.txHash) {
+  const validHash = sanitizeTxHash(receipt.data.txHash);
+  if (validHash) {
     lines.push('');
-    lines.push(`Tx: https://etherscan.io/tx/${receipt.data.txHash}`);
+    lines.push(`Tx: https://etherscan.io/tx/${validHash}`);
   }
   lines.push('');
   lines.push(timestamp);

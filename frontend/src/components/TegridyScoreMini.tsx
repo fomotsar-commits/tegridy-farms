@@ -79,6 +79,7 @@ export function TegridyScoreMini() {
         <p className="text-[13px] text-white/70 font-medium">{rank}</p>
         <p className="text-[11px] text-white/30">{percentile}</p>
         <p className="text-[10px] text-primary/50 mt-0.5">Tegridy Score</p>
+        <p className="text-[9px] text-white/15 mt-0.5 italic">On-chain verified</p>
       </div>
     </motion.div>
   );

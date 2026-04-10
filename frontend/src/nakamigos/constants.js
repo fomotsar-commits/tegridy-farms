@@ -24,7 +24,7 @@ export const COLLECTIONS = {
     openseaSlug: "gnssart",
     supply: 9696, // On-chain totalSupply (token IDs go up to 9000+)
     mintBlock: 18400000, // Oct 2023 — post-merge
-    metadataBase: null,
+    metadataBase: "https://assets.mgxs.co",
     image: "/collections/gnssart.jpg",
     description: "GNSS Art is a generative art collection by MGXS featuring algorithmically crafted 3D digital sculptures on the Ethereum blockchain. Each piece is uniquely generated through mathematical parameters including fractal geometry, warp cycles, and convergency algorithms.",
     tags: ["ERC-721", "ETHEREUM", "GENERATIVE ART", "MGXS"],
@@ -40,7 +40,7 @@ export const COLLECTIONS = {
     openseaSlug: "junglebay",
     supply: 5555, // On-chain totalSupply (reflects burns); fallback if API unavailable
     mintBlock: 14150000, // Feb 2022 — pre-merge (PoW era)
-    metadataBase: null,
+    metadataBase: "https://ipfs.io/ipfs/QmaTrk9RrN3yhwyB1EbRFrxBEEtcbBaGs2NppJGn262Bid",
     image: "https://nft-cdn.alchemy.com/eth-mainnet/5da8fc69b3357b9bfe42717280e7c102",
     description: "Jungle Bay Ape Club is a collection of unique hand-drawn apes living on the Ethereum blockchain. Each ape is uniquely generated from over 120 traits across 9 categories, creating a vibrant community of digital primates.",
     tags: ["ERC-721", "ETHEREUM", "PFP", "COMMUNITY"],

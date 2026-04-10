@@ -8,11 +8,13 @@ import { MEME_BOUNTY_BOARD_ADDRESS } from '../lib/constants';
 import { ART } from '../lib/artConfig';
 import { shortenAddress, formatTokenAmount } from '../lib/formatting';
 import { useTransactionReceipt } from '../hooks/useTransactionReceipt';
+import { usePageTitle } from '../hooks/usePageTitle';
 
 const STATUS_LABELS = ['Open', 'Completed', 'Cancelled'];
 const STATUS_COLORS = ['text-success', 'text-primary', 'text-white/25'];
 
 export default function BountyPage() {
+  usePageTitle('Bounties');
   const { isConnected } = useAccount();
   const [description, setDescription] = useState('');
   const [reward, setReward] = useState('');
@@ -25,7 +27,7 @@ export default function BountyPage() {
   const { writeContract, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
-  const { data: bountyCount, refetch } = useReadContract({
+  const { data: bountyCount, refetch, isLoading: isCountLoading } = useReadContract({
     address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'bountyCount',
   });
 
@@ -37,7 +39,10 @@ export default function BountyPage() {
 
   const handleCreate = () => {
     if (!description || !reward) return;
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + parseInt(days) * 86400);
+    if (parseFloat(reward) < 0.001) { toast.error("Minimum reward is 0.001 ETH"); return; }
+    const parsedDays = parseInt(days);
+    if (isNaN(parsedDays) || parsedDays <= 0) return;
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + parsedDays * 86400);
     writeContract({
       address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'createBounty',
       args: [description, deadline], value: parseEther(reward),
@@ -60,14 +65,14 @@ export default function BountyPage() {
         });
       }
     }
-  }, [isSuccess, hash]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isSuccess, hash, refetch, description, reward, showReceipt]);
 
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <img src={ART.wrestler.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 0%' }} />
         <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.55) 40%, rgba(0,0,0,0.88) 100%)',
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.88) 40%, rgba(0,0,0,0.96) 100%)',
         }} />
       </div>
 
@@ -88,8 +93,8 @@ export default function BountyPage() {
         <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div className="absolute inset-0">
-            <img src={ART.beachSunset.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+            <img src={ART.beachSunset.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%', opacity: 0.15 }} />
+            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
           </div>
           <div className="relative z-10 p-6 py-8 flex items-center gap-10">
             <div>
@@ -108,15 +113,15 @@ export default function BountyPage() {
           <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={ART.mumuBull.src} alt="" className="w-full h-full object-cover" />
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+              <img src={ART.mumuBull.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+              <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
             </div>
             <div className="relative z-10 p-5">
               <h3 className="text-white text-[15px] font-semibold mb-3">Post a Bounty</h3>
               <div className="space-y-3">
                 <div>
                   <label className="text-white/40 text-[11px] mb-1 block">What do you need?</label>
-                  <textarea value={description} onChange={e => setDescription(e.target.value)}
+                  <textarea value={description} onChange={e => setDescription(e.target.value)} maxLength={500}
                     placeholder="Create a meme of Towelie riding Mumu the Bull..." rows={3}
                     className="w-full bg-transparent text-[13px] text-white outline-none px-3 py-2.5 rounded-lg resize-none"
                     style={{ border: '1px solid rgba(255,255,255,0.06)' }} />
@@ -148,20 +153,25 @@ export default function BountyPage() {
         <motion.div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div className="absolute inset-0">
-            <img src={ART.boxingRing.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%' }} />
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
+            <img src={ART.boxingRing.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%', opacity: 0.15 }} />
+            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
           </div>
           <div className="relative z-10">
-          {count === 0 ? (
+          {isCountLoading ? (
+            <div className="p-10 text-center min-h-[60vh] flex flex-col items-center justify-center">
+              <p className="text-white/40 text-[14px] animate-pulse">Loading bounties...</p>
+            </div>
+          ) : count === 0 ? (
             <div className="p-10 text-center min-h-[60vh] flex flex-col items-center justify-center">
               <p className="text-white/50 text-[22px] mb-3">No bounties yet</p>
               <p className="text-white/30 text-[14px]">Post the first bounty and get the community creating.</p>
             </div>
           ) : (
             <div>
-              {Array.from({ length: Math.min(count, 20) }).map((_, i) => (
-                <BountyRow key={i} id={count - 1 - i} />
-              ))}
+              {Array.from({ length: Math.min(count, 20) }).map((_, i) => {
+                const bountyId = count - 1 - i;
+                return <BountyRow key={bountyId} id={bountyId} />;
+              })}
             </div>
           )}
           </div>

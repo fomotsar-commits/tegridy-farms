@@ -29,6 +29,7 @@ export function drawTextFormPhase(
     ctx.restore();
   }
 
+  const isMob = W < 768;
   for (const p of s.particles) {
     if (p.hasTarget) {
       const dx = p.targetX - p.x;
@@ -39,7 +40,7 @@ export function drawTextFormPhase(
       p.vy *= DAMPING;
       p.x += p.vx;
       p.y += p.vy;
-      p.alpha = Math.min(1, p.alpha + 0.02);
+      p.alpha = Math.min(1, p.alpha + 0.05);
     } else {
       const cx = W / 2, cy = H / 2;
       const dx = p.x - cx;
@@ -53,7 +54,10 @@ export function drawTextFormPhase(
       p.y += p.vy;
       p.vx *= 0.98;
       p.vy *= 0.98;
-      p.alpha = Math.max(0.03, p.alpha - 0.01);
+      // On mobile, fade untargeted particles to dim ambient level
+      p.alpha = isMob
+        ? Math.max(0.05, p.alpha - 0.015)
+        : Math.max(0.03, p.alpha - 0.01);
     }
     if (p.alpha > 0.02) {
       ctx.fillStyle = `rgba(${p.r},${p.g},${p.b},${p.alpha})`;
@@ -61,12 +65,11 @@ export function drawTextFormPhase(
     }
   }
 
-  // Ghost text glow
-  if (tp > 0.3) {
+  // Ghost text glow — desktop only; Safari canvas shadowBlur is too bright on mobile
+  if (tp > 0.3 && !isMob) {
     const glowAlpha = Math.min(0.1, (tp - 0.3) * 0.15);
-    const isMobile = W < 768;
-    const mainSize = isMobile ? Math.min(130, W * 0.19) : Math.min(130, W * 0.15);
-    const subSize = isMobile ? Math.min(60, W * 0.09) : Math.min(60, W * 0.07);
+    const mainSize = Math.min(130, W * 0.15);
+    const subSize = Math.min(60, W * 0.07);
     ctx.save();
     ctx.globalAlpha = glowAlpha;
     ctx.font = `bold ${mainSize}px "Inter", "Helvetica Neue", sans-serif`;

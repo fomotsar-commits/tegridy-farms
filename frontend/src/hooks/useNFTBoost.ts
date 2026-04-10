@@ -32,15 +32,16 @@ export function useNFTBoost() {
   const holdsJBAC = (jbacBalance ?? 0n) > 0n;
   const holdsGoldCard = (goldCardBalance ?? 0n) > 0n;
 
-  // Boost: Gold Card = 2x, JBAC = 1.5x, neither = 1x
-  const boostMultiplier = holdsGoldCard ? 2 : holdsJBAC ? 1.5 : 1;
-  const boostLabel = holdsGoldCard ? 'Gold Card 2x' : holdsJBAC ? 'JBAC 1.5x' : null;
+  // On-chain boost: only JBAC NFT gives +0.5x (1.5x total).
+  // Gold Card has no on-chain staking boost — it is a cosmetic/access pass only.
+  const boostMultiplier = holdsJBAC ? 1.5 : 1;
+  const boostLabel = holdsJBAC ? 'JBAC +0.5x' : holdsGoldCard ? 'Gold Card (no on-chain boost)' : null;
 
   return {
     holdsJBAC,
     holdsGoldCard,
-    jbacCount: Number(jbacBalance ?? 0n),
-    goldCardCount: Number(goldCardBalance ?? 0n),
+    jbacCount: (jbacBalance ?? 0n) > BigInt(Number.MAX_SAFE_INTEGER) ? Number.MAX_SAFE_INTEGER : Number(jbacBalance ?? 0n),
+    goldCardCount: (goldCardBalance ?? 0n) > BigInt(Number.MAX_SAFE_INTEGER) ? Number.MAX_SAFE_INTEGER : Number(goldCardBalance ?? 0n),
     boostMultiplier,
     boostLabel,
   };

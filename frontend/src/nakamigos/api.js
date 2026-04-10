@@ -70,14 +70,21 @@ function openseaPost(path, body, { signal } = {}) {
   return withRetry(() => rawOpenseaPost(path, body, { signal }), { maxRetries: 2, baseDelay: 1500, signal });
 }
 
+// Convert ipfs:// URLs to an HTTP gateway
+function resolveIpfs(url) {
+  if (!url) return url;
+  if (url.startsWith("ipfs://")) return url.replace("ipfs://", "https://ipfs.io/ipfs/");
+  return url;
+}
+
 // Normalize an Alchemy NFT object
 function normalizeToken(nft, metadataBase = METADATA_BASE) {
   const attrs = nft.raw?.metadata?.attributes || [];
   // Only build a fallback IPFS image URL when metadataBase is set (Nakamigos only)
   const fallbackImage = metadataBase ? `${metadataBase}/${nft.tokenId}.png` : null;
   // Also check raw metadata image (some collections store image URL only there)
-  const rawMetaImage = nft.raw?.metadata?.image || null;
-  const resolvedImage = nft.image?.cachedUrl || nft.image?.pngUrl || nft.image?.originalUrl || nft.image?.thumbnailUrl || rawMetaImage || fallbackImage;
+  const rawMetaImage = resolveIpfs(nft.raw?.metadata?.image || null);
+  const resolvedImage = nft.image?.thumbnailUrl || nft.image?.cachedUrl || nft.image?.pngUrl || nft.image?.originalUrl || rawMetaImage || fallbackImage;
   return {
     id: nft.tokenId,
     name: nft.name || nft.raw?.metadata?.name || `#${nft.tokenId}`,

@@ -25,6 +25,7 @@ export function TegridyScore() {
   useEffect(() => {
     const duration = 1200;
     const startTime = performance.now();
+    let rafId: number;
 
     function animate(now: number) {
       const elapsed = now - startTime;
@@ -36,11 +37,12 @@ export function TegridyScore() {
       setProgress(eased * score);
 
       if (t < 1) {
-        requestAnimationFrame(animate);
+        rafId = requestAnimationFrame(animate);
       }
     }
 
-    requestAnimationFrame(animate);
+    rafId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(rafId);
   }, [score]);
 
   const dashOffset = CIRCUMFERENCE - (progress / 100) * CIRCUMFERENCE;
@@ -102,6 +104,7 @@ export function TegridyScore() {
 
         <p className="text-[15px] text-white/80 font-medium mt-3">{rank}</p>
         <p className="text-[12px] text-white/35 mt-0.5">{percentile}</p>
+        <p className="text-[10px] text-white/20 mt-1.5 italic">Score based on on-chain activity</p>
       </div>
 
       {/* Breakdown bars with stagger */}

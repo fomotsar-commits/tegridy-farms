@@ -15,8 +15,23 @@ interface Particle {
   isStar: boolean;
 }
 
-const PARTICLE_COUNT = 80;
-const STAR_COUNT = 10;
+// #87 audit: hardware-adaptive particle counts with reduced-motion support
+function getParticleCounts(): { particles: number; stars: number } {
+  // Respect prefers-reduced-motion — minimal particles
+  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    return { particles: 0, stars: 0 };
+  }
+  const cores = navigator?.hardwareConcurrency ?? 2;
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  // Low-end: <=2 cores or mobile
+  if (cores <= 2 || isMobile) return { particles: 40, stars: 5 };
+  // Mid-range: 4 cores
+  if (cores <= 4) return { particles: 80, stars: 10 };
+  // High-end: cap at 500 particles max (1000 absolute cap never reached for background)
+  return { particles: Math.min(cores * 30, 500), stars: Math.min(cores * 3, 30) };
+}
+
+const { particles: PARTICLE_COUNT, stars: STAR_COUNT } = getParticleCounts();
 const COLORS: readonly { color: string; opacity: number }[] = [
   { color: '139, 92, 246', opacity: 0.40 },  // purple
   { color: '212, 160, 23', opacity: 0.30 },   // gold
@@ -49,19 +64,27 @@ export function ParticleBackground() {
   const timeRef = useRef<number>(0);
 
   useEffect(() => {
+    // #87 audit: skip animation entirely when reduced-motion is preferred or zero particles
+    if (PARTICLE_COUNT === 0 && STAR_COUNT === 0) return;
+
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
       canvas.width = window.innerWidth * dpr;
       canvas.height = window.innerHeight * dpr;
       canvas.style.width = `${window.innerWidth}px`;
       canvas.style.height = `${window.innerHeight}px`;
-      ctx.scale(dpr, dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    const debouncedResize = () => {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(resize, 150);
     };
 
     resize();
@@ -123,10 +146,22 @@ export function ParticleBackground() {
 
     rafRef.current = requestAnimationFrame(animate);
 
-    window.addEventListener('resize', resize);
+    // Pause animation when tab is hidden to save resources
+    const handleVisibility = () => {
+      if (document.hidden) {
+        cancelAnimationFrame(rafRef.current);
+      } else {
+        rafRef.current = requestAnimationFrame(animate);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    window.addEventListener('resize', debouncedResize);
     return () => {
       cancelAnimationFrame(rafRef.current);
-      window.removeEventListener('resize', resize);
+      if (resizeTimer) clearTimeout(resizeTimer);
+      window.removeEventListener('resize', debouncedResize);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, []);
 

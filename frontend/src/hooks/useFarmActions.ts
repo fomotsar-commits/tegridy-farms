@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther } from 'viem';
 import { toast } from 'sonner';
@@ -5,25 +6,46 @@ import { TEGRIDY_STAKING_ABI, ERC20_ABI } from '../lib/contracts';
 import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS } from '../lib/constants';
 
 export function useFarmActions() {
+  // Audit #51: wagmi's useWriteContract internally runs simulateContract before
+  // sending the transaction, providing automatic pre-flight revert detection.
+  // No separate useSimulateContract call is needed.
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
 
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({
     hash,
   });
 
-  // Toast on success
-  if (isSuccess && hash) {
-    toast.success('Transaction confirmed', {
-      id: hash,
-      action: {
-        label: 'Etherscan',
-        onClick: () => window.open(`https://etherscan.io/tx/${hash}`, '_blank'),
-      },
-    });
-  }
+  // Toast on success — must be in useEffect, not during render (#29 audit fix)
+  useEffect(() => {
+    if (isSuccess && hash) {
+      toast.success('Transaction confirmed', {
+        id: hash,
+        action: {
+          label: 'Etherscan',
+          onClick: () => window.open(`https://etherscan.io/tx/${hash}`, '_blank'),
+        },
+      });
+    }
+  }, [isSuccess, hash]);
 
-  const approve = (amount?: string) => {
-    const approveAmount = amount ? parseEther(amount) : parseEther('1000000000000');
+  // Toast on tx revert (#29 audit fix)
+  useEffect(() => {
+    if (isTxError && hash) {
+      toast.error('Transaction failed', { id: `err-${hash}` });
+    }
+  }, [isTxError, hash]);
+
+  // Toast on write error (#29 audit fix)
+  useEffect(() => {
+    if (writeError) {
+      const msg = (writeError.message ?? 'Unknown error').replace(/https?:\/\/\S+/g, '').slice(0, 120);
+      toast.error(msg, { id: 'write-error' });
+    }
+  }, [writeError]);
+
+  const approve = (amount: string) => {
+    if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) return;
+    const approveAmount = parseEther(amount);
     writeContract({
       address: TOWELI_ADDRESS,
       abi: ERC20_ABI,
@@ -65,7 +87,7 @@ export function useFarmActions() {
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
-      functionName: 'claim',
+      functionName: 'getReward',
       args: [tokenId],
     });
   };

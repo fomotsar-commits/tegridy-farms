@@ -7,7 +7,7 @@ import {
 import { preloadImages } from './preload';
 import {
   shuffle, easeInOutCubic, coverFit, getTextPixels,
-  buildCrackPaths,
+  buildCrackPaths, MAX_PARTICLES,
 } from './geometry';
 import { drawGoldenLine, drawPurpleMist, drawVoidPhase } from './phases/void';
 import { drawArtPiece } from './phases/art';
@@ -207,7 +207,8 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
       let pixelData: ImageData | null = null;
       try { pixelData = ocx.getImageData(0, 0, oc.width, oc.height); } catch { /* tainted */ }
 
-      const count = s.isMobile ? 1800 : 2000;
+      // Fewer particles on mobile — less GPU work, cleaner look
+      const count = Math.min(s.isMobile ? 1000 : 2000, MAX_PARTICLES);
       const particles: Particle[] = [];
       const artX = (W - artW) / 2;
       const artY = (H - artH) / 2;
@@ -229,7 +230,9 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
           vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
           targetX: W / 2, targetY: H / 2, hasTarget: false,
           r, g, b,
-          size: 1.5 + Math.random() * 2, alpha: 1,
+          // Slightly larger particles on mobile for bolder text presence
+          size: s.isMobile ? (1.5 + Math.random() * 1.5) : (1.5 + Math.random() * 2),
+          alpha: 1,
           angle: Math.random() * Math.PI * 2,
           angularVel: (Math.random() - 0.5) * 0.04,
           radius: 0, trail: [],
@@ -245,7 +248,10 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
       const subSize = s.isMobile ? Math.min(60, W * 0.09) : Math.min(60, W * 0.07);
       const mainPts = getTextPixels('TEGRIDY', mainSize, W, H, -subSize * 0.5);
       const subPts = getTextPixels('FARMS', subSize, W, H, mainSize * 0.45);
-      const allPts = [...mainPts, ...subPts];
+      // Shuffle text pixel targets so particles spread evenly across the full text
+      // Without this, scan-order (L→R, T→B) means the right side gets no coverage
+      // when particle count < target count (1000 particles vs 3000+ targets on mobile)
+      const allPts = shuffle([...mainPts, ...subPts]);
       const shuffled = shuffle([...Array(s.particles.length).keys()]);
       for (let i = 0; i < Math.min(allPts.length, s.particles.length); i++) {
         const p = s.particles[shuffled[i]];
@@ -279,7 +285,7 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
           if (s.images.length === 0) {
             s.phase = 'textForm';
             s.t0 = now;
-            const count = s.isMobile ? 1800 : 2000;
+            const count = Math.min(s.isMobile ? 1000 : 2000, MAX_PARTICLES);
             const particles: Particle[] = [];
             for (let i = 0; i < count; i++) {
               particles.push({
@@ -443,9 +449,10 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
             ctx!.fillRect(p.x, p.y, p.size, p.size);
           }
         }
-        // Ghost text
-        const mainSize = s.isMobile ? Math.min(130, W * 0.26) : Math.min(130, W * 0.15);
-        const subSize = s.isMobile ? Math.min(60, W * 0.12) : Math.min(60, W * 0.07);
+        // Ghost text — desktop only (Safari canvas shadowBlur too bright on mobile)
+        if (!s.isMobile) {
+        const mainSize = Math.min(130, W * 0.15);
+        const subSize = Math.min(60, W * 0.07);
         ctx!.save();
         ctx!.globalAlpha = 0.1;
         ctx!.font = `bold ${mainSize}px "Inter", "Helvetica Neue", sans-serif`;
@@ -455,6 +462,7 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
         ctx!.font = `bold ${subSize}px "Inter", "Helvetica Neue", sans-serif`;
         ctx!.fillText('FARMS', W / 2, H / 2 + mainSize * 0.45);
         ctx!.restore();
+        }
 
         // Draw animated cracks
         const crackElapsed = now - s.exitStart;

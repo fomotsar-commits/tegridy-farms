@@ -1,74 +1,338 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useAccount } from 'wagmi';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useAccount, useWriteContract, usePublicClient } from 'wagmi';
+import { parseUnits, formatUnits } from 'viem';
+import { toast } from 'sonner';
+import { SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI } from '../lib/contracts';
+import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, WETH_ADDRESS } from '../lib/constants';
 
 export interface LimitOrder {
   id: string;
-  fromToken: { symbol: string; address: string; decimals: number };
-  toToken: { symbol: string; address: string; decimals: number };
-  amount: string; // human-readable
-  targetPrice: string; // price of toToken in fromToken terms
+  fromToken: { symbol: string; address: string; decimals: number; isNative?: boolean };
+  toToken: { symbol: string; address: string; decimals: number; isNative?: boolean };
+  amount: string;
+  targetPrice: string; // price of toToken in fromToken terms (e.g. TOWELI per ETH)
   createdAt: number;
   expiresAt: number;
-  status: 'active' | 'expired' | 'filled';
+  status: 'active' | 'expired' | 'filled' | 'executing';
 }
 
+interface StoragePayload {
+  version: number;
+  orders: LimitOrder[];
+}
+
+const STORAGE_VERSION = 1;
+const DEFAULT_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+const PRICE_POLL_INTERVAL = 15_000;
+const SLIPPAGE_BPS = 500n; // 5% slippage tolerance (500 / 10000)
+const MAX_FEE_BPS = 100n; // 1% max fee tolerance for SwapFeeRouter
+const MAX_ORDERS = 50;
+const MAX_AMOUNT = 1e15; // sanity cap for amount string parsing
+
 function getStorageKey(address: string) {
-  return `tegridy_limit_orders_${address.toLowerCase()}`;
+  return `tegridy_limit_v${STORAGE_VERSION}_${address.toLowerCase()}`;
+}
+
+const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+const VALID_ORDER_STATUSES = new Set(['active', 'expired', 'filled', 'executing']);
+
+function isValidAddress(addr: unknown): boolean {
+  return typeof addr === 'string' && ADDRESS_RE.test(addr);
+}
+
+function isValidTokenObj(t: unknown): boolean {
+  if (!t || typeof t !== 'object') return false;
+  const tok = t as Record<string, unknown>;
+  return (
+    typeof tok.symbol === 'string' && tok.symbol.length > 0 && tok.symbol.length <= 20 &&
+    typeof tok.decimals === 'number' && tok.decimals >= 0 && tok.decimals <= 18 &&
+    (tok.isNative === true || isValidAddress(tok.address))
+  );
+}
+
+function isValidOrder(o: unknown): o is LimitOrder {
+  if (!o || typeof o !== 'object') return false;
+  const r = o as Record<string, unknown>;
+  if (typeof r.id !== 'string' || r.id.length === 0 || r.id.length > 100) return false;
+  if (typeof r.amount !== 'string') return false;
+  const amt = parseFloat(r.amount as string);
+  if (!Number.isFinite(amt) || amt <= 0 || amt > MAX_AMOUNT) return false;
+  if (typeof r.targetPrice !== 'string') return false;
+  const tp = parseFloat(r.targetPrice as string);
+  if (!Number.isFinite(tp) || tp <= 0) return false;
+  if (typeof r.createdAt !== 'number' || r.createdAt <= 0) return false;
+  if (typeof r.expiresAt !== 'number' || r.expiresAt <= 0) return false;
+  if (typeof r.status !== 'string' || !VALID_ORDER_STATUSES.has(r.status as string)) return false;
+  if (!isValidTokenObj(r.fromToken) || !isValidTokenObj(r.toToken)) return false;
+  return true;
 }
 
 function loadOrders(address: string): LimitOrder[] {
   try {
     const raw = localStorage.getItem(getStorageKey(address));
-    if (raw) {
-      const orders: LimitOrder[] = JSON.parse(raw);
-      // Mark expired orders
-      const now = Date.now();
-      return orders.map(o => ({
-        ...o,
-        status: o.status === 'active' && o.expiresAt < now ? 'expired' : o.status,
-      }));
-    }
-  } catch {}
-  return [];
+    if (!raw) return [];
+    const parsed: StoragePayload = JSON.parse(raw);
+    if (parsed.version !== STORAGE_VERSION || !Array.isArray(parsed.orders)) return [];
+    const now = Date.now();
+    return parsed.orders.filter(isValidOrder).map(o => ({
+      ...o,
+      status: o.status === 'active' && o.expiresAt < now ? 'expired' as const : o.status,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 function saveOrders(address: string, orders: LimitOrder[]) {
   try {
-    localStorage.setItem(getStorageKey(address), JSON.stringify(orders));
+    const payload: StoragePayload = { version: STORAGE_VERSION, orders };
+    localStorage.setItem(getStorageKey(address), JSON.stringify(payload));
   } catch {}
+}
+
+function buildPath(fromToken: LimitOrder['fromToken'], toToken: LimitOrder['toToken']): `0x${string}`[] {
+  const fromAddr = (fromToken.isNative ? WETH_ADDRESS : fromToken.address) as `0x${string}`;
+  const toAddr = (toToken.isNative ? WETH_ADDRESS : toToken.address) as `0x${string}`;
+  if (fromAddr.toLowerCase() === WETH_ADDRESS.toLowerCase() || toAddr.toLowerCase() === WETH_ADDRESS.toLowerCase()) {
+    return [fromAddr, toAddr];
+  }
+  return [fromAddr, WETH_ADDRESS, toAddr];
+}
+
+function sendNotification(title: string, body: string) {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  try { new Notification(title, { body, icon: '/favicon.ico' }); } catch {}
+}
+
+function requestNotificationPermission() {
+  if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+    Notification.requestPermission().catch(() => {});
+  }
 }
 
 export function useLimitOrders() {
   const { address } = useAccount();
+  const publicClient = usePublicClient();
   const [orders, setOrders] = useState<LimitOrder[]>([]);
+  const ordersRef = useRef<LimitOrder[]>([]);
+  const executingRef = useRef<Set<string>>(new Set());
+  const { writeContract } = useWriteContract();
 
   useEffect(() => {
-    if (!address) { setOrders([]); return; }
-    setOrders(loadOrders(address));
+    if (!address) { setOrders([]); ordersRef.current = []; return; }
+    const loaded = loadOrders(address);
+    setOrders(loaded);
+    ordersRef.current = loaded;
+    requestNotificationPermission();
+  }, [address]);
+
+  useEffect(() => { ordersRef.current = orders; }, [orders]);
+
+  const persist = useCallback((updated: LimitOrder[]) => {
+    setOrders(updated);
+    ordersRef.current = updated;
+    if (address) saveOrders(address, updated);
   }, [address]);
 
   const createOrder = useCallback((order: Omit<LimitOrder, 'id' | 'createdAt' | 'status'>) => {
     if (!address) return;
+    // Input validation
+    const amt = parseFloat(order.amount);
+    if (!Number.isFinite(amt) || amt <= 0 || amt > MAX_AMOUNT) {
+      toast.error('Invalid order amount.');
+      return;
+    }
+    const tp = parseFloat(order.targetPrice);
+    if (!Number.isFinite(tp) || tp <= 0) {
+      toast.error('Invalid target price.');
+      return;
+    }
+    const activeCount = orders.filter(o => o.status === 'active' || o.status === 'executing').length;
+    if (activeCount >= MAX_ORDERS) {
+      toast.error(`Maximum ${MAX_ORDERS} active orders allowed.`);
+      return;
+    }
     const newOrder: LimitOrder = {
       ...order,
+      expiresAt: order.expiresAt || Date.now() + DEFAULT_EXPIRY_MS,
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       createdAt: Date.now(),
       status: 'active',
     };
-    const updated = [newOrder, ...orders];
-    setOrders(updated);
-    saveOrders(address, updated);
-  }, [address, orders]);
+    persist([newOrder, ...orders]);
+  }, [address, orders, persist]);
 
   const cancelOrder = useCallback((id: string) => {
     if (!address) return;
-    const updated = orders.filter(o => o.id !== id);
-    setOrders(updated);
-    saveOrders(address, updated);
-  }, [address, orders]);
+    persist(orders.filter(o => o.id !== id));
+  }, [address, orders, persist]);
 
-  const activeOrders = orders.filter(o => o.status === 'active');
-  const pastOrders = orders.filter(o => o.status !== 'active');
+  const markFilled = useCallback((id: string) => {
+    executingRef.current.delete(id);
+    setOrders(prev => {
+      const updated = prev.map(o => o.id === id ? { ...o, status: 'filled' as const } : o);
+      if (address) saveOrders(address, updated);
+      return updated;
+    });
+    toast.success('Limit order filled!');
+  }, [address]);
+
+  const revertOrderStatus = useCallback((orderId: string) => {
+    executingRef.current.delete(orderId);
+    setOrders(prev => {
+      const updated = prev.map(o => o.id === orderId ? { ...o, status: 'active' as const } : o);
+      if (address) saveOrders(address, updated);
+      return updated;
+    });
+  }, [address]);
+
+  const executeOrder = useCallback(async (order: LimitOrder) => {
+    if (!address || !writeContract || !publicClient) return;
+    if (executingRef.current.has(order.id)) return;
+    executingRef.current.add(order.id);
+
+    setOrders(prev => {
+      const updated = prev.map(o => o.id === order.id ? { ...o, status: 'executing' as const } : o);
+      if (address) saveOrders(address, updated);
+      return updated;
+    });
+
+    const path = buildPath(order.fromToken, order.toToken);
+    const parsedAmount = parseUnits(order.amount, order.fromToken.decimals);
+    if (parsedAmount === 0n) { revertOrderStatus(order.id); return; }
+    const deadlineTs = BigInt(Math.floor(Date.now() / 1000) + 300);
+
+    // Compute minOut with slippage from the user's target price
+    // The target price is in toToken per fromToken units
+    const targetPriceNum = parseFloat(order.targetPrice);
+    const amountNum = parseFloat(order.amount);
+    if (!Number.isFinite(targetPriceNum) || targetPriceNum <= 0 || !Number.isFinite(amountNum) || amountNum <= 0) {
+      revertOrderStatus(order.id);
+      return;
+    }
+    const expectedOutputNum = amountNum * targetPriceNum;
+    const expectedOut = parseUnits(expectedOutputNum.toFixed(order.toToken.decimals), order.toToken.decimals);
+    const minOut = expectedOut - (expectedOut * SLIPPAGE_BPS / 10000n);
+
+    sendNotification(
+      'Limit Order Triggered',
+      `Target price reached! Swapping ${order.amount} ${order.fromToken.symbol} → ${order.toToken.symbol}`
+    );
+    toast.info(`Limit order triggered: ${order.amount} ${order.fromToken.symbol} → ${order.toToken.symbol}`, {
+      description: 'Please approve the transaction in your wallet.',
+    });
+
+    const isFromNative = order.fromToken.isNative || order.fromToken.address.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+
+    try {
+      if (isFromNative) {
+        writeContract({
+          address: SWAP_FEE_ROUTER_ADDRESS,
+          abi: SWAP_FEE_ROUTER_ABI,
+          functionName: 'swapExactETHForTokens',
+          args: [minOut, path, address, deadlineTs, MAX_FEE_BPS],
+          value: parsedAmount,
+        }, {
+          onSuccess: () => markFilled(order.id),
+          onError: () => revertOrderStatus(order.id),
+        });
+      } else if (order.toToken.isNative) {
+        writeContract({
+          address: SWAP_FEE_ROUTER_ADDRESS,
+          abi: SWAP_FEE_ROUTER_ABI,
+          functionName: 'swapExactTokensForETH',
+          args: [parsedAmount, minOut, path, address, deadlineTs, MAX_FEE_BPS],
+        }, {
+          onSuccess: () => markFilled(order.id),
+          onError: () => revertOrderStatus(order.id),
+        });
+      } else {
+        writeContract({
+          address: SWAP_FEE_ROUTER_ADDRESS,
+          abi: SWAP_FEE_ROUTER_ABI,
+          functionName: 'swapExactTokensForTokens',
+          args: [parsedAmount, minOut, path, address, deadlineTs, MAX_FEE_BPS],
+        }, {
+          onSuccess: () => markFilled(order.id),
+          onError: () => revertOrderStatus(order.id),
+        });
+      }
+    } catch {
+      revertOrderStatus(order.id);
+    }
+  }, [address, writeContract, publicClient, markFilled, revertOrderStatus]);
+
+  // Price polling: check active orders against on-chain price
+  useEffect(() => {
+    if (!address || !publicClient) return;
+
+    let isChecking = false;
+
+    const checkPrices = async () => {
+      if (isChecking) return; // prevent overlapping async calls
+      isChecking = true;
+
+      try {
+        const currentOrders = ordersRef.current;
+        const now = Date.now();
+
+        // Expire stale orders
+        let hasExpired = false;
+        const updated = currentOrders.map(o => {
+          if (o.status === 'active' && o.expiresAt <= now) {
+            hasExpired = true;
+            return { ...o, status: 'expired' as const };
+          }
+          return o;
+        });
+        if (hasExpired) {
+          persist(updated);
+        }
+
+        const activeList = (hasExpired ? updated : currentOrders).filter(
+          o => o.status === 'active' && o.expiresAt > now
+        );
+        if (activeList.length === 0) return;
+
+        for (const order of activeList) {
+          if (executingRef.current.has(order.id)) continue;
+
+          const path = buildPath(order.fromToken, order.toToken);
+          const parsedAmount = parseUnits(order.amount, order.fromToken.decimals);
+          if (parsedAmount === 0n) continue;
+
+          try {
+            const result = await publicClient.readContract({
+              address: UNISWAP_V2_ROUTER,
+              abi: UNISWAP_V2_ROUTER_ABI,
+              functionName: 'getAmountsOut',
+              args: [parsedAmount, path],
+            });
+            const amountsOut = result as bigint[];
+            const outputAmount = amountsOut[amountsOut.length - 1];
+            const currentPrice = Number(formatUnits(outputAmount, order.toToken.decimals)) / Number(order.amount);
+            const targetPriceNum = parseFloat(order.targetPrice);
+
+            if (targetPriceNum > 0 && currentPrice >= targetPriceNum) {
+              executeOrder(order);
+            }
+          } catch {}
+        }
+      } finally {
+        isChecking = false;
+      }
+    };
+
+    checkPrices();
+    const timer = setInterval(checkPrices, PRICE_POLL_INTERVAL);
+    return () => {
+      clearInterval(timer);
+      executingRef.current.clear();
+    };
+  }, [address, publicClient, persist, executeOrder]);
+
+  const activeOrders = orders.filter(o => o.status === 'active' || o.status === 'executing');
+  const pastOrders = orders.filter(o => o.status === 'expired' || o.status === 'filled');
 
   return { orders, activeOrders, pastOrders, createOrder, cancelOrder };
 }

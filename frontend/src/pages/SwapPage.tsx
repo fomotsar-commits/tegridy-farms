@@ -11,6 +11,10 @@ import { LimitOrderTab } from '../components/swap/LimitOrderTab';
 import { DCATab } from '../components/swap/DCATab';
 import { DEFAULT_TOKENS, type TokenInfo } from '../lib/tokenList';
 import { ART } from '../lib/artConfig';
+import { formatUnits } from 'viem';
+import { AGGREGATOR_NAMES } from '../lib/aggregator';
+
+const AGGREGATOR_NAMES_MAP = AGGREGATOR_NAMES;
 import { usePoints } from '../hooks/usePoints';
 import { useNFTBoost } from '../hooks/useNFTBoost';
 import { Sparkline } from '../components/Sparkline';
@@ -474,7 +478,7 @@ export default function SwapPage() {
               <div className="px-4 py-3" style={{ background: 'rgba(139,92,246,0.03)' }}>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-white/30 text-[11px] font-medium uppercase tracking-wider">Route</span>
-                  <span className="text-white/25 text-[10px] font-mono">{swap.routeLabel}</span>
+                  <span className={`text-[10px] font-mono ${swap.selectedRoute === 'tegridy' ? 'text-green-400/60' : swap.selectedRoute === 'aggregator' ? 'text-cyan-400/60' : 'text-white/25'}`}>{swap.routeLabel}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   {swap.routeDescription.map((symbol, i) => (
@@ -496,15 +500,15 @@ export default function SwapPage() {
               {swap.aggBetter && swap.aggOutputFormatted && (
                 <div className="px-4 py-2.5 space-y-1.5" style={{ background: 'rgba(49,208,170,0.06)', borderBottom: '1px solid rgba(49,208,170,0.10)' }}>
                   <div className="flex items-center justify-between">
-                    <span className="text-success text-[11px] font-medium">Better price via aggregator</span>
+                    <span className="text-success text-[11px] font-medium">Best rate via {swap.bestAggregatorName ?? 'Aggregator'}</span>
                     <span className="text-success text-[10px] font-mono">+{swap.aggSpread.userSavingsBps / 100}% savings</span>
                   </div>
                   <div className="flex items-center justify-between text-[10px]">
-                    <span className="text-white/30">Direct (Uniswap V2)</span>
+                    <span className="text-white/30">Direct ({swap.selectedRoute === 'tegridy' ? 'Tegridy DEX' : 'Uniswap V2'})</span>
                     <span className="text-white/40 font-mono">{formatTokenAmount(String(swap.outputFormatted))} {swap.toToken!.symbol}</span>
                   </div>
                   <div className="flex items-center justify-between text-[10px]">
-                    <span className="text-white/30">Aggregator route</span>
+                    <span className="text-white/30">{swap.bestAggregatorName ?? 'Aggregator'} route</span>
                     <span className="text-white/40 font-mono">{formatTokenAmount(swap.aggOutputFormatted)} {swap.toToken!.symbol}</span>
                   </div>
                   {swap.aggProtocolCaptureFormatted && (
@@ -517,6 +521,18 @@ export default function SwapPage() {
                     <span className="text-success/70 font-medium">You receive</span>
                     <span className="stat-value text-[11px] text-success">{swap.aggUserReceivesFormatted ? formatTokenAmount(swap.aggUserReceivesFormatted) : formatTokenAmount(swap.aggOutputFormatted)} {swap.toToken!.symbol}</span>
                   </div>
+                  {/* Show all aggregator quotes */}
+                  {swap.allAggQuotes.length > 1 && (
+                    <div className="pt-1.5 mt-1 border-t border-white/5 space-y-0.5">
+                      <span className="text-white/20 text-[9px] uppercase tracking-wider">All quotes ({swap.allAggQuotes.length} sources)</span>
+                      {swap.allAggQuotes.map((q, i) => (
+                        <div key={q.source} className="flex items-center justify-between text-[9px]">
+                          <span className={i === 0 ? 'text-success/60' : 'text-white/20'}>{i === 0 ? '\u2713 ' : ''}{AGGREGATOR_NAMES_MAP[q.source] ?? q.source}</span>
+                          <span className={i === 0 ? 'text-success/60 font-mono' : 'text-white/20 font-mono'}>{formatTokenAmount(formatUnits(BigInt(q.amountOut), swap.toToken!.decimals))} {swap.toToken!.symbol}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 

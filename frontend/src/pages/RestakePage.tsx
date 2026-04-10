@@ -50,7 +50,7 @@ export default function RestakePage() {
   const isNFTApproved = (approvedAddress as string)?.toLowerCase() === TEGRIDY_RESTAKING_ADDRESS.toLowerCase();
 
   // Refetch + toast on success (moved into useEffect to avoid firing during render)
-  const prevHashRef = useRef<string | undefined>();
+  const prevHashRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (isSuccess && hash && hash !== prevHashRef.current) {
       prevHashRef.current = hash;

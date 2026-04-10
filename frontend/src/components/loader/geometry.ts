@@ -1,5 +1,7 @@
 import type { ExitShard, CrackSegment } from './types';
 
+export const MAX_PARTICLES = 20000;
+
 export function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
@@ -31,9 +33,15 @@ export function coverFit(
   return { sx, sy, sw, sh };
 }
 
+const _textPixelCache = new Map<string, Array<{ x: number; y: number }>>();
+
 export function getTextPixels(
   text: string, fontSize: number, W: number, H: number, offsetY: number,
 ): Array<{ x: number; y: number }> {
+  const key = `${text}_${fontSize}_${W}_${H}_${offsetY}`;
+  const cached = _textPixelCache.get(key);
+  if (cached) return cached;
+
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
   const cx = c.getContext('2d')!;
@@ -44,13 +52,16 @@ export function getTextPixels(
   cx.fillText(text, W / 2, H / 2 + offsetY);
   const d = cx.getImageData(0, 0, W, H).data;
   const pts: Array<{ x: number; y: number }> = [];
-  // Finer step on small screens for denser pixel sampling
-  const step = W < 768 ? 2 : Math.max(3, Math.floor(Math.min(W, H) / 250));
+  // Step size balances coverage density vs total target count
+  // Mobile: step=3 keeps targets ~1200-1500 (close to 1000 particle count)
+  // Desktop: step=3-4 keeps targets ~2000-3000 (close to 2000 particles)
+  const step = W < 768 ? 3 : Math.max(3, Math.floor(Math.min(W, H) / 250));
   for (let y = 0; y < H; y += step) {
     for (let x = 0; x < W; x += step) {
       if (d[(y * W + x) * 4 + 3] > 128) pts.push({ x, y });
     }
   }
+  _textPixelCache.set(key, pts);
   return pts;
 }
 

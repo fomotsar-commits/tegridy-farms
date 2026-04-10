@@ -2,6 +2,7 @@ import { useRef, useEffect, useState } from 'react';
 import { useReadContract } from 'wagmi';
 import { UNISWAP_V2_PAIR_ABI, CHAINLINK_FEED_ABI } from '../lib/contracts';
 import { TOWELI_WETH_LP_ADDRESS, ETH_USD_FEED, TOWELI_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
+import { safeSetItem } from '../lib/storage';
 
 // Maximum staleness for Chainlink data (1 hour)
 const MAX_STALENESS_SECONDS = 3600;
@@ -14,7 +15,7 @@ export function useToweliPrice() {
     address: pairAddr,
     abi: UNISWAP_V2_PAIR_ABI,
     functionName: 'getReserves',
-    query: { enabled: hasPair, refetchInterval: 30_000 },
+    query: { enabled: hasPair, refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
 
   const { data: token0 } = useReadContract({
@@ -33,32 +34,46 @@ export function useToweliPrice() {
 
   // ALL hooks MUST be called before any early returns (Rules of Hooks)
   const prevPriceRef = useRef<number>(0);
-  // Load cached price synchronously so first render has a value
-  const [apiFallbackPrice, setApiFallbackPrice] = useState<number>(() => {
+  // API price — used for display only; never for swap calculations.
+  // localStorage cache is display-only with staleness tracking.
+  const [apiFallbackPrice, setApiFallbackPrice] = useState<number>(0);
+  const [apiPriceStale, setApiPriceStale] = useState(false);
+
+  // Load cached price for display-only (marked stale if old)
+  useEffect(() => {
     try {
       const cached = localStorage.getItem('tegridy_api_price');
       if (cached) {
         const { price: cp, ts } = JSON.parse(cached);
-        if (Date.now() - ts < 600_000 && cp > 0) return cp;
+        if (cp > 0) {
+          setApiFallbackPrice(cp);
+          // Mark stale if older than 5 minutes
+          setApiPriceStale(Date.now() - ts > 300_000);
+        }
       }
     } catch {}
-    return 0;
-  });
+  }, []);
 
   // GeckoTerminal API — always fetch fresh price
+  // AUDIT FIX #53: AbortController timeout prevents hanging requests from blocking UI
   useEffect(() => {
-
-    // Always fetch fresh price
-    fetch(`https://api.geckoterminal.com/api/v2/simple/networks/eth/token_price/${TOWELI_ADDRESS.toLowerCase()}`)
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000); // 10s timeout
+    fetch(
+      `https://api.geckoterminal.com/api/v2/simple/networks/eth/token_price/${TOWELI_ADDRESS.toLowerCase()}`,
+      { signal: controller.signal },
+    )
       .then(r => r.json())
       .then(d => {
         const p = parseFloat(d?.data?.attributes?.token_prices?.[TOWELI_ADDRESS.toLowerCase()] ?? '0');
         if (p > 0) {
           setApiFallbackPrice(p);
-          localStorage.setItem('tegridy_api_price', JSON.stringify({ price: p, ts: Date.now() }));
+          setApiPriceStale(false);
+          safeSetItem('tegridy_api_price', JSON.stringify({ price: p, ts: Date.now() }));
         }
       })
       .catch(() => {});
+    return () => { clearTimeout(timeout); controller.abort(); };
   }, []);
 
   // Validate Chainlink data
@@ -102,45 +117,48 @@ export function useToweliPrice() {
     isLoaded = true;
   }
 
-  // Prefer GeckoTerminal API price — it matches the embedded chart and
-  // accounts for actual market conditions better than on-chain reserves
+  // Use GeckoTerminal API price only if within ±1% of on-chain price,
+  // or if on-chain price is unavailable (#24 + #81 audit fix)
+  let apiPriceDiscrepant = false;
   if (apiFallbackPrice > 0) {
-    priceInUsd = apiFallbackPrice;
-    isLoaded = true;
+    if (priceInUsd > 0) {
+      const deviation = Math.abs(apiFallbackPrice - priceInUsd) / priceInUsd;
+      if (deviation <= 0.01) {
+        // API price is within ±1% of on-chain — safe to use
+        priceInUsd = apiFallbackPrice;
+      } else {
+        // API price diverges >1% from on-chain — use on-chain price, flag as discrepant
+        apiPriceDiscrepant = true;
+      }
+    } else {
+      // No on-chain price available — use API as fallback
+      priceInUsd = apiFallbackPrice;
+      isLoaded = true;
+    }
   }
 
-  // Track price change vs stored baseline
-  const priceChange = prevPriceRef.current > 0 && priceInUsd > 0
+  // Track price change vs stored baseline (session-only, not 24h)
+  const sessionPriceChange = prevPriceRef.current > 0 && priceInUsd > 0
     ? ((priceInUsd - prevPriceRef.current) / prevPriceRef.current) * 100
     : 0;
 
   useEffect(() => {
     if (priceInUsd <= 0) return;
 
-    // Load baseline on first price load
+    // Pin baseline to session start — only set once
     if (prevPriceRef.current === 0) {
-      try {
-        const stored = localStorage.getItem('tegridy_price_baseline');
-        if (stored) {
-          const { price: p, ts } = JSON.parse(stored);
-          if (Date.now() - ts < 86400000 && p > 0) {
-            prevPriceRef.current = p;
-            return; // Don't overwrite on same tick
-          }
-        }
-      } catch {}
       prevPriceRef.current = priceInUsd;
+      safeSetItem('tegridy_price_baseline', JSON.stringify({ price: priceInUsd, ts: Date.now() }));
     }
-
-    // Throttled write (every 5 min)
-    try {
-      const stored = localStorage.getItem('tegridy_price_baseline');
-      const lastTs = stored ? JSON.parse(stored).ts : 0;
-      if (Date.now() - lastTs > 300000) {
-        localStorage.setItem('tegridy_price_baseline', JSON.stringify({ price: priceInUsd, ts: Date.now() }));
-      }
-    } catch {}
   }, [priceInUsd]);
+
+  // Price is unavailable for transactions when both on-chain and fresh API fail
+  const priceUnavailable = priceInUsd <= 0 && apiFallbackPrice <= 0;
+  // Display price is stale when only localStorage cache is available
+  const displayPriceStale = apiPriceStale && priceInEth <= 0;
+
+  // Finding #24: expose priceDiscrepancy boolean for consumers
+  const priceDiscrepancy = apiPriceDiscrepant;
 
   return {
     priceInEth,
@@ -148,6 +166,10 @@ export function useToweliPrice() {
     ethUsd,
     isLoaded,
     oracleStale,
-    priceChange,
+    priceChange: sessionPriceChange,
+    priceUnavailable,
+    displayPriceStale,
+    apiPriceDiscrepant,
+    priceDiscrepancy,
   };
 }

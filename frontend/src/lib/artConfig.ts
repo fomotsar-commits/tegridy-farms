@@ -4,7 +4,7 @@ export interface ArtPiece {
   description?: string;
 }
 
-export const ART: Record<string, ArtPiece> = {
+export const ART = {
   mfersHeaven: { src: '/art/mfers-heaven.jpg', title: 'All MFers Go to Heaven', description: 'In the end God blesses your goofy ass' },
   mumuBull: { src: '/art/mumu-bull.jpg', title: 'Mumu the Bull', description: 'COMMUUUUUMU' },
   bobowelie: { src: '/art/bobowelie.jpg', title: 'Bobowelie', description: 'This towel gets high and thinks it\'s a bear on steroids' },

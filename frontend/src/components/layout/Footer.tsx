@@ -37,6 +37,8 @@ export function Footer() {
                 { to: '/tokenomics', label: 'Tokenomics' },
                 { to: '/bounties', label: 'Bounties' },
                 { to: '/restake', label: 'Restake' },
+                { to: '/liquidity', label: 'Liquidity' },
+                { to: '/premium', label: 'Gold Card' },
               ].map((l) => (
                 <Link key={l.to} to={l.to} className="block text-white/30 text-[13px] hover:text-primary transition-colors">
                   {l.label}

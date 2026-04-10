@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { ART } from '../lib/artConfig';
+import { usePageTitle } from '../hooks/usePageTitle';
 
 const TIMELINE = [
   {
@@ -47,13 +48,14 @@ const TIMELINE = [
 ];
 
 export default function LorePage() {
+  usePageTitle('Lore');
   return (
     <div className="-mt-14 relative min-h-screen">
       {/* Fixed background covering entire page */}
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <img src={ART.mfersHeaven.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 32%' }} />
         <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.45) 30%, rgba(0,0,0,0.65) 60%, rgba(0,0,0,0.85) 100%)',
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.85) 30%, rgba(0,0,0,0.92) 60%, rgba(0,0,0,0.96) 100%)',
         }} />
       </div>
 
@@ -78,9 +80,9 @@ export default function LorePage() {
             viewport={{ once: true }} transition={{ delay: i * 0.05 }}>
             <div className="relative rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
               <div className="absolute inset-0">
-                <img src={item.art} alt="" className="w-full h-full object-cover" />
+                <img src={item.art} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
                 <div className="absolute inset-0" style={{
-                  background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)',
+                  background: 'rgba(6,12,26,0.92)',
                 }} />
               </div>
               <div className="relative z-10 p-8 md:p-10">

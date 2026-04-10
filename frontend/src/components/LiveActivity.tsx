@@ -9,7 +9,7 @@ import { PulseDot } from './PulseDot';
 export function LiveActivity() {
   const [visible, setVisible] = useState(false);
   const { priceInUsd, isLoaded } = useToweliPrice();
-  const priceHistory = usePriceHistory(priceInUsd);
+  const { history: priceData } = usePriceHistory(priceInUsd);
 
   useEffect(() => {
     const timer = setTimeout(() => setVisible(true), 2000);
@@ -46,8 +46,8 @@ export function LiveActivity() {
         {displayPrice && (
           <>
             <span className="text-[11px] font-mono text-primary whitespace-nowrap">{displayPrice}</span>
-            {priceHistory.length > 1 && (
-              <Sparkline data={priceHistory} width={36} height={12} />
+            {priceData.length > 1 && (
+              <Sparkline data={priceData} width={36} height={12} />
             )}
           </>
         )}

@@ -1,6 +1,9 @@
 // Curated token list for swap – popular Ethereum mainnet ERC20s + TOWELI
 // Users can also import any token by contract address
 
+import { getAddress } from 'viem';
+import { TOWELI_ADDRESS, WETH_ADDRESS } from './constants';
+
 export interface TokenInfo {
   address: string;
   symbol: string;
@@ -23,14 +26,14 @@ export const DEFAULT_TOKENS: TokenInfo[] = [
     isNative: true,
   },
   {
-    address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+    address: WETH_ADDRESS,
     symbol: 'WETH',
     name: 'Wrapped Ether',
     decimals: 18,
     logoURI: 'https://assets.coingecko.com/coins/images/2518/small/weth.png',
   },
   {
-    address: '0x420698cfdeddea6bc78d59bc17798113ad278f9d',
+    address: TOWELI_ADDRESS,
     symbol: 'TOWELI',
     name: 'Towelie',
     decimals: 18,
@@ -124,4 +127,14 @@ export function findToken(address: string, customTokens: TokenInfo[] = []): Toke
 // Check if address looks like a valid Ethereum address
 export function isValidAddress(address: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(address);
+}
+
+// Validate and return EIP-55 checksummed address, or null if invalid.
+// Uses viem's getAddress for EIP-55 checksum validation.
+export function validateAddress(address: string): `0x${string}` | null {
+  try {
+    return getAddress(address as `0x${string}`);
+  } catch {
+    return null;
+  }
 }

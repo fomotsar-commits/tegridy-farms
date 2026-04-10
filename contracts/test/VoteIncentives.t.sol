@@ -78,6 +78,13 @@ contract MockBribeToken is ERC20 {
     }
 }
 
+/// @dev Mock factory that says every address with code is a valid pair
+contract MockFactory {
+    function getPair(address, address) external pure returns (address) {
+        return address(0); // Not used by _validatePair currently
+    }
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────
 
 contract VoteIncentivesTest is Test {
@@ -85,19 +92,24 @@ contract VoteIncentivesTest is Test {
     MockVE public ve;
     MockWETH public weth;
     MockBribeToken public bribeToken;
+    MockFactory public factory;
 
     address public owner = address(this);
     address public treasury = address(0xBEEF);
     address public alice = address(0xA11CE);
     address public bob = address(0xB0B);
-    address public pair = address(0xDA12);
+    address public pair;
 
     function setUp() public {
         ve = new MockVE();
         weth = new MockWETH();
         bribeToken = new MockBribeToken();
+        factory = new MockFactory();
 
-        vi = new VoteIncentives(address(ve), treasury, address(weth), 300); // 3% fee
+        // Use a contract address as pair so _validatePair passes (has code)
+        pair = address(bribeToken); // Any deployed contract works
+
+        vi = new VoteIncentives(address(ve), treasury, address(weth), address(factory), 300); // 3% fee
 
         // Setup voting power
         ve.setVotingPower(alice, 7000e18);
@@ -123,12 +135,12 @@ contract VoteIncentivesTest is Test {
 
     function test_constructor_reverts_zero_address() public {
         vm.expectRevert(VoteIncentives.ZeroAddress.selector);
-        new VoteIncentives(address(0), treasury, address(weth), 300);
+        new VoteIncentives(address(0), treasury, address(weth), address(factory), 300);
     }
 
     function test_constructor_reverts_fee_too_high() public {
         vm.expectRevert(VoteIncentives.FeeTooHigh.selector);
-        new VoteIncentives(address(ve), treasury, address(weth), 600);
+        new VoteIncentives(address(ve), treasury, address(weth), address(factory), 600);
     }
 
     // ─── Epoch Management ────────────────────────────────────────────
@@ -153,7 +165,7 @@ contract VoteIncentivesTest is Test {
 
     function test_advanceEpoch_reverts_no_stakers() public {
         MockVE emptyVE = new MockVE();
-        VoteIncentives vi2 = new VoteIncentives(address(emptyVE), treasury, address(weth), 300);
+        VoteIncentives vi2 = new VoteIncentives(address(emptyVE), treasury, address(weth), address(factory), 300);
         vm.expectRevert(VoteIncentives.NoStakers.selector);
         vi2.advanceEpoch();
     }

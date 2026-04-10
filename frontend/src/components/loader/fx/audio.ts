@@ -5,8 +5,18 @@ export class AudioEngine {
   private ambientGain: GainNode | null = null;
   private muted = false;
 
+  /**
+   * Initialize AudioContext. Must be called from a user-gesture handler
+   * (click / keypress) to comply with browser autoplay policies (#85 audit).
+   */
   init() {
     if (this.ctx) return;
+    // Guard: only create AudioContext after a trusted user gesture.
+    // Modern browsers require this — calling outside a gesture will suspend the context.
+    if (typeof navigator !== 'undefined' && (navigator as any).userActivation &&
+        !(navigator as any).userActivation.hasBeenActive) {
+      return; // No user gesture yet — skip init
+    }
     this.ctx = new AudioContext();
     this.masterGain = this.ctx.createGain();
     this.masterGain.connect(this.ctx.destination);

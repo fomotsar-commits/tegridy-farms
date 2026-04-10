@@ -1,0 +1,344 @@
+================================================================================
+TEGRIDY FARMS — FULL CODEBASE OVERVIEW
+================================================================================
+A DeFi yield farming dApp built on Ethereum for the TOWELI token.
+Tech Stack: React 19 + TypeScript + Vite 8 + Tailwind CSS 4 + wagmi/viem + RainbowKit
+
+================================================================================
+DIRECTORY STRUCTURE
+================================================================================
+
+frontend/
+├── src/
+│   ├── App.tsx                          # Main routing + glitch transition config
+│   ├── main.tsx                         # React entry point
+│   ├── index.css                        # Global styles
+│   ├── components/
+│   │   ├── AnimatedCounter.tsx          # Animated number counter
+│   │   ├── Confetti.tsx                 # Confetti effect provider
+│   │   ├── FlashValue.tsx               # Value flash animation
+│   │   ├── GlitchTransition.tsx         # Page transition glitch effect (dual mobile/desktop)
+│   │   ├── LiveActivity.tsx             # Live activity display
+│   │   ├── PageTransition.tsx           # Page transition wrapper (Framer Motion)
+│   │   ├── ParticleBackground.tsx       # Animated particle background
+│   │   ├── PulseDot.tsx                 # Pulsing dot indicator
+│   │   ├── Sparkline.tsx                # Mini sparkline chart
+│   │   ├── TegridyScore.tsx             # Tegridy score display
+│   │   ├── TegridyScoreMini.tsx         # Mini score card
+│   │   ├── TransactionReceipt.tsx       # Transaction receipt modal
+│   │   ├── farm/
+│   │   │   └── ILCalculator.tsx         # Impermanent loss calculator
+│   │   ├── layout/
+│   │   │   ├── AppLayout.tsx            # Main layout wrapper
+│   │   │   ├── Background.tsx           # Background component
+│   │   │   ├── BottomNav.tsx            # Mobile bottom navigation
+│   │   │   ├── Footer.tsx               # Footer
+│   │   │   └── TopNav.tsx               # Top navigation
+│   │   ├── loader/                      # Splash screen system
+│   │   │   ├── index.ts                 # Re-exports AppLoader
+│   │   │   ├── AppLoader.tsx            # Main loader orchestrator (~600 lines)
+│   │   │   ├── constants.ts             # Timings, colors, physics constants
+│   │   │   ├── geometry.ts              # Text pixel sampling, crack paths, shard builder
+│   │   │   ├── preload.ts              # Image preloading
+│   │   │   ├── types.ts                # LoaderState, Particle, ExitShard, etc.
+│   │   │   ├── fx/
+│   │   │   │   ├── audio.ts            # Web Audio API engine (ambient + SFX)
+│   │   │   │   ├── particleMorph.ts    # Particle interpolation between art pieces
+│   │   │   │   └── postfx.ts           # WebGL2 bloom + chromatic aberration
+│   │   │   └── phases/
+│   │   │       ├── void.ts             # Purple mist + golden lines (1200ms)
+│   │   │       ├── art.ts              # Art gallery display + parallax
+│   │   │       ├── glitch.ts           # Glitch cuts between art pieces
+│   │   │       ├── shatter.ts          # Particles explode from art
+│   │   │       ├── vortex.ts           # Particles spiral inward
+│   │   │       ├── textForm.ts         # Spring physics text formation
+│   │   │       ├── hold.ts            # Breathing animation + mouse trail
+│   │   │       └── exit.ts            # Crack propagation + ragdoll shards
+│   │   ├── swap/
+│   │   │   ├── DCATab.tsx              # Dollar-cost averaging interface
+│   │   │   ├── LimitOrderTab.tsx       # Limit order interface
+│   │   │   └── TokenSelectModal.tsx    # Token selection modal
+│   │   └── ui/
+│   │       ├── ArtLightbox.tsx         # Fullscreen image viewer
+│   │       ├── ConfettiEffect.tsx      # Confetti visual
+│   │       ├── CopyButton.tsx          # Copy-to-clipboard
+│   │       ├── ErrorBoundary.tsx       # Error boundary
+│   │       └── Skeleton.tsx            # Loading skeleton
+│   ├── hooks/
+│   │   ├── useConfetti.ts              # Confetti trigger
+│   │   ├── useDCA.ts                   # DCA scheduling
+│   │   ├── useFarmActions.ts           # Staking contract write calls
+│   │   ├── useFarmStats.ts             # TVL, rewards distributed, TOWELI price
+│   │   ├── useLimitOrders.ts           # Limit order management
+│   │   ├── useNFTBoost.ts             # JBAC + Gold Card NFT detection
+│   │   ├── useNetworkCheck.ts          # Ethereum mainnet validation
+│   │   ├── usePoints.ts               # Points/score calculation
+│   │   ├── usePoolData.ts             # Pool APR, total staked, reward rate
+│   │   ├── usePriceHistory.ts          # Price history for sparklines
+│   │   ├── useSwap.ts                 # Swap quotes + execution
+│   │   ├── useTegridyScore.ts         # Full score breakdown
+│   │   ├── useToweliPrice.ts           # TOWELI price from Uniswap + Chainlink
+│   │   ├── useTransactionReceipt.ts    # Tx receipt modal handling
+│   │   └── useUserPosition.ts          # User staking NFT, rewards, balance
+│   ├── lib/
+│   │   ├── aggregator.ts              # Price aggregation utilities
+│   │   ├── artConfig.ts               # 22 art pieces metadata (src, title, desc)
+│   │   ├── constants.ts               # Contract addresses, chain config, seasons
+│   │   ├── contracts.ts               # All smart contract ABIs
+│   │   ├── formatting.ts              # Number/currency formatting
+│   │   ├── pointsEngine.ts            # Points calculation engine
+│   │   ├── tokenList.ts              # Token metadata (symbol, address, decimals)
+│   │   └── wagmi.ts                   # Wagmi + RainbowKit configuration
+│   └── pages/
+│       ├── HomePage.tsx                # Landing page (TVL, price, overview cards)
+│       ├── DashboardPage.tsx           # Portfolio dashboard
+│       ├── FarmPage.tsx                # Staking interface
+│       ├── SwapPage.tsx                # Token swap (ETH <-> TOWELI)
+│       ├── GalleryPage.tsx             # Art gallery (22 pieces, voting)
+│       ├── TokenomicsPage.tsx          # Tokenomics + distribution chart
+│       ├── LorePage.tsx               # 7-phase story timeline
+│       ├── LeaderboardPage.tsx         # Points leaderboard + tiers
+│       ├── GrantsPage.tsx              # Community grant proposals
+│       ├── BountyPage.tsx              # Meme bounty board
+│       ├── RestakePage.tsx             # Restaking for bonus yield
+│       └── HistoryPage.tsx             # Transaction history
+├── public/
+│   ├── art/                            # Art collection images
+│   └── audio/                          # Loader ambient audio
+├── .env                                # Environment variables
+├── vercel.json                         # Vercel deploy config + cache headers
+├── vite.config.ts                      # Vite build config
+├── tsconfig.json                       # TypeScript config
+└── package.json                        # Dependencies
+
+================================================================================
+ROUTES (defined in App.tsx as NAV_ORDER)
+================================================================================
+
+/              → HomePage (landing)
+/dashboard     → DashboardPage (portfolio)
+/farm          → FarmPage (staking)
+/swap          → SwapPage (token exchange)
+/gallery       → GalleryPage (art)
+/tokenomics    → TokenomicsPage (supply info)
+/lore          → LorePage (story)
+/leaderboard   → LeaderboardPage (points)
+/grants        → GrantsPage (community grants)
+/bounties      → BountyPage (meme bounties)
+/restake       → RestakePage (bonus yield)
+/history       → HistoryPage (tx history)
+/governance    → Redirects to /grants
+*              → Redirects to /
+
+All pages are lazy-loaded. Route changes trigger GlitchTransition effect.
+
+================================================================================
+SMART CONTRACTS (Ethereum Mainnet, Chain ID: 1)
+================================================================================
+
+TOWELI Token (ERC20)
+  Address: 0x420698f01onal... (check constants.ts for full)
+  Functions: balanceOf, approve, allowance, transfer, decimals
+
+TegridyStaking
+  Address: 0x00fd53...079
+  Functions: stake(amount, lockDays), withdraw(posId), earlyWithdraw(posId),
+             claim(posId), toggleAutoMaxLock(posId), getPosition(posId),
+             pendingReward(posId), totalStaked, rewardRate
+  Constants: MIN_LOCK=7d, MAX_LOCK=4yr, EARLY_PENALTY=25%
+
+TegridyRestaking
+  Address: 0xed73d8...ec76
+  Functions: restake(posId), unrestake(posId), claimAll(posId),
+             pendingBonus(posId), pendingBase(posId)
+
+RevenueDistributor
+  Address: 0x98Db15...989
+  Functions: register(), claim(), pendingETH(addr), hasRegistered(addr)
+
+SwapFeeRouter
+  Address: 0xC63A4...436
+  Functions: swapExactETHForTokens, swapExactTokensForETH,
+             swapExactTokensForTokens
+
+CommunityGrants
+  Address: 0xD418A6...FD6
+  Functions: createProposal, voteOnProposal, finalizeProposal, getProposal
+
+MemeBountyBoard
+  Address: 0xaC3999...04
+  Functions: createBounty, submitWork, voteForSubmission, completeBounty
+
+ReferralSplitter
+  Address: 0x55755...3c
+  Functions: setReferrer, claimReferralRewards, getReferralInfo
+
+PremiumAccess
+  Address: 0x2A44C...60d
+  Functions: hasPremium, subscribe, getSubscription
+
+--- External Contracts ---
+
+Uniswap V2 Router: 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D
+Uniswap V2 Factory: 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f
+TOWELI/WETH LP Pair: 0x6682a...04d
+Chainlink ETH/USD: 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419
+
+NFT Contracts (for boost detection):
+  JBAC (Jungle Bay Ape Club): 0xd3726...dda9 — balanceOf (ERC721)
+  JBAY Gold Cards: 0x6aa03...b92f3 — balanceOf (ERC721)
+
+Boost Multipliers:
+  No NFT: 1x
+  JBAC holder: 1.5x (+0.5x)
+  Gold Card holder: 2x (+1.0x)
+
+================================================================================
+WALLET & RPC CONFIGURATION (lib/wagmi.ts)
+================================================================================
+
+Uses @rainbow-me/rainbowkit getDefaultConfig with:
+  - Chain: Ethereum Mainnet
+  - WalletConnect Project ID from VITE_WALLETCONNECT_PROJECT_ID env var
+  - Custom RPC transports with fallback:
+    1. https://ethereum-rpc.publicnode.com
+    2. https://eth.llamarpc.com
+    3. Default (Cloudflare) as last resort
+
+================================================================================
+ENVIRONMENT VARIABLES
+================================================================================
+
+VITE_WALLETCONNECT_PROJECT_ID  — WalletConnect cloud project ID
+VITE_0X_API_KEY                — 0x Protocol API key (for aggregator quotes)
+
+================================================================================
+SPLASH SCREEN / LOADER (components/loader/)
+================================================================================
+
+Canvas-based animated intro sequence. Phases run sequentially:
+
+1. VOID (1200ms) — Purple mist, golden horizontal lines
+2. ART (5000ms × image count) — Gallery of art with zoom/fade/glitch between pieces
+3. SHATTER (1000ms) — Particles explode outward from last art piece
+4. VORTEX (2000ms) — Particles spiral inward following mouse/touch
+5. TEXT-FORM (2000ms) — Particles form "TEGRIDY" and "FARMS" text via spring physics
+6. HOLD (until click) — Breathing particles, mouse trail, "CLICK TO ENTER"
+7. EXIT-CRACK (500ms) — Branching cracks grow from click point
+8. EXIT (variable) — Ragdoll shard physics, fade to main app
+9. SKIP (400ms) — ESC key dissolve animation
+
+Key Implementation Details:
+  - 2000 particles on desktop, 1000 on mobile
+  - Text pixel targets generated by rendering text to offscreen canvas, sampling filled pixels
+  - Targets shuffled before assignment so particles distribute evenly across text
+  - Mobile: no WebGL post-processing, no particle morphing, no backdrop-filter
+  - Audio: Web Audio API procedural SFX (crack, shatter) + ambient MP3 loop
+  - Skipped on repeat visits via sessionStorage('tf_loaded')
+
+================================================================================
+GLITCH TRANSITION (components/GlitchTransition.tsx)
+================================================================================
+
+Dual rendering paths:
+
+MOBILE (single <canvas>):
+  - Art slices with chromatic aberration (RGB channel offsets)
+  - Block displacement, noise grain, scanlines
+  - Subliminal text flash
+  - VHS tracking band
+  - White flash at peak
+  - Optimized for Safari iOS
+
+DESKTOP (DOM-based):
+  - 8-16 animated art slices with per-slice keyframes
+  - Canvas noise overlay (32ms refresh)
+  - Horizontal sweep lines
+  - Subliminal text with scale/rotation animation
+  - Screen flash, scanline overlay, afterimage blur
+
+Config varies by route:
+  Homepage transitions: heavy intensity, 16 slices, 2800ms (desktop) / 8 slices, 2000ms (mobile)
+  Adjacent pages: light, 8 slices, 1800ms / 5 slices, 1400ms
+  Other: medium, 12 slices, 2200ms / 6 slices, 1600ms
+
+================================================================================
+PRICE FEED CHAIN
+================================================================================
+
+1. Primary: GeckoTerminal API (real-time)
+2. Secondary: Uniswap V2 LP reserves (on-chain getReserves)
+3. Fallback: localStorage cached price (10-min TTL)
+4. ETH/USD: Chainlink oracle (1-hour staleness limit)
+
+================================================================================
+STYLING & DESIGN
+================================================================================
+
+- Tailwind CSS v4 with custom theme
+- Dark theme: background #060c1a
+- Accent colors: Purple (#8b5cf6), Gold (#d4a017), Green (#2D8B4E)
+- Glass-card effects (backdrop-blur)
+- Framer Motion for page transitions + card hover animations
+- Responsive: mobile-first, md breakpoint at 768px
+- Bottom nav on mobile, top nav on desktop
+
+================================================================================
+STATE MANAGEMENT
+================================================================================
+
+- React Query (@tanstack/react-query) for server/contract state (10-30s refetch)
+- React useState for local UI state
+- wagmi hooks for contract reads/writes
+- localStorage for persistence (votes, prices, settings)
+- sessionStorage for splash screen skip flag
+
+================================================================================
+KEY DEPENDENCIES
+================================================================================
+
+react@19.2.4              — UI framework
+react-router-dom@7.13.1   — Client-side routing
+wagmi@2.19.5              — Ethereum dapp toolkit
+viem@2.47.6               — Low-level Ethereum utilities
+@rainbow-me/rainbowkit@2.2.10 — Wallet connection UI
+@tanstack/react-query@5.91.3  — Server state
+framer-motion@12.38.0     — Animations
+recharts@3.8.0            — Charts
+sonner@2.0.7              — Toast notifications
+tailwindcss@4.2.2         — Utility CSS
+date-fns@4.1.0            — Date utilities
+html2canvas@1.4.1         — DOM screenshots
+
+Dev: typescript@5.9.3, vite@8.0.1, eslint@9.39.4
+
+================================================================================
+DEPLOYMENT
+================================================================================
+
+Hosted on Vercel.
+Production URL: https://tegridyfarms.vercel.app
+Alt URL: https://tegridyfarms-three.vercel.app
+
+vercel.json config:
+  - Cache-Control: no-cache for / and /index.html (prevent stale Safari caching)
+  - Cache-Control: immutable for /assets/* (hashed filenames)
+  - SPA rewrite: all routes → /
+
+Deploy command: npx vercel --prod (from parent directory, Root Directory: frontend)
+
+================================================================================
+KNOWN MOBILE/SAFARI CONSIDERATIONS
+================================================================================
+
+- mix-blend-mode broken inside position:fixed on Safari → use opacity/filter alternatives
+- CSS custom properties (var()) ignored inside @keyframes on Safari → use JS rAF animations
+- Canvas shadowBlur renders much brighter on Safari → removed ghost text on mobile
+- Safari aggressively caches index.html → cache-control headers in vercel.json
+- Particle count reduced on mobile (1000 vs 2000) for performance
+- WebGL post-processing disabled on mobile
+- Touch events used alongside mouse events for interactive features
+
+================================================================================
+END OF OVERVIEW
+================================================================================

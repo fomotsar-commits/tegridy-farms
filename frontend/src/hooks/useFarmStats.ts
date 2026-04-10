@@ -20,11 +20,15 @@ export function useFarmStats() {
     } catch {} return 0;
   });
   useEffect(() => {
-    fetch(`https://api.geckoterminal.com/api/v2/simple/networks/eth/token_price/${TOWELI_ADDRESS.toLowerCase()}`)
+    const controller = new AbortController();
+    fetch(`https://api.geckoterminal.com/api/v2/simple/networks/eth/token_price/${TOWELI_ADDRESS.toLowerCase()}`, {
+      signal: controller.signal,
+    })
       .then(r => r.json()).then(d => {
         const p = parseFloat(d?.data?.attributes?.token_prices?.[TOWELI_ADDRESS.toLowerCase()] ?? '0');
         if (p > 0) { setApiPrice(p); safeSetItem('tegridy_api_price', JSON.stringify({ price: p, ts: Date.now() })); }
       }).catch(() => {});
+    return () => controller.abort();
   }, []);
 
   const effectivePrice = price.priceInUsd > 0 ? price.priceInUsd : apiPrice;

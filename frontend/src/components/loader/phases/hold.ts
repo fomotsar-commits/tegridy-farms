@@ -33,6 +33,7 @@ export function drawHoldPhase(
   }
 
   // Particles breathe
+  const isMob = W < 768;
   for (const p of s.particles) {
     if (p.hasTarget) {
       const bx = Math.sin(breathT + p.targetX * 0.01) * 0.5;
@@ -45,7 +46,13 @@ export function drawHoldPhase(
       p.vy *= 0.9;
       p.x += p.vx;
       p.y += p.vy;
+      // Keep text particles bright and fully opaque
+      if (p.alpha < 1) p.alpha = Math.min(1, p.alpha + 0.05);
     } else {
+      // On mobile, fade untargeted particles to dim ambient level
+      if (isMob && p.alpha > 0.08) {
+        p.alpha -= 0.008;
+      }
       p.vx += (Math.random() - 0.5) * 0.05;
       p.vy += (Math.random() - 0.5) * 0.05;
       p.vx *= 0.99;
@@ -102,22 +109,25 @@ export function drawHoldPhase(
     ctx.restore();
   }
 
-  // Ghost text
-  const isMobile = W < 768;
-  const mainSize = isMobile ? Math.min(130, W * 0.19) : Math.min(130, W * 0.15);
-  const subSize = isMobile ? Math.min(60, W * 0.09) : Math.min(60, W * 0.07);
-  ctx.save();
-  ctx.globalAlpha = 0.1;
-  ctx.font = `bold ${mainSize}px "Inter", "Helvetica Neue", sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#fff';
-  ctx.shadowColor = '#fff';
-  ctx.shadowBlur = 20;
-  ctx.fillText('TEGRIDY', W / 2, H / 2 - subSize * 0.5);
-  ctx.font = `bold ${subSize}px "Inter", "Helvetica Neue", sans-serif`;
-  ctx.fillText('FARMS', W / 2, H / 2 + mainSize * 0.45);
-  ctx.restore();
+  // Text sizing (needed for underline/CTA positioning too)
+  const mainSize = isMob ? Math.min(130, W * 0.19) : Math.min(130, W * 0.15);
+  const subSize = isMob ? Math.min(60, W * 0.09) : Math.min(60, W * 0.07);
+
+  // Ghost text — desktop only; Safari renders canvas shadowBlur way too bright on mobile
+  if (!isMob) {
+    ctx.save();
+    ctx.globalAlpha = 0.1;
+    ctx.font = `bold ${mainSize}px "Inter", "Helvetica Neue", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fff';
+    ctx.shadowColor = '#fff';
+    ctx.shadowBlur = 20;
+    ctx.fillText('TEGRIDY', W / 2, H / 2 - subSize * 0.5);
+    ctx.font = `bold ${subSize}px "Inter", "Helvetica Neue", sans-serif`;
+    ctx.fillText('FARMS', W / 2, H / 2 + mainSize * 0.45);
+    ctx.restore();
+  }
 
   // Golden underline (pulsing)
   const lineY = H / 2 + mainSize * 0.45 + 25;
@@ -142,4 +152,5 @@ export function drawHoldPhase(
   ctx.letterSpacing = '8px';
   ctx.fillText('CLICK TO ENTER', W / 2, lineY + 40);
   ctx.restore();
+
 }

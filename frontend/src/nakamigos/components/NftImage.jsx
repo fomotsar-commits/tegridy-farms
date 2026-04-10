@@ -9,6 +9,13 @@ const alchemyCdnUrl = (tokenId, contract) =>
 const alchemyMetadataProxy = (tokenId, contract) =>
   `/api/alchemy?endpoint=getNFTMetadata&contractAddress=${contract}&tokenId=${tokenId}`;
 
+// Convert ipfs:// URLs to an HTTP gateway
+function resolveIpfs(url) {
+  if (!url) return url;
+  if (url.startsWith("ipfs://")) return url.replace("ipfs://", "https://ipfs.io/ipfs/");
+  return url;
+}
+
 // Cache: maps tokenId -> { url, ts } (survives across renders, TTL for failed entries)
 const resolvedUrls = new Map();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -71,7 +78,7 @@ export default memo(function NftImage({ nft, style, className, large, priority }
           const res = await fetch(alchemyMetadataProxy(nft.id, collection.contract));
           if (res.ok) {
             const data = await res.json();
-            const url = data.image?.cachedUrl || data.image?.pngUrl || data.image?.thumbnailUrl || data.image?.originalUrl || data.raw?.metadata?.image;
+            const url = data.image?.cachedUrl || data.image?.pngUrl || data.image?.thumbnailUrl || data.image?.originalUrl || resolveIpfs(data.raw?.metadata?.image);
             if (url) {
               setDynamicSrc(url);
               setCachedUrl(cacheKey, url);
@@ -87,7 +94,26 @@ export default memo(function NftImage({ nft, style, className, large, priority }
 
   const handleError = async () => {
     if (failCount === 0 && nft.id) {
-      // First failure: try Alchemy CDN direct URL
+      // First failure: skip CDN for non-Nakamigos (returns 503), go straight to metadata API
+      if (!collection.metadataBase) {
+        setFailCount(2);
+        try {
+          const res = await fetch(alchemyMetadataProxy(nft.id, collection.contract));
+          if (res.ok) {
+            const data = await res.json();
+            const url = data.image?.cachedUrl || data.image?.pngUrl || data.image?.thumbnailUrl || data.image?.originalUrl || resolveIpfs(data.raw?.metadata?.image);
+            if (url) {
+              setDynamicSrc(url);
+              setCachedUrl(cacheKey, url);
+              return;
+            }
+          }
+        } catch { /* fall through */ }
+        setCachedFailed(cacheKey);
+        setFailCount(3);
+        return;
+      }
+      // Nakamigos: try Alchemy CDN direct URL
       setFailCount(1);
       const cdnUrl = alchemyCdnUrl(nft.id, collection.contract);
       setDynamicSrc(cdnUrl);
@@ -102,7 +128,7 @@ export default memo(function NftImage({ nft, style, className, large, priority }
         const res = await fetch(alchemyMetadataProxy(nft.id, collection.contract));
         if (res.ok) {
           const data = await res.json();
-          const url = data.image?.cachedUrl || data.image?.pngUrl || data.image?.thumbnailUrl || data.image?.originalUrl || data.raw?.metadata?.image;
+          const url = data.image?.cachedUrl || data.image?.pngUrl || data.image?.thumbnailUrl || data.image?.originalUrl || resolveIpfs(data.raw?.metadata?.image);
           if (url) {
             setDynamicSrc(url);
             setCachedUrl(cacheKey, url);

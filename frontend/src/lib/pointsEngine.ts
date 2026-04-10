@@ -228,12 +228,13 @@ export function getNextTier(points: number) {
   return null; // already at max
 }
 
-export function recordAction(address: string, actionType: string, _goldCardBoost: boolean = false): PointsData {
+export function recordAction(address: string, actionType: string, goldCardBoost: boolean = false): PointsData {
   const data = getPointsData(address);
   const basePoints = POINTS_MAP[actionType] ?? 0;
   if (basePoints === 0) return data;
 
-  data.actions.push({ type: actionType, pts: basePoints, ts: Date.now() });
+  const pts = goldCardBoost ? basePoints * 3 : basePoints;
+  data.actions.push({ type: actionType, pts, ts: Date.now() });
   if (data.actions.length > 100) data.actions = data.actions.slice(-100);
 
   savePointsData(address, data);

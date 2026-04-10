@@ -72,74 +72,6 @@ function sortSales(sales, sortId) {
   }
 }
 
-/* ── Mini price distribution chart ── */
-function PriceDistribution({ listings }) {
-  const bars = useMemo(() => {
-    if (!listings || listings.length < 2) return null;
-    const prices = listings.map(l => l.price).filter(Boolean);
-    if (prices.length < 2) return null;
-    const min = Math.min(...prices);
-    const max = Math.max(...prices);
-    if (max === min) return null;
-    const bucketCount = 12;
-    const step = (max - min) / bucketCount;
-    const buckets = Array(bucketCount).fill(0);
-    for (const p of prices) {
-      const idx = Math.min(Math.floor((p - min) / step), bucketCount - 1);
-      buckets[idx]++;
-    }
-    const maxBucket = Math.max(...buckets);
-    return buckets.map((count, i) => ({
-      count,
-      height: maxBucket > 0 ? (count / maxBucket) * 100 : 0,
-      rangeStart: (min + step * i).toFixed(4),
-      rangeEnd: (min + step * (i + 1)).toFixed(4),
-    }));
-  }, [listings]);
-
-  if (!bars) return null;
-
-  return (
-    <div style={{
-      padding: "16px 20px", borderRadius: 14, marginBottom: 20,
-      background: "var(--surface-glass)", border: "1px solid var(--border)",
-      backdropFilter: "var(--glass-blur)",
-    }}>
-      <div style={{
-        fontFamily: "var(--pixel)", fontSize: 9, color: "var(--text-dim)",
-        letterSpacing: "0.08em", marginBottom: 12,
-      }}>
-        PRICE DISTRIBUTION
-      </div>
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 48 }}>
-        {bars.map((bar, i) => (
-          <div
-            key={i}
-            title={`${bar.rangeStart}–${bar.rangeEnd} ETH: ${bar.count} listings`}
-            style={{
-              flex: 1,
-              height: `${Math.max(bar.height, 4)}%`,
-              borderRadius: "3px 3px 0 0",
-              background: bar.count > 0
-                ? "linear-gradient(180deg, var(--gold), rgba(200, 170, 100, 0.3))"
-                : "var(--border)",
-              transition: "height 0.3s ease",
-              cursor: "default",
-            }}
-          />
-        ))}
-      </div>
-      <div style={{
-        display: "flex", justifyContent: "space-between", marginTop: 6,
-        fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)",
-      }}>
-        <span>{bars[0].rangeStart} ETH</span>
-        <span>{bars[bars.length - 1].rangeEnd} ETH</span>
-      </div>
-    </div>
-  );
-}
-
 /* ── Time ago formatter ── */
 function formatTimeAgo(ts) {
   if (!ts) return "";
@@ -220,14 +152,14 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
 
     return listings.map(listing => {
       const token = allTokens.get(String(listing.tokenId));
-      const fallbackImg = collection.metadataBase
+      const fullResImg = collection.metadataBase
         ? `${collection.metadataBase}/${listing.tokenId}.png`
-        : `https://nft-cdn.alchemy.com/eth-mainnet/${collection.contract}/${listing.tokenId}`;
+        : null;
       return {
         id: listing.tokenId,
         name: token?.name || `${collection.name} #${listing.tokenId}`,
-        image: token?.image || fallbackImg,
-        imageLarge: token?.imageLarge || fallbackImg,
+        image: token?.image || null, // Let NftImage fetch thumbnail via metadata API
+        imageLarge: token?.imageLarge || fullResImg,
         attributes: token?.attributes || [],
         rank: token?.rank || null,
         price: listing.price,
@@ -260,7 +192,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
         const token = allTokens.get(String(a.token.id));
         const fallbackImg = collection.metadataBase
           ? `${collection.metadataBase}/${a.token.id}.png`
-          : `https://nft-cdn.alchemy.com/eth-mainnet/${collection.contract}/${a.token.id}`;
+          : null; // Let NftImage handle fallback via metadata API
         return {
           id: a.token.id,
           name: token?.name || `${collection.name} ${a.token.name || "#" + a.token.id}`,
@@ -453,8 +385,21 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       {/* Two-column layout: listings left, orderbook/offers right */}
       <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
 
-      {/* RIGHT COLUMN — Order Book, Offers */}
+      {/* RIGHT COLUMN — Order Book, Offers (collapsible) */}
       <div style={{ flex: "0 0 380px", maxWidth: 420, order: 2 }} className="listings-sidebar">
+
+      <details style={{ marginBottom: 0 }}>
+        <summary style={{
+          cursor: "pointer", userSelect: "none", listStyle: "none",
+          display: "flex", alignItems: "center", gap: 8, padding: "10px 14px",
+          background: "rgba(111,168,220,0.04)", border: "1px solid rgba(111,168,220,0.08)",
+          borderRadius: 10, marginBottom: 12,
+          fontFamily: "var(--pixel)", fontSize: 10, color: "var(--naka-blue)",
+          letterSpacing: "0.1em",
+        }}>
+          <span style={{ transition: "transform 0.2s", display: "inline-block" }} className="details-arrow">&#9654;</span>
+          ORDER BOOK &amp; OFFERS
+        </summary>
 
       {/* Order Book Depth */}
       <OrderBookPanel listings={listings} collectionOffers={collectionOffers} floorPrice={stats?.floor} wallet={wallet} onConnect={onConnect} addToast={addToast} />
@@ -540,6 +485,8 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
         </div>
       </div>
 
+      </details>
+
       </div>{/* end sidebar */}
 
       {/* LEFT COLUMN — Listings grid */}
@@ -618,9 +565,6 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
           </span>
         </div>
       )}
-
-      {/* Price distribution chart */}
-      {hasRealListings && <PriceDistribution listings={listedNfts} />}
 
       {/* Sort & filter controls */}
       {hasRealListings && (

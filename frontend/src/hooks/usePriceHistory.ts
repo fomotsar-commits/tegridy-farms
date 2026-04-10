@@ -1,36 +1,27 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { TOWELI_WETH_LP_ADDRESS } from '../lib/constants';
 
 const CACHE_KEY = 'tegridy_price_history';
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-
-/**
- * Mock 24-point price data based on current price with realistic-looking variance.
- * Used as fallback when API is unavailable.
- */
-function generateMockHistory(currentPrice: number): number[] {
-  if (currentPrice <= 0) return [];
-  const points: number[] = [];
-  let p = currentPrice * (0.92 + Math.random() * 0.08); // start slightly below current
-  for (let i = 0; i < 24; i++) {
-    // Random walk with slight upward bias towards current price
-    const drift = (currentPrice - p) * 0.05;
-    const noise = (Math.random() - 0.48) * currentPrice * 0.04;
-    p = Math.max(p * 0.8, p + drift + noise);
-    points.push(p);
-  }
-  // Ensure last point matches current price
-  points[23] = currentPrice;
-  return points;
-}
+const MAX_RETRIES = 2;
+const BASE_DELAY = 1000;
 
 interface CachedHistory {
   data: number[];
   ts: number;
 }
 
-export function usePriceHistory(currentPrice: number) {
+export interface PriceHistoryResult {
+  history: number[];
+  error: string | null;
+  isLoading: boolean;
+}
+
+export function usePriceHistory(currentPrice: number): PriceHistoryResult {
   const [history, setHistory] = useState<number[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const retryCount = useRef(0);
 
   useEffect(() => {
     if (currentPrice <= 0) return;
@@ -40,50 +31,75 @@ export function usePriceHistory(currentPrice: number) {
       const cached = localStorage.getItem(CACHE_KEY);
       if (cached) {
         const parsed: CachedHistory = JSON.parse(cached);
-        if (Date.now() - parsed.ts < CACHE_DURATION && parsed.data.length > 0) {
+        if (
+          Date.now() - parsed.ts < CACHE_DURATION &&
+          Array.isArray(parsed.data) &&
+          parsed.data.length > 0 &&
+          parsed.data.every((v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0)
+        ) {
           setHistory(parsed.data);
+          setError(null);
           return;
         }
       }
     } catch {}
 
     let cancelled = false;
+    retryCount.current = 0;
 
     async function fetchHistory() {
-      try {
-        // GeckoTerminal OHLCV endpoint for the TOWELI/WETH pool
-        const url = `https://api.geckoterminal.com/api/v2/networks/eth/pools/${TOWELI_WETH_LP_ADDRESS}/ohlcv/hour?aggregate=1&limit=24`;
-        const res = await fetch(url, {
-          headers: { Accept: 'application/json' },
-          signal: AbortSignal.timeout(8000),
-        });
+      setIsLoading(true);
+      setError(null);
 
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
+      while (retryCount.current <= MAX_RETRIES) {
+        try {
+          const url = `https://api.geckoterminal.com/api/v2/networks/eth/pools/${TOWELI_WETH_LP_ADDRESS}/ohlcv/hour?aggregate=1&limit=24`;
+          const res = await fetch(url, {
+            headers: { Accept: 'application/json' },
+            signal: AbortSignal.timeout(8000),
+          });
 
-        const ohlcv = json?.data?.attributes?.ohlcv_list;
-        if (Array.isArray(ohlcv) && ohlcv.length >= 2) {
-          // ohlcv_list is newest-first: [timestamp, open, high, low, close, volume]
-          // We want oldest-first close prices
-          const closes = ohlcv
-            .map((candle: number[]) => candle[4]) // close price
-            .reverse();
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await res.json();
 
-          if (!cancelled) {
-            setHistory(closes);
-            try {
-              localStorage.setItem(CACHE_KEY, JSON.stringify({ data: closes, ts: Date.now() }));
-            } catch {}
+          const ohlcv = json?.data?.attributes?.ohlcv_list;
+          if (Array.isArray(ohlcv) && ohlcv.length >= 2) {
+            const closes: number[] = [];
+            for (const candle of ohlcv) {
+              if (!Array.isArray(candle) || candle.length < 5) continue;
+              const close = Number(candle[4]);
+              if (!Number.isFinite(close) || close < 0) continue;
+              closes.push(close);
+            }
+            closes.reverse();
+
+            if (closes.length < 2) throw new Error('Insufficient valid OHLCV entries');
+
+            if (!cancelled) {
+              setHistory(closes);
+              setError(null);
+              setIsLoading(false);
+              try {
+                localStorage.setItem(CACHE_KEY, JSON.stringify({ data: closes, ts: Date.now() }));
+              } catch {}
+            }
+            return;
           }
-          return;
+          throw new Error('Invalid OHLCV data');
+        } catch (e) {
+          retryCount.current++;
+          if (retryCount.current <= MAX_RETRIES) {
+            const delay = BASE_DELAY * Math.pow(2, retryCount.current - 1);
+            await new Promise((r) => setTimeout(r, delay));
+            if (cancelled) return;
+          }
         }
-        throw new Error('Invalid OHLCV data');
-      } catch {
-        // Fallback to mock data
-        if (!cancelled) {
-          const mock = generateMockHistory(currentPrice);
-          setHistory(mock);
-        }
+      }
+
+      if (!cancelled) {
+        setHistory([]);
+        setError('Price data unavailable');
+        setIsLoading(false);
       }
     }
 
@@ -91,5 +107,5 @@ export function usePriceHistory(currentPrice: number) {
     return () => { cancelled = true; };
   }, [currentPrice]);
 
-  return history;
+  return { history, error, isLoading };
 }

@@ -6,3 +6,5 @@ dist/
 .DS_Store
 Thumbs.db
 standard-json-farm.json
+.claude/worktrees/
+.vercel/
