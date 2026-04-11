@@ -221,10 +221,21 @@ export default async function handler(req, res) {
       const isListing = offerItem?.itemType >= 2; // ERC721 or ERC1155
       const orderType = isListing ? "listing" : "offer";
 
-      // Extract price with correct decimal handling
-      const priceItem = isListing ? considerationItem : offerItem;
-      const priceWei = priceItem?.startAmount || "0";
-      const currencyAddr = (isListing ? considerationItem?.token : offerItem?.token)?.toLowerCase() || "0x0000000000000000000000000000000000000000";
+      // Extract total price: for listings, sum ALL consideration items (seller receives + fees = total price)
+      // consideration[0] is seller receives, consideration[1..N] are fee items
+      let priceWei;
+      let currencyAddr;
+      if (isListing) {
+        // Sum all consideration items to get the total listing price
+        const totalWei = params.consideration.reduce(
+          (sum, item) => sum + BigInt(item.startAmount || "0"), 0n
+        );
+        priceWei = totalWei.toString();
+        currencyAddr = (considerationItem?.token)?.toLowerCase() || "0x0000000000000000000000000000000000000000";
+      } else {
+        priceWei = offerItem?.startAmount || "0";
+        currencyAddr = (offerItem?.token)?.toLowerCase() || "0x0000000000000000000000000000000000000000";
+      }
       const decimals = TOKEN_DECIMALS[currencyAddr];
       if (decimals === undefined) {
         return res.status(400).json({ error: `Unsupported currency: ${currencyAddr}` });
@@ -246,9 +257,10 @@ export default async function handler(req, res) {
       }
 
       // Verify wallet signature to authenticate the order creator.
-      // The client signs a deterministic message containing critical order parameters;
-      // we recover the signer and confirm it matches params.offerer.
-      const createMessage = `Create order for ${params.offerer.toLowerCase()} | Contract: ${contract} | Price: ${priceWei} | StartTime: ${startSec} | EndTime: ${endSec}`;
+      // The client signs with consideration[0].startAmount (sellerReceives, not total price)
+      // to match the auth message format in lib/orderbook.js createNativeListing.
+      const authPriceWei = considerationItem?.startAmount || "0";
+      const createMessage = `Create order for ${params.offerer.toLowerCase()} | Contract: ${contract} | Price: ${authPriceWei} | StartTime: ${startSec} | EndTime: ${endSec}`;
       let recoveredCreator;
       try {
         recoveredCreator = (await recoverMessageAddress({ message: createMessage, signature: order.signature })).toLowerCase();
