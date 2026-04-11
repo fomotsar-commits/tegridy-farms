@@ -56,6 +56,7 @@ const supabase = SUPABASE_URL && SUPABASE_KEY ? createClient(SUPABASE_URL, SUPAB
  *     status text NOT NULL DEFAULT 'active',
  *     filled_by text,
  *     filled_at timestamptz,
+ *     tx_hash text,
  *     cancelled_at timestamptz,
  *     created_at timestamptz DEFAULT now()
  *   );
@@ -146,8 +147,14 @@ export default async function handler(req, res) {
     let query = supabase
       .from("native_orders")
       .select("*")
-      .eq("status", safeStatus)
-      .gt("end_time", new Date().toISOString())
+      .eq("status", safeStatus);
+
+    // Only filter by end_time for active orders — filled/cancelled orders are historical
+    if (safeStatus === "active") {
+      query = query.gt("end_time", new Date().toISOString());
+    }
+
+    query = query
       .order(safeSort, { ascending: safeSort === "price_eth" })
       .limit(safeLimit);
 
@@ -269,6 +276,28 @@ export default async function handler(req, res) {
       }
       if (recoveredCreator !== params.offerer.toLowerCase()) {
         return res.status(403).json({ error: "Signer does not match offerer" });
+      }
+
+      // Prevent duplicate active listings for the same token by the same maker.
+      // If one already exists, auto-cancel it so the new listing replaces it (relist flow).
+      if (isListing && tokenId) {
+        const { data: existingListings } = await supabase
+          .from("native_orders")
+          .select("order_hash")
+          .eq("contract_address", contract)
+          .eq("token_id", String(tokenId))
+          .eq("maker", recoveredCreator)
+          .eq("status", "active");
+
+        if (existingListings && existingListings.length > 0) {
+          for (const existing of existingListings) {
+            await supabase
+              .from("native_orders")
+              .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
+              .eq("order_hash", existing.order_hash)
+              .eq("status", "active");
+          }
+        }
       }
 
       // Rate limit: max 20 orders per maker per hour (persists across cold starts)

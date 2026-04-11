@@ -275,7 +275,7 @@ export default function ShoppingCart({
     setBuying(false);
     setProgress({ current: 0, total: 0 });
     setEstimatedGas(null);
-  }, [purchasableItems, listings, onRemove, addToast, wallet, slug]);
+  }, [purchasableItems, listings, onRemove, addToast, wallet, slug, isWrongNetwork]);
 
   const handleCancelConfirm = useCallback(() => {
     setConfirming(false);

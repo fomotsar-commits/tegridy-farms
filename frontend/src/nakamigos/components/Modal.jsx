@@ -8,7 +8,9 @@ import TransactionProgress, { useTransactionProgress } from "./TransactionProgre
 import { OPENSEA_ITEM, ETHERSCAN_TOKEN, CHARACTER_TYPES, GNSS_SPECIES, JB_LEGENDARIES } from "../constants";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useTradingMode } from "../contexts/TradingModeContext";
+import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import { copyToClipboard, fulfillSeaportOrder, fetchTokenSalesHistory, getProvider } from "../api";
+import { fulfillNativeOrder } from "../lib/orderbook";
 import { validateOrderQuick } from "../lib/orderValidator";
 import { recordTransaction } from "../lib/transactions";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
@@ -109,6 +111,8 @@ function PriceHistoryChart({ tokenId, contract }) {
 export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, onToggleFavorite, wallet, onConnect, addToast, onViewProfile, floorPrice, statsSupply, allTokens }) {
   const collection = useActiveCollection();
   const { isLite } = useTradingMode();
+  const { isWrongNetwork } = useWalletState();
+  const { switchChain } = useWalletActions();
   const [copied, setCopied] = useState(null);
   const [buying, setBuying] = useState(false);
   const [showOfferModal, setShowOfferModal] = useState(false);
@@ -410,11 +414,14 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
                 aria-label="Buy this NFT"
                 onClick={() => {
                   if (!wallet) { onConnect?.(); return; }
+                  if (isWrongNetwork) { addToast?.("Wrong network — please switch to Ethereum Mainnet", "error"); switchChain?.(); return; }
                   setBuying(true);
                   startTransaction({
                     nft,
                     price: Number(nft.price),
-                    onExecute: () => fulfillSeaportOrder(nft),
+                    onExecute: () => nft.isNative && nft.nativeOrder
+                      ? fulfillNativeOrder(nft.nativeOrder)
+                      : fulfillSeaportOrder(nft),
                     onSuccess: ({ hash, gasUsed }) => {
                       recordTransaction({ type: "buy", nft, price: nft.price, hash, wallet, slug: collection.slug });
                       addToast?.(`Success! Bought #${nft.id}`, "success");

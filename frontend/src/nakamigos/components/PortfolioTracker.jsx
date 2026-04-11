@@ -130,8 +130,13 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
   const [tokens, setTokens] = useState([]);
   const [stats, setStats] = useState(null);
   const [expandedCollection, setExpandedCollection] = useState(false);
-  const [snapshots, setSnapshots] = useState(() => loadSnapshots(wallet, collection.contract));
+  const [snapshots, setSnapshots] = useState(() => wallet ? loadSnapshots(wallet, collection.contract) : []);
   const genRef = useRef(0);
+
+  // Re-load snapshots when wallet or collection changes
+  useEffect(() => {
+    setSnapshots(wallet ? loadSnapshots(wallet, collection.contract) : []);
+  }, [wallet, collection.contract]);
 
   const loadPortfolio = useCallback(async () => {
     if (!wallet) return;

@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { CONTRACT } from "../constants";
 import { tagAlchemyEvent, mergeEventStreams } from "../lib/eventFeed";
 
 const ALCHEMY_KEY = import.meta.env.VITE_ALCHEMY_API_KEY || "demo";
@@ -62,7 +61,7 @@ function parseTransferLog(log) {
 
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000, 30000];
 
-export default function useActivityWebSocket(contractAddress = CONTRACT, openSeaEvents = []) {
+export default function useActivityWebSocket(contractAddress, openSeaEvents = []) {
   const [liveActivities, setLiveActivities] = useState([]);
   const [isWebSocketConnected, setIsWebSocketConnected] = useState(false);
   const wsRef = useRef(null);
@@ -94,6 +93,10 @@ export default function useActivityWebSocket(contractAddress = CONTRACT, openSea
 
   const connect = useCallback(async () => {
     if (!mountedRef.current) return;
+    if (!contractAddress) {
+      console.info("useActivityWebSocket: Skipping WebSocket (no contract address)");
+      return;
+    }
 
     const wsUrl = getWsUrl();
     if (!wsUrl) {

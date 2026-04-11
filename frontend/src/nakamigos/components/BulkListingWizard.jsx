@@ -5,6 +5,7 @@ import {
   PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS,
 } from "../constants";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import { createNativeListing } from "../lib/orderbook";
 import { formatPrice } from "../lib/formatPrice";
 
@@ -446,8 +447,10 @@ function StepReview({ selectedNfts, getPrice, duration, collection }) {
 const STEPS = ["select", "pricing", "review"];
 const STEP_LABELS = ["Select NFTs", "Set Prices & Duration", "Review & List"];
 
-export default function BulkListingWizard({ tokens, wallet, onClose, addToast, onConnect, stats, listingMap }) {
+export default function BulkListingWizard({ tokens, wallet, onClose, onListingCreated, addToast, onConnect, stats, listingMap }) {
   const collection = useActiveCollection();
+  const { isWrongNetwork } = useWalletState();
+  const { switchChain } = useWalletActions();
   const modalRef = useRef(null);
 
   // Wizard state
@@ -511,6 +514,14 @@ export default function BulkListingWizard({ tokens, wallet, onClose, addToast, o
     return autoPrices[id] || 0;
   }, [priceOverrides, autoPrices]);
 
+  // Reset submitting state if wallet disconnects mid-transaction
+  useEffect(() => {
+    if (!wallet && submitting) {
+      setSubmitting(false);
+      setSubmitLabel("");
+    }
+  }, [wallet, submitting]);
+
   // Escape / focus trap
   useEffect(() => {
     const h = (e) => {
@@ -544,6 +555,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, addToast, o
   // ═══ SUBMIT — List All (native orderbook only) ═══
   const handleListAll = useCallback(async () => {
     if (!wallet) { onConnect?.(); return; }
+    if (isWrongNetwork) { addToast?.("Wrong network — please switch to Ethereum Mainnet", "error"); switchChain?.(); return; }
     if (selectedNfts.length === 0) return;
 
     setSubmitting(true);
@@ -590,6 +602,8 @@ export default function BulkListingWizard({ tokens, wallet, onClose, addToast, o
 
       if (successCount > 0) {
         addToast?.(`${successCount} NFT${successCount > 1 ? "s" : ""} listed on native orderbook!${failCount > 0 ? ` (${failCount} failed)` : ""}`, "success");
+        // Trigger parent to refresh listings so new listings appear immediately
+        onListingCreated?.();
         setSubmitting(false);
         setDone(true);
       } else {
@@ -608,7 +622,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, addToast, o
       setSubmitLabel("");
       setSubmitting(false);
     }
-  }, [wallet, onConnect, selectedNfts, getPrice, duration, collection, addToast]);
+  }, [wallet, onConnect, selectedNfts, getPrice, duration, collection, addToast, onListingCreated, isWrongNetwork, switchChain]);
 
   // ═══ RENDER ═══
 
@@ -774,6 +788,28 @@ export default function BulkListingWizard({ tokens, wallet, onClose, addToast, o
               />
             )}
 
+            {/* Wrong network warning */}
+            {wallet && isWrongNetwork && (
+              <div role="alert" style={{
+                fontFamily: "var(--mono)", fontSize: 11, marginTop: 14,
+                padding: "10px 14px", borderRadius: 8,
+                background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)",
+                color: "var(--red, #f87171)", textAlign: "center", lineHeight: 1.5,
+              }}>
+                Wrong network detected.{" "}
+                <button
+                  onClick={() => switchChain?.()}
+                  style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    color: "var(--naka-blue)", textDecoration: "underline",
+                    fontFamily: "var(--mono)", fontSize: 11, padding: 0,
+                  }}
+                >
+                  Switch to Ethereum Mainnet
+                </button>
+              </div>
+            )}
+
             {/* Navigation buttons */}
             <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
               {step > 0 && (
@@ -807,8 +843,8 @@ export default function BulkListingWizard({ tokens, wallet, onClose, addToast, o
                   className="btn-primary"
                   type="button"
                   onClick={handleListAll}
-                  disabled={!wallet || selectedNfts.length === 0}
-                  aria-disabled={!wallet || selectedNfts.length === 0}
+                  disabled={!wallet || selectedNfts.length === 0 || isWrongNetwork}
+                  aria-disabled={!wallet || selectedNfts.length === 0 || isWrongNetwork}
                   style={{ flex: 2, textAlign: "center", fontSize: 12 }}
                 >
                   {!wallet

@@ -1,5 +1,5 @@
 import { parseEther, formatEther } from "viem";
-import { CONTRACT, COLLECTION_SLUG, WETH, SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, OPENSEA_FEE_RECIPIENT, OPENSEA_FEE_BPS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS } from "./constants";
+import { CONTRACT, COLLECTION_SLUG, WETH, SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, OPENSEA_FEE_RECIPIENT, OPENSEA_FEE_BPS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS } from "./constants";
 import { getProvider } from "./api";
 import { getWethBalance, getWethAllowance, wrapEth, approveWeth } from "./lib/weth";
 import { openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
@@ -71,11 +71,14 @@ export async function fetchBestOffer(tokenId, slug = COLLECTION_SLUG, { openseaS
     const data = await openseaGet(`offers/collection/${osSlug}/nfts/${tokenId}/best`);
     if (!data.price) return null;
     const endSec = parseInt(data.protocol_data?.parameters?.endTime);
+    const nftItem = (data.protocol_data?.parameters?.consideration || []).find(c => Number(c.itemType) >= 2);
     return {
       price: safePriceFromWei(data.price.value),
       currency: data.price.currency,
       maker: data.protocol_data?.parameters?.offerer,
       orderHash: data.order_hash,
+      protocolAddress: data.protocol_address || SEAPORT_ADDRESS,
+      tokenContract: nftItem?.token || null,
       expiry: Number.isFinite(endSec) ? new Date(endSec * 1000) : null,
     };
   } catch (err) {
@@ -620,6 +623,19 @@ export async function acceptOffer(offer) {
     const browserProvider = new ethers.BrowserProvider(provider);
     const signer = await browserProvider.getSigner();
     const sellerAddress = await signer.getAddress();
+
+    // Check NFT approval for conduit (required to transfer the NFT to the buyer)
+    const nftContract = offer.tokenContract || CONTRACT;
+    const erc721ABI = [
+      "function isApprovedForAll(address,address) view returns (bool)",
+      "function setApprovalForAll(address,bool)",
+    ];
+    const nft = new ethers.Contract(nftContract, erc721ABI, signer);
+    const isApproved = await nft.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
+    if (!isApproved) {
+      const approveTx = await nft.setApprovalForAll(CONDUIT_ADDRESS, true);
+      await approveTx.wait();
+    }
 
     // Get fulfillment data from OpenSea — via proxy
     let data;

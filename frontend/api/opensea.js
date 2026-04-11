@@ -31,6 +31,8 @@ const ALLOWED_PATH_PREFIXES = ["orders/", "listings/", "offers/", "collection/",
 
 // Build allowed paths dynamically from allowed slugs
 function isAllowedPath(path) {
+  // Exact-match paths that don't follow the prefix pattern
+  if (path === "criteria_offers") return true;
   // Reject paths that don't start with an allowed prefix
   if (!ALLOWED_PATH_PREFIXES.some((p) => path.startsWith(p))) return false;
   // Always allow fulfillment endpoints (buy + accept)

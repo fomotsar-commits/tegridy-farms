@@ -73,6 +73,14 @@ export async function fulfillNativeOrder(order) {
       return { error: "invalid-order", message: "Order missing parameters or signature" };
     }
 
+    // Reject expired orders client-side before sending a doomed transaction
+    if (params.endTime) {
+      const endMs = parseInt(params.endTime) * 1000;
+      if (endMs <= Date.now()) {
+        return { error: "expired", message: "This listing has expired" };
+      }
+    }
+
     // Calculate total payment (sum of all consideration amounts)
     const totalWei = params.consideration.reduce(
       (sum, item) => sum + BigInt(item.startAmount || "0"),

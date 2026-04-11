@@ -6,7 +6,7 @@ import { sendLocalNotification } from "../lib/notifications";
 // ═══ CONSTANTS ═══
 const CHECK_INTERVAL = 30000; // 30s polling
 const STORAGE_PREFIX = "smart_alerts_";
-const HISTORY_KEY = "smart_alerts_history";
+const HISTORY_KEY_PREFIX = "smart_alerts_history_";
 const MAX_HISTORY = 200;
 
 // Default config for all alert types
@@ -36,18 +36,18 @@ function saveConfig(slug, config) {
   } catch { /* quota exceeded */ }
 }
 
-function loadHistory() {
+function loadHistory(slug) {
   try {
-    const raw = localStorage.getItem(HISTORY_KEY);
+    const raw = localStorage.getItem(HISTORY_KEY_PREFIX + (slug || "global"));
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
 }
 
-function saveHistory(history) {
+function saveHistory(history, slug) {
   try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, MAX_HISTORY)));
+    localStorage.setItem(HISTORY_KEY_PREFIX + (slug || "global"), JSON.stringify(history.slice(0, MAX_HISTORY)));
   } catch { /* quota exceeded */ }
 }
 
@@ -72,9 +72,9 @@ function generateId() {
 export default function useSmartAlerts(addToast) {
   const collection = useActiveCollection();
   const [config, setConfig] = useState(() => loadConfig(collection.slug));
-  const [history, setHistory] = useState(loadHistory);
+  const [history, setHistory] = useState(() => loadHistory(collection.slug));
   const [unreadCount, setUnreadCount] = useState(() => {
-    const h = loadHistory();
+    const h = loadHistory(collection.slug);
     return h.filter(n => !n.read).length;
   });
 
@@ -93,6 +93,7 @@ export default function useSmartAlerts(addToast) {
     if (prevSlugRef.current !== collection.slug) {
       prevSlugRef.current = collection.slug;
       setConfig(loadConfig(collection.slug));
+      setHistory(loadHistory(collection.slug));
       prevFloorRef.current = null;
       prevVolumeRef.current = null;
       volumeHistoryRef.current = [];
@@ -112,11 +113,11 @@ export default function useSmartAlerts(addToast) {
     saveConfig(collection.slug, config);
   }, [config, collection.slug]);
 
-  // Persist history
+  // Persist history (scoped per collection)
   useEffect(() => {
-    saveHistory(history);
+    saveHistory(history, collection.slug);
     setUnreadCount(history.filter(n => !n.read).length);
-  }, [history]);
+  }, [history, collection.slug]);
 
   // Fire an alert notification
   const fireAlert = useCallback((category, title, body) => {

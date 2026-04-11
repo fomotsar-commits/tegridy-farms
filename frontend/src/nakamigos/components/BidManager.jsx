@@ -5,6 +5,7 @@ import { fetchWalletNfts, shortenAddress, getProvider } from "../api";
 import { fetchTokenOffers, acceptOffer } from "../api-offers";
 import { SEAPORT_ADDRESS } from "../constants";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import { openseaGet } from "../lib/proxy";
 import EmptyState from "./EmptyState";
 
@@ -282,6 +283,8 @@ async function cancelBid(order) {
 
 export default function BidManager({ wallet, onConnect, addToast, onPick, tokens }) {
   const collection = useActiveCollection();
+  const { isWrongNetwork } = useWalletState();
+  const { switchChain } = useWalletActions();
   const [tab, setTab] = useState(0);
   const [myBids, setMyBids] = useState([]);
   const [receivedOffers, setReceivedOffers] = useState([]);
@@ -322,7 +325,7 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
       const orders = (data.orders || []).map(normalizeOrder);
       // Only active (not cancelled, not finalized, not expired)
       const now = Date.now();
-      setMyBids(orders.filter(o => !o.cancelled && !o.finalized && o.expiry && o.expiry.getTime() > now));
+      setMyBids(orders.filter(o => !o.cancelled && !o.finalized && (!o.expiry || o.expiry.getTime() > now)));
     } catch (err) {
       console.warn("Fetch my bids failed:", err.message);
       setFetchError("Failed to load bids. Check your connection.");
@@ -359,7 +362,7 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
     } finally {
       setLoadingReceived(false);
     }
-  }, [wallet, collection.contract]);
+  }, [wallet, collection.contract, collection.metadataBase]);
 
   // ═══ FETCH BID HISTORY ═══
   const fetchBidHistory = useCallback(async () => {
@@ -413,6 +416,7 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
 
   // ═══ ACTIONS ═══
   const handleCancel = useCallback(async (bid) => {
+    if (isWrongNetwork) { addToast?.("Wrong network — please switch to Ethereum Mainnet", "error"); switchChain?.(); return; }
     setCancelling(bid.orderHash);
     addToast?.("Cancelling bid...", "info");
 
@@ -427,14 +431,17 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
       addToast?.("Failed to cancel bid. Please try again.", "error");
     }
     setCancelling(null);
-  }, [addToast]);
+  }, [addToast, isWrongNetwork, switchChain]);
 
   const handleAccept = useCallback(async (offer) => {
     if (!wallet) return;
+    if (isWrongNetwork) { addToast?.("Wrong network — please switch to Ethereum Mainnet", "error"); switchChain?.(); return; }
     setAccepting(offer.orderHash);
     addToast?.("Accepting offer...", "info");
 
-    const result = await acceptOffer(offer);
+    // Ensure tokenContract is set for NFT approval check in acceptOffer
+    const offerWithContract = { ...offer, tokenContract: offer.tokenContract || collection.contract };
+    const result = await acceptOffer(offerWithContract);
 
     if (result.success) {
       addToast?.("Offer accepted successfully!", "success");
@@ -445,7 +452,7 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
       addToast?.("Failed to accept offer. Please try again.", "error");
     }
     setAccepting(null);
-  }, [wallet, addToast]);
+  }, [wallet, addToast, collection.contract, isWrongNetwork, switchChain]);
 
   const handleCounter = useCallback((offer) => {
     // Open make offer modal for this token

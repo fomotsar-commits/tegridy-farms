@@ -124,6 +124,39 @@ export function tagAlchemyEvent(event) {
 }
 
 /**
+ * Normalize a native orderbook fill event into a NormalizedEvent.
+ * Called when the WebSocket or polling detects a newly filled native order.
+ * @param {object} order  The filled native_orders row
+ * @returns {object|null}  NormalizedEvent or null if unparseable
+ */
+export function normalizeNativeOrderEvent(order) {
+  if (!order || !order.token_id) return null;
+
+  const maker = order.maker || null;
+  const taker = order.filled_by || null;
+
+  function shortenAddrLocal(addr) {
+    if (!addr || addr.length < 10) return addr || null;
+    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+  }
+
+  return {
+    type: "sale",
+    token: { id: order.token_id, name: `#${order.token_id}` },
+    price: order.price_eth ?? null,
+    from: shortenAddrLocal(maker),
+    to: shortenAddrLocal(taker),
+    fromFull: maker,
+    toFull: taker,
+    time: order.filled_at ? new Date(order.filled_at).getTime() : Date.now(),
+    marketplace: "native",
+    hash: order.tx_hash || order.order_hash || null,
+    _live: true,
+    _source: "native",
+  };
+}
+
+/**
  * Merge two sorted-by-time-descending event arrays, deduplicating by
  * hash+tokenId composite key.
  *

@@ -3,6 +3,7 @@ import { Eth } from "./Icons";
 import { getWethBalance, getEthBalance, formatEth } from "../lib/weth";
 import { createItemOffer, createTraitOffer, createCollectionOffer, fetchMyOffers } from "../api-offers";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 
 const EXPIRATION_OPTIONS = [
   { label: "1 hour", hours: 1 },
@@ -14,6 +15,8 @@ const EXPIRATION_OPTIONS = [
 ];
 
 export default function MakeOfferModal({ nft, trait, collection, onClose, wallet, onConnect, addToast, onSuccess }) {
+  const { isWrongNetwork } = useWalletState();
+  const { switchChain } = useWalletActions();
   const activeCollection = useActiveCollection();
   const collectionName = activeCollection.name;
   const collectionSlug = activeCollection.openseaSlug || activeCollection.slug;
@@ -42,6 +45,14 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
       ? "TRAIT OFFER"
       : "MAKE OFFER";
 
+  // Reset submitting state if wallet disconnects mid-transaction
+  useEffect(() => {
+    if (!wallet && step === "submitting") {
+      setStep("input");
+      setStepLabel("");
+    }
+  }, [wallet, step]);
+
   // Load balances and active offer totals
   useEffect(() => {
     if (!wallet) return;
@@ -65,15 +76,17 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
 
   const handleSubmit = useCallback(async () => {
     if (!wallet) { onConnect?.(); return; }
+    if (isWrongNetwork) { addToast?.("Wrong network — please switch to Ethereum Mainnet", "error"); switchChain?.(); return; }
     const priceNum = parseFloat(price);
     if (!priceNum || priceNum <= 0) { addToast?.("Enter a valid price", "error"); return; }
 
     setStep("submitting");
-    setStepLabel("Checking WETH balance...");
+    setStepLabel("Preparing offer...");
 
     let result;
 
     try {
+      setStepLabel("Signing & submitting offer...");
       if (isCollectionOffer) {
         result = await createCollectionOffer({
           priceEth: priceNum,
@@ -128,7 +141,7 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
       setStep("input");
       addToast?.("Offer failed. Please try again.", "error");
     }
-  }, [wallet, onConnect, price, expiration, nft, trait, isTraitOffer, isCollectionOffer, collectionSlug, collectionContract, collectionName, addToast, onSuccess]);
+  }, [wallet, onConnect, price, expiration, nft, trait, isTraitOffer, isCollectionOffer, collectionSlug, collectionContract, collectionName, addToast, onSuccess, isWrongNetwork, switchChain]);
 
   // Close on Escape + focus trap — stopImmediatePropagation prevents parent modal from also closing
   useEffect(() => {
@@ -350,13 +363,35 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
               {infoText}
             </div>
 
+            {/* Wrong network warning */}
+            {wallet && isWrongNetwork && (
+              <div role="alert" style={{
+                fontFamily: "var(--mono)", fontSize: 11, marginBottom: 12,
+                padding: "10px 14px", borderRadius: 8,
+                background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)",
+                color: "var(--red, #f87171)", textAlign: "center", lineHeight: 1.5,
+              }}>
+                Wrong network detected.{" "}
+                <button
+                  onClick={() => switchChain?.()}
+                  style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    color: "var(--naka-blue)", textDecoration: "underline",
+                    fontFamily: "var(--mono)", fontSize: 11, padding: 0,
+                  }}
+                >
+                  Switch to Ethereum Mainnet
+                </button>
+              </div>
+            )}
+
             {/* Submit */}
             <button
               className="btn-primary"
               type="button"
               style={{ width: "100%", textAlign: "center", fontSize: 12 }}
-              disabled={step === "submitting"}
-              aria-disabled={step === "submitting"}
+              disabled={step === "submitting" || (wallet && isWrongNetwork)}
+              aria-disabled={step === "submitting" || (wallet && isWrongNetwork)}
               onClick={handleSubmit}
             >
               {step === "submitting"

@@ -259,6 +259,11 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       window.open(OPENSEA_ITEM(nft.id, collection.contract), "_blank", "noopener,noreferrer");
       return;
     }
+    // Prevent buying your own listing (Seaport would revert, wasting gas)
+    if (nft.maker && nft.maker.toLowerCase() === wallet.toLowerCase()) {
+      addToast?.("You cannot buy your own listing", "error");
+      return;
+    }
     setBuying(nft.id);
     addToast?.(`Purchasing ${collection.name} #${nft.id} for ${nft.price?.toFixed(4) ?? "?"} ETH...`, "info");
 
@@ -769,6 +774,11 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
                   )}
                   <div className="listing-card-actions">
                     {nft.orderHash && nft.price ? (
+                      wallet && nft.maker && nft.maker.toLowerCase() === wallet.toLowerCase() ? (
+                        <span className="listing-btn-buy" style={{ opacity: 0.5, cursor: "default", pointerEvents: "none" }}>
+                          Your Listing
+                        </span>
+                      ) : (
                       <button
                         className="listing-btn-buy"
                         disabled={buying === nft.id}
@@ -777,6 +787,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
                       >
                         {buying === nft.id ? "Buying..." : !wallet ? "Connect & Buy" : "Buy Now"}
                       </button>
+                      )
                     ) : (
                       <a
                         href={OPENSEA_ITEM(nft.id, collection.contract)}

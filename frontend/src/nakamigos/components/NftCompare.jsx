@@ -4,6 +4,7 @@ import { Eth } from "./Icons";
 import { fetchWalletNfts, getProvider, shortenAddress } from "../api";
 import { WETH, SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS } from "../constants";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import { createTradeOffer, getIncomingTrades, updateTradeStatus } from "../lib/userdata";
 
 const cardStyle = {
@@ -168,6 +169,8 @@ function NftSlot({ nft, label, searchValue, onSearchChange, searchResults, onSel
 
 export default function NftCompare({ tokens, onPick, wallet, onConnect, addToast }) {
   const collection = useActiveCollection();
+  const { isWrongNetwork } = useWalletState();
+  const { switchChain } = useWalletActions();
   // Left panel (your NFT)
   const [yourNft, setYourNft] = useState(null);
   const [yourSearch, setYourSearch] = useState("");
@@ -261,6 +264,7 @@ export default function NftCompare({ tokens, onPick, wallet, onConnect, addToast
   // Send trade offer via Seaport
   const handleSendTrade = useCallback(async () => {
     if (!wallet) { onConnect?.(); return; }
+    if (isWrongNetwork) { addToast?.("Wrong network — please switch to Ethereum Mainnet", "error"); switchChain?.(); return; }
     if (!yourNft || !theirNft) { addToast?.("Select both NFTs", "error"); return; }
     if (!theirNft.owner) { addToast?.("Target NFT owner unknown", "error"); return; }
 

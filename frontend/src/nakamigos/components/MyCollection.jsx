@@ -443,6 +443,10 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
           tokens={tokens}
           wallet={wallet}
           onClose={() => setBulkListOpen(false)}
+          onListingCreated={() => {
+            // Refresh listings after new listings are created
+            fetchMyListings(wallet, collection.contract).then(setListings).catch(() => {});
+          }}
           addToast={addToast}
           onConnect={onConnect}
           stats={stats}

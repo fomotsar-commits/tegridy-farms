@@ -410,37 +410,98 @@ async function fetchAlchemyActivity({ contract = CONTRACT, limit = 50, daysBack 
   };
 }
 
-export async function fetchActivity({ contract = CONTRACT, limit = 50, daysBack = 30, pageKey, signal } = {}) {
-  // Primary: OpenSea events API (live, up-to-date sale data with time filtering)
+// Fetch filled orders from native orderbook to include in activity feed
+async function fetchNativeOrderbookActivity({ contract = CONTRACT, daysBack = 30, signal } = {}) {
   try {
-    const result = await fetchOpenSeaActivity({ contract, limit, daysBack, pageKey, signal });
-    // Return even if empty — an empty result for a narrow time window is valid data
-    return result;
+    const params = new URLSearchParams({
+      action: "query",
+      contract,
+      status: "filled",
+      sort: "created_at",
+      limit: "50",
+    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    // Forward caller's abort signal
+    if (signal) signal.addEventListener("abort", () => controller.abort());
+    const res = await fetch(`/api/orderbook?${params}`, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const orders = data.orders || [];
+    const cutoff = Date.now() - daysBack * 86400 * 1000;
+    return orders
+      .filter(order => {
+        const filledAt = order.filled_at ? new Date(order.filled_at).getTime() : 0;
+        return filledAt >= cutoff;
+      })
+      .map(order => ({
+        type: "sale",
+        token: {
+          id: order.token_id,
+          name: order.token_id ? `#${order.token_id}` : "\u2014",
+        },
+        price: order.price_eth ?? null,
+        from: order.maker ? `${order.maker.slice(0, 6)}...${order.maker.slice(-4)}` : null,
+        to: order.filled_by ? `${order.filled_by.slice(0, 6)}...${order.filled_by.slice(-4)}` : null,
+        fromFull: order.maker || null,
+        toFull: order.filled_by || null,
+        time: order.filled_at ? new Date(order.filled_at).getTime() : Date.now(),
+        marketplace: "native",
+        hash: order.tx_hash || null,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchActivity({ contract = CONTRACT, limit = 50, daysBack = 30, pageKey, signal } = {}) {
+  // Fetch native orderbook sales in parallel with primary sources
+  const nativePromise = pageKey ? Promise.resolve([]) : fetchNativeOrderbookActivity({ contract, daysBack, signal });
+
+  // Primary: OpenSea events API (live, up-to-date sale data with time filtering)
+  let primaryResult = null;
+  try {
+    primaryResult = await fetchOpenSeaActivity({ contract, limit, daysBack, pageKey, signal });
   } catch (err) {
     if (err.name === "AbortError") throw err;
     console.warn("OpenSea activity unavailable, falling back to Alchemy:", err.message);
   }
 
-  // Fallback: Alchemy getNFTSales (block-based filtering)
-  try {
-    const result = await fetchAlchemyActivity({ contract, limit, daysBack, pageKey, signal });
-    if (result.activities.length > 0) return result;
-
-    // If Alchemy returned nothing for a bounded window, widen to all-time
-    if (!pageKey && daysBack < 365) {
-      const allTimeResult = await fetchAlchemyActivity({ contract, limit, daysBack: 3650, signal });
-      if (allTimeResult.activities.length > 0) return allTimeResult;
+  if (!primaryResult) {
+    // Fallback: Alchemy getNFTSales (block-based filtering)
+    try {
+      primaryResult = await fetchAlchemyActivity({ contract, limit, daysBack, pageKey, signal });
+      if (primaryResult.activities.length === 0 && !pageKey && daysBack < 365) {
+        const allTimeResult = await fetchAlchemyActivity({ contract, limit, daysBack: 3650, signal });
+        if (allTimeResult.activities.length > 0) primaryResult = allTimeResult;
+      }
+    } catch (err) {
+      if (err.name === "AbortError") throw err;
+      console.warn("Activity APIs unavailable, using fallback:", err.message);
+      if (contract.toLowerCase() === CONTRACT.toLowerCase()) {
+        primaryResult = { activities: FALLBACK_ACTIVITY, fallback: true, pageKey: null };
+      } else {
+        primaryResult = { activities: [], fallback: true, pageKey: null };
+      }
     }
-
-    return result;
-  } catch (err) {
-    if (err.name === "AbortError") throw err;
-    console.warn("Activity APIs unavailable, using fallback:", err.message);
-    if (contract.toLowerCase() === CONTRACT.toLowerCase()) {
-      return { activities: FALLBACK_ACTIVITY, fallback: true, pageKey: null };
-    }
-    return { activities: [], fallback: true, pageKey: null };
   }
+
+  // Merge native orderbook sales into the result
+  const nativeSales = await nativePromise;
+  if (nativeSales.length > 0) {
+    const seen = new Set(
+      primaryResult.activities
+        .filter(a => a.hash)
+        .map(a => a.hash.toLowerCase())
+    );
+    const unique = nativeSales.filter(a => !a.hash || !seen.has(a.hash.toLowerCase()));
+    const merged = [...primaryResult.activities, ...unique]
+      .sort((a, b) => (b.time || 0) - (a.time || 0));
+    primaryResult = { ...primaryResult, activities: merged };
+  }
+
+  return primaryResult;
 }
 
 // ═══ TOKEN SALES HISTORY (per-NFT price chart) ═══

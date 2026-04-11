@@ -2,9 +2,16 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 import { getProvider } from "../api";
-import { SEAPORT_ADDRESS } from "../constants";
+import { SEAPORT_ADDRESS, PLATFORM_FEE_BPS } from "../constants";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import EmptyState from "./EmptyState";
+
+// Compute seller revenue after platform fee
+function computeRevenue(totalPrice) {
+  if (!totalPrice || totalPrice <= 0) return 0;
+  return totalPrice - (totalPrice * PLATFORM_FEE_BPS) / 10000;
+}
 
 const REFRESH_INTERVAL = 30_000;
 
@@ -214,6 +221,8 @@ function SkeletonRows({ count = 4 }) {
 
 export default function MyListings({ wallet, onConnect, addToast, onPick, tokens, stats }) {
   const collection = useActiveCollection();
+  const { isWrongNetwork } = useWalletState();
+  const { switchChain } = useWalletActions();
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState(null);
@@ -307,6 +316,7 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
   // ═══ CANCEL SINGLE LISTING (native orderbook) ═══
   // Two-step: 1) Cancel on-chain via Seaport, 2) Update backend status
   const handleCancel = useCallback(async (listing) => {
+    if (isWrongNetwork) { addToast?.("Wrong network — please switch to Ethereum Mainnet", "error"); switchChain?.(); return; }
     const provider = getProvider();
     if (!provider) {
       addToast?.("Wallet not connected", "error");
@@ -322,14 +332,17 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
       const signer = await browserProvider.getSigner();
 
       // Step 1: Cancel on-chain via Seaport contract (invalidates the signed order)
-      if (listing.rawParameters) {
-        const seaportABI = [
-          "function cancel(tuple(address offerer, address zone, tuple(uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount)[] offer, tuple(uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount, address recipient)[] consideration, uint8 orderType, uint256 startTime, uint256 endTime, bytes32 zoneHash, uint256 salt, bytes32 conduitKey, uint256 totalOriginalConsiderationItems)[] orders) returns (bool)",
-        ];
-        const seaport = new ethers.Contract(SEAPORT_ADDRESS, seaportABI, signer);
-        const tx = await seaport.cancel([listing.rawParameters]);
-        await tx.wait();
+      if (!listing.rawParameters) {
+        addToast?.("Cannot cancel: order parameters missing. Try refreshing.", "error");
+        setCancelling(null);
+        return;
       }
+      const seaportABI = [
+        "function cancel(tuple(address offerer, address zone, tuple(uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount)[] offer, tuple(uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount, address recipient)[] consideration, uint8 orderType, uint256 startTime, uint256 endTime, bytes32 zoneHash, uint256 salt, bytes32 conduitKey, uint256 totalOriginalConsiderationItems)[] orders) returns (bool)",
+      ];
+      const seaport = new ethers.Contract(SEAPORT_ADDRESS, seaportABI, signer);
+      const tx = await seaport.cancel([listing.rawParameters]);
+      await tx.wait();
 
       // Step 2: Update native orderbook backend status
       const cancelMessage = `Cancel order ${listing.orderHash}`;
@@ -366,10 +379,11 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
     } finally {
       setCancelling(null);
     }
-  }, [addToast]);
+  }, [addToast, isWrongNetwork, switchChain]);
 
   // ═══ CANCEL ALL (increment Seaport counter) ═══
   const handleCancelAll = useCallback(async () => {
+    if (isWrongNetwork) { addToast?.("Wrong network — please switch to Ethereum Mainnet", "error"); switchChain?.(); return; }
     const provider = getProvider();
     if (!provider) {
       addToast?.("Wallet not connected", "error");
@@ -390,6 +404,26 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
       const tx = await seaport.incrementCounter();
       await tx.wait();
 
+      // Update backend: cancel each active listing so the DB stays in sync
+      for (const listing of listings) {
+        try {
+          const cancelMessage = `Cancel order ${listing.orderHash}`;
+          const cancelSignature = await signer.signMessage(cancelMessage);
+          await fetch("/api/orderbook", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "cancel",
+              orderHash: listing.orderHash,
+              signature: cancelSignature,
+            }),
+          });
+        } catch (backendErr) {
+          // Non-critical: on-chain cancel already succeeded via counter increment
+          console.warn("Backend cancel failed for", listing.orderHash, backendErr.message);
+        }
+      }
+
       addToast?.("All orders cancelled! Counter incremented.", "success");
       setListings([]);
     } catch (err) {
@@ -402,12 +436,22 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
     } finally {
       setCancellingAll(false);
     }
-  }, [addToast]);
+  }, [addToast, listings, isWrongNetwork, switchChain]);
 
   // ═══ COMPUTED ═══
-  const totalValue = useMemo(() => {
-    return listings.reduce((sum, l) => sum + (l.price || 0), 0);
+  // Filter out expired listings on the client side (server filters on fetch, but
+  // listings can expire between auto-refresh intervals)
+  const activeListings = useMemo(() => {
+    const now = Date.now();
+    return listings.filter((l) => !l.expiry || new Date(l.expiry).getTime() > now);
   }, [listings]);
+
+  const totalListedPrice = useMemo(() => {
+    return activeListings.reduce((sum, l) => sum + (l.price || 0), 0);
+  }, [activeListings]);
+  const totalRevenue = useMemo(() => {
+    return activeListings.reduce((sum, l) => sum + computeRevenue(l.price || 0), 0);
+  }, [activeListings]);
 
   // ═══ NOT CONNECTED ═══
   if (!wallet) {
@@ -438,17 +482,39 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
 
       <div style={styles.refreshNote}>Auto-refreshes every 30s</div>
 
+      {/* Wrong network warning */}
+      {isWrongNetwork && (
+        <div role="alert" style={{
+          fontFamily: "var(--mono)", fontSize: 11, marginBottom: 12,
+          padding: "10px 14px", borderRadius: 8,
+          background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)",
+          color: "var(--red, #f87171)", textAlign: "center", lineHeight: 1.5,
+        }}>
+          Wrong network detected. Cancel operations require Ethereum Mainnet.{" "}
+          <button
+            onClick={() => switchChain?.()}
+            style={{
+              background: "none", border: "none", cursor: "pointer",
+              color: "var(--naka-blue)", textDecoration: "underline",
+              fontFamily: "var(--mono)", fontSize: 11, padding: 0,
+            }}
+          >
+            Switch Network
+          </button>
+        </div>
+      )}
+
       {/* Summary Bar */}
-      {listings.length > 0 && (
+      {activeListings.length > 0 && (
         <div style={styles.summaryBar}>
           <div style={styles.summaryItem}>
             <span style={styles.summaryLabel}>Active Listings</span>
-            <span style={styles.summaryValue}>{listings.length}</span>
+            <span style={styles.summaryValue}>{activeListings.length}</span>
           </div>
           <div style={styles.summaryItem}>
-            <span style={styles.summaryLabel}>Total Listed Value</span>
+            <span style={styles.summaryLabel}>Est. Revenue</span>
             <span style={styles.summaryValue}>
-              <Eth size={12} /> {totalValue.toFixed(4)}
+              <Eth size={12} /> {totalRevenue.toFixed(4)}
             </span>
           </div>
           {floorPrice > 0 && (
@@ -479,10 +545,10 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
       {/* Listings */}
       {loading && initialLoadRef.current ? (
         <SkeletonRows count={4} />
-      ) : listings.length === 0 ? (
+      ) : activeListings.length === 0 ? (
         <EmptyState type="myListings" />
       ) : (
-        listings.map((listing) => {
+        activeListings.map((listing) => {
           const token = resolveToken(listing.tokenId);
           const name = token?.name || (listing.tokenId ? `${collection.name} #${listing.tokenId}` : "Listing");
           const image = token?.image || (listing.tokenId && collection.metadataBase ? `${collection.metadataBase}/${listing.tokenId}.png` : null)
@@ -516,8 +582,13 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
                   )}
                 </div>
               </div>
-              <div style={styles.price}>
-                <Eth size={12} /> {(listing.price || 0).toFixed(4)}
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                <div style={styles.price}>
+                  <Eth size={12} /> {computeRevenue(listing.price || 0).toFixed(4)}
+                </div>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>
+                  Listed: {(listing.price || 0).toFixed(4)}
+                </div>
               </div>
               <div style={styles.actions}>
                 <button

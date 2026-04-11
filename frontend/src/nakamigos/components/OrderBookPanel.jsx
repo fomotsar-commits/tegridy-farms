@@ -1,8 +1,11 @@
 import { useMemo, useState, useEffect, useCallback } from "react";
 import { Eth } from "./Icons";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import { fetchNativeListings, fulfillNativeOrder } from "../lib/orderbook";
-import { PLATFORM_FEE_BPS } from "../constants";
+import { recordTransaction } from "../lib/transactions";
+import { PLATFORM_FEE_BPS, SEAPORT_ADDRESS } from "../constants";
+import { getProvider } from "../api";
 
 // ═══ ORDER BOOK PANEL ═══
 // Two sections:
@@ -33,10 +36,67 @@ function formatDate(iso) {
 // ── Native Listings Table ──
 function NativeListingsTable({ wallet, onConnect, addToast }) {
   const collection = useActiveCollection();
+  const { isWrongNetwork } = useWalletState();
+  const { switchChain } = useWalletActions();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [buying, setBuying] = useState(null); // order_hash being purchased
+  const [cancelling, setCancelling] = useState(null); // order_hash being cancelled
+
+  const handleCancel = useCallback(async (order) => {
+    const provider = getProvider();
+    if (!provider) {
+      addToast?.("Wallet not connected", "error");
+      return;
+    }
+    setCancelling(order.order_hash);
+    addToast?.("Cancelling listing...", "info");
+    try {
+      const { ethers } = await import("ethers");
+      const browserProvider = new ethers.BrowserProvider(provider);
+      const signer = await browserProvider.getSigner();
+
+      // On-chain cancel via Seaport if parameters available
+      if (order.parameters) {
+        const seaportABI = [
+          "function cancel(tuple(address offerer, address zone, tuple(uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount)[] offer, tuple(uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount, address recipient)[] consideration, uint8 orderType, uint256 startTime, uint256 endTime, bytes32 zoneHash, uint256 salt, bytes32 conduitKey, uint256 totalOriginalConsiderationItems)[] orders) returns (bool)",
+        ];
+        const seaport = new ethers.Contract(order.protocol_address || SEAPORT_ADDRESS, seaportABI, signer);
+        const tx = await seaport.cancel([order.parameters]);
+        await tx.wait();
+      }
+
+      // Update backend
+      const cancelMessage = `Cancel order ${order.order_hash}`;
+      const cancelSignature = await signer.signMessage(cancelMessage);
+      try {
+        await fetch("/api/orderbook", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "cancel",
+            orderHash: order.order_hash,
+            signature: cancelSignature,
+          }),
+        });
+      } catch {
+        console.warn("Backend cancel failed (on-chain cancel succeeded)");
+      }
+
+      addToast?.("Listing cancelled!", "success");
+      setOrders((prev) => prev.filter((o) => o.order_hash !== order.order_hash));
+    } catch (err) {
+      if (err.code === 4001 || err.code === "ACTION_REJECTED") {
+        addToast?.("Cancellation declined in wallet.", "info");
+      } else {
+        console.error("Cancel error:", err);
+        addToast?.("Failed to cancel listing.", "error");
+      }
+    } finally {
+      setCancelling(null);
+    }
+  }, [addToast]);
 
   const fetchOrders = useCallback(() => {
     if (!collection?.contract) return;
@@ -67,12 +127,21 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
       onConnect?.();
       return;
     }
+    if (isWrongNetwork) { addToast?.("Wrong network — please switch to Ethereum Mainnet", "error"); switchChain?.(); return; }
     setBuying(order.order_hash);
     addToast?.(`Purchasing #${order.token_id} for ${order.price_eth} ETH via native orderbook...`, "info");
 
     const result = await fulfillNativeOrder(order);
 
     if (result.success) {
+      recordTransaction({
+        type: "buy",
+        nft: { id: order.token_id, name: `${collection.name} #${order.token_id}` },
+        price: parseFloat(order.price_eth),
+        hash: result.hash,
+        wallet,
+        slug: collection.slug,
+      });
       addToast?.(`Purchased #${order.token_id} for ${order.price_eth} ETH! Tx: ${result.hash.slice(0, 10)}...`, "success");
       // Refresh listings after successful purchase
       fetchOrders();
@@ -80,11 +149,23 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
       addToast?.("Transaction cancelled", "info");
     } else if (result.error === "insufficient") {
       addToast?.("Insufficient ETH balance", "error");
+    } else if (result.error === "expired") {
+      addToast?.("This listing has expired. Refreshing...", "error");
+      fetchOrders();
     } else {
       addToast?.(`Failed: ${result.message || "Unknown error"}`, "error");
     }
     setBuying(null);
-  }, [wallet, onConnect, addToast, fetchOrders]);
+  }, [wallet, onConnect, addToast, fetchOrders, collection, isWrongNetwork, switchChain]);
+
+  // Filter out expired orders between refresh intervals
+  const activeOrders = useMemo(() => {
+    const now = Date.now();
+    return orders.filter((o) => {
+      if (!o.end_time) return true;
+      return new Date(o.end_time).getTime() > now;
+    });
+  }, [orders]);
 
   // Fee savings calculation
   const savingsPerEth = OPENSEA_FEE_PCT - NATIVE_FEE_PCT;
@@ -168,7 +249,7 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
             : `Could not load native listings: ${error}`}
         </div>
       )}
-      {!loading && !error && orders.length === 0 && (
+      {!loading && !error && activeOrders.length === 0 && (
         <div style={{
           textAlign: "center", padding: "20px 0",
           fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)",
@@ -178,7 +259,7 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
       )}
 
       {/* Listings table */}
-      {!loading && !error && orders.length > 0 && (
+      {!loading && !error && activeOrders.length > 0 && (
         <div style={{ overflowX: "auto" }}>
           <table style={{
             width: "100%", borderCollapse: "collapse",
@@ -195,7 +276,7 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
               </tr>
             </thead>
             <tbody>
-              {orders.map(order => {
+              {activeOrders.map(order => {
                 const isBuying = buying === order.order_hash;
                 const isMine = wallet && order.maker?.toLowerCase() === wallet.toLowerCase();
                 return (
@@ -233,7 +314,24 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
                     </td>
                     <td style={{ ...tdStyle, textAlign: "center" }}>
                       {isMine ? (
-                        <span style={{ fontSize: 9, color: "var(--text-muted)" }}>Your listing</span>
+                        <button
+                          onClick={() => handleCancel(order)}
+                          disabled={cancelling === order.order_hash}
+                          style={{
+                            background: "rgba(248,113,113,0.06)",
+                            color: "var(--red)",
+                            border: "1px solid rgba(248,113,113,0.15)",
+                            borderRadius: 6,
+                            padding: "5px 12px",
+                            cursor: cancelling === order.order_hash ? "wait" : "pointer",
+                            fontFamily: "var(--mono)",
+                            fontSize: 9,
+                            letterSpacing: "0.04em",
+                            opacity: cancelling === order.order_hash ? 0.6 : 1,
+                          }}
+                        >
+                          {cancelling === order.order_hash ? "..." : "Cancel"}
+                        </button>
                       ) : (
                         <button
                           onClick={() => handleBuy(order)}

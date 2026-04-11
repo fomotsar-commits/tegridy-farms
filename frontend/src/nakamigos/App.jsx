@@ -197,11 +197,13 @@ function AppInner() {
 function LandingShell({ themeName, onCycleTheme, walletName, disconnect, children }) {
   const navigate = useNavigate();
   const { address } = useWallet();
+  const { addToast } = useToast();
   const [walletModalOpen, setWalletModalOpen] = useState(false);
 
   const handleDisconnect = useCallback(() => {
     disconnect();
-  }, [disconnect]);
+    addToast("Wallet disconnected", "info");
+  }, [disconnect, addToast]);
 
   return (
     <div style={{ minHeight: "100vh", background: "transparent", color: "var(--text)", fontFamily: "var(--display)", position: "relative" }}>
@@ -227,7 +229,7 @@ function LandingShell({ themeName, onCycleTheme, walletName, disconnect, childre
       </main>
       {walletModalOpen && (
         <Suspense fallback={null}>
-          <WalletModal onClose={() => setWalletModalOpen(false)} />
+          <WalletModal onClose={() => setWalletModalOpen(false)} addToast={addToast} />
         </Suspense>
       )}
     </div>
@@ -239,6 +241,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   const location = useLocation();
   const navigate = useNavigate();
   const { toggleMode: toggleTradingMode, isLite } = useTradingMode();
+  const { isWrongNetwork, switchChain } = useWallet();
 
   const { toasts, addToast, removeToast } = useToast();
 
@@ -664,6 +667,26 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
       />
 
       <main id="main-content" role="main">
+      {/* Global wrong-network banner */}
+      {wallet && isWrongNetwork && (
+        <div role="alert" style={{
+          fontFamily: "var(--mono)", fontSize: 12, padding: "10px 20px",
+          background: "rgba(248,113,113,0.1)", borderBottom: "1px solid rgba(248,113,113,0.25)",
+          color: "var(--red, #f87171)", textAlign: "center", lineHeight: 1.5,
+        }}>
+          You are connected to the wrong network. Please switch to Ethereum Mainnet to use marketplace features.{" "}
+          <button
+            onClick={() => switchChain?.()}
+            style={{
+              background: "none", border: "none", cursor: "pointer",
+              color: "var(--naka-blue)", textDecoration: "underline",
+              fontFamily: "var(--mono)", fontSize: 12, padding: 0,
+            }}
+          >
+            Switch Network
+          </button>
+        </div>
+      )}
       <ErrorBoundary title="Tab error" onReset={() => handleTabChange("gallery")}>
       <Suspense fallback={<LazyFallback />}>
       <PageTransition tabKey={tab}>

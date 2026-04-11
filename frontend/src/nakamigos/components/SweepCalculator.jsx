@@ -312,7 +312,7 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
     }
     setSweeping(false);
     setProgress(0);
-  }, [wallet, onConnect, filteredListings, effectiveCount, addToast, collection.name]);
+  }, [wallet, onConnect, isWrongNetwork, filteredListings, effectiveCount, addToast, collection.name, collection.slug]);
 
   const collectionLabel = collection.name || "NFTs";
   const parsedMaxPrice = parseFloat(maxPriceGuard);

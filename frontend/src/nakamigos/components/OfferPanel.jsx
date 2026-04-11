@@ -30,14 +30,16 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
 
   const handleAccept = useCallback(async (offer) => {
     if (!wallet) return;
-    if (offer.expiry && offer.expiry * 1000 < Date.now()) {
+    if (offer.expiry && (offer.expiry instanceof Date ? offer.expiry.getTime() : offer.expiry * 1000) < Date.now()) {
       addToast?.("This offer has expired", "warning");
       return;
     }
     setAccepting(offer.orderHash);
     try {
       addToast?.("Accepting offer...", "info");
-      const result = await acceptOffer(offer);
+      // Ensure tokenContract is set for NFT approval check in acceptOffer
+      const offerWithContract = { ...offer, tokenContract: offer.tokenContract || collection.contract };
+      const result = await acceptOffer(offerWithContract);
       if (result.success) {
         addToast?.("Offer accepted successfully!", "success");
       } else if (result.error === "rejected") {
@@ -50,7 +52,7 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
     } finally {
       setAccepting(null);
     }
-  }, [wallet, addToast]);
+  }, [wallet, addToast, collection.contract]);
 
   const timeLeft = (expiry) => {
     if (!expiry) return "";

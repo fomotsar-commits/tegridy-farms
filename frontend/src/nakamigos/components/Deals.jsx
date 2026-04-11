@@ -645,10 +645,11 @@ export default function Deals({
         addToast(`Purchased #${nft.id} for ${nft.price.toFixed(4)} ETH`, "success");
         recordTransaction({
           type: "buy",
-          tokenId: nft.id,
+          nft,
           price: nft.price,
           hash: result.hash,
-          collection: collection.slug,
+          wallet,
+          slug: collection.slug,
         });
       } else if (result.error === "rejected") {
         addToast("Transaction rejected", "info");
