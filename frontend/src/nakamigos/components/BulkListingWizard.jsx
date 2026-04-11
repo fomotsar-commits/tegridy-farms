@@ -148,7 +148,7 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
       const sorted = [...selectedNfts].sort((a, b) => (a.rank || 99999) - (b.rank || 99999));
       const count = sorted.length;
       sorted.forEach((nft, i) => {
-        const price = count <= 1 ? start : end - ((end - start) * i) / (count - 1);
+        const price = count <= 1 ? start : start + ((end - start) * i) / (count - 1);
         prices[nft.id] = +price.toFixed(6);
       });
     }
@@ -505,7 +505,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, onListingCr
       const sorted = [...selectedNfts].sort((a, b) => (a.rank || 99999) - (b.rank || 99999));
       const count = sorted.length;
       sorted.forEach((nft, i) => {
-        const price = count <= 1 ? start : end - ((end - start) * i) / (count - 1);
+        const price = count <= 1 ? start : start + ((end - start) * i) / (count - 1);
         prices[nft.id] = +price.toFixed(6);
       });
     }

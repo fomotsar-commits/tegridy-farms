@@ -151,7 +151,7 @@ export default async function handler(req, res) {
         });
         const sales = (data.nftSales || []).map(s => ({
           tokenId: s.tokenId,
-          price: s.sellerFee?.amount ? Number(BigInt(s.sellerFee.amount) / BigInt(1e14)) / 1e4 : null,
+          price: s.sellerFee?.amount ? Number(BigInt(s.sellerFee.amount) * 10000n / BigInt(1e18)) / 10000 : null,
           from: s.sellerAddress,
           to: s.buyerAddress,
           marketplace: s.marketplace,

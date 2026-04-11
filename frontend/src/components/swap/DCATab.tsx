@@ -75,7 +75,7 @@ export function DCATab() {
         <label htmlFor="dca-total-swaps" className="text-white/40 text-[11px] mb-1.5 block">Number of Swaps</label>
         <input id="dca-total-swaps" type="number" inputMode="numeric" value={totalSwaps} onChange={e => setTotalSwaps(e.target.value)}
           placeholder="30" min="1" max="365"
-          onBlur={() => { const v = parseInt(totalSwaps); if (v > 365) setTotalSwaps('365'); if (v < 1) setTotalSwaps('1'); }}
+          onBlur={() => { const v = parseInt(totalSwaps); if (isNaN(v) || v < 1) setTotalSwaps('1'); else if (v > 365) setTotalSwaps('365'); }}
           className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
           style={{ border: '1px solid rgba(255,255,255,0.06)' }} />
       </div>

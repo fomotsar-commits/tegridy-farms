@@ -298,7 +298,9 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
     const prices = listedNfts.map(l => l.price).filter(Boolean);
     if (prices.length === 0) return null;
     const avg = prices.reduce((s, p) => s + p, 0) / prices.length;
-    const median = [...prices].sort((a, b) => a - b)[Math.floor(prices.length / 2)];
+    const sorted = [...prices].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
     return { avg, median, min: Math.min(...prices), max: Math.max(...prices) };
   }, [listedNfts, hasRealListings]);
 

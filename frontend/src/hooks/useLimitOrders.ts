@@ -210,11 +210,12 @@ export function useLimitOrders() {
       revertOrderStatus(order.id);
       return;
     }
-    // Use BigInt math to avoid floating-point precision loss on large values
-    const targetPriceBps = BigInt(Math.round(targetPriceNum * 10000));
-    const amountBps = BigInt(Math.round(amountNum * 10000));
-    const expectedOutRaw = (targetPriceBps * amountBps) / 10000n;
-    const expectedOut = expectedOutRaw * (10n ** BigInt(order.toToken.decimals)) / 10000n;
+    // Use BigInt math to avoid floating-point precision loss on large values.
+    // Scale both values by 1e8 for precision, multiply, then divide by 1e8 to normalize.
+    const PRECISION = 100000000n; // 1e8
+    const targetPriceScaled = BigInt(Math.round(targetPriceNum * 1e8));
+    const amountScaled = BigInt(Math.round(amountNum * 1e8));
+    const expectedOut = (targetPriceScaled * amountScaled / PRECISION) * (10n ** BigInt(order.toToken.decimals)) / PRECISION;
     const minOut = expectedOut - (expectedOut * SLIPPAGE_BPS / 10000n);
 
     sendNotification(

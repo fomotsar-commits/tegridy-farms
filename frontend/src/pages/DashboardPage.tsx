@@ -325,7 +325,7 @@ export default function DashboardPage() {
                 </div>
                 <div>
                   <p className="text-white/30 text-[10px] mb-0.5">Voting Power</p>
-                  <AnimatedCounter value={stakedTotal * pos.boostMultiplier} decimals={0} className="stat-value text-[14px] text-white" />
+                  <AnimatedCounter value={pos.isLocked ? stakedTotal * pos.boostMultiplier : 0} decimals={0} className="stat-value text-[14px] text-white" />
                 </div>
               </div>
               <div className="flex items-center gap-2 mt-4">
@@ -361,7 +361,7 @@ export default function DashboardPage() {
         {pos.hasPosition && (
           <motion.div className="mb-10" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h3 className="heading-luxury text-[16px] text-white mb-4">Earnings Projection</h3>
-            <Projections staked={stakedTotal} apr={parseFloat(pool.apr)} price={price.priceInUsd} boost={pos.boostMultiplier} />
+            <Projections staked={stakedTotal} apr={parseFloat(pool.apr) || 0} price={price.priceInUsd} boost={pos.boostMultiplier} />
           </motion.div>
         )}
 

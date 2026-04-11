@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { LP_FARMING_ABI, ERC20_ABI } from '../lib/contracts';
 import { LP_FARMING_ADDRESS, TEGRIDY_LP_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
 
-const ZERO_ADDR = '0x0000000000000000000000000000000000000001' as const;
+const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
 
 export function useLPFarming() {
   const { address } = useAccount();

@@ -15,7 +15,7 @@ export function ILCalculator() {
   // Example with $1000 deposit
   const deposit = 1000;
   const holdValue = deposit * (1 + (rPositive - 1) / 2); // 50% in each token, one changed
-  const lpValue = deposit * (1 + il) * (1 + (rPositive - 1) / 2);
+  const lpValue = deposit * (1 + il);
 
   return (
     <div className="mt-4">

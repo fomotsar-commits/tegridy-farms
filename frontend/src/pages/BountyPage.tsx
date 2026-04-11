@@ -188,7 +188,7 @@ function BountyRow({ id }: { id: number }) {
   });
 
   if (!data) return null;
-  const [creator, description, reward, deadline, winner, submCount, status] = data as [string, string, bigint, bigint, string, bigint, number, bigint];
+  const [creator, description, reward, deadline, winner, submCount, status, /* escrow */] = data as [string, string, bigint, bigint, string, bigint, number, bigint];
 
   const isOpen = status === 0;
   const daysLeft = Math.max(0, Math.ceil((Number(deadline) - Date.now() / 1000) / 86400));
