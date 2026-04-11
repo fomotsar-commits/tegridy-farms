@@ -459,31 +459,25 @@ export function useSwap() {
         const slippageBps = BigInt(Math.round(slippage * 100));
         return onChainOutput - (onChainOutput * slippageBps) / 10000n;
       })();
-      const aggRouter = selectedOnChainRoute.source === 'tegridy' ? TEGRIDY_ROUTER_ADDRESS : SWAP_FEE_ROUTER_ADDRESS;
-      const aggAbi = selectedOnChainRoute.source === 'tegridy' ? TEGRIDY_ROUTER_ABI : SWAP_FEE_ROUTER_ABI;
-      const aggExtraArgs = selectedOnChainRoute.source === 'tegridy' ? [] : [100n];
-      if (swapType === 'ethForTokens') {
-        writeContract({
-          address: aggRouter,
-          abi: aggAbi,
-          functionName: 'swapExactETHForTokens',
-          args: [onChainMin, path, address, deadlineTs, ...aggExtraArgs],
-          value: parsedAmount,
-        });
-      } else if (swapType === 'tokensForEth') {
-        writeContract({
-          address: aggRouter,
-          abi: aggAbi,
-          functionName: 'swapExactTokensForETH',
-          args: [parsedAmount, onChainMin, path, address, deadlineTs, ...aggExtraArgs],
-        });
+      if (selectedOnChainRoute.source === 'tegridy') {
+        // Route through TegridyRouter (no maxFeeBps param)
+        if (swapType === 'ethForTokens') {
+          writeContract({ address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactETHForTokens', args: [onChainMin, path, address, deadlineTs], value: parsedAmount });
+        } else if (swapType === 'tokensForEth') {
+          writeContract({ address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactTokensForETH', args: [parsedAmount, onChainMin, path, address, deadlineTs] });
+        } else {
+          writeContract({ address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactTokensForTokens', args: [parsedAmount, onChainMin, path, address, deadlineTs] });
+        }
       } else {
-        writeContract({
-          address: aggRouter,
-          abi: aggAbi,
-          functionName: 'swapExactTokensForTokens',
-          args: [parsedAmount, onChainMin, path, address, deadlineTs, ...aggExtraArgs],
-        });
+        // Route through SwapFeeRouter (includes maxFeeBps)
+        const maxFeeBps = 100n;
+        if (swapType === 'ethForTokens') {
+          writeContract({ address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactETHForTokens', args: [onChainMin, path, address, deadlineTs, maxFeeBps], value: parsedAmount });
+        } else if (swapType === 'tokensForEth') {
+          writeContract({ address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForETH', args: [parsedAmount, onChainMin, path, address, deadlineTs, maxFeeBps] });
+        } else {
+          writeContract({ address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForTokens', args: [parsedAmount, onChainMin, path, address, deadlineTs, maxFeeBps] });
+        }
       }
     } else if (selectedRoute === 'tegridy') {
       // Route through TegridyRouter (standard Uni V2 interface, no maxFeeBps)
