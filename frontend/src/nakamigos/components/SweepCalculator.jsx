@@ -1,7 +1,9 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { Eth } from "./Icons";
 import { fulfillSeaportOrder } from "../api";
+import { recordTransaction } from "../lib/transactions";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { useWallet } from "../contexts/WalletContext";
 
 // Rough gas estimate per Seaport fulfillment (~150k gas units)
 const GAS_PER_FILL = 150_000n;
@@ -113,6 +115,7 @@ function FloorDepthChart({ tiers, sweepUpToPrice, maxPriceGuard }) {
 
 export default function SweepCalculator({ stats, listings, wallet, onConnect, addToast }) {
   const collection = useActiveCollection();
+  const { isWrongNetwork } = useWallet();
   const [count, setCount] = useState(5);
   const [sweeping, setSweeping] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -264,6 +267,10 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
       onConnect?.();
       return;
     }
+    if (isWrongNetwork) {
+      addToast?.("Wrong network — please switch to Ethereum Mainnet", "error");
+      return;
+    }
     if (filteredListings.length === 0) return;
 
     const sweepList = filteredListings.slice(0, effectiveCount).filter(l => l.orderHash);
@@ -284,6 +291,7 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
 
       if (result.success) {
         bought++;
+        recordTransaction({ type: "buy", nft, price: nft.price, hash: result.hash, wallet, slug: collection.slug });
       } else if (result.error === "rejected") {
         addToast?.(`Sweep stopped — cancelled at #${i + 1}`, "info");
         break;

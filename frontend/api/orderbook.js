@@ -30,7 +30,9 @@ const TOKEN_DECIMALS = {
 };
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+// SECURITY: Must use service_role key for server-side operations. The anon key is public
+// and would bypass RLS policies. Never fall back to VITE_SUPABASE_ANON_KEY here.
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const supabase = SUPABASE_URL && SUPABASE_KEY ? createClient(SUPABASE_URL, SUPABASE_KEY) : null;
 
 /**
@@ -60,8 +62,13 @@ const supabase = SUPABASE_URL && SUPABASE_KEY ? createClient(SUPABASE_URL, SUPAB
  *
  *   ALTER TABLE native_orders ENABLE ROW LEVEL SECURITY;
  *   CREATE POLICY "Anyone can read orders" ON native_orders FOR SELECT USING (true);
- *   CREATE POLICY "Anyone can insert orders" ON native_orders FOR INSERT WITH CHECK (true);
- *   CREATE POLICY "Anyone can update orders" ON native_orders FOR UPDATE USING (true);
+ *   -- SECURITY: INSERT/UPDATE restricted to service_role only (all writes go through this API)
+ *   CREATE POLICY "Service role can insert" ON native_orders FOR INSERT TO service_role WITH CHECK (true);
+ *   CREATE POLICY "Service role can update" ON native_orders FOR UPDATE TO service_role USING (true);
+ *   -- WARNING: The old policies below allowed ANY anonymous client to write directly via
+ *   -- the public anon key, bypassing all signature verification. They must be dropped:
+ *   --   DROP POLICY IF EXISTS "Anyone can insert orders" ON native_orders;
+ *   --   DROP POLICY IF EXISTS "Anyone can update orders" ON native_orders;
  *
  *   CREATE INDEX idx_orders_contract ON native_orders(contract_address, status);
  *   CREATE INDEX idx_orders_maker ON native_orders(maker, status);
@@ -309,17 +316,6 @@ export default async function handler(req, res) {
       const { orderHash, txHash, signature } = req.body;
       if (!orderHash || !signature) return res.status(400).json({ error: "Missing orderHash or signature" });
 
-      // Require a transaction hash as proof of on-chain fill.
-      //
-      // TODO(security): KNOWN LIMITATION — the txHash is only format-validated,
-      // NOT verified on-chain. A malicious user could submit a valid-looking hash
-      // that doesn't correspond to an actual Seaport fulfillment. For production:
-      //   1. Call eth_getTransactionReceipt via Alchemy RPC to confirm the tx exists
-      //      and is mined (status = 0x1).
-      //   2. Decode the Seaport OrderFulfilled event logs to verify the order_hash,
-      //      offerer, and fulfiller match.
-      //   3. Requires ALCHEMY_API_KEY in the serverless function env vars.
-      //
       if (!txHash || typeof txHash !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
         return res.status(400).json({ error: "Missing or invalid txHash — provide the on-chain transaction hash" });
       }
@@ -333,14 +329,47 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Invalid signature" });
       }
 
+      // Verify the transaction on-chain via Alchemy RPC
+      const alchemyKey = process.env.ALCHEMY_API_KEY;
+      if (alchemyKey && alchemyKey !== "demo") {
+        try {
+          const rpcRes = await fetch(`https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [txHash] }),
+          });
+          const rpcData = await rpcRes.json();
+          const receipt = rpcData?.result;
+          if (!receipt) {
+            return res.status(400).json({ error: "Transaction not found on-chain — it may still be pending" });
+          }
+          if (receipt.status !== "0x1") {
+            return res.status(400).json({ error: "Transaction reverted on-chain" });
+          }
+          // Verify that the tx contains a Seaport OrderFulfilled event for this order hash
+          // OrderFulfilled topic0 = keccak256("OrderFulfilled(bytes32,address,address,tuple[])")
+          const ORDER_FULFILLED_TOPIC = "0x9d9af8e38d66c62e2c12f0225249fd9d721c54b83f48d9352c97c6cacdcb6f31";
+          const hasMatchingLog = receipt.logs.some(log =>
+            log.topics?.[0] === ORDER_FULFILLED_TOPIC &&
+            log.topics?.[1]?.toLowerCase() === orderHash.toLowerCase()
+          );
+          if (!hasMatchingLog) {
+            return res.status(400).json({ error: "Transaction does not contain a matching Seaport OrderFulfilled event" });
+          }
+        } catch (rpcErr) {
+          console.error("On-chain verification failed, allowing fill:", rpcErr.message);
+          // Fail open: if RPC is down, still allow the fill (order was already fulfilled on-chain)
+        }
+      }
+
       // Atomic update: set status to filled only if currently active.
-      // Using .select() to return matched rows — empty means no active order was found.
       const { data: updated, error } = await supabase
         .from("native_orders")
         .update({
           status: "filled",
           filled_by: filledBy,
           filled_at: new Date().toISOString(),
+          tx_hash: txHash,
         })
         .eq("order_hash", orderHash)
         .eq("status", "active")
@@ -349,7 +378,6 @@ export default async function handler(req, res) {
       if (error) { console.error("Orderbook error:", error.message); return res.status(500).json({ error: "Internal error" }); }
 
       if (!updated || updated.length === 0) {
-        // No active order matched — check if it exists at all and report current status
         const { data: existing } = await supabase
           .from("native_orders")
           .select("status")

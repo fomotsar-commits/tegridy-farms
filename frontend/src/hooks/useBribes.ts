@@ -96,16 +96,18 @@ export function useBribes() {
     });
   }
 
-  // Toast feedback
+  // Toast feedback — defer reset() to next tick so isSuccess is readable by consumers this render
   useEffect(() => {
     if (isSuccess) {
       toast.success('Bribe transaction confirmed!');
       refetch();
-      reset();
+      const t = setTimeout(reset, 0);
+      return () => clearTimeout(t);
     }
     if (isTxError || writeError) {
       toast.error('Transaction failed');
-      reset();
+      const t = setTimeout(reset, 0);
+      return () => clearTimeout(t);
     }
   }, [isSuccess, isTxError, writeError, refetch, reset]);
 

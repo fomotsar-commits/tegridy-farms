@@ -702,7 +702,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, addToast, o
                 endAmount: "1",
               }],
               consideration,
-              orderType: 0,
+              orderType: 2, // FULL_OPEN_VIA_CONDUIT — required when using conduitKey
               startTime: String(now),
               endTime: String(endTime),
               zoneHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -718,7 +718,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, addToast, o
             setSubmitProgress(((i + 0.7) / selectedNfts.length) * 100);
 
             await openseaPost("orders/ethereum/seaport/listings", {
-              parameters: { ...orderParameters, totalOriginalConsiderationItems: orderParameters.consideration.length },
+              parameters: { ...orderParameters, counter: counter.toString(), totalOriginalConsiderationItems: orderParameters.consideration.length },
               signature,
               protocol_address: SEAPORT_ADDRESS,
             });
@@ -741,6 +741,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, addToast, o
 
         if (successCount > 0) {
           addToast?.(`${successCount} NFT${successCount > 1 ? "s" : ""} listed on OpenSea!${failCount > 0 ? ` (${failCount} failed)` : ""}`, "success");
+          setSubmitting(false);
           setDone(true);
         } else {
           addToast?.("No listings were created.", "error");
@@ -782,6 +783,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, addToast, o
 
         if (successCount > 0) {
           addToast?.(`${successCount} NFT${successCount > 1 ? "s" : ""} listed on native orderbook!${failCount > 0 ? ` (${failCount} failed)` : ""}`, "success");
+          setSubmitting(false);
           setDone(true);
         } else {
           addToast?.("No listings were created.", "error");

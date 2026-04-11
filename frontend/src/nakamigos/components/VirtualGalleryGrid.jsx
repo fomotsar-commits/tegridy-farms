@@ -130,10 +130,10 @@ export default function VirtualGalleryGrid({
 
   const virtualRows = virtualizer.getVirtualItems();
 
-  // Reset load-more guard when new data arrives (rowCount changes)
+  // Reset load-more guard when new data arrives (rowCount changes) or loading finishes
   useEffect(() => {
     loadMoreCalledRef.current = false;
-  }, [rowCount]);
+  }, [rowCount, loading]);
 
   // Infinite scroll — trigger onLoadMore near the bottom (with guard to prevent repeated calls)
   useEffect(() => {

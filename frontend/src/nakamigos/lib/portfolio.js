@@ -248,19 +248,25 @@ export async function calculatePnL(wallet, collection, heldTokens) {
 
 // ── Portfolio value snapshots (for the value-over-time chart) ──
 
-const SNAPSHOT_KEY = "portfolio_snapshots";
+const SNAPSHOT_BASE_KEY = "portfolio_snapshots";
 const MAX_SNAPSHOTS = 90; // 90 days of daily snapshots
 
-export function loadSnapshots() {
+function snapshotKey(wallet, collection) {
+  const w = (wallet || "unknown").toLowerCase();
+  const c = (collection || "unknown").toLowerCase();
+  return `${SNAPSHOT_BASE_KEY}_${w}_${c}`;
+}
+
+export function loadSnapshots(wallet, collection) {
   try {
-    return JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || "[]");
+    return JSON.parse(localStorage.getItem(snapshotKey(wallet, collection)) || "[]");
   } catch { return []; }
 }
 
-export function saveSnapshot(totalValue) {
-  if (totalValue == null || !isFinite(totalValue)) return;
+export function saveSnapshot(totalValue, wallet, collection) {
+  if (totalValue == null || !isFinite(totalValue) || !wallet) return;
 
-  const snapshots = loadSnapshots();
+  const snapshots = loadSnapshots(wallet, collection);
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
   // Only one snapshot per day
@@ -275,6 +281,6 @@ export function saveSnapshot(totalValue) {
   while (snapshots.length > MAX_SNAPSHOTS) snapshots.shift();
 
   try {
-    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshots));
+    localStorage.setItem(snapshotKey(wallet, collection), JSON.stringify(snapshots));
   } catch { /* quota */ }
 }

@@ -90,6 +90,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
   const [sortBy, setSortBy] = useState("price-asc");
   const [saleSortBy, setSaleSortBy] = useState("time-desc");
   const [maxPrice, setMaxPrice] = useState("");
+  const [purchasedIds, setPurchasedIds] = useState(new Set());
 
   // Batch selection state
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -150,7 +151,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
   const listedNfts = useMemo(() => {
     if (!listings || listings.length === 0) return [];
 
-    return listings.map(listing => {
+    return listings.filter(listing => !purchasedIds.has(String(listing.tokenId))).map(listing => {
       const token = allTokens.get(String(listing.tokenId));
       const fullResImg = collection.metadataBase
         ? `${collection.metadataBase}/${listing.tokenId}.png`
@@ -174,7 +175,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
         protocolAddress: listing.protocolAddress,
       };
     });
-  }, [listings, allTokens, collection]);
+  }, [listings, allTokens, collection, purchasedIds]);
 
   // Recent sales for fallback display (deduplicated by token ID, most recent sale per token)
   const recentSales = useMemo(() => {
@@ -261,6 +262,8 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
     if (result.success) {
       recordTransaction({ type: "buy", nft, price: nft.price, hash: result.hash, wallet, slug: collection.slug });
       addToast?.(`Successfully purchased ${collection.name} #${nft.id}!`, "success");
+      // Remove purchased NFT from display immediately to prevent stale listing
+      setPurchasedIds(prev => new Set([...prev, String(nft.id)]));
     } else if (result.error === "rejected") {
       addToast?.("Transaction cancelled", "info");
     } else if (result.error === "insufficient") {

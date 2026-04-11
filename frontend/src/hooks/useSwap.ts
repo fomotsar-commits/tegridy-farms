@@ -449,7 +449,43 @@ export function useSwap() {
     if (!address || !fromToken || !toToken || parsedAmount === 0n || insufficientBalance || !swapType) return;
     const deadlineTs = BigInt(Math.floor(Date.now() / 1000) + deadline * 60);
 
-    if (selectedRoute === 'tegridy') {
+    if (selectedRoute === 'aggregator') {
+      // Aggregator route: use the best on-chain route with on-chain minimumReceived
+      // The aggregator is used for price discovery only — execution goes through our routers
+      // Recalculate minimumReceived from the on-chain output to avoid reverts
+      const onChainMin = (() => {
+        const onChainOutput = selectedOnChainRoute.output;
+        if (onChainOutput === 0n) return minimumReceived;
+        const slippageBps = BigInt(Math.round(slippage * 100));
+        return onChainOutput - (onChainOutput * slippageBps) / 10000n;
+      })();
+      const aggRouter = selectedOnChainRoute.source === 'tegridy' ? TEGRIDY_ROUTER_ADDRESS : SWAP_FEE_ROUTER_ADDRESS;
+      const aggAbi = selectedOnChainRoute.source === 'tegridy' ? TEGRIDY_ROUTER_ABI : SWAP_FEE_ROUTER_ABI;
+      const aggExtraArgs = selectedOnChainRoute.source === 'tegridy' ? [] : [100n];
+      if (swapType === 'ethForTokens') {
+        writeContract({
+          address: aggRouter,
+          abi: aggAbi,
+          functionName: 'swapExactETHForTokens',
+          args: [onChainMin, path, address, deadlineTs, ...aggExtraArgs],
+          value: parsedAmount,
+        });
+      } else if (swapType === 'tokensForEth') {
+        writeContract({
+          address: aggRouter,
+          abi: aggAbi,
+          functionName: 'swapExactTokensForETH',
+          args: [parsedAmount, onChainMin, path, address, deadlineTs, ...aggExtraArgs],
+        });
+      } else {
+        writeContract({
+          address: aggRouter,
+          abi: aggAbi,
+          functionName: 'swapExactTokensForTokens',
+          args: [parsedAmount, onChainMin, path, address, deadlineTs, ...aggExtraArgs],
+        });
+      }
+    } else if (selectedRoute === 'tegridy') {
       // Route through TegridyRouter (standard Uni V2 interface, no maxFeeBps)
       if (swapType === 'ethForTokens') {
         writeContract({

@@ -69,8 +69,9 @@ export async function fulfillNativeOrder(order) {
     );
 
     // Build the Seaport fulfillOrder calldata
+    // Seaport's fulfillOrder takes an Order struct = { parameters: OrderParameters, signature: bytes }
     const seaportAbi = [
-      "function fulfillOrder((address offerer, address zone, (uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount)[] offer, (uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount, address recipient)[] consideration, uint8 orderType, uint256 startTime, uint256 endTime, bytes32 zoneHash, uint256 salt, bytes32 conduitKey, uint256 totalOriginalConsiderationItems) order, bytes32 fulfillerConduitKey) payable returns (bool fulfilled)",
+      "function fulfillOrder(((address offerer, address zone, (uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount)[] offer, (uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount, address recipient)[] consideration, uint8 orderType, uint256 startTime, uint256 endTime, bytes32 zoneHash, uint256 salt, bytes32 conduitKey, uint256 totalOriginalConsiderationItems) parameters, bytes signature) order, bytes32 fulfillerConduitKey) payable returns (bool fulfilled)",
     ];
     const seaport = new ethers.Contract(
       order.protocol_address || SEAPORT_ADDRESS,
@@ -105,9 +106,9 @@ export async function fulfillNativeOrder(order) {
       totalOriginalConsiderationItems: params.totalOriginalConsiderationItems || params.consideration.length,
     };
 
-    // Send the fulfillOrder transaction
+    // Send the fulfillOrder transaction — wrap parameters + signature into Order struct
     const tx = await seaport.fulfillOrder(
-      orderStruct,
+      { parameters: orderStruct, signature: order.seaportSignature || order.signature },
       "0x0000000000000000000000000000000000000000000000000000000000000000", // no conduit for buyer
       { value: totalWei }
     );
@@ -213,7 +214,7 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
           recipient: PLATFORM_FEE_RECIPIENT,
         },
       ],
-      orderType: 0, // FULL_OPEN
+      orderType: 2, // FULL_OPEN_VIA_CONDUIT — required when using conduitKey
       startTime: String(now),
       endTime: String(endTime),
       zoneHash: "0x0000000000000000000000000000000000000000000000000000000000000000",

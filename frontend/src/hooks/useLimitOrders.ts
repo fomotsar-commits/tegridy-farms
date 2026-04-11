@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAccount, useWriteContract, usePublicClient } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { toast } from 'sonner';
-import { SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI } from '../lib/contracts';
+import { SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI, ERC20_ABI } from '../lib/contracts';
 import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, WETH_ADDRESS } from '../lib/constants';
 
 export interface LimitOrder {
@@ -223,6 +223,27 @@ export function useLimitOrders() {
     });
 
     const isFromNative = order.fromToken.isNative || order.fromToken.address.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+
+    // Check ERC-20 allowance before attempting swap (non-native tokens only)
+    if (!isFromNative) {
+      try {
+        const allowance = await publicClient.readContract({
+          address: order.fromToken.address as `0x${string}`,
+          abi: ERC20_ABI,
+          functionName: 'allowance',
+          args: [address, SWAP_FEE_ROUTER_ADDRESS],
+        }) as bigint;
+        if (allowance < parsedAmount) {
+          toast.error(`Limit order: Insufficient ${order.fromToken.symbol} approval. Please approve the token first.`);
+          revertOrderStatus(order.id);
+          return;
+        }
+      } catch {
+        toast.error(`Limit order: Could not check ${order.fromToken.symbol} allowance.`);
+        revertOrderStatus(order.id);
+        return;
+      }
+    }
 
     try {
       if (isFromNative) {

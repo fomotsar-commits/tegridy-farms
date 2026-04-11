@@ -94,18 +94,18 @@ export function usePremiumAccess() {
     });
   }
 
-  // Toast feedback
+  // Toast feedback — defer reset to next tick so isSuccess is readable by consumers this render
   useEffect(() => {
     if (isSuccess) {
       toast.success('Transaction confirmed!');
       refetch();
-      resetApprove();
-      resetAction();
+      const t = setTimeout(() => { resetApprove(); resetAction(); }, 0);
+      return () => clearTimeout(t);
     }
     if (isTxError || writeError) {
       toast.error('Transaction failed');
-      resetApprove();
-      resetAction();
+      const t = setTimeout(() => { resetApprove(); resetAction(); }, 0);
+      return () => clearTimeout(t);
     }
   }, [isSuccess, isTxError, writeError, refetch, resetApprove, resetAction]);
 

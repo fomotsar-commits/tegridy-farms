@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAccount, useWriteContract, usePublicClient } from 'wagmi';
 import { parseUnits } from 'viem';
 import { toast } from 'sonner';
-import { SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI } from '../lib/contracts';
+import { SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI, ERC20_ABI } from '../lib/contracts';
 import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, WETH_ADDRESS } from '../lib/constants';
 
 export interface DCASchedule {
@@ -162,7 +162,7 @@ export function useDCA() {
       ...schedule,
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       createdAt: Date.now(),
-      lastSwapAt: 0,
+      lastSwapAt: Date.now(), // prevent immediate first execution; first swap after one full interval
       completedSwaps: 0,
       status: 'active',
     };
@@ -242,6 +242,27 @@ export function useDCA() {
     });
 
     const isFromNative = schedule.fromToken.isNative || schedule.fromToken.address.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+
+    // Check ERC-20 allowance before attempting swap (non-native tokens only)
+    if (!isFromNative) {
+      try {
+        const allowance = await publicClient.readContract({
+          address: schedule.fromToken.address as `0x${string}`,
+          abi: ERC20_ABI,
+          functionName: 'allowance',
+          args: [address, SWAP_FEE_ROUTER_ADDRESS],
+        }) as bigint;
+        if (allowance < parsedAmount) {
+          executingRef.current.delete(schedule.id);
+          toast.error(`DCA: Insufficient ${schedule.fromToken.symbol} approval for SwapFeeRouter. Please approve the token first.`);
+          return;
+        }
+      } catch {
+        executingRef.current.delete(schedule.id);
+        toast.error(`DCA: Could not check ${schedule.fromToken.symbol} allowance. Swap skipped.`);
+        return;
+      }
+    }
 
     try {
       if (isFromNative) {

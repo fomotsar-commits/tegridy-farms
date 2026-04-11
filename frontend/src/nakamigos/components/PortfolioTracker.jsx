@@ -129,7 +129,7 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
   const [tokens, setTokens] = useState([]);
   const [stats, setStats] = useState(null);
   const [expandedCollection, setExpandedCollection] = useState(false);
-  const [snapshots, setSnapshots] = useState(() => loadSnapshots());
+  const [snapshots, setSnapshots] = useState(() => loadSnapshots(wallet, collection.contract));
   const genRef = useRef(0);
 
   const loadPortfolio = useCallback(async () => {
@@ -173,8 +173,8 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
 
       // Save daily snapshot
       if (result.currentValue > 0) {
-        saveSnapshot(result.currentValue);
-        setSnapshots(loadSnapshots());
+        saveSnapshot(result.currentValue, wallet, collection.contract);
+        setSnapshots(loadSnapshots(wallet, collection.contract));
       }
     } catch (err) {
       if (gen !== genRef.current) return;

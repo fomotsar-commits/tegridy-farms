@@ -97,29 +97,28 @@ export default function useNfts({ onChainSupply } = {}) {
     return () => clearTimeout(timer);
   }, [hasMore, loading, tokens.length, load, collection.supply]);
 
-  const loadingAllRef = useRef(false);
+  const [loadingAll, setLoadingAll] = useState(false);
 
   const loadAll = useCallback(() => {
-    if (loadingAllRef.current) return;
-    loadingAllRef.current = true;
+    setLoadingAll(true);
   }, []);
 
   // Continuously load pages while loadAll has been requested
   useEffect(() => {
-    if (!loadingAllRef.current) return;
+    if (!loadingAll) return;
     if (!hasMore || loading) {
-      if (!hasMore) loadingAllRef.current = false;
+      if (!hasMore) setLoadingAll(false);
       return;
     }
     if (!abortRef.current || abortRef.current.signal.aborted) {
-      loadingAllRef.current = false;
+      setLoadingAll(false);
       return;
     }
     const timer = setTimeout(() => {
       load(false, abortRef.current?.signal);
     }, 200);
     return () => clearTimeout(timer);
-  }, [hasMore, loading, load, tokens.length]);
+  }, [hasMore, loading, load, tokens.length, loadingAll]);
 
   const changeFilter = useCallback((filters) => {
     setActiveFilters(filters);

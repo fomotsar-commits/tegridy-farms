@@ -69,16 +69,18 @@ export function useRevenueStats() {
     });
   }
 
-  // Toast feedback
+  // Toast feedback — defer reset to next tick so isSuccess is readable by consumers this render
   useEffect(() => {
     if (isSuccess) {
       toast.success('Transaction confirmed!');
       refetch();
-      resetClaim();
+      const t = setTimeout(resetClaim, 0);
+      return () => clearTimeout(t);
     }
     if (isTxError || writeError) {
       toast.error('Transaction failed');
-      resetClaim();
+      const t = setTimeout(resetClaim, 0);
+      return () => clearTimeout(t);
     }
   }, [isSuccess, isTxError, writeError, refetch, resetClaim]);
 

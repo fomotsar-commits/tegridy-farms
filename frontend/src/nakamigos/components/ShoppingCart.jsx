@@ -6,6 +6,7 @@ import { recordTransaction } from "../lib/transactions";
 import { getFriendlyError } from "../lib/errorMessages";
 import { validateOrderFillability } from "../lib/orderValidator";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { useWallet } from "../contexts/WalletContext";
 import EmptyState from "./EmptyState";
 
 export default function ShoppingCart({
@@ -21,6 +22,7 @@ export default function ShoppingCart({
   onRefreshCart,
 }) {
   const { slug } = useActiveCollection();
+  const { isWrongNetwork } = useWallet();
   const [buying, setBuying] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [confirming, setConfirming] = useState(false);
@@ -222,6 +224,10 @@ export default function ShoppingCart({
 
   // Execute the actual sweep after confirmation
   const handleConfirmSweep = useCallback(async () => {
+    if (isWrongNetwork) {
+      addToast?.("Wrong network — please switch to Ethereum Mainnet", "error");
+      return;
+    }
     setConfirming(false);
     setBuying(true);
     setProgress({ current: 0, total: purchasableItems.length });

@@ -20,14 +20,15 @@ export function FavoritesProvider({ children }) {
   }, [slug]);
 
   const toggleFavorite = useCallback((tokenId) => {
+    const id = String(tokenId); // normalize to string to prevent number/string mismatch after JSON roundtrip
     setFavorites(prev => {
-      const next = prev.includes(tokenId) ? prev.filter(id => id !== tokenId) : [...prev, tokenId];
+      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
       saveFavorites(next, slug);
       return next;
     });
   }, [slug]);
 
-  const isFavorite = useCallback((tokenId) => favorites.includes(tokenId), [favorites]);
+  const isFavorite = useCallback((tokenId) => favorites.includes(String(tokenId)), [favorites]);
 
   return (
     <FavoritesContext.Provider value={{ favorites, setFavorites, toggleFavorite, isFavorite, saveFavorites: (favs) => saveFavorites(favs, slug) }}>

@@ -29,10 +29,11 @@ const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://nakamigos.gallery"
 
 function setCors(req, res) {
   const origin = req.headers.origin || "";
-  const ALLOWED_ORIGINS = new Set([
-    "http://localhost:8742", "http://localhost:3000", "http://localhost:5173",
-    "https://nakamigos.gallery", "https://www.nakamigos.gallery",
-  ]);
+  const prodOrigins = ["https://nakamigos.gallery", "https://www.nakamigos.gallery"];
+  const devOrigins = process.env.NODE_ENV !== "production"
+    ? ["http://localhost:8742", "http://localhost:3000", "http://localhost:5173"]
+    : [];
+  const ALLOWED_ORIGINS = new Set([...prodOrigins, ...devOrigins]);
   res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGINS.has(origin) ? origin : ALLOWED_ORIGIN);
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-API-Key");
@@ -156,6 +157,8 @@ export default async function handler(req, res) {
       case "listings": {
         const s = slug || Object.keys(SLUG_TO_CONTRACT).find(k => SLUG_TO_CONTRACT[k] === contract);
         if (!s) return res.status(400).json({ error: "Missing slug" });
+        // Validate slug against known slugs to prevent path traversal attacks
+        if (!SLUG_TO_CONTRACT[s]) return res.status(400).json({ error: "Unknown collection slug" });
         const osKey = process.env.OPENSEA_API_KEY || "";
         const headers = { Accept: "application/json" };
         if (osKey) headers["x-api-key"] = osKey;
