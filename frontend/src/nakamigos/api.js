@@ -586,19 +586,54 @@ async function fetchOpenSeaListings(slug = COLLECTION_SLUG) {
   };
 }
 
-export async function fetchListings(slug = COLLECTION_SLUG, { openseaSlug } = {}) {
+export async function fetchListings(slug = COLLECTION_SLUG, { openseaSlug, contract, signal } = {}) {
   // Use openseaSlug for OpenSea API calls; fall back to slug
   const osSlug = openseaSlug || slug;
-  // OpenSea is the primary listing source (Reservoir shut down Oct 2025)
-  try {
-    const result = await fetchOpenSeaListings(osSlug);
-    // Return whatever OpenSea gave us — even if empty (0 active listings is valid, not an error)
-    return result;
-  } catch (err) {
-    console.warn("OpenSea listings unavailable:", err.message);
+
+  // Fetch OpenSea + native orderbook in parallel
+  const [osResult, nativeResult] = await Promise.all([
+    fetchOpenSeaListings(osSlug).catch(err => {
+      console.warn("OpenSea listings unavailable:", err.message);
+      return { listings: [], source: null };
+    }),
+    contract
+      ? import("./lib/orderbook").then(m => m.fetchNativeListings(contract)).catch(() => ({ orders: [] }))
+      : Promise.resolve({ orders: [] }),
+  ]);
+
+  const osListings = osResult.listings || [];
+
+  // Convert native orderbook orders to the same listing shape
+  const nativeListings = (nativeResult.orders || []).map(order => ({
+    tokenId: order.token_id ? String(order.token_id) : null,
+    price: order.price_eth,
+    priceWei: order.price_wei || null,
+    priceUsd: null,
+    marketplace: "Native Orderbook",
+    marketplaceIcon: null,
+    maker: order.maker,
+    expiry: order.end_time || null,
+    createdAt: order.created_at || null,
+    orderData: order.parameters || null,
+    orderHash: order.order_hash || null,
+    protocolAddress: order.protocol_address || null,
+    // Flag for native orderbook fulfillment (uses Seaport directly, not OpenSea API)
+    isNative: true,
+    nativeOrder: order,
+  })).filter(l => l.tokenId != null && l.price != null);
+
+  // Merge: deduplicate by tokenId, keeping the cheapest listing across both sources
+  const merged = new Map();
+  for (const l of [...osListings, ...nativeListings]) {
+    const existing = merged.get(l.tokenId);
+    if (!existing || l.price < existing.price) merged.set(l.tokenId, l);
   }
 
-  return { listings: [], source: null, error: "Listing data temporarily unavailable" };
+  const allListings = [...merged.values()].sort((a, b) => a.price - b.price);
+  const source = nativeListings.length > 0 && osListings.length > 0
+    ? "merged" : nativeListings.length > 0 ? "native" : "opensea";
+
+  return { listings: allListings, source };
 }
 
 // ═══ RARITY SCORING ═══

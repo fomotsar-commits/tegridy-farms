@@ -10,7 +10,7 @@ export default function useListings() {
 
   const { data, isLoading, error, dataUpdatedAt, refetch } = useQuery({
     queryKey: queryKeys.listings(slug),
-    queryFn: ({ signal }) => fetchListings(slug, { signal }),
+    queryFn: ({ signal }) => fetchListings(slug, { signal, contract: collection.contract }),
     ...listingsQuery,
     enabled: !!slug,
     // When the slug changes, show loading state immediately instead of

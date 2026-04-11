@@ -10,6 +10,7 @@ import { OPENSEA_ITEM } from "../constants";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useTradingMode } from "../contexts/TradingModeContext";
 import { fetchTokensByIds, fulfillSeaportOrder } from "../api";
+import { fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
 import { fetchCollectionOffers } from "../api-offers";
 
@@ -259,7 +260,10 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
     setBuying(nft.id);
     addToast?.(`Purchasing ${collection.name} #${nft.id} for ${nft.price?.toFixed(4) ?? "?"} ETH...`, "info");
 
-    const result = await fulfillSeaportOrder(nft);
+    // Use native orderbook fulfillment for native listings, OpenSea for others
+    const result = nft.isNative && nft.nativeOrder
+      ? await fulfillNativeOrder(nft.nativeOrder)
+      : await fulfillSeaportOrder(nft);
 
     if (result.success) {
       recordTransaction({ type: "buy", nft, price: nft.price, hash: result.hash, wallet, slug: collection.slug });
