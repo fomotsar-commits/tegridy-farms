@@ -54,6 +54,7 @@ export function useCancelOrder({ slug } = {}) {
         qc.invalidateQueries({ queryKey: queryKeys.collectionOffers(slug) });
         qc.invalidateQueries({ queryKey: queryKeys.traitOffers(slug) });
       }
+      qc.invalidateQueries({ queryKey: ['offers'] });
     },
   });
 }

@@ -105,5 +105,7 @@ export default memo(function Card({ nft, idx, onPick, view, isFavorite, onToggle
     && prev.nft.rank === next.nft.rank
     && prev.nft.name === next.nft.name
     && prev.nft.lastSale === next.nft.lastSale
-    && prev.nft.image === next.nft.image;
+    && prev.nft.image === next.nft.image
+    && prev.onPick === next.onPick
+    && prev.onToggleFavorite === next.onToggleFavorite;
 })

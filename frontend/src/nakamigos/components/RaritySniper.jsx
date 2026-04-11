@@ -3,7 +3,7 @@ import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 import { useActiveCollection } from "../contexts/CollectionContext";
 
-const DEFAULT_SUPPLY = 20000;
+// Supply is resolved dynamically per-collection in the component (effectiveSupply)
 
 // Score = rarity percentile / price percentile. High rarity + low price = high score.
 // Uses percentile (0-1) to be independent of array position after re-sorting.
@@ -230,7 +230,7 @@ export default function RaritySniper({
   const effectiveSupply = supply
     || collection?.supply
     || (tokens.length > 0 ? Math.max(tokens.length, Math.max(...tokens.map(t => t.rank || t.rarityRank || t.rarity_rank || 0))) : null)
-    || DEFAULT_SUPPLY;
+    || 20000;
 
   useEffect(() => { injectKeyframes(); }, []);
 

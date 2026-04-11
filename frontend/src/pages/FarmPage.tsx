@@ -272,7 +272,7 @@ export default function FarmPage() {
   const seasonEnd = new Date(CURRENT_SEASON.endDate).getTime();
   const daysLeft = Math.max(0, Math.ceil((seasonEnd - Date.now()) / 86400000));
 
-  const stakeNeedsApproval = pos.allowance < (amtNum > 0 ? BigInt(Math.floor(amtNum * 1e18)) : 0n);
+  const stakeNeedsApproval = pos.allowance < (amtNum > 0 ? parseEther(stakeAmount) : 0n);
 
   const handleStake = () => {
     if (amtNum <= 0) return;

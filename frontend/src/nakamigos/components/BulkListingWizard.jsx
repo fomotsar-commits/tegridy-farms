@@ -36,7 +36,7 @@ const MARKETPLACE_OPTIONS = [
 const HAS_PLATFORM_FEE = PLATFORM_FEE_BPS > 0 && PLATFORM_FEE_RECIPIENT !== "0x0000000000000000000000000000000000000000";
 
 function computeFees(priceEth, marketplace) {
-  const osFee = marketplace === "opensea" ? (priceEth * OPENSEA_FEE_BPS) / 10000 : 0;
+  const osFee = marketplace === "opensea" ? Math.round(priceEth * OPENSEA_FEE_BPS) / 10000 : 0;
   const platformFee = HAS_PLATFORM_FEE ? (priceEth * PLATFORM_FEE_BPS) / 10000 : 0;
   return { osFee, platformFee, total: osFee + platformFee, revenue: priceEth - osFee - platformFee };
 }
@@ -760,21 +760,27 @@ export default function BulkListingWizard({ tokens, wallet, onClose, addToast, o
           setSubmitLabel(`Listing ${i + 1}/${selectedNfts.length} (#${nft.id}) on native orderbook...`);
           setSubmitProgress(((i + 0.5) / selectedNfts.length) * 100);
 
-          const result = await createNativeListing({
-            contract: collection.contract,
-            tokenId: nft.id,
-            priceEth,
-            expirationHours: duration,
-          });
+          try {
+            const result = await createNativeListing({
+              contract: collection.contract,
+              tokenId: nft.id,
+              priceEth,
+              expirationHours: duration,
+            });
 
-          if (result.success) {
-            successCount++;
-          } else if (result.error === "rejected") {
-            addToast?.(`Listing for #${nft.id} cancelled by user`, "info");
-            failCount++;
-            break;
-          } else {
-            addToast?.(`Failed to list #${nft.id}: ${result.message}`, "error");
+            if (result.success) {
+              successCount++;
+            } else if (result.error === "rejected") {
+              addToast?.(`Listing for #${nft.id} cancelled by user`, "info");
+              failCount++;
+              break;
+            } else {
+              addToast?.(`Failed to list #${nft.id}: ${result.message}`, "error");
+              failCount++;
+            }
+          } catch (itemErr) {
+            console.error(`Native listing error for #${nft.id}:`, itemErr);
+            addToast?.(`Error listing #${nft.id}: ${itemErr.message || "Unknown error"}`, "error");
             failCount++;
           }
 
@@ -791,12 +797,15 @@ export default function BulkListingWizard({ tokens, wallet, onClose, addToast, o
         }
       }
     } catch (err) {
-      if (err.code === 4001 || err.code === "ACTION_REJECTED") {
+      if (err.message?.includes('approval')) {
+        addToast?.("NFT approval was rejected or failed", "error");
+      } else if (err.code === 4001 || err.code === "ACTION_REJECTED") {
         addToast?.("Listing cancelled", "info");
       } else {
         console.error("Bulk listing error:", err);
         addToast?.("Bulk listing failed. Please try again.", "error");
       }
+      setSubmitLabel("");
       setSubmitting(false);
     }
   }, [wallet, onConnect, selectedNfts, getPrice, duration, marketplace, collection, addToast]);
@@ -818,7 +827,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, addToast, o
         {/* Close button */}
         <button
           className="modal-close"
-          onClick={onClose}
+          onClick={() => { if (!submitting) onClose(); }}
           aria-label="Close modal"
           style={{ position: "absolute", top: 12, right: 14 }}
         >{"\u2715"}</button>

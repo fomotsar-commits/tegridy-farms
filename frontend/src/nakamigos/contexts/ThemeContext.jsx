@@ -89,7 +89,7 @@ function applyTheme(themeId) {
 
   try {
     // Apply CSS variables to the .nakamigos-app wrapper (scoped, not :root)
-    const appEl = document.querySelector(".nakamigos-app");
+    const appEl = document.querySelector(".nakamigos-app") || document.body;
     if (appEl) {
       Object.entries(themeDef.vars).forEach(([prop, value]) => {
         appEl.style.setProperty(prop, value);

@@ -134,9 +134,11 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
     const uniqueMissing = [...new Set(missingIds)];
     if (uniqueMissing.length === 0) return;
 
+    let cancelled = false;
     fetchTokensByIds(uniqueMissing, collection.contract, collection.metadataBase).then(fetched => {
-      if (fetched.length > 0) setExtraTokens(fetched);
+      if (!cancelled && fetched.length > 0) setExtraTokens(fetched);
     });
+    return () => { cancelled = true; };
   }, [listings, activities, tokens, collection.contract, collection.metadataBase]);
 
   // Combined token lookup: gallery tokens + fetched extras

@@ -76,7 +76,7 @@ export default function ComparableSales({ nft, allTokens }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         {sales.map((sale, i) => (
           <div
-            key={`${sale.hash}-${i}`}
+            key={sale.hash ? `${sale.hash}-${i}` : `${sale.token?.id}-${i}`}
             style={{
               display: "flex",
               alignItems: "center",

@@ -127,6 +127,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
         id: hash,
         action: { label: 'Etherscan', onClick: () => window.open(`https://etherscan.io/tx/${hash}`, '_blank') },
       });
+      refetch();
     }
   }, [isSuccess, hash]);
 

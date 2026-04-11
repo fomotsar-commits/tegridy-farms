@@ -53,7 +53,8 @@ export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMo
       const min = priceRange.min ? parseFloat(priceRange.min) : 0;
       const max = priceRange.max ? parseFloat(priceRange.max) : Infinity;
       result = result.filter((n) => {
-        const p = n.price || 0;
+        const p = n.price;
+        if (p === 0 || p === null || p === undefined) return false;
         return p >= min && p <= max;
       });
     }

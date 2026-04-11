@@ -468,7 +468,7 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
               .sort((a, b) => a.count - b.count)
               .slice(0, 16)
               .map((trait, i) => {
-                const base = resolvedSupply || tokens.length;
+                const base = isPartialLoad ? tokens.length : (resolvedSupply || tokens.length);
                 const pct = base ? ((trait.count / base) * 100).toFixed(1) : 0;
                 return (
                   <div key={`${trait.type}-${trait.value}`} className="rarest-item card-reveal" style={{ animationDelay: `${i * 40}ms` }}>
@@ -486,13 +486,18 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
                         {trait.count}
                       </div>
                       <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>
-                        {pct}%
+                        {pct}%{isPartialLoad ? " *" : ""}
                       </div>
                     </div>
                   </div>
                 );
               })}
           </div>
+          {isPartialLoad && (
+            <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-dim)", marginTop: 8, letterSpacing: "0.04em" }}>
+              * Percentages based on {tokens.length.toLocaleString()} loaded tokens
+            </div>
+          )}
         </div>
       )}
     </section>

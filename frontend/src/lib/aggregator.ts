@@ -200,7 +200,12 @@ async function getOpenOceanQuote(
     const inAddr = normalizeTokenAddress(tokenIn, 'native');
     const outAddr = normalizeTokenAddress(tokenOut, 'native');
     // OpenOcean expects human-readable amount (e.g. "0.001"), not wei/smallest unit
-    const humanAmount = (Number(amount) / 10 ** fromDecimals).toString();
+    // Use BigInt division to avoid Number() precision loss on large amounts
+    const bi = BigInt(amount);
+    const divisor = BigInt(10 ** fromDecimals);
+    const whole = bi / divisor;
+    const frac = bi % divisor;
+    const humanAmount = whole.toString() + '.' + frac.toString().padStart(fromDecimals, '0').slice(0, 6);
     const params = new URLSearchParams({
       inTokenAddress: inAddr, outTokenAddress: outAddr,
       amount: humanAmount, gasPrice: '5',

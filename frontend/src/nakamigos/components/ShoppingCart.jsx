@@ -86,7 +86,7 @@ export default function ShoppingCart({
     setEstimatedGas(null);
   }, [cart.length]);
 
-  const totalPrice = cart.reduce((sum, item) => sum + (item.price || 0), 0);
+  const totalPrice = purchasableItems.reduce((sum, item) => sum + (item.price || 0), 0);
 
   // Count items missing order data
   const itemsMissingOrder = cart.filter(item => !item.orderHash);
@@ -243,7 +243,7 @@ export default function ShoppingCart({
         onRemove(item.id);
         continue;
       }
-      if (currentListing.price !== item.price) {
+      if (Math.abs(currentListing.price - item.price) > 1e-6) {
         addToast?.(`${item.name} price changed (${item.price} → ${currentListing.price} ETH) — skipping`, "warning");
         onRemove(item.id);
         continue;

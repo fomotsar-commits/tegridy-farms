@@ -287,7 +287,9 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
               const [whole = "0", frac = ""] = price.split(".");
               const priceWei = BigInt(whole) * BigInt(1e18) + BigInt((frac + "000000000000000000").slice(0, 18));
               const totalCommitted = activeOfferTotal + priceWei;
-              if (totalCommitted > wethBal) {
+              const gasBuffer = BigInt(Math.floor(0.01 * 1e18));
+              const availableBal = wethBal + (ethBal || 0n) - gasBuffer;
+              if (totalCommitted > availableBal) {
                 return (
                   <div style={{
                     fontFamily: "var(--mono)", fontSize: 10, marginBottom: 14,

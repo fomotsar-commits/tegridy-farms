@@ -172,7 +172,7 @@ export default function BundleListing({ nfts, wallet, onClose, addToast, onConne
         zone: "0x0000000000000000000000000000000000000000",
         offer,
         consideration,
-        orderType: 0, // FULL_OPEN
+        orderType: 2, // FULL_OPEN_VIA_CONDUIT — required when using conduitKey
         startTime: String(now),
         endTime: String(endTime),
         zoneHash: "0x0000000000000000000000000000000000000000000000000000000000000000",

@@ -237,15 +237,12 @@ export default function CollectionHealth({ stats, activities }) {
     };
   }, [listings, stats.floor]);
 
-  // Listing velocity (new listings approximation from listing data)
+  // Listing velocity
   const listingVelocity = useMemo(() => {
-    // We approximate with total listings / time span
     const count = listings.length;
-    // Rough estimate: average listings based on current snapshot divided by 24h
-    const avgPerHour = (count / 24).toFixed(1);
     // Spike detection: if listed % > 15%, it's a spike
     const spike = (count / safeSupply) * 100 > 15;
-    return { perDay: count, avgPerHour, spike };
+    return { count, spike };
   }, [listings, supply]);
 
   // Whale concentration
@@ -290,7 +287,8 @@ export default function CollectionHealth({ stats, activities }) {
     }
     // Cumulative
     let base = totalOwners || 0;
-    return buckets.map(v => { base += v * 0.1; return Math.round(base); }); // Estimated: rough approximation from sales activity
+    // Rough directional estimate only — not actual holder count changes
+    return buckets.map(v => { base += v * 0.1; return Math.round(base); });
   }, [recentSales.week, totalOwners, now]);
 
   // ── COMPOSITE HEALTH SCORE ──
@@ -617,18 +615,10 @@ export default function CollectionHealth({ stats, activities }) {
               </span>
             )}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div style={panelStyle}>
-              <div style={labelStyle}>ACTIVE LISTINGS</div>
-              <div style={{ ...bigValueStyle, color: "var(--text)" }}>
-                {listingVelocity.perDay.toLocaleString()}
-              </div>
-            </div>
-            <div style={panelStyle}>
-              <div style={labelStyle}>AVG LISTED / HR</div>
-              <div style={{ ...bigValueStyle, color: "var(--text-dim)" }}>
-                ~{listingVelocity.avgPerHour}
-              </div>
+          <div style={panelStyle}>
+            <div style={labelStyle}>ACTIVE LISTINGS</div>
+            <div style={{ ...bigValueStyle, color: "var(--text)" }}>
+              {listingVelocity.count.toLocaleString()}
             </div>
           </div>
           {listingVelocity.spike && (

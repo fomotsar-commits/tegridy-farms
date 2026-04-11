@@ -12,6 +12,15 @@ import { getProvider } from "../api";
 
 const ORDERBOOK_API = "/api/orderbook";
 
+async function withRetry(fn, retries = 2) {
+  for (let i = 0; i <= retries; i++) {
+    try { return await fn(); } catch (e) {
+      if (i === retries) throw e;
+      await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+    }
+  }
+}
+
 // ═══ FETCH NATIVE LISTINGS ═══
 // Query active native listings for a given contract address.
 
@@ -28,13 +37,15 @@ export async function fetchNativeListings(contract, { sort = "price_eth", limit 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
-    const res = await fetch(`${ORDERBOOK_API}?${params}`, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      return { orders: [], count: 0, error: err.error || "Failed to fetch" };
-    }
-    return await res.json();
+    return await withRetry(async () => {
+      const res = await fetch(`${ORDERBOOK_API}?${params}`, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to fetch");
+      }
+      return await res.json();
+    });
   } catch (e) {
     clearTimeout(timeout);
     if (e.name === "AbortError") return { orders: [], count: 0, error: "Request timed out" };
@@ -245,30 +256,32 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
     const createTimeout = setTimeout(() => createController.abort(), 30000);
     let res;
     try {
-      res = await fetch(ORDERBOOK_API, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: createController.signal,
-        body: JSON.stringify({
-          action: "create",
-          order: {
-            parameters: orderParameters,
-            signature: authSignature,
-            seaportSignature,
-            protocol_address: SEAPORT_ADDRESS,
-          },
-        }),
+      res = await withRetry(async () => {
+        const r = await fetch(ORDERBOOK_API, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: createController.signal,
+          body: JSON.stringify({
+            action: "create",
+            order: {
+              parameters: orderParameters,
+              signature: authSignature,
+              seaportSignature,
+              protocol_address: SEAPORT_ADDRESS,
+            },
+          }),
+        });
+        clearTimeout(createTimeout);
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.error || "Failed to submit order");
+        }
+        return r;
       });
-      clearTimeout(createTimeout);
     } catch (fetchErr) {
       clearTimeout(createTimeout);
       if (fetchErr.name === "AbortError") return { error: "timeout", message: "Order submission timed out" };
       throw fetchErr;
-    }
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      return { error: "post-failed", message: err.error || "Failed to submit order" };
     }
 
     let result;

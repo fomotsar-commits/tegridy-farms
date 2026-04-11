@@ -10,6 +10,7 @@ const REFRESH_MS = 30000;
 const MEDAL_COLORS = ["#ffd700", "#c0c0c0", "#cd7f32"];
 
 function formatTimeAgo(ts) {
+  if (!ts || isNaN(ts)) return "unknown";
   const diff = Math.floor((Date.now() - ts) / 1000);
   if (diff < 0) return "just now";
   if (diff < 60) return `${diff}s ago`;
@@ -247,7 +248,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
       setExpandedNfts(data.tokens || []);
       setLoadingNfts(false);
     },
-    [expandedHolder, collection.contract]
+    [expandedHolder, collection.contract, collection.metadataBase]
   );
 
   /* ── Derived: holder address set (full addresses) for cross-ref ── */

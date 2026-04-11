@@ -17,8 +17,7 @@ export function PriceProvider({ children }: { children: ReactNode }) {
 
 /**
  * Consume the shared TOWELI price from the nearest PriceProvider.
- * Falls back to a direct useToweliPrice() call if no provider is found,
- * so existing code keeps working during migration.
+ * Throws if used outside PriceProvider — wrap your component tree.
  */
 export function useTOWELIPrice(): PriceData {
   const ctx = useContext(PriceContext);

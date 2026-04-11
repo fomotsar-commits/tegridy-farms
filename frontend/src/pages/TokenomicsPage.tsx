@@ -43,8 +43,8 @@ export default function TokenomicsPage() {
   const priceHistory = usePriceHistory(price.priceInUsd);
   const { history: priceData, error: priceError } = priceHistory;
 
-  const rewardPerDay = parseFloat(pool.rewardRate) * 86400;
-  const totalFunded = parseFloat(pool.totalRewardsFunded);
+  const rewardPerDay = Number.isFinite(parseFloat(pool.rewardRate)) ? parseFloat(pool.rewardRate) * 86400 : 0;
+  const totalFunded = Number.isFinite(parseFloat(pool.totalRewardsFunded)) ? parseFloat(pool.totalRewardsFunded) : 0;
   const daysLeft = rewardPerDay > 0 ? totalFunded / rewardPerDay : 0;
 
   return (

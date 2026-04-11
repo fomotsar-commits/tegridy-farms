@@ -109,7 +109,7 @@ export async function fetchTraitOffers(slug = COLLECTION_SLUG, { openseaSlug } =
 function safePriceFromWei(wei) {
   try {
     if (!wei || wei === "0") return 0;
-    return Number(BigInt(wei) / BigInt(1e14)) / 1e4;
+    return Number(BigInt(wei) / BigInt(1e12)) / 1e6;
   } catch {
     return 0;
   }

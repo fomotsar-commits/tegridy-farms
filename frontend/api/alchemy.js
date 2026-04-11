@@ -1,5 +1,8 @@
 // Vercel Serverless Function — proxies Alchemy requests to hide API key
 const ALCHEMY_KEY = process.env.ALCHEMY_API_KEY || "demo";
+if (!process.env.ALCHEMY_API_KEY && process.env.NODE_ENV === "production") {
+  console.warn("WARNING: ALCHEMY_API_KEY is not set — using demo key in production");
+}
 const BASE = `https://eth-mainnet.g.alchemy.com/nft/v3/${ALCHEMY_KEY}`;
 const RPC_BASE = `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`;
 
@@ -155,6 +158,10 @@ export default async function handler(req, res) {
     } catch {
       console.error("Alchemy non-JSON response:", text.slice(0, 200));
       return res.status(502).json({ error: "Upstream returned invalid response" });
+    }
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: "Alchemy API error", status: response.status });
     }
 
     res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60");

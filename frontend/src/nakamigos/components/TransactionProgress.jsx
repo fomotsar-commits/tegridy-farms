@@ -548,11 +548,13 @@ function PendingMonitor({ txHash, startTime, onConfirmed, onError }) {
   const [showSpeedUp, setShowSpeedUp] = useState(false);
   const pollRef = useRef(null);
   const speedUpTimerRef = useRef(null);
+  const mountedRef = useRef(true);
   // Use refs for callbacks to avoid restarting the polling effect
   const onConfirmedRef = useRef(onConfirmed);
   const onErrorRef = useRef(onError);
   useEffect(() => { onConfirmedRef.current = onConfirmed; }, [onConfirmed]);
   useEffect(() => { onErrorRef.current = onError; }, [onError]);
+  useEffect(() => { return () => { mountedRef.current = false; }; }, []);
 
   useEffect(() => {
     if (!txHash) return;
@@ -566,6 +568,7 @@ function PendingMonitor({ txHash, startTime, onConfirmed, onError }) {
         const provider = new ethers.BrowserProvider(ethProvider);
         const receipt = await provider.getTransactionReceipt(txHash);
         if (receipt) {
+          if (!mountedRef.current) return;
           if (receipt.status === 1) {
             const gasUsed = receipt.gasUsed && receipt.gasPrice
               ? Number(receipt.gasUsed * receipt.gasPrice) / 1e18
@@ -608,12 +611,14 @@ function PendingMonitor({ txHash, startTime, onConfirmed, onError }) {
       const newMaxFee = tx.maxFeePerGas ? tx.maxFeePerGas * 120n / 100n : undefined;
       const newMaxPriority = tx.maxPriorityFeePerGas ? tx.maxPriorityFeePerGas * 120n / 100n : undefined;
       await signer.sendTransaction({
+        type: 2,
         to: tx.to,
         value: tx.value,
         data: tx.data,
         nonce: tx.nonce,
         maxFeePerGas: newMaxFee,
         maxPriorityFeePerGas: newMaxPriority,
+        ...(tx.gasLimit ? { gasLimit: tx.gasLimit } : {}),
       });
     } catch (err) {
       console.warn("Speed up failed:", err.message);

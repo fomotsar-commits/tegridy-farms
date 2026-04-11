@@ -463,7 +463,8 @@ export default function Deals({
   }, [collection.slug]);
 
   /* ── Build trait floors from listings + token traits ── */
-  const traitFloors = useMemo(() => {
+  // Store the two lowest prices per trait so we can exclude a token's own price
+  const traitFloorData = useMemo(() => {
     if (!listings || listings.length === 0 || tokens.length === 0) return {};
     const priceMap = {};
     for (const l of listings) {
@@ -471,19 +472,33 @@ export default function Deals({
         priceMap[String(l.tokenId)] = l;
       }
     }
-    const floors = {};
+    const data = {}; // key -> { low1: {price, tokenId}, low2: {price, tokenId} }
     for (const token of tokens) {
       const listing = priceMap[String(token.id)];
       if (!listing) continue;
+      const tid = String(token.id);
       for (const attr of token.attributes || []) {
         const k = `${attr.key}::${attr.value}`;
-        if (floors[k] == null || listing.price < floors[k]) {
-          floors[k] = listing.price;
+        if (!data[k]) {
+          data[k] = { low1: { price: listing.price, tokenId: tid }, low2: null };
+        } else if (listing.price < data[k].low1.price) {
+          data[k].low2 = data[k].low1;
+          data[k].low1 = { price: listing.price, tokenId: tid };
+        } else if (!data[k].low2 || listing.price < data[k].low2.price) {
+          data[k].low2 = { price: listing.price, tokenId: tid };
         }
       }
     }
-    return floors;
+    return data;
   }, [tokens, listings]);
+
+  // Helper: get trait floor excluding a specific token
+  function getTraitFloorExcluding(traitKey, excludeTokenId) {
+    const d = traitFloorData[traitKey];
+    if (!d) return null;
+    if (d.low1.tokenId === excludeTokenId) return d.low2?.price ?? null;
+    return d.low1.price;
+  }
 
   /* ── Trait categories for filter dropdown ── */
   const traitCategories = useMemo(() => {
@@ -498,7 +513,7 @@ export default function Deals({
 
   /* ── Compute deals ── */
   const { deals, allListedNfts } = useMemo(() => {
-    if (!listings || listings.length === 0 || tokens.length === 0 || Object.keys(traitFloors).length === 0) {
+    if (!listings || listings.length === 0 || tokens.length === 0 || Object.keys(traitFloorData).length === 0) {
       return { deals: [], allListedNfts: [] };
     }
 
@@ -523,9 +538,10 @@ export default function Deals({
       let bestTrait = null;
       const keyTraits = [];
 
+      const tid = String(token.id);
       for (const attr of token.attributes || []) {
         const k = `${attr.key}::${attr.value}`;
-        const floor = traitFloors[k];
+        const floor = getTraitFloorExcluding(k, tid);
         if (floor != null) {
           keyTraits.push({ key: attr.key, value: attr.value, floor });
           if (floor > maxTraitFloor) {
@@ -558,7 +574,7 @@ export default function Deals({
 
     dealsList.sort((a, b) => b.discount - a.discount);
     return { deals: dealsList, allListedNfts: allListed };
-  }, [tokens, listings, traitFloors]);
+  }, [tokens, listings, traitFloorData]);
 
   /* ── Auto-refresh every 60s ── */
   useEffect(() => {

@@ -181,7 +181,6 @@ export default function useOpenSeaStream(collectionSlug) {
         if (mountedRef.current) dispatch({ type: "set_connected", value: false });
       } else {
         try { clientRef.current.connect(); } catch { /* ignore */ }
-        if (mountedRef.current) dispatch({ type: "set_connected", value: true });
       }
     }
 

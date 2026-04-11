@@ -65,7 +65,9 @@ export function getFriendlyError(error) {
     .replace(/^Error:\s*/i, "")
     .replace(/\(action="[^"]*",\s*/g, "")
     .replace(/,\s*code=[A-Z_]+.*$/g, "")
-    .replace(/\(reason="[^"]*",\s*/g, "");
+    .replace(/\(reason="[^"]*",\s*/g, "")
+    .replace(/0x[a-fA-F0-9]{8,}/g, '[hex]')
+    .replace(/https?:\/\/[^\s"']+/g, '[url]');
 
   // If still too long or technical, generic fallback
   if (cleaned.length > 120) {

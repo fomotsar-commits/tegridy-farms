@@ -74,7 +74,8 @@ const CHAIN_ID = 1; // Ethereum Mainnet
 
 // Seaport / WETH addresses
 export const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
-export const SEAPORT_ADDRESS = "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC"; // Seaport v1.5
+// Seaport v1.5 — verify compatibility if OpenSea migrates to v1.6 (0x0000000000000068F116a894984e2DB1123eB395)
+export const SEAPORT_ADDRESS = "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC";
 
 // Shared EIP-712 domain — use this everywhere for Seaport signing.
 // Single source of truth prevents version mismatch bugs.
@@ -121,7 +122,8 @@ export const SEAPORT_ORDER_TYPES = {
 export const CONDUIT_KEY = "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000";
 export const CONDUIT_ADDRESS = "0x1E0049783F008A0085193E00003D00cd54003c71";
 export const OPENSEA_FEE_RECIPIENT = "0x0000a26b00c1F0DF003000390027140000fAa719";
-export const OPENSEA_FEE_BPS = 100; // 1% — OS2 fee since Sep 2025 (was 2.5% pre-2025)
+// 1% — OpenSea fee since Sep 2025. May vary per collection. Consider fetching from OpenSea API.
+export const OPENSEA_FEE_BPS = 100;
 
 // Platform fee — 0.5% on all trades
 export const PLATFORM_FEE_RECIPIENT = "0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e";
@@ -147,7 +149,7 @@ export const FALLBACK_NFTS = [
 
 export const FALLBACK_STATS = {
   floor: 0.1048,
-  volume: 52200,
+  volume: 52200, // Historical total volume, not 24h — do not use for volume comparisons or alerts
   owners: 5238,
   supply: 20000,
 };

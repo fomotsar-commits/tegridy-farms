@@ -12,19 +12,28 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
 
   useEffect(() => {
     if (!tokenId) return;
-    setLoading(true);
-    Promise.all([
-      fetchTokenOffers(tokenId, collection.contract),
-      fetchBestOffer(tokenId, collection.openseaSlug || collection.slug),
-    ]).then(([allOffers, best]) => {
-      setOffers(allOffers);
-      setBestOffer(best);
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    const load = () => {
+      setLoading(true);
+      Promise.all([
+        fetchTokenOffers(tokenId, collection.contract),
+        fetchBestOffer(tokenId, collection.openseaSlug || collection.slug),
+      ]).then(([allOffers, best]) => {
+        setOffers(allOffers);
+        setBestOffer(best);
+        setLoading(false);
+      }).catch(() => setLoading(false));
+    };
+    load();
+    const interval = setInterval(load, 30000);
+    return () => clearInterval(interval);
   }, [tokenId, collection.contract, collection.slug, collection.openseaSlug]);
 
   const handleAccept = useCallback(async (offer) => {
     if (!wallet) return;
+    if (offer.expiry && offer.expiry * 1000 < Date.now()) {
+      addToast?.("This offer has expired", "warning");
+      return;
+    }
     setAccepting(offer.orderHash);
     try {
       addToast?.("Accepting offer...", "info");

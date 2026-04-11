@@ -45,6 +45,7 @@ export function useFarmActions() {
 
   const approve = (amount: string) => {
     if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) return;
+    // TOWELI uses 18 decimals; if token decimals change, use parseUnits(amount, decimals) instead
     const approveAmount = parseEther(amount);
     writeContract({
       address: TOWELI_ADDRESS,
@@ -57,6 +58,7 @@ export function useFarmActions() {
   const stake = (amount: string, lockDurationSeconds: bigint) => {
     const parsed = parseFloat(amount);
     if (isNaN(parsed) || parsed <= 0) throw new Error('Invalid amount');
+    // TOWELI uses 18 decimals; if token decimals change, use parseUnits(amount, decimals) instead
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,

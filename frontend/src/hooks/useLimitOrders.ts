@@ -210,8 +210,11 @@ export function useLimitOrders() {
       revertOrderStatus(order.id);
       return;
     }
-    const expectedOutputNum = amountNum * targetPriceNum;
-    const expectedOut = parseUnits(expectedOutputNum.toFixed(order.toToken.decimals), order.toToken.decimals);
+    // Use BigInt math to avoid floating-point precision loss on large values
+    const targetPriceBps = BigInt(Math.round(targetPriceNum * 10000));
+    const amountBps = BigInt(Math.round(amountNum * 10000));
+    const expectedOutRaw = (targetPriceBps * amountBps) / 10000n;
+    const expectedOut = expectedOutRaw * (10n ** BigInt(order.toToken.decimals)) / 10000n;
     const minOut = expectedOut - (expectedOut * SLIPPAGE_BPS / 10000n);
 
     sendNotification(
@@ -331,6 +334,7 @@ export function useLimitOrders() {
             });
             const amountsOut = result as bigint[];
             const outputAmount = amountsOut[amountsOut.length - 1];
+            // NOTE: Number() precision risk for very large values (>2^53); acceptable for price comparison heuristic
             const currentPrice = Number(formatUnits(outputAmount, order.toToken.decimals)) / Number(order.amount);
             const targetPriceNum = parseFloat(order.targetPrice);
 

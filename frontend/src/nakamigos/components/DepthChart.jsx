@@ -165,11 +165,9 @@ export default function DepthChart({ listings = [], offers = [], floorPrice, col
     const sorted = [...bidBuckets].sort((a, b) => b.price - a.price);
     const pts = [];
     pts.push(`M ${xScale(sorted[0].hi)} ${yScale(0)}`);
-    let cum = 0;
     for (const b of sorted) {
-      cum += b.count;
-      pts.push(`L ${xScale(b.hi)} ${yScale(cum)}`);
-      pts.push(`L ${xScale(b.lo)} ${yScale(cum)}`);
+      pts.push(`L ${xScale(b.hi)} ${yScale(b.cumulative)}`);
+      pts.push(`L ${xScale(b.lo)} ${yScale(b.cumulative)}`);
     }
     pts.push(`L ${xScale(sorted[sorted.length - 1].lo)} ${yScale(0)}`);
     pts.push("Z");
@@ -215,14 +213,12 @@ export default function DepthChart({ listings = [], offers = [], floorPrice, col
     const allBuckets = [...askBuckets.map(b => ({ ...b, side: "ask" })), ...bidBuckets.map(b => ({ ...b, side: "bid" }))];
     const hit = allBuckets.find(b => price >= b.lo && price < b.hi);
     if (hit && mouseX >= PAD.left && mouseX <= PAD.left + INNER_W && mouseY >= PAD.top && mouseY <= PAD.top + INNER_H) {
-      const totalEth = hit.price * hit.cumulative;
       setTooltip({
         x: e.clientX - rect.left,
         y: e.clientY - rect.top,
         price: hit.price,
         count: hit.count,
         cumulative: hit.cumulative,
-        totalEth,
         side: hit.side,
       });
     } else {
@@ -380,10 +376,6 @@ export default function DepthChart({ listings = [], offers = [], floorPrice, col
               </span>
             </div>
             <div className="depth-tooltip-row">
-              <span className="depth-tooltip-label">Price</span>
-              <span><Eth size={8} /> {tooltip.price.toFixed(4)}</span>
-            </div>
-            <div className="depth-tooltip-row">
               <span className="depth-tooltip-label">At Level</span>
               <span>{tooltip.count}</span>
             </div>
@@ -392,8 +384,8 @@ export default function DepthChart({ listings = [], offers = [], floorPrice, col
               <span>{tooltip.cumulative}</span>
             </div>
             <div className="depth-tooltip-row">
-              <span className="depth-tooltip-label">Total ETH</span>
-              <span><Eth size={8} /> {tooltip.totalEth.toFixed(2)}</span>
+              <span className="depth-tooltip-label">Bucket Price</span>
+              <span><Eth size={8} /> {tooltip.price.toFixed(4)}</span>
             </div>
           </div>
         )}

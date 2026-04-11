@@ -5,11 +5,9 @@ import { toast } from 'sonner';
 import { REVENUE_DISTRIBUTOR_ABI, REFERRAL_SPLITTER_ABI } from '../lib/contracts';
 import { REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS } from '../lib/constants';
 
-const ZERO_ADDR = '0x0000000000000000000000000000000000000001' as const;
-
 export function useRevenueStats() {
   const { address } = useAccount();
-  const userAddr = address ?? ZERO_ADDR;
+  const userAddr = address ?? '0x0000000000000000000000000000000000000000';
 
   const { writeContract: writeClaim, data: claimHash, isPending: isClaimPending, reset: resetClaim, error: claimError } = useWriteContract();
 

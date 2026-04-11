@@ -81,9 +81,11 @@ export default function useSmartAlerts(addToast) {
   // Tracking refs for detecting changes between checks
   const prevFloorRef = useRef(null);
   const prevVolumeRef = useRef(null);
+  const volumeHistoryRef = useRef([]);
   const prevListingCountRef = useRef(null);
   const prevListingTimeRef = useRef(null);
   const cooldownMapRef = useRef({}); // { alertType: lastFiredTimestamp }
+  const configRef = useRef(config);
   const prevSlugRef = useRef(collection.slug);
 
   // Reset on collection change
@@ -93,11 +95,17 @@ export default function useSmartAlerts(addToast) {
       setConfig(loadConfig(collection.slug));
       prevFloorRef.current = null;
       prevVolumeRef.current = null;
+      volumeHistoryRef.current = [];
       prevListingCountRef.current = null;
       prevListingTimeRef.current = null;
       cooldownMapRef.current = {};
     }
   }, [collection.slug]);
+
+  // Keep config ref in sync
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
 
   // Persist config
   useEffect(() => {
@@ -151,6 +159,7 @@ export default function useSmartAlerts(addToast) {
     async function check() {
       if (cancelled) return;
       const { contract, slug, openseaSlug } = collection;
+      const cfg = configRef.current;
 
       try {
         // Fetch stats for floor / volume checks
@@ -159,20 +168,20 @@ export default function useSmartAlerts(addToast) {
         if (cancelled) return;
 
         // --- Floor Price Alert ---
-        if (config.floor.enabled && stats.floor != null) {
+        if (cfg.floor.enabled && stats.floor != null) {
           const prev = prevFloorRef.current;
           if (prev != null && prev > 0) {
             const dropPct = ((prev - stats.floor) / prev) * 100;
             const risePct = ((stats.floor - prev) / prev) * 100;
-            if (dropPct >= config.floor.dropPercent) {
+            if (dropPct >= cfg.floor.dropPercent) {
               fireAlert(
-                "price",
+                "floor_drop",
                 `${collection.name} Floor Drop`,
                 `Floor dropped ${dropPct.toFixed(1)}% from ${prev.toFixed(4)} to ${stats.floor.toFixed(4)} ETH`
               );
-            } else if (risePct >= config.floor.risePercent) {
+            } else if (risePct >= cfg.floor.risePercent) {
               fireAlert(
-                "price",
+                "floor_rise",
                 `${collection.name} Floor Rise`,
                 `Floor rose ${risePct.toFixed(1)}% from ${prev.toFixed(4)} to ${stats.floor.toFixed(4)} ETH`
               );
@@ -182,18 +191,23 @@ export default function useSmartAlerts(addToast) {
         }
 
         // --- Volume Spike Alert ---
-        if (config.volume.enabled && stats.volume != null) {
-          const prev = prevVolumeRef.current;
-          if (prev != null && prev > 0) {
-            const multiplier = stats.volume / prev;
-            if (multiplier >= config.volume.spikeMultiplier) {
-              fireAlert(
-                "activity",
-                `${collection.name} Volume Spike`,
-                `24h volume up ${Math.round((multiplier - 1) * 100)}% vs previous check (${stats.volume} ETH)`
-              );
+        if (cfg.volume.enabled && stats.volume != null) {
+          const hist = volumeHistoryRef.current;
+          if (hist.length > 0) {
+            const avg = hist.reduce((s, v) => s + v, 0) / hist.length;
+            if (avg > 0) {
+              const multiplier = stats.volume / avg;
+              if (multiplier >= cfg.volume.spikeMultiplier) {
+                fireAlert(
+                  "activity",
+                  `${collection.name} Volume Spike`,
+                  `24h volume up ${Math.round((multiplier - 1) * 100)}% vs rolling avg (${stats.volume} ETH)`
+                );
+              }
             }
           }
+          hist.push(stats.volume);
+          if (hist.length > 10) hist.shift();
           prevVolumeRef.current = stats.volume;
         }
       } catch {
@@ -207,8 +221,8 @@ export default function useSmartAlerts(addToast) {
         const acts = actData.activities || [];
 
         // --- Whale Activity Alert ---
-        if (config.whale.enabled && acts.length > 0) {
-          const windowMs = config.whale.windowMinutes * 60 * 1000;
+        if (cfg.whale.enabled && acts.length > 0) {
+          const windowMs = cfg.whale.windowMinutes * 60 * 1000;
           const cutoff = Date.now() - windowMs;
           const recentBuys = acts.filter(a => a.type === "sale" && a.time >= cutoff);
 
@@ -221,46 +235,72 @@ export default function useSmartAlerts(addToast) {
             }
           }
 
+          // Group by seller address
+          const sellerCounts = {};
+          for (const buy of recentBuys) {
+            const addr = buy.fromFull || buy.from;
+            if (addr) {
+              sellerCounts[addr] = (sellerCounts[addr] || 0) + 1;
+            }
+          }
+
+          let whaleAlertFired = false;
           for (const [addr, count] of Object.entries(buyerCounts)) {
-            if (count >= config.whale.buyCount) {
+            if (count >= cfg.whale.buyCount) {
               const short = addr.length > 10 ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : addr;
               fireAlert(
                 "whale",
                 `${collection.name} Whale Activity`,
-                `Wallet ${short} bought ${count} items in the last ${config.whale.windowMinutes} minutes`
+                `Wallet ${short} bought ${count} items in the last ${cfg.whale.windowMinutes} minutes`
               );
+              whaleAlertFired = true;
               break; // One whale alert per check
+            }
+          }
+
+          if (!whaleAlertFired) {
+            for (const [addr, count] of Object.entries(sellerCounts)) {
+              if (count >= 5) {
+                const short = addr.length > 10 ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : addr;
+                fireAlert(
+                  "whale",
+                  `${collection.name} Whale Dump`,
+                  `Wallet ${short} sold ${count} items in the last ${cfg.whale.windowMinutes} minutes`
+                );
+                break;
+              }
             }
           }
         }
 
         // --- Listing Rate Alert ---
-        if (config.listingRate.enabled && acts.length > 0) {
+        if (cfg.listingRate.enabled && acts.length > 0) {
           // Count listings (ask/list type) in the window
-          const windowMs = config.listingRate.windowMinutes * 60 * 1000;
+          const windowMs = cfg.listingRate.windowMinutes * 60 * 1000;
           const cutoff = Date.now() - windowMs;
           const recentListings = acts.filter(a =>
             (a.type === "ask" || a.type === "listing") && a.time >= cutoff
           );
           const count = recentListings.length;
-          if (count >= config.listingRate.count) {
-            const multiplier = config.listingRate.normalRate > 0
-              ? (count / config.listingRate.normalRate).toFixed(1)
+          if (count >= cfg.listingRate.count) {
+            const normalRate = Math.max(1, Math.round((collection.supply || 10000) / 2500));
+            const multiplier = normalRate > 0
+              ? (count / normalRate).toFixed(1)
               : count;
             fireAlert(
               "activity",
               `${collection.name} Listing Surge`,
-              `${count} new listings in the last ${config.listingRate.windowMinutes} min (${multiplier}x normal rate)`
+              `${count} new listings in the last ${cfg.listingRate.windowMinutes} min (${multiplier}x normal rate)`
             );
           }
         }
 
         // --- Underpriced Listing Alert ---
-        if (config.underpriced.enabled && acts.length > 0) {
+        if (cfg.underpriced.enabled && acts.length > 0) {
           // Check if any listing is priced significantly below floor
           const floor = prevFloorRef.current;
           if (floor && floor > 0) {
-            const threshold = floor * (1 - config.underpriced.belowTraitFloorPercent / 100);
+            const threshold = floor * (1 - cfg.underpriced.belowTraitFloorPercent / 100);
             const underpriced = acts.find(a =>
               (a.type === "ask" || a.type === "listing") && a.price != null && a.price < threshold && a.price > 0
             );
@@ -268,7 +308,7 @@ export default function useSmartAlerts(addToast) {
               fireAlert(
                 "price",
                 `${collection.name} Underpriced Listing`,
-                `Token ${underpriced.token?.name || "?"} listed at ${underpriced.price.toFixed(4)} ETH, ${config.underpriced.belowTraitFloorPercent}%+ below floor of ${floor.toFixed(4)} ETH`
+                `Token ${underpriced.token?.name || "?"} listed at ${underpriced.price.toFixed(4)} ETH, ${cfg.underpriced.belowTraitFloorPercent}%+ below floor of ${floor.toFixed(4)} ETH`
               );
             }
           }
@@ -281,7 +321,7 @@ export default function useSmartAlerts(addToast) {
     check();
     const iv = setInterval(check, CHECK_INTERVAL);
     return () => { cancelled = true; clearInterval(iv); };
-  }, [collection, config, fireAlert]);
+  }, [collection, fireAlert]);
 
   // ═══ PUBLIC API ═══
   const updateConfig = useCallback((updates) => {

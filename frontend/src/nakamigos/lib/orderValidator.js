@@ -299,6 +299,8 @@ export async function simulateFulfillment(ethersProvider, order, fulfillerAddres
       params.zoneHash || ethers.ZeroHash,
       params.salt,
       params.conduitKey || ethers.ZeroHash,
+      // Use the value from signing time, not the current consideration length,
+      // to match the original order signature and avoid MissingOriginalConsideration reverts
       params.totalOriginalConsiderationItems ?? consideration.length,
     ];
 

@@ -57,6 +57,11 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
     fetchOrders();
   }, [fetchOrders]);
 
+  useEffect(() => {
+    const t = setInterval(fetchOrders, 60000);
+    return () => clearInterval(t);
+  }, [fetchOrders]);
+
   const handleBuy = useCallback(async (order) => {
     if (!wallet) {
       onConnect?.();

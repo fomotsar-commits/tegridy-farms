@@ -3,21 +3,24 @@ import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 import { fetchCollectionStats } from "../api";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { useWallet } from "../contexts/WalletContext";
 
 const CHECK_INTERVAL = 30000;
 
-function loadAlerts(slug = "nakamigos") {
+function loadAlerts(slug = "nakamigos", wallet = "") {
   try {
-    const raw = localStorage.getItem(`${slug}_price_alerts`);
+    const key = wallet ? `${slug}_${wallet}_price_alerts` : `${slug}_price_alerts`;
+    const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
 }
 
-function saveAlerts(alerts, slug = "nakamigos") {
+function saveAlerts(alerts, slug = "nakamigos", wallet = "") {
   try {
-    localStorage.setItem(`${slug}_price_alerts`, JSON.stringify(alerts));
+    const key = wallet ? `${slug}_${wallet}_price_alerts` : `${slug}_price_alerts`;
+    localStorage.setItem(key, JSON.stringify(alerts));
   } catch { /* quota exceeded — alerts won't persist but app continues */ }
 }
 
@@ -26,7 +29,8 @@ function saveAlerts(alerts, slug = "nakamigos") {
 // so alerts trigger based on floor price changes fetched from Alchemy.
 export function usePriceAlerts(tokens = [], addToast) {
   const collection = useActiveCollection();
-  const [alerts, setAlerts] = useState(() => loadAlerts(collection.slug));
+  const { address: wallet } = useWallet();
+  const [alerts, setAlerts] = useState(() => loadAlerts(collection.slug, wallet));
   const [floorPrice, setFloorPrice] = useState(null);
   const [notificationPermission, setNotificationPermission] = useState(
     typeof Notification !== "undefined" ? Notification.permission : "default"
@@ -34,19 +38,21 @@ export function usePriceAlerts(tokens = [], addToast) {
   const alertsRef = useRef(alerts);
   alertsRef.current = alerts;
 
-  // Reload alerts + reset floor when the active collection changes
+  // Reload alerts + reset floor when the active collection or wallet changes
   const prevSlugRef = useRef(collection.slug);
+  const prevWalletRef = useRef(wallet);
   useEffect(() => {
-    if (prevSlugRef.current !== collection.slug) {
+    if (prevSlugRef.current !== collection.slug || prevWalletRef.current !== wallet) {
       prevSlugRef.current = collection.slug;
-      setAlerts(loadAlerts(collection.slug));
+      prevWalletRef.current = wallet;
+      setAlerts(loadAlerts(collection.slug, wallet));
       setFloorPrice(null);
     }
-  }, [collection.slug]);
+  }, [collection.slug, wallet]);
 
   useEffect(() => {
-    saveAlerts(alerts, collection.slug);
-  }, [alerts, collection.slug]);
+    saveAlerts(alerts, collection.slug, wallet);
+  }, [alerts, collection.slug, wallet]);
 
   // Fetch floor price periodically for alert checking
   useEffect(() => {
@@ -117,10 +123,16 @@ export function usePriceAlerts(tokens = [], addToast) {
           (alert.direction === "below" && price <= alert.targetPrice) ||
           (alert.direction === "above" && price >= alert.targetPrice);
 
-        // Reset triggered state when price crosses back so alert can fire again
+        // Only reset triggered state when price has moved significantly away
+        // from the threshold to prevent re-notification on small price
+        // oscillations around the alert boundary.
         if (!shouldTrigger && alert.triggered) {
-          changed = true;
-          return { ...alert, triggered: false, notified: false };
+          const pctAway = Math.abs(price - alert.targetPrice) / (alert.targetPrice || 1);
+          // Require price to move at least 5% away from target before re-arming
+          if (pctAway >= 0.05) {
+            changed = true;
+            return { ...alert, triggered: false, notified: false };
+          }
         }
 
         if (shouldTrigger && !alert.triggered) {

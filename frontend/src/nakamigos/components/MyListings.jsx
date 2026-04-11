@@ -173,7 +173,7 @@ const styles = {
 
 // Alchemy CDN fallback
 const alchemyCdnUrl = (tokenId, contract) =>
-  `https://nft-cdn.alchemy.com/eth-mainnet/${contract}/${tokenId}`;
+  `https://nft-cdn.alchemy.com/eth-mainnet/nft-image/${contract}/${tokenId}`;
 
 // ═══ HELPERS ═══
 
@@ -270,7 +270,10 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
   // Auto-refresh
   useEffect(() => {
     if (!wallet) return;
-    intervalRef.current = setInterval(fetchListings, REFRESH_INTERVAL);
+    intervalRef.current = setInterval(() => {
+      if (!wallet) return;
+      fetchListings();
+    }, REFRESH_INTERVAL);
     return () => clearInterval(intervalRef.current);
   }, [wallet, fetchListings]);
 

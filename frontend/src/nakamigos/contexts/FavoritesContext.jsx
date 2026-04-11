@@ -4,7 +4,7 @@ import { useActiveCollection } from "./CollectionContext";
 const FavoritesContext = createContext(undefined);
 
 function loadFavorites(slug) {
-  try { return JSON.parse(localStorage.getItem(`${slug}_favorites`) || "[]"); } catch { return []; }
+  try { return JSON.parse(localStorage.getItem(`${slug}_favorites`) || "[]").map(String); } catch { return []; }
 }
 function saveFavorites(favs, slug) {
   try { localStorage.setItem(`${slug}_favorites`, JSON.stringify(favs)); } catch {}

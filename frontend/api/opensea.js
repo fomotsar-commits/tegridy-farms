@@ -1,5 +1,8 @@
 // Vercel Serverless Function — proxies OpenSea requests to hide API key
 const OPENSEA_KEY = process.env.OPENSEA_API_KEY || "";
+if (!process.env.OPENSEA_API_KEY) {
+  console.warn("WARNING: OPENSEA_API_KEY is not set — requests will be unauthenticated");
+}
 
 // Whitelist allowed OpenSea collection slugs (must match openseaSlug values in constants.js)
 const ALLOWED_SLUGS = new Set(["nakamigos", "gnssart", "junglebay"]);
@@ -11,18 +14,23 @@ const ALLOWED_CONTRACTS = new Set([
   "0xd37264c71e9af940e49795f0d3a8336afaafdda9", // Jungle Bay
 ]);
 
+// Whitelist of allowed path prefixes — reject anything that doesn't start with one of these
+const ALLOWED_PATH_PREFIXES = ["orders/", "listings/", "offers/", "collection/", "events/"];
+
 // Build allowed paths dynamically from allowed slugs
 function isAllowedPath(path) {
+  // Reject paths that don't start with an allowed prefix
+  if (!ALLOWED_PATH_PREFIXES.some((p) => path.startsWith(p))) return false;
   // Always allow fulfillment endpoints (buy + accept)
   if (path === "listings/fulfillment_data" || path === "offers/fulfillment_data") return true;
   // Allow order endpoints (create listings, fetch offers/bids)
   if (path === "orders/ethereum/seaport/offers" || path === "orders/ethereum/seaport/listings") return true;
-  // Allow offer building + criteria offers (collection/trait offers)
-  if (path === "offers/build" || path === "criteria_offers") return true;
+  // Allow offer building
+  if (path === "offers/build") return true;
   // Check collection-specific paths
   for (const slug of ALLOWED_SLUGS) {
     if (path === `listings/collection/${slug}/best`) return true;
-    if (path === `collections/${slug}/stats`) return true;
+    if (path === `collection/${slug}/stats`) return true;
     if (path === `events/collection/${slug}`) return true;
     if (path === `offers/collection/${slug}`) return true;
     if (path.startsWith(`offers/collection/${slug}/`)) return true;
@@ -104,6 +112,10 @@ export default async function handler(req, res) {
     } catch {
       console.error("OpenSea non-JSON response:", text.slice(0, 200));
       return res.status(502).json({ error: "Upstream returned invalid response" });
+    }
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: "OpenSea API error", status: response.status });
     }
 
     res.setHeader("Cache-Control", "s-maxage=15, stale-while-revalidate=30");

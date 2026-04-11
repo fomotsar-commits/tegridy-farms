@@ -5,11 +5,9 @@ import { toast } from 'sonner';
 import { PREMIUM_ACCESS_ABI, ERC20_ABI } from '../lib/contracts';
 import { PREMIUM_ACCESS_ADDRESS, TOWELI_ADDRESS } from '../lib/constants';
 
-const ZERO_ADDR = '0x0000000000000000000000000000000000000001' as const;
-
 export function usePremiumAccess() {
   const { address } = useAccount();
-  const userAddr = address ?? ZERO_ADDR;
+  const userAddr = address ?? '0x0000000000000000000000000000000000000000';
 
   const { writeContract: writeApprove, data: approveHash, isPending: isApprovePending, reset: resetApprove, error: approveError } = useWriteContract();
   const { writeContract: writeAction, data: actionHash, isPending: isActionPending, reset: resetAction, error: actionError } = useWriteContract();

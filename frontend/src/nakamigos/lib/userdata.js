@@ -177,7 +177,7 @@ export async function syncFavorites(wallet, localIds, collectionSlug = "nakamigo
       .eq("collection_slug", collectionSlug);
 
     const remoteIds = (data || []).map(r => r.token_id);
-    const merged = [...new Set([...localIds, ...remoteIds])];
+    const merged = [...new Set([...localIds.map(String), ...remoteIds.map(String)])];
 
     // Push any local-only favorites to remote
     const localOnly = localIds.filter(id => !remoteIds.includes(id));

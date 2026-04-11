@@ -23,13 +23,14 @@ export function DCATab() {
   const toToken = DEFAULT_TOKENS.find(t => t.symbol === 'TOWELI')!;
 
   const handleCreate = () => {
-    if (!amount || parseFloat(amount) <= 0 || !totalSwaps || parseInt(totalSwaps) <= 0) return;
+    const parsed = parseInt(totalSwaps);
+    if (!amount || parseFloat(amount) <= 0 || !totalSwaps || !Number.isFinite(parsed) || parsed <= 0) return;
     createSchedule({
       fromToken: { symbol: fromToken.symbol, address: fromToken.address, decimals: fromToken.decimals, ...(fromToken.isNative && { isNative: true }) },
       toToken: { symbol: toToken.symbol, address: toToken.address, decimals: toToken.decimals, ...(toToken.isNative && { isNative: true }) },
       amountPerSwap: amount,
       interval: INTERVALS[intervalIdx].value,
-      totalSwaps: parseInt(totalSwaps),
+      totalSwaps: parsed,
     });
     setAmount('');
     setTotalSwaps('30');

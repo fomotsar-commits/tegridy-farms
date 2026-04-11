@@ -25,7 +25,8 @@ function formatDays(days) {
   return `${days}d`;
 }
 
-// Rough ETH/USD — in production you'd fetch a live rate
+// TODO: Fetch live ETH/USD price from CoinGecko or use the PriceContext.
+// This is a display-only estimate used for USD approximations in the portfolio view.
 const ETH_USD_ESTIMATE = 3200;
 
 // ── Mini Canvas Line Chart ─────────────────────────────────────

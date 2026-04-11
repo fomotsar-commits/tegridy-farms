@@ -295,7 +295,8 @@ export function useTegridyScore(): TegridyScoreResult {
       address: TEGRIDY_STAKING_ADDRESS,
       event: STAKED_EVENT,
       args: { user: address },
-      fromBlock: 'earliest',
+      // Start from approximate contract deploy block to avoid scanning entire chain history
+      fromBlock: 18000000n,
       toBlock: 'latest',
     }).then(async (logs) => {
       if (cancelled) return;

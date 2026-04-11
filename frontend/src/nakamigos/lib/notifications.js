@@ -156,7 +156,7 @@ export async function sendLocalNotification(title, body, url = "/") {
     body,
     icon: "/splash/skeleton.png",
     data: { url },
-    tag: "local-" + Date.now(),
+    tag: "local-" + title.slice(0, 20),
     vibrate: [100, 50, 100],
   });
   } catch { /* SW unavailable on mobile private mode */ }

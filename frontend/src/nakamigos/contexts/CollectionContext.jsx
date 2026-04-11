@@ -18,6 +18,6 @@ export function CollectionProvider({ slug, children }) {
 
 export function useActiveCollection() {
   const ctx = useContext(CollectionContext);
-  if (!ctx) return COLLECTIONS[DEFAULT_COLLECTION];
+  if (!ctx) throw new Error("useActiveCollection must be used within CollectionProvider");
   return ctx;
 }

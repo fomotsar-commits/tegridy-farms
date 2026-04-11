@@ -209,6 +209,7 @@ export default function useActivityWebSocket(contractAddress = CONTRACT, openSea
     return () => {
       mountedRef.current = false;
       clearTimeout(reconnectTimerRef.current);
+      reconnectAttemptRef.current = 0;
       if (wsRef.current) {
         manualCloseRef.current = true;
         wsRef.current.close();
@@ -231,7 +232,8 @@ export default function useActivityWebSocket(contractAddress = CONTRACT, openSea
         }
         setIsWebSocketConnected(false);
       } else if (mountedRef.current) {
-        // Tab visible again — reconnect immediately
+        // Tab visible again — reconnect immediately (skip if already connecting/open)
+        if (wsRef.current && wsRef.current.readyState <= 1) return;
         reconnectAttemptRef.current = 0;
         connectRef.current();
       }
