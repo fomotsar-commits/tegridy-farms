@@ -10,8 +10,8 @@ import { shortenAddress, formatTokenAmount } from '../lib/formatting';
 import { validateAddress } from '../lib/tokenList';
 import { usePageTitle } from '../hooks/usePageTitle';
 
-const STATUS_LABELS = ['Active', 'Approved', 'Rejected', 'Executed', 'Cancelled'];
-const STATUS_COLORS = ['text-primary', 'text-success', 'text-danger', 'text-white/50', 'text-white/25'];
+const STATUS_LABELS = ['Active', 'Approved', 'Rejected', 'Executed', 'Cancelled', 'Lapsed'];
+const STATUS_COLORS = ['text-primary', 'text-success', 'text-danger', 'text-white/50', 'text-white/25', 'text-white/30'];
 
 export default function GrantsPage() {
   usePageTitle('Governance');
