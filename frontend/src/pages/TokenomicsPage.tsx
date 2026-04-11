@@ -147,7 +147,7 @@ export default function TokenomicsPage() {
             <div className="space-y-3">
               {[
                 { l: 'Rewards / Day', v: pool.isDeployed ? `${formatNumber(rewardPerDay, 0)} TOWELI` : '–' },
-                { l: 'Rewards / Second', v: pool.isDeployed ? `${parseFloat(pool.rewardRate).toFixed(4)} TOWELI` : '–' },
+                { l: 'Rewards / Second', v: pool.isDeployed ? `${(parseFloat(pool.rewardRate) || 0).toFixed(4)} TOWELI` : '–' },
                 { l: 'Total Funded', v: pool.isDeployed ? `${formatNumber(totalFunded, 0)} TOWELI` : '–' },
                 { l: 'Est. Duration', v: pool.isDeployed && daysLeft > 0 ? `~${Math.floor(daysLeft)} days` : '–' },
               ].map((r) => (
