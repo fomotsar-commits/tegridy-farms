@@ -309,7 +309,7 @@ export default function ShoppingCart({
           top: 0,
           right: 0,
           bottom: 0,
-          width: 380,
+          width: "min(380px, 100vw)",
           maxWidth: "100vw",
           zIndex: 8001,
           background: "var(--surface, #111)",
@@ -367,7 +367,12 @@ export default function ShoppingCart({
               background: "none",
               border: "none",
               cursor: "pointer",
-              padding: "4px 8px",
+              padding: "10px 12px",
+              minWidth: 44,
+              minHeight: 44,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
               lineHeight: 1,
             }}
           >
@@ -448,10 +453,10 @@ export default function ShoppingCart({
                       <span
                         title="Missing order data — cannot purchase"
                         style={{
-                          fontFamily: "var(--mono)", fontSize: 9,
+                          fontFamily: "var(--mono)", fontSize: 10,
                           color: "var(--red, #f87171)", background: "rgba(248,113,113,0.1)",
                           border: "1px solid rgba(248,113,113,0.2)", borderRadius: 4,
-                          padding: "2px 5px", flexShrink: 0, letterSpacing: "0.04em",
+                          padding: "3px 6px", flexShrink: 0, letterSpacing: "0.04em",
                         }}
                       >
                         NO ORDER
@@ -471,10 +476,10 @@ export default function ShoppingCart({
                     <span
                       title={title}
                       style={{
-                        fontFamily: "var(--mono)", fontSize: 9,
+                        fontFamily: "var(--mono)", fontSize: 10,
                         color: c.color, background: c.bg,
                         border: `1px solid ${c.border}`, borderRadius: 4,
-                        padding: "2px 5px", flexShrink: 0, letterSpacing: "0.04em",
+                        padding: "3px 6px", flexShrink: 0, letterSpacing: "0.04em",
                         cursor: title ? "help" : "default",
                       }}
                     >
@@ -495,7 +500,12 @@ export default function ShoppingCart({
                     background: "none",
                     border: "none",
                     cursor: buying ? "not-allowed" : "pointer",
-                    padding: "4px 6px",
+                    padding: "8px 10px",
+                    minWidth: 40,
+                    minHeight: 40,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                     borderRadius: 4,
                     transition: "color 0.15s, background 0.15s",
                     flexShrink: 0,
@@ -648,7 +658,7 @@ export default function ShoppingCart({
                     style={{
                       fontFamily: "var(--mono)", fontSize: 10, color: "var(--naka-blue, #6fa8dc)",
                       background: "none", border: "1px solid var(--naka-blue, #6fa8dc)",
-                      borderRadius: 4, padding: "3px 8px", cursor: "pointer",
+                      borderRadius: 4, padding: "6px 10px", minHeight: 36, cursor: "pointer",
                     }}
                   >
                     REFRESH

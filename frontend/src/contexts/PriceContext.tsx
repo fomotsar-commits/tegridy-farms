@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useToweliPrice } from '../hooks/useToweliPrice';
 
 /**
@@ -12,7 +12,22 @@ const PriceContext = createContext<PriceData | null>(null);
 
 export function PriceProvider({ children }: { children: ReactNode }) {
   const price = useToweliPrice();
-  return <PriceContext.Provider value={price}>{children}</PriceContext.Provider>;
+  const value = useMemo(
+    () => price,
+    [
+      price.priceInEth,
+      price.priceInUsd,
+      price.ethUsd,
+      price.isLoaded,
+      price.oracleStale,
+      price.priceChange,
+      price.priceUnavailable,
+      price.displayPriceStale,
+      price.apiPriceDiscrepant,
+      price.priceDiscrepancy,
+    ],
+  );
+  return <PriceContext.Provider value={value}>{children}</PriceContext.Provider>;
 }
 
 /**

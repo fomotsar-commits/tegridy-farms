@@ -391,7 +391,7 @@ export default function FarmPage() {
             <img src={ART.bobowelie.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.35 }} />
             <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.5) 0%, rgba(6,12,26,0.85) 100%)' }} />
           </div>
-          <div className="relative z-10 p-6 py-8 flex items-center justify-between">
+          <div className="relative z-10 p-6 py-8 flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div>
               <div className="flex items-center gap-2 mb-1.5">
                 <span className="text-white text-[17px] font-semibold">Season {CURRENT_SEASON.number}: {CURRENT_SEASON.name}</span>
@@ -402,7 +402,7 @@ export default function FarmPage() {
               </p>
             </div>
             {nft.holdsJBAC && (
-              <div className="text-right">
+              <div className="md:text-right">
                 <p className="stat-value text-[16px] text-primary">+0.5x NFT Boost</p>
                 <p className="text-white/25 text-[11px]">{nft.holdsGoldCard ? 'Gold Card' : 'JBAC Holder'}</p>
               </div>
@@ -518,11 +518,11 @@ export default function FarmPage() {
                         <p className="text-white/50 text-[11px] mb-2 font-semibold uppercase tracking-wider">Stake LP</p>
                         <div className="flex gap-2 mb-2">
                           <input
-                            type="number"
+                            type="number" inputMode="decimal"
                             placeholder="0.0"
                             value={lpStakeAmount}
                             onChange={e => setLpStakeAmount(e.target.value)}
-                            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono"
+                            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 min-h-[44px] text-white text-sm font-mono"
                           />
                           <button
                             className="text-[10px] text-primary/60 hover:text-primary"
@@ -558,11 +558,11 @@ export default function FarmPage() {
                         <p className="text-white/50 text-[11px] mb-2 font-semibold uppercase tracking-wider">Withdraw LP</p>
                         <div className="flex gap-2 mb-2">
                           <input
-                            type="number"
+                            type="number" inputMode="decimal"
                             placeholder="0.0"
                             value={lpWithdrawAmount}
                             onChange={e => setLpWithdrawAmount(e.target.value)}
-                            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono"
+                            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 min-h-[44px] text-white text-sm font-mono"
                           />
                           <button
                             className="text-[10px] text-primary/60 hover:text-primary"
@@ -716,18 +716,18 @@ export default function FarmPage() {
                         Balance: {formatTokenAmount(pos.walletBalanceFormatted, 0)}
                       </button>
                     </div>
-                    <input type="number" value={stakeAmount} onChange={(e) => setStakeAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                    <input type="number" inputMode="decimal" value={stakeAmount} onChange={(e) => setStakeAmount(e.target.value.replace(/[^0-9.]/g, ''))}
                       placeholder="0" min="0" step="any"
-                      className="w-full rounded-lg p-4 font-mono text-xl text-white outline-none token-input"
+                      className="w-full rounded-lg p-4 min-h-[44px] font-mono text-xl text-white outline-none token-input"
                       style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.12)' }} />
                   </div>
 
                   <div className="mb-4">
                     <label className="text-white/40 text-[11px] uppercase tracking-wider mb-2 block">Lock Duration</label>
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-3 md:grid-cols-4 gap-2">
                       {LOCK_OPTIONS.map((opt) => (
                         <button key={opt.label} onClick={() => setSelectedLock(opt)}
-                          className="rounded-lg p-2.5 text-center cursor-pointer transition-all text-[12px]"
+                          className="rounded-lg p-2.5 min-h-[44px] text-center cursor-pointer transition-all text-[12px]"
                           style={{
                             background: selectedLock.label === opt.label ? 'rgba(139,92,246,0.12)' : 'rgba(255,255,255,0.03)',
                             border: selectedLock.label === opt.label ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(255,255,255,0.06)',

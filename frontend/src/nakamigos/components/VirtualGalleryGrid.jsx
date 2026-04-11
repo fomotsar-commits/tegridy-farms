@@ -81,7 +81,7 @@ function SkeletonGrid({ columns, rowHeight }) {
   );
 }
 
-export default function VirtualGalleryGrid({
+export default memo(function VirtualGalleryGrid({
   tokens,
   loading,
   onPick,
@@ -235,7 +235,7 @@ export default function VirtualGalleryGrid({
       </div>
     </div>
   );
-}
+})
 
 const VirtualCard = memo(function VirtualCard({
   nft,

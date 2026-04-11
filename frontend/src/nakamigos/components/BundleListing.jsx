@@ -238,7 +238,7 @@ export default function BundleListing({ nfts, wallet, onClose, addToast, onConne
           background: "var(--card)", border: "1px solid var(--border)",
           borderRadius: 14, maxWidth: 560, width: "94%", margin: "auto",
           padding: "28px 24px", position: "relative",
-          maxHeight: "90vh", overflowY: "auto",
+          maxHeight: "85vh", overflowY: "auto",
         }}
       >
         {/* Close button */}
@@ -369,7 +369,7 @@ export default function BundleListing({ nfts, wallet, onClose, addToast, onConne
                     <div style={{
                       position: "absolute", bottom: 0, left: 0, right: 0,
                       background: "rgba(0,0,0,0.65)", padding: "2px 4px",
-                      fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-dim)",
+                      fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
                       textAlign: "center", whiteSpace: "nowrap", overflow: "hidden",
                       textOverflow: "ellipsis",
                     }}>
@@ -450,7 +450,7 @@ export default function BundleListing({ nfts, wallet, onClose, addToast, onConne
               </div>
               {selectedNfts.length >= 2 && isValidPrice && (
                 <div style={{
-                  fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)",
+                  fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)",
                   marginTop: 4, textAlign: "right",
                 }}>
                   ~{(priceNum / selectedNfts.length).toFixed(4)} ETH per NFT
@@ -496,8 +496,8 @@ export default function BundleListing({ nfts, wallet, onClose, addToast, onConne
                     onClick={() => setDuration(opt.hours)}
                     disabled={isSubmitting}
                     style={{
-                      padding: "6px 12px", borderRadius: 6,
-                      fontFamily: "var(--mono)", fontSize: 10,
+                      padding: "10px 14px", borderRadius: 6, minHeight: 40,
+                      fontFamily: "var(--mono)", fontSize: 11,
                       border: duration === opt.hours
                         ? "1px solid var(--naka-blue)"
                         : "1px solid var(--border)",
@@ -526,7 +526,7 @@ export default function BundleListing({ nfts, wallet, onClose, addToast, onConne
                   return (
                     <div key={s} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{
-                        width: 22, height: 22, borderRadius: "50%",
+                        width: 28, height: 28, borderRadius: "50%",
                         display: "flex", alignItems: "center", justifyContent: "center",
                         fontSize: 10, fontFamily: "var(--mono)",
                         background: isComplete

@@ -43,29 +43,30 @@ export function LimitOrderTab() {
 
       {/* Amount */}
       <div className="mb-3">
-        <label className="text-white/40 text-[11px] mb-1.5 block">Amount (ETH)</label>
-        <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
+        <label htmlFor="limit-amount" className="text-white/40 text-[11px] mb-1.5 block">Amount (ETH)</label>
+        <input id="limit-amount" type="number" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)}
           placeholder="0.1" min="0" step="0.01"
-          className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-3 py-2.5 rounded-lg token-input"
+          className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
           style={{ border: '1px solid rgba(255,255,255,0.06)' }} />
       </div>
 
       {/* Target Price */}
       <div className="mb-3">
-        <label className="text-white/40 text-[11px] mb-1.5 block">Target Price (TOWELI per ETH)</label>
-        <input type="number" value={targetPrice} onChange={e => setTargetPrice(e.target.value)}
+        <label htmlFor="limit-target-price" className="text-white/40 text-[11px] mb-1.5 block">Target Price (TOWELI per ETH)</label>
+        <input id="limit-target-price" type="number" inputMode="decimal" value={targetPrice} onChange={e => setTargetPrice(e.target.value)}
           placeholder="25000000" min="0"
-          className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-3 py-2.5 rounded-lg token-input"
+          className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
           style={{ border: '1px solid rgba(255,255,255,0.06)' }} />
       </div>
 
       {/* Expiry */}
       <div className="mb-4">
-        <label className="text-white/40 text-[11px] mb-1.5 block">Expires In</label>
-        <div className="flex gap-1.5">
+        <span id="limit-expiry-label" className="text-white/40 text-[11px] mb-1.5 block">Expires In</span>
+        <div className="flex gap-1.5" role="group" aria-labelledby="limit-expiry-label">
           {EXPIRY_OPTIONS.map((opt, i) => (
             <button key={opt.label} onClick={() => setExpiryIdx(i)}
-              className="flex-1 py-2 rounded-lg text-[11px] font-medium cursor-pointer transition-all"
+              aria-pressed={expiryIdx === i}
+              className="flex-1 py-2 min-h-[44px] rounded-lg text-[11px] font-medium cursor-pointer transition-all"
               style={{
                 background: expiryIdx === i ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.03)',
                 color: expiryIdx === i ? 'var(--color-primary)' : 'rgba(255,255,255,0.4)',
@@ -78,9 +79,10 @@ export function LimitOrderTab() {
       </div>
 
       {isConnected ? (
-        <button onClick={handleCreate}
+        <button type="button" onClick={handleCreate}
           disabled={!amount || !targetPrice || parseFloat(amount) <= 0 || parseFloat(targetPrice) <= 0}
-          className="btn-primary w-full py-3 text-[13px] disabled:opacity-35 disabled:cursor-not-allowed">
+          aria-disabled={!amount || !targetPrice || parseFloat(amount) <= 0 || parseFloat(targetPrice) <= 0}
+          className="btn-primary w-full py-3 min-h-[44px] text-[13px] disabled:opacity-35 disabled:cursor-not-allowed">
           Create Limit Order
         </button>
       ) : (

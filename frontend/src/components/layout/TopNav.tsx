@@ -79,6 +79,7 @@ export function TopNav() {
               className="w-7 h-7 rounded-md overflow-hidden flex-shrink-0 cursor-pointer hover:scale-110 transition-transform"
               style={{ border: '1px solid rgba(139,92,246,0.25)' }}
               title="Replay splash screen"
+              aria-label="Replay splash screen"
             >
               <img src="/art/bobowelie.jpg" alt="" className="w-full h-full object-cover" />
             </button>
@@ -107,6 +108,8 @@ export function TopNav() {
             <div className="relative" ref={moreRef}>
               <button
                 onClick={() => setMoreOpen(!moreOpen)}
+                aria-expanded={moreOpen}
+                aria-haspopup="true"
                 className={`nav-link flex items-center gap-1 ${isMoreActive ? 'active' : ''}`}
               >
                 More
@@ -169,7 +172,7 @@ export function TopNav() {
               }}
             </ConnectButton.Custom>
 
-            <button onClick={() => setOpen(true)} aria-label="Open navigation menu" className="md:hidden p-2.5 -mr-2 text-text-muted min-w-[44px] min-h-[44px] flex items-center justify-center">
+            <button onClick={() => setOpen(true)} aria-label="Open navigation menu" aria-expanded={open} className="md:hidden p-2.5 -mr-2 text-text-muted min-w-[44px] min-h-[44px] flex items-center justify-center">
               <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
                 <path d="M3 5h14M3 10h14M3 15h14" />
               </svg>

@@ -173,12 +173,15 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
     };
     document.addEventListener("keydown", handleKey);
     lockScroll();
+    // Store the element that had focus before modal opened, to restore on close
+    const previouslyFocused = document.activeElement;
     // Focus the close button on mount
     const closeBtn = modalRef.current?.querySelector('[aria-label="Close modal"]');
     closeBtn?.focus();
     return () => {
       document.removeEventListener("keydown", handleKey);
       unlockScroll();
+      if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus();
     };
   }, [nft, onClose]);
 
@@ -553,6 +556,9 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
                 key={k}
                 className={`meta-cell ${k === "CONTRACT" ? "copyable" : ""}`}
                 onClick={k === "CONTRACT" ? () => handleCopy(collection.contract, "contract") : undefined}
+                onKeyDown={k === "CONTRACT" ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleCopy(collection.contract, "contract"); } } : undefined}
+                role={k === "CONTRACT" ? "button" : undefined}
+                tabIndex={k === "CONTRACT" ? 0 : undefined}
                 title={k === "CONTRACT" ? "Copy full address" : undefined}
               >
                 <div className="meta-label">{k} {k === "CONTRACT" && copied === "contract" ? "\u2713" : ""}</div>

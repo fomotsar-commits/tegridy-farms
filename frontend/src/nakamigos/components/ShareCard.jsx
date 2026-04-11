@@ -184,7 +184,7 @@ export default function ShareCard({ nft, onClose }) {
     const name = nft.name || `${collection.name} #${nft.id}`;
     const rankPart = nft.rank ? ` (Rank #${nft.rank})` : "";
     const text = encodeURIComponent(`Check out my ${name}${rankPart} \u{1F3AE}`);
-    window.open(`https://twitter.com/intent/tweet?text=${text}`, "_blank");
+    window.open(`https://twitter.com/intent/tweet?text=${text}`, "_blank", "noopener,noreferrer");
   };
 
   const overlay = {

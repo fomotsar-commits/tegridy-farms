@@ -192,7 +192,7 @@ export default function CollectionHealth({ stats, activities }) {
     const count = listings.length;
     const pct = (count / safeSupply) * 100;
     return { count, pct };
-  }, [listings, supply]);
+  }, [listings, safeSupply]);
 
   // Volume metrics
   const volumeMetrics = useMemo(() => {
@@ -243,7 +243,7 @@ export default function CollectionHealth({ stats, activities }) {
     // Spike detection: if listed % > 15%, it's a spike
     const spike = (count / safeSupply) * 100 > 15;
     return { count, spike };
-  }, [listings, supply]);
+  }, [listings, safeSupply]);
 
   // Whale concentration
   const whaleConcentration = useMemo(() => {
@@ -496,7 +496,7 @@ export default function CollectionHealth({ stats, activities }) {
       </div>
 
       {/* ── 3-6: DETAIL PANELS ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div className="health-detail-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
 
         {/* ── 3. BUYER vs SELLER RATIO ── */}
         <div className="analytics-panel">

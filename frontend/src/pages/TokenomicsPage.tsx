@@ -16,6 +16,7 @@ import { AnimatedCounter } from '../components/AnimatedCounter';
 import { Sparkline } from '../components/Sparkline';
 import { usePriceHistory } from '../hooks/usePriceHistory';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 
 const SUPPLY_DATA = [
   { name: 'Circulating', value: 65, color: '#8b5cf6' },
@@ -106,6 +107,7 @@ export default function TokenomicsPage() {
             <div className="relative z-10 p-5">
             <h3 className="heading-luxury text-[15px] text-white mb-3">Supply Distribution</h3>
             <div className="h-48">
+              <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white/30 text-[13px]">Chart unavailable</div>}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie data={SUPPLY_DATA} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value" stroke="none">
@@ -120,6 +122,7 @@ export default function TokenomicsPage() {
                   />
                 </PieChart>
               </ResponsiveContainer>
+              </ErrorBoundary>
             </div>
             <div className="grid grid-cols-2 gap-1.5 mt-2">
               {SUPPLY_DATA.map((d) => (

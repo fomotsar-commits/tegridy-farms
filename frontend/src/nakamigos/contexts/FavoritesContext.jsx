@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useMemo } from "react";
 import { useActiveCollection } from "./CollectionContext";
 
 const FavoritesContext = createContext(undefined);
@@ -30,8 +30,15 @@ export function FavoritesProvider({ children }) {
 
   const isFavorite = useCallback((tokenId) => favorites.includes(String(tokenId)), [favorites]);
 
+  const saveFavoritesBound = useCallback((favs) => saveFavorites(favs, slug), [slug]);
+
+  const value = useMemo(
+    () => ({ favorites, setFavorites, toggleFavorite, isFavorite, saveFavorites: saveFavoritesBound }),
+    [favorites, setFavorites, toggleFavorite, isFavorite, saveFavoritesBound],
+  );
+
   return (
-    <FavoritesContext.Provider value={{ favorites, setFavorites, toggleFavorite, isFavorite, saveFavorites: (favs) => saveFavorites(favs, slug) }}>
+    <FavoritesContext.Provider value={value}>
       {children}
     </FavoritesContext.Provider>
   );

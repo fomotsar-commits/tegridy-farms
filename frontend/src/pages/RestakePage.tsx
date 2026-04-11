@@ -230,15 +230,15 @@ export default function RestakePage() {
                   <p className="stat-value text-[16px] text-success">{Number(formatEther(pendingBonus)).toFixed(8)} WETH</p>
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <button onClick={handleClaimAll}
                   disabled={isPending || isConfirming}
-                  className="btn-primary flex-1 py-3 text-[14px] disabled:opacity-35 disabled:cursor-not-allowed">
+                  className="btn-primary flex-1 py-3 min-h-[44px] text-[14px] disabled:opacity-35 disabled:cursor-not-allowed">
                   {isPending || isConfirming ? 'Processing...' : 'Claim All Rewards'}
                 </button>
                 <button onClick={handleUnrestake}
                   disabled={isPending || isConfirming}
-                  className="btn-secondary flex-1 py-3 text-[14px] disabled:opacity-35">
+                  className="btn-secondary flex-1 py-3 min-h-[44px] text-[14px] disabled:opacity-35">
                   {isPending || isConfirming ? 'Processing...' : 'Unrestake (Get NFT Back)'}
                 </button>
               </div>
@@ -278,13 +278,13 @@ export default function RestakePage() {
               {!isNFTApproved ? (
                 <button onClick={handleApprove}
                   disabled={isPending || isConfirming}
-                  className="btn-secondary px-8 py-3 text-[14px] disabled:opacity-35 disabled:cursor-not-allowed">
+                  className="btn-secondary px-8 py-3 min-h-[44px] text-[14px] disabled:opacity-35 disabled:cursor-not-allowed">
                   {isPending || isConfirming ? 'Approving...' : 'Step 1: Approve NFT'}
                 </button>
               ) : (
                 <button onClick={handleDeposit}
                   disabled={isPending || isConfirming}
-                  className="btn-primary px-8 py-3 text-[14px] disabled:opacity-35 disabled:cursor-not-allowed">
+                  className="btn-primary px-8 py-3 min-h-[44px] text-[14px] disabled:opacity-35 disabled:cursor-not-allowed">
                   {isPending || isConfirming ? 'Depositing...' : 'Step 2: Deposit & Restake'}
                 </button>
               )}

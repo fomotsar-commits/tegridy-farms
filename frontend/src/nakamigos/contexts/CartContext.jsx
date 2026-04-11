@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useMemo } from "react";
 import { useActiveCollection } from "./CollectionContext";
 
 const CartContext = createContext(undefined);
@@ -41,8 +41,15 @@ export function CartProvider({ children }) {
     saveCart([], slug);
   }, [slug]);
 
+  const saveCartBound = useCallback((items) => saveCart(items, slug), [slug]);
+
+  const value = useMemo(
+    () => ({ cart, setCart, addToCart, removeFromCart, clearCart, cartCount: cart.length, saveCart: saveCartBound }),
+    [cart, setCart, addToCart, removeFromCart, clearCart, saveCartBound],
+  );
+
   return (
-    <CartContext.Provider value={{ cart, setCart, addToCart, removeFromCart, clearCart, cartCount: cart.length, saveCart: (items) => saveCart(items, slug) }}>
+    <CartContext.Provider value={value}>
       {children}
     </CartContext.Provider>
   );

@@ -108,12 +108,12 @@ export default function BribesPage() {
               </div>
             )}
 
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               {bribes.claimableTokens.length > 0 && (
                 <button
                   onClick={() => bribes.claimBribes(bribes.epochCount - 1, TOWELI_WETH_LP_ADDRESS)}
                   disabled={bribes.isPending || bribes.isConfirming}
-                  className="btn-primary px-5 py-2 text-[13px]"
+                  className="btn-primary px-5 py-2 min-h-[44px] text-[13px]"
                 >
                   {bribes.isPending || bribes.isConfirming ? 'Claiming...' : 'Claim Bribes'}
                 </button>
@@ -122,7 +122,7 @@ export default function BribesPage() {
                 <button
                   onClick={() => bribes.claimBribesBatch(0, bribes.epochCount, TOWELI_WETH_LP_ADDRESS)}
                   disabled={bribes.isPending || bribes.isConfirming}
-                  className="btn-secondary px-5 py-2 text-[13px]"
+                  className="btn-secondary px-5 py-2 min-h-[44px] text-[13px]"
                 >
                   Claim All Epochs
                 </button>
@@ -143,7 +143,7 @@ export default function BribesPage() {
             <button
               onClick={bribes.advanceEpoch}
               disabled={bribes.isPending || bribes.isConfirming}
-              className="btn-secondary px-5 py-2 text-[13px]"
+              className="btn-secondary px-5 py-2 min-h-[44px] text-[13px]"
             >
               {bribes.isPending || bribes.isConfirming ? 'Processing...' : 'Advance Epoch'}
             </button>

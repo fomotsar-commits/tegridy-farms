@@ -47,21 +47,51 @@ export async function getWethAllowance(address) {
 }
 
 export async function wrapEth(amountWei) {
+  const amount = BigInt(amountWei);
+  if (amount <= 0n) {
+    throw new Error("Wrap amount must be positive");
+  }
   const { ethers } = await getEthers();
   const signer = await getSigner();
+  const address = await signer.getAddress();
+  const provider = signer.provider;
+  // Verify sufficient ETH balance before sending (prevents confusing wallet errors)
+  const ethBalance = await provider.getBalance(address);
+  // Reserve a small gas buffer so the deposit tx itself can be mined
+  const gasBuffer = BigInt(0.002e18); // 0.002 ETH
+  if (ethBalance < amount + gasBuffer) {
+    throw new Error(
+      `Insufficient ETH to wrap. Have ${formatEth(ethBalance)} ETH, ` +
+      `need ${formatEth(amount)} + gas`
+    );
+  }
   const weth = new ethers.Contract(WETH, WETH_ABI, signer);
-  const tx = await weth.deposit({ value: amountWei });
+  const tx = await weth.deposit({ value: amount });
   await tx.wait();
   return tx;
 }
 
+// Safety cap: never approve more than 100 ETH worth of WETH in a single call.
+// This prevents accidental or malicious unlimited approvals.
+const MAX_APPROVAL_WEI = BigInt(100e18); // 100 WETH
+
 export async function approveWeth(amount) {
+  const approvalAmount = BigInt(amount);
+  if (approvalAmount <= 0n) {
+    throw new Error("Approval amount must be positive");
+  }
+  if (approvalAmount > MAX_APPROVAL_WEI) {
+    throw new Error(
+      `Approval amount (${formatEth(approvalAmount)} WETH) exceeds safety cap of 100 WETH. ` +
+      `Please reduce the amount or contact support.`
+    );
+  }
   const signer = await getSigner();
   const { ethers } = await getEthers();
   const weth = new ethers.Contract(WETH, WETH_ABI, signer);
   // Approve the conduit (not Seaport directly). When orders use a
   // non-zero conduitKey, Seaport pulls tokens through the conduit.
-  const tx = await weth.approve(CONDUIT_ADDRESS, amount);
+  const tx = await weth.approve(CONDUIT_ADDRESS, approvalAmount);
   await tx.wait();
   return tx;
 }

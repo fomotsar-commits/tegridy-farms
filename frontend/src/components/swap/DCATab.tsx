@@ -45,20 +45,20 @@ export function DCATab() {
 
       {/* Amount per swap */}
       <div className="mb-3">
-        <label className="text-white/40 text-[11px] mb-1.5 block">Amount per Swap (ETH)</label>
-        <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
+        <label htmlFor="dca-amount" className="text-white/40 text-[11px] mb-1.5 block">Amount per Swap (ETH)</label>
+        <input id="dca-amount" type="number" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)}
           placeholder="0.01" min="0" step="0.001"
-          className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-3 py-2.5 rounded-lg token-input"
+          className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
           style={{ border: '1px solid rgba(255,255,255,0.06)' }} />
       </div>
 
       {/* Interval */}
       <div className="mb-3">
-        <label className="text-white/40 text-[11px] mb-1.5 block">Frequency</label>
-        <div className="flex gap-1.5">
+        <span id="dca-frequency-label" className="text-white/40 text-[11px] mb-1.5 block">Frequency</span>
+        <div className="flex gap-1.5" role="group" aria-labelledby="dca-frequency-label">
           {INTERVALS.map((opt, i) => (
             <button key={opt.value} onClick={() => setIntervalIdx(i)}
-              className="flex-1 py-2 rounded-lg text-[11px] font-medium cursor-pointer transition-all"
+              className="flex-1 py-2 min-h-[44px] rounded-lg text-[11px] font-medium cursor-pointer transition-all"
               style={{
                 background: intervalIdx === i ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.03)',
                 color: intervalIdx === i ? 'var(--color-primary)' : 'rgba(255,255,255,0.4)',
@@ -72,11 +72,11 @@ export function DCATab() {
 
       {/* Number of swaps */}
       <div className="mb-3">
-        <label className="text-white/40 text-[11px] mb-1.5 block">Number of Swaps</label>
-        <input type="number" value={totalSwaps} onChange={e => setTotalSwaps(e.target.value)}
+        <label htmlFor="dca-total-swaps" className="text-white/40 text-[11px] mb-1.5 block">Number of Swaps</label>
+        <input id="dca-total-swaps" type="number" inputMode="numeric" value={totalSwaps} onChange={e => setTotalSwaps(e.target.value)}
           placeholder="30" min="1" max="365"
           onBlur={() => { const v = parseInt(totalSwaps); if (v > 365) setTotalSwaps('365'); if (v < 1) setTotalSwaps('1'); }}
-          className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-3 py-2.5 rounded-lg token-input"
+          className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
           style={{ border: '1px solid rgba(255,255,255,0.06)' }} />
       </div>
 
@@ -99,9 +99,10 @@ export function DCATab() {
       )}
 
       {isConnected ? (
-        <button onClick={handleCreate}
+        <button type="button" onClick={handleCreate}
           disabled={!amount || parseFloat(amount) <= 0 || !totalSwaps || parseInt(totalSwaps) <= 0}
-          className="btn-primary w-full py-3 text-[13px] disabled:opacity-35 disabled:cursor-not-allowed">
+          aria-disabled={!amount || parseFloat(amount) <= 0 || !totalSwaps || parseInt(totalSwaps) <= 0}
+          className="btn-primary w-full py-3 min-h-[44px] text-[13px] disabled:opacity-35 disabled:cursor-not-allowed">
           Start DCA
         </button>
       ) : (

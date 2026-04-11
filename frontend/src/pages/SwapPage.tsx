@@ -355,9 +355,9 @@ export default function SwapPage() {
                   ))}
                 </div>
                 <div className="flex items-center gap-2">
-                  <input type="number" value={customSlippage} onChange={(e) => handleSlippageChange(e.target.value)}
+                  <input type="number" inputMode="decimal" value={customSlippage} onChange={(e) => handleSlippageChange(e.target.value)}
                     placeholder="Custom" min="0.1" max="20" step="0.1"
-                    className="flex-1 bg-transparent text-[12px] font-mono text-white outline-none px-3 py-2 rounded-lg"
+                    className="flex-1 bg-transparent text-[12px] font-mono text-white outline-none px-3 py-2 min-h-[44px] rounded-lg"
                     style={{ border: '1px solid rgba(255,255,255,0.08)' }} />
                   <span className="text-white/40 text-[12px]">%</span>
                 </div>
@@ -368,12 +368,12 @@ export default function SwapPage() {
                 )}
                 <p className="text-white/40 text-[11px] font-medium uppercase tracking-wider mt-3.5 mb-2">Tx Deadline</p>
                 <div className="flex items-center gap-2">
-                  <input type="number" value={swap.deadline} onChange={(e) => {
+                  <input type="number" inputMode="decimal" value={swap.deadline} onChange={(e) => {
                     const v = parseInt(e.target.value);
                     if (v > 0 && v <= 30) swap.setDeadline(v);
                   }}
                     min="1" max="30"
-                    className="w-16 bg-transparent text-[12px] font-mono text-white outline-none px-3 py-2 rounded-lg"
+                    className="w-16 bg-transparent text-[12px] font-mono text-white outline-none px-3 py-2 min-h-[44px] rounded-lg"
                     style={{ border: '1px solid rgba(255,255,255,0.08)' }} />
                   <span className="text-white/40 text-[12px]">minutes</span>
                 </div>
@@ -405,9 +405,9 @@ export default function SwapPage() {
               )}
             </div>
             <div className="flex items-center gap-3">
-              <input type="number" value={swap.inputAmount} onChange={(e) => swap.setInputAmount(e.target.value)}
+              <input type="number" inputMode="decimal" value={swap.inputAmount} onChange={(e) => swap.setInputAmount(e.target.value)}
                 placeholder="0" aria-label="Amount to swap"
-                className="flex-1 bg-transparent font-mono text-[24px] text-white outline-none token-input min-w-0" />
+                className="flex-1 bg-transparent font-mono text-[24px] text-white outline-none token-input min-w-0 min-h-[44px]" />
               <TokenButton token={swap.fromToken} onClick={() => setTokenSelectSide('from')} />
             </div>
             {swap.inputAmount && parseFloat(swap.inputAmount) > 0 && (() => {

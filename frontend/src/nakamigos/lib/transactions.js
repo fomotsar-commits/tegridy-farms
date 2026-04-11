@@ -14,6 +14,10 @@ function loadHistory(slug = "nakamigos") {
 export function recordTransaction({ type, nft, price, hash, wallet, slug }) {
   const key = slug || "nakamigos";
   const history = loadHistory(key);
+  // Truncate wallet address — never store full addresses in localStorage
+  const truncatedWallet = wallet
+    ? `${wallet.slice(0, 6)}...${wallet.slice(-4)}`
+    : null;
   history.unshift({
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     type,
@@ -22,7 +26,7 @@ export function recordTransaction({ type, nft, price, hash, wallet, slug }) {
     image: nft?.image,
     price,
     hash,
-    wallet,
+    wallet: truncatedWallet,
     timestamp: Date.now(),
   });
   // Keep last 50 transactions per collection

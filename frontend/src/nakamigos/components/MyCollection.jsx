@@ -33,6 +33,13 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
   // Monotonic counter to discard stale retry responses after collection switch
   const retryGenRef = useRef(0);
 
+  // Map of tokenId -> token (for O(1) lookup in listings render)
+  const tokenMap = useMemo(() => {
+    const map = new Map();
+    for (const t of tokens) map.set(String(t.id), t);
+    return map;
+  }, [tokens]);
+
   // Map of tokenId -> listing
   const listingMap = useMemo(() => {
     const map = new Map();
@@ -279,7 +286,7 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
             ACTIVE LISTINGS
           </div>
           {listings.map((listing) => {
-            const token = tokens.find(t => String(t.id) === String(listing.tokenId));
+            const token = tokenMap.get(String(listing.tokenId));
             return (
               <div key={listing.orderHash} style={{
                 display: "flex", alignItems: "center", gap: 12,

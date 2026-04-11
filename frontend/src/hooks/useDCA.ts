@@ -321,7 +321,10 @@ export function useDCA() {
     };
 
     checkDue();
-    const timer = setInterval(checkDue, POLL_INTERVAL);
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+      checkDue();
+    }, POLL_INTERVAL);
     return () => {
       clearInterval(timer);
       executingRef.current.clear();

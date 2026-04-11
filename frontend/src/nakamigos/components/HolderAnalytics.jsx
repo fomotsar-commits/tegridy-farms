@@ -98,7 +98,7 @@ export default function HolderAnalytics({ supply: suppliedSupply } = {}) {
     };
   }, [holders, totalOwners, supply]);
 
-  const maxDist = Math.max(...distribution.map((d) => d.value), 1);
+  const maxDist = useMemo(() => Math.max(...distribution.map((d) => d.value), 1), [distribution]);
 
   return (
     <div className="analytics-panel" style={{ marginTop: 24 }}>
@@ -124,7 +124,7 @@ export default function HolderAnalytics({ supply: suppliedSupply } = {}) {
         <>
           {stats && (
             <>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 12 }}>
+              <div className="holder-stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 12 }}>
                 {[
                   { label: "TOTAL HOLDERS", value: stats.totalOwners ? stats.totalOwners.toLocaleString() : "\u2014", color: "var(--purple)" },
                   { label: "AVG HELD (TOP\u00A0100)", value: stats.avgHeld, color: "var(--green)" },

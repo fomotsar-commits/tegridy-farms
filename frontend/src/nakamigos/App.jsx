@@ -13,20 +13,22 @@ import Background from "./components/Background";
 import Header from "./components/Header";
 import Hero from "./components/Hero";
 import Gallery from "./components/Gallery";
-import Modal from "./components/Modal";
 import Toast from "./components/Toast";
 import NftMarquee from "./components/NftMarquee";
 import SplashScreen from "./components/SplashScreen";
-import ShoppingCart from "./components/ShoppingCart";
 import PageTransition from "./components/PageTransition";
 import PriceAlertPanel, { usePriceAlerts } from "./components/PriceAlerts";
-import NotificationCenter from "./components/NotificationCenter";
 import useSmartAlerts from "./hooks/useSmartAlerts";
 import ErrorBoundary from "./components/ErrorBoundary";
 import NotFound from "./components/NotFound";
 import MobileNav from "./components/MobileNav";
 import InstallPrompt from "./components/InstallPrompt";
-import CollectionLanding from "./components/CollectionLanding";
+
+// Lazy-loaded: only rendered conditionally (modal open, cart open, landing route)
+const Modal = lazy(() => import("./components/Modal"));
+const ShoppingCart = lazy(() => import("./components/ShoppingCart"));
+const NotificationCenter = lazy(() => import("./components/NotificationCenter"));
+const CollectionLanding = lazy(() => import("./components/CollectionLanding"));
 import { GallerySkeleton } from "./components/SkeletonFallback";
 import useNfts from "./hooks/useNfts";
 import useCollection from "./hooks/useCollection";
@@ -221,7 +223,7 @@ function LandingShell({ themeName, onCycleTheme, walletName, disconnect, childre
         isLanding={true}
       />
       <main id="main-content" role="main">
-        {children || <CollectionLanding />}
+        {children || <Suspense fallback={<LazyFallback />}><CollectionLanding /></Suspense>}
       </main>
       {walletModalOpen && (
         <Suspense fallback={null}>
@@ -638,6 +640,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
         collectionSlug={collectionSlug}
         collectionPixelated={collection.pixelated}
         notificationCenter={
+          <Suspense fallback={null}>
           <NotificationCenter
             config={smartAlerts.config}
             updateConfig={smartAlerts.updateConfig}
@@ -648,6 +651,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
             clearHistory={smartAlerts.clearHistory}
             removeNotification={smartAlerts.removeNotification}
           />
+          </Suspense>
         }
       />
 
@@ -661,7 +665,9 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
       </ErrorBoundary>
       </main>
 
+      {selected && (
       <ErrorBoundary title="Modal error" onReset={() => setSelected(null)}>
+      <Suspense fallback={null}>
       <Modal
         nft={selected}
         onClose={() => {
@@ -681,9 +687,13 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
         statsSupply={stats?.supply}
         allTokens={nfts.allTokens}
       />
+      </Suspense>
       </ErrorBoundary>
+      )}
 
+      {cartOpen && (
       <ErrorBoundary title="Cart error" onReset={() => setCartOpen(false)}>
+      <Suspense fallback={null}>
       <ShoppingCart
         cart={cart}
         onRemove={removeFromCart}
@@ -696,7 +706,9 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
         listings={listings}
         onRefreshCart={refreshCart}
       />
+      </Suspense>
       </ErrorBoundary>
+      )}
 
       <ErrorBoundary title="Overlay error" onReset={() => { setTheaterNft(null); setProfileAddress(null); setEditProfileOpen(false); setWalletModalOpen(false); setShareNft(null); }}>
       {theaterNft && (

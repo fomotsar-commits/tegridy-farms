@@ -129,6 +129,7 @@ export function BottomNav() {
         <button
           onClick={() => setOpen(!open)}
           aria-label="More pages"
+          aria-expanded={open}
           className={`flex flex-col items-center justify-center gap-0.5 min-w-[52px] min-h-[48px] px-2 py-2 transition-colors cursor-pointer ${
             isMoreActive || open ? 'text-primary' : 'text-white/40'
           }`}

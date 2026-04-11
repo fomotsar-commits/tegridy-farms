@@ -183,6 +183,7 @@ export default function MobileNav({ tab, onTabChange }) {
               minWidth: 48,
             }}
             aria-label="More tabs"
+            aria-expanded={moreOpen}
           >
             <span style={{ fontSize: 18 }}>{"\u2026"}</span>
             <span style={{

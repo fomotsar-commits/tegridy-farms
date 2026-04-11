@@ -252,6 +252,7 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
                 <input
                   id="offer-price-input"
                   type="number"
+                  inputMode="decimal"
                   step="0.001"
                   min="0"
                   placeholder="0.00"
@@ -291,7 +292,7 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
               const availableBal = wethBal + (ethBal || 0n) - gasBuffer;
               if (totalCommitted > availableBal) {
                 return (
-                  <div style={{
+                  <div role="alert" style={{
                     fontFamily: "var(--mono)", fontSize: 10, marginBottom: 14,
                     padding: "8px 12px", borderRadius: 8,
                     background: "rgba(231,76,60,0.08)", border: "1px solid rgba(231,76,60,0.25)",
@@ -309,18 +310,19 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
 
             {/* Expiration */}
             <div style={{ marginBottom: 20 }}>
-              <label style={{
+              <span id="expiration-label" style={{
                 fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
                 letterSpacing: "0.06em", display: "block", marginBottom: 6,
               }}>
                 EXPIRATION
-              </label>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              </span>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} role="group" aria-labelledby="expiration-label">
                 {EXPIRATION_OPTIONS.map((opt) => (
                   <button
                     key={opt.hours}
                     onClick={() => setExpiration(opt.hours)}
                     disabled={step === "submitting"}
+                    aria-pressed={expiration === opt.hours}
                     style={{
                       padding: "6px 12px", borderRadius: 6,
                       fontFamily: "var(--mono)", fontSize: 10,
@@ -351,8 +353,10 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
             {/* Submit */}
             <button
               className="btn-primary"
+              type="button"
               style={{ width: "100%", textAlign: "center", fontSize: 12 }}
               disabled={step === "submitting"}
+              aria-disabled={step === "submitting"}
               onClick={handleSubmit}
             >
               {step === "submitting"

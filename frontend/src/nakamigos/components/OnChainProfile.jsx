@@ -160,7 +160,17 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
           setEnsName(name);
           try {
             const avatar = await provider.getAvatar(name);
-            if (mounted && avatar) setEnsAvatar(avatar);
+            if (mounted && avatar) {
+              // Only allow http(s) avatar URLs — block javascript:, data:, etc.
+              try {
+                const url = new URL(avatar);
+                if (url.protocol === "https:" || url.protocol === "http:") {
+                  setEnsAvatar(avatar);
+                }
+              } catch {
+                /* malformed URL — ignore */
+              }
+            }
           } catch (_) {
             /* avatar optional */
           }

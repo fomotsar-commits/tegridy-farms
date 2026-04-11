@@ -78,6 +78,14 @@ const supabase = SUPABASE_URL && SUPABASE_KEY ? createClient(SUPABASE_URL, SUPAB
 
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://nakamigos.gallery";
 
+// ── Shared validation helpers ──
+const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+const NUMERIC_ID_RE = /^\d{1,10}$/;
+const MAX_BODY_SIZE = 10 * 1024; // 10 KB
+
+function isValidAddress(addr) { return typeof addr === "string" && ETH_ADDRESS_RE.test(addr); }
+function isValidTokenId(id) { return typeof id === "string" && NUMERIC_ID_RE.test(id); }
+
 function setCors(req, res) {
   const origin = req.headers.origin || "";
   const ALLOWED_ORIGINS = new Set([
@@ -92,14 +100,30 @@ function setCors(req, res) {
   res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGINS.has(origin) ? origin : ALLOWED_ORIGIN);
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Vary", "Origin");
+}
+
+function setRateLimitHeaders(res, { limit = 60, remaining = 59, reset = 60 } = {}) {
+  res.setHeader("X-RateLimit-Limit", String(limit));
+  res.setHeader("X-RateLimit-Remaining", String(remaining));
+  res.setHeader("X-RateLimit-Reset", String(Math.floor(Date.now() / 1000) + reset));
 }
 
 export default async function handler(req, res) {
   setCors(req, res);
+  setRateLimitHeaders(res);
   if (req.method === "OPTIONS") return res.status(200).end();
 
   if (!supabase) {
     return res.status(503).json({ error: "Orderbook database not configured" });
+  }
+
+  // ── Body size guard (POST only) ──
+  if (req.method === "POST") {
+    const bodyStr = typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {});
+    if (bodyStr.length > MAX_BODY_SIZE) {
+      return res.status(413).json({ error: "Request body too large (max 10KB)" });
+    }
   }
 
   // ── GET: Query orders ──
@@ -129,12 +153,19 @@ export default async function handler(req, res) {
 
     // Contract is required — never return orders across all collections
     if (!contract) return res.status(400).json({ error: "contract parameter is required" });
+    if (!isValidAddress(contract)) return res.status(400).json({ error: "Invalid contract address format" });
     const lc = contract.toLowerCase();
     if (!ALLOWED_CONTRACTS.has(lc)) return res.status(403).json({ error: "Contract not supported" });
     query = query.eq("contract_address", lc);
 
-    if (maker) query = query.eq("maker", maker.toLowerCase());
-    if (tokenId) query = query.eq("token_id", tokenId);
+    if (maker) {
+      if (!isValidAddress(maker)) return res.status(400).json({ error: "Invalid maker address" });
+      query = query.eq("maker", maker.toLowerCase());
+    }
+    if (tokenId) {
+      if (!isValidTokenId(tokenId)) return res.status(400).json({ error: "Invalid tokenId — must be numeric (max 10 digits)" });
+      query = query.eq("token_id", tokenId);
+    }
 
     const { data, error } = await query;
     if (error) { console.error("Orderbook error:", error.message); return res.status(500).json({ error: "Internal error" }); }
@@ -276,6 +307,9 @@ export default async function handler(req, res) {
     if (action === "cancel") {
       const { orderHash, signature } = req.body;
       if (!orderHash || !signature) return res.status(400).json({ error: "Missing orderHash or signature" });
+      if (typeof orderHash !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(orderHash)) {
+        return res.status(400).json({ error: "Invalid orderHash format" });
+      }
 
       // Verify wallet signature to prove the caller controls the maker wallet
       const cancelMessage = `Cancel order ${orderHash}`;
@@ -315,6 +349,9 @@ export default async function handler(req, res) {
     if (action === "fill") {
       const { orderHash, txHash, signature } = req.body;
       if (!orderHash || !signature) return res.status(400).json({ error: "Missing orderHash or signature" });
+      if (typeof orderHash !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(orderHash)) {
+        return res.status(400).json({ error: "Invalid orderHash format" });
+      }
 
       if (!txHash || typeof txHash !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
         return res.status(400).json({ error: "Missing or invalid txHash — provide the on-chain transaction hash" });

@@ -73,22 +73,24 @@ function App() {
   }, []);
 
   return (
-    <WagmiProvider config={config}>
-      <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider
-          theme={darkTheme({
-            accentColor: '#2D8B4E',
-            accentColorForeground: 'white',
-            borderRadius: 'large',
-            overlayBlur: 'small',
-          })}
-        >
-          <Suspense fallback={<PageSkeleton />}>
-            <AnimatedRoutes />
-          </Suspense>
-        </RainbowKitProvider>
-      </QueryClientProvider>
-    </WagmiProvider>
+    <ErrorBoundary>
+      <WagmiProvider config={config}>
+        <QueryClientProvider client={queryClient}>
+          <RainbowKitProvider
+            theme={darkTheme({
+              accentColor: '#2D8B4E',
+              accentColorForeground: 'white',
+              borderRadius: 'large',
+              overlayBlur: 'small',
+            })}
+          >
+            <Suspense fallback={<PageSkeleton />}>
+              <AnimatedRoutes />
+            </Suspense>
+          </RainbowKitProvider>
+        </QueryClientProvider>
+      </WagmiProvider>
+    </ErrorBoundary>
   );
 }
 

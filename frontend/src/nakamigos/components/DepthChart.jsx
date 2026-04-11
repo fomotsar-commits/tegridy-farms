@@ -198,6 +198,12 @@ export default function DepthChart({ listings = [], offers = [], floorPrice, col
     return ticks;
   }, [maxCum, yScale]);
 
+  // Pre-merge buckets with side labels so we don't allocate on every mouse move
+  const allBuckets = useMemo(() => [
+    ...askBuckets.map(b => ({ ...b, side: "ask" })),
+    ...bidBuckets.map(b => ({ ...b, side: "bid" })),
+  ], [askBuckets, bidBuckets]);
+
   const handleMouseMove = useCallback((e) => {
     const svg = svgRef.current;
     if (!svg) return;
@@ -210,7 +216,6 @@ export default function DepthChart({ listings = [], offers = [], floorPrice, col
     const price = priceMin + ((mouseX - PAD.left) / INNER_W) * priceRange;
 
     // Find matching bucket
-    const allBuckets = [...askBuckets.map(b => ({ ...b, side: "ask" })), ...bidBuckets.map(b => ({ ...b, side: "bid" }))];
     const hit = allBuckets.find(b => price >= b.lo && price < b.hi);
     if (hit && mouseX >= PAD.left && mouseX <= PAD.left + INNER_W && mouseY >= PAD.top && mouseY <= PAD.top + INNER_H) {
       setTooltip({
@@ -224,7 +229,7 @@ export default function DepthChart({ listings = [], offers = [], floorPrice, col
     } else {
       setTooltip(null);
     }
-  }, [askBuckets, bidBuckets, priceMin, priceRange]);
+  }, [allBuckets, priceMin, priceRange]);
 
   const handleMouseLeave = useCallback(() => setTooltip(null), []);
 

@@ -813,8 +813,17 @@ export async function fulfillSeaportOrder(listing) {
     }
     const txData = fulfillData.fulfillment_data?.transaction;
 
-    if (!txData?.to || !txData?.value) {
+    if (!txData?.to || txData?.value == null) {
       return { error: "failed", message: "Invalid fulfillment data" };
+    }
+
+    // Validate transaction value is a non-negative integer
+    let txValue;
+    try {
+      txValue = BigInt(txData.value);
+      if (txValue < 0n) throw new Error("negative");
+    } catch {
+      return { error: "failed", message: "Invalid transaction value" };
     }
 
     // Validate the transaction target is a known Seaport contract
@@ -852,9 +861,15 @@ export async function fulfillSeaportOrder(listing) {
     // Step 3: Send the transaction via MetaMask
     const tx = await signer.sendTransaction({
       to: txData.to,
-      value: BigInt(txData.value),
+      value: txValue,
       data: encoded,
     });
+
+    // Wait for on-chain confirmation before reporting success
+    const receipt = await tx.wait();
+    if (receipt.status === 0) {
+      return { error: "failed", message: "Transaction reverted on-chain" };
+    }
 
     return { success: true, hash: tx.hash, tx };
   } catch (err) {

@@ -4426,3 +4426,28 @@ details[open] .details-arrow { transform: rotate(90deg); }
     animation: none;
   }
 }
+
+/* ═══ Mobile responsiveness: analytics/data components ═══ */
+
+/* Portfolio section base padding (movable by media queries) */
+.portfolio-section { padding: 0 32px 40px; }
+
+@media (max-width: 768px) {
+  .portfolio-section { padding: 0 16px 40px; }
+
+  /* WhaleIntelligence: stack 2-col layout */
+  .whale-intel-grid { grid-template-columns: 1fr !important; }
+
+  /* CollectionHealth: stack detail panels */
+  .health-detail-grid { grid-template-columns: 1fr !important; }
+
+  /* HolderAnalytics: 2-col stats on tablet/phone */
+  .holder-stats-grid { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* Portfolio: stack gainers/losers */
+  .portfolio-performers-grid { grid-template-columns: 1fr !important; }
+}
+
+@media (max-width: 480px) {
+  .portfolio-section { padding: 0 12px 32px; }
+}

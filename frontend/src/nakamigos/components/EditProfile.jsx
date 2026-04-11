@@ -305,8 +305,10 @@ export default function EditProfile({ wallet, onClose, onConnect, addToast, onSa
             {/* Save button */}
             <button
               className="btn-primary"
+              type="button"
               onClick={handleSave}
               disabled={saving}
+              aria-disabled={saving}
               style={{
                 width: "100%", opacity: saving ? 0.6 : 1,
                 cursor: saving ? "not-allowed" : "pointer",

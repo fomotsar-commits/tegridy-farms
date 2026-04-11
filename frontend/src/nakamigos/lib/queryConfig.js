@@ -43,10 +43,10 @@ export const ownedNftsQuery = {
   retry: 2,
 };
 
-/** Offers (collection & trait) */
+/** Offers (collection & trait) — OpenSea is heavily rate-limited, avoid redundant refetches */
 export const offersQuery = {
-  staleTime: 30_000,
-  gcTime: 5 * 60_000,
+  staleTime: 2 * 60_000,   // 2 minutes (was 30s — too aggressive for rate-limited API)
+  gcTime: 10 * 60_000,
   refetchOnWindowFocus: false,
   retry: 2,
 };

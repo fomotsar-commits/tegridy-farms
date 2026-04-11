@@ -541,6 +541,7 @@ export default function PriceAlertPanel({ tokens = [], addToast }) {
         >
           <input
             type="text"
+            aria-label="Search token name"
             placeholder="Label (e.g. token name)..."
             value={search}
             onChange={(e) => {
@@ -575,6 +576,8 @@ export default function PriceAlertPanel({ tokens = [], addToast }) {
 
         <input
           type="number"
+          inputMode="decimal"
+          aria-label="Alert target price in ETH"
           placeholder="Price"
           value={price}
           onChange={(e) => setPrice(e.target.value)}
@@ -598,7 +601,7 @@ export default function PriceAlertPanel({ tokens = [], addToast }) {
           </button>
         </div>
 
-        <button style={styles.addBtn} onClick={handleAdd}>
+        <button type="button" style={styles.addBtn} onClick={handleAdd}>
           + Add
         </button>
       </div>
@@ -643,6 +646,7 @@ export default function PriceAlertPanel({ tokens = [], addToast }) {
                   style={styles.removeBtn}
                   onClick={() => removeAlert(alert.id)}
                   title="Remove alert"
+                  aria-label={`Remove alert for ${alert.tokenName}`}
                 >
                   &times;
                 </button>

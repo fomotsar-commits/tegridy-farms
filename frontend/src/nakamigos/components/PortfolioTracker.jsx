@@ -282,7 +282,7 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
   const currentValueUsd = pnlData.currentValue * ETH_USD_ESTIMATE;
 
   return (
-    <section className="my-collection-section" style={{ padding: "0 32px 40px" }}>
+    <section className="my-collection-section portfolio-section">
       {/* Title */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
         <h2 style={{ fontFamily: "var(--serif)", fontSize: 28, fontWeight: 600, color: "var(--text)" }}>
@@ -364,9 +364,10 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
         </button>
 
         {/* Summary row (always visible) */}
+        <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
         <div style={{
           display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr",
-          padding: "0 18px 12px", gap: 8,
+          padding: "0 18px 12px", gap: 8, minWidth: 520,
           fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
           letterSpacing: "0.04em",
         }}>
@@ -380,7 +381,7 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
         <div style={{
           display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr",
           padding: "10px 18px", gap: 8, borderTop: "1px solid var(--border)",
-          fontFamily: "var(--mono)", fontSize: 12,
+          fontFamily: "var(--mono)", fontSize: 12, minWidth: 520,
         }}>
           <div style={{ color: "var(--text)", fontFamily: "var(--display)", fontWeight: 500 }}>
             {collection.name}
@@ -401,13 +402,14 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
             {pnlSign(pnlData.realizedPnL)}{formatPrice(Math.abs(pnlData.realizedPnL))}
           </div>
         </div>
+        </div>{/* end scroll wrapper */}
 
         {/* ═══ PER-NFT DETAIL (expandable) ═══ */}
         {expandedCollection && (
-          <div style={{ borderTop: "1px solid var(--border)" }}>
+          <div style={{ borderTop: "1px solid var(--border)", overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
             <div style={{
               display: "grid", gridTemplateColumns: "40px 2fr 1fr 1fr 1fr 1fr",
-              padding: "10px 18px", gap: 8,
+              padding: "10px 18px", gap: 8, minWidth: 560,
               fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)",
               letterSpacing: "0.04em",
             }}>
@@ -426,7 +428,7 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
                   display: "grid", gridTemplateColumns: "40px 2fr 1fr 1fr 1fr 1fr",
                   padding: "8px 18px", gap: 8, borderTop: "1px solid rgba(255,255,255,0.03)",
                   cursor: "pointer", transition: "background 0.15s",
-                  fontFamily: "var(--mono)", fontSize: 11,
+                  fontFamily: "var(--mono)", fontSize: 11, minWidth: 560,
                 }}
                 onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.03)"}
                 onMouseLeave={e => e.currentTarget.style.background = "transparent"}
@@ -493,7 +495,7 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
 
       {/* ═══ BEST / WORST PERFORMERS ═══ */}
       {(topGainers.length > 0 || topLosers.length > 0) && (
-        <div style={{
+        <div className="portfolio-performers-grid" style={{
           display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16,
           marginBottom: 24,
         }}>

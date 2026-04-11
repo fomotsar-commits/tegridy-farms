@@ -20,7 +20,7 @@ export function useUserPosition() {
       { address: TOWELI_ADDRESS as `0x${string}`, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr] },
       { address: TOWELI_ADDRESS as `0x${string}`, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, stakingAddr] },
     ],
-    query: { enabled, refetchInterval: 15_000, refetchOnWindowFocus: true },
+    query: { enabled, refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
 
   const tokenId = (data?.[0]?.status === 'success' ? data[0].result as bigint : 0n);

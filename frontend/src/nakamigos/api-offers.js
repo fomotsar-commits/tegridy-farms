@@ -6,13 +6,16 @@ import { openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } 
 
 // ═══ OPENSEA RETRY WITH EXPONENTIAL BACKOFF ═══
 // OpenSea is heavily rate-limited; retry on 429, 5xx, and network failures.
-async function withRetry(fn, { maxRetries = 3, baseDelay = 1500, maxDelay = 30000 } = {}) {
+async function withRetry(fn, { maxRetries = 3, baseDelay = 1500, maxDelay = 30000, signal } = {}) {
   let lastError;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    // Bail out early if the caller has been cancelled (e.g. component unmount)
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     try {
       return await fn();
     } catch (err) {
       lastError = err;
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
       if (attempt >= maxRetries) break;
       const isApiError = err instanceof ApiError;
       const isNetworkError = err instanceof TypeError;
@@ -24,14 +27,18 @@ async function withRetry(fn, { maxRetries = 3, baseDelay = 1500, maxDelay = 3000
       } else {
         delay = Math.min(baseDelay * Math.pow(2, attempt) + Math.random() * 500, maxDelay);
       }
-      await new Promise(r => setTimeout(r, delay));
+      // Abort-aware delay: resolve immediately if signal fires during wait
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, delay);
+        signal?.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+      });
     }
   }
   throw lastError;
 }
 
-function openseaGet(path, params = {}) {
-  return withRetry(() => rawOpenseaGet(path, params), { maxRetries: 3 });
+function openseaGet(path, params = {}, { signal } = {}) {
+  return withRetry(() => rawOpenseaGet(path, params), { maxRetries: 3, signal });
 }
 
 function openseaPost(path, body) {
@@ -77,10 +84,10 @@ export async function fetchBestOffer(tokenId, slug = COLLECTION_SLUG, { openseaS
   }
 }
 
-export async function fetchCollectionOffers(slug = COLLECTION_SLUG, { openseaSlug } = {}) {
+export async function fetchCollectionOffers(slug = COLLECTION_SLUG, { openseaSlug, signal } = {}) {
   const osSlug = openseaSlug || slug;
   try {
-    const data = await openseaGet(`offers/collection/${osSlug}/all`);
+    const data = await openseaGet(`offers/collection/${osSlug}/all`, {}, { signal });
     return (data.offers || []).map(o => ({
       price: o.price?.value ? safePriceFromWei(o.price.value) : null,
       currency: o.price?.currency,
@@ -95,10 +102,10 @@ export async function fetchCollectionOffers(slug = COLLECTION_SLUG, { openseaSlu
   }
 }
 
-export async function fetchTraitOffers(slug = COLLECTION_SLUG, { openseaSlug } = {}) {
+export async function fetchTraitOffers(slug = COLLECTION_SLUG, { openseaSlug, signal } = {}) {
   const osSlug = openseaSlug || slug;
   try {
-    const data = await openseaGet(`offers/collection/${osSlug}/traits`);
+    const data = await openseaGet(`offers/collection/${osSlug}/traits`, {}, { signal });
     return data.traits || {};
   } catch (err) {
     console.warn("Fetch trait offers failed:", err.message);

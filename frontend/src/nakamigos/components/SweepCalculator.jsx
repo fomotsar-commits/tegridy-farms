@@ -56,12 +56,12 @@ function MarketplaceBadge({ marketplace }) {
       title={title}
       style={{
         fontFamily: "var(--mono)",
-        fontSize: 8,
+        fontSize: 10,
         fontWeight: 700,
         color,
         border: `1px solid ${color}`,
         borderRadius: 3,
-        padding: "1px 4px",
+        padding: "2px 5px",
         letterSpacing: "0.04em",
         lineHeight: 1,
         flexShrink: 0,

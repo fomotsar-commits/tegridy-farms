@@ -579,8 +579,13 @@ export default memo(function FilterSidebar({
                         <div
                           style={S.valueRow(isHovered)}
                           onClick={() => toggleValue(attr.key, v.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleValue(attr.key, v.value); } }}
                           onMouseEnter={() => setHoveredRow(rowKey)}
                           onMouseLeave={() => setHoveredRow(null)}
+                          role="checkbox"
+                          aria-checked={isChecked}
+                          aria-label={`${attr.key}: ${v.value}, ${pct}%`}
+                          tabIndex={0}
                           title={`${v.value}: ${v.count} NFTs (${pct}%)`}
                         >
                           <div style={S.checkbox(isChecked)}>

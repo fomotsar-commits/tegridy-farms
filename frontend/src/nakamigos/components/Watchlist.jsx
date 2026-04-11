@@ -42,14 +42,16 @@ export default function Watchlist({ tokens, onPick, addToast, setTab, wallet }) 
   // Build a set of already-watched IDs for fast lookup
   const watchedIds = useMemo(() => new Set(watchlist.map((w) => w.id)), [watchlist]);
 
-  const searchResults = search.length > 0
-    ? tokens
-        .filter((t) =>
-          !watchedIds.has(t.id) &&
-          ((t.name || "").toLowerCase().includes(search.toLowerCase()) || String(t.id).includes(search))
-        )
-        .slice(0, 6)
-    : [];
+  const searchResults = useMemo(() => {
+    if (search.length === 0) return [];
+    const q = search.toLowerCase();
+    return tokens
+      .filter((t) =>
+        !watchedIds.has(t.id) &&
+        ((t.name || "").toLowerCase().includes(q) || String(t.id).includes(search))
+      )
+      .slice(0, 6);
+  }, [search, tokens, watchedIds]);
 
   const addToWatchlist = useCallback((nft) => {
     setWatchlist((prev) => {
@@ -109,8 +111,13 @@ export default function Watchlist({ tokens, onPick, addToast, setTab, wallet }) 
     });
   }, [collection.slug, wallet]);
 
-  const watchedNfts = tokens.filter((t) => watchedIds.has(t.id));
-  const getWatchData = (id) => watchlist.find((w) => w.id === id) || {};
+  const watchedNfts = useMemo(() => tokens.filter((t) => watchedIds.has(t.id)), [tokens, watchedIds]);
+  const watchDataMap = useMemo(() => {
+    const map = new Map();
+    for (const w of watchlist) map.set(w.id, w);
+    return map;
+  }, [watchlist]);
+  const getWatchData = useCallback((id) => watchDataMap.get(id) || {}, [watchDataMap]);
 
   return (
     <section className="watchlist-section">

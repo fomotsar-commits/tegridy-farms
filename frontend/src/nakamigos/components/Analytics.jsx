@@ -3,6 +3,7 @@ import { Eth } from "./Icons";
 import { exportCSV } from "../lib/csv";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { hasPrecomputedRarity } from "../api";
+import ErrorBoundary from "./ErrorBoundary";
 
 const HolderAnalytics = lazy(() => import("./HolderAnalytics"));
 const CollectionHealth = lazy(() => import("./CollectionHealth"));
@@ -172,6 +173,15 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
   const activeTrait = selectedTrait
     ? traitDistributions.find(t => t.key === selectedTrait)
     : traitDistributions[0];
+
+  // Memoize rarest traits computation (flatMap + sort is expensive for large collections)
+  const rarestTraits = useMemo(() => {
+    if (!traitDistributions.length) return [];
+    return traitDistributions
+      .flatMap(t => t.values.map(v => ({ type: t.key, value: v.label, count: v.value, total: t.total })))
+      .sort((a, b) => a.count - b.count)
+      .slice(0, 16);
+  }, [traitDistributions]);
 
   const handleExportAnalytics = () => {
     const rows = [];
@@ -406,6 +416,7 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
 
       {/* Rarity vs Price Scatter Plot */}
       {listings && listings.length > 0 && tokens.length > 0 && (
+        <ErrorBoundary title="Scatter plot error">
         <Suspense fallback={
           <div className="analytics-panel" style={{ marginTop: 24 }}>
             <div className="analytics-panel-header"><h3>Rarity vs Price</h3></div>
@@ -423,9 +434,11 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
             onPick={onPick}
           />
         </Suspense>
+        </ErrorBoundary>
       )}
 
       {/* Collection Health Dashboard */}
+      <ErrorBoundary title="Collection health error">
       <Suspense fallback={
         <div className="analytics-panel" style={{ marginTop: 24 }}>
           <div className="analytics-panel-header"><h3>Collection Health</h3></div>
@@ -438,8 +451,10 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
       }>
         <CollectionHealth stats={stats} activities={activities} />
       </Suspense>
+      </ErrorBoundary>
 
       {/* Holder Distribution */}
+      <ErrorBoundary title="Holder analytics error">
       <Suspense fallback={
         <div className="analytics-panel" style={{ marginTop: 24 }}>
           <div className="analytics-panel-header"><h3>Holder Distribution</h3></div>
@@ -452,6 +467,7 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
       }>
         <HolderAnalytics supply={resolvedSupply} />
       </Suspense>
+      </ErrorBoundary>
 
       {/* Rarest Traits */}
       {traitDistributions.length > 0 && (
@@ -463,11 +479,7 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
             </span>
           </div>
           <div className="rarest-grid">
-            {traitDistributions
-              .flatMap(t => t.values.map(v => ({ type: t.key, value: v.label, count: v.value, total: t.total })))
-              .sort((a, b) => a.count - b.count)
-              .slice(0, 16)
-              .map((trait, i) => {
+            {rarestTraits.map((trait, i) => {
                 const base = isPartialLoad ? tokens.length : (resolvedSupply || tokens.length);
                 const pct = base ? ((trait.count / base) * 100).toFixed(1) : 0;
                 return (

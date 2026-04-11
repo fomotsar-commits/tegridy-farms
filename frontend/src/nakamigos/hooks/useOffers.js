@@ -10,7 +10,7 @@ export function useCollectionOffers() {
   const osSlug = openseaSlug || slug;
   return useQuery({
     queryKey: queryKeys.collectionOffers(osSlug),
-    queryFn: () => fetchCollectionOffers(slug, { openseaSlug }),
+    queryFn: ({ signal }) => fetchCollectionOffers(slug, { openseaSlug, signal }),
     ...offersQuery,
     enabled: !!osSlug,
   });
@@ -23,7 +23,7 @@ export function useTraitOffers() {
   const osSlug = openseaSlug || slug;
   return useQuery({
     queryKey: queryKeys.traitOffers(osSlug),
-    queryFn: () => fetchTraitOffers(slug, { openseaSlug }),
+    queryFn: ({ signal }) => fetchTraitOffers(slug, { openseaSlug, signal }),
     ...offersQuery,
     enabled: !!osSlug,
   });

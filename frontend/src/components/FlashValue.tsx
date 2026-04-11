@@ -31,6 +31,10 @@ export function FlashValue({ value, children }: FlashValueProps) {
       setFlash(null);
       timeoutRef.current = null;
     }, 600);
+
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
   }, [value]);
 
   return (

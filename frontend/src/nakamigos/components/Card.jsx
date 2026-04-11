@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useCallback } from "react";
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 import { formatPrice } from "../lib/formatPrice";
@@ -9,25 +9,30 @@ export default memo(function Card({ nft, idx, onPick, view, isFavorite, onToggle
   const collection = useActiveCollection();
   const isGallery = view === "gallery";
 
-  const handleBuy = (e) => {
+  const handleBuy = useCallback((e) => {
     e.stopPropagation();
     window.open(OPENSEA_ITEM(nft.id, collection.contract), "_blank", "noopener,noreferrer");
-  };
+  }, [nft.id, collection.contract]);
 
-  const handleFav = (e) => {
+  const handleFav = useCallback((e) => {
     e.stopPropagation();
     onToggleFavorite?.(nft.id);
-  };
+  }, [onToggleFavorite, nft.id]);
+
+  const handleClick = useCallback(() => onPick(nft), [onPick, nft]);
+  const handleKeyDown = useCallback((e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(nft); }
+  }, [onPick, nft]);
 
   return (
     <div
       className={skipReveal ? undefined : "card-reveal"}
       style={skipReveal ? undefined : { animationDelay: `${Math.min(idx * 35, 350)}ms` }}
-      onClick={() => onPick(nft)}
+      onClick={handleClick}
       role="button"
       tabIndex={0}
       data-token-id={nft.id}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(nft); } }}
+      onKeyDown={handleKeyDown}
       aria-label={`${nft.name}${nft.rank ? `, rank ${nft.rank}` : ""}${nft.price != null ? `, ${formatPrice(nft.price)} ETH` : ""}`}
     >
       <div className={`nft-card ${view}`}>

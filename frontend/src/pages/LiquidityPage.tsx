@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useAccount, useBalance } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -136,14 +136,16 @@ export default function LiquidityPage() {
 
   const poolShare = numA > 0 ? liq.getPoolShare(inputA) : 0;
 
-  // Reserves for display
-  const reserveAFmt = formatTokenAmount(formatUnits(liq.reserveA, decimalsA));
-  const reserveBFmt = formatTokenAmount(formatUnits(liq.reserveB, decimalsB));
+  // Reserves for display (memoized to avoid re-formatting on every render)
+  const reserveAFmt = useMemo(() => formatTokenAmount(formatUnits(liq.reserveA, decimalsA)), [liq.reserveA, decimalsA]);
+  const reserveBFmt = useMemo(() => formatTokenAmount(formatUnits(liq.reserveB, decimalsB)), [liq.reserveB, decimalsB]);
 
   // LP value calculation
-  const userLpShare = liq.lpTotalSupply > 0n ? Number(liq.lpBalance * 10000n / liq.lpTotalSupply) / 100 : 0;
-  const userAInPool = liq.lpTotalSupply > 0n ? (liq.lpBalance * liq.reserveA) / liq.lpTotalSupply : 0n;
-  const userBInPool = liq.lpTotalSupply > 0n ? (liq.lpBalance * liq.reserveB) / liq.lpTotalSupply : 0n;
+  const { userLpShare, userAInPool, userBInPool } = useMemo(() => ({
+    userLpShare: liq.lpTotalSupply > 0n ? Number(liq.lpBalance * 10000n / liq.lpTotalSupply) / 100 : 0,
+    userAInPool: liq.lpTotalSupply > 0n ? (liq.lpBalance * liq.reserveA) / liq.lpTotalSupply : 0n,
+    userBInPool: liq.lpTotalSupply > 0n ? (liq.lpBalance * liq.reserveB) / liq.lpTotalSupply : 0n,
+  }), [liq.lpTotalSupply, liq.lpBalance, liq.reserveA, liq.reserveB]);
 
   // Balance display helpers
   const balADisplay = tokenA?.isNative
@@ -295,15 +297,15 @@ export default function LiquidityPage() {
                 </div>
                 <div className="flex gap-2">
                   <input
-                    type="number" value={inputA} onChange={e => handleInputAChange(e.target.value.replace(/[^0-9.]/g, ''))}
+                    type="number" inputMode="decimal" value={inputA} onChange={e => handleInputAChange(e.target.value.replace(/[^0-9.]/g, ''))}
                     placeholder="0.0" min="0" step="any"
-                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-medium outline-none focus:border-purple-500/40 transition-colors"
+                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 min-h-[44px] text-white text-sm font-medium outline-none focus:border-purple-500/40 transition-colors"
                   />
                   <button onClick={() => {
                     if (tokenA?.isNative && ethBal) handleInputAChange((parseFloat(ethBal.formatted) * 0.95).toFixed(6));
                     else handleInputAChange(liq.tokenABalanceFormatted);
                   }}
-                    className="px-4 py-3 rounded-xl text-sm font-semibold text-purple-300 bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
+                    className="px-4 py-3 min-h-[44px] rounded-xl text-sm font-semibold text-purple-300 bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
                   >MAX</button>
                 </div>
               </div>
@@ -323,15 +325,15 @@ export default function LiquidityPage() {
                 </div>
                 <div className="flex gap-2">
                   <input
-                    type="number" value={inputB} onChange={e => handleInputBChange(e.target.value.replace(/[^0-9.]/g, ''))}
+                    type="number" inputMode="decimal" value={inputB} onChange={e => handleInputBChange(e.target.value.replace(/[^0-9.]/g, ''))}
                     placeholder="0.0" min="0" step="any"
-                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-medium outline-none focus:border-purple-500/40 transition-colors"
+                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 min-h-[44px] text-white text-sm font-medium outline-none focus:border-purple-500/40 transition-colors"
                   />
                   <button onClick={() => {
                     if (tokenB?.isNative && ethBal) handleInputBChange((parseFloat(ethBal.formatted) * 0.95).toFixed(6));
                     else handleInputBChange(liq.tokenBBalanceFormatted);
                   }}
-                    className="px-4 py-3 rounded-xl text-sm font-semibold text-purple-300 bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
+                    className="px-4 py-3 min-h-[44px] rounded-xl text-sm font-semibold text-purple-300 bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
                   >MAX</button>
                 </div>
               </div>
@@ -414,12 +416,12 @@ export default function LiquidityPage() {
                 </div>
                 <div className="flex gap-2">
                   <input
-                    type="number" value={lpInput} onChange={e => setLpInput(e.target.value.replace(/[^0-9.]/g, ''))}
+                    type="number" inputMode="decimal" value={lpInput} onChange={e => setLpInput(e.target.value.replace(/[^0-9.]/g, ''))}
                     placeholder="0.0" min="0" step="any"
-                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-medium outline-none focus:border-purple-500/40 transition-colors"
+                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 min-h-[44px] text-white text-sm font-medium outline-none focus:border-purple-500/40 transition-colors"
                   />
                   <button onClick={() => setLpInput(liq.lpBalanceFormatted)}
-                    className="px-4 py-3 rounded-xl text-sm font-semibold text-purple-300 bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
+                    className="px-4 py-3 min-h-[44px] rounded-xl text-sm font-semibold text-purple-300 bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
                   >MAX</button>
                 </div>
               </div>

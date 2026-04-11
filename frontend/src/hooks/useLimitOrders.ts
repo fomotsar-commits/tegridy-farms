@@ -349,7 +349,10 @@ export function useLimitOrders() {
     };
 
     checkPrices();
-    const timer = setInterval(checkPrices, PRICE_POLL_INTERVAL);
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+      checkPrices();
+    }, PRICE_POLL_INTERVAL);
     return () => {
       clearInterval(timer);
       executingRef.current.clear();

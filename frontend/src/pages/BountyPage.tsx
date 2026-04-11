@@ -77,13 +77,13 @@ export default function BountyPage() {
       </div>
 
       <div className="relative z-10 max-w-[700px] mx-auto px-4 md:px-6 pt-20 pb-12">
-        <motion.div className="mb-6 flex items-center justify-between" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+        <motion.div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div>
             <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Bounty Board</h1>
             <p className="text-white/50 text-[14px]">Seize the memes of production — get paid for creating</p>
           </div>
           {isConnected && (
-            <button onClick={() => setShowCreate(!showCreate)} className="btn-secondary px-4 py-2 text-[13px]">
+            <button onClick={() => setShowCreate(!showCreate)} className="btn-secondary px-4 py-2 min-h-[44px] text-[13px]">
               {showCreate ? 'Cancel' : 'Post Bounty'}
             </button>
           )}
@@ -96,7 +96,7 @@ export default function BountyPage() {
             <img src={ART.beachSunset.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%', opacity: 0.15 }} />
             <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
           </div>
-          <div className="relative z-10 p-6 py-8 flex items-center gap-10">
+          <div className="relative z-10 p-6 py-8 flex flex-wrap items-center gap-6 md:gap-10">
             <div>
               <p className="text-white/40 text-[11px] uppercase tracking-wider mb-1">Bounties</p>
               <p className="stat-value text-[28px] text-white">{count}</p>
@@ -123,25 +123,25 @@ export default function BountyPage() {
                   <label className="text-white/40 text-[11px] mb-1 block">What do you need?</label>
                   <textarea value={description} onChange={e => setDescription(e.target.value)} maxLength={500}
                     placeholder="Create a meme of Towelie riding Mumu the Bull..." rows={3}
-                    className="w-full bg-transparent text-[13px] text-white outline-none px-3 py-2.5 rounded-lg resize-none"
+                    className="w-full bg-transparent text-[13px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg resize-none"
                     style={{ border: '1px solid rgba(255,255,255,0.06)' }} />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-white/40 text-[11px] mb-1 block">Reward (ETH)</label>
-                    <input type="number" value={reward} onChange={e => setReward(e.target.value)} placeholder="0.05"
-                      className="w-full bg-transparent text-[13px] font-mono text-white outline-none px-3 py-2.5 rounded-lg token-input"
+                    <input type="number" inputMode="decimal" value={reward} onChange={e => setReward(e.target.value)} placeholder="0.05"
+                      className="w-full bg-transparent text-[13px] font-mono text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
                       style={{ border: '1px solid rgba(255,255,255,0.06)' }} />
                   </div>
                   <div>
                     <label className="text-white/40 text-[11px] mb-1 block">Duration (days)</label>
-                    <input type="number" value={days} onChange={e => setDays(e.target.value)} placeholder="7" min="1" max="90"
-                      className="w-full bg-transparent text-[13px] font-mono text-white outline-none px-3 py-2.5 rounded-lg token-input"
+                    <input type="number" inputMode="decimal" value={days} onChange={e => setDays(e.target.value)} placeholder="7" min="1" max="90"
+                      className="w-full bg-transparent text-[13px] font-mono text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
                       style={{ border: '1px solid rgba(255,255,255,0.06)' }} />
                   </div>
                 </div>
                 <button onClick={handleCreate} disabled={isPending || isConfirming || !description || !reward}
-                  className="btn-primary w-full py-3 text-[14px] disabled:opacity-35">
+                  className="btn-primary w-full py-3 min-h-[44px] text-[14px] disabled:opacity-35">
                   {isPending || isConfirming ? 'Posting...' : `Post Bounty (${reward || '0'} ETH)`}
                 </button>
               </div>

@@ -4,6 +4,18 @@ if (!process.env.OPENSEA_API_KEY) {
   console.warn("WARNING: OPENSEA_API_KEY is not set — requests will be unauthenticated");
 }
 
+// ── Shared validation helpers ──
+const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+const MAX_BODY_SIZE = 10 * 1024; // 10 KB
+
+function isValidAddress(addr) { return typeof addr === "string" && ETH_ADDRESS_RE.test(addr); }
+
+function setRateLimitHeaders(res, { limit = 60, remaining = 59, reset = 60 } = {}) {
+  res.setHeader("X-RateLimit-Limit", String(limit));
+  res.setHeader("X-RateLimit-Remaining", String(remaining));
+  res.setHeader("X-RateLimit-Reset", String(Math.floor(Date.now() / 1000) + reset));
+}
+
 // Whitelist allowed OpenSea collection slugs (must match openseaSlug values in constants.js)
 const ALLOWED_SLUGS = new Set(["nakamigos", "gnssart", "junglebay"]);
 
@@ -57,7 +69,17 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", isAllowed ? origin : ALLOWED_ORIGIN);
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Vary", "Origin");
+  setRateLimitHeaders(res);
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  // Body size guard (POST only)
+  if (req.method === "POST") {
+    const bodyStr = typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {});
+    if (bodyStr.length > MAX_BODY_SIZE) {
+      return res.status(413).json({ error: "Request body too large (max 10KB)" });
+    }
+  }
 
   const { path, ...params } = req.query;
 
@@ -76,6 +98,9 @@ export default async function handler(req, res) {
       for (const item of items) {
         // itemType 2 = ERC721, 3 = ERC1155 — these carry the NFT contract
         if (item?.itemType >= 2 && item?.token) {
+          if (!isValidAddress(item.token)) {
+            return res.status(400).json({ error: "Invalid contract address format" });
+          }
           const addr = item.token.toLowerCase();
           if (!ALLOWED_CONTRACTS.has(addr)) {
             return res.status(403).json({ error: "Contract not supported" });
@@ -83,6 +108,26 @@ export default async function handler(req, res) {
         }
       }
     }
+  }
+
+  // Validate query params that carry contract addresses or token IDs
+  if (params.asset_contract_address) {
+    if (!isValidAddress(params.asset_contract_address)) {
+      return res.status(400).json({ error: "Invalid contract address format" });
+    }
+    if (!ALLOWED_CONTRACTS.has(params.asset_contract_address.toLowerCase())) {
+      return res.status(403).json({ error: "Contract not supported" });
+    }
+  }
+  if (params.token_ids && !/^\d{1,10}$/.test(params.token_ids)) {
+    return res.status(400).json({ error: "Invalid token_ids — must be numeric (max 10 digits)" });
+  }
+  // Clamp limit/offset query params
+  if (params.limit) {
+    params.limit = String(Math.min(Math.max(1, parseInt(params.limit, 10) || 20), 200));
+  }
+  if (params.offset) {
+    params.offset = String(Math.min(Math.max(0, parseInt(params.offset, 10) || 0), 10000));
   }
 
   try {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useAccount, useBalance, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
@@ -77,18 +77,18 @@ export default function DashboardPage() {
     query: { enabled: !!address },
   });
 
-  const walletToweli = toweliBalance ? Number(formatEther(toweliBalance)) : 0;
+  const walletToweli = useMemo(() => toweliBalance ? Number(formatEther(toweliBalance)) : 0, [toweliBalance]);
   const pendingTotal = Number(pos.pendingFormatted);
   const stakedTotal = Number(pos.stakedFormatted);
 
   // Portfolio value in USD
-  const ethBal = ethBalance ? Number(formatEther(ethBalance.value)) : 0;
-  const portfolioUsd = price.isLoaded ? (
+  const ethBal = useMemo(() => ethBalance ? Number(formatEther(ethBalance.value)) : 0, [ethBalance]);
+  const portfolioUsd = useMemo(() => price.isLoaded ? (
     (walletToweli * price.priceInUsd) +
     (stakedTotal * price.priceInUsd) +
     (pendingTotal * price.priceInUsd) +
     (price.oracleStale ? 0 : ethBal * price.ethUsd)
-  ) : 0;
+  ) : 0, [walletToweli, stakedTotal, pendingTotal, ethBal, price.isLoaded, price.priceInUsd, price.ethUsd, price.oracleStale]);
 
   // Claim handler
   const handleClaim = () => {

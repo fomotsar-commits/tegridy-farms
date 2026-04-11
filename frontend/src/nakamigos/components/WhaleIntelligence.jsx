@@ -486,6 +486,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
 
       {/* ── Layout grid ── */}
       <div
+        className="whale-intel-grid"
         style={{
           display: "grid",
           gridTemplateColumns: "1fr 1fr",
@@ -1008,6 +1009,8 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                           background: "var(--border)",
                           border: "1px solid var(--border)",
                           animationDelay: `${i * 40}ms`,
+                          overflow: "hidden",
+                          minWidth: 0,
                         }}
                       >
                         <span
@@ -1034,6 +1037,8 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                             fontSize: 12,
                             color: "var(--text-dim)",
                             fontWeight: 500,
+                            whiteSpace: "nowrap",
+                            flexShrink: 0,
                           }}
                         >
                           {tx.token?.name || "\u2014"}
@@ -1043,6 +1048,11 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                             fontFamily: "var(--mono)",
                             fontSize: 9,
                             color: "var(--text-muted)",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            minWidth: 0,
+                            flex: 1,
                           }}
                         >
                           {getDisplayName(tx.fromFull, tx.from)} {"\u2192"} {getDisplayName(tx.toFull, tx.to)}

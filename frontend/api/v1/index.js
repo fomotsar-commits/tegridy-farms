@@ -27,6 +27,19 @@ const SLUG_TO_CONTRACT = {
 
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://nakamigos.gallery";
 
+// ── Shared validation helpers ──
+const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+const NUMERIC_ID_RE = /^\d{1,10}$/;
+
+function isValidAddress(addr) { return typeof addr === "string" && ETH_ADDRESS_RE.test(addr); }
+function isValidTokenId(id) { return typeof id === "string" && NUMERIC_ID_RE.test(id); }
+
+function setRateLimitHeaders(res, { limit = 60, remaining = 59, reset = 60 } = {}) {
+  res.setHeader("X-RateLimit-Limit", String(limit));
+  res.setHeader("X-RateLimit-Remaining", String(remaining));
+  res.setHeader("X-RateLimit-Reset", String(Math.floor(Date.now() / 1000) + reset));
+}
+
 function setCors(req, res) {
   const origin = req.headers.origin || "";
   const prodOrigins = ["https://nakamigos.gallery", "https://www.nakamigos.gallery"];
@@ -37,6 +50,7 @@ function setCors(req, res) {
   res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGINS.has(origin) ? origin : ALLOWED_ORIGIN);
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-API-Key");
+  res.setHeader("Vary", "Origin");
 }
 
 async function alchemyFetch(endpoint, params = {}) {
@@ -51,10 +65,26 @@ async function alchemyFetch(endpoint, params = {}) {
 
 export default async function handler(req, res) {
   setCors(req, res);
+  setRateLimitHeaders(res);
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
 
   const { route, slug, contract: rawContract, tokenId, limit } = req.query;
+
+  // Validate contract address format if provided directly
+  if (rawContract && !isValidAddress(rawContract)) {
+    return res.status(400).json({ error: "Invalid contract address format" });
+  }
+
+  // Validate slug if provided
+  if (slug && !SLUG_TO_CONTRACT[slug]) {
+    return res.status(400).json({ error: "Unknown collection slug" });
+  }
+
+  // Validate tokenId format if provided
+  if (tokenId && !isValidTokenId(tokenId)) {
+    return res.status(400).json({ error: "Invalid tokenId — must be numeric (max 10 digits)" });
+  }
 
   // Resolve contract from slug or direct param
   const contract = rawContract?.toLowerCase() || (slug && SLUG_TO_CONTRACT[slug]) || null;

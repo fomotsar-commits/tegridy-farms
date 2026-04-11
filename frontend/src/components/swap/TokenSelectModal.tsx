@@ -177,6 +177,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
     <AnimatePresence>
       <motion.div
         className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+        role="dialog" aria-modal="true" aria-label="Select Token"
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       >
         {/* Backdrop */}
@@ -184,7 +185,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
 
         {/* Modal */}
         <motion.div
-          className="relative w-full max-w-[420px] flex flex-col rounded-2xl overflow-hidden"
+          className="relative w-full max-w-[420px] max-md:max-w-none max-md:max-h-none max-md:h-full max-md:rounded-none flex flex-col rounded-2xl overflow-hidden"
           style={{
             maxHeight: 'calc(100vh - 160px)',
             background: 'linear-gradient(180deg, #0f1a2e 0%, #0a1020 100%)',
@@ -199,7 +200,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
           {/* Header */}
           <div className="flex items-center justify-between p-4 pb-0">
             <h3 className="text-white text-[15px] font-semibold">Select Token</h3>
-            <button onClick={onClose} className="text-white/40 hover:text-white/80 transition-colors p-1 cursor-pointer">
+            <button onClick={onClose} aria-label="Close token selector" className="text-white/40 hover:text-white/80 transition-colors p-1 cursor-pointer">
               <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M4 4l8 8M12 4l-8 8" />
               </svg>
@@ -211,10 +212,11 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
             <input
               ref={inputRef}
               type="text"
+              aria-label="Search tokens by name, symbol, or address"
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search name, symbol, or paste address"
-              className="w-full px-3.5 py-2.5 rounded-xl text-[13px] text-white placeholder-white/25 outline-none"
+              className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl text-[13px] text-white placeholder-white/25 outline-none"
               style={{
                 background: 'rgba(139,92,246,0.06)',
                 border: '1px solid rgba(139,92,246,0.12)',
@@ -291,7 +293,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
           <div className="mx-4 h-px" style={{ background: 'rgba(139,92,246,0.1)' }} />
 
           {/* Token list */}
-          <div className="flex-1 overflow-y-auto px-2 py-1" style={{ maxHeight: '340px' }}>
+          <div className="flex-1 overflow-y-auto px-2 py-1 max-md:max-h-none" style={{ maxHeight: '340px' }}>
             {filtered.map(token => {
               const isDisabled = token.address.toLowerCase() === disabledAddress?.toLowerCase();
               return (
@@ -299,7 +301,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
                   key={token.address}
                   onClick={() => !isDisabled && handleSelect(token)}
                   disabled={isDisabled}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed hover:bg-white/[0.03]"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 min-h-[44px] rounded-xl transition-all cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed hover:bg-white/[0.03]"
                 >
                   <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center"
                     style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.12)' }}>
@@ -330,7 +332,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
             )}
 
             {importError && (
-              <div className="text-center py-8 text-danger text-[13px]">
+              <div role="alert" className="text-center py-8 text-danger text-[13px]">
                 {importError}
               </div>
             )}
@@ -373,6 +375,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
                           <button
                             onClick={handleImport}
                             disabled={!importRiskAccepted}
+                            aria-disabled={!importRiskAccepted}
                             className="w-full py-2 rounded-lg text-[12px] font-semibold cursor-pointer transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                             style={{ background: 'rgba(139,92,246,0.15)', color: 'var(--color-primary)', border: '1px solid rgba(139,92,246,0.25)' }}
                           >

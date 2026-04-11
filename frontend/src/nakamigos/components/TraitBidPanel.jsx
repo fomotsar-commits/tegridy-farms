@@ -25,7 +25,7 @@ export default function TraitBidPanel({ traitKey, traitValue, matchCount, wallet
         marginBottom: 10,
       }}>
         <div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--naka-blue)", letterSpacing: "0.08em" }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--naka-blue)", letterSpacing: "0.08em" }}>
             TRAIT OFFERS
           </div>
           <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
@@ -35,7 +35,7 @@ export default function TraitBidPanel({ traitKey, traitValue, matchCount, wallet
         <button
           onClick={() => onMakeOffer({ key: traitKey, value: traitValue })}
           className="btn-primary"
-          style={{ fontSize: 10, padding: "6px 14px" }}
+          style={{ fontSize: 12, padding: "10px 16px", minHeight: 44 }}
         >
           {wallet ? "Bid on Trait" : "Connect & Bid"}
         </button>
@@ -47,16 +47,16 @@ export default function TraitBidPanel({ traitKey, traitValue, matchCount, wallet
         </div>
       ) : bestPrice ? (
         <div style={{
-          display: "flex", gap: 16, alignItems: "center",
+          display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap",
         }}>
           <div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)" }}>BEST OFFER</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>BEST OFFER</div>
             <div style={{ fontFamily: "var(--display)", fontSize: 16, fontWeight: 600, color: "var(--gold)", marginTop: 2 }}>
               <Eth size={11} /> {Number.isFinite(bestPrice) ? bestPrice.toFixed(4) : "—"}
             </div>
           </div>
           <div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)" }}>TOTAL OFFERS</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>TOTAL OFFERS</div>
             <div style={{ fontFamily: "var(--mono)", fontSize: 14, color: "var(--text)", marginTop: 2 }}>
               {offerCount}
             </div>

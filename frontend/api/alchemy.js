@@ -6,6 +6,20 @@ if (!process.env.ALCHEMY_API_KEY && process.env.NODE_ENV === "production") {
 const BASE = `https://eth-mainnet.g.alchemy.com/nft/v3/${ALCHEMY_KEY}`;
 const RPC_BASE = `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`;
 
+// ── Shared validation helpers ──
+const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+const NUMERIC_ID_RE = /^\d{1,10}$/;
+const MAX_BODY_SIZE = 10 * 1024; // 10 KB
+
+function isValidAddress(addr) { return typeof addr === "string" && ETH_ADDRESS_RE.test(addr); }
+function isValidTokenId(id) { return typeof id === "string" && NUMERIC_ID_RE.test(id); }
+
+function setRateLimitHeaders(res, { limit = 60, remaining = 59, reset = 60 } = {}) {
+  res.setHeader("X-RateLimit-Limit", String(limit));
+  res.setHeader("X-RateLimit-Remaining", String(remaining));
+  res.setHeader("X-RateLimit-Reset", String(Math.floor(Date.now() / 1000) + reset));
+}
+
 // Whitelist allowed JSON-RPC methods (for raw RPC calls via endpoint=rpc)
 const ALLOWED_RPC_METHODS = new Set(["eth_blockNumber"]);
 
@@ -62,7 +76,17 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", isAllowed ? origin : ALLOWED_ORIGIN);
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Vary", "Origin");
+  setRateLimitHeaders(res);
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  // Body size guard (POST only)
+  if (req.method === "POST") {
+    const bodyStr = typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {});
+    if (bodyStr.length > MAX_BODY_SIZE) {
+      return res.status(413).json({ error: "Request body too large (max 10KB)" });
+    }
+  }
 
   const { endpoint, ...params } = req.query;
 
@@ -92,8 +116,11 @@ export default async function handler(req, res) {
 
   // Validate contractAddress param against allowed contracts (prevent open-proxy abuse)
   if (CONTRACT_REQUIRED_ENDPOINTS.has(endpoint)) {
-    const contractAddr = (params.contractAddress || "").toLowerCase();
-    if (!contractAddr || !ALLOWED_CONTRACTS.has(contractAddr)) {
+    if (!isValidAddress(params.contractAddress || "")) {
+      return res.status(400).json({ error: "Invalid contract address format" });
+    }
+    const contractAddr = params.contractAddress.toLowerCase();
+    if (!ALLOWED_CONTRACTS.has(contractAddr)) {
       return res.status(403).json({ error: "Contract not supported" });
     }
     // Normalize to lowercase for Alchemy
@@ -117,6 +144,24 @@ export default async function handler(req, res) {
     }
   }
 
+  // Validate tokenId for single-token endpoints
+  if (endpoint === "getNFTMetadata") {
+    if (params.tokenId && !isValidTokenId(params.tokenId)) {
+      return res.status(400).json({ error: "Invalid tokenId — must be numeric (max 10 digits)" });
+    }
+  }
+
+  // Clamp limit/offset query params to reasonable ranges
+  if (params.limit) {
+    params.limit = String(Math.min(Math.max(1, parseInt(params.limit, 10) || 50), 200));
+  }
+  if (params.offset) {
+    params.offset = String(Math.min(Math.max(0, parseInt(params.offset, 10) || 0), 10000));
+  }
+  if (params.pageSize) {
+    params.pageSize = String(Math.min(Math.max(1, parseInt(params.pageSize, 10) || 100), 200));
+  }
+
   // Validate POST body for getNFTMetadataBatch — contract addresses are in the body, not query params
   if (endpoint === "getNFTMetadataBatch" && req.method === "POST") {
     const tokens = req.body?.tokens;
@@ -127,9 +172,15 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Batch limit is 100 tokens" });
     }
     for (const t of tokens) {
-      const addr = (t.contractAddress || "").toLowerCase();
-      if (!addr || !ALLOWED_CONTRACTS.has(addr)) {
+      if (!isValidAddress(t.contractAddress || "")) {
+        return res.status(400).json({ error: "Invalid contract address format in tokens array" });
+      }
+      const addr = t.contractAddress.toLowerCase();
+      if (!ALLOWED_CONTRACTS.has(addr)) {
         return res.status(403).json({ error: "Contract not supported" });
+      }
+      if (t.tokenId != null && !isValidTokenId(String(t.tokenId))) {
+        return res.status(400).json({ error: "Invalid tokenId in tokens array — must be numeric (max 10 digits)" });
       }
     }
   }
