@@ -31,6 +31,8 @@ const ALLOWED_PATH_PREFIXES = ["orders/", "listings/", "offers/", "collection/",
 
 // Build allowed paths dynamically from allowed slugs
 function isAllowedPath(path) {
+  // Block path traversal attempts
+  if (path.includes("..") || path.includes("//") || path.includes("%2e") || path.includes("%2E")) return false;
   // Exact-match paths that don't follow the prefix pattern
   if (path === "criteria_offers") return true;
   // Reject paths that don't start with an allowed prefix

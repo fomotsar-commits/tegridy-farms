@@ -259,7 +259,7 @@ export function useSwap() {
         .catch(() => { if (!cancelled) setAggQuoteResult(null); });
     }, 800);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [fromToken, toToken, parsedAmount, address]);
+  }, [fromToken, toToken, parsedAmount, address, fromDecimals]);
 
   // ─── Smart Route Selection ────────────────────────────────────
   const uniOutputAmount = uniAmountsOut ? uniAmountsOut[uniAmountsOut.length - 1] : 0n;

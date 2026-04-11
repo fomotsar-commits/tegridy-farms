@@ -312,6 +312,9 @@ export async function createCollectionOffer({ priceEth, expirationHours = 168, s
       return { error: "build-failed", message: "Could not build collection offer" };
     }
     const partial = buildData.partialParameters;
+    if (!partial || !partial.consideration) {
+      return { error: "build-failed", message: "OpenSea returned incomplete offer parameters" };
+    }
 
     // Step 3: Build order parameters
     const now = Math.floor(Date.now() / 1000);
@@ -420,6 +423,9 @@ export async function createTraitOffer({ traitType, traitValue, priceEth, expira
       return { error: "build-failed", message: "Could not build trait offer" };
     }
     const partial = buildData.partialParameters;
+    if (!partial || !partial.consideration) {
+      return { error: "build-failed", message: "OpenSea returned incomplete offer parameters" };
+    }
 
     // Step 3: Merge partial params with our offer
     const now = Math.floor(Date.now() / 1000);
@@ -695,7 +701,7 @@ export async function acceptOffer(offer) {
 
     // Wait for on-chain confirmation before reporting success
     const receipt = await tx.wait();
-    if (receipt.status === 0) {
+    if (!receipt || receipt.status === 0) {
       return { error: "failed", message: "Transaction reverted on-chain" };
     }
 

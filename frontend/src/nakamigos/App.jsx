@@ -478,7 +478,9 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
         setFavorites(merged);
         saveFavorites(merged);
       })
-    );
+    ).catch((err) => {
+      console.warn("Favorites sync failed:", err.message);
+    });
   }, [wallet, collectionSlug, holderTier]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ═══ Cart functions ═══

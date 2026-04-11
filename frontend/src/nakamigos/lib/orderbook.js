@@ -122,7 +122,7 @@ export async function fulfillNativeOrder(order) {
       })),
       orderType: params.orderType || 0,
       startTime: BigInt(params.startTime || "0"),
-      endTime: BigInt(params.endTime),
+      endTime: BigInt(params.endTime || "0"),
       zoneHash: params.zoneHash || "0x0000000000000000000000000000000000000000000000000000000000000000",
       salt: BigInt(params.salt || "0"),
       conduitKey: params.conduitKey || CONDUIT_KEY,

@@ -4128,7 +4128,7 @@ details[open] .details-arrow { transform: rotate(90deg); }
   .modal-bg { padding: 8px; }
   .modal-overlay .modal-content,
   .modal-content {
-    width: 100vw !important;
+    width: calc(100vw - 16px) !important;
     max-height: 95vh !important;
     border-radius: 8px !important;
   }
