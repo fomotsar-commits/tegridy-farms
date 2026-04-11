@@ -633,7 +633,7 @@ export default function RarityPriceScatter({ tokens, listings, activities, onPic
         tooltip.style.top = `${ty}px`;
         tooltip.innerHTML =
           `<strong>#${d.id}</strong><br/>` +
-          `Price: ${d.price.toFixed(4)} ETH<br/>` +
+          `Price: ${(d.price ?? 0).toFixed(4)} ETH<br/>` +
           `Rank: #${d.rank.toLocaleString()}<br/>` +
           (type ? `Type: ${type}<br/>` : "") +
           `vs Trend: ${sign}${discountPct}%`;

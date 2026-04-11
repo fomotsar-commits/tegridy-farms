@@ -36,7 +36,7 @@ export function DCATab() {
     setTotalSwaps('30');
   };
 
-  const totalCost = amount && totalSwaps ? (parseFloat(amount) * parseInt(totalSwaps)).toFixed(4) : '0';
+  const totalCost = amount && totalSwaps ? ((parseFloat(amount) || 0) * (parseInt(totalSwaps) || 0)).toFixed(4) : '0';
 
   return (
     <div className="p-5">

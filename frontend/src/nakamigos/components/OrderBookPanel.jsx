@@ -486,7 +486,7 @@ function DepthChart({ listings = [], collectionOffers = [] }) {
           <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginBottom: 8, letterSpacing: "0.05em" }}>BIDS (BUYERS)</div>
           {bidBuckets.map((b, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2, height: 22 }}>
-              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", width: 52, textAlign: "right", flexShrink: 0 }}>{b.price.toFixed(4)}</span>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", width: 52, textAlign: "right", flexShrink: 0 }}>{(b.price ?? 0).toFixed(4)}</span>
               <div style={{ flex: 1, position: "relative", height: 16, borderRadius: 3, overflow: "hidden" }}>
                 <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: `${(b.cumulative / maxCumulative) * 100}%`, background: "rgba(76,175,80,0.15)", borderRadius: 3, transition: "width 0.3s ease" }} />
                 <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: `${(b.count / maxCumulative) * 100}%`, background: "rgba(76,175,80,0.35)", borderRadius: 3, transition: "width 0.3s ease" }} />
@@ -504,7 +504,7 @@ function DepthChart({ listings = [], collectionOffers = [] }) {
                 <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${(b.cumulative / maxCumulative) * 100}%`, background: "rgba(244,67,54,0.15)", borderRadius: 3, transition: "width 0.3s ease" }} />
                 <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${(b.count / maxCumulative) * 100}%`, background: "rgba(244,67,54,0.35)", borderRadius: 3, transition: "width 0.3s ease" }} />
               </div>
-              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", width: 52, flexShrink: 0 }}>{b.price.toFixed(4)}</span>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", width: 52, flexShrink: 0 }}>{(b.price ?? 0).toFixed(4)}</span>
             </div>
           ))}
         </div>

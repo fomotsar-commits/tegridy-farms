@@ -405,7 +405,7 @@ export default function RaritySniper({
               #{best.tokenId}
             </span>
             {" "}
-            ({best.rank != null ? `Rank ${isApproximate ? "~" : "#"}${best.rank} at ` : ""}<Eth size={10} /> {best.price.toFixed(4)})
+            ({best.rank != null ? `Rank ${isApproximate ? "~" : "#"}${best.rank} at ` : ""}<Eth size={10} /> {(best.price ?? 0).toFixed(4)})
           </>
         )}
       </div>
