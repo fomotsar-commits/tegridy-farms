@@ -37,7 +37,9 @@ export default function PremiumPage() {
 
   const plan = PLANS[selectedPlan];
   const totalCost = premium.monthlyFeeFormatted * plan.months * (1 - plan.discount / 100);
-  const totalCostRaw = premium.monthlyFee * BigInt(plan.months);
+  const totalCostRaw = plan.discount > 0
+    ? premium.monthlyFee * BigInt(plan.months) * BigInt(100 - plan.discount) / 100n
+    : premium.monthlyFee * BigInt(plan.months);
   const canAfford = premium.userBalance >= totalCostRaw;
   const needsApproval = premium.needsApproval(plan.months);
 

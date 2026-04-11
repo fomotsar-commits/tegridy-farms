@@ -84,12 +84,9 @@ export function usePremiumAccess() {
     });
   }
 
+  /** @deprecated claimNFTAccess always reverts on-chain. NFT premium is now automatic via hasPremium(). */
   function claimNFTAccess() {
-    writeAction({
-      address: PREMIUM_ACCESS_ADDRESS,
-      abi: PREMIUM_ACCESS_ABI,
-      functionName: 'claimNFTAccess',
-    });
+    toast.error('NFT premium is now automatic — no claim needed. Hold a JBAC NFT for premium access.');
   }
 
   // Toast feedback — defer reset to next tick so isSuccess is readable by consumers this render

@@ -544,7 +544,7 @@ export function useSwap() {
         });
       }
     }
-  }, [address, fromToken, toToken, parsedAmount, insufficientBalance, swapType, deadline, minimumReceived, path, selectedRoute, writeContract]);
+  }, [address, fromToken, toToken, parsedAmount, insufficientBalance, swapType, deadline, minimumReceived, path, selectedRoute, selectedOnChainRoute, outputAmount, writeContract]);
 
   const flipDirection = useCallback(() => {
     const prev = fromToken;
