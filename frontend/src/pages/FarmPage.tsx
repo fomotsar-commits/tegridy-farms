@@ -532,7 +532,8 @@ export default function FarmPage() {
                         <p className="text-white/20 text-[10px] mb-2 font-mono">Wallet: {formatTokenAmount(lpFarm.walletLPBalanceFormatted)} LP</p>
                         {(() => {
                           const amt = parseFloat(lpStakeAmount) || 0;
-                          const needsApproval = amt > 0 && lpFarm.lpAllowance < parseEther(lpStakeAmount || '0');
+                          let needsApproval = false;
+                          try { needsApproval = amt > 0 && lpFarm.lpAllowance < parseEther(lpStakeAmount || '0'); } catch { /* invalid input */ }
                           return needsApproval ? (
                             <button
                               className="btn-secondary w-full py-2 text-sm rounded-lg"

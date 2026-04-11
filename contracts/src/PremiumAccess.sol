@@ -212,8 +212,7 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
             totalRefundEscrow -= consumed;
             // Now update expiresAt for the extension
             sub.expiresAt = startFrom + (months * MONTH);
-            // Reset for new period
-            sub.startedAt = block.timestamp;
+            // Keep original startedAt so refund calculation covers the full escrowed period
             userEscrow[msg.sender] = remainingEscrow + cost;
             totalRefundEscrow += cost;
         } else {

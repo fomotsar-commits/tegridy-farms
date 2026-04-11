@@ -211,11 +211,11 @@ export function useLimitOrders() {
       return;
     }
     // Use BigInt math to avoid floating-point precision loss on large values.
-    // Scale both values by 1e8 for precision, multiply, then divide by 1e8 to normalize.
+    // Scale both values by 1e8, multiply together with token decimals, then divide by 1e16 once.
     const PRECISION = 100000000n; // 1e8
     const targetPriceScaled = BigInt(Math.round(targetPriceNum * 1e8));
     const amountScaled = BigInt(Math.round(amountNum * 1e8));
-    const expectedOut = (targetPriceScaled * amountScaled / PRECISION) * (10n ** BigInt(order.toToken.decimals)) / PRECISION;
+    const expectedOut = (targetPriceScaled * amountScaled * (10n ** BigInt(order.toToken.decimals))) / (PRECISION * PRECISION);
     const minOut = expectedOut - (expectedOut * SLIPPAGE_BPS / 10000n);
 
     sendNotification(
