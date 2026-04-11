@@ -176,6 +176,8 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
         orderData: listing.orderData,
         orderHash: listing.orderHash,
         protocolAddress: listing.protocolAddress,
+        isNative: listing.isNative || false,
+        nativeOrder: listing.nativeOrder || null,
       };
     });
   }, [listings, allTokens, collection, purchasedIds]);
