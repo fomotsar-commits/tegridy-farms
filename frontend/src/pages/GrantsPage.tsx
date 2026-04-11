@@ -175,15 +175,30 @@ function ProposalRow({ id, address }: { id: number; address?: string }) {
     args: [BigInt(id)],
   });
 
+  const { data: hasVoted } = useReadContract({
+    address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'hasVotedOnProposal',
+    args: address ? [BigInt(id), address as `0x${string}`] : undefined,
+    query: { enabled: !!address },
+  });
+
   const { writeContract, data: txHash, isPending } = useWriteContract();
   const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash });
-  const [lastAction, setLastAction] = useState<'voteFor' | 'voteAgainst' | 'finalize' | null>(null);
+  const [lastAction, setLastAction] = useState<'voteFor' | 'voteAgainst' | 'finalize' | 'execute' | 'cancel' | 'lapse' | null>(null);
 
   if (!data) return null;
   const [proposer, recipient, amount, description, votesFor, votesAgainst, deadline, status] = data as [string, string, bigint, string, bigint, bigint, bigint, number];
 
   const isActive = status === 0;
+  const isApproved = status === 1;
   const isExpired = Date.now() / 1000 > Number(deadline);
+  const isProposer = proposer.toLowerCase() === address?.toLowerCase();
+  const alreadyVoted = hasVoted as boolean;
+
+  // Vote deadline countdown
+  const deadlineSeconds = Number(deadline);
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const secondsLeft = deadlineSeconds - nowSeconds;
+  const daysLeft = Math.max(0, Math.ceil(secondsLeft / 86400));
 
   return (
     <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(139,92,246,0.06)' }}>
@@ -197,30 +212,70 @@ function ProposalRow({ id, address }: { id: number; address?: string }) {
         <span className={`text-[11px] font-semibold ${STATUS_COLORS[status]}`}>{STATUS_LABELS[status]}</span>
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 flex-wrap">
         <span className="text-success text-[11px]">For: {formatTokenAmount(formatEther(votesFor), 0)}</span>
         <span className="text-danger text-[11px]">Against: {formatTokenAmount(formatEther(votesAgainst), 0)}</span>
 
         {isActive && !isExpired && address && (
-          <div className="ml-auto flex gap-2">
-            <button onClick={() => { setLastAction('voteFor'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'voteOnProposal', args: [BigInt(id), true] }); }}
-              disabled={isPending || isConfirming} className="text-[11px] text-success hover:opacity-80 cursor-pointer disabled:opacity-40">
-              {(isPending || isConfirming) && lastAction === 'voteFor' ? 'Voting...' : 'Vote For'}
-            </button>
-            <button onClick={() => { setLastAction('voteAgainst'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'voteOnProposal', args: [BigInt(id), false] }); }}
-              disabled={isPending || isConfirming} className="text-[11px] text-danger hover:opacity-80 cursor-pointer disabled:opacity-40">
-              {(isPending || isConfirming) && lastAction === 'voteAgainst' ? 'Voting...' : 'Vote Against'}
-            </button>
+          <div className="ml-auto flex items-center gap-2">
+            {alreadyVoted ? (
+              <span className="text-[11px] text-white/30">Already Voted</span>
+            ) : (
+              <>
+                <button onClick={() => { setLastAction('voteFor'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'voteOnProposal', args: [BigInt(id), true] }); }}
+                  disabled={isPending || isConfirming} className="text-[11px] text-success hover:opacity-80 cursor-pointer disabled:opacity-40">
+                  {(isPending || isConfirming) && lastAction === 'voteFor' ? 'Voting...' : 'Vote For'}
+                </button>
+                <button onClick={() => { setLastAction('voteAgainst'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'voteOnProposal', args: [BigInt(id), false] }); }}
+                  disabled={isPending || isConfirming} className="text-[11px] text-danger hover:opacity-80 cursor-pointer disabled:opacity-40">
+                  {(isPending || isConfirming) && lastAction === 'voteAgainst' ? 'Voting...' : 'Vote Against'}
+                </button>
+              </>
+            )}
+            {isProposer && (
+              <button onClick={() => { setLastAction('cancel'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'cancelProposal', args: [BigInt(id)] }); }}
+                disabled={isPending || isConfirming} className="text-[11px] text-red-400 hover:opacity-80 cursor-pointer disabled:opacity-40">
+                {(isPending || isConfirming) && lastAction === 'cancel' ? 'Cancelling...' : 'Cancel'}
+              </button>
+            )}
           </div>
         )}
 
         {isActive && isExpired && (
-          <button onClick={() => { setLastAction('finalize'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'finalizeProposal', args: [BigInt(id)] }); }}
-            disabled={isPending || isConfirming} className="ml-auto text-[11px] text-primary hover:opacity-80 cursor-pointer disabled:opacity-40">
-            {(isPending || isConfirming) && lastAction === 'finalize' ? 'Finalizing...' : 'Finalize'}
-          </button>
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={() => { setLastAction('finalize'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'finalizeProposal', args: [BigInt(id)] }); }}
+              disabled={isPending || isConfirming} className="text-[11px] text-primary hover:opacity-80 cursor-pointer disabled:opacity-40">
+              {(isPending || isConfirming) && lastAction === 'finalize' ? 'Finalizing...' : 'Finalize'}
+            </button>
+            {isProposer && (
+              <button onClick={() => { setLastAction('cancel'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'cancelProposal', args: [BigInt(id)] }); }}
+                disabled={isPending || isConfirming} className="text-[11px] text-red-400 hover:opacity-80 cursor-pointer disabled:opacity-40">
+                {(isPending || isConfirming) && lastAction === 'cancel' ? 'Cancelling...' : 'Cancel'}
+              </button>
+            )}
+          </div>
+        )}
+
+        {isApproved && (
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={() => { setLastAction('execute'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'executeProposal', args: [BigInt(id)] }); }}
+              disabled={isPending || isConfirming} className="btn-primary text-[11px] px-3 py-1 disabled:opacity-40">
+              {(isPending || isConfirming) && lastAction === 'execute' ? 'Executing...' : 'Execute Grant'}
+            </button>
+            <button onClick={() => { setLastAction('lapse'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'lapseProposal', args: [BigInt(id)] }); }}
+              disabled={isPending || isConfirming} className="text-[11px] text-white/40 hover:opacity-80 cursor-pointer disabled:opacity-40">
+              {(isPending || isConfirming) && lastAction === 'lapse' ? 'Lapsing...' : 'Mark as Lapsed'}
+            </button>
+          </div>
         )}
       </div>
+
+      {/* Vote deadline countdown */}
+      {isActive && (
+        <p className="text-white/25 text-[10px] mt-1.5">
+          {secondsLeft > 0 ? `${daysLeft} day${daysLeft !== 1 ? 's' : ''} left` : 'Voting ended'}
+        </p>
+      )}
     </div>
   );
 }

@@ -19,6 +19,8 @@ export function useUserPosition() {
       { address: stakingAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'userTokenId', args: [userAddr] },
       { address: TOWELI_ADDRESS as `0x${string}`, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr] },
       { address: TOWELI_ADDRESS as `0x${string}`, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, stakingAddr] },
+      { address: stakingAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'paused' },
+      { address: stakingAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'unsettledRewards', args: [userAddr] },
     ],
     query: { enabled, refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
@@ -26,6 +28,8 @@ export function useUserPosition() {
   const tokenId = (data?.[0]?.status === 'success' ? data[0].result as bigint : 0n);
   const walletBalance = (data?.[1]?.status === 'success' ? data[1].result as bigint : 0n);
   const allowance = (data?.[2]?.status === 'success' ? data[2].result as bigint : 0n);
+  const isPaused = (data?.[3]?.status === 'success' ? data[3].result as boolean : false);
+  const unsettledRewards = (data?.[4]?.status === 'success' ? data[4].result as bigint : 0n);
 
   // Get position details + earned if user has a staking NFT
   const hasTokenId = tokenId > 0n;
@@ -80,6 +84,9 @@ export function useUserPosition() {
     isLocked,
     canWithdraw,
     autoMaxLock,
+    isPaused,
+    unsettledRewards,
+    unsettledFormatted: unsettledRewards ? formatEther(unsettledRewards) : '0',
     refetchAll,
     isDeployed,
     isLoading,

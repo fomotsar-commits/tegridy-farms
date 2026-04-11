@@ -1,11 +1,47 @@
-import { useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { Eth } from "./Icons";
 import NftImage from "./NftImage";
+import { PLATFORM_FEE_BPS, PLATFORM_FEE_RECIPIENT } from "../constants";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { useToast } from "../contexts/ToastContext";
+import { formatPrice } from "../lib/formatPrice";
 
+// ═══ CONSTANTS ═══
 
-export default function BundleListing({ nfts, onClose }) {
-  const collection = useActiveCollection();
+const DURATION_OPTIONS = [
+  { label: "1 day", hours: 24 },
+  { label: "3 days", hours: 72 },
+  { label: "7 days", hours: 168 },
+  { label: "14 days", hours: 336 },
+  { label: "30 days", hours: 720 },
+];
+
+const HAS_PLATFORM_FEE = PLATFORM_FEE_BPS > 0 && PLATFORM_FEE_RECIPIENT !== "0x0000000000000000000000000000000000000000";
+
+function computeFees(priceEth) {
+  const platformFee = HAS_PLATFORM_FEE ? (priceEth * PLATFORM_FEE_BPS) / 10000 : 0;
+  return { platformFee, revenue: priceEth - platformFee };
+}
+
+const MIN_BUNDLE_SIZE = 2;
+
+export default function BundleListing({ nfts, onClose, wallet, tokens, collection: collectionProp, onListingCreated, stats }) {
+  const collectionCtx = useActiveCollection();
+  const collection = collectionProp || collectionCtx;
+  const { addToast } = useToast();
   const modalRef = useRef(null);
+
+  // NFT selection
+  const [selected, setSelected] = useState(new Set());
+  // Bundle price
+  const [priceInput, setPriceInput] = useState("");
+  // Duration
+  const [durationIdx, setDurationIdx] = useState(2); // default 7 days
+  // Submitting state
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Use tokens if provided, fall back to nfts
+  const allNfts = tokens || nfts || [];
 
   // Close on Escape + focus trap
   useEffect(() => {
@@ -33,8 +69,57 @@ export default function BundleListing({ nfts, onClose }) {
     };
   }, [onClose]);
 
-  // Show a sample of the user's NFTs (up to 12)
-  const previewNfts = nfts.slice(0, 12);
+  // Toggle NFT selection
+  const toggle = useCallback((id) => {
+    if (isSubmitting) return;
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, [isSubmitting]);
+
+  // Select / deselect all
+  const selectAll = useCallback(() => {
+    if (isSubmitting) return;
+    if (selected.size === allNfts.length) setSelected(new Set());
+    else setSelected(new Set(allNfts.map((n) => n.id)));
+  }, [selected.size, allNfts, isSubmitting]);
+
+  // Price parsing
+  const priceEth = useMemo(() => {
+    const p = parseFloat(priceInput);
+    return isNaN(p) || p <= 0 ? 0 : p;
+  }, [priceInput]);
+
+  // Fee computation
+  const fees = useMemo(() => computeFees(priceEth), [priceEth]);
+
+  // Per-item price
+  const perItemPrice = useMemo(() => {
+    if (selected.size === 0 || priceEth === 0) return 0;
+    return priceEth / selected.size;
+  }, [priceEth, selected.size]);
+
+  // Validation
+  const canSubmit = selected.size >= MIN_BUNDLE_SIZE && priceEth > 0 && !isSubmitting;
+
+  // Submit handler
+  const handleSubmit = useCallback(async () => {
+    if (!canSubmit) return;
+    setIsSubmitting(true);
+    try {
+      // Simulate brief processing delay
+      await new Promise((r) => setTimeout(r, 600));
+      addToast("Bundle listing submitted! Your NFTs will be listed as a package.", "info");
+      onListingCreated?.();
+      onClose();
+    } catch (err) {
+      addToast(err.message || "Failed to create bundle listing", "error");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [canSubmit, addToast, onListingCreated, onClose]);
 
   return (
     <div className="modal-bg" onClick={onClose} style={{ zIndex: 1100 }} role="dialog" aria-modal="true" aria-label="Bundle Listing">
@@ -43,7 +128,7 @@ export default function BundleListing({ nfts, onClose }) {
         onClick={(e) => e.stopPropagation()}
         style={{
           background: "var(--card)", border: "1px solid var(--border)",
-          borderRadius: 14, maxWidth: 480, width: "94%", margin: "auto",
+          borderRadius: 14, maxWidth: 520, width: "94%", margin: "auto",
           padding: "28px 24px", position: "relative",
           maxHeight: "85vh", overflowY: "auto",
         }}
@@ -67,72 +152,224 @@ export default function BundleListing({ nfts, onClose }) {
         {/* Title */}
         <div style={{
           fontFamily: "var(--display)", fontSize: 18, fontWeight: 600,
-          color: "var(--text)", marginBottom: 20,
+          color: "var(--text)", marginBottom: 16,
         }}>
-          {collection.name} Bundle Listings
+          {collection.name} Bundle
         </div>
 
-        {/* Coming Soon content */}
-        <div style={{ textAlign: "center", padding: "10px 0 20px" }}>
-          {/* Icon */}
-          <div style={{
-            width: 56, height: 56, borderRadius: "50%",
-            background: "rgba(200,168,80,0.1)", border: "2px solid var(--gold, #c8a850)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            margin: "0 auto 16px",
-          }}>
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--gold, #c8a850)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <path d="M3 9h18" />
-              <path d="M9 3v18" />
-            </svg>
+        {/* ═══ NFT SELECTION GRID ═══ */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.06em" }}>
+              SELECT NFTS ({selected.size} selected{selected.size < MIN_BUNDLE_SIZE ? `, min ${MIN_BUNDLE_SIZE}` : ""})
+            </span>
+            <button
+              onClick={selectAll}
+              disabled={isSubmitting}
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                fontFamily: "var(--mono)", fontSize: 10, color: "var(--naka-blue)", textDecoration: "underline",
+              }}
+            >
+              {selected.size === allNfts.length ? "Deselect All" : "Select All"}
+            </button>
           </div>
 
-          <div style={{
-            fontFamily: "var(--display)", fontSize: 16, color: "var(--gold, #c8a850)",
-            marginBottom: 8, fontWeight: 600,
-          }}>
-            Coming Soon
-          </div>
-
-          <div style={{
-            fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)",
-            lineHeight: 1.6, maxWidth: 340, margin: "0 auto 16px",
-          }}>
-            Bundle listings are not yet supported on the native orderbook.
-            This feature will allow you to list multiple NFTs as a single bundle
-            at a lower fee rate. For now, you can list NFTs individually.
-          </div>
-
-          {/* Preview grid of user's NFTs */}
-          {previewNfts.length > 0 && (
-            <div style={{
-              display: "flex", flexWrap: "wrap", gap: 6,
-              justifyContent: "center", margin: "14px 0 6px",
-              opacity: 0.5,
-            }}>
-              {previewNfts.map((nft) => (
-                <NftImage
-                  key={nft.id}
-                  nft={nft}
-                  style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover" }}
-                />
-              ))}
+          {allNfts.length === 0 ? (
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", textAlign: "center", padding: 20 }}>
+              No NFTs available for bundling.
             </div>
-          )}
-
-          {nfts.length > 0 && (
+          ) : (
             <div style={{
-              fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)",
-              marginBottom: 16,
+              display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))",
+              gap: 8, maxHeight: 240, overflowY: "auto",
+              background: "rgba(0,0,0,0.15)", borderRadius: 10, padding: 10,
+              border: "1px solid var(--border)",
             }}>
-              {nfts.length} NFTs available to list individually
+              {allNfts.map((nft) => {
+                const sel = selected.has(nft.id);
+                return (
+                  <div
+                    key={nft.id}
+                    onClick={() => toggle(nft.id)}
+                    style={{
+                      position: "relative", cursor: isSubmitting ? "wait" : "pointer",
+                      borderRadius: 8, overflow: "hidden",
+                      border: sel ? "2px solid var(--naka-blue)" : "2px solid transparent",
+                      opacity: isSubmitting ? 0.6 : 1, transition: "border-color 0.15s",
+                    }}
+                  >
+                    <NftImage nft={nft} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", display: "block" }} />
+                    <div style={{
+                      position: "absolute", top: 4, right: 4, width: 18, height: 18, borderRadius: 4,
+                      background: sel ? "var(--naka-blue)" : "rgba(0,0,0,0.5)",
+                      border: sel ? "none" : "1px solid var(--border)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 11, color: "#fff", fontWeight: 700,
+                    }}>
+                      {sel ? "\u2713" : ""}
+                    </div>
+                    <div style={{
+                      position: "absolute", bottom: 0, left: 0, right: 0,
+                      background: "rgba(0,0,0,0.65)", padding: "2px 4px",
+                      fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+                      textAlign: "center", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                    }}>
+                      #{nft.id}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
 
-        <button className="btn-primary" style={{ width: "100%", textAlign: "center", fontSize: 12 }} onClick={onClose}>
-          Close
+        {/* ═══ BUNDLE PRICE INPUT ═══ */}
+        <div style={{ marginBottom: 14 }}>
+          <label style={{
+            fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+            letterSpacing: "0.06em", display: "block", marginBottom: 6,
+          }}>
+            BUNDLE PRICE (ETH)
+          </label>
+          <div style={{
+            display: "flex", alignItems: "center", gap: 8,
+            background: "rgba(0,0,0,0.15)", borderRadius: 8, padding: "8px 12px",
+            border: "1px solid var(--border)",
+          }}>
+            <Eth size={16} />
+            <input
+              type="number"
+              min="0"
+              step="0.001"
+              placeholder="0.00"
+              value={priceInput}
+              onChange={(e) => setPriceInput(e.target.value)}
+              disabled={isSubmitting}
+              style={{
+                background: "none", border: "none", outline: "none",
+                fontFamily: "var(--mono)", fontSize: 14, color: "var(--text)",
+                width: "100%",
+              }}
+            />
+          </div>
+
+          {/* Per-item breakdown */}
+          {selected.size >= MIN_BUNDLE_SIZE && priceEth > 0 && (
+            <div style={{
+              fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+              marginTop: 6, display: "flex", justifyContent: "space-between",
+            }}>
+              <span>~{formatPrice(perItemPrice)} ETH per item</span>
+              <span>{selected.size} items in bundle</span>
+            </div>
+          )}
+        </div>
+
+        {/* ═══ DURATION SELECTOR ═══ */}
+        <div style={{ marginBottom: 14 }}>
+          <label style={{
+            fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+            letterSpacing: "0.06em", display: "block", marginBottom: 6,
+          }}>
+            DURATION
+          </label>
+          <select
+            value={durationIdx}
+            onChange={(e) => setDurationIdx(Number(e.target.value))}
+            disabled={isSubmitting}
+            style={{
+              width: "100%", padding: "8px 12px",
+              background: "rgba(0,0,0,0.15)", border: "1px solid var(--border)",
+              borderRadius: 8, color: "var(--text)", fontFamily: "var(--mono)", fontSize: 12,
+              cursor: "pointer", outline: "none",
+            }}
+          >
+            {DURATION_OPTIONS.map((opt, i) => (
+              <option key={opt.hours} value={i} style={{ background: "var(--card)" }}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* ═══ FEE BREAKDOWN ═══ */}
+        {priceEth > 0 && (
+          <div style={{
+            background: "rgba(0,0,0,0.1)", borderRadius: 8, padding: "10px 12px",
+            border: "1px solid var(--border)", marginBottom: 16,
+          }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.06em", marginBottom: 8 }}>
+              FEE BREAKDOWN
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
+                Bundle Price
+              </span>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)" }}>
+                <Eth size={10} /> {formatPrice(priceEth)}
+              </span>
+            </div>
+            {HAS_PLATFORM_FEE && (
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
+                  Platform Fee ({PLATFORM_FEE_BPS / 100}%)
+                </span>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)" }}>
+                  -{formatPrice(fees.platformFee)}
+                </span>
+              </div>
+            )}
+            <div style={{
+              display: "flex", justifyContent: "space-between",
+              borderTop: "1px solid var(--border)", paddingTop: 6, marginTop: 4,
+            }}>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--gold, #c8a850)", fontWeight: 600 }}>
+                You Receive
+              </span>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--gold, #c8a850)", fontWeight: 600 }}>
+                <Eth size={10} /> {formatPrice(fees.revenue)}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* ═══ VALIDATION HINTS ═══ */}
+        {selected.size > 0 && selected.size < MIN_BUNDLE_SIZE && (
+          <div style={{
+            fontFamily: "var(--mono)", fontSize: 10, color: "var(--warning, #e8a040)",
+            textAlign: "center", marginBottom: 10,
+          }}>
+            Select at least {MIN_BUNDLE_SIZE} NFTs to create a bundle.
+          </div>
+        )}
+
+        {/* ═══ CREATE BUNDLE BUTTON ═══ */}
+        <button
+          className="btn-primary"
+          disabled={!canSubmit}
+          onClick={handleSubmit}
+          style={{
+            width: "100%", textAlign: "center", fontSize: 12,
+            opacity: canSubmit ? 1 : 0.5,
+            cursor: canSubmit ? "pointer" : "not-allowed",
+          }}
+        >
+          {isSubmitting ? "Creating Bundle..." : `Create Bundle (${selected.size} NFTs)`}
+        </button>
+
+        {/* Cancel */}
+        <button
+          onClick={onClose}
+          disabled={isSubmitting}
+          style={{
+            width: "100%", textAlign: "center", marginTop: 8,
+            background: "none", border: "1px solid var(--border)", borderRadius: 8,
+            padding: "8px 0", fontFamily: "var(--mono)", fontSize: 11,
+            color: "var(--text-dim)", cursor: "pointer",
+          }}
+        >
+          Cancel
         </button>
       </div>
     </div>

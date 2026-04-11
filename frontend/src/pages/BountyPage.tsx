@@ -13,6 +13,109 @@ import { usePageTitle } from '../hooks/usePageTitle';
 const STATUS_LABELS = ['Open', 'Completed', 'Cancelled'];
 const STATUS_COLORS = ['text-success', 'text-primary', 'text-white/25'];
 
+/* ------------------------------------------------------------------ */
+/*  Withdraw Banner                                                    */
+/* ------------------------------------------------------------------ */
+function WithdrawBanner() {
+  const { address } = useAccount();
+  const { writeContract, data: hash, isPending } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const { data: payoutRaw, refetch: refetchPayout } = useReadContract({
+    address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'pendingPayouts',
+    args: address ? [address] : undefined,
+  });
+  const { data: refundRaw, refetch: refetchRefund } = useReadContract({
+    address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'pendingRefund',
+    args: address ? [address] : undefined,
+  });
+
+  const payout = payoutRaw ? (payoutRaw as bigint) : 0n;
+  const refund = refundRaw ? (refundRaw as bigint) : 0n;
+
+  useEffect(() => {
+    if (isSuccess) { refetchPayout(); refetchRefund(); toast.success('Withdrawal confirmed'); }
+  }, [isSuccess, refetchPayout, refetchRefund]);
+
+  if (!address || (payout === 0n && refund === 0n)) return null;
+
+  return (
+    <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(34,197,94,0.2)' }}
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+      <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.95)' }} />
+      <div className="relative z-10 p-5 flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex-1">
+          <p className="text-white text-[14px] font-semibold mb-1">Funds Available</p>
+          <div className="flex flex-wrap gap-4 text-[13px]">
+            {payout > 0n && <span className="text-success">Payout: {formatTokenAmount(formatEther(payout), 6)} ETH</span>}
+            {refund > 0n && <span className="text-primary">Refund: {formatTokenAmount(formatEther(refund), 6)} ETH</span>}
+          </div>
+        </div>
+        <div className="flex gap-2">
+          {payout > 0n && (
+            <button disabled={isPending || isConfirming} onClick={() => writeContract({
+              address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'withdrawPayout',
+            })} className="btn-primary px-4 py-2 min-h-[44px] text-[13px] disabled:opacity-35">
+              {isPending || isConfirming ? 'Withdrawing...' : 'Withdraw Payout'}
+            </button>
+          )}
+          {refund > 0n && (
+            <button disabled={isPending || isConfirming} onClick={() => writeContract({
+              address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'withdrawRefund',
+            })} className="btn-secondary px-4 py-2 min-h-[44px] text-[13px] disabled:opacity-35">
+              {isPending || isConfirming ? 'Withdrawing...' : 'Withdraw Refund'}
+            </button>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Submission Row                                                     */
+/* ------------------------------------------------------------------ */
+function SubmissionRow({ bountyId, submissionId, onVoted }: { bountyId: number; submissionId: number; onVoted: () => void }) {
+  const { data } = useReadContract({
+    address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'getSubmission',
+    args: [BigInt(bountyId), BigInt(submissionId)],
+  });
+  const { writeContract, data: hash, isPending } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  useEffect(() => {
+    if (isSuccess) { toast.success('Vote recorded'); onVoted(); }
+  }, [isSuccess, onVoted]);
+
+  if (!data) return null;
+  const [submitter, contentURI, votes] = data as [string, string, bigint];
+
+  return (
+    <div className="flex items-center gap-3 py-2 px-3 rounded-lg" style={{ background: 'rgba(255,255,255,0.02)' }}>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 text-[12px]">
+          <span className="text-white/50">{shortenAddress(submitter)}</span>
+          <span className="text-white/20">|</span>
+          <span className="text-white/30">{Number(votes)} vote{Number(votes) !== 1 ? 's' : ''}</span>
+        </div>
+        <a href={contentURI} target="_blank" rel="noopener noreferrer"
+          className="text-primary text-[12px] hover:underline truncate block mt-0.5">
+          {contentURI.length > 60 ? contentURI.slice(0, 60) + '...' : contentURI}
+        </a>
+      </div>
+      <button disabled={isPending || isConfirming} onClick={() => writeContract({
+        address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'voteForSubmission',
+        args: [BigInt(bountyId), BigInt(submissionId)],
+      })} className="btn-secondary px-3 py-1.5 min-h-[36px] text-[11px] flex-shrink-0 disabled:opacity-35">
+        {isPending || isConfirming ? '...' : 'Vote'}
+      </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main Page                                                          */
+/* ------------------------------------------------------------------ */
 export default function BountyPage() {
   usePageTitle('Bounties');
   const { isConnected } = useAccount();
@@ -20,6 +123,7 @@ export default function BountyPage() {
   const [reward, setReward] = useState('');
   const [days, setDays] = useState('7');
   const [showCreate, setShowCreate] = useState(false);
+  const [expandedBounty, setExpandedBounty] = useState<number | null>(null);
 
   const { showReceipt } = useTransactionReceipt();
   const receiptShownHashRef = useRef<string | null>(null);
@@ -88,6 +192,9 @@ export default function BountyPage() {
             </button>
           )}
         </motion.div>
+
+        {/* Withdraw Banner */}
+        {isConnected && <WithdrawBanner />}
 
         {/* Stats */}
         <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
@@ -170,7 +277,8 @@ export default function BountyPage() {
             <div>
               {Array.from({ length: Math.min(count, 20) }).map((_, i) => {
                 const bountyId = count - 1 - i;
-                return <BountyRow key={bountyId} id={bountyId} />;
+                return <BountyRow key={bountyId} id={bountyId} expanded={expandedBounty === bountyId}
+                  onToggle={() => setExpandedBounty(expandedBounty === bountyId ? null : bountyId)} />;
               })}
             </div>
           )}
@@ -181,33 +289,120 @@ export default function BountyPage() {
   );
 }
 
-function BountyRow({ id }: { id: number }) {
-  const { data } = useReadContract({
+/* ------------------------------------------------------------------ */
+/*  Bounty Row                                                         */
+/* ------------------------------------------------------------------ */
+function BountyRow({ id, expanded, onToggle }: { id: number; expanded: boolean; onToggle: () => void }) {
+  const { address } = useAccount();
+  const [contentURI, setContentURI] = useState('');
+
+  const { data, refetch: refetchBounty } = useReadContract({
     address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'getBounty',
     args: [BigInt(id)],
   });
 
+  const { data: subCountRaw, refetch: refetchSubCount } = useReadContract({
+    address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'submissionCount',
+    args: [BigInt(id)],
+  });
+
+  const { writeContract, data: hash, isPending } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  useEffect(() => {
+    if (isSuccess) {
+      toast.success('Transaction confirmed');
+      refetchBounty();
+      refetchSubCount();
+      setContentURI('');
+    }
+  }, [isSuccess, refetchBounty, refetchSubCount]);
+
   if (!data) return null;
-  const [creator, description, reward, deadline, winner, submCount, status, /* escrow */] = data as [string, string, bigint, bigint, string, bigint, number, bigint];
+  const [creator, description, reward, deadline, winner, _submCount, status] = data as [string, string, bigint, bigint, string, bigint, number, bigint];
 
   const isOpen = status === 0;
-  const daysLeft = Math.max(0, Math.ceil((Number(deadline) - Date.now() / 1000) / 86400));
+  const nowSec = Date.now() / 1000;
+  const daysLeft = Math.max(0, Math.ceil((Number(deadline) - nowSec) / 86400));
+  const deadlinePassed = nowSec >= Number(deadline);
+  const isCreator = address && creator.toLowerCase() === address.toLowerCase();
+  const subCount = Number(subCountRaw ?? _submCount ?? 0);
 
   return (
-    <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(139,92,246,0.06)' }}>
-      <div className="flex items-start justify-between mb-1">
-        <p className="text-white/80 text-[13px] font-medium flex-1 mr-3">{description}</p>
-        <span className={`text-[11px] font-semibold flex-shrink-0 ${STATUS_COLORS[status]}`}>{STATUS_LABELS[status]}</span>
+    <div style={{ borderBottom: '1px solid rgba(139,92,246,0.06)' }}>
+      {/* Header row - clickable */}
+      <div className="px-5 py-4 cursor-pointer hover:bg-white/[0.02] transition-colors" onClick={onToggle}>
+        <div className="flex items-start justify-between mb-1">
+          <p className="text-white/80 text-[13px] font-medium flex-1 mr-3">{description}</p>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <span className={`text-[11px] font-semibold ${STATUS_COLORS[status]}`}>{STATUS_LABELS[status]}</span>
+            <span className="text-white/20 text-[11px]">{expanded ? '\u25B2' : '\u25BC'}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 text-[11px] text-white/30 flex-wrap">
+          <span className="stat-value text-success">{formatEther(reward)} ETH</span>
+          <span>{subCount} submission{subCount !== 1 ? 's' : ''}</span>
+          <span>By {shortenAddress(creator)}</span>
+          {isOpen && !deadlinePassed && <span>{daysLeft}d left</span>}
+          {isOpen && deadlinePassed && <span className="text-warning">Deadline passed</span>}
+          {winner !== '0x0000000000000000000000000000000000000000' && (
+            <span className="text-primary">Winner: {shortenAddress(winner)}</span>
+          )}
+        </div>
       </div>
-      <div className="flex items-center gap-3 text-[11px] text-white/30">
-        <span className="stat-value text-success">{formatEther(reward)} ETH</span>
-        <span>{Number(submCount)} submissions</span>
-        <span>By {shortenAddress(creator)}</span>
-        {isOpen && <span>{daysLeft}d left</span>}
-        {winner !== '0x0000000000000000000000000000000000000000' && (
-          <span className="text-primary">Winner: {shortenAddress(winner)}</span>
-        )}
-      </div>
+
+      {/* Expanded panel */}
+      {expanded && (
+        <div className="px-5 pb-4 space-y-3">
+          {/* Creator actions */}
+          {isCreator && isOpen && (
+            <div className="flex gap-2">
+              {deadlinePassed && (
+                <button disabled={isPending || isConfirming} onClick={() => writeContract({
+                  address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'completeBounty',
+                  args: [BigInt(id)],
+                })} className="btn-primary px-4 py-2 min-h-[44px] text-[12px] disabled:opacity-35">
+                  {isPending || isConfirming ? 'Completing...' : 'Complete Bounty'}
+                </button>
+              )}
+              <button disabled={isPending || isConfirming} onClick={() => writeContract({
+                address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'cancelBounty',
+                args: [BigInt(id)],
+              })} className="btn-secondary px-4 py-2 min-h-[44px] text-[12px] disabled:opacity-35">
+                {isPending || isConfirming ? 'Cancelling...' : 'Cancel Bounty'}
+              </button>
+            </div>
+          )}
+
+          {/* Submit work form */}
+          {isOpen && !deadlinePassed && address && (
+            <div className="flex gap-2">
+              <input type="text" value={contentURI} onChange={e => setContentURI(e.target.value)}
+                placeholder="Content URI (IPFS or URL)"
+                className="flex-1 bg-transparent text-[13px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg"
+                style={{ border: '1px solid rgba(255,255,255,0.06)' }} />
+              <button disabled={isPending || isConfirming || !contentURI.trim()} onClick={() => writeContract({
+                address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'submitWork',
+                args: [BigInt(id), contentURI.trim()],
+              })} className="btn-primary px-4 py-2 min-h-[44px] text-[12px] flex-shrink-0 disabled:opacity-35">
+                {isPending || isConfirming ? 'Submitting...' : 'Submit'}
+              </button>
+            </div>
+          )}
+
+          {/* Submissions list */}
+          {subCount > 0 ? (
+            <div className="space-y-2">
+              <p className="text-white/40 text-[11px] uppercase tracking-wider">Submissions</p>
+              {Array.from({ length: subCount }).map((_, i) => (
+                <SubmissionRow key={i} bountyId={id} submissionId={i} onVoted={() => refetchSubCount()} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-white/25 text-[12px]">No submissions yet.</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

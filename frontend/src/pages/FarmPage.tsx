@@ -254,6 +254,8 @@ export default function FarmPage() {
   const [selectedLock, setSelectedLock] = useState(LOCK_OPTIONS[2]); // Default 90 days
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   const [confirmEarlyWithdraw, setConfirmEarlyWithdraw] = useState(false);
+  const [showExtendLock, setShowExtendLock] = useState(false);
+  const [extendLockDuration, setExtendLockDuration] = useState(LOCK_OPTIONS[2]);
 
   const poolTVL = usePoolTVL();
   const lpFarm = useLPFarming();
@@ -611,6 +613,14 @@ export default function FarmPage() {
                     <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.10)' }}>
                       <p className="text-white/30 text-[10px] mb-0.5">Boost</p>
                       <AnimatedCounter value={pos.boostMultiplier} decimals={2} suffix="x" className="stat-value text-[16px] text-primary" />
+                      {pos.hasPosition && !pos.isLocked && pos.boostMultiplier > 1 && (
+                        <button
+                          onClick={() => actions.revalidateBoost(pos.tokenId)}
+                          disabled={actions.isPending || actions.isConfirming}
+                          className="btn-secondary text-[11px] mt-1.5 w-full py-1.5 rounded-lg disabled:opacity-35 disabled:cursor-not-allowed">
+                          Revalidate Boost
+                        </button>
+                      )}
                     </div>
                     <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.10)' }}>
                       <p className="text-white/30 text-[10px] mb-0.5">Claimable</p>
@@ -621,6 +631,45 @@ export default function FarmPage() {
                       <p className="stat-value text-[14px] text-white">
                         {pos.autoMaxLock ? 'Auto-Max' : pos.isLocked ? new Date(pos.lockEnd * 1000).toLocaleDateString() : 'Unlocked'}
                       </p>
+                      {pos.hasPosition && pos.isLocked && !showExtendLock && (
+                        <button
+                          onClick={() => setShowExtendLock(true)}
+                          disabled={actions.isPending || actions.isConfirming}
+                          className="btn-secondary text-[11px] mt-1.5 w-full py-1.5 rounded-lg disabled:opacity-35 disabled:cursor-not-allowed">
+                          Extend Lock
+                        </button>
+                      )}
+                      {pos.hasPosition && pos.isLocked && showExtendLock && (
+                        <div className="mt-2">
+                          <div className="grid grid-cols-2 gap-1.5 mb-2">
+                            {LOCK_OPTIONS.map((opt) => (
+                              <button key={opt.label} onClick={() => setExtendLockDuration(opt)}
+                                className="rounded-lg px-2 py-1.5 text-center cursor-pointer transition-all text-[10px]"
+                                style={{
+                                  background: extendLockDuration.label === opt.label ? 'rgba(139,92,246,0.12)' : 'rgba(255,255,255,0.03)',
+                                  border: extendLockDuration.label === opt.label ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(255,255,255,0.06)',
+                                  color: extendLockDuration.label === opt.label ? '#8b5cf6' : 'rgba(255,255,255,0.5)',
+                                }}>
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={() => setShowExtendLock(false)}
+                              className="flex-1 py-1.5 rounded-lg text-[10px] text-white/50 cursor-pointer"
+                              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => { actions.extendLock(pos.tokenId, BigInt(extendLockDuration.seconds)); setShowExtendLock(false); }}
+                              disabled={actions.isPending || actions.isConfirming}
+                              className="btn-secondary flex-1 py-1.5 rounded-lg text-[10px] disabled:opacity-35 disabled:cursor-not-allowed">
+                              Extend {extendLockDuration.label}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -630,6 +679,17 @@ export default function FarmPage() {
                       className="btn-primary w-full py-3 text-[14px] disabled:opacity-35 disabled:cursor-not-allowed">
                       {actions.isPending || actions.isConfirming ? 'Processing...' : 'Claim Rewards'}
                     </button>
+                    {pos.unsettledFormatted && parseFloat(pos.unsettledFormatted) > 0 && (
+                      <div className="rounded-lg p-3 mt-2" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.10)' }}>
+                        <p className="text-white/40 text-[11px] mb-1.5">Unsettled: {pos.unsettledFormatted} TOWELI</p>
+                        <button
+                          onClick={() => actions.claimUnsettled()}
+                          disabled={actions.isPending || actions.isConfirming}
+                          className="btn-secondary w-full py-2 text-[13px] disabled:opacity-35 disabled:cursor-not-allowed">
+                          {actions.isPending || actions.isConfirming ? 'Processing...' : 'Claim Unsettled'}
+                        </button>
+                      </div>
+                    )}
                     <div className="grid grid-cols-2 gap-2">
                       {pos.canWithdraw && !confirmWithdraw && (
                         <button onClick={() => setConfirmWithdraw(true)}
@@ -687,6 +747,18 @@ export default function FarmPage() {
                         className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-35">
                         {pos.autoMaxLock ? 'Disable Auto-Lock' : 'Enable Auto-Max Lock'}
                       </button>
+                      {pos.isPaused && pos.hasPosition && (
+                        <button
+                          onClick={() => {
+                            if (!confirm('Emergency exit forfeits all pending rewards. Continue?')) return;
+                            actions.emergencyExit(pos.tokenId);
+                          }}
+                          disabled={actions.isPending || actions.isConfirming}
+                          className="col-span-2 w-full py-2.5 text-[13px] rounded-lg font-semibold disabled:opacity-35 disabled:cursor-not-allowed"
+                          style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}>
+                          Emergency Exit (Forfeit Rewards)
+                        </button>
+                      )}
                     </div>
                     <Link to="/restake" className="text-center text-primary/60 text-[12px] hover:text-primary transition-colors mt-1">
                       Restake for bonus yield &#8594;

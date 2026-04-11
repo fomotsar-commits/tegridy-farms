@@ -5,6 +5,7 @@ import { formatPrice } from "../lib/formatPrice";
 import { Eth } from "./Icons";
 import Skeleton from "./Skeleton";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { useToweliPrice } from "../../hooks/useToweliPrice";
 
 // ── Helpers ────────────────────────────────────────────────────
 function pnlColor(value) {
@@ -24,10 +25,6 @@ function formatDays(days) {
   if (days >= 365) return `${Math.floor(days / 365)}y ${days % 365}d`;
   return `${days}d`;
 }
-
-// TODO: Fetch live ETH/USD price from CoinGecko or use the PriceContext.
-// This is a display-only estimate used for USD approximations in the portfolio view.
-const ETH_USD_ESTIMATE = 3200;
 
 // ── Mini Canvas Line Chart ─────────────────────────────────────
 function ValueChart({ snapshots }) {
@@ -124,6 +121,7 @@ function ValueChart({ snapshots }) {
 // ── Main Component ─────────────────────────────────────────────
 export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }) {
   const collection = useActiveCollection();
+  const { ethUsd } = useToweliPrice();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [pnlData, setPnlData] = useState(null);
@@ -285,8 +283,8 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
   }
 
   const totalPnL = pnlData.unrealizedPnL + pnlData.realizedPnL;
-  const totalPnLUsd = totalPnL * ETH_USD_ESTIMATE;
-  const currentValueUsd = pnlData.currentValue * ETH_USD_ESTIMATE;
+  const totalPnLUsd = totalPnL * (ethUsd || 3200);
+  const currentValueUsd = pnlData.currentValue * (ethUsd || 3200);
 
   return (
     <section className="my-collection-section portfolio-section">

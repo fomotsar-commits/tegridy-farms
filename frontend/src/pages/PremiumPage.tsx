@@ -299,15 +299,15 @@ export default function PremiumPage() {
                 No subscription needed — just claim your access.
               </p>
             </div>
-            {address && !premium.isLifetime && (
-              <button onClick={premium.claimNFTAccess}
+            {address && premium.holdsJBAC && !premium.hasPremium && (
+              <button onClick={premium.activateNFTPremium}
                 disabled={premium.isPending || premium.isConfirming}
                 className="px-5 py-3 rounded-lg text-[13px] font-semibold flex-shrink-0"
                 style={{
                   background: 'linear-gradient(135deg, #d4a017 0%, #b8892e 100%)',
                   color: '#0a0a0f',
                 }}>
-                {premium.isPending ? 'Confirming...' : 'Claim NFT Access'}
+                {premium.isPending ? 'Confirming...' : 'Activate NFT Premium'}
               </button>
             )}
           </div>

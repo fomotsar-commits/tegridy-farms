@@ -103,6 +103,41 @@ export function useFarmActions() {
     });
   };
 
+  const extendLock = (tokenId: bigint, newDuration: bigint) => {
+    writeContract({
+      address: TEGRIDY_STAKING_ADDRESS,
+      abi: TEGRIDY_STAKING_ABI,
+      functionName: 'extendLock',
+      args: [tokenId, newDuration],
+    });
+  };
+
+  const emergencyExit = (tokenId: bigint) => {
+    writeContract({
+      address: TEGRIDY_STAKING_ADDRESS,
+      abi: TEGRIDY_STAKING_ABI,
+      functionName: 'emergencyExitPosition',
+      args: [tokenId],
+    });
+  };
+
+  const claimUnsettled = () => {
+    writeContract({
+      address: TEGRIDY_STAKING_ADDRESS,
+      abi: TEGRIDY_STAKING_ABI,
+      functionName: 'claimUnsettled',
+    });
+  };
+
+  const revalidateBoost = (tokenId: bigint) => {
+    writeContract({
+      address: TEGRIDY_STAKING_ADDRESS,
+      abi: TEGRIDY_STAKING_ABI,
+      functionName: 'revalidateBoost',
+      args: [tokenId],
+    });
+  };
+
   return {
     approve,
     stake,
@@ -110,6 +145,10 @@ export function useFarmActions() {
     earlyWithdraw,
     claim,
     toggleAutoMaxLock,
+    extendLock,
+    emergencyExit,
+    claimUnsettled,
+    revalidateBoost,
     isPending,
     isConfirming,
     isSuccess,

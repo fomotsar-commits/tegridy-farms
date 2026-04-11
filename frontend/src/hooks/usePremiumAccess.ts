@@ -1,9 +1,9 @@
 import { useEffect } from 'react';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContracts } from 'wagmi';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContracts, useReadContract } from 'wagmi';
 import { formatEther } from 'viem';
 import { toast } from 'sonner';
 import { PREMIUM_ACCESS_ABI, ERC20_ABI } from '../lib/contracts';
-import { PREMIUM_ACCESS_ADDRESS, TOWELI_ADDRESS } from '../lib/constants';
+import { PREMIUM_ACCESS_ADDRESS, TOWELI_ADDRESS, JBAC_NFT_ADDRESS } from '../lib/constants';
 
 export function usePremiumAccess() {
   const { address } = useAccount();
@@ -17,6 +17,16 @@ export function usePremiumAccess() {
   const writeError = approveError ?? actionError;
 
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash });
+
+  // Check if user holds a JBAC NFT
+  const { data: jbacBalance } = useReadContract({
+    address: JBAC_NFT_ADDRESS,
+    abi: ERC20_ABI,
+    functionName: 'balanceOf',
+    args: [userAddr],
+    query: { enabled: !!address },
+  });
+  const holdsJBAC = jbacBalance != null && (jbacBalance as bigint) > 0n;
 
   const { data, refetch } = useReadContracts({
     contracts: [
@@ -84,9 +94,12 @@ export function usePremiumAccess() {
     });
   }
 
-  /** @deprecated claimNFTAccess always reverts on-chain. NFT premium is now automatic via hasPremium(). */
-  function claimNFTAccess() {
-    toast.error('NFT premium is now automatic — no claim needed. Hold a JBAC NFT for premium access.');
+  function activateNFTPremium() {
+    writeAction({
+      address: PREMIUM_ACCESS_ADDRESS,
+      abi: PREMIUM_ACCESS_ABI,
+      functionName: 'activateNFTPremium',
+    });
   }
 
   // Toast feedback — defer reset to next tick so isSuccess is readable by consumers this render
@@ -124,7 +137,8 @@ export function usePremiumAccess() {
     // Actions
     approveToweli,
     subscribe,
-    claimNFTAccess,
+    activateNFTPremium,
+    holdsJBAC,
     refetch,
     // TX state
     hash,
