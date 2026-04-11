@@ -58,7 +58,7 @@ export default function SwapPage() {
           toToken: swap.toToken.symbol,
           toAmount: toAmt,
           rate: `1 ${swap.fromToken.symbol} = ${formatTokenAmount(rateNum.toString(), 2)} ${swap.toToken.symbol}`,
-          fee: '0.3%',
+          fee: swap.selectedRoute === 'tegridy' ? '0%' : '0.3%',
           slippage: `${swap.slippage}%`,
           txHash: swap.txHash ?? undefined,
         },

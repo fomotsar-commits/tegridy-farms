@@ -43,7 +43,7 @@ function sortNfts(nfts, sortId) {
     case "rank-asc":
       return sorted.sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity));
     case "rank-desc":
-      return sorted.sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity)).reverse();
+      return sorted.sort((a, b) => (b.rank ?? -Infinity) - (a.rank ?? -Infinity));
     case "id-asc":
       return sorted.sort((a, b) => Number(a.id) - Number(b.id));
     case "id-desc":

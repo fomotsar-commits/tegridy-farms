@@ -109,7 +109,8 @@ export default function ShoppingCart({
       const { ethers } = await import("ethers");
       const provider = new ethers.BrowserProvider(ethProvider);
       const feeData = await provider.getFeeData();
-      const gasPrice = feeData.gasPrice || feeData.maxFeePerGas || BigInt(30e9);
+      // Use EIP-1559 pricing: baseFee + maxPriorityFee, fallback to legacy gasPrice
+      const gasPrice = feeData.maxFeePerGas || feeData.gasPrice || BigInt(30e9);
 
       // Estimate ~200k gas per Seaport fulfillment (conservative)
       const gasPerTx = BigInt(200000);

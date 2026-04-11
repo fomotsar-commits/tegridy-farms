@@ -31,7 +31,7 @@ const S = {
     top: 0,
     left: 0,
     zIndex: 9000,
-    width: 280,
+    width: "min(280px, 85vw)",
     height: "100vh",
     overflowY: "auto",
     background: "var(--surface-glass)",

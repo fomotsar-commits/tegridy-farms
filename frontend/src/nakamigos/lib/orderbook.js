@@ -64,6 +64,10 @@ export async function fulfillNativeOrder(order) {
   try {
     const { ethers } = await import("ethers");
     const provider = new ethers.BrowserProvider(ethProvider);
+    const network = await provider.getNetwork();
+    if (Number(network.chainId) !== 1) {
+      return { error: "wrong-chain", message: "Please switch to Ethereum Mainnet to buy NFTs" };
+    }
     const signer = await provider.getSigner();
     const buyerAddress = await signer.getAddress();
 
@@ -133,6 +137,9 @@ export async function fulfillNativeOrder(order) {
     );
 
     const receipt = await tx.wait();
+    if (!receipt || receipt.status === 0) {
+      return { error: "reverted", message: "Transaction was mined but reverted on-chain" };
+    }
 
     // Mark order as filled in our backend
     const fillMessage = `Fill order ${order.order_hash} tx ${tx.hash}`;
@@ -182,6 +189,10 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
   try {
     const { ethers } = await import("ethers");
     const provider = new ethers.BrowserProvider(ethProvider);
+    const network = await provider.getNetwork();
+    if (Number(network.chainId) !== 1) {
+      return { error: "wrong-chain", message: "Please switch to Ethereum Mainnet to list NFTs" };
+    }
     const signer = await provider.getSigner();
     const sellerAddress = await signer.getAddress();
 
@@ -194,7 +205,15 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
     const isApproved = await nftContract.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
     if (!isApproved) {
       const approveTx = await nftContract.setApprovalForAll(CONDUIT_ADDRESS, true);
-      await approveTx.wait();
+      const approveReceipt = await approveTx.wait();
+      if (!approveReceipt || approveReceipt.status === 0) {
+        return { error: "approval-failed", message: "NFT approval transaction reverted" };
+      }
+      // Re-verify approval succeeded on-chain
+      const stillApproved = await nftContract.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
+      if (!stillApproved) {
+        return { error: "approval-failed", message: "NFT approval did not take effect" };
+      }
     }
 
     const priceWei = ethers.parseEther(String(priceEth));

@@ -49,7 +49,12 @@
  *   -- Anyone can read messages
  *   CREATE POLICY "Anyone can read" ON messages FOR SELECT USING (true);
  *
- *   -- Anyone can insert (author is stored but not auth-verified; see note below)
+ *   -- Anyone can insert (author is stored but not auth-verified; see SIWE note below)
+ *   -- TODO(security): Replace with SIWE-verified JWT check:
+ *   --   CREATE POLICY "Verified can insert" ON messages FOR INSERT WITH CHECK (
+ *   --     author = current_setting('request.jwt.claims', true)::json->>'wallet'
+ *   --     AND char_length(text) <= 280 AND char_length(slug) <= 64
+ *   --   );
  *   CREATE POLICY "Anyone can insert" ON messages FOR INSERT WITH CHECK (
  *     char_length(text) <= 280 AND char_length(author) <= 42
  *     AND char_length(slug) <= 64

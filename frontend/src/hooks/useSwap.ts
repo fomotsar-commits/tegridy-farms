@@ -447,6 +447,18 @@ export function useSwap() {
 
   const executeSwap = useCallback(() => {
     if (!address || !fromToken || !toToken || parsedAmount === 0n || insufficientBalance || !swapType) return;
+    // Prevent swapping a token for itself
+    const fromAddr = fromToken.isNative ? WETH_ADDRESS : fromToken.address;
+    const toAddr = toToken.isNative ? WETH_ADDRESS : toToken.address;
+    if (fromAddr.toLowerCase() === toAddr.toLowerCase()) {
+      toast.error('Cannot swap a token for itself');
+      return;
+    }
+    // Prevent swaps with zero expected output
+    if (outputAmount === 0n) {
+      toast.error('No output quote available — try a different amount or pair');
+      return;
+    }
     const deadlineTs = BigInt(Math.floor(Date.now() / 1000) + deadline * 60);
 
     if (selectedRoute === 'aggregator') {

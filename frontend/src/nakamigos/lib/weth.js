@@ -17,6 +17,10 @@ async function getSigner() {
   const provider = getProvider();
   if (!provider) throw new Error("No wallet");
   const browserProvider = new ethers.BrowserProvider(provider);
+  const network = await browserProvider.getNetwork();
+  if (Number(network.chainId) !== 1) {
+    throw new Error("Please switch to Ethereum Mainnet");
+  }
   return browserProvider.getSigner();
 }
 

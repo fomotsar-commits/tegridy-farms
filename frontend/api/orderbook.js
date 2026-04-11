@@ -435,9 +435,21 @@ export default async function handler(req, res) {
             return res.status(400).json({ error: "Transaction does not contain a matching Seaport OrderFulfilled event" });
           }
         } catch (rpcErr) {
-          console.error("On-chain verification failed, allowing fill:", rpcErr.message);
-          // Fail open: if RPC is down, still allow the fill (order was already fulfilled on-chain)
+          console.error("On-chain verification failed, rejecting fill:", rpcErr.message);
+          // Fail closed: if RPC is unavailable, do NOT mark as filled without verification.
+          // The buyer can retry once RPC is back up.
+          return res.status(503).json({ error: "On-chain verification temporarily unavailable — please retry in a few minutes" });
         }
+      }
+
+      // Prevent duplicate txHash usage — one on-chain tx should only fill one order
+      const { count: txUsageCount } = await supabase
+        .from("native_orders")
+        .select("*", { count: "exact", head: true })
+        .eq("tx_hash", txHash)
+        .eq("status", "filled");
+      if (txUsageCount != null && txUsageCount > 0) {
+        return res.status(409).json({ error: "This transaction hash has already been used to fill an order" });
       }
 
       // Atomic update: set status to filled only if currently active.

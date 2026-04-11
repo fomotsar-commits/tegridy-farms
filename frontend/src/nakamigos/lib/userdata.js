@@ -26,8 +26,12 @@
  *
  *   ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
  *   CREATE POLICY "Anyone can read profiles" ON user_profiles FOR SELECT USING (true);
- *   CREATE POLICY "Anyone can upsert own profile" ON user_profiles FOR INSERT WITH CHECK (true);
- *   CREATE POLICY "Anyone can update own profile" ON user_profiles FOR UPDATE USING (true);
+ *   CREATE POLICY "Owner can upsert own profile" ON user_profiles FOR INSERT WITH CHECK (wallet = current_setting('request.jwt.claims', true)::json->>'wallet');
+ *   CREATE POLICY "Owner can update own profile" ON user_profiles FOR UPDATE USING (wallet = current_setting('request.jwt.claims', true)::json->>'wallet');
+ *
+ *   -- MIGRATION: Drop old insecure policies if they exist:
+ *   --   DROP POLICY IF EXISTS "Anyone can upsert own profile" ON user_profiles;
+ *   --   DROP POLICY IF EXISTS "Anyone can update own profile" ON user_profiles;
  *
  *   CREATE TABLE user_favorites (
  *     wallet text NOT NULL,
@@ -39,8 +43,12 @@
  *
  *   ALTER TABLE user_favorites ENABLE ROW LEVEL SECURITY;
  *   CREATE POLICY "Anyone can read favorites" ON user_favorites FOR SELECT USING (true);
- *   CREATE POLICY "Anyone can insert favorites" ON user_favorites FOR INSERT WITH CHECK (true);
- *   CREATE POLICY "Anyone can delete favorites" ON user_favorites FOR DELETE USING (true);
+ *   CREATE POLICY "Owner can insert favorites" ON user_favorites FOR INSERT WITH CHECK (wallet = current_setting('request.jwt.claims', true)::json->>'wallet');
+ *   CREATE POLICY "Owner can delete favorites" ON user_favorites FOR DELETE USING (wallet = current_setting('request.jwt.claims', true)::json->>'wallet');
+ *
+ *   -- MIGRATION: Drop old insecure policies if they exist:
+ *   --   DROP POLICY IF EXISTS "Anyone can insert favorites" ON user_favorites;
+ *   --   DROP POLICY IF EXISTS "Anyone can delete favorites" ON user_favorites;
  *
  *   CREATE TABLE user_watchlist (
  *     wallet text NOT NULL,
@@ -54,8 +62,12 @@
  *
  *   ALTER TABLE user_watchlist ENABLE ROW LEVEL SECURITY;
  *   CREATE POLICY "Anyone can read watchlist" ON user_watchlist FOR SELECT USING (true);
- *   CREATE POLICY "Anyone can insert watchlist" ON user_watchlist FOR INSERT WITH CHECK (true);
- *   CREATE POLICY "Anyone can delete watchlist" ON user_watchlist FOR DELETE USING (true);
+ *   CREATE POLICY "Owner can insert watchlist" ON user_watchlist FOR INSERT WITH CHECK (wallet = current_setting('request.jwt.claims', true)::json->>'wallet');
+ *   CREATE POLICY "Owner can delete watchlist" ON user_watchlist FOR DELETE USING (wallet = current_setting('request.jwt.claims', true)::json->>'wallet');
+ *
+ *   -- MIGRATION: Drop old insecure policies if they exist:
+ *   --   DROP POLICY IF EXISTS "Anyone can insert watchlist" ON user_watchlist;
+ *   --   DROP POLICY IF EXISTS "Anyone can delete watchlist" ON user_watchlist;
  *
  *   CREATE TABLE votes (
  *     wallet text NOT NULL,
@@ -67,8 +79,12 @@
  *
  *   ALTER TABLE votes ENABLE ROW LEVEL SECURITY;
  *   CREATE POLICY "Anyone can read votes" ON votes FOR SELECT USING (true);
- *   CREATE POLICY "Anyone can insert votes" ON votes FOR INSERT WITH CHECK (true);
- *   CREATE POLICY "Anyone can update own vote" ON votes FOR UPDATE USING (true);
+ *   CREATE POLICY "Owner can insert votes" ON votes FOR INSERT WITH CHECK (wallet = current_setting('request.jwt.claims', true)::json->>'wallet');
+ *   CREATE POLICY "Owner can update own vote" ON votes FOR UPDATE USING (wallet = current_setting('request.jwt.claims', true)::json->>'wallet');
+ *
+ *   -- MIGRATION: Drop old insecure policies if they exist:
+ *   --   DROP POLICY IF EXISTS "Anyone can insert votes" ON votes;
+ *   --   DROP POLICY IF EXISTS "Anyone can update own vote" ON votes;
  *
  */
 
