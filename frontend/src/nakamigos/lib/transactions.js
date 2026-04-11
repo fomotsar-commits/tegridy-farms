@@ -18,7 +18,7 @@ export function recordTransaction({ type, nft, price, hash, wallet, slug }) {
   // localStorage is local-only so storing the full address is acceptable.
   const normalizedWallet = wallet ? wallet.toLowerCase() : null;
   history.unshift({
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
     type,
     tokenId: nft?.id,
     name: nft?.name || `#${nft?.id}`,

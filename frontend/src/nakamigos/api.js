@@ -691,7 +691,7 @@ export async function fetchListings(slug = COLLECTION_SLUG, { openseaSlug, contr
       marketplace: "Native Orderbook",
       marketplaceIcon: null,
       maker: order.maker,
-      expiry: order.end_time || null,
+      expiry: order.end_time ? new Date(order.end_time).toISOString() : null,
       createdAt: order.created_at || null,
       orderData: order.parameters || null,
       orderHash: order.order_hash || null,
@@ -984,7 +984,7 @@ export async function fulfillSeaportOrder(listing) {
 
     // Wait for on-chain confirmation before reporting success
     const receipt = await tx.wait();
-    if (receipt.status === 0) {
+    if (!receipt || receipt.status === 0) {
       return { error: "failed", message: "Transaction reverted on-chain" };
     }
 

@@ -40,7 +40,7 @@ export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMo
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase();
       result = result.filter((n) =>
-        (n.name || "").toLowerCase().includes(q) || String(n.id).includes(q)
+        (n.name || "").toLowerCase().includes(q) || String(n.id).toLowerCase().includes(q)
       );
     }
 

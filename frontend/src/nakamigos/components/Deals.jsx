@@ -497,7 +497,7 @@ export default function Deals({
   function getTraitFloorExcluding(traitKey, excludeTokenId) {
     const d = traitFloorData[traitKey];
     if (!d) return null;
-    if (d.low1.tokenId === excludeTokenId) return d.low2?.price ?? null;
+    if (String(d.low1.tokenId) === String(excludeTokenId)) return d.low2?.price ?? null;
     return d.low1.price;
   }
 
@@ -619,8 +619,8 @@ export default function Deals({
         d.keyTraits.some(t => t.key === traitCategory)
       );
     }
-    if (!isNaN(rMin)) result = result.filter(d => (d.rank || 0) >= rMin);
-    if (!isNaN(rMax)) result = result.filter(d => (d.rank || Infinity) <= rMax);
+    if (!isNaN(rMin)) result = result.filter(d => (d.rank ?? 0) >= rMin);
+    if (!isNaN(rMax)) result = result.filter(d => (d.rank ?? Infinity) <= rMax);
 
     return result;
   }, [deals, minPrice, maxPrice, minDiscount, traitCategory, minRank, maxRank]);
@@ -642,7 +642,7 @@ export default function Deals({
         ? await fulfillNativeOrder(nft.nativeOrder)
         : await fulfillSeaportOrder(nft);
       if (result.success) {
-        addToast(`Purchased #${nft.id} for ${nft.price.toFixed(4)} ETH`, "success");
+        addToast(`Purchased #${nft.id} for ${(nft.price ?? 0).toFixed(4)} ETH`, "success");
         recordTransaction({
           type: "buy",
           nft,

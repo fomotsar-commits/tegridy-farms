@@ -109,7 +109,7 @@ export default memo(function VirtualGalleryGrid({
     [cart]
   );
 
-  const rowCount = Math.ceil(tokens.length / columns);
+  const rowCount = columns > 0 ? Math.ceil(tokens.length / columns) : 0;
 
   // Restore scroll position when tokens change (filter/sort)
   const tokensKey = tokens.length + "-" + (tokens[0]?.id ?? "");

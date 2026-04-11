@@ -156,7 +156,10 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
   }, [selectedNfts, pricingMode, multiplier, ladderStart, ladderEnd, floorPrice]);
 
   const getPrice = useCallback((id) => {
-    if (priceOverrides[id] !== undefined && priceOverrides[id] !== "") return parseFloat(priceOverrides[id]) || 0;
+    if (priceOverrides[id] !== undefined && priceOverrides[id] !== "") {
+      const parsed = parseFloat(priceOverrides[id]);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    }
     return autoPrices[id] || 0;
   }, [priceOverrides, autoPrices]);
 
@@ -510,7 +513,10 @@ export default function BulkListingWizard({ tokens, wallet, onClose, onListingCr
   }, [selectedNfts, pricingMode, multiplier, ladderStart, ladderEnd, floorPrice]);
 
   const getPrice = useCallback((id) => {
-    if (priceOverrides[id] !== undefined && priceOverrides[id] !== "") return parseFloat(priceOverrides[id]) || 0;
+    if (priceOverrides[id] !== undefined && priceOverrides[id] !== "") {
+      const parsed = parseFloat(priceOverrides[id]);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    }
     return autoPrices[id] || 0;
   }, [priceOverrides, autoPrices]);
 

@@ -245,7 +245,7 @@ export default function ShoppingCart({
         onRemove(item.id);
         continue;
       }
-      if (Math.abs(currentListing.price - item.price) > 1e-6) {
+      if (currentListing.price == null || item.price == null || Math.abs(currentListing.price - item.price) > 1e-6) {
         addToast?.(`${item.name} price changed (${item.price} → ${currentListing.price} ETH) — skipping`, "warning");
         onRemove(item.id);
         continue;

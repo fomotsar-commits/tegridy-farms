@@ -180,7 +180,9 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
       // Save daily snapshot
       if (result.currentValue > 0) {
         saveSnapshot(result.currentValue, wallet, collection.contract);
-        setSnapshots(loadSnapshots(wallet, collection.contract));
+        if (gen === genRef.current) {
+          setSnapshots(loadSnapshots(wallet, collection.contract));
+        }
       }
     } catch (err) {
       if (gen !== genRef.current) return;

@@ -251,7 +251,7 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
     const remaining = filteredListings.slice(effectiveCount);
     const newFloor = remaining.length > 0 ? Number(remaining[0].price) : null;
     if (!newFloor) return null;
-    const pctChange = ((newFloor - currentFloor) / currentFloor) * 100;
+    const pctChange = currentFloor > 0 ? ((newFloor - currentFloor) / currentFloor) * 100 : 0;
     return { currentFloor, newFloor, pctChange };
   }, [hasListings, filteredListings, effectiveCount]);
 
