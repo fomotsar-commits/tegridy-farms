@@ -749,10 +749,11 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     function claimUnsettled() external nonReentrant whenNotPaused {
         uint256 amount = unsettledRewards[msg.sender];
         if (amount == 0) revert ZeroAmount();
-        // Cap to available reward pool (unsettled rewards are already reserved via totalUnsettledRewards,
-        // so we use totalStaked as the other reservations)
+        // Cap to available reward pool: reserve totalStaked + other users' unsettled rewards
+        // (this user's unsettled amount is being claimed, so exclude it from reserved)
         uint256 available = rewardToken.balanceOf(address(this));
-        uint256 otherReserved = totalStaked;
+        uint256 otherUnsettled = totalUnsettledRewards > amount ? totalUnsettledRewards - amount : 0;
+        uint256 otherReserved = totalStaked + otherUnsettled;
         uint256 rewardPool = available > otherReserved ? available - otherReserved : 0;
         uint256 payout = amount > rewardPool ? rewardPool : amount;
         // AUDIT FIX v2: Only deduct what's actually paid; remainder stays claimable
@@ -774,8 +775,10 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         if (msg.sender != _user && msg.sender != restakingContract && msg.sender != owner()) revert Unauthorized();
         uint256 amount = unsettledRewards[_user];
         if (amount == 0) revert ZeroAmount();
+        // Cap to available reward pool: reserve totalStaked + other users' unsettled rewards
         uint256 available = rewardToken.balanceOf(address(this));
-        uint256 otherReserved = totalStaked;
+        uint256 otherUnsettled = totalUnsettledRewards > amount ? totalUnsettledRewards - amount : 0;
+        uint256 otherReserved = totalStaked + otherUnsettled;
         uint256 rewardPool = available > otherReserved ? available - otherReserved : 0;
         uint256 payout = amount > rewardPool ? rewardPool : amount;
         unsettledRewards[_user] = amount - payout;

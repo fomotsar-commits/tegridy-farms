@@ -444,10 +444,10 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
   return null;
 }
 
-function Projections({ staked, apr, price }: {
+function Projections({ staked, apr, price, boost = 1 }: {
   staked: number; apr: number; price: number; boost?: number;
 }) {
-  const daily = (staked * apr / 100) / 365;
+  const daily = (staked * apr / 100) / 365 * boost;
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       {[{ l: '7 Days', m: 7 }, { l: '30 Days', m: 30 }, { l: '90 Days', m: 90 }, { l: '1 Year', m: 365 }].map(({ l, m }) => (

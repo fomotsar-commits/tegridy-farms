@@ -45,7 +45,7 @@ async function getSwapApiQuote(
     const res = await fetch(`https://api.swapapi.dev/v1/swap/${CHAIN_ID}?${params}`);
     if (!res.ok) return null;
     const data = await res.json();
-    if (!data || typeof data.amountOut !== 'string' || !/^\d+$/.test(data.amountOut) ||
+    if (!data || typeof data.amountOut !== 'string' || !/^\d+$/.test(data.amountOut) || data.amountOut === '0' ||
         typeof data.priceImpact !== 'number' || !Number.isFinite(data.priceImpact)) {
       return null;
     }
