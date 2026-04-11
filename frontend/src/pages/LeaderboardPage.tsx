@@ -83,7 +83,7 @@ export default function LeaderboardPage() {
                 </div>
                 <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(139,92,246,0.08)' }}>
                   <div className="h-full rounded-full bg-primary transition-all" style={{
-                    width: `${Math.min(100, (points.data.points / points.nextTier.min) * 100)}%`,
+                    width: `${Math.min(100, points.nextTier.min > 0 ? (points.data.points / points.nextTier.min) * 100 : 0)}%`,
                   }} />
                 </div>
               </div>
@@ -180,7 +180,7 @@ export default function LeaderboardPage() {
             <h3 className="text-white text-[15px] font-semibold mb-3">All Badges</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               {BADGES.map(b => {
-                const earned = points.badges.some(eb => eb.id === b.id);
+                const earned = (points.badges || []).some(eb => eb.id === b.id);
                 return (
                   <div key={b.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg ${earned ? '' : 'opacity-30'}`}
                     style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.08)' }}>

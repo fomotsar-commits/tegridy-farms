@@ -279,7 +279,8 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (totalVotingPower == 0) revert QuorumNotMet();
         // AUDIT FIX M-13: Require minimum absolute voting power in addition to percentage
         if (totalVotes < MIN_ABSOLUTE_QUORUM) revert QuorumNotMet();
-        if ((totalVotes * 10000) / totalVotingPower < MIN_QUORUM_BPS) {
+        // Use multiplication instead of division to avoid rounding down rejecting valid quorums
+        if (totalVotes * 10000 < MIN_QUORUM_BPS * totalVotingPower) {
             revert QuorumNotMet();
         }
         // SECURITY FIX H-6: Require minimum unique voters to prevent whale governance capture.
@@ -292,6 +293,8 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             proposal.status = ProposalStatus.Approved;
             // AUDIT FIX H-02: Track approved ETH to prevent serial drain
             totalApprovedPending += proposal.amount;
+            // Deposit is no longer refundable once approved — will be handled at execution/lapse
+            totalRefundableDeposits -= refundable;
         } else {
             totalRefundableDeposits -= refundable;
             proposal.status = ProposalStatus.Rejected;

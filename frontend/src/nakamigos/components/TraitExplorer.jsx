@@ -411,7 +411,7 @@ export default function TraitExplorer({ tokens, onPick, wallet, onConnect, addTo
           count,
           pct: parseFloat((count / totalSupply * 100).toFixed(1)),
         }))
-        .sort((a, b) => a.count - b.count),
+        .sort((a, b) => b.count - a.count),
       totalValues: Object.keys(values).length,
     }));
   }, [tokens, totalSupply]);
