@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { OPENSEA_ITEM } from "../constants";
 import { fulfillSeaportOrder } from "../api";
+import { fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
@@ -563,6 +564,8 @@ export default function Deals({
         protocolAddress: listing?.protocolAddress || null,
         createdAt: listing?.createdAt || null,
         expiry: listing?.expiry || null,
+        isNative: listing?.isNative || false,
+        nativeOrder: listing?.nativeOrder || null,
       };
 
       allListed.push(enriched);
@@ -635,7 +638,9 @@ export default function Deals({
     }
     setBuying(nft.id);
     try {
-      const result = await fulfillSeaportOrder(nft);
+      const result = nft.isNative && nft.nativeOrder
+        ? await fulfillNativeOrder(nft.nativeOrder)
+        : await fulfillSeaportOrder(nft);
       if (result.success) {
         addToast(`Purchased #${nft.id} for ${nft.price.toFixed(4)} ETH`, "success");
         recordTransaction({

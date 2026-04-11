@@ -1,15 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
-import { getProvider } from "../api";
 import {
-  SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES,
-  CONDUIT_KEY, CONDUIT_ADDRESS,
-  OPENSEA_FEE_RECIPIENT, OPENSEA_FEE_BPS,
   PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS,
 } from "../constants";
 import { useActiveCollection } from "../contexts/CollectionContext";
-import { openseaPost } from "../lib/proxy";
 import { createNativeListing } from "../lib/orderbook";
 import { formatPrice } from "../lib/formatPrice";
 
@@ -28,17 +23,11 @@ const PRICING_MODES = [
   { value: "ladder", label: "Ladder", desc: "Distribute prices by rarity" },
 ];
 
-const MARKETPLACE_OPTIONS = [
-  { value: "opensea", label: "OpenSea (Seaport)", feeLabel: `${OPENSEA_FEE_BPS / 100}% + ${PLATFORM_FEE_BPS / 100}%` },
-  { value: "native", label: "Native Orderbook", feeLabel: `${PLATFORM_FEE_BPS / 100}% only` },
-];
-
 const HAS_PLATFORM_FEE = PLATFORM_FEE_BPS > 0 && PLATFORM_FEE_RECIPIENT !== "0x0000000000000000000000000000000000000000";
 
-function computeFees(priceEth, marketplace) {
-  const osFee = marketplace === "opensea" ? Math.round(priceEth * OPENSEA_FEE_BPS) / 10000 : 0;
+function computeFees(priceEth) {
   const platformFee = HAS_PLATFORM_FEE ? (priceEth * PLATFORM_FEE_BPS) / 10000 : 0;
-  return { osFee, platformFee, total: osFee + platformFee, revenue: priceEth - osFee - platformFee };
+  return { osFee: 0, platformFee, total: platformFee, revenue: priceEth - platformFee };
 }
 
 // ═══ STEP COMPONENTS ═══
@@ -131,7 +120,7 @@ function StepSelect({ tokens, selected, setSelected, listingMap, isSubmitting })
   );
 }
 
-function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, setMultiplier, ladderStart, setLadderStart, ladderEnd, setLadderEnd, priceOverrides, setPriceOverrides, floorPrice, marketplace }) {
+function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, setMultiplier, ladderStart, setLadderStart, ladderEnd, setLadderEnd, priceOverrides, setPriceOverrides, floorPrice, duration, setDuration }) {
   // Compute auto-prices per NFT based on mode
   const autoPrices = useMemo(() => {
     const floor = floorPrice || 0;
@@ -174,11 +163,11 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
     let sum = 0;
     for (const nft of selectedNfts) {
       const p = getPrice(nft.id);
-      const { revenue } = computeFees(p, marketplace);
+      const { revenue } = computeFees(p);
       sum += revenue;
     }
     return sum;
-  }, [selectedNfts, getPrice, marketplace]);
+  }, [selectedNfts, getPrice]);
 
   return (
     <>
@@ -289,7 +278,7 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
           <tbody>
             {selectedNfts.map((nft) => {
               const p = getPrice(nft.id);
-              const { revenue } = computeFees(p, marketplace);
+              const { revenue } = computeFees(p);
               const hasOverride = priceOverrides[nft.id] !== undefined && priceOverrides[nft.id] !== "";
               return (
                 <tr key={nft.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
@@ -325,26 +314,8 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
         </table>
       </div>
 
-      {/* Total revenue */}
-      <div style={{
-        display: "flex", justifyContent: "space-between", alignItems: "center",
-        marginTop: 12, padding: "10px 12px", borderRadius: 8,
-        background: "rgba(46,204,113,0.06)", border: "1px solid rgba(46,204,113,0.15)",
-      }}>
-        <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>TOTAL EST. REVENUE</span>
-        <span style={{ fontFamily: "var(--mono)", fontSize: 14, color: "var(--green)", fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
-          <Eth size={12} /> {formatPrice(totalRevenue)}
-        </span>
-      </div>
-    </>
-  );
-}
-
-function StepOptions({ duration, setDuration, marketplace, setMarketplace }) {
-  return (
-    <>
-      {/* Duration */}
-      <div style={{ marginBottom: 20 }}>
+      {/* Listing duration */}
+      <div style={{ marginTop: 16 }}>
         <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.06em", marginBottom: 8 }}>
           LISTING DURATION
         </div>
@@ -367,63 +338,31 @@ function StepOptions({ duration, setDuration, marketplace, setMarketplace }) {
         </div>
       </div>
 
-      {/* Marketplace */}
-      <div>
-        <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.06em", marginBottom: 8 }}>
-          MARKETPLACE
-        </div>
-        <div style={{ display: "flex", gap: 10, flexDirection: "column" }}>
-          {MARKETPLACE_OPTIONS.map((m) => (
-            <button
-              key={m.value}
-              onClick={() => setMarketplace(m.value)}
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "14px 16px", borderRadius: 10, cursor: "pointer", textAlign: "left", minHeight: 44,
-                border: marketplace === m.value ? "1px solid var(--naka-blue)" : "1px solid var(--border)",
-                background: marketplace === m.value ? "rgba(111,168,220,0.08)" : "rgba(0,0,0,0.2)",
-                color: marketplace === m.value ? "var(--text)" : "var(--text-dim)",
-              }}
-            >
-              <div>
-                <div style={{ fontFamily: "var(--mono)", fontSize: 12, fontWeight: 600 }}>{m.label}</div>
-                <div style={{ fontFamily: "var(--mono)", fontSize: 9, marginTop: 2, opacity: 0.7 }}>Fees: {m.feeLabel}</div>
-              </div>
-              <div style={{
-                width: 20, height: 20, borderRadius: "50%",
-                border: marketplace === m.value ? "2px solid var(--naka-blue)" : "2px solid var(--border)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-                {marketplace === m.value && (
-                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: "var(--naka-blue)" }} />
-                )}
-              </div>
-            </button>
-          ))}
-        </div>
-        {marketplace === "native" && (
-          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--gold)", marginTop: 8, lineHeight: 1.5 }}>
-            Native orderbook saves {OPENSEA_FEE_BPS / 100}% per listing vs OpenSea. Orders are Seaport-compatible and can be filled on-chain.
-          </div>
-        )}
+      {/* Total revenue */}
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        marginTop: 12, padding: "10px 12px", borderRadius: 8,
+        background: "rgba(46,204,113,0.06)", border: "1px solid rgba(46,204,113,0.15)",
+      }}>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>TOTAL EST. REVENUE</span>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 14, color: "var(--green)", fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+          <Eth size={12} /> {formatPrice(totalRevenue)}
+        </span>
       </div>
     </>
   );
 }
 
-function StepReview({ selectedNfts, getPrice, duration, marketplace, collection }) {
+function StepReview({ selectedNfts, getPrice, duration, collection }) {
   const durationLabel = DURATION_OPTIONS.find((d) => d.hours === duration)?.label || `${duration}h`;
-  const marketplaceLabel = marketplace === "opensea" ? "OpenSea (Seaport)" : "Native Orderbook";
 
   let totalPrice = 0;
-  let totalOsFee = 0;
   let totalPlatformFee = 0;
   let totalRevenue = 0;
   for (const nft of selectedNfts) {
     const p = getPrice(nft.id);
-    const fees = computeFees(p, marketplace);
+    const fees = computeFees(p);
     totalPrice += p;
-    totalOsFee += fees.osFee;
     totalPlatformFee += fees.platformFee;
     totalRevenue += fees.revenue;
   }
@@ -446,7 +385,7 @@ function StepReview({ selectedNfts, getPrice, duration, marketplace, collection 
           <tbody>
             {selectedNfts.map((nft) => {
               const p = getPrice(nft.id);
-              const { revenue } = computeFees(p, marketplace);
+              const { revenue } = computeFees(p);
               return (
                 <tr key={nft.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
                   <td style={{ padding: "6px 10px", display: "flex", alignItems: "center", gap: 8 }}>
@@ -470,7 +409,7 @@ function StepReview({ selectedNfts, getPrice, duration, marketplace, collection 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
         <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: 8, padding: "10px 12px", border: "1px solid var(--border)" }}>
           <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)" }}>MARKETPLACE</div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)", marginTop: 4 }}>{marketplaceLabel}</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)", marginTop: 4 }}>Native Orderbook</div>
         </div>
         <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: 8, padding: "10px 12px", border: "1px solid var(--border)" }}>
           <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)" }}>DURATION</div>
@@ -487,12 +426,6 @@ function StepReview({ selectedNfts, getPrice, duration, marketplace, collection 
           <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>Total list price</span>
           <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text)" }}>{formatPrice(totalPrice)} ETH</span>
         </div>
-        {marketplace === "opensea" && (
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>OpenSea fee ({OPENSEA_FEE_BPS / 100}%)</span>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>-{formatPrice(totalOsFee)} ETH</span>
-          </div>
-        )}
         {HAS_PLATFORM_FEE && (
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
             <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>Platform fee ({PLATFORM_FEE_BPS / 100}%)</span>
@@ -510,8 +443,8 @@ function StepReview({ selectedNfts, getPrice, duration, marketplace, collection 
 
 // ═══ MAIN WIZARD ═══
 
-const STEPS = ["select", "pricing", "options", "review"];
-const STEP_LABELS = ["Select NFTs", "Set Prices", "Options", "Review & List"];
+const STEPS = ["select", "pricing", "review"];
+const STEP_LABELS = ["Select NFTs", "Set Prices & Duration", "Review & List"];
 
 export default function BulkListingWizard({ tokens, wallet, onClose, addToast, onConnect, stats, listingMap }) {
   const collection = useActiveCollection();
@@ -530,7 +463,6 @@ export default function BulkListingWizard({ tokens, wallet, onClose, addToast, o
 
   // Options state
   const [duration, setDuration] = useState(168);
-  const [marketplace, setMarketplace] = useState("opensea");
 
   // Submission state
   const [submitting, setSubmitting] = useState(false);
@@ -609,7 +541,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, addToast, o
     return true;
   }, [step, selected.size, selectedNfts, getPrice]);
 
-  // ═══ SUBMIT — List All ═══
+  // ═══ SUBMIT — List All (native orderbook only) ═══
   const handleListAll = useCallback(async () => {
     if (!wallet) { onConnect?.(); return; }
     if (selectedNfts.length === 0) return;
@@ -618,189 +550,51 @@ export default function BulkListingWizard({ tokens, wallet, onClose, addToast, o
     setSubmitProgress(0);
 
     try {
-      if (marketplace === "opensea") {
-        // OpenSea: individual Seaport listings signed + posted one by one
-        const { ethers } = await import("ethers");
-        const provider = getProvider();
-        if (!provider) { addToast?.("Wallet not found", "error"); setSubmitting(false); return; }
+      let successCount = 0;
+      let failCount = 0;
 
-        const browserProvider = new ethers.BrowserProvider(provider);
-        const signer = await browserProvider.getSigner();
-        const sellerAddress = await signer.getAddress();
+      for (let i = 0; i < selectedNfts.length; i++) {
+        const nft = selectedNfts[i];
+        const priceEth = getPrice(nft.id);
+        if (priceEth <= 0) { failCount++; continue; }
 
-        // Check NFT approval for conduit
-        setSubmitLabel("Checking approval...");
-        const nftContract = new ethers.Contract(collection.contract, [
-          "function isApprovedForAll(address,address) view returns (bool)",
-          "function setApprovalForAll(address,bool)",
-        ], signer);
-        const isApproved = await nftContract.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
-        if (!isApproved) {
-          setSubmitLabel("Approving NFTs for Seaport...");
-          const approveTx = await nftContract.setApprovalForAll(CONDUIT_ADDRESS, true);
-          await approveTx.wait();
-        }
+        setSubmitLabel(`Listing ${i + 1}/${selectedNfts.length} (#${nft.id}) on native orderbook...`);
+        setSubmitProgress(((i + 0.5) / selectedNfts.length) * 100);
 
-        // Set up Seaport contract for counter fetches
-        const seaportABI = ["function getCounter(address) view returns (uint256)"];
-        const seaport = new ethers.Contract(SEAPORT_ADDRESS, seaportABI, browserProvider);
+        try {
+          const result = await createNativeListing({
+            contract: collection.contract,
+            tokenId: nft.id,
+            priceEth,
+            expirationHours: duration,
+          });
 
-        let successCount = 0;
-        let failCount = 0;
-
-        for (let i = 0; i < selectedNfts.length; i++) {
-          const nft = selectedNfts[i];
-          const priceEth = getPrice(nft.id);
-          if (priceEth <= 0) { failCount++; continue; }
-
-          setSubmitLabel(`Signing listing ${i + 1}/${selectedNfts.length} (#${nft.id})...`);
-          setSubmitProgress(((i + 0.3) / selectedNfts.length) * 100);
-
-          try {
-            // Fetch fresh counter for each listing to avoid stale counter errors
-            const counter = await seaport.getCounter(sellerAddress);
-            const priceWei = ethers.parseEther(String(priceEth));
-            const now = Math.floor(Date.now() / 1000);
-            const endTime = now + duration * 3600;
-
-            const osFee = (priceWei * BigInt(OPENSEA_FEE_BPS)) / 10000n;
-            const platFee = (priceWei * BigInt(PLATFORM_FEE_BPS)) / 10000n;
-            const sellerAmount = priceWei - osFee - (HAS_PLATFORM_FEE ? platFee : 0n);
-
-            const consideration = [
-              {
-                itemType: 0,
-                token: "0x0000000000000000000000000000000000000000",
-                identifierOrCriteria: "0",
-                startAmount: sellerAmount.toString(),
-                endAmount: sellerAmount.toString(),
-                recipient: sellerAddress,
-              },
-              {
-                itemType: 0,
-                token: "0x0000000000000000000000000000000000000000",
-                identifierOrCriteria: "0",
-                startAmount: osFee.toString(),
-                endAmount: osFee.toString(),
-                recipient: OPENSEA_FEE_RECIPIENT,
-              },
-            ];
-
-            if (HAS_PLATFORM_FEE) {
-              consideration.push({
-                itemType: 0,
-                token: "0x0000000000000000000000000000000000000000",
-                identifierOrCriteria: "0",
-                startAmount: platFee.toString(),
-                endAmount: platFee.toString(),
-                recipient: PLATFORM_FEE_RECIPIENT,
-              });
-            }
-
-            const orderParameters = {
-              offerer: sellerAddress,
-              zone: "0x0000000000000000000000000000000000000000",
-              offer: [{
-                itemType: 2,
-                token: collection.contract,
-                identifierOrCriteria: String(nft.id),
-                startAmount: "1",
-                endAmount: "1",
-              }],
-              consideration,
-              orderType: 2, // FULL_OPEN_VIA_CONDUIT — required when using conduitKey
-              startTime: String(now),
-              endTime: String(endTime),
-              zoneHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
-              salt: ethers.hexlify(ethers.randomBytes(32)),
-              conduitKey: CONDUIT_KEY,
-              totalOriginalConsiderationItems: consideration.length,
-            };
-
-            const signData = { ...orderParameters, counter: counter.toString() };
-            const signature = await signer.signTypedData(SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, signData);
-
-            setSubmitLabel(`Posting listing ${i + 1}/${selectedNfts.length} (#${nft.id})...`);
-            setSubmitProgress(((i + 0.7) / selectedNfts.length) * 100);
-
-            await openseaPost("orders/ethereum/seaport/listings", {
-              parameters: { ...orderParameters, counter: counter.toString(), totalOriginalConsiderationItems: orderParameters.consideration.length },
-              signature,
-              protocol_address: SEAPORT_ADDRESS,
-            });
-
+          if (result.success) {
             successCount++;
-          } catch (err) {
-            if (err.code === 4001 || err.code === "ACTION_REJECTED") {
-              addToast?.(`Listing for #${nft.id} cancelled by user`, "info");
-              failCount++;
-              // Stop on user rejection
-              break;
-            }
-            console.error(`Listing #${nft.id} failed:`, err);
-            addToast?.(`Failed to list #${nft.id}: ${err.shortMessage || err.message}`, "error");
+          } else if (result.error === "rejected") {
+            addToast?.(`Listing for #${nft.id} cancelled by user`, "info");
+            failCount++;
+            break;
+          } else {
+            addToast?.(`Failed to list #${nft.id}: ${result.message}`, "error");
             failCount++;
           }
-
-          setSubmitProgress(((i + 1) / selectedNfts.length) * 100);
+        } catch (itemErr) {
+          console.error(`Native listing error for #${nft.id}:`, itemErr);
+          addToast?.(`Error listing #${nft.id}: ${itemErr.message || "Unknown error"}`, "error");
+          failCount++;
         }
 
-        if (successCount > 0) {
-          addToast?.(`${successCount} NFT${successCount > 1 ? "s" : ""} listed on OpenSea!${failCount > 0 ? ` (${failCount} failed)` : ""}`, "success");
-          setSubmitting(false);
-          setDone(true);
-        } else {
-          addToast?.("No listings were created.", "error");
-          setSubmitting(false);
-        }
+        setSubmitProgress(((i + 1) / selectedNfts.length) * 100);
+      }
+
+      if (successCount > 0) {
+        addToast?.(`${successCount} NFT${successCount > 1 ? "s" : ""} listed on native orderbook!${failCount > 0 ? ` (${failCount} failed)` : ""}`, "success");
+        setSubmitting(false);
+        setDone(true);
       } else {
-        // Native orderbook: loop through createNativeListing
-        let successCount = 0;
-        let failCount = 0;
-
-        for (let i = 0; i < selectedNfts.length; i++) {
-          const nft = selectedNfts[i];
-          const priceEth = getPrice(nft.id);
-          if (priceEth <= 0) { failCount++; continue; }
-
-          setSubmitLabel(`Listing ${i + 1}/${selectedNfts.length} (#${nft.id}) on native orderbook...`);
-          setSubmitProgress(((i + 0.5) / selectedNfts.length) * 100);
-
-          try {
-            const result = await createNativeListing({
-              contract: collection.contract,
-              tokenId: nft.id,
-              priceEth,
-              expirationHours: duration,
-            });
-
-            if (result.success) {
-              successCount++;
-            } else if (result.error === "rejected") {
-              addToast?.(`Listing for #${nft.id} cancelled by user`, "info");
-              failCount++;
-              break;
-            } else {
-              addToast?.(`Failed to list #${nft.id}: ${result.message}`, "error");
-              failCount++;
-            }
-          } catch (itemErr) {
-            console.error(`Native listing error for #${nft.id}:`, itemErr);
-            addToast?.(`Error listing #${nft.id}: ${itemErr.message || "Unknown error"}`, "error");
-            failCount++;
-          }
-
-          setSubmitProgress(((i + 1) / selectedNfts.length) * 100);
-        }
-
-        if (successCount > 0) {
-          addToast?.(`${successCount} NFT${successCount > 1 ? "s" : ""} listed on native orderbook!${failCount > 0 ? ` (${failCount} failed)` : ""}`, "success");
-          setSubmitting(false);
-          setDone(true);
-        } else {
-          addToast?.("No listings were created.", "error");
-          setSubmitting(false);
-        }
+        addToast?.("No listings were created.", "error");
+        setSubmitting(false);
       }
     } catch (err) {
       if (err.message?.includes('approval')) {
@@ -814,7 +608,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, addToast, o
       setSubmitLabel("");
       setSubmitting(false);
     }
-  }, [wallet, onConnect, selectedNfts, getPrice, duration, marketplace, collection, addToast]);
+  }, [wallet, onConnect, selectedNfts, getPrice, duration, collection, addToast]);
 
   // ═══ RENDER ═══
 
@@ -967,23 +761,15 @@ export default function BulkListingWizard({ tokens, wallet, onClose, addToast, o
                 priceOverrides={priceOverrides}
                 setPriceOverrides={setPriceOverrides}
                 floorPrice={floorPrice}
-                marketplace={marketplace}
+                duration={duration}
+                setDuration={setDuration}
               />
             )}
             {step === 2 && (
-              <StepOptions
-                duration={duration}
-                setDuration={setDuration}
-                marketplace={marketplace}
-                setMarketplace={setMarketplace}
-              />
-            )}
-            {step === 3 && (
               <StepReview
                 selectedNfts={selectedNfts}
                 getPrice={getPrice}
                 duration={duration}
-                marketplace={marketplace}
                 collection={collection}
               />
             )}
@@ -1003,7 +789,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, addToast, o
                   Back
                 </button>
               )}
-              {step < 3 ? (
+              {step < 2 ? (
                 <button
                   className="btn-primary"
                   type="button"

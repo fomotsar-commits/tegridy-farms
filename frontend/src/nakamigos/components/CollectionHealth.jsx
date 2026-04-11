@@ -136,7 +136,7 @@ export default function CollectionHealth({ stats, activities }) {
 
     Promise.all([
       fetchTopHolders({ contract: collection.contract, limit: 100 }).catch(() => ({ holders: [], totalOwners: 0, totalHeld: 0 })),
-      fetchListings(collection.slug, { openseaSlug: collection.openseaSlug }).catch(() => ({ listings: [] })),
+      fetchListings(collection.slug, { openseaSlug: collection.openseaSlug, contract: collection.contract }).catch(() => ({ listings: [] })),
     ]).then(([holderData, listingData]) => {
       setHolders(holderData.holders || []);
       setTotalOwners(holderData.totalOwners || 0);

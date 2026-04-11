@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 import { getProvider } from "../api";
-import { fetchMyListings, cancelOrder } from "../api-offers";
 import { SEAPORT_ADDRESS } from "../constants";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import EmptyState from "./EmptyState";
@@ -239,14 +238,42 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
     return tokenMap.get(String(tokenId)) || null;
   }, [tokenMap]);
 
-  // ═══ FETCH LISTINGS ═══
+  // ═══ FETCH LISTINGS (native orderbook) ═══
   const fetchListings = useCallback(async () => {
     if (!wallet) return;
     setLoading(true);
     setFetchError(null);
     try {
-      const data = await fetchMyListings(wallet, collection.contract);
-      setListings(data);
+      const params = new URLSearchParams({
+        action: "query",
+        contract: collection.contract,
+        maker: wallet,
+        status: "active",
+        limit: "200",
+        sort: "created_at",
+      });
+      const res = await fetch(`/api/orderbook?${params}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to fetch listings");
+      }
+      const data = await res.json();
+      // Normalize native orderbook orders to the shape the UI expects
+      const normalized = (data.orders || []).map((o) => {
+        const endSec = o.end_time ? Math.floor(new Date(o.end_time).getTime() / 1000) : null;
+        return {
+          orderHash: o.order_hash,
+          tokenId: o.token_id,
+          price: o.price_eth || 0,
+          expiry: endSec ? new Date(endSec * 1000) : null,
+          protocolAddress: o.protocol_address || SEAPORT_ADDRESS,
+          source: "native",
+          // Keep the raw parameters + signature for on-chain cancel
+          rawParameters: o.parameters,
+          rawSignature: o.signature,
+        };
+      });
+      setListings(normalized);
     } catch (err) {
       console.warn("Fetch my listings failed:", err.message);
       setFetchError("Failed to load listings. Check your connection.");
@@ -277,25 +304,65 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
     return () => clearInterval(intervalRef.current);
   }, [wallet, fetchListings]);
 
-  // ═══ CANCEL SINGLE LISTING ═══
+  // ═══ CANCEL SINGLE LISTING (native orderbook) ═══
+  // Two-step: 1) Cancel on-chain via Seaport, 2) Update backend status
   const handleCancel = useCallback(async (listing) => {
+    const provider = getProvider();
+    if (!provider) {
+      addToast?.("Wallet not connected", "error");
+      return;
+    }
+
     setCancelling(listing.orderHash);
     addToast?.("Cancelling listing...", "info");
 
     try {
-      const result = await cancelOrder(listing);
+      const { ethers } = await import("ethers");
+      const browserProvider = new ethers.BrowserProvider(provider);
+      const signer = await browserProvider.getSigner();
 
-      if (result.success) {
-        addToast?.("Listing cancelled successfully!", "success");
-        setListings((prev) => prev.filter((l) => l.orderHash !== listing.orderHash));
-      } else if (result.error === "rejected") {
+      // Step 1: Cancel on-chain via Seaport contract (invalidates the signed order)
+      if (listing.rawParameters) {
+        const seaportABI = [
+          "function cancel(tuple(address offerer, address zone, tuple(uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount)[] offer, tuple(uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount, address recipient)[] consideration, uint8 orderType, uint256 startTime, uint256 endTime, bytes32 zoneHash, uint256 salt, bytes32 conduitKey, uint256 totalOriginalConsiderationItems)[] orders) returns (bool)",
+        ];
+        const seaport = new ethers.Contract(SEAPORT_ADDRESS, seaportABI, signer);
+        const tx = await seaport.cancel([listing.rawParameters]);
+        await tx.wait();
+      }
+
+      // Step 2: Update native orderbook backend status
+      const cancelMessage = `Cancel order ${listing.orderHash}`;
+      const cancelSignature = await signer.signMessage(cancelMessage);
+
+      try {
+        const res = await fetch("/api/orderbook", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "cancel",
+            orderHash: listing.orderHash,
+            signature: cancelSignature,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          console.warn("Backend cancel failed (on-chain cancel succeeded):", err.error);
+        }
+      } catch (backendErr) {
+        // Non-critical: on-chain cancel already succeeded
+        console.warn("Backend cancel request failed:", backendErr.message);
+      }
+
+      addToast?.("Listing cancelled successfully!", "success");
+      setListings((prev) => prev.filter((l) => l.orderHash !== listing.orderHash));
+    } catch (err) {
+      if (err.code === 4001 || err.code === "ACTION_REJECTED") {
         addToast?.("Cancellation was declined in your wallet.", "info");
       } else {
+        console.error("Cancel listing error:", err);
         addToast?.("Failed to cancel listing. Please try again.", "error");
       }
-    } catch (err) {
-      console.error("Cancel listing error:", err);
-      addToast?.("Failed to cancel listing. Please try again.", "error");
     } finally {
       setCancelling(null);
     }
@@ -440,7 +507,7 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
                 <div style={styles.cardName}>{name}</div>
                 <div style={styles.cardMeta}>
                   <span>{timeLeft(listing.expiry)}</span>
-                  <span>OpenSea</span>
+                  <span>Native</span>
                   {distFromFloor !== null && (
                     <span>{distFromFloor > 0 ? `+${distFromFloor}%` : `${distFromFloor}%`} from floor</span>
                   )}

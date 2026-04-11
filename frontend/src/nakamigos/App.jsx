@@ -336,6 +336,8 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
           orderHash: nft.orderHash || listing.orderHash || null,
           orderData: nft.orderData || listing.orderData || null,
           protocolAddress: nft.protocolAddress || listing.protocolAddress || null,
+          isNative: nft.isNative || listing.isNative || false,
+          nativeOrder: nft.nativeOrder || listing.nativeOrder || null,
         }
       : nft;
     ctxAddToCart(enriched);
@@ -496,7 +498,13 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
       const updated = prev.map(item => {
         const currentListing = listings.find(l => String(l.tokenId) === String(item.id));
         if (!currentListing) return item;
-        return { ...item, price: currentListing.price, orderHash: currentListing.orderHash || item.orderHash };
+        return {
+          ...item,
+          price: currentListing.price,
+          orderHash: currentListing.orderHash || item.orderHash,
+          isNative: currentListing.isNative || false,
+          nativeOrder: currentListing.nativeOrder || item.nativeOrder || null,
+        };
       });
       saveCart(updated);
       return updated;

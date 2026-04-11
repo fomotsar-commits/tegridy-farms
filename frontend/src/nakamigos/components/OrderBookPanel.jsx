@@ -6,12 +6,12 @@ import { PLATFORM_FEE_BPS } from "../constants";
 
 // ═══ ORDER BOOK PANEL ═══
 // Two sections:
-//   1. Native Listings Table — browse & buy from our 0.5% fee orderbook
+//   1. Native Listings Table — browse & buy from our 1% fee orderbook
 //   2. Depth Chart — bid/ask spread visualization (existing)
 
 // OpenSea total fee = OS fee + creator royalty. We compare platform fee only.
 const OPENSEA_FEE_PCT = 1.5; // OS 1% + ~0.5% avg creator royalty
-const NATIVE_FEE_PCT = PLATFORM_FEE_BPS / 100; // 0.5%
+const NATIVE_FEE_PCT = PLATFORM_FEE_BPS / 100; // 1%
 
 function formatAddress(addr) {
   if (!addr) return "";

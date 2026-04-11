@@ -125,9 +125,9 @@ export const OPENSEA_FEE_RECIPIENT = "0x0000a26b00c1F0DF003000390027140000fAa719
 // 1% — OpenSea fee since Sep 2025. May vary per collection. Consider fetching from OpenSea API.
 export const OPENSEA_FEE_BPS = 100;
 
-// Platform fee — 0.5% on all trades
+// Platform fee — 1% on all trades
 export const PLATFORM_FEE_RECIPIENT = "0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e";
-export const PLATFORM_FEE_BPS = 50; // 0.5%
+export const PLATFORM_FEE_BPS = 100; // 1%
 
 export const OPENSEA_ITEM = (id, contract = CONTRACT) => `https://opensea.io/item/ethereum/${contract}/${id}`;
 export const ETHERSCAN_TOKEN = (id, contract = CONTRACT) => `https://etherscan.io/nft/${contract}/${id}`;

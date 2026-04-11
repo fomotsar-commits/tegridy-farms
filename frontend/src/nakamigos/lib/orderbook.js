@@ -1,6 +1,6 @@
 /**
  * Native Orderbook Client SDK — interact with our own order storage.
- * Creates Seaport-compatible signed orders at 0.5% fee (vs OpenSea's 2.5%).
+ * Creates Seaport-compatible signed orders at 1% fee (vs OpenSea's 2.5%).
  * Pattern from Blur's native orderbook and Reservoir's open protocol.
  *
  * Orders are standard Seaport v1.5 orders that can be fulfilled by
@@ -165,7 +165,7 @@ export async function fulfillNativeOrder(order) {
 }
 
 // ═══ CREATE NATIVE LISTING ═══
-// List an NFT on our orderbook at 0.5% fee (vs OpenSea 2.5%)
+// List an NFT on our orderbook at 1% fee (vs OpenSea 2.5%)
 
 export async function createNativeListing({ contract, tokenId, priceEth, expirationHours = 168 }) {
   const ethProvider = getProvider();
@@ -193,7 +193,7 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
     const now = Math.floor(Date.now() / 1000);
     const endTime = now + expirationHours * 3600;
 
-    // Platform fee: 0.5% of price
+    // Platform fee: 1% of price
     const platformFee = (priceWei * BigInt(PLATFORM_FEE_BPS)) / 10000n;
     const sellerReceives = priceWei - platformFee;
 

@@ -143,13 +143,19 @@ export async function fetchCollectionStats({ contract = CONTRACT, slug = COLLECT
   try {
     // Alchemy — works with API key, no extra auth needed
     // Fetch floor price, owner count, AND on-chain totalSupply for accurate live data
-    const [floorData, ownersData, metaData] = await Promise.all([
+    const [floorData, ownersData, metaData, nativeFloorData] = await Promise.all([
       alchemyGet("getFloorPrice", { contractAddress: contract }, { signal }),
       alchemyGet("getOwnersForContract", { contractAddress: contract, withTokenBalances: "false" }, { signal }),
       alchemyGet("getContractMetadata", { contractAddress: contract }, { signal }).catch(() => null),
+      import("./lib/orderbook").then(m => m.fetchNativeListings(contract, { limit: 1 })).catch(() => ({ orders: [] })),
     ]);
 
-    const floor = floorData.openSea?.floorPrice ?? null;
+    const osFloor = floorData.openSea?.floorPrice ?? null;
+    const nativeFloor = nativeFloorData.orders?.[0]?.price_eth ?? null;
+    // Use the lower of OpenSea floor and native orderbook floor
+    const floor = osFloor != null && nativeFloor != null
+      ? Math.min(osFloor, nativeFloor)
+      : osFloor ?? nativeFloor;
     const owners = ownersData.owners?.length ?? null;
     // On-chain totalSupply is the most accurate (reflects burns)
     // Alchemy NFT v3 returns totalSupply at root level, not under contractMetadata
@@ -590,37 +596,52 @@ export async function fetchListings(slug = COLLECTION_SLUG, { openseaSlug, contr
   // Use openseaSlug for OpenSea API calls; fall back to slug
   const osSlug = openseaSlug || slug;
 
-  // Fetch OpenSea + native orderbook in parallel
+  // Fetch OpenSea + native orderbook in parallel.
+  // Each source is individually wrapped in .catch() so a failure in one
+  // never prevents the other from showing results.
   const [osResult, nativeResult] = await Promise.all([
     fetchOpenSeaListings(osSlug).catch(err => {
       console.warn("OpenSea listings unavailable:", err.message);
       return { listings: [], source: null };
     }),
     contract
-      ? import("./lib/orderbook").then(m => m.fetchNativeListings(contract)).catch(() => ({ orders: [] }))
+      ? import("./lib/orderbook").then(m => m.fetchNativeListings(contract)).catch(err => {
+          console.warn("Native listings unavailable:", err?.message);
+          return { orders: [] };
+        })
       : Promise.resolve({ orders: [] }),
   ]);
 
-  const osListings = osResult.listings || [];
+  let osListings = [];
+  try {
+    osListings = osResult.listings || [];
+  } catch (err) {
+    console.warn("Error reading OpenSea listings:", err.message);
+  }
 
   // Convert native orderbook orders to the same listing shape
-  const nativeListings = (nativeResult.orders || []).map(order => ({
-    tokenId: order.token_id ? String(order.token_id) : null,
-    price: order.price_eth,
-    priceWei: order.price_wei || null,
-    priceUsd: null,
-    marketplace: "Native Orderbook",
-    marketplaceIcon: null,
-    maker: order.maker,
-    expiry: order.end_time || null,
-    createdAt: order.created_at || null,
-    orderData: order.parameters || null,
-    orderHash: order.order_hash || null,
-    protocolAddress: order.protocol_address || null,
-    // Flag for native orderbook fulfillment (uses Seaport directly, not OpenSea API)
-    isNative: true,
-    nativeOrder: order,
-  })).filter(l => l.tokenId != null && l.price != null);
+  let nativeListings = [];
+  try {
+    nativeListings = (nativeResult.orders || []).map(order => ({
+      tokenId: order.token_id ? String(order.token_id) : null,
+      price: order.price_eth != null ? Number(order.price_eth) : null,
+      priceWei: order.price_wei || null,
+      priceUsd: null,
+      marketplace: "Native Orderbook",
+      marketplaceIcon: null,
+      maker: order.maker,
+      expiry: order.end_time || null,
+      createdAt: order.created_at || null,
+      orderData: order.parameters || null,
+      orderHash: order.order_hash || null,
+      protocolAddress: order.protocol_address || null,
+      // Flag for native orderbook fulfillment (uses Seaport directly, not OpenSea API)
+      isNative: true,
+      nativeOrder: order,
+    })).filter(l => l.tokenId != null && l.price != null);
+  } catch (err) {
+    console.warn("Error mapping native listings:", err.message);
+  }
 
   // Merge: deduplicate by tokenId, keeping the cheapest listing across both sources
   const merged = new Map();

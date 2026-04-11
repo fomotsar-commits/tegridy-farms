@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 import { fulfillSeaportOrder, getProvider } from "../api";
+import { fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
 import { getFriendlyError } from "../lib/errorMessages";
 import { validateOrderFillability } from "../lib/orderValidator";
@@ -86,11 +87,11 @@ export default function ShoppingCart({
     setEstimatedGas(null);
   }, [cart.length]);
 
-  const totalPrice = purchasableItems.reduce((sum, item) => sum + (item.price || 0), 0);
-
   // Count items missing order data
   const itemsMissingOrder = cart.filter(item => !item.orderHash);
   const purchasableItems = cart.filter(item => item.orderHash);
+
+  const totalPrice = purchasableItems.reduce((sum, item) => sum + (item.price || 0), 0);
 
   // Estimate gas for the batch purchase
   const estimateGas = useCallback(async () => {
@@ -251,7 +252,9 @@ export default function ShoppingCart({
 
       addToast?.(`Buying ${item.name}... (${i + 1}/${purchasableItems.length})`, "info");
 
-      const result = await fulfillSeaportOrder(item);
+      const result = item.isNative && item.nativeOrder
+        ? await fulfillNativeOrder(item.nativeOrder)
+        : await fulfillSeaportOrder(item);
 
       if (result.success) {
         recordTransaction({ type: "buy", nft: item, price: item.price, hash: result.hash, wallet, slug });

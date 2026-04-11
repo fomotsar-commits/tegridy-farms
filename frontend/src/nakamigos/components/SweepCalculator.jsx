@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { Eth } from "./Icons";
 import { fulfillSeaportOrder } from "../api";
+import { fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWallet } from "../contexts/WalletContext";
@@ -287,7 +288,9 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
     for (let i = 0; i < sweepList.length; i++) {
       setProgress(i + 1);
       const nft = sweepList[i];
-      const result = await fulfillSeaportOrder(nft);
+      const result = nft.isNative && nft.nativeOrder
+        ? await fulfillNativeOrder(nft.nativeOrder)
+        : await fulfillSeaportOrder(nft);
 
       if (result.success) {
         bought++;
