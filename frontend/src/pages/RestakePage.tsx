@@ -227,7 +227,7 @@ export default function RestakePage() {
                 </div>
                 <div className="rounded-lg p-3 col-span-2" style={{ background: 'rgba(45,139,78,0.04)', border: '1px solid rgba(45,139,78,0.12)' }}>
                   <p className="text-white/30 text-[10px] mb-0.5">Pending Bonus (WETH)</p>
-                  <p className="stat-value text-[16px] text-success">{Number(formatEther(pendingBonus)).toFixed(8)} WETH</p>
+                  <p className="stat-value text-[16px] text-success">{(Number(formatEther(pendingBonus)) || 0).toFixed(8)} WETH</p>
                 </div>
               </div>
               <div className="flex flex-col sm:flex-row gap-2">

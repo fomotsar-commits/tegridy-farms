@@ -91,7 +91,7 @@ export default function HolderAnalytics({ supply: suppliedSupply } = {}) {
     return {
       loadedCount: holders.length,
       totalOwners,
-      avgHeld: (loadedTotal / holders.length).toFixed(1),
+      avgHeld: holders.length > 0 ? (loadedTotal / holders.length).toFixed(1) : "0",
       // Calculate top 10 ownership against actual total supply, not just loaded holders
       top10Pct: ((top10Held / supply) * 100).toFixed(1),
       whales: holders.filter((h) => h.count >= 50).length,

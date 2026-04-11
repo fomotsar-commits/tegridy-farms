@@ -190,7 +190,7 @@ export default function TokenomicsPage() {
               </div>
               <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.08)' }}>
                 <p className="text-white/30 text-[10px] uppercase tracking-wider mb-0.5">Emission Rate</p>
-                <p className="stat-value text-[13px] text-white">{(parseFloat(pool.rewardRate) * 86400).toFixed(2)} / day</p>
+                <p className="stat-value text-[13px] text-white">{((parseFloat(pool.rewardRate) || 0) * 86400).toFixed(2)} / day</p>
               </div>
               <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.08)' }}>
                 <p className="text-white/30 text-[10px] uppercase tracking-wider mb-0.5">Est. Duration</p>

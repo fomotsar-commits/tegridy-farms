@@ -102,7 +102,7 @@ export default function BribesPage() {
                   <div key={i} className="flex items-center justify-between px-3 py-3 rounded-lg"
                     style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.08)' }}>
                     <span className="text-white/60 text-[13px]">{t.isETH ? 'ETH' : `${t.token.slice(0, 6)}...${t.token.slice(-4)}`}</span>
-                    <span className="stat-value text-[14px] text-primary">{parseFloat(t.formatted).toFixed(6)} {t.isETH ? 'ETH' : 'tokens'}</span>
+                    <span className="stat-value text-[14px] text-primary">{(parseFloat(t.formatted) || 0).toFixed(6)} {t.isETH ? 'ETH' : 'tokens'}</span>
                   </div>
                 ))}
               </div>

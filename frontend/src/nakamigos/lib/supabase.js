@@ -230,7 +230,7 @@ export async function sendMessage({ author, text, tokenId = null, slug }) {
  * @returns {Promise<object|null>}
  */
 export async function toggleLike({ messageId, wallet, slug }) {
-  wallet = wallet?.toLowerCase() || wallet;
+  wallet = wallet ? wallet.toLowerCase() : wallet;
   if (!CHAT_ENABLED) {
     const all = loadLocal(slug);
     const updated = all.map((m) => {

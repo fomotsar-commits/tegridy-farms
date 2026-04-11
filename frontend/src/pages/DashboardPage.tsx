@@ -99,7 +99,7 @@ export default function DashboardPage() {
 
   // Price change indicator
   const priceChangeStr = price.priceChange !== 0
-    ? `${price.priceChange > 0 ? '+' : ''}${price.priceChange.toFixed(2)}%`
+    ? `${price.priceChange > 0 ? '+' : ''}${(price.priceChange ?? 0).toFixed(2)}%`
     : '';
 
   if (!isConnected) {

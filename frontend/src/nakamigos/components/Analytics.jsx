@@ -38,7 +38,7 @@ function DonutChart({ segments, size = 160 }) {
   const circumference = 2 * Math.PI * radius;
 
   const segmentData = useMemo(() => {
-    if (total === 0) return [];
+    if (!total || total === 0) return [];
     let cumulative = 0;
     return segments.map((seg) => {
       const percent = seg.value / total;

@@ -101,7 +101,7 @@ function PriceHistoryChart({ tokenId, contract }) {
       </svg>
       <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 4 }}>
         <span><Eth size={9} /> {minP.toFixed(4)}</span>
-        <span>Avg: <Eth size={9} /> {(prices.reduce((a, b) => a + b, 0) / prices.length).toFixed(4)}</span>
+        <span>Avg: <Eth size={9} /> {prices.length > 0 ? (prices.reduce((a, b) => a + b, 0) / prices.length).toFixed(4) : "0"}</span>
         <span><Eth size={9} /> {maxP.toFixed(4)}</span>
       </div>
     </div>

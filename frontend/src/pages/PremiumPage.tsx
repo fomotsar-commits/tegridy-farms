@@ -255,7 +255,7 @@ export default function PremiumPage() {
             <div className="glass-card p-4">
               <div className="text-white/35 text-[11px] uppercase tracking-wider mb-1">Your Pending</div>
               <div className="stat-value text-lg" style={{ color: revenue.pendingRevenue > 0 ? '#22c55e' : 'rgba(255,255,255,0.5)' }}>
-                {revenue.pendingRevenue.toFixed(6)} ETH
+                {(revenue.pendingRevenue ?? 0).toFixed(6)} ETH
               </div>
               {revenue.pendingRevenueBig > 0n ? (
                 <button onClick={revenue.claimRevenue}
@@ -271,7 +271,7 @@ export default function PremiumPage() {
             <div className="glass-card p-4">
               <div className="text-white/35 text-[11px] uppercase tracking-wider mb-1">Referral Earnings</div>
               <div className="stat-value text-lg" style={{ color: revenue.referralPending > 0 ? '#22c55e' : 'rgba(255,255,255,0.5)' }}>
-                {revenue.referralPending.toFixed(6)} ETH
+                {(revenue.referralPending ?? 0).toFixed(6)} ETH
               </div>
               <div className="text-white/25 text-[11px] mt-1">{revenue.referredCount} referrals</div>
               {revenue.referralPendingBig > 0n && (
