@@ -17,8 +17,8 @@ const CARD_BG = 'rgba(13, 21, 48, 0.6)';
 const CARD_BORDER = 'rgba(139, 92, 246, 0.12)';
 const CARD_BORDER_HOVER = 'rgba(139, 92, 246, 0.25)';
 const ROW_BORDER = 'rgba(255, 255, 255, 0.04)';
-const DARK_OVERLAY = 'rgba(6, 12, 26, 0.45)';
-const DARK_OVERLAY_HEAVY = 'rgba(6, 12, 26, 0.55)';
+const DARK_OVERLAY = 'rgba(6, 12, 26, 0.25)';
+const DARK_OVERLAY_HEAVY = 'rgba(6, 12, 26, 0.35)';
 const SHIMMER_BG =
   'linear-gradient(90deg, rgba(13,21,48,0.8) 25%, rgba(17,29,58,0.8) 50%, rgba(13,21,48,0.8) 75%)';
 const EASE = [0.22, 1, 0.36, 1] as const;
