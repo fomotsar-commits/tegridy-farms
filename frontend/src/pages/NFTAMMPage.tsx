@@ -146,23 +146,25 @@ export default function NFTAMMPage() {
 
   const handleCreatePool = () => {
     if (nftAddr.length !== 42) return toast.error('Enter a valid NFT collection address');
-    writeContract({
-      address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
-      abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
-      functionName: 'createPool',
-      args: [
-        nftAddr as `0x${string}`,
-        Number(poolType),
-        parseEther(spotPrice || '0'),
-        parseEther(delta || '0'),
-        BigInt(feeBps || '0'),
-        [], // no initial NFTs (user can add later)
-      ],
-      value: ethLiquidity ? parseEther(ethLiquidity) : BigInt(0),
-    }, {
-      onSuccess: () => { toast.success('Pool created!'); setShowCreate(false); setNftAddr(''); },
-      onError: (e) => toast.error(e.message.slice(0, 80)),
-    });
+    try {
+      writeContract({
+        address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
+        abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
+        functionName: 'createPool',
+        args: [
+          nftAddr as `0x${string}`,
+          Number(poolType),
+          parseEther(spotPrice || '0'),
+          parseEther(delta || '0'),
+          BigInt(feeBps || '0'),
+          [], // no initial NFTs (user can add later)
+        ],
+        value: ethLiquidity ? parseEther(ethLiquidity) : BigInt(0),
+      }, {
+        onSuccess: () => { toast.success('Pool created!'); setShowCreate(false); setNftAddr(''); },
+        onError: (e: any) => toast.error(e.message?.slice(0, 80) || 'Transaction failed'),
+      });
+    } catch { toast.error('Invalid input values'); }
   };
 
   return (

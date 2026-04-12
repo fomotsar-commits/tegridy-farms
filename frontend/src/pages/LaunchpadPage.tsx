@@ -95,7 +95,7 @@ function CollectionDetail({ dropAddress, onClose }: { dropAddress: string; onClo
         <div className="w-full h-2 rounded-full bg-white/5 mb-5 overflow-hidden">
           <div
             className="h-full rounded-full bg-emerald-500 transition-all"
-            style={{ width: `${Math.min(100, (drop.totalMinted / drop.maxSupply) * 100)}%` }}
+            style={{ width: `${drop.maxSupply > 0 ? Math.min(100, (drop.totalMinted / drop.maxSupply) * 100) : 0}%` }}
           />
         </div>
       )}
@@ -123,7 +123,7 @@ function CollectionDetail({ dropAddress, onClose }: { dropAddress: string; onClo
             disabled={drop.isPending || drop.isConfirming}
             onClick={() => drop.mint(mintQty)}
           >
-            {drop.isPending ? 'Confirm in wallet...' : drop.isConfirming ? 'Confirming...' : `Mint ${mintQty} (${(drop.mintPriceFormatted * mintQty).toFixed(4)} ETH)`}
+            {drop.isPending ? 'Confirm in wallet...' : drop.isConfirming ? 'Confirming...' : `Mint ${mintQty} (${((drop.mintPriceFormatted || 0) * mintQty).toFixed(4)} ETH)`}
           </button>
         </div>
       )}

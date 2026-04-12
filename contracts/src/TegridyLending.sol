@@ -149,6 +149,7 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     error InsufficientCollateralValue();
     error NotNFTOwner();
     error LoanAlreadyRepaid();
+    error LoanTooRecent();
     error LoanAlreadyDefaultClaimed();
     error NotBorrower();
     error NotLoanLender();
@@ -318,6 +319,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (loan.repaid) revert LoanAlreadyRepaid();
         if (loan.defaultClaimed) revert LoanAlreadyDefaultClaimed();
         if (msg.sender != loan.borrower) revert NotBorrower();
+        // Prevent same-block zero-interest repayment
+        if (block.timestamp == loan.startTime) revert LoanTooRecent();
 
         uint256 interest = calculateInterest(
             loan.principal,

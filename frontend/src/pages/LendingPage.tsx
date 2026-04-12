@@ -114,21 +114,23 @@ export default function LendingPage() {
 
   const handleCreateOffer = () => {
     if (!principal || Number(principal) <= 0) return toast.error('Enter a valid principal amount');
-    writeContract({
-      address: TEGRIDY_LENDING_ADDRESS,
-      abi: TEGRIDY_LENDING_ABI,
-      functionName: 'createLoanOffer',
-      args: [
-        BigInt(aprBps),
-        BigInt(Number(durationDays) * 86400),
-        TEGRIDY_STAKING_ADDRESS,
-        parseEther(minCollateral || '0'),
-      ],
-      value: parseEther(principal),
-    }, {
-      onSuccess: () => { toast.success('Loan offer created!'); setPrincipal(''); },
-      onError: (e) => toast.error(e.message.slice(0, 80)),
-    });
+    try {
+      writeContract({
+        address: TEGRIDY_LENDING_ADDRESS,
+        abi: TEGRIDY_LENDING_ABI,
+        functionName: 'createLoanOffer',
+        args: [
+          BigInt(aprBps || '0'),
+          BigInt(Number(durationDays || '30') * 86400),
+          TEGRIDY_STAKING_ADDRESS,
+          parseEther(minCollateral || '0'),
+        ],
+        value: parseEther(principal),
+      }, {
+        onSuccess: () => { toast.success('Loan offer created!'); setPrincipal(''); },
+        onError: (e: any) => toast.error(e.message?.slice(0, 80) || 'Transaction failed'),
+      });
+    } catch { toast.error('Invalid input values'); }
   };
 
   const offerIds = offerCount ? Array.from({ length: Number(offerCount) }, (_, i) => i).reverse().slice(0, 20) : [];

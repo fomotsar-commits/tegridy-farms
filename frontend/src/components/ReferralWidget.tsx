@@ -84,12 +84,12 @@ export function ReferralWidget({ address, referredCount, referralEarned, referra
           </div>
           <div className="bg-white/[0.03] rounded-lg p-3 text-center">
             <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Earned</p>
-            <p className="stat-value text-[18px] text-success">{referralEarned.toFixed(4)}</p>
+            <p className="stat-value text-[18px] text-success">{(referralEarned ?? 0).toFixed(4)}</p>
             <p className="text-white/25 text-[9px]">ETH</p>
           </div>
           <div className="bg-white/[0.03] rounded-lg p-3 text-center">
             <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Pending</p>
-            <p className="stat-value text-[18px] text-primary">{referralPending.toFixed(4)}</p>
+            <p className="stat-value text-[18px] text-primary">{(referralPending ?? 0).toFixed(4)}</p>
             <p className="text-white/25 text-[9px]">ETH</p>
           </div>
         </div>
