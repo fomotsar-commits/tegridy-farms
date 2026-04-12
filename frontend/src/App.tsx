@@ -27,6 +27,9 @@ const PremiumPage = lazy(() => import('./pages/PremiumPage'));
 const BribesPage = lazy(() => import('./pages/BribesPage'));
 const NakamigosApp = lazy(() => import('./nakamigos/App'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
+const LendingPage = lazy(() => import('./pages/LendingPage'));
+const LaunchpadPage = lazy(() => import('./pages/LaunchpadPage'));
+const NFTAMMPage = lazy(() => import('./pages/NFTAMMPage'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -60,6 +63,9 @@ function AnimatedRoutes() {
         <Route path="premium" element={<ErrorBoundary><PremiumPage /></ErrorBoundary>} />
         <Route path="bribes" element={<ErrorBoundary><BribesPage /></ErrorBoundary>} />
         <Route path="admin" element={<ErrorBoundary><AdminPage /></ErrorBoundary>} />
+        <Route path="lending" element={<ErrorBoundary><LendingPage /></ErrorBoundary>} />
+        <Route path="launchpad" element={<ErrorBoundary><LaunchpadPage /></ErrorBoundary>} />
+        <Route path="nft-amm" element={<ErrorBoundary><NFTAMMPage /></ErrorBoundary>} />
         <Route path="governance" element={<Navigate to="/grants" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

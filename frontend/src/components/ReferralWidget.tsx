@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { formatCurrency } from '../lib/formatting';
+// formatCurrency available if needed for USD display
 
 interface ReferralWidgetProps {
   address: string;
