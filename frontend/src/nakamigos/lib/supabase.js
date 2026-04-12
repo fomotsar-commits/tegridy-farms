@@ -88,14 +88,27 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { getStoredToken } from "./siweAuth";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const CHAT_ENABLED = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
 
+// When a SIWE JWT is available, Supabase uses it for the Authorization header,
+// enabling RLS policies that check `current_setting('request.jwt.claims')::json->>'wallet'`.
+// When no JWT is stored, falls back to anon key (read-only access via public SELECT policies).
 export const supabase = CHAT_ENABLED
-  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: {
+        headers: {
+          get Authorization() {
+            const token = getStoredToken();
+            return token ? `Bearer ${token}` : `Bearer ${SUPABASE_ANON_KEY}`;
+          },
+        },
+      },
+    })
   : null;
 
 /* ── localStorage helpers (fallback) ──────────────────────────────── */
