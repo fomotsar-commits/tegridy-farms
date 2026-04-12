@@ -246,7 +246,7 @@ function EmptyState({
   subtitle: string;
 }) {
   return (
-    <ArtPanel artSrc={artSrc} opacity={0.70} overlay="rgba(6,12,26,0.85)">
+    <ArtPanel artSrc={artSrc} opacity={0.90} overlay="rgba(6,12,26,0.85)">
       <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
         <div className="w-10 h-10 rounded-full bg-purple-500/10 flex items-center justify-center mb-4">
           <svg className="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -308,7 +308,7 @@ function ComingSoonState() {
       <div className="filter blur-[2px] opacity-40 pointer-events-none select-none" aria-hidden="true">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           {['12', '3', '1.50', '24.5000'].map((val, i) => (
-            <ArtPanel key={i} artSrc={ART.forestScene.src} opacity={0.70}>
+            <ArtPanel key={i} artSrc={ART.forestScene.src} opacity={0.90}>
               <div className="p-4">
                 <div className="text-[11px] uppercase tracking-wider text-white/40 mb-1">
                   {['Total Offers', 'Active Loans', 'Protocol Fee', 'TVL (ETH)'][i]}
@@ -456,7 +456,7 @@ function StatsBar() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: idx * 0.08, ease: EASE as unknown as number[] }}
         >
-          <ArtPanel artSrc={ART.forestScene.src} opacity={0.70} overlay={DARK_OVERLAY} className="group hover:scale-[1.02] transition-transform duration-300" style={{ transitionTimingFunction: `cubic-bezier(${EASE.join(',')})` }}>
+          <ArtPanel artSrc={ART.forestScene.src} opacity={0.90} overlay={DARK_OVERLAY} className="group hover:scale-[1.02] transition-transform duration-300" style={{ transitionTimingFunction: `cubic-bezier(${EASE.join(',')})` }}>
             <div className="p-4">
               <div className="flex items-center gap-2 mb-2">
                 {s.icon}
@@ -538,7 +538,7 @@ function OfferFilterBar({
   };
 
   return (
-    <ArtPanel artSrc={ART.porchChill.src} opacity={0.70} overlay={DARK_OVERLAY_HEAVY}>
+    <ArtPanel artSrc={ART.porchChill.src} opacity={0.90} overlay={DARK_OVERLAY_HEAVY}>
       <div className="p-4">
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-[11px] uppercase tracking-wider text-white/40 mr-1">Filters</span>
@@ -681,7 +681,7 @@ function LendTab({ deployed }: { deployed: boolean }) {
   const loading = isPending || isConfirming;
 
   return (
-    <ArtPanel artSrc={ART.mfersHeaven.src} opacity={0.70} overlay={DARK_OVERLAY}>
+    <ArtPanel artSrc={ART.mfersHeaven.src} opacity={0.90} overlay={DARK_OVERLAY}>
       <div className="p-5 sm:p-6 max-w-lg space-y-5">
         {/* Principal */}
         <div>
@@ -1010,7 +1010,7 @@ function OfferRow({
               transition={{ duration: 0.25, ease: EASE as unknown as number[] }}
               className="overflow-hidden"
             >
-              <ArtPanel artSrc={ART.apeHug.src} opacity={0.70} overlay={DARK_OVERLAY_HEAVY} className="mx-2 mb-2">
+              <ArtPanel artSrc={ART.apeHug.src} opacity={0.90} overlay={DARK_OVERLAY_HEAVY} className="mx-2 mb-2">
                 <div className="p-4">
                   {!userAddress ? (
                     <p className="text-white/40 text-sm">Connect wallet to borrow</p>
@@ -1244,7 +1244,7 @@ function BorrowTab({ deployed }: { deployed: boolean }) {
           No offers match your filters. Try adjusting them.
         </div>
       ) : (
-        <ArtPanel artSrc={ART.poolParty.src} opacity={0.70} overlay={DARK_OVERLAY_HEAVY}>
+        <ArtPanel artSrc={ART.poolParty.src} opacity={0.90} overlay={DARK_OVERLAY_HEAVY}>
           <div className="p-4 overflow-x-auto -mx-1">
             <table className="w-full text-left text-[11px] uppercase tracking-wider text-white/40">
               <thead>
@@ -1312,7 +1312,7 @@ function PnlSummaryCard({
   const netPnl = interestEarned - interestPaid;
 
   return (
-    <ArtPanel artSrc={ART.swordOfLove.src} opacity={0.70} overlay="rgba(6,12,26,0.85)">
+    <ArtPanel artSrc={ART.swordOfLove.src} opacity={0.90} overlay="rgba(6,12,26,0.85)">
       <div className="p-5">
         <div className="flex items-center gap-2 mb-4">
           <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -1599,7 +1599,7 @@ function MyLoansTab({ deployed }: { deployed: boolean }) {
           subtitle="No active loans. Start lending or borrowing!"
         />
       ) : (
-        <ArtPanel artSrc={ART.swordOfLove.src} opacity={0.70} overlay={DARK_OVERLAY_HEAVY}>
+        <ArtPanel artSrc={ART.swordOfLove.src} opacity={0.90} overlay={DARK_OVERLAY_HEAVY}>
           <div className="p-4">
             {displayed.map((loan, idx) => (
               <LoanRow key={loan.id} loan={loan} role={subTab} deployed={deployed} idx={idx} />
@@ -1636,7 +1636,7 @@ export function LendingSection({ address: propAddress }: { address?: string }) {
     <section className="w-full space-y-6">
       <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }`}</style>
       {!deployed && (
-        <ArtPanel artSrc={ART.smokingDuo.src} opacity={0.70} overlay="rgba(6,12,26,0.85)">
+        <ArtPanel artSrc={ART.smokingDuo.src} opacity={0.90} overlay="rgba(6,12,26,0.85)">
           <div className="px-4 py-3 text-center text-[13px] text-amber-400/80">
             Lending contracts are being audited and will be deployed soon. Explore the interface below.
           </div>
