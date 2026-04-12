@@ -8,6 +8,7 @@ import AnimatedCard from "./AnimatedCard";
 import Skeleton from "./Skeleton";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import BulkListingWizard from "./BulkListingWizard";
+import BundleListing from "./BundleListing";
 
 function timeLeft(expiry) {
   if (!expiry) return "";
@@ -30,6 +31,7 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
   const [cancelling, setCancelling] = useState(null);
   const [portfolioOpen, setPortfolioOpen] = useState(false);
   const [bulkListOpen, setBulkListOpen] = useState(false);
+  const [bundleOpen, setBundleOpen] = useState(false);
   // Monotonic counter to discard stale retry responses after collection switch
   const retryGenRef = useRef(0);
 
@@ -222,6 +224,17 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
               }}
             >
               Bulk List
+            </button>
+            <button
+              onClick={() => setBundleOpen(true)}
+              style={{
+                fontFamily: "var(--mono)", fontSize: 10, padding: "8px 16px",
+                borderRadius: 8, border: "1px solid var(--gold)",
+                background: "rgba(200,170,100,0.1)", color: "var(--gold)",
+                cursor: "pointer", letterSpacing: "0.04em", fontWeight: 600,
+              }}
+            >
+              Bundle
             </button>
             <button
               onClick={handleExport}
@@ -436,6 +449,19 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
             </div>
           )}
         </>
+      )}
+
+      {bundleOpen && (
+        <BundleListing
+          tokens={tokens}
+          wallet={wallet}
+          collection={collection}
+          onClose={() => setBundleOpen(false)}
+          onListingCreated={() => {
+            fetchMyListings(wallet, collection.contract).then(setListings).catch(() => {});
+          }}
+          stats={stats}
+        />
       )}
 
       {bulkListOpen && (
