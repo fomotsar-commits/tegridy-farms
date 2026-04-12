@@ -17,6 +17,36 @@ type Section = 'lending' | 'amm' | 'launchpad' | 'restake';
 type LendingTab = 'lend' | 'borrow' | 'loans';
 const POOL_TYPES = ['BUY', 'SELL', 'TRADE'] as const;
 
+function SectionSkeleton() {
+  return (
+    <div className="space-y-4 animate-pulse">
+      <div className="grid grid-cols-3 gap-4">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="glass-card p-4 rounded-xl">
+            <div className="h-3 bg-white/5 rounded w-16 mx-auto mb-2" />
+            <div className="h-6 bg-white/10 rounded w-12 mx-auto" />
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <div className="h-10 bg-white/5 rounded-xl w-24" />
+        <div className="h-10 bg-white/5 rounded-xl w-24" />
+      </div>
+      <div className="glass-card p-6 rounded-2xl">
+        <div className="h-5 bg-white/10 rounded w-40 mb-4" />
+        <div className="space-y-3">
+          <div className="h-10 bg-white/5 rounded-lg" />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="h-10 bg-white/5 rounded-lg" />
+            <div className="h-10 bg-white/5 rounded-lg" />
+          </div>
+          <div className="h-12 bg-white/5 rounded-xl" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Lending Components ──────────────────────────────────────────
 
 function OfferCard({ offerId, address }: { offerId: number; address?: string }) {
@@ -31,8 +61,26 @@ function OfferCard({ offerId, address }: { offerId: number; address?: string }) 
   const { isLoading: isConfirmingLending } = useWaitForTransactionReceipt({ hash: lendingHash });
   const { isLoading: isConfirmingApprove } = useWaitForTransactionReceipt({ hash: approveHash });
 
-  const [tokenId, setTokenId] = useState('');
   const [showAccept, setShowAccept] = useState(false);
+
+  // Auto-detect user's staking NFT
+  const { data: userTokenIdRaw } = useReadContract({
+    address: TEGRIDY_STAKING_ADDRESS,
+    abi: TEGRIDY_STAKING_ABI,
+    functionName: 'userTokenId',
+    args: [address as `0x${string}`],
+    query: { enabled: !!address },
+  });
+  const { data: userPosition } = useReadContract({
+    address: TEGRIDY_STAKING_ADDRESS,
+    abi: TEGRIDY_STAKING_ABI,
+    functionName: 'getPosition',
+    args: [userTokenIdRaw ?? 0n],
+    query: { enabled: !!userTokenIdRaw && userTokenIdRaw > 0n },
+  });
+  const hasPosition = !!userTokenIdRaw && userTokenIdRaw > 0n && !!userPosition && (userPosition as any)[0] > 0n;
+  const tokenId = hasPosition ? userTokenIdRaw!.toString() : '';
+  const positionAmount = hasPosition ? formatTokenAmount(formatEther((userPosition as any)[0])) : '0';
 
   const { data: approvedAddr } = useReadContract({
     address: TEGRIDY_STAKING_ADDRESS,
@@ -113,17 +161,18 @@ function OfferCard({ offerId, address }: { offerId: number; address?: string }) 
         </button>
       ) : (
         <div className="space-y-2">
-          <div>
-            <label className="text-xs text-white/50 mb-1 block">Your Staking NFT Token ID</label>
-            <input
-              type="number"
-              value={tokenId}
-              onChange={(e) => setTokenId(e.target.value)}
-              placeholder="e.g. 42"
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white outline-none focus:border-emerald-500 transition-colors text-sm"
-            />
-          </div>
-          {tokenId && !isApproved ? (
+          {hasPosition ? (
+            <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-sm">
+              <p className="text-emerald-400">Position #{tokenId}</p>
+              <p className="text-white/60 text-xs">{positionAmount} TOWELI staked</p>
+            </div>
+          ) : (
+            <div className="p-2.5 rounded-lg bg-orange-500/10 border border-orange-500/20 text-sm">
+              <p className="text-orange-400">No staking position found</p>
+              <p className="text-white/40 text-xs">Stake TOWELI first to use as collateral</p>
+            </div>
+          )}
+          {hasPosition && !isApproved ? (
             <button
               className="w-full py-2 rounded-lg bg-amber-600 hover:bg-amber-700 transition-colors text-sm text-white font-medium disabled:opacity-50"
               disabled={isConfirming}
@@ -134,7 +183,7 @@ function OfferCard({ offerId, address }: { offerId: number; address?: string }) 
           ) : (
             <button
               className="w-full py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 transition-colors text-sm text-white font-medium disabled:opacity-50"
-              disabled={isConfirming || !tokenId}
+              disabled={isConfirming || !hasPosition}
               onClick={handleAccept}
             >
               {isConfirmingLending ? 'Accepting...' : '2. Accept & Borrow'}
@@ -248,16 +297,36 @@ function LoanCard({ loanId, address }: { loanId: number; address?: string }) {
 // ─── NFT AMM Components ──────────────────────────────────────────
 
 function PoolInfo({ poolAddress }: { poolAddress: `0x${string}` }) {
+  const { address } = useAccount();
   const { data: info } = useReadContract({ address: poolAddress, abi: TEGRIDY_NFT_POOL_ABI, functionName: 'getPoolInfo' });
   const { data: heldIds } = useReadContract({ address: poolAddress, abi: TEGRIDY_NFT_POOL_ABI, functionName: 'getHeldTokenIds' });
+  const [showDeposit, setShowDeposit] = useState(false);
+  const [depositIds, setDepositIds] = useState('');
+  const [depositEth, setDepositEth] = useState('');
+  const { writeContract, data: txHash } = useWriteContract();
+  const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash });
 
   if (!info) return <div className="glass-card p-4 rounded-xl animate-pulse h-36" />;
 
-  const [collection, poolType, spotPrice, delta, feeBps, , , numNFTs, ethBalance] = info;
+  const [collection, poolType, spotPrice, delta, feeBps, , owner, numNFTs, ethBalance] = info;
   const shortCol = `${collection.slice(0, 6)}...${collection.slice(-4)}`;
   const shortPool = `${poolAddress.slice(0, 6)}...${poolAddress.slice(-4)}`;
   const typeLabel = POOL_TYPES[Number(poolType)] ?? 'UNKNOWN';
   const typeColor = poolType === 0 ? 'text-blue-400 bg-blue-500/20' : poolType === 1 ? 'text-orange-400 bg-orange-500/20' : 'text-emerald-400 bg-emerald-500/20';
+  const isOwner = address?.toLowerCase() === (owner as string)?.toLowerCase();
+
+  const handleDeposit = () => {
+    const ids = depositIds.trim() ? depositIds.split(',').map(s => BigInt(s.trim())) : [];
+    try {
+      writeContract({
+        address: poolAddress, abi: TEGRIDY_NFT_POOL_ABI, functionName: 'addLiquidity',
+        args: [ids], value: depositEth ? parseEther(depositEth) : 0n,
+      }, {
+        onSuccess: () => { toast.success('Liquidity added!'); setDepositIds(''); setDepositEth(''); setShowDeposit(false); },
+        onError: (e: any) => toast.error(e.message?.slice(0, 80) || 'Failed'),
+      });
+    } catch { toast.error('Invalid input'); }
+  };
 
   return (
     <div className="glass-card p-5 rounded-xl hover:border-emerald-500/30 transition-all border border-white/5">
@@ -278,6 +347,37 @@ function PoolInfo({ poolAddress }: { poolAddress: `0x${string}` }) {
       {heldIds && heldIds.length > 0 && (
         <div className="mt-2 text-xs text-white/40">
           Held IDs: {heldIds.slice(0, 8).map(id => `#${id.toString()}`).join(', ')}{heldIds.length > 8 ? ` +${heldIds.length - 8} more` : ''}
+        </div>
+      )}
+      {/* Owner deposit panel */}
+      {isOwner && (
+        <div className="mt-3 pt-3 border-t border-white/5">
+          {!showDeposit ? (
+            <button className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors" onClick={() => setShowDeposit(true)}>
+              + Add Liquidity
+            </button>
+          ) : (
+            <div className="space-y-2">
+              <div>
+                <label className="text-xs text-white/50 mb-1 block">NFT Token IDs (comma-separated)</label>
+                <input type="text" value={depositIds} onChange={(e) => setDepositIds(e.target.value)} placeholder="1, 42, 100"
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white outline-none focus:border-emerald-500 transition-colors text-xs font-mono" />
+              </div>
+              <div>
+                <label className="text-xs text-white/50 mb-1 block">ETH to deposit</label>
+                <input type="number" value={depositEth} onChange={(e) => setDepositEth(e.target.value)} placeholder="0"
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white outline-none focus:border-emerald-500 transition-colors text-xs" />
+              </div>
+              <div className="flex gap-2">
+                <button className="flex-1 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium disabled:opacity-50"
+                  disabled={isConfirming || (!depositIds.trim() && !depositEth)} onClick={handleDeposit}>
+                  {isConfirming ? 'Adding...' : 'Add Liquidity'}
+                </button>
+                <button className="px-3 py-1.5 text-xs text-white/40 hover:text-white/60" onClick={() => setShowDeposit(false)}>Cancel</button>
+              </div>
+              <p className="text-xs text-white/30">Approve NFTs for this pool address before depositing.</p>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -430,6 +530,8 @@ function LendingSection({ address }: { address?: string }) {
     );
   }
 
+  if (offerCount === undefined && loanCount === undefined) return <SectionSkeleton />;
+
   return (
     <>
       {/* Stats */}
@@ -555,6 +657,8 @@ function AMMSection() {
       </div>
     );
   }
+
+  if (poolCount === undefined) return <SectionSkeleton />;
 
   return (
     <>

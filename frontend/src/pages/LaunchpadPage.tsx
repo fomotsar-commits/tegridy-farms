@@ -5,7 +5,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { parseEther } from 'viem';
 import { ART } from '../lib/artConfig';
 import { TEGRIDY_LAUNCHPAD_ADDRESS, isDeployed } from '../lib/constants';
-import { TEGRIDY_LAUNCHPAD_ABI } from '../lib/contracts';
+import { TEGRIDY_LAUNCHPAD_ABI, TEGRIDY_DROP_ABI } from '../lib/contracts';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useNFTDrop } from '../hooks/useNFTDrop';
 import { toast } from 'sonner';
@@ -150,10 +150,92 @@ function CollectionDetail({ dropAddress, onClose }: { dropAddress: string; onClo
         </div>
       )}
 
-      {drop.isOwner && (
-        <p className="text-xs text-emerald-400/60 mt-3 text-center">You are the owner of this collection</p>
-      )}
+      {/* Owner Admin Panel */}
+      {drop.isOwner && <OwnerAdminPanel dropAddress={dropAddress} />}
     </motion.div>
+  );
+}
+
+function OwnerAdminPanel({ dropAddress }: { dropAddress: string }) {
+  const contractAddr = dropAddress as `0x${string}`;
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [phase, setPhase] = useState('0');
+  const [merkleRoot, setMerkleRoot] = useState('');
+  const [revealURI, setRevealURI] = useState('');
+
+  const { writeContract, data: txHash, isPending } = useWriteContract();
+  const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash });
+  const busy = isPending || isConfirming;
+
+  if (!showAdmin) {
+    return (
+      <button className="w-full mt-3 py-2 text-xs text-emerald-400/60 hover:text-emerald-400 transition-colors border border-emerald-500/10 hover:border-emerald-500/30 rounded-lg"
+        onClick={() => setShowAdmin(true)}>
+        Owner Admin Panel
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-4 pt-4 border-t border-white/10 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm text-emerald-400 font-semibold">Owner Admin</h3>
+        <button className="text-xs text-white/40 hover:text-white/60" onClick={() => setShowAdmin(false)}>Close</button>
+      </div>
+
+      {/* Set Phase */}
+      <div>
+        <label className="text-xs text-white/50 mb-1 block">Mint Phase</label>
+        <div className="flex gap-2">
+          {['0 - Paused', '1 - Allowlist', '2 - Public'].map((label, i) => (
+            <button key={i}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${phase === String(i) ? 'bg-emerald-600 text-white' : 'bg-white/5 text-white/60 hover:text-white border border-white/10'}`}
+              onClick={() => setPhase(String(i))}
+            >{label}</button>
+          ))}
+        </div>
+        <button className="mt-2 w-full py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-600 text-white text-xs disabled:opacity-50"
+          disabled={busy} onClick={() => writeContract({
+            address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'setMintPhase', args: [Number(phase)],
+          }, { onSuccess: () => toast.success('Phase updated'), onError: (e) => toast.error(e.message.slice(0, 80)) })}>
+          {busy ? 'Setting...' : 'Set Phase'}
+        </button>
+      </div>
+
+      {/* Set Merkle Root */}
+      <div>
+        <label className="text-xs text-white/50 mb-1 block">Merkle Root (for allowlist)</label>
+        <input type="text" value={merkleRoot} onChange={(e) => setMerkleRoot(e.target.value)} placeholder="0x..."
+          className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white outline-none focus:border-emerald-500 transition-colors text-xs font-mono" />
+        <button className="mt-2 w-full py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-600 text-white text-xs disabled:opacity-50"
+          disabled={busy || !merkleRoot.startsWith('0x')} onClick={() => writeContract({
+            address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'setMerkleRoot', args: [merkleRoot as `0x${string}`],
+          }, { onSuccess: () => { toast.success('Merkle root set'); setMerkleRoot(''); }, onError: (e) => toast.error(e.message.slice(0, 80)) })}>
+          {busy ? 'Setting...' : 'Set Merkle Root'}
+        </button>
+      </div>
+
+      {/* Reveal */}
+      <div>
+        <label className="text-xs text-white/50 mb-1 block">Reveal Base URI</label>
+        <input type="text" value={revealURI} onChange={(e) => setRevealURI(e.target.value)} placeholder="ipfs://Qm..."
+          className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white outline-none focus:border-emerald-500 transition-colors text-xs font-mono" />
+        <button className="mt-2 w-full py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-600 text-white text-xs disabled:opacity-50"
+          disabled={busy || !revealURI} onClick={() => writeContract({
+            address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'reveal', args: [revealURI],
+          }, { onSuccess: () => { toast.success('Collection revealed!'); setRevealURI(''); }, onError: (e) => toast.error(e.message.slice(0, 80)) })}>
+          {busy ? 'Revealing...' : 'Reveal Collection'}
+        </button>
+      </div>
+
+      {/* Withdraw */}
+      <button className="w-full py-2 rounded-lg bg-amber-600/80 hover:bg-amber-600 text-white text-xs font-medium disabled:opacity-50"
+        disabled={busy} onClick={() => writeContract({
+          address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'withdraw',
+        }, { onSuccess: () => toast.success('Funds withdrawn!'), onError: (e) => toast.error(e.message.slice(0, 80)) })}>
+        {busy ? 'Withdrawing...' : 'Withdraw Mint Revenue'}
+      </button>
+    </div>
   );
 }
 
