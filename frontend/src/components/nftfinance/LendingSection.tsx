@@ -1195,16 +1195,13 @@ export function LendingSection({ address: propAddress }: { address?: string }) {
     );
   }
 
-  if (!deployed) {
-    return (
-      <section className="w-full">
-        <ComingSoonState />
-      </section>
-    );
-  }
-
   return (
     <section className="w-full space-y-6">
+      {!deployed && (
+        <div className="rounded-xl px-4 py-3 text-center text-[13px] text-amber-400/80 border border-amber-500/20" style={{ background: 'rgba(245,158,11,0.06)' }}>
+          Lending contracts are being audited and will be deployed soon. Explore the interface below.
+        </div>
+      )}
       <StatsBar />
       <TabNav tab={tab} setTab={setTab} />
       <AnimatePresence mode="wait">

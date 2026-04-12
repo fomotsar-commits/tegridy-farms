@@ -751,12 +751,14 @@ export default function LaunchpadPage({ embedded }: { embedded?: boolean }) {
             </p>
             <ConnectButton />
           </motion.div>
-        ) : !deployed ? (
-          /* Coming Soon */
-          <ComingSoonPanel />
         ) : (
           /* Main Content */
           <>
+            {!deployed && (
+              <div className="rounded-xl px-4 py-3 text-center text-[13px] text-amber-400/80 border border-amber-500/20 mb-6" style={{ background: 'rgba(245,158,11,0.06)' }}>
+                Launchpad contracts are under development. Explore the interface below.
+              </div>
+            )}
             {/* Header Bar */}
             <motion.div
               className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8"
