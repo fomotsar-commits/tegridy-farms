@@ -35,8 +35,8 @@ const stagger = { animate: { transition: { staggerChildren: 0.06 } } };
 /* ─── Art-backed glass card helper ─── */
 function ArtCard({
   art,
-  opacity = 0.12,
-  overlay = 'rgba(6,12,26,0.82)',
+  opacity = 0.28,
+  overlay = 'rgba(6,12,26,0.70)',
   className = '',
   children,
 }: {
@@ -160,7 +160,7 @@ function CollectionCard({
 
   return (
     <motion.div {...fadeUp}>
-      <ArtCard art={ART.galleryCollage} opacity={0.18} overlay="rgba(6,12,26,0.82)" className={`cursor-pointer transition-all duration-300 group ${
+      <ArtCard art={ART.galleryCollage} opacity={0.28} overlay="rgba(6,12,26,0.70)" className={`cursor-pointer transition-all duration-300 group ${
         isActive
           ? 'ring-1 ring-emerald-500/40 shadow-[0_0_24px_-6px_rgba(16,185,129,0.15)]'
           : 'hover:shadow-[0_0_20px_-6px_rgba(16,185,129,0.08)]'
@@ -258,7 +258,7 @@ function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string; deplo
   );
 
   return (
-    <ArtCard art={ART.roseApe} opacity={0.18} overlay="rgba(6,12,26,0.82)" className="mt-6">
+    <ArtCard art={ART.roseApe} opacity={0.28} overlay="rgba(6,12,26,0.70)" className="mt-6">
       <button
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between text-sm"
@@ -382,7 +382,7 @@ function CreatorRevenueDashboard({ drop }: { drop: ReturnType<typeof useNFTDrop>
   const totalRevenue = Number(formatEther(drop.mintPrice * BigInt(drop.totalMinted)));
 
   return (
-    <ArtCard art={ART.roseApe} opacity={0.18} overlay="rgba(6,12,26,0.82)" className="mb-6">
+    <ArtCard art={ART.roseApe} opacity={0.28} overlay="rgba(6,12,26,0.70)" className="mb-6">
       <h3 className="text-emerald-400 font-semibold tracking-wide uppercase text-[11px] mb-4">
         Creator Revenue Dashboard
       </h3>
@@ -416,7 +416,7 @@ function LiveMintFeed() {
   ];
 
   return (
-    <ArtCard art={ART.danceNight} opacity={0.18} overlay="rgba(6,12,26,0.82)" className="mb-6">
+    <ArtCard art={ART.danceNight} opacity={0.28} overlay="rgba(6,12,26,0.70)" className="mb-6">
       <h3 className="text-emerald-400 font-semibold tracking-wide uppercase text-[11px] mb-4">
         Live Mint Feed
       </h3>
@@ -506,7 +506,7 @@ function CollectionDetail({
       className="mb-8"
     >
       {/* Hero */}
-      <ArtCard art={ART.beachVibes} opacity={0.18} overlay="rgba(6,12,26,0.82)" className="rounded-2xl mb-0">
+      <ArtCard art={ART.beachVibes} opacity={0.28} overlay="rgba(6,12,26,0.70)" className="rounded-2xl mb-0">
         <div className="p-1 sm:p-3">
           <div className="flex items-start justify-between mb-6">
             <div>
@@ -575,7 +575,7 @@ function CollectionDetail({
 
           {/* Paused empty state */}
           {drop.currentPhase === 0 && (
-            <ArtCard art={ART.towelieWindow} opacity={0.18} overlay="rgba(6,12,26,0.82)" className="mb-6">
+            <ArtCard art={ART.towelieWindow} opacity={0.28} overlay="rgba(6,12,26,0.70)" className="mb-6">
               <div className="text-center py-4">
                 <div className="text-white/15 text-4xl mb-3">\u23F8</div>
                 <p className="text-white/40 text-sm">Minting is currently paused for this collection.</p>
@@ -584,7 +584,7 @@ function CollectionDetail({
           )}
 
           {/* Mint Interface */}
-          <ArtCard art={ART.danceNight} opacity={0.18} overlay="rgba(6,12,26,0.82)">
+          <ArtCard art={ART.danceNight} opacity={0.28} overlay="rgba(6,12,26,0.70)">
             <div className="space-y-4">
               {/* Allowlist proof input */}
               <AnimatePresence>
@@ -727,7 +727,7 @@ function CreateCollectionForm({ onCreated, deployed }: { onCreated: () => void; 
       animate={{ opacity: 1, y: 0 }}
       className="mb-8"
     >
-      <ArtCard art={ART.chaosScene} opacity={0.18} overlay="rgba(6,12,26,0.82)" className="rounded-2xl">
+      <ArtCard art={ART.chaosScene} opacity={0.28} overlay="rgba(6,12,26,0.70)" className="rounded-2xl">
         <div className="p-1 sm:p-3">
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-8">
             {/* Form Fields */}
@@ -851,7 +851,7 @@ function CreateCollectionForm({ onCreated, deployed }: { onCreated: () => void; 
             {/* Preview Card */}
             <div className="hidden lg:block">
               <label className={LABEL}>Live Preview</label>
-              <ArtCard art={ART.galleryCollage} opacity={0.18} overlay="rgba(6,12,26,0.82)" className="mt-1.5">
+              <ArtCard art={ART.galleryCollage} opacity={0.28} overlay="rgba(6,12,26,0.70)" className="mt-1.5">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-lg bg-emerald-500/15 flex items-center justify-center text-emerald-400 font-bold text-xs">
@@ -908,7 +908,7 @@ function CreateCollectionForm({ onCreated, deployed }: { onCreated: () => void; 
 function ComingSoonPanel() {
   return (
     <motion.div className="max-w-2xl mx-auto text-center" {...fadeUp}>
-      <ArtCard art={ART.jungleBus} opacity={0.18} overlay="rgba(6,12,26,0.82)" className="rounded-2xl mb-8">
+      <ArtCard art={ART.jungleBus} opacity={0.28} overlay="rgba(6,12,26,0.70)" className="rounded-2xl mb-8">
         <div className="p-3 sm:p-5">
           <h2 className="heading-luxury text-2xl mb-3">Coming Soon</h2>
           <p className="text-white/50 max-w-md mx-auto mb-8 text-sm leading-relaxed">
@@ -976,7 +976,7 @@ export default function LaunchpadPage({ embedded }: { embedded?: boolean }) {
             src={ART.chaosScene.src}
             alt=""
             className="w-full h-full object-cover"
-            style={{ opacity: 0.12 }}
+            style={{ opacity: 0.20 }}
           />
           <div
             className="absolute inset-0"
@@ -996,7 +996,7 @@ export default function LaunchpadPage({ embedded }: { embedded?: boolean }) {
         {/* Heading (standalone only) */}
         {!embedded && (
           <motion.div className="text-center mb-10" {...fadeUp}>
-            <ArtCard art={ART.jbChristmas} opacity={0.18} overlay="rgba(6,12,26,0.82)" className="inline-block rounded-2xl px-2 py-1 mb-0">
+            <ArtCard art={ART.jbChristmas} opacity={0.28} overlay="rgba(6,12,26,0.70)" className="inline-block rounded-2xl px-2 py-1 mb-0">
               <div className="px-4 sm:px-8 py-4">
                 <h1 className="heading-luxury text-3xl md:text-4xl mb-3">NFT Launchpad</h1>
                 <p className="text-white/50 max-w-lg mx-auto text-sm leading-relaxed">
@@ -1034,7 +1034,7 @@ export default function LaunchpadPage({ embedded }: { embedded?: boolean }) {
               {...fadeUp}
             >
               <div className="flex gap-3">
-                <ArtCard art={ART.jbChristmas} opacity={0.18} overlay="rgba(6,12,26,0.82)" className="rounded-xl">
+                <ArtCard art={ART.jbChristmas} opacity={0.28} overlay="rgba(6,12,26,0.70)" className="rounded-xl">
                   <p className={LABEL}>Collections</p>
                   <p className="text-white font-mono text-xl tabular-nums">
                     {collectionCount?.toString() ?? '0'}
@@ -1084,7 +1084,7 @@ export default function LaunchpadPage({ embedded }: { embedded?: boolean }) {
 
             {collectionIds.length === 0 ? (
               <motion.div {...fadeUp}>
-                <ArtCard art={ART.towelieWindow} opacity={0.18} overlay="rgba(6,12,26,0.82)" className="rounded-2xl">
+                <ArtCard art={ART.towelieWindow} opacity={0.28} overlay="rgba(6,12,26,0.70)" className="rounded-2xl">
                   <div className="text-center py-6">
                     <div className="text-white/10 text-5xl mb-4">{'\u25C8'}</div>
                     <p className="text-white/40 text-sm">
