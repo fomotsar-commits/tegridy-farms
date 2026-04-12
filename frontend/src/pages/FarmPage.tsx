@@ -262,6 +262,19 @@ export default function FarmPage() {
   const [lpStakeAmount, setLpStakeAmount] = useState('');
   const [lpWithdrawAmount, setLpWithdrawAmount] = useState('');
 
+  // Auto-dismiss confirmation dialogs after 5 seconds
+  useEffect(() => {
+    if (!confirmWithdraw) return;
+    const t = setTimeout(() => setConfirmWithdraw(false), 5000);
+    return () => clearTimeout(t);
+  }, [confirmWithdraw]);
+
+  useEffect(() => {
+    if (!confirmEarlyWithdraw) return;
+    const t = setTimeout(() => setConfirmEarlyWithdraw(false), 5000);
+    return () => clearTimeout(t);
+  }, [confirmEarlyWithdraw]);
+
   const boostBps = calculateBoost(selectedLock.seconds);
   const nftBonus = nft.holdsJBAC ? JBAC_BONUS_BPS : 0;
   const totalBoostBps = Math.min(boostBps + nftBonus, 45000);
@@ -700,7 +713,7 @@ export default function FarmPage() {
                       )}
                       {pos.canWithdraw && confirmWithdraw && (
                         <div className="col-span-2 rounded-lg p-3" style={{ background: 'rgba(255,178,55,0.06)', border: '1px solid rgba(255,178,55,0.15)' }}>
-                          <p className="text-warning/80 text-[11px] mb-2">Are you sure you want to withdraw your staked TOWELI?</p>
+                          <p className="text-warning/80 text-[11px] mb-2">Withdraw <span className="font-mono font-semibold">{pos.stakedFormatted} TOWELI</span>? This will unstake your full position.</p>
                           <div className="flex gap-2">
                             <button onClick={() => setConfirmWithdraw(false)}
                               className="flex-1 py-2 rounded-lg text-[12px] text-white/50 cursor-pointer"
@@ -726,7 +739,7 @@ export default function FarmPage() {
                       )}
                       {pos.isLocked && confirmEarlyWithdraw && (
                         <div className="col-span-2 rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
-                          <p className="text-danger text-[11px] font-semibold mb-1">You will lose 25% of your staked TOWELI. This cannot be undone.</p>
+                          <p className="text-danger text-[11px] font-semibold mb-1">Warning: Early withdrawal incurs a penalty. You will lose 25% of your <span className="font-mono">{pos.stakedFormatted} TOWELI</span>. This cannot be undone.</p>
                           <div className="flex gap-2 mt-2">
                             <button onClick={() => setConfirmEarlyWithdraw(false)}
                               className="flex-1 py-2 rounded-lg text-[12px] text-white/50 cursor-pointer"

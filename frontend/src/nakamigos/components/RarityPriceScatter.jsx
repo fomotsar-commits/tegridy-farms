@@ -631,11 +631,19 @@ export default function RarityPriceScatter({ tokens, listings, activities, onPic
         const ty = Math.max(10, Math.min(p.py - 20, rect.height - 80));
         tooltip.style.left = `${tx}px`;
         tooltip.style.top = `${ty}px`;
+        // Sanitize external NFT metadata before injecting into DOM.
+        // `type` comes from NFT attributes (external API data) and could
+        // contain malicious HTML/scripts if an attacker crafts metadata.
+        const esc = (s) => {
+          const el = document.createElement("span");
+          el.textContent = s;
+          return el.innerHTML;
+        };
         tooltip.innerHTML =
-          `<strong>#${d.id}</strong><br/>` +
+          `<strong>#${esc(String(d.id))}</strong><br/>` +
           `Price: ${(d.price ?? 0).toFixed(4)} ETH<br/>` +
           `Rank: #${d.rank.toLocaleString()}<br/>` +
-          (type ? `Type: ${type}<br/>` : "") +
+          (type ? `Type: ${esc(type)}<br/>` : "") +
           `vs Trend: ${sign}${discountPct}%`;
         canvas.style.cursor = "pointer";
         return;

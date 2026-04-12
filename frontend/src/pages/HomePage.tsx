@@ -1,11 +1,8 @@
-import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { ART, GALLERY_ORDER } from '../lib/artConfig';
 import { useFarmStats } from '../hooks/useFarmStats';
-
-import { TOWELI_ADDRESS } from '../lib/constants';
 import { Sparkline } from '../components/Sparkline';
 import { PulseDot } from '../components/PulseDot';
 import { useToweliPrice } from '../hooks/useToweliPrice';
@@ -19,23 +16,8 @@ export default function HomePage() {
   const priceHistory = usePriceHistory(price.priceInUsd);
   const { history: priceData, error: priceError } = priceHistory;
 
-  // Direct API price fallback for homepage
-  const [directPrice, setDirectPrice] = useState<string>(() => {
-    try {
-      const c = localStorage.getItem('tegridy_api_price');
-      if (c) { const { price: p, ts } = JSON.parse(c); if (Date.now() - ts < 3600_000 && p > 0) return formatCurrency(p, 6); }
-    } catch {} return '';
-  });
-  useEffect(() => {
-    if (stats.toweliPrice !== '–') return; // Hook already has price
-    fetch(`https://api.geckoterminal.com/api/v2/simple/networks/eth/token_price/${TOWELI_ADDRESS.toLowerCase()}`)
-      .then(r => r.json()).then(d => {
-        const p = parseFloat(d?.data?.attributes?.token_prices?.[TOWELI_ADDRESS.toLowerCase()] ?? '0');
-        if (p > 0) { setDirectPrice(formatCurrency(p, 6)); localStorage.setItem('tegridy_api_price', JSON.stringify({ price: p, ts: Date.now() })); }
-      }).catch(() => {});
-  }, [stats.toweliPrice]);
-
-  const effectiveToweliPrice = (stats.toweliPrice !== '–') ? stats.toweliPrice : directPrice;
+  // Use PriceContext price (useToweliPrice already fetches from GeckoTerminal as fallback)
+  const effectiveToweliPrice = price.priceInUsd > 0 ? formatCurrency(price.priceInUsd, 6) : stats.toweliPrice;
 
   return (
     <div className="-mt-14 relative min-h-screen">
@@ -131,7 +113,7 @@ export default function HomePage() {
                 viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
                 <Link to={f.to} className="block group relative rounded-xl overflow-hidden glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
                   <div className="absolute inset-0">
-                    <img src={f.art} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
+                    <img src={f.art} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
                     <div className="absolute inset-0" style={{
                       background: 'linear-gradient(to bottom, rgba(6,12,26,0.40) 0%, rgba(6,12,26,0.75) 50%, rgba(6,12,26,0.92) 100%)',
                     }} />
@@ -192,7 +174,7 @@ export default function HomePage() {
             <a href="https://opensea.io/collection/junglebay" target="_blank" rel="noopener noreferrer"
               className="relative overflow-hidden rounded-xl group block" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
               <div className="absolute inset-0">
-                <img src={ART.apeHug.src} alt="" className="w-full h-full object-cover" />
+                <img src={ART.apeHug.src} alt="" className="w-full h-full object-cover" loading="lazy" />
                 <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
               </div>
               <div className="relative z-10 p-5">
@@ -205,7 +187,7 @@ export default function HomePage() {
             <a href="https://app.uniswap.org/swap?chain=base" target="_blank" rel="noopener noreferrer"
               className="relative overflow-hidden rounded-xl group block" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
               <div className="absolute inset-0">
-                <img src={ART.beachSunset.src} alt="" className="w-full h-full object-cover" />
+                <img src={ART.beachSunset.src} alt="" className="w-full h-full object-cover" loading="lazy" />
                 <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
               </div>
               <div className="relative z-10 p-5">
@@ -217,7 +199,7 @@ export default function HomePage() {
             <motion.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.3, type: 'spring', damping: 20, stiffness: 100 }}>
             <Link to="/lore" className="relative overflow-hidden rounded-xl group block" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
               <div className="absolute inset-0">
-                <img src={ART.jungleDark.src} alt="" className="w-full h-full object-cover" />
+                <img src={ART.jungleDark.src} alt="" className="w-full h-full object-cover" loading="lazy" />
                 <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
               </div>
               <div className="relative z-10 p-5">

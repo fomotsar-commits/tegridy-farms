@@ -1,6 +1,6 @@
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 
 const PRIMARY_NAV = [
@@ -31,7 +31,7 @@ const ALL_NAV = [
 
 const MORE_PATHS = MORE_NAV.map(n => n.to);
 
-export function TopNav() {
+export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
@@ -215,4 +215,4 @@ export function TopNav() {
       </AnimatePresence>
     </>
   );
-}
+});

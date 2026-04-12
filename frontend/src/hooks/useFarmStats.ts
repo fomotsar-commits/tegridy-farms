@@ -12,7 +12,7 @@ export function useFarmStats() {
   const isDeployed = checkDeployed(addr);
   const price = useToweliPrice();
 
-  // Direct API fallback — always works, no wallet needed
+  // Direct API fallback — only fetched when useToweliPrice has no price yet
   const [apiPrice, setApiPrice] = useState<number>(() => {
     try {
       const c = localStorage.getItem('tegridy_api_price');
@@ -20,6 +20,8 @@ export function useFarmStats() {
     } catch {} return 0;
   });
   useEffect(() => {
+    // Skip API call if useToweliPrice already has a price (it fetches GeckoTerminal internally)
+    if (price.priceInUsd > 0) return;
     const controller = new AbortController();
     fetch(`https://api.geckoterminal.com/api/v2/simple/networks/eth/token_price/${TOWELI_ADDRESS.toLowerCase()}`, {
       signal: controller.signal,
@@ -29,7 +31,7 @@ export function useFarmStats() {
         if (p > 0) { setApiPrice(p); safeSetItem('tegridy_api_price', JSON.stringify({ price: p, ts: Date.now() })); }
       }).catch(() => {});
     return () => controller.abort();
-  }, []);
+  }, [price.priceInUsd]);
 
   const effectivePrice = price.priceInUsd > 0 ? price.priceInUsd : apiPrice;
 

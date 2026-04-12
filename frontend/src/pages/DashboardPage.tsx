@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useAccount, useBalance, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
@@ -22,45 +22,20 @@ import { PulseDot } from '../components/PulseDot';
 import { TegridyScoreMini } from '../components/TegridyScoreMini';
 import { usePriceHistory } from '../hooks/usePriceHistory';
 import { FlashValue } from '../components/FlashValue';
-import { safeSetItem } from '../lib/storage';
 import { PriceChart } from '../components/chart/PriceChart';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useNetworkCheck } from '../hooks/useNetworkCheck';
+import { useRevenueStats } from '../hooks/useRevenueStats';
+import { ReferralWidget } from '../components/ReferralWidget';
 
 export default function DashboardPage() {
   usePageTitle('Dashboard');
   const { isConnected, address } = useAccount();
   const { isWrongNetwork } = useNetworkCheck();
   const { data: ethBalance } = useBalance({ address });
-  const rawPrice = useToweliPrice();
-
-  // Direct API fallback for price — ensures price always shows
-  const [apiPrice, setApiPrice] = useState<number>(() => {
-    try {
-      const c = localStorage.getItem('tegridy_api_price');
-      if (c) {
-        const parsed = JSON.parse(c);
-        const p = typeof parsed?.price === 'number' ? parsed.price : 0;
-        const ts = typeof parsed?.ts === 'number' ? parsed.ts : 0;
-        if (p > 0 && p < 1e12 && Date.now() - ts < 600_000) return p;
-      }
-    } catch {} return 0;
-  });
-  useEffect(() => {
-    fetch(`https://api.geckoterminal.com/api/v2/simple/networks/eth/token_price/${TOWELI_ADDRESS.toLowerCase()}`)
-      .then(r => r.json()).then(d => {
-        const p = parseFloat(d?.data?.attributes?.token_prices?.[TOWELI_ADDRESS.toLowerCase()] ?? '0');
-        if (p > 0) { setApiPrice(p); safeSetItem('tegridy_api_price', JSON.stringify({ price: p, ts: Date.now() })); }
-      }).catch(() => {});
-  }, []);
-
-  // Prefer GeckoTerminal API price (matches embedded chart) over on-chain calc
-  const price = {
-    ...rawPrice,
-    priceInUsd: apiPrice > 0 ? apiPrice : rawPrice.priceInUsd,
-    isLoaded: rawPrice.isLoaded || apiPrice > 0,
-  };
+  // useToweliPrice already fetches from GeckoTerminal as fallback — no duplicate fetch needed
+  const price = useToweliPrice();
   const farmActions = useFarmActions();
   const nft = useNFTBoost();
   const dca = useDCA();
@@ -68,6 +43,7 @@ export default function DashboardPage() {
   const pos = useUserPosition();
   const pool = usePoolData();
   const { history: priceHistory } = usePriceHistory(price.priceInUsd);
+  const revenueStats = useRevenueStats();
 
   const { data: toweliBalance } = useReadContract({
     address: TOWELI_ADDRESS,
@@ -355,6 +331,16 @@ export default function DashboardPage() {
               <Link to="/farm" className="btn-primary px-8 py-3 text-[14px]">Start Staking &#8594;</Link>
             </div>
           </motion.div>
+        )}
+
+        {/* Referral Widget */}
+        {address && (
+          <ReferralWidget
+            address={address}
+            referredCount={revenueStats.referredCount}
+            referralEarned={revenueStats.referralEarned}
+            referralPending={revenueStats.referralPending}
+          />
         )}
 
         {/* Projections */}

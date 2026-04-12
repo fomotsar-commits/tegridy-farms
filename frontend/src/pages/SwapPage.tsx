@@ -11,6 +11,7 @@ import { LimitOrderTab } from '../components/swap/LimitOrderTab';
 import { DCATab } from '../components/swap/DCATab';
 import { DEFAULT_TOKENS, type TokenInfo } from '../lib/tokenList';
 import { ART } from '../lib/artConfig';
+import { trackSwap, trackPageView } from '../lib/analytics';
 import { formatUnits } from 'viem';
 import { AGGREGATOR_NAMES } from '../lib/aggregator';
 
@@ -40,6 +41,7 @@ export default function SwapPage() {
     if (swap.isSuccess && swap.fromToken && swapLoggedRef.current !== swap.outputFormatted) {
       swapLoggedRef.current = swap.outputFormatted;
       points.logAction('swap', nft.holdsGoldCard);
+      trackSwap(swap.fromToken.symbol, swap.toToken!.symbol, swap.inputAmount, swap.selectedRoute ?? 'unknown');
     }
   }, [swap.isSuccess]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -73,6 +75,9 @@ export default function SwapPage() {
   const [showChart, setShowChart] = useState(false);
   const [tokenSelectSide, setTokenSelectSide] = useState<'from' | 'to' | null>(null);
   const [activeTab, setActiveTab] = useState<'swap' | 'limit' | 'dca'>('swap');
+
+  // Analytics: track page view on mount
+  useEffect(() => { trackPageView('swap'); }, []);
 
   // Deferred iframe rendering
   useEffect(() => {

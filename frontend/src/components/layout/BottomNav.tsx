@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 
 const TABS = [
@@ -44,7 +44,7 @@ const MORE_PAGES = [
 
 const MORE_PATHS = MORE_PAGES.map(p => p.to);
 
-export function BottomNav() {
+export const BottomNav = React.memo(function BottomNav() {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
@@ -144,4 +144,4 @@ export function BottomNav() {
       </div>
     </nav>
   );
-}
+});
