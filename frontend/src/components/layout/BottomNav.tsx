@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 
 const TABS = [
-  { to: '/swap', label: 'Swap', icon: (
+  { to: '/swap', label: 'Trade', icon: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path d="M7 10l5-5 5 5M7 14l5 5 5-5" />
     </svg>
@@ -29,7 +29,6 @@ const TABS = [
 ];
 
 const MORE_PAGES = [
-  { to: '/liquidity', label: 'Liquidity' },
   { to: '/lending', label: 'NFT Finance' },
   { to: '/premium', label: 'Gold Card' },
   { to: '/leaderboard', label: 'Points' },

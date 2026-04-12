@@ -6,8 +6,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 const PRIMARY_NAV = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/farm', label: 'Farm' },
-  { to: '/swap', label: 'Swap' },
-  { to: '/liquidity', label: 'Liquidity' },
+  { to: '/swap', label: 'Trade' },
   { to: '/lending', label: 'NFT Finance' },
 ];
 

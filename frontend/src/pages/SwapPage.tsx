@@ -23,7 +23,7 @@ import { usePriceHistory } from '../hooks/usePriceHistory';
 import { useTransactionReceipt } from '../hooks/useTransactionReceipt';
 import { useConfetti } from '../hooks/useConfetti';
 
-export default function SwapPage() {
+export default function SwapPage({ embedded }: { embedded?: boolean }) {
   const { isConnected } = useAccount();
   const swap = useSwap();
   const price = useToweliPrice();
@@ -194,21 +194,25 @@ export default function SwapPage() {
   }, [chartToken]);
 
   return (
-    <div className="-mt-14 relative min-h-screen">
+    <div className={embedded ? '' : '-mt-14 relative min-h-screen'}>
       {/* Art background */}
-      <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.apeHug.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
-        <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.4) 25%, rgba(0,0,0,0.65) 55%, rgba(0,0,0,0.88) 100%)',
-        }} />
-      </div>
+      {!embedded && (
+        <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
+          <img src={ART.apeHug.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
+          <div className="absolute inset-0" style={{
+            background: 'linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.4) 25%, rgba(0,0,0,0.65) 55%, rgba(0,0,0,0.88) 100%)',
+          }} />
+        </div>
+      )}
 
-      <div className="relative z-10 max-w-[1100px] mx-auto px-4 md:px-6 pt-20 pb-12">
+      <div className={`relative z-10 ${embedded ? '' : 'max-w-[1100px] mx-auto px-4 md:px-6 pt-20 pb-12'}`}>
         {/* Page header */}
-        <motion.div className="mb-5" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Swap</h1>
-          <p className="text-white/50 text-[13px]">Trade any token via Uniswap V2</p>
-        </motion.div>
+        {!embedded && (
+          <motion.div className="mb-5" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+            <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Swap</h1>
+            <p className="text-white/50 text-[13px]">Trade any token via Uniswap V2</p>
+          </motion.div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] xl:grid-cols-[1fr_420px] gap-4 items-stretch">
 

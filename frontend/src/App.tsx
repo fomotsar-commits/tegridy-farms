@@ -12,7 +12,7 @@ import { safeSetItem } from './lib/storage';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const FarmPage = lazy(() => import('./pages/FarmPage'));
-const SwapPage = lazy(() => import('./pages/SwapPage'));
+const TradePage = lazy(() => import('./pages/TradePage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const GalleryPage = lazy(() => import('./pages/GalleryPage'));
 const TokenomicsPage = lazy(() => import('./pages/TokenomicsPage'));
@@ -21,7 +21,7 @@ const LorePage = lazy(() => import('./pages/LorePage'));
 const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
 const CommunityPage = lazy(() => import('./pages/CommunityPage'));
 // RestakePage + LaunchpadPage merged into LendingPage (NFT Finance)
-const LiquidityPage = lazy(() => import('./pages/LiquidityPage'));
+// LiquidityPage + SwapPage merged into TradePage
 const PremiumPage = lazy(() => import('./pages/PremiumPage'));
 // BribesPage, GrantsPage, BountyPage merged into CommunityPage
 const NakamigosApp = lazy(() => import('./nakamigos/App'));
@@ -48,7 +48,7 @@ function AnimatedRoutes() {
       <Route element={<AppLayout />}>
         <Route index element={<ErrorBoundary><HomePage /></ErrorBoundary>} />
         <Route path="farm" element={<ErrorBoundary><FarmPage /></ErrorBoundary>} />
-        <Route path="swap" element={<ErrorBoundary><SwapPage /></ErrorBoundary>} />
+        <Route path="swap" element={<ErrorBoundary><TradePage /></ErrorBoundary>} />
         <Route path="dashboard" element={<ErrorBoundary><DashboardPage /></ErrorBoundary>} />
         <Route path="gallery" element={<ErrorBoundary><GalleryPage /></ErrorBoundary>} />
         <Route path="tokenomics" element={<ErrorBoundary><TokenomicsPage /></ErrorBoundary>} />
@@ -59,7 +59,7 @@ function AnimatedRoutes() {
         <Route path="grants" element={<Navigate to="/community" replace />} />
         <Route path="bounties" element={<Navigate to="/community" replace />} />
         <Route path="restake" element={<Navigate to="/lending" replace />} />
-        <Route path="liquidity" element={<ErrorBoundary><LiquidityPage /></ErrorBoundary>} />
+        <Route path="liquidity" element={<Navigate to="/swap" replace />} />
         <Route path="premium" element={<ErrorBoundary><PremiumPage /></ErrorBoundary>} />
         <Route path="bribes" element={<Navigate to="/community" replace />} />
         <Route path="admin" element={<ErrorBoundary><AdminPage /></ErrorBoundary>} />

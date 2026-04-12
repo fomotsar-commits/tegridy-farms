@@ -24,8 +24,8 @@ type Tab = 'add' | 'remove';
 const defaultTokenA = DEFAULT_TOKENS.find(t => t.address.toLowerCase() === TOWELI_ADDRESS.toLowerCase()) ?? DEFAULT_TOKENS[2];
 const defaultTokenB = DEFAULT_TOKENS.find(t => t.isNative) ?? DEFAULT_TOKENS[0];
 
-export default function LiquidityPage() {
-  usePageTitle('Liquidity');
+export default function LiquidityPage({ embedded }: { embedded?: boolean }) {
+  usePageTitle(embedded ? '' : 'Liquidity');
   const { isConnected, address } = useAccount();
   const { isWrongNetwork } = useNetworkCheck();
   const price = useToweliPrice();
@@ -190,15 +190,19 @@ export default function LiquidityPage() {
   }
 
   return (
-    <div className="min-h-screen relative">
-      <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.85) 30%, rgba(0,0,0,0.92) 60%, rgba(0,0,0,0.96) 100%)' }} />
+    <div className={embedded ? '' : 'min-h-screen relative'}>
+      {!embedded && (
+        <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.85) 30%, rgba(0,0,0,0.92) 60%, rgba(0,0,0,0.96) 100%)' }} />
+      )}
 
-      <div className="relative z-10 max-w-lg mx-auto px-4 py-8 space-y-6">
+      <div className={`relative z-10 ${embedded ? 'space-y-6' : 'max-w-lg mx-auto px-4 py-8 space-y-6'}`}>
         {/* Header */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center">
-          <h1 className="text-2xl font-bold text-white">Tegridy Liquidity Pools</h1>
-          <p className="text-white/40 text-sm mt-1">Add liquidity to any pair and earn 0.25% on every trade</p>
-        </motion.div>
+        {!embedded && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center">
+            <h1 className="text-2xl font-bold text-white">Tegridy Liquidity Pools</h1>
+            <p className="text-white/40 text-sm mt-1">Add liquidity to any pair and earn 0.25% on every trade</p>
+          </motion.div>
+        )}
 
         {isWrongNetwork && (
           <div className="bg-red-500/20 border border-red-500/40 rounded-xl p-3 text-center text-red-300 text-sm font-medium">
