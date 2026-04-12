@@ -7,12 +7,12 @@ import { TOWELI_WETH_LP_ADDRESS } from '../lib/constants';
 import { formatEther } from 'viem';
 import { usePageTitle } from '../hooks/usePageTitle';
 
-export default function BribesPage() {
-  usePageTitle('Bribes');
+export default function BribesPage({ embedded }: { embedded?: boolean }) {
+  usePageTitle(embedded ? '' : 'Bribes');
   const { isConnected } = useAccount();
   const bribes = useBribes();
 
-  if (!isConnected) {
+  if (!isConnected && !embedded) {
     return (
       <div className="-mt-14 relative min-h-screen">
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
@@ -36,14 +36,20 @@ export default function BribesPage() {
     );
   }
 
+  if (!isConnected && embedded) {
+    return <p className="text-white/40 text-center py-10 text-[13px]">Connect your wallet to view and claim bribes.</p>;
+  }
+
   if (!bribes.isDeployed) {
     return (
-      <div className="-mt-14 relative min-h-screen">
-        <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-          <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.3 }} />
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.96) 100%)' }} />
-        </div>
-        <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
+      <div className={embedded ? 'py-10 text-center' : '-mt-14 relative min-h-screen'}>
+        {!embedded && (
+          <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
+            <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.3 }} />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.96) 100%)' }} />
+          </div>
+        )}
+        <div className={embedded ? '' : 'relative z-10 min-h-screen flex items-center justify-center px-6'}>
           <motion.div className="text-center max-w-sm" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}>
             <h2 className="heading-luxury text-2xl text-white mb-2">Vote Incentives</h2>
             <p className="text-white/40 text-[13px] mb-2">Bribe market coming soon.</p>
@@ -55,19 +61,23 @@ export default function BribesPage() {
   }
 
   return (
-    <div className="-mt-14 relative min-h-screen">
-      <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
-        <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.85) 30%, rgba(0,0,0,0.92) 60%, rgba(0,0,0,0.96) 100%)',
-        }} />
-      </div>
+    <div className={embedded ? '' : '-mt-14 relative min-h-screen'}>
+      {!embedded && (
+        <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
+          <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
+          <div className="absolute inset-0" style={{
+            background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.85) 30%, rgba(0,0,0,0.92) 60%, rgba(0,0,0,0.96) 100%)',
+          }} />
+        </div>
+      )}
 
-      <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-20 pb-12">
-        <motion.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Vote Incentives</h1>
-          <p className="text-white/50 text-[14px]">Earn bribes from protocols competing for veTOWELI votes</p>
-        </motion.div>
+      <div className={`relative z-10 max-w-[900px] mx-auto ${embedded ? '' : 'px-4 md:px-6 pt-20 pb-12'}`}>
+        {!embedded && (
+          <motion.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+            <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Vote Incentives</h1>
+            <p className="text-white/50 text-[14px]">Earn bribes from protocols competing for veTOWELI votes</p>
+          </motion.div>
+        )}
 
         {/* Stats Overview */}
         <motion.div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>

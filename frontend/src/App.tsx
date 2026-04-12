@@ -19,17 +19,16 @@ const TokenomicsPage = lazy(() => import('./pages/TokenomicsPage'));
 const HistoryPage = lazy(() => import('./pages/HistoryPage'));
 const LorePage = lazy(() => import('./pages/LorePage'));
 const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
-const GrantsPage = lazy(() => import('./pages/GrantsPage'));
-const BountyPage = lazy(() => import('./pages/BountyPage'));
+const CommunityPage = lazy(() => import('./pages/CommunityPage'));
 const RestakePage = lazy(() => import('./pages/RestakePage'));
 const LiquidityPage = lazy(() => import('./pages/LiquidityPage'));
 const PremiumPage = lazy(() => import('./pages/PremiumPage'));
-const BribesPage = lazy(() => import('./pages/BribesPage'));
+// BribesPage, GrantsPage, BountyPage merged into CommunityPage
 const NakamigosApp = lazy(() => import('./nakamigos/App'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const LendingPage = lazy(() => import('./pages/LendingPage'));
 const LaunchpadPage = lazy(() => import('./pages/LaunchpadPage'));
-const NFTAMMPage = lazy(() => import('./pages/NFTAMMPage'));
+// NFTAMMPage merged into LendingPage (NFT Finance)
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,17 +55,18 @@ function AnimatedRoutes() {
         <Route path="history" element={<ErrorBoundary><HistoryPage /></ErrorBoundary>} />
         <Route path="lore" element={<ErrorBoundary><LorePage /></ErrorBoundary>} />
         <Route path="leaderboard" element={<ErrorBoundary><LeaderboardPage /></ErrorBoundary>} />
-        <Route path="grants" element={<ErrorBoundary><GrantsPage /></ErrorBoundary>} />
-        <Route path="bounties" element={<ErrorBoundary><BountyPage /></ErrorBoundary>} />
+        <Route path="community" element={<ErrorBoundary><CommunityPage /></ErrorBoundary>} />
+        <Route path="grants" element={<Navigate to="/community" replace />} />
+        <Route path="bounties" element={<Navigate to="/community" replace />} />
         <Route path="restake" element={<ErrorBoundary><RestakePage /></ErrorBoundary>} />
         <Route path="liquidity" element={<ErrorBoundary><LiquidityPage /></ErrorBoundary>} />
         <Route path="premium" element={<ErrorBoundary><PremiumPage /></ErrorBoundary>} />
-        <Route path="bribes" element={<ErrorBoundary><BribesPage /></ErrorBoundary>} />
+        <Route path="bribes" element={<Navigate to="/community" replace />} />
         <Route path="admin" element={<ErrorBoundary><AdminPage /></ErrorBoundary>} />
         <Route path="lending" element={<ErrorBoundary><LendingPage /></ErrorBoundary>} />
         <Route path="launchpad" element={<ErrorBoundary><LaunchpadPage /></ErrorBoundary>} />
-        <Route path="nft-amm" element={<ErrorBoundary><NFTAMMPage /></ErrorBoundary>} />
-        <Route path="governance" element={<Navigate to="/grants" replace />} />
+        <Route path="nft-amm" element={<Navigate to="/lending" replace />} />
+        <Route path="governance" element={<Navigate to="/community" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

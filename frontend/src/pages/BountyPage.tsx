@@ -127,8 +127,8 @@ function SubmissionRow({ bountyId, submissionId, onVoted }: { bountyId: number; 
 /* ------------------------------------------------------------------ */
 /*  Main Page                                                          */
 /* ------------------------------------------------------------------ */
-export default function BountyPage() {
-  usePageTitle('Bounties');
+export default function BountyPage({ embedded }: { embedded?: boolean }) {
+  usePageTitle(embedded ? '' : 'Bounties');
   const { isConnected } = useAccount();
   const [description, setDescription] = useState('');
   const [reward, setReward] = useState('');
@@ -183,18 +183,20 @@ export default function BountyPage() {
   }, [isSuccess, hash, refetch, description, reward, showReceipt]);
 
   return (
-    <div className="-mt-14 relative min-h-screen">
-      <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.wrestler.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 0%' }} />
-        <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.88) 40%, rgba(0,0,0,0.96) 100%)',
-        }} />
-      </div>
+    <div className={embedded ? '' : '-mt-14 relative min-h-screen'}>
+      {!embedded && (
+        <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
+          <img src={ART.wrestler.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 0%' }} />
+          <div className="absolute inset-0" style={{
+            background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.88) 40%, rgba(0,0,0,0.96) 100%)',
+          }} />
+        </div>
+      )}
 
-      <div className="relative z-10 max-w-[700px] mx-auto px-4 md:px-6 pt-20 pb-12">
+      <div className={`relative z-10 max-w-[700px] mx-auto ${embedded ? '' : 'px-4 md:px-6 pt-20 pb-12'}`}>
         <motion.div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div>
-            <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Bounty Board</h1>
+            {!embedded && <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Bounty Board</h1>}
             <p className="text-white/50 text-[14px]">Seize the memes of production — get paid for creating</p>
           </div>
           {isConnected && (

@@ -8,18 +8,15 @@ const PRIMARY_NAV = [
   { to: '/farm', label: 'Farm' },
   { to: '/swap', label: 'Swap' },
   { to: '/liquidity', label: 'Liquidity' },
-  { to: '/lending', label: 'Lending' },
+  { to: '/lending', label: 'NFT Finance' },
 ];
 
 const MORE_NAV = [
   { to: '/restake', label: 'Restake' },
+  { to: '/community', label: 'Community' },
   { to: '/launchpad', label: 'Launchpad' },
-  { to: '/nft-amm', label: 'NFT AMM' },
   { to: '/gallery', label: 'Gallery' },
   { to: '/nakamigos', label: 'Marketplace' },
-  { to: '/grants', label: 'Governance' },
-  { to: '/bounties', label: 'Bounties' },
-  { to: '/bribes', label: 'Bribes' },
   { to: '/tokenomics', label: 'Tokenomics' },
   { to: '/lore', label: 'Lore' },
   { to: '/history', label: 'History' },

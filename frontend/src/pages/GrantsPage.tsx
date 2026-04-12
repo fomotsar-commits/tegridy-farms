@@ -13,8 +13,8 @@ import { usePageTitle } from '../hooks/usePageTitle';
 const STATUS_LABELS = ['Active', 'Approved', 'Rejected', 'Executed', 'Cancelled', 'Lapsed'];
 const STATUS_COLORS = ['text-primary', 'text-success', 'text-danger', 'text-white/50', 'text-white/25', 'text-white/30'];
 
-export default function GrantsPage() {
-  usePageTitle('Governance');
+export default function GrantsPage({ embedded }: { embedded?: boolean }) {
+  usePageTitle(embedded ? '' : 'Governance');
   const { isConnected, address } = useAccount();
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
@@ -55,18 +55,20 @@ export default function GrantsPage() {
   }, [isSuccess, hash, refetch]);
 
   return (
-    <div className="-mt-14 relative min-h-screen">
-      <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.danceNight.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%' }} />
-        <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.88) 40%, rgba(0,0,0,0.96) 100%)',
-        }} />
-      </div>
+    <div className={embedded ? '' : '-mt-14 relative min-h-screen'}>
+      {!embedded && (
+        <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
+          <img src={ART.danceNight.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%' }} />
+          <div className="absolute inset-0" style={{
+            background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.88) 40%, rgba(0,0,0,0.96) 100%)',
+          }} />
+        </div>
+      )}
 
-      <div className="relative z-10 max-w-[700px] mx-auto px-4 md:px-6 pt-20 pb-12">
+      <div className={`relative z-10 max-w-[700px] mx-auto ${embedded ? '' : 'px-4 md:px-6 pt-20 pb-12'}`}>
         <motion.div className="mb-6 flex items-center justify-between" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div>
-            <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Governance</h1>
+            {!embedded && <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Governance</h1>}
             <p className="text-white/50 text-[14px]">Community proposals &amp; grants — voted by veTOWELI holders</p>
           </div>
           {isConnected && (
