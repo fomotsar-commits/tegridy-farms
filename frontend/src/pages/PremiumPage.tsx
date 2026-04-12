@@ -49,7 +49,7 @@ export default function PremiumPage() {
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <img src={ART.swordOfLove.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
         <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, rgba(6,12,26,0.85) 50%, rgba(6,12,26,0.98) 100%)',
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, rgba(6,12,26,0.85) 50%, rgba(6,12,26,0.88) 100%)',
         }} />
       </div>
 

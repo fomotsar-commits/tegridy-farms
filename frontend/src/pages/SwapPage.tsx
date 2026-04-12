@@ -310,7 +310,7 @@ export default function SwapPage({ embedded }: { embedded?: boolean }) {
         >
           <div className="absolute inset-0">
             <img src={ART.chaosScene.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.40) 0%, rgba(6,12,26,0.75) 50%, rgba(6,12,26,0.92) 100%)' }} />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.40) 0%, rgba(6,12,26,0.75) 50%, rgba(6,12,26,0.65) 100%)' }} />
           </div>
           {/* Card Header with Tabs */}
           <div className="relative z-10">

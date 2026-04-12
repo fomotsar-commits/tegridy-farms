@@ -83,7 +83,7 @@ export default function GrantsPage({ embedded }: { embedded?: boolean }) {
           initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div className="absolute inset-0">
             <img src={ART.porchChill.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 65%', opacity: 1 }} />
-            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
           </div>
           <div className="relative z-10 p-6 py-8 flex items-center gap-10">
             <div>
@@ -107,7 +107,7 @@ export default function GrantsPage({ embedded }: { embedded?: boolean }) {
             initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
             <div className="absolute inset-0">
               <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-              <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
             </div>
             <div className="relative z-10 p-5">
             <h3 className="text-white text-[15px] font-semibold mb-3">Create Proposal</h3>
@@ -144,7 +144,7 @@ export default function GrantsPage({ embedded }: { embedded?: boolean }) {
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div className="absolute inset-0">
             <img src={ART.busCrew.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%', opacity: 1 }} />
-            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
           </div>
           <div className="relative z-10">
           {isCountLoading ? (

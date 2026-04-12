@@ -82,7 +82,7 @@ export default function LorePage() {
               <div className="absolute inset-0">
                 <img src={item.art} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
                 <div className="absolute inset-0" style={{
-                  background: 'rgba(6,12,26,0.92)',
+                  background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)',
                 }} />
               </div>
               <div className="relative z-10 p-5 md:p-10">

@@ -216,7 +216,7 @@ export default function LiquidityPage({ embedded }: { embedded?: boolean }) {
             className="relative rounded-2xl overflow-hidden border border-white/5"
           >
             <img src={ART.poolParty.src} alt="" className="absolute inset-0 w-full h-full object-cover" style={{ opacity: 1 }} />
-            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
             <div className="relative p-5">
               <h2 className="text-white/60 text-xs font-semibold tracking-widest uppercase mb-4">{symbolA}/{symbolB} Pool</h2>
               <div className="grid grid-cols-2 gap-4">
@@ -272,7 +272,7 @@ export default function LiquidityPage({ embedded }: { embedded?: boolean }) {
             className="relative rounded-2xl overflow-hidden border border-white/5"
           >
             <img src={ART.beachVibes.src} alt="" className="absolute inset-0 w-full h-full object-cover" style={{ opacity: 1 }} />
-            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
             <div className="relative p-5 space-y-4">
 
               {/* New pool notice */}
@@ -409,7 +409,7 @@ export default function LiquidityPage({ embedded }: { embedded?: boolean }) {
             className="relative rounded-2xl overflow-hidden border border-white/5"
           >
             <img src={ART.chaosScene.src} alt="" className="absolute inset-0 w-full h-full object-cover" style={{ opacity: 1 }} />
-            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
             <div className="relative p-5 space-y-4">
               <div>
                 <div className="flex justify-between mb-1.5">

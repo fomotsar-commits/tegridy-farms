@@ -99,7 +99,7 @@ export default function BribesPage({ embedded }: { embedded?: boolean }) {
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <div className="absolute inset-0">
             <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
           </div>
           <div className="relative z-10 p-5">
             <h3 className="text-white text-[15px] font-semibold mb-4">Your Claimable Bribes</h3>
@@ -144,7 +144,7 @@ export default function BribesPage({ embedded }: { embedded?: boolean }) {
         {/* Advance Epoch */}
         <motion.div className="relative overflow-hidden rounded-xl mb-6" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-          <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.95)' }} />
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
           <div className="relative z-10 p-5">
             <h3 className="text-white text-[15px] font-semibold mb-2">Epoch Management</h3>
             <p className="text-white/30 text-[12px] mb-3">
@@ -163,7 +163,7 @@ export default function BribesPage({ embedded }: { embedded?: boolean }) {
         {/* How Bribes Work */}
         <motion.div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-          <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.95)' }} />
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
           <div className="relative z-10 p-5">
             <h3 className="text-white text-[15px] font-semibold mb-3">How Bribes Work</h3>
             <div className="space-y-2.5 text-[12px] text-white/40">
@@ -194,7 +194,7 @@ export default function BribesPage({ embedded }: { embedded?: boolean }) {
         {bribes.latestEpoch && (
           <motion.div className="relative overflow-hidden rounded-xl mt-6" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
-            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.95)' }} />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
             <div className="relative z-10 p-5">
               <h3 className="text-white text-[15px] font-semibold mb-3">Latest Epoch #{bribes.epochCount - 1}</h3>
               <div className="grid grid-cols-2 gap-3">

@@ -982,7 +982,7 @@ export default function LaunchpadPage({ embedded }: { embedded?: boolean }) {
             className="absolute inset-0"
             style={{
               background:
-                'linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, rgba(6,12,26,0.88) 45%, rgba(6,12,26,0.98) 100%)',
+                'linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, rgba(6,12,26,0.88) 45%, rgba(6,12,26,0.88) 100%)',
             }}
           />
         </div>

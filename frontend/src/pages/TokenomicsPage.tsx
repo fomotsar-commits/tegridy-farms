@@ -74,7 +74,7 @@ export default function TokenomicsPage() {
             <div key={i.l} className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
               <div className="absolute inset-0">
                 <img src={i.art} alt="" className="w-full h-full object-cover" style={{ objectPosition: i.pos, opacity: 1 }} />
-                <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+                <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
               </div>
               <div className="relative z-10 p-5 pt-8 pb-6">
               <p className="text-white/50 text-[11px] uppercase tracking-wider mb-2">{i.l}</p>
@@ -102,7 +102,7 @@ export default function TokenomicsPage() {
             initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}>
             <div className="absolute inset-0">
               <img src={ART.danceNight.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%', opacity: 1 }} />
-              <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
             </div>
             <div className="relative z-10 p-5">
             <h3 className="heading-luxury text-[15px] text-white mb-3">Supply Distribution</h3>
@@ -115,7 +115,7 @@ export default function TokenomicsPage() {
                   </Pie>
                   <Tooltip
                     contentStyle={{
-                      background: 'rgba(6,12,26,0.9)', border: '1px solid rgba(139,92,246,0.15)',
+                      background: 'rgba(6,12,26,0.55)', border: '1px solid rgba(139,92,246,0.15)',
                       borderRadius: '8px', fontFamily: "'Inter', sans-serif", color: '#f0ead6', fontSize: '12px',
                     }}
                     formatter={(v) => `${v}%`}
@@ -140,7 +140,7 @@ export default function TokenomicsPage() {
             initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>
             <div className="absolute inset-0">
               <img src={ART.jbChristmas.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-              <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
             </div>
             <div className="relative z-10 p-5">
             <h3 className="heading-luxury text-[15px] text-white mb-3">Emission Schedule</h3>
@@ -170,7 +170,7 @@ export default function TokenomicsPage() {
           initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <div className="absolute inset-0">
             <img src={ART.beachVibes.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
           </div>
           <div className="relative z-10 p-5">
             <div className="flex items-center justify-between mb-3">
@@ -205,7 +205,7 @@ export default function TokenomicsPage() {
           initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <div className="absolute inset-0">
             <img src={ART.jbacSkeleton.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
           </div>
           <div className="relative z-10 p-5">
             <h3 className="heading-luxury text-[15px] text-white mb-3">Contracts</h3>

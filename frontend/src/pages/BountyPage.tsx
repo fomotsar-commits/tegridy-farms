@@ -42,7 +42,7 @@ function WithdrawBanner() {
   return (
     <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(34,197,94,0.2)' }}
       initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-      <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.95)' }} />
+      <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
       <div className="relative z-10 p-5 flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex-1">
           <p className="text-white text-[14px] font-semibold mb-1">Funds Available</p>
@@ -214,7 +214,7 @@ export default function BountyPage({ embedded }: { embedded?: boolean }) {
           initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div className="absolute inset-0">
             <img src={ART.beachSunset.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%', opacity: 1 }} />
-            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
           </div>
           <div className="relative z-10 p-6 py-8 flex flex-wrap items-center gap-6 md:gap-10">
             <div>
@@ -234,7 +234,7 @@ export default function BountyPage({ embedded }: { embedded?: boolean }) {
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
               <img src={ART.mumuBull.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-              <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
             </div>
             <div className="relative z-10 p-5">
               <h3 className="text-white text-[15px] font-semibold mb-3">Post a Bounty</h3>
@@ -274,7 +274,7 @@ export default function BountyPage({ embedded }: { embedded?: boolean }) {
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div className="absolute inset-0">
             <img src={ART.boxingRing.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%', opacity: 1 }} />
-            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
           </div>
           <div className="relative z-10">
           {isCountLoading ? (
