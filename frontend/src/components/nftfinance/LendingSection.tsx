@@ -10,12 +10,15 @@ import {
 } from '../../lib/constants';
 import { TEGRIDY_LENDING_ABI, TEGRIDY_STAKING_ABI } from '../../lib/contracts';
 import { formatTokenAmount, shortenAddress } from '../../lib/formatting';
+import { ART } from '../../lib/artConfig';
 
 // ─── Design tokens ──────────────────────────────────────────────
 const CARD_BG = 'rgba(13, 21, 48, 0.6)';
-const CARD_BORDER = 'rgba(16, 185, 129, 0.06)';
-const CARD_BORDER_HOVER = 'rgba(16, 185, 129, 0.15)';
+const CARD_BORDER = 'rgba(139, 92, 246, 0.12)';
+const CARD_BORDER_HOVER = 'rgba(139, 92, 246, 0.25)';
 const ROW_BORDER = 'rgba(255, 255, 255, 0.04)';
+const DARK_OVERLAY = 'rgba(6, 12, 26, 0.92)';
+const DARK_OVERLAY_HEAVY = 'rgba(6, 12, 26, 0.95)';
 const SHIMMER_BG =
   'linear-gradient(90deg, rgba(13,21,48,0.8) 25%, rgba(17,29,58,0.8) 50%, rgba(13,21,48,0.8) 75%)';
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -29,6 +32,11 @@ const DURATION_PRESETS = [
   { label: '180d', days: 180 },
   { label: '365d', days: 365 },
 ] as const;
+
+// ─── Filter types ───────────────────────────────────────────────
+type AprFilter = 'all' | 'low' | 'med' | 'high';
+type DurationFilter = 'all' | 'short' | 'medium' | 'long';
+type PrincipalFilter = 'all' | 'small' | 'medium' | 'large';
 
 // ─── Types ──────────────────────────────────────────────────────
 type Tab = 'lend' | 'borrow' | 'myloans';
@@ -81,18 +89,61 @@ function getLoanStatus(loan: Loan): LoanStatus {
   return 'active';
 }
 
-function useCountdown(deadline: bigint): string {
+function useCountdown(deadline: bigint): { text: string; isUrgent: boolean; isExpired: boolean } {
   const [now, setNow] = useState(Math.floor(Date.now() / 1000));
   useEffect(() => {
     const iv = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
     return () => clearInterval(iv);
   }, []);
   const remaining = Number(deadline) - now;
-  if (remaining <= 0) return '0d 0h 0m';
+  if (remaining <= 0) return { text: 'Expired', isUrgent: true, isExpired: true };
   const d = Math.floor(remaining / 86400);
   const h = Math.floor((remaining % 86400) / 3600);
   const m = Math.floor((remaining % 3600) / 60);
-  return `${d}d ${h}h ${m}m`;
+  const isUrgent = remaining < 86400;
+  return { text: `${d}d:${String(h).padStart(2, '0')}h:${String(m).padStart(2, '0')}m`, isUrgent, isExpired: false };
+}
+
+function computeLTV(principal: bigint, positionValueEth: string): { ratio: number; color: string } {
+  const pv = parseFloat(positionValueEth);
+  if (pv <= 0) return { ratio: 0, color: 'text-white/40' };
+  const principalEth = parseFloat(formatEther(principal));
+  const ratio = (principalEth / pv) * 100;
+  if (ratio < 50) return { ratio, color: 'text-emerald-400' };
+  if (ratio < 75) return { ratio, color: 'text-yellow-400' };
+  return { ratio, color: 'text-red-400' };
+}
+
+// ─── Art Background Panel ───────────────────────────────────────
+function ArtPanel({
+  artSrc,
+  opacity = 0.12,
+  overlay = DARK_OVERLAY,
+  children,
+  className = '',
+  style = {},
+}: {
+  artSrc: string;
+  opacity?: number;
+  overlay?: string;
+  children: React.ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <div
+      className={`relative overflow-hidden rounded-xl ${className}`}
+      style={{ border: `1px solid ${CARD_BORDER}`, ...style }}
+    >
+      <div className="absolute inset-0">
+        <img src={artSrc} alt="" className="w-full h-full object-cover" style={{ opacity }} />
+        <div className="absolute inset-0" style={{ background: overlay }} />
+      </div>
+      <div className="relative z-10">
+        {children}
+      </div>
+    </div>
+  );
 }
 
 // ─── Skeleton Shimmer ───────────────────────────────────────────
@@ -109,12 +160,10 @@ function Shimmer({ className }: { className?: string }) {
   );
 }
 
-// ─── Skeleton Loading Layout ────────────────────────────────────
 function SkeletonLayout() {
   return (
     <div className="space-y-6">
       <style>{`@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
-      {/* Stats bar */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[...Array(4)].map((_, i) => (
           <div
@@ -127,9 +176,7 @@ function SkeletonLayout() {
           </div>
         ))}
       </div>
-      {/* Tabs */}
       <Shimmer className="h-10 w-64" />
-      {/* Table rows */}
       <div className="space-y-2">
         {[...Array(5)].map((_, i) => (
           <Shimmer key={i} className="h-12 w-full" />
@@ -169,33 +216,72 @@ function PulseDot({ color = 'bg-emerald-400' }: { color?: string }) {
   );
 }
 
-// ─── Glass Card ─────────────────────────────────────────────────
-function GlassCard({
+// ─── Disabled Tooltip Wrapper ───────────────────────────────────
+function DisabledWrap({
+  deployed,
   children,
-  className = '',
-  hover = false,
 }: {
+  deployed: boolean;
   children: React.ReactNode;
-  className?: string;
-  hover?: boolean;
+}) {
+  if (deployed) return <>{children}</>;
+  return (
+    <div className="relative group/disabled">
+      <div className="pointer-events-none opacity-40">{children}</div>
+      <div className="absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap px-2 py-1 rounded bg-black/90 text-[10px] text-amber-400 border border-amber-500/20 opacity-0 group-hover/disabled:opacity-100 transition-opacity pointer-events-none z-20">
+        Contract not deployed yet
+      </div>
+    </div>
+  );
+}
+
+// ─── Empty State ────────────────────────────────────────────────
+function EmptyState({
+  artSrc,
+  title,
+  subtitle,
+}: {
+  artSrc: string;
+  title: string;
+  subtitle: string;
 }) {
   return (
-    <div
-      className={`rounded-xl backdrop-blur-[20px] transition-all duration-300 ${className}`}
-      style={{
-        background: CARD_BG,
-        border: `1px solid ${hover ? CARD_BORDER_HOVER : CARD_BORDER}`,
-        transitionTimingFunction: `cubic-bezier(${EASE.join(',')})`,
-      }}
-      onMouseEnter={(e) => {
-        if (hover) (e.currentTarget.style.borderColor = CARD_BORDER_HOVER);
-      }}
-      onMouseLeave={(e) => {
-        if (hover) (e.currentTarget.style.borderColor = CARD_BORDER);
-      }}
+    <ArtPanel artSrc={artSrc} opacity={0.18} overlay="rgba(6,12,26,0.85)">
+      <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+        <div className="w-10 h-10 rounded-full bg-purple-500/10 flex items-center justify-center mb-4">
+          <svg className="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+          </svg>
+        </div>
+        <h4 className="text-white font-semibold text-sm mb-1">{title}</h4>
+        <p className="text-white/40 text-xs max-w-xs">{subtitle}</p>
+      </div>
+    </ArtPanel>
+  );
+}
+
+// ─── Filter Pill ────────────────────────────────────────────────
+function FilterPill({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1 rounded-full text-[11px] font-medium transition-all duration-200 ${
+        active
+          ? 'bg-purple-500/20 text-purple-400 border border-purple-500/40'
+          : 'bg-white/5 text-white/40 border border-white/10 hover:border-white/20 hover:text-white/60'
+      }`}
+      style={{ transitionTimingFunction: `cubic-bezier(${EASE.join(',')})` }}
     >
-      {children}
-    </div>
+      {label}
+    </button>
   );
 }
 
@@ -219,23 +305,22 @@ function ComingSoonState() {
 
   return (
     <div className="relative">
-      {/* Blurred mockup */}
       <div className="filter blur-[2px] opacity-40 pointer-events-none select-none" aria-hidden="true">
-        {/* Mock stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           {['12', '3', '1.50', '24.5000'].map((val, i) => (
-            <GlassCard key={i} className="p-4">
-              <div className="text-[11px] uppercase tracking-wider text-white/40 mb-1">
-                {['Total Offers', 'Active Loans', 'Protocol Fee', 'TVL (ETH)'][i]}
+            <ArtPanel key={i} artSrc={ART.forestScene.src} opacity={0.10}>
+              <div className="p-4">
+                <div className="text-[11px] uppercase tracking-wider text-white/40 mb-1">
+                  {['Total Offers', 'Active Loans', 'Protocol Fee', 'TVL (ETH)'][i]}
+                </div>
+                <div className="font-mono text-xl text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {i === 2 ? `${val}%` : val}
+                </div>
               </div>
-              <div className="font-mono text-xl text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                {i === 2 ? `${val}%` : val}
-              </div>
-            </GlassCard>
+            </ArtPanel>
           ))}
         </div>
 
-        {/* Mock tabs */}
         <div className="flex gap-6 mb-6 border-b" style={{ borderColor: ROW_BORDER }}>
           {['Lend', 'Borrow', 'My Loans'].map((t, i) => (
             <div
@@ -247,7 +332,6 @@ function ComingSoonState() {
           ))}
         </div>
 
-        {/* Mock table */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
@@ -276,7 +360,6 @@ function ComingSoonState() {
         </div>
       </div>
 
-      {/* Overlay */}
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <div className="text-center">
           <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold tracking-wider uppercase bg-purple-500/20 text-purple-400 border border-purple-500/30 mb-4">
@@ -324,39 +407,70 @@ function StatsBar() {
     functionName: 'protocolFeeBps',
   });
 
-  // We compute TVL client-side by iterating offers (simplified: just show offer count-based placeholder)
-  // In production, this would use a subgraph or multicall for all active offer principals
   const stats = [
     {
       label: 'Total Offers',
       value: offerCount !== undefined ? Number(offerCount).toString() : '--',
+      icon: (
+        <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+        </svg>
+      ),
     },
     {
       label: 'Active Loans',
       value: loanCount !== undefined ? Number(loanCount).toString() : '--',
+      icon: (
+        <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
+        </svg>
+      ),
     },
     {
       label: 'Protocol Fee',
       value: protocolFeeBps !== undefined ? `${bpsToPercent(protocolFeeBps)}%` : '--%',
+      icon: (
+        <svg className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      ),
     },
     {
       label: 'TVL (ETH)',
-      value: '--', // requires multicall aggregation across all active offers
+      value: '--',
+      icon: (
+        <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      ),
     },
   ];
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-      {stats.map((s) => (
-        <GlassCard key={s.label} className="p-4 group" hover>
-          <div className="text-[11px] uppercase tracking-wider text-white/40 mb-1">{s.label}</div>
-          <div
-            className="font-mono text-xl text-white group-hover:text-emerald-400 transition-colors duration-300"
-            style={{ fontVariantNumeric: 'tabular-nums' }}
-          >
-            {s.value}
-          </div>
-        </GlassCard>
+      {stats.map((s, idx) => (
+        <motion.div
+          key={s.label}
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: idx * 0.08, ease: EASE as unknown as number[] }}
+        >
+          <ArtPanel artSrc={ART.forestScene.src} opacity={0.10} overlay={DARK_OVERLAY} className="group hover:scale-[1.02] transition-transform duration-300" style={{ transitionTimingFunction: `cubic-bezier(${EASE.join(',')})` }}>
+            <div className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                {s.icon}
+                <span className="text-[11px] uppercase tracking-wider text-white/40">{s.label}</span>
+              </div>
+              <div
+                className="font-mono text-xl text-white group-hover:text-emerald-400 transition-colors duration-300"
+                style={{ fontVariantNumeric: 'tabular-nums' }}
+              >
+                {s.value}
+              </div>
+            </div>
+          </ArtPanel>
+        </motion.div>
       ))}
     </div>
   );
@@ -398,9 +512,110 @@ function TabNav({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// OFFER FILTER BAR
+// ═══════════════════════════════════════════════════════════════════
+function OfferFilterBar({
+  aprFilter,
+  setAprFilter,
+  durationFilter,
+  setDurationFilter,
+  principalFilter,
+  setPrincipalFilter,
+}: {
+  aprFilter: AprFilter;
+  setAprFilter: (f: AprFilter) => void;
+  durationFilter: DurationFilter;
+  setDurationFilter: (f: DurationFilter) => void;
+  principalFilter: PrincipalFilter;
+  setPrincipalFilter: (f: PrincipalFilter) => void;
+}) {
+  const activeCount = [aprFilter !== 'all', durationFilter !== 'all', principalFilter !== 'all'].filter(Boolean).length;
+
+  const clearAll = () => {
+    setAprFilter('all');
+    setDurationFilter('all');
+    setPrincipalFilter('all');
+  };
+
+  return (
+    <ArtPanel artSrc={ART.porchChill.src} opacity={0.08} overlay={DARK_OVERLAY_HEAVY}>
+      <div className="p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-[11px] uppercase tracking-wider text-white/40 mr-1">Filters</span>
+
+          {/* APR */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-white/30 uppercase">APR:</span>
+            <FilterPill label="Low <5%" active={aprFilter === 'low'} onClick={() => setAprFilter(aprFilter === 'low' ? 'all' : 'low')} />
+            <FilterPill label="Med 5-15%" active={aprFilter === 'med'} onClick={() => setAprFilter(aprFilter === 'med' ? 'all' : 'med')} />
+            <FilterPill label="High 15%+" active={aprFilter === 'high'} onClick={() => setAprFilter(aprFilter === 'high' ? 'all' : 'high')} />
+          </div>
+
+          <div className="hidden sm:block w-px h-5 bg-white/10" />
+
+          {/* Duration */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-white/30 uppercase">Duration:</span>
+            <FilterPill label="<30d" active={durationFilter === 'short'} onClick={() => setDurationFilter(durationFilter === 'short' ? 'all' : 'short')} />
+            <FilterPill label="30-90d" active={durationFilter === 'medium'} onClick={() => setDurationFilter(durationFilter === 'medium' ? 'all' : 'medium')} />
+            <FilterPill label="90d+" active={durationFilter === 'long'} onClick={() => setDurationFilter(durationFilter === 'long' ? 'all' : 'long')} />
+          </div>
+
+          <div className="hidden sm:block w-px h-5 bg-white/10" />
+
+          {/* Principal */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-white/30 uppercase">Size:</span>
+            <FilterPill label="<1 ETH" active={principalFilter === 'small'} onClick={() => setPrincipalFilter(principalFilter === 'small' ? 'all' : 'small')} />
+            <FilterPill label="1-10 ETH" active={principalFilter === 'medium'} onClick={() => setPrincipalFilter(principalFilter === 'medium' ? 'all' : 'medium')} />
+            <FilterPill label="10+ ETH" active={principalFilter === 'large'} onClick={() => setPrincipalFilter(principalFilter === 'large' ? 'all' : 'large')} />
+          </div>
+
+          {activeCount > 0 && (
+            <button
+              onClick={clearAll}
+              className="ml-auto flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium text-red-400/80 bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-colors"
+            >
+              Clear
+              <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500/30 text-[9px] text-red-300">{activeCount}</span>
+            </button>
+          )}
+        </div>
+      </div>
+    </ArtPanel>
+  );
+}
+
+function applyOfferFilters(
+  offers: Offer[],
+  aprFilter: AprFilter,
+  durationFilter: DurationFilter,
+  principalFilter: PrincipalFilter,
+): Offer[] {
+  return offers.filter((o) => {
+    const aprPct = Number(o.aprBps) / 100;
+    if (aprFilter === 'low' && aprPct >= 5) return false;
+    if (aprFilter === 'med' && (aprPct < 5 || aprPct > 15)) return false;
+    if (aprFilter === 'high' && aprPct <= 15) return false;
+
+    const days = daysFromSeconds(o.duration);
+    if (durationFilter === 'short' && days >= 30) return false;
+    if (durationFilter === 'medium' && (days < 30 || days > 90)) return false;
+    if (durationFilter === 'long' && days <= 90) return false;
+
+    const ethVal = parseFloat(formatEther(o.principal));
+    if (principalFilter === 'small' && ethVal >= 1) return false;
+    if (principalFilter === 'medium' && (ethVal < 1 || ethVal > 10)) return false;
+    if (principalFilter === 'large' && ethVal <= 10) return false;
+
+    return true;
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // LEND TAB (Create Offer)
 // ═══════════════════════════════════════════════════════════════════
-function LendTab() {
+function LendTab({ deployed }: { deployed: boolean }) {
   const { address } = useAccount();
   const [principal, setPrincipal] = useState('');
   const [aprBps, setAprBps] = useState('');
@@ -429,6 +644,10 @@ function LendTab() {
   }, [principal, aprBps, durationDays]);
 
   const handleCreate = useCallback(() => {
+    if (!deployed) {
+      toast.error('Contract not deployed yet');
+      return;
+    }
     if (!principal || !aprBps || !minCollateral) {
       toast.error('Fill all fields');
       return;
@@ -457,140 +676,144 @@ function LendTab() {
     }, {
       onError: (err) => toast.error(err.message?.slice(0, 120) ?? 'Transaction failed'),
     });
-  }, [principal, aprBps, durationDays, minCollateral, writeContract]);
+  }, [principal, aprBps, durationDays, minCollateral, writeContract, deployed]);
 
   const loading = isPending || isConfirming;
 
   return (
-    <div className="max-w-lg space-y-5 pt-4">
-      {/* Principal */}
-      <div>
-        <label className="text-[11px] uppercase tracking-wider text-white/40 block mb-1.5">
-          Principal (ETH)
-        </label>
-        <input
-          type="number"
-          inputMode="decimal"
-          value={principal}
-          onChange={(e) => setPrincipal(e.target.value)}
-          placeholder="0.0"
-          min="0"
-          step="0.01"
-          className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-0 py-2.5 border-b border-white/10 focus:border-emerald-400/40 transition-colors duration-300"
-        />
-        {principal && parseFloat(principal) > 0 && (
-          <div className="text-[11px] text-white/30 mt-1 font-mono">
-            ~${formatTokenAmount(parseFloat(principal) * 3200, 2)} USD estimate
-          </div>
-        )}
-      </div>
-
-      {/* APR */}
-      <div>
-        <label className="text-[11px] uppercase tracking-wider text-white/40 block mb-1.5">
-          APR (basis points)
-        </label>
-        <div className="flex items-center gap-3">
+    <ArtPanel artSrc={ART.mfersHeaven.src} opacity={0.10} overlay={DARK_OVERLAY}>
+      <div className="p-5 sm:p-6 max-w-lg space-y-5">
+        {/* Principal */}
+        <div>
+          <label className="text-[11px] uppercase tracking-wider text-white/40 block mb-1.5">
+            Principal (ETH)
+          </label>
           <input
             type="number"
-            inputMode="numeric"
-            value={aprBps}
-            onChange={(e) => setAprBps(e.target.value)}
-            placeholder="850"
-            min="1"
-            max="50000"
-            step="1"
-            className="flex-1 bg-transparent font-mono text-[16px] text-white outline-none px-0 py-2.5 border-b border-white/10 focus:border-emerald-400/40 transition-colors duration-300"
+            inputMode="decimal"
+            value={principal}
+            onChange={(e) => setPrincipal(e.target.value)}
+            placeholder="0.0"
+            min="0"
+            step="0.01"
+            className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-0 py-2.5 border-b border-white/10 focus:border-purple-400/40 transition-colors duration-300"
           />
-          <span className="text-emerald-400 font-mono text-sm whitespace-nowrap">
-            = {aprPercent}%
-          </span>
-        </div>
-      </div>
-
-      {/* Duration */}
-      <div>
-        <label className="text-[11px] uppercase tracking-wider text-white/40 block mb-1.5">
-          Duration ({durationDays} days)
-        </label>
-        <div className="flex flex-wrap gap-2 mb-2">
-          {DURATION_PRESETS.map((p) => (
-            <button
-              key={p.days}
-              onClick={() => setDurationDays(p.days)}
-              className={`px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 ${
-                durationDays === p.days
-                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                  : 'bg-white/5 text-white/40 border border-white/10 hover:border-white/20 hover:text-white/60'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-        <input
-          type="range"
-          min={1}
-          max={365}
-          value={durationDays}
-          onChange={(e) => setDurationDays(Number(e.target.value))}
-          className="w-full accent-emerald-500 h-1"
-        />
-      </div>
-
-      {/* Min Collateral */}
-      <div>
-        <label className="text-[11px] uppercase tracking-wider text-white/40 block mb-1.5">
-          Min Collateral Value (ETH)
-        </label>
-        <input
-          type="number"
-          inputMode="decimal"
-          value={minCollateral}
-          onChange={(e) => setMinCollateral(e.target.value)}
-          placeholder="0.0"
-          min="0"
-          step="0.01"
-          className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-0 py-2.5 border-b border-white/10 focus:border-emerald-400/40 transition-colors duration-300"
-        />
-      </div>
-
-      {/* Interest preview */}
-      <div
-        className="rounded-lg px-4 py-3"
-        style={{ background: 'rgba(16, 185, 129, 0.05)', border: `1px solid rgba(16, 185, 129, 0.1)` }}
-      >
-        <div className="text-[11px] uppercase tracking-wider text-white/40 mb-0.5">Estimated Earnings</div>
-        <div className="font-mono text-emerald-400" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          {estimatedEarnings} ETH
-          <span className="text-white/30 text-sm ml-2">over {durationDays} days</span>
-        </div>
-      </div>
-
-      {/* Submit */}
-      {!address ? (
-        <div className="text-white/40 text-sm text-center py-3">Connect wallet to create an offer</div>
-      ) : (
-        <button
-          onClick={handleCreate}
-          disabled={loading || !principal || !aprBps || !minCollateral}
-          className="w-full py-3 rounded-xl font-semibold text-sm transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed bg-emerald-500 hover:bg-emerald-400 text-black"
-          style={{ transitionTimingFunction: `cubic-bezier(${EASE.join(',')})` }}
-        >
-          {loading ? (
-            <span className="flex items-center justify-center gap-2">
-              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              {isPending ? 'Confirm in Wallet...' : 'Confirming...'}
-            </span>
-          ) : (
-            'Create Loan Offer'
+          {principal && parseFloat(principal) > 0 && (
+            <div className="text-[11px] text-white/30 mt-1 font-mono">
+              ~${formatTokenAmount(parseFloat(principal) * 3200, 2)} USD estimate
+            </div>
           )}
-        </button>
-      )}
-    </div>
+        </div>
+
+        {/* APR */}
+        <div>
+          <label className="text-[11px] uppercase tracking-wider text-white/40 block mb-1.5">
+            APR (basis points)
+          </label>
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              inputMode="numeric"
+              value={aprBps}
+              onChange={(e) => setAprBps(e.target.value)}
+              placeholder="850"
+              min="1"
+              max="50000"
+              step="1"
+              className="flex-1 bg-transparent font-mono text-[16px] text-white outline-none px-0 py-2.5 border-b border-white/10 focus:border-purple-400/40 transition-colors duration-300"
+            />
+            <span className="text-emerald-400 font-mono text-sm whitespace-nowrap">
+              = {aprPercent}%
+            </span>
+          </div>
+        </div>
+
+        {/* Duration */}
+        <div>
+          <label className="text-[11px] uppercase tracking-wider text-white/40 block mb-1.5">
+            Duration ({durationDays} days)
+          </label>
+          <div className="flex flex-wrap gap-2 mb-2">
+            {DURATION_PRESETS.map((p) => (
+              <button
+                key={p.days}
+                onClick={() => setDurationDays(p.days)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 ${
+                  durationDays === p.days
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                    : 'bg-white/5 text-white/40 border border-white/10 hover:border-white/20 hover:text-white/60'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <input
+            type="range"
+            min={1}
+            max={365}
+            value={durationDays}
+            onChange={(e) => setDurationDays(Number(e.target.value))}
+            className="w-full accent-emerald-500 h-1"
+          />
+        </div>
+
+        {/* Min Collateral */}
+        <div>
+          <label className="text-[11px] uppercase tracking-wider text-white/40 block mb-1.5">
+            Min Collateral Value (ETH)
+          </label>
+          <input
+            type="number"
+            inputMode="decimal"
+            value={minCollateral}
+            onChange={(e) => setMinCollateral(e.target.value)}
+            placeholder="0.0"
+            min="0"
+            step="0.01"
+            className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-0 py-2.5 border-b border-white/10 focus:border-purple-400/40 transition-colors duration-300"
+          />
+        </div>
+
+        {/* Interest preview */}
+        <div
+          className="rounded-lg px-4 py-3"
+          style={{ background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.1)' }}
+        >
+          <div className="text-[11px] uppercase tracking-wider text-white/40 mb-0.5">Estimated Earnings</div>
+          <div className="font-mono text-emerald-400" style={{ fontVariantNumeric: 'tabular-nums' }}>
+            {estimatedEarnings} ETH
+            <span className="text-white/30 text-sm ml-2">over {durationDays} days</span>
+          </div>
+        </div>
+
+        {/* Submit */}
+        {!address ? (
+          <div className="text-white/40 text-sm text-center py-3">Connect wallet to create an offer</div>
+        ) : (
+          <button
+            onClick={handleCreate}
+            disabled={loading || !principal || !aprBps || !minCollateral || !deployed}
+            className="w-full py-3 rounded-xl font-semibold text-sm transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed bg-emerald-500 hover:bg-emerald-400 text-black"
+            style={{ transitionTimingFunction: `cubic-bezier(${EASE.join(',')})` }}
+          >
+            {!deployed ? (
+              'Contract Not Deployed'
+            ) : loading ? (
+              <span className="flex items-center justify-center gap-2">
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                {isPending ? 'Confirm in Wallet...' : 'Confirming...'}
+              </span>
+            ) : (
+              'Create Loan Offer'
+            )}
+          </button>
+        )}
+      </div>
+    </ArtPanel>
   );
 }
 
@@ -600,9 +823,13 @@ function LendTab() {
 function OfferRow({
   offer,
   userAddress,
+  deployed,
+  idx,
 }: {
   offer: Offer;
   userAddress?: string;
+  deployed: boolean;
+  idx: number;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -661,6 +888,7 @@ function OfferRow({
   }, [acceptSuccess]);
 
   const handleApprove = () => {
+    if (!deployed) return;
     approveWrite({
       address: TEGRIDY_STAKING_ADDRESS as Address,
       abi: TEGRIDY_STAKING_ABI,
@@ -672,6 +900,7 @@ function OfferRow({
   };
 
   const handleAccept = () => {
+    if (!deployed) return;
     acceptWrite({
       address: TEGRIDY_LENDING_ADDRESS as Address,
       abi: TEGRIDY_LENDING_ABI,
@@ -683,53 +912,106 @@ function OfferRow({
   };
 
   const positionAmount = position ? formatEther((position as readonly bigint[])[0]) : '0';
+  const ltv = computeLTV(offer.principal, positionAmount);
 
-  return (
-    <>
-      <tr
-        className="cursor-pointer hover:bg-white/[0.02] transition-colors duration-200"
-        style={{ borderTop: `1px solid ${ROW_BORDER}` }}
-        onClick={() => setExpanded(!expanded)}
-      >
-        <td className="py-3 pr-4 font-mono text-white/60 text-sm">#{offer.id}</td>
-        <td className="py-3 pr-4 font-mono text-white text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          {formatTokenAmount(formatEther(offer.principal))} ETH
-        </td>
-        <td className="py-3 pr-4 font-mono text-emerald-400 text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          {bpsToPercent(offer.aprBps)}%
-        </td>
-        <td className="py-3 pr-4 text-white/60 text-sm">{daysFromSeconds(offer.duration)}d</td>
-        <td className="py-3 pr-4 font-mono text-white/60 text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          {formatTokenAmount(formatEther(offer.minPositionValue))} ETH
-        </td>
-        <td className="py-3 pr-4 font-mono text-white/40 text-sm">{shortenAddress(offer.lender)}</td>
-        <td className="py-3 text-sm">
-          <svg
-            className={`w-4 h-4 text-white/30 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        </td>
-      </tr>
-      <AnimatePresence>
-        {expanded && (
-          <tr>
-            <td colSpan={7} className="p-0">
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.25, ease: EASE as unknown as number[] }}
-                className="overflow-hidden"
-              >
-                <div
-                  className="px-4 py-4 mx-2 mb-2 rounded-lg"
-                  style={{ background: 'rgba(13, 21, 48, 0.8)', border: `1px solid ${CARD_BORDER}` }}
-                >
+  // Desktop row
+  const desktopRow = (
+    <tr
+      className="cursor-pointer hover:bg-white/[0.02] transition-colors duration-200 hidden sm:table-row"
+      style={{ borderTop: `1px solid ${ROW_BORDER}` }}
+      onClick={() => setExpanded(!expanded)}
+    >
+      <td className="py-3 pr-4 font-mono text-white/60 text-sm">#{offer.id}</td>
+      <td className="py-3 pr-4 font-mono text-white text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
+        {formatTokenAmount(formatEther(offer.principal))} ETH
+      </td>
+      <td className="py-3 pr-4 font-mono text-emerald-400 text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
+        {bpsToPercent(offer.aprBps)}%
+      </td>
+      <td className="py-3 pr-4 text-white/60 text-sm">{daysFromSeconds(offer.duration)}d</td>
+      <td className="py-3 pr-4 font-mono text-white/60 text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
+        {formatTokenAmount(formatEther(offer.minPositionValue))} ETH
+      </td>
+      <td className="py-3 pr-4 font-mono text-white/40 text-sm">{shortenAddress(offer.lender)}</td>
+      <td className="py-3 text-sm">
+        <svg
+          className={`w-4 h-4 text-white/30 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </td>
+    </tr>
+  );
+
+  // Mobile card
+  const mobileCard = (
+    <tr className="sm:hidden" style={{ borderTop: `1px solid ${ROW_BORDER}` }}>
+      <td colSpan={7} className="p-0">
+        <motion.div
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: idx * 0.05, ease: EASE as unknown as number[] }}
+          className="p-3 cursor-pointer"
+          onClick={() => setExpanded(!expanded)}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-mono text-white/60 text-xs">#{offer.id}</span>
+            <svg
+              className={`w-4 h-4 text-white/30 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
+              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-white/30">Principal</span>
+              <div className="font-mono text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                {formatTokenAmount(formatEther(offer.principal))} ETH
+              </div>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-white/30">APR</span>
+              <div className="font-mono text-emerald-400" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                {bpsToPercent(offer.aprBps)}%
+              </div>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-white/30">Duration</span>
+              <div className="text-white/60">{daysFromSeconds(offer.duration)}d</div>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-white/30">Min Collateral</span>
+              <div className="font-mono text-white/60" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                {formatTokenAmount(formatEther(offer.minPositionValue))} ETH
+              </div>
+            </div>
+          </div>
+          <div className="mt-1 font-mono text-[10px] text-white/30">{shortenAddress(offer.lender)}</div>
+        </motion.div>
+      </td>
+    </tr>
+  );
+
+  // Expanded detail (shared between mobile/desktop)
+  const expandedDetail = (
+    <AnimatePresence>
+      {expanded && (
+        <tr>
+          <td colSpan={7} className="p-0">
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25, ease: EASE as unknown as number[] }}
+              className="overflow-hidden"
+            >
+              <ArtPanel artSrc={ART.apeHug.src} opacity={0.10} overlay={DARK_OVERLAY_HEAVY} className="mx-2 mb-2">
+                <div className="p-4">
                   {!userAddress ? (
                     <p className="text-white/40 text-sm">Connect wallet to borrow</p>
                   ) : tokenId === 0 ? (
@@ -745,7 +1027,13 @@ function OfferRow({
                         <div>
                           <span className="text-[11px] uppercase tracking-wider text-white/40">Your Position</span>
                           <div className="font-mono text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            Token #{tokenId} — {formatTokenAmount(positionAmount)} TOWELI
+                            Token #{tokenId} -- {formatTokenAmount(positionAmount)} TOWELI
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-[11px] uppercase tracking-wider text-white/40">Position Value</span>
+                          <div className="font-mono text-white/70" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {formatTokenAmount(positionAmount)} ETH
                           </div>
                         </div>
                         <div>
@@ -754,47 +1042,81 @@ function OfferRow({
                             {formatTokenAmount(formatEther(offer.principal))} ETH
                           </div>
                         </div>
+                        <div>
+                          <span className="text-[11px] uppercase tracking-wider text-white/40">LTV Ratio</span>
+                          <div className={`font-mono ${ltv.color}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {ltv.ratio.toFixed(1)}%
+                            {ltv.ratio >= 75 && (
+                              <span className="ml-1.5 text-[10px] text-red-400/80 uppercase">High Risk</span>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex gap-2">
-                        {!isApproved ? (
+
+                      {/* LTV bar */}
+                      <div className="w-full h-1.5 rounded-full bg-white/5 overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{
+                            width: `${Math.min(ltv.ratio, 100)}%`,
+                            background: ltv.ratio < 50 ? '#34d399' : ltv.ratio < 75 ? '#facc15' : '#ef4444',
+                            transitionTimingFunction: `cubic-bezier(${EASE.join(',')})`,
+                          }}
+                        />
+                      </div>
+
+                      <DisabledWrap deployed={deployed}>
+                        <div className="flex flex-wrap gap-2">
+                          {!isApproved ? (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleApprove(); }}
+                              disabled={approvePending || approveConfirming || !deployed}
+                              className="px-4 py-2 rounded-lg text-sm font-medium bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30 transition-colors duration-200 disabled:opacity-40"
+                            >
+                              {approvePending || approveConfirming ? 'Approving...' : '1. Approve NFT'}
+                            </button>
+                          ) : (
+                            <span className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              Approved
+                            </span>
+                          )}
                           <button
-                            onClick={(e) => { e.stopPropagation(); handleApprove(); }}
-                            disabled={approvePending || approveConfirming}
-                            className="px-4 py-2 rounded-lg text-sm font-medium bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30 transition-colors duration-200 disabled:opacity-40"
+                            onClick={(e) => { e.stopPropagation(); handleAccept(); }}
+                            disabled={!isApproved || acceptPending || acceptConfirming || !deployed}
+                            className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-500 text-black hover:bg-emerald-400 transition-colors duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
                           >
-                            {approvePending || approveConfirming ? 'Approving...' : '1. Approve NFT'}
+                            {acceptPending || acceptConfirming ? 'Accepting...' : '2. Accept Offer'}
                           </button>
-                        ) : (
-                          <span className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                            Approved
-                          </span>
-                        )}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleAccept(); }}
-                          disabled={!isApproved || acceptPending || acceptConfirming}
-                          className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-500 text-black hover:bg-emerald-400 transition-colors duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          {acceptPending || acceptConfirming ? 'Accepting...' : '2. Accept Offer'}
-                        </button>
-                      </div>
+                        </div>
+                      </DisabledWrap>
                     </div>
                   )}
                 </div>
-              </motion.div>
-            </td>
-          </tr>
-        )}
-      </AnimatePresence>
+              </ArtPanel>
+            </motion.div>
+          </td>
+        </tr>
+      )}
+    </AnimatePresence>
+  );
+
+  return (
+    <>
+      {desktopRow}
+      {mobileCard}
+      {expandedDetail}
     </>
   );
 }
 
-function BorrowTab() {
+function BorrowTab({ deployed }: { deployed: boolean }) {
   const { address } = useAccount();
   const [sortKey, setSortKey] = useState<SortKey>('id');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [aprFilter, setAprFilter] = useState<AprFilter>('all');
+  const [durationFilter, setDurationFilter] = useState<DurationFilter>('all');
+  const [principalFilter, setPrincipalFilter] = useState<PrincipalFilter>('all');
 
-  // Get offer count
   const { data: offerCount } = useReadContract({
     address: TEGRIDY_LENDING_ADDRESS as Address,
     abi: TEGRIDY_LENDING_ABI,
@@ -803,21 +1125,8 @@ function BorrowTab() {
 
   const count = offerCount ? Number(offerCount) : 0;
 
-  // Fetch individual offers — limited to most recent 50 for performance
-  const offerIds = useMemo(() => {
-    const ids: number[] = [];
-    const start = Math.max(0, count - 50);
-    for (let i = start; i < count; i++) ids.push(i);
-    return ids;
-  }, [count]);
-
-  // We batch-read offers manually by calling getOffer for each
-  // In production use a multicall — here we read sequentially via individual hooks
-  // Using a simplified approach: read a few offers
   const [offers, setOffers] = useState<Offer[]>([]);
-  const [loadingOffers, setLoadingOffers] = useState(false);
 
-  // Use individual reads for first N offers via a polling pattern
   const { data: offer0 } = useReadContract({
     address: TEGRIDY_LENDING_ADDRESS as Address,
     abi: TEGRIDY_LENDING_ABI,
@@ -826,19 +1135,14 @@ function BorrowTab() {
     query: { enabled: count > 0 },
   });
 
-  // Build offers array from on-chain reads
-  // For a production version this would use multicall or a subgraph
   useEffect(() => {
     if (count === 0) {
       setOffers([]);
       return;
     }
-    // Basic single-offer loading for demonstration
-    // Real implementation: iterate with multicall
     if (offer0) {
       const o = offer0 as readonly [string, bigint, bigint, bigint, string, bigint, boolean];
       if (o[6]) {
-        // active
         setOffers([
           {
             id: 0,
@@ -855,8 +1159,13 @@ function BorrowTab() {
     }
   }, [offer0, count]);
 
+  const filteredOffers = useMemo(
+    () => applyOfferFilters(offers, aprFilter, durationFilter, principalFilter),
+    [offers, aprFilter, durationFilter, principalFilter],
+  );
+
   const sortedOffers = useMemo(() => {
-    const sorted = [...offers];
+    const sorted = [...filteredOffers];
     sorted.sort((a, b) => {
       let cmp = 0;
       switch (sortKey) {
@@ -879,7 +1188,7 @@ function BorrowTab() {
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return sorted;
-  }, [offers, sortKey, sortDir]);
+  }, [filteredOffers, sortKey, sortDir]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -913,34 +1222,143 @@ function BorrowTab() {
   );
 
   return (
-    <div className="pt-4">
+    <div className="pt-4 space-y-4">
+      {/* Filter bar */}
+      <OfferFilterBar
+        aprFilter={aprFilter}
+        setAprFilter={setAprFilter}
+        durationFilter={durationFilter}
+        setDurationFilter={setDurationFilter}
+        principalFilter={principalFilter}
+        setPrincipalFilter={setPrincipalFilter}
+      />
+
       {sortedOffers.length === 0 && count === 0 ? (
+        <EmptyState
+          artSrc={ART.beachVibes.src}
+          title="No loan offers yet"
+          subtitle="Create the first one! Switch to the Lend tab to get started."
+        />
+      ) : sortedOffers.length === 0 ? (
         <div className="text-center py-12 text-white/30 text-sm">
-          No loan offers available yet. Be the first to create one.
+          No offers match your filters. Try adjusting them.
         </div>
       ) : (
-        <div className="overflow-x-auto -mx-1">
-          <table className="w-full text-left text-[11px] uppercase tracking-wider text-white/40">
-            <thead>
-              <tr>
-                <SortHeader label="Offer #" sk="id" />
-                <SortHeader label="Principal" sk="principal" />
-                <SortHeader label="APR" sk="apr" />
-                <SortHeader label="Duration" sk="duration" />
-                <SortHeader label="Min Collateral" sk="minCollateral" />
-                <th className="py-2 pr-4 font-medium">Lender</th>
-                <th className="py-2 font-medium w-8" />
-              </tr>
-            </thead>
-            <tbody>
-              {sortedOffers.map((offer) => (
-                <OfferRow key={offer.id} offer={offer} userAddress={address} />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ArtPanel artSrc={ART.poolParty.src} opacity={0.08} overlay={DARK_OVERLAY_HEAVY}>
+          <div className="p-4 overflow-x-auto -mx-1">
+            <table className="w-full text-left text-[11px] uppercase tracking-wider text-white/40">
+              <thead>
+                <tr className="hidden sm:table-row">
+                  <SortHeader label="Offer #" sk="id" />
+                  <SortHeader label="Principal" sk="principal" />
+                  <SortHeader label="APR" sk="apr" />
+                  <SortHeader label="Duration" sk="duration" />
+                  <SortHeader label="Min Collateral" sk="minCollateral" />
+                  <th className="py-2 pr-4 font-medium">Lender</th>
+                  <th className="py-2 font-medium w-8" />
+                </tr>
+              </thead>
+              <tbody>
+                {sortedOffers.map((offer, idx) => (
+                  <OfferRow key={offer.id} offer={offer} userAddress={address} deployed={deployed} idx={idx} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </ArtPanel>
       )}
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PNL SUMMARY CARD
+// ═══════════════════════════════════════════════════════════════════
+function PnlSummaryCard({
+  myBorrowed,
+  myLent,
+}: {
+  myBorrowed: Loan[];
+  myLent: Loan[];
+}) {
+  const activeBorrowed = myBorrowed.filter((l) => getLoanStatus(l) === 'active').length;
+  const activeLent = myLent.filter((l) => getLoanStatus(l) === 'active').length;
+  const completedBorrowed = myBorrowed.filter((l) => getLoanStatus(l) === 'repaid').length;
+  const completedLent = myLent.filter((l) => getLoanStatus(l) === 'repaid').length;
+
+  // Calculate simplified interest estimates
+  const interestEarned = useMemo(() => {
+    return myLent.reduce((acc, l) => {
+      if (!l.repaid) return acc;
+      const principal = parseFloat(formatEther(l.principal));
+      const aprPct = Number(l.aprBps) / 10000;
+      const durationSec = Number(l.deadline - l.startTime);
+      const years = durationSec / (365 * 86400);
+      return acc + principal * aprPct * years;
+    }, 0);
+  }, [myLent]);
+
+  const interestPaid = useMemo(() => {
+    return myBorrowed.reduce((acc, l) => {
+      if (!l.repaid) return acc;
+      const principal = parseFloat(formatEther(l.principal));
+      const aprPct = Number(l.aprBps) / 10000;
+      const durationSec = Number(l.deadline - l.startTime);
+      const years = durationSec / (365 * 86400);
+      return acc + principal * aprPct * years;
+    }, 0);
+  }, [myBorrowed]);
+
+  const netPnl = interestEarned - interestPaid;
+
+  return (
+    <ArtPanel artSrc={ART.swordOfLove.src} opacity={0.13} overlay="rgba(6,12,26,0.88)">
+      <div className="p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+          </svg>
+          <span className="text-[11px] uppercase tracking-wider text-white/50 font-medium">P&L Summary</span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div>
+            <span className="text-[10px] uppercase tracking-wider text-white/30 block mb-1">Interest Earned</span>
+            <div className="font-mono text-emerald-400 text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              +{formatTokenAmount(interestEarned)} ETH
+            </div>
+          </div>
+          <div>
+            <span className="text-[10px] uppercase tracking-wider text-white/30 block mb-1">Interest Paid</span>
+            <div className="font-mono text-red-400 text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              -{formatTokenAmount(interestPaid)} ETH
+            </div>
+          </div>
+          <div>
+            <span className="text-[10px] uppercase tracking-wider text-white/30 block mb-1">Net PnL</span>
+            <div
+              className={`font-mono text-sm ${netPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}
+              style={{ fontVariantNumeric: 'tabular-nums' }}
+            >
+              {netPnl >= 0 ? '+' : ''}{formatTokenAmount(netPnl)} ETH
+            </div>
+          </div>
+          <div>
+            <span className="text-[10px] uppercase tracking-wider text-white/30 block mb-1">Active Positions</span>
+            <div className="font-mono text-white text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {activeBorrowed + activeLent}
+              <span className="text-white/30 text-[10px] ml-1">({activeBorrowed}B / {activeLent}L)</span>
+            </div>
+          </div>
+          <div>
+            <span className="text-[10px] uppercase tracking-wider text-white/30 block mb-1">Completed</span>
+            <div className="font-mono text-white/60 text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {completedBorrowed + completedLent}
+              <span className="text-white/30 text-[10px] ml-1">({completedBorrowed}B / {completedLent}L)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </ArtPanel>
   );
 }
 
@@ -950,14 +1368,17 @@ function BorrowTab() {
 function LoanRow({
   loan,
   role,
+  deployed,
+  idx,
 }: {
   loan: Loan;
   role: 'borrower' | 'lender';
+  deployed: boolean;
+  idx: number;
 }) {
   const status = getLoanStatus(loan);
   const countdown = useCountdown(loan.deadline);
 
-  // Repayment amount
   const { data: repaymentAmount } = useReadContract({
     address: TEGRIDY_LENDING_ADDRESS as Address,
     abi: TEGRIDY_LENDING_ABI,
@@ -966,7 +1387,6 @@ function LoanRow({
     query: { enabled: status === 'active' || status === 'overdue' },
   });
 
-  // Check defaulted
   const { data: defaulted } = useReadContract({
     address: TEGRIDY_LENDING_ADDRESS as Address,
     abi: TEGRIDY_LENDING_ABI,
@@ -975,11 +1395,9 @@ function LoanRow({
     query: { enabled: status === 'overdue' },
   });
 
-  // Repay
   const { writeContract: repayWrite, data: repayTx, isPending: repayPending } = useWriteContract();
   const { isLoading: repayConfirming, isSuccess: repaySuccess } = useWaitForTransactionReceipt({ hash: repayTx });
 
-  // Claim collateral
   const { writeContract: claimWrite, data: claimTx, isPending: claimPending } = useWriteContract();
   const { isLoading: claimConfirming, isSuccess: claimSuccess } = useWaitForTransactionReceipt({ hash: claimTx });
 
@@ -992,7 +1410,7 @@ function LoanRow({
   }, [claimSuccess]);
 
   const handleRepay = () => {
-    if (!repaymentAmount) return;
+    if (!repaymentAmount || !deployed) return;
     repayWrite({
       address: TEGRIDY_LENDING_ADDRESS as Address,
       abi: TEGRIDY_LENDING_ABI,
@@ -1005,6 +1423,7 @@ function LoanRow({
   };
 
   const handleClaim = () => {
+    if (!deployed) return;
     claimWrite({
       address: TEGRIDY_LENDING_ADDRESS as Address,
       abi: TEGRIDY_LENDING_ABI,
@@ -1019,7 +1438,10 @@ function LoanRow({
   const claimLoading = claimPending || claimConfirming;
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, x: -8 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.35, delay: idx * 0.06, ease: EASE as unknown as number[] }}
       className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-3 px-1"
       style={{ borderBottom: `1px solid ${ROW_BORDER}` }}
     >
@@ -1033,12 +1455,22 @@ function LoanRow({
         </span>
         <span className="text-sm text-white/40">NFT #{Number(loan.tokenId)}</span>
         {(status === 'active' || status === 'overdue') && (
-          <span
-            className={`font-mono text-sm ${status === 'overdue' ? 'text-orange-400' : 'text-white/50'}`}
-            style={{ fontVariantNumeric: 'tabular-nums' }}
-          >
-            {countdown}
-          </span>
+          countdown.isExpired ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 text-[11px] font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+              Expired
+            </span>
+          ) : (
+            <span
+              className={`font-mono text-sm ${countdown.isUrgent ? 'text-red-400' : 'text-white/50'}`}
+              style={{
+                fontVariantNumeric: 'tabular-nums',
+                animation: countdown.isUrgent ? 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' : undefined,
+              }}
+            >
+              {countdown.text}
+            </span>
+          )
         )}
         {repaymentAmount && (status === 'active' || status === 'overdue') && (
           <span className="text-[11px] text-white/30 font-mono" style={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -1049,33 +1481,36 @@ function LoanRow({
 
       <div className="flex gap-2 flex-shrink-0">
         {role === 'borrower' && (status === 'active' || status === 'overdue') && (
-          <button
-            onClick={handleRepay}
-            disabled={repayLoading}
-            className="px-4 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 transition-colors disabled:opacity-40"
-          >
-            {repayLoading ? 'Repaying...' : 'Repay'}
-          </button>
+          <DisabledWrap deployed={deployed}>
+            <button
+              onClick={handleRepay}
+              disabled={repayLoading || !deployed}
+              className="px-4 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 transition-colors disabled:opacity-40"
+            >
+              {repayLoading ? 'Repaying...' : 'Repay'}
+            </button>
+          </DisabledWrap>
         )}
         {role === 'lender' && (defaulted || status === 'overdue') && !loan.defaultClaimed && (
-          <button
-            onClick={handleClaim}
-            disabled={claimLoading}
-            className="px-4 py-1.5 rounded-lg text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-colors disabled:opacity-40"
-          >
-            {claimLoading ? 'Claiming...' : 'Claim Collateral'}
-          </button>
+          <DisabledWrap deployed={deployed}>
+            <button
+              onClick={handleClaim}
+              disabled={claimLoading || !deployed}
+              className="px-4 py-1.5 rounded-lg text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-colors disabled:opacity-40"
+            >
+              {claimLoading ? 'Claiming...' : 'Claim Collateral'}
+            </button>
+          </DisabledWrap>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
-function MyLoansTab() {
+function MyLoansTab({ deployed }: { deployed: boolean }) {
   const { address } = useAccount();
   const [subTab, setSubTab] = useState<LoanSubTab>('borrower');
 
-  // Get loan count
   const { data: loanCount } = useReadContract({
     address: TEGRIDY_LENDING_ADDRESS as Address,
     abi: TEGRIDY_LENDING_ABI,
@@ -1084,8 +1519,6 @@ function MyLoansTab() {
 
   const count = loanCount ? Number(loanCount) : 0;
 
-  // Read first loan as a minimal example
-  // Production: multicall or subgraph for all user loans
   const { data: loan0 } = useReadContract({
     address: TEGRIDY_LENDING_ADDRESS as Address,
     abi: TEGRIDY_LENDING_ABI,
@@ -1135,9 +1568,12 @@ function MyLoansTab() {
   }
 
   return (
-    <div className="pt-4">
+    <div className="pt-4 space-y-4">
+      {/* PnL Summary */}
+      <PnlSummaryCard myBorrowed={myBorrowed} myLent={myLent} />
+
       {/* Sub-tabs */}
-      <div className="flex gap-4 mb-4">
+      <div className="flex gap-4">
         {(['borrower', 'lender'] as const).map((st) => (
           <button
             key={st}
@@ -1157,17 +1593,19 @@ function MyLoansTab() {
       </div>
 
       {displayed.length === 0 ? (
-        <div className="text-center py-12 text-white/30 text-sm">
-          {subTab === 'borrower'
-            ? 'You have no active borrows.'
-            : 'You have no active loans as a lender.'}
-        </div>
+        <EmptyState
+          artSrc={ART.porchChill.src}
+          title={subTab === 'borrower' ? 'No active borrows' : 'No active loans as lender'}
+          subtitle="No active loans. Start lending or borrowing!"
+        />
       ) : (
-        <div>
-          {displayed.map((loan) => (
-            <LoanRow key={loan.id} loan={loan} role={subTab} />
-          ))}
-        </div>
+        <ArtPanel artSrc={ART.swordOfLove.src} opacity={0.08} overlay={DARK_OVERLAY_HEAVY}>
+          <div className="p-4">
+            {displayed.map((loan, idx) => (
+              <LoanRow key={loan.id} loan={loan} role={subTab} deployed={deployed} idx={idx} />
+            ))}
+          </div>
+        </ArtPanel>
       )}
     </div>
   );
@@ -1181,7 +1619,6 @@ export function LendingSection({ address: propAddress }: { address?: string }) {
   const [ready, setReady] = useState(false);
   const deployed = isDeployed(TEGRIDY_LENDING_ADDRESS);
 
-  // Simulate initial load
   useEffect(() => {
     const t = setTimeout(() => setReady(true), 600);
     return () => clearTimeout(t);
@@ -1197,10 +1634,13 @@ export function LendingSection({ address: propAddress }: { address?: string }) {
 
   return (
     <section className="w-full space-y-6">
+      <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }`}</style>
       {!deployed && (
-        <div className="rounded-xl px-4 py-3 text-center text-[13px] text-amber-400/80 border border-amber-500/20" style={{ background: 'rgba(245,158,11,0.06)' }}>
-          Lending contracts are being audited and will be deployed soon. Explore the interface below.
-        </div>
+        <ArtPanel artSrc={ART.smokingDuo.src} opacity={0.08} overlay="rgba(6,12,26,0.93)">
+          <div className="px-4 py-3 text-center text-[13px] text-amber-400/80">
+            Lending contracts are being audited and will be deployed soon. Explore the interface below.
+          </div>
+        </ArtPanel>
       )}
       <StatsBar />
       <TabNav tab={tab} setTab={setTab} />
@@ -1212,9 +1652,9 @@ export function LendingSection({ address: propAddress }: { address?: string }) {
           exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.2, ease: EASE as unknown as number[] }}
         >
-          {tab === 'lend' && <LendTab />}
-          {tab === 'borrow' && <BorrowTab />}
-          {tab === 'myloans' && <MyLoansTab />}
+          {tab === 'lend' && <LendTab deployed={deployed} />}
+          {tab === 'borrow' && <BorrowTab deployed={deployed} />}
+          {tab === 'myloans' && <MyLoansTab deployed={deployed} />}
         </motion.div>
       </AnimatePresence>
     </section>

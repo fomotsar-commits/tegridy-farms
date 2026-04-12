@@ -19,6 +19,7 @@ import {
   TEGRIDY_NFT_POOL_ABI,
 } from '../../lib/contracts';
 import { formatTokenAmount, shortenAddress } from '../../lib/formatting';
+import { ART } from '../../lib/artConfig';
 
 // ─── Constants ────────────────────────────────────────────────────
 
@@ -55,19 +56,78 @@ const POOL_TYPE_ICONS: Record<number, string> = {
   2: 'M8 3H5a2 2 0 00-2 2v3 M21 8V5a2 2 0 00-2-2h-3 M3 16v3a2 2 0 002 2h3 M16 21h3a2 2 0 002-2v-3',
 };
 
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as Address;
+
+const ERC721_APPROVAL_ABI = [
+  {
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'operator', type: 'address' },
+    ],
+    name: 'isApprovedForAll',
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'operator', type: 'address' },
+      { name: 'approved', type: 'bool' },
+    ],
+    name: 'setApprovalForAll',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+] as const;
+
 type Tab = 'trade' | 'create' | 'pools';
+
+const LOCAL_STORAGE_KEY = 'tegridy-amm-tracked-pools';
 
 const isValidAddress = (addr: string): addr is `0x${string}` =>
   /^0x[a-fA-F0-9]{40}$/.test(addr);
 
-const cardClass =
-  'rounded-2xl border border-[rgba(16,185,129,0.06)] hover:border-[rgba(16,185,129,0.15)] transition-all duration-300';
-const cardBg = 'bg-[rgba(13,21,48,0.6)] backdrop-blur-[20px]';
 const labelClass = 'text-[11px] uppercase tracking-wider text-white/40 font-medium';
 const inputClass =
   'w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-white outline-none focus:border-emerald-500/60 focus:ring-1 focus:ring-emerald-500/20 transition-all duration-200 font-mono text-sm placeholder:text-white/20';
 const btnPrimary =
   'w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 transition-all duration-300 text-white font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-emerald-500/10';
+const btnDisabled =
+  'w-full py-3.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white/30 text-sm font-semibold cursor-not-allowed';
+
+// ─── Art Card Wrapper ────────────────────────────────────────────
+
+function ArtCard({
+  art,
+  opacity = 0.12,
+  overlay = 'rgba(6,12,26,0.92)',
+  border = 'rgba(139,92,246,0.12)',
+  className = '',
+  children,
+}: {
+  art: { src: string };
+  opacity?: number;
+  overlay?: string;
+  border?: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`relative overflow-hidden rounded-xl ${className}`}
+      style={{ border: `1px solid ${border}` }}
+    >
+      <div className="absolute inset-0">
+        <img src={art.src} alt="" className="w-full h-full object-cover" style={{ opacity }} />
+        <div className="absolute inset-0" style={{ background: overlay }} />
+      </div>
+      <div className="relative z-10">
+        {children}
+      </div>
+    </div>
+  );
+}
 
 // ─── Bonding Curve Chart ──────────────────────────────────────────
 
@@ -76,11 +136,13 @@ function BondingCurveChart({
   delta,
   numSteps = 10,
   height = 200,
+  currentPriceMarker,
 }: {
   spotPrice: number;
   delta: number;
   numSteps?: number;
   height?: number;
+  currentPriceMarker?: number;
 }) {
   const padding = { top: 20, right: 16, bottom: 32, left: 56 };
 
@@ -114,7 +176,6 @@ function BondingCurveChart({
       if (i === 0) {
         d += `M${x},${y}`;
       } else {
-        const prevX = scaleX(i - 1);
         d += ` L${x},${scaleY(prices[i - 1])} L${x},${y}`;
       }
     }
@@ -129,7 +190,6 @@ function BondingCurveChart({
     return `${linePath} L${lastX},${baseY} L${firstX},${baseY} Z`;
   };
 
-  // Y-axis ticks
   const tickCount = 5;
   const ticks = useMemo(() => {
     const arr: number[] = [];
@@ -139,10 +199,11 @@ function BondingCurveChart({
     return arr;
   }, [minPrice, range, tickCount]);
 
-  // Grid lines
   const gridLines = useMemo(() => {
     return ticks.map((t) => scaleY(t));
   }, [ticks]);
+
+  const markerPrice = currentPriceMarker ?? spotPrice;
 
   return (
     <div className="w-full overflow-hidden">
@@ -228,7 +289,7 @@ function BondingCurveChart({
         {/* Current price marker */}
         <circle
           cx={scaleX(0)}
-          cy={scaleY(spotPrice)}
+          cy={scaleY(markerPrice)}
           r="5"
           fill="rgb(16,185,129)"
           stroke="rgba(6,12,26,0.8)"
@@ -236,31 +297,21 @@ function BondingCurveChart({
         />
         <circle
           cx={scaleX(0)}
-          cy={scaleY(spotPrice)}
+          cy={scaleY(markerPrice)}
           r="8"
           fill="none"
           stroke="rgb(16,185,129)"
           strokeWidth="1"
           opacity="0.3"
         >
-          <animate
-            attributeName="r"
-            values="8;12;8"
-            dur="2s"
-            repeatCount="indefinite"
-          />
-          <animate
-            attributeName="opacity"
-            values="0.3;0.1;0.3"
-            dur="2s"
-            repeatCount="indefinite"
-          />
+          <animate attributeName="r" values="8;12;8" dur="2s" repeatCount="indefinite" />
+          <animate attributeName="opacity" values="0.3;0.1;0.3" dur="2s" repeatCount="indefinite" />
         </circle>
 
         {/* Current price label */}
         <rect
           x={scaleX(0) - 32}
-          y={scaleY(spotPrice) - 22}
+          y={scaleY(markerPrice) - 22}
           width="64"
           height="16"
           rx="4"
@@ -269,14 +320,14 @@ function BondingCurveChart({
         />
         <text
           x={scaleX(0)}
-          y={scaleY(spotPrice) - 11}
+          y={scaleY(markerPrice) - 11}
           textAnchor="middle"
           fill="rgb(16,185,129)"
           fontSize="9"
           fontWeight="600"
           fontFamily="monospace"
         >
-          {spotPrice.toFixed(4)} ETH
+          {markerPrice.toFixed(4)} ETH
         </text>
 
         {/* Legend */}
@@ -285,15 +336,7 @@ function BondingCurveChart({
           <text x="18" y="3" fill="rgba(255,255,255,0.5)" fontSize="9">
             Buy Price
           </text>
-          <line
-            x1="0"
-            y1="14"
-            x2="14"
-            y2="14"
-            stroke="rgb(251,146,60)"
-            strokeWidth="1.5"
-            opacity="0.7"
-          />
+          <line x1="0" y1="14" x2="14" y2="14" stroke="rgb(251,146,60)" strokeWidth="1.5" opacity="0.7" />
           <text x="18" y="17" fill="rgba(255,255,255,0.5)" fontSize="9">
             Sell Price
           </text>
@@ -301,21 +344,48 @@ function BondingCurveChart({
 
         {/* Axis lines */}
         <line
-          x1={padding.left}
-          y1={padding.top}
-          x2={padding.left}
-          y2={height - padding.bottom}
+          x1={padding.left} y1={padding.top}
+          x2={padding.left} y2={height - padding.bottom}
           stroke="rgba(255,255,255,0.08)"
         />
         <line
-          x1={padding.left}
-          y1={height - padding.bottom}
-          x2={chartWidth - padding.right}
-          y2={height - padding.bottom}
+          x1={padding.left} y1={height - padding.bottom}
+          x2={chartWidth - padding.right} y2={height - padding.bottom}
           stroke="rgba(255,255,255,0.08)"
         />
       </svg>
     </div>
+  );
+}
+
+// ─── Price Impact Badge ──────────────────────────────────────────
+
+function PriceImpactBadge({ impact }: { impact: number | null }) {
+  if (impact === null) return null;
+  const abs = Math.abs(impact);
+  let color = 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20';
+  let icon = null;
+  if (abs > 15) {
+    color = 'text-red-400 bg-red-400/10 border-red-400/20';
+    icon = (
+      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+      </svg>
+    );
+  } else if (abs > 5) {
+    color = 'text-yellow-400 bg-yellow-400/10 border-yellow-400/20';
+    icon = (
+      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+      </svg>
+    );
+  }
+
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border ${color}`}>
+      {icon}
+      {impact > 0 ? '+' : ''}{impact.toFixed(1)}%
+    </span>
   );
 }
 
@@ -330,16 +400,22 @@ function StatsBar({ poolCount }: { poolCount: bigint | undefined }) {
 
   return (
     <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-8">
-      {stats.map((s) => (
-        <div
+      {stats.map((s, i) => (
+        <motion.div
           key={s.label}
-          className={`${cardBg} ${cardClass} p-4 text-center`}
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: i * 0.08 }}
         >
-          <p className={labelClass}>{s.label}</p>
-          <p className="text-xl sm:text-2xl font-mono tabular-nums text-white mt-1 font-semibold">
-            {s.value}
-          </p>
-        </div>
+          <ArtCard art={ART.boxingRing} opacity={0.10} overlay="rgba(6,12,26,0.93)">
+            <div className="p-4 text-center">
+              <p className={labelClass}>{s.label}</p>
+              <p className="text-xl sm:text-2xl font-mono tabular-nums text-white mt-1 font-semibold">
+                {s.value}
+              </p>
+            </div>
+          </ArtCard>
+        </motion.div>
       ))}
     </div>
   );
@@ -347,13 +423,7 @@ function StatsBar({ poolCount }: { poolCount: bigint | undefined }) {
 
 // ─── Tab Navigation ───────────────────────────────────────────────
 
-function TabNav({
-  active,
-  onChange,
-}: {
-  active: Tab;
-  onChange: (t: Tab) => void;
-}) {
+function TabNav({ active, onChange }: { active: Tab; onChange: (t: Tab) => void }) {
   const tabs: { id: Tab; label: string }[] = [
     { id: 'trade', label: 'Trade' },
     { id: 'create', label: 'Create Pool' },
@@ -400,17 +470,19 @@ function PoolTypeBadge({ type }: { type: number }) {
 
 // ─── Buy/Sell Panel ───────────────────────────────────────────────
 
-function BuySellPanel() {
+function BuySellPanel({ deployed }: { deployed: boolean }) {
   const { address } = useAccount();
   const [mode, setMode] = useState<'buy' | 'sell'>('buy');
   const [collection, setCollection] = useState('');
   const [buyQty, setBuyQty] = useState(1);
   const [sellIds, setSellIds] = useState('');
+  const [approvalStep, setApprovalStep] = useState<'check' | 'approving' | 'approved'>('check');
 
   const { writeContract, data: txHash } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
-    hash: txHash,
-  });
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+
+  const { writeContract: writeApproval, data: approvalTxHash } = useWriteContract();
+  const { isLoading: isApproving, isSuccess: approvalSuccess } = useWaitForTransactionReceipt({ hash: approvalTxHash });
 
   const validCollection = isValidAddress(collection);
 
@@ -420,17 +492,13 @@ function BuySellPanel() {
     abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
     functionName: 'getBestBuyPool',
     args: [collection as Address, BigInt(buyQty)],
-    query: { enabled: validCollection && mode === 'buy' && buyQty > 0 },
+    query: { enabled: validCollection && mode === 'buy' && buyQty > 0 && deployed },
   });
 
   // Best sell pool quote
   const parsedSellIds = useMemo(() => {
     if (!sellIds.trim()) return [];
-    return sellIds
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s) => /^\d+$/.test(s))
-      .map((s) => BigInt(s));
+    return sellIds.split(',').map((s) => s.trim()).filter((s) => /^\d+$/.test(s)).map((s) => BigInt(s));
   }, [sellIds]);
 
   const { data: sellQuote } = useReadContract({
@@ -438,27 +506,25 @@ function BuySellPanel() {
     abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
     functionName: 'getBestSellPool',
     args: [collection as Address, BigInt(parsedSellIds.length)],
-    query: {
-      enabled: validCollection && mode === 'sell' && parsedSellIds.length > 0,
-    },
+    query: { enabled: validCollection && mode === 'sell' && parsedSellIds.length > 0 && deployed },
   });
 
-  const bestPool =
-    mode === 'buy'
-      ? (buyQuote as [Address, bigint] | undefined)?.[0]
-      : (sellQuote as [Address, bigint] | undefined)?.[0];
-  const bestAmount =
-    mode === 'buy'
-      ? (buyQuote as [Address, bigint] | undefined)?.[1]
-      : (sellQuote as [Address, bigint] | undefined)?.[1];
+  const bestPool = mode === 'buy'
+    ? (buyQuote as [Address, bigint] | undefined)?.[0]
+    : (sellQuote as [Address, bigint] | undefined)?.[0];
+  const bestAmount = mode === 'buy'
+    ? (buyQuote as [Address, bigint] | undefined)?.[1]
+    : (sellQuote as [Address, bigint] | undefined)?.[1];
 
-  // Get individual pool quote for fee breakdown
+  const hasPool = bestPool && bestPool !== ZERO_ADDRESS;
+
+  // Detailed quotes for fee breakdown
   const { data: detailedBuyQuote } = useReadContract({
     address: bestPool as Address,
     abi: TEGRIDY_NFT_POOL_ABI,
     functionName: 'getBuyQuote',
     args: [BigInt(buyQty)],
-    query: { enabled: !!bestPool && mode === 'buy' && bestPool !== '0x0000000000000000000000000000000000000000' },
+    query: { enabled: !!hasPool && mode === 'buy' },
   });
 
   const { data: detailedSellQuote } = useReadContract({
@@ -466,22 +532,53 @@ function BuySellPanel() {
     abi: TEGRIDY_NFT_POOL_ABI,
     functionName: 'getSellQuote',
     args: [BigInt(parsedSellIds.length)],
-    query: { enabled: !!bestPool && mode === 'sell' && parsedSellIds.length > 0 && bestPool !== '0x0000000000000000000000000000000000000000' },
+    query: { enabled: !!hasPool && mode === 'sell' && parsedSellIds.length > 0 },
   });
 
-  const protocolFee =
-    mode === 'buy'
-      ? (detailedBuyQuote as [bigint, bigint] | undefined)?.[1]
-      : (detailedSellQuote as [bigint, bigint] | undefined)?.[1];
+  const protocolFee = mode === 'buy'
+    ? (detailedBuyQuote as [bigint, bigint] | undefined)?.[1]
+    : (detailedSellQuote as [bigint, bigint] | undefined)?.[1];
 
-  // Get spot price for price impact
+  // Get spot price + delta for bonding curve
   const { data: currentSpotPrice } = useReadContract({
     address: bestPool as Address,
     abi: TEGRIDY_NFT_POOL_ABI,
     functionName: 'spotPrice',
-    query: { enabled: !!bestPool && bestPool !== '0x0000000000000000000000000000000000000000' },
+    query: { enabled: !!hasPool },
   });
 
+  const { data: currentDelta } = useReadContract({
+    address: bestPool as Address,
+    abi: TEGRIDY_NFT_POOL_ABI,
+    functionName: 'delta',
+    query: { enabled: !!hasPool },
+  });
+
+  // NFT approval check for sell flow
+  const { data: isApproved, refetch: refetchApproval } = useReadContract({
+    address: collection as Address,
+    abi: ERC721_APPROVAL_ABI,
+    functionName: 'isApprovedForAll',
+    args: [address as Address, bestPool as Address],
+    query: { enabled: !!address && !!hasPool && validCollection && mode === 'sell' },
+  });
+
+  useEffect(() => {
+    if (approvalSuccess) {
+      setApprovalStep('approved');
+      refetchApproval();
+      toast.success('Collection approved for trading!');
+    }
+  }, [approvalSuccess, refetchApproval]);
+
+  // Reset approval step when switching modes or collections
+  useEffect(() => {
+    setApprovalStep('check');
+  }, [mode, collection, bestPool]);
+
+  const needsApproval = mode === 'sell' && hasPool && isApproved === false && approvalStep !== 'approved';
+
+  // Price impact calculation
   const priceImpact = useMemo(() => {
     if (!bestAmount || !currentSpotPrice || currentSpotPrice === 0n) return null;
     const items = mode === 'buy' ? buyQty : parsedSellIds.length;
@@ -491,31 +588,49 @@ function BuySellPanel() {
     return (diff / Number(currentSpotPrice)) * 100;
   }, [bestAmount, currentSpotPrice, mode, buyQty, parsedSellIds.length]);
 
+  const spotNum = currentSpotPrice ? Number(formatEther(currentSpotPrice)) : 0;
+  const deltaNum = currentDelta ? Number(formatEther(currentDelta)) : 0;
+
+  const handleApprove = () => {
+    if (!hasPool || !validCollection || !address) return;
+    setApprovalStep('approving');
+    writeApproval(
+      {
+        address: collection as Address,
+        abi: ERC721_APPROVAL_ABI,
+        functionName: 'setApprovalForAll',
+        args: [bestPool as Address, true],
+      },
+      {
+        onError: (e: Error) => {
+          setApprovalStep('check');
+          toast.error(e.message?.slice(0, 100) || 'Approval failed');
+        },
+      }
+    );
+  };
+
   const handleExecute = () => {
-    if (!bestPool || bestPool === '0x0000000000000000000000000000000000000000') {
-      return toast.error('No pool found for this collection');
-    }
+    if (!hasPool) return toast.error('No pool found for this collection');
     if (!address) return toast.error('Connect your wallet');
 
     try {
       if (mode === 'buy') {
-        // Get held token IDs from pool, then swap
         writeContract(
           {
             address: bestPool as Address,
             abi: TEGRIDY_NFT_POOL_ABI,
             functionName: 'swapETHForNFTs',
-            args: [[]],  // Empty array = buy any available
+            args: [[]],
             value: bestAmount!,
           },
           {
             onSuccess: () => toast.success('NFTs purchased successfully!'),
-            onError: (e: Error) =>
-              toast.error(e.message?.slice(0, 100) || 'Transaction failed'),
+            onError: (e: Error) => toast.error(e.message?.slice(0, 100) || 'Transaction failed'),
           }
         );
       } else {
-        const minOutput = (bestAmount! * 95n) / 100n; // 5% slippage
+        const minOutput = (bestAmount! * 95n) / 100n;
         writeContract(
           {
             address: bestPool as Address,
@@ -525,8 +640,7 @@ function BuySellPanel() {
           },
           {
             onSuccess: () => toast.success('NFTs sold successfully!'),
-            onError: (e: Error) =>
-              toast.error(e.message?.slice(0, 100) || 'Transaction failed'),
+            onError: (e: Error) => toast.error(e.message?.slice(0, 100) || 'Transaction failed'),
           }
         );
       }
@@ -543,191 +657,263 @@ function BuySellPanel() {
   }, [isSuccess]);
 
   return (
-    <div className={`${cardBg} ${cardClass} p-6`}>
-      <h3 className="text-lg font-semibold text-white mb-5">
-        Instant {mode === 'buy' ? 'Buy' : 'Sell'}
-      </h3>
+    <ArtCard art={ART.poolParty} opacity={0.11} overlay="rgba(6,12,26,0.93)" className="rounded-2xl">
+      <div className="p-6">
+        <h3 className="text-lg font-semibold text-white mb-5">
+          Instant {mode === 'buy' ? 'Buy' : 'Sell'}
+        </h3>
 
-      {/* Buy/Sell Toggle */}
-      <div className="flex rounded-xl bg-white/[0.03] p-1 mb-5">
-        {(['buy', 'sell'] as const).map((m) => (
-          <button
-            key={m}
-            onClick={() => setMode(m)}
-            className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
-              mode === m
-                ? m === 'buy'
-                  ? 'bg-emerald-500/20 text-emerald-400 shadow-inner'
-                  : 'bg-orange-500/20 text-orange-400 shadow-inner'
-                : 'text-white/40 hover:text-white/60'
+        {/* Buy/Sell Toggle */}
+        <div className="flex rounded-xl bg-white/[0.03] p-1 mb-5">
+          {(['buy', 'sell'] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                mode === m
+                  ? m === 'buy'
+                    ? 'bg-emerald-500/20 text-emerald-400 shadow-inner'
+                    : 'bg-orange-500/20 text-orange-400 shadow-inner'
+                  : 'text-white/40 hover:text-white/60'
+              }`}
+            >
+              {m === 'buy' ? 'Buy NFTs' : 'Sell NFTs'}
+            </button>
+          ))}
+        </div>
+
+        {/* Collection input */}
+        <div className="mb-4">
+          <label className={`${labelClass} mb-2 block`}>Collection Address</label>
+          <div className="relative">
+            <input
+              type="text"
+              value={collection}
+              onChange={(e) => setCollection(e.target.value)}
+              placeholder="0x..."
+              className={inputClass}
+            />
+            <button
+              onClick={async () => {
+                try {
+                  const text = await navigator.clipboard.readText();
+                  setCollection(text.trim());
+                } catch {
+                  toast.error('Failed to read clipboard');
+                }
+              }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors text-xs font-medium"
+            >
+              PASTE
+            </button>
+          </div>
+        </div>
+
+        {/* Buy: Quantity Selector */}
+        {mode === 'buy' && (
+          <div className="mb-5">
+            <label className={`${labelClass} mb-2 block`}>Quantity</label>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setBuyQty(Math.max(1, buyQty - 1))}
+                className="w-11 h-11 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white/60 hover:text-white hover:border-white/20 transition-all text-lg font-medium flex items-center justify-center"
+              >
+                -
+              </button>
+              <div className="flex-1 text-center">
+                <span className="text-2xl font-mono font-bold text-white tabular-nums">{buyQty}</span>
+                <span className="text-white/30 text-sm ml-1">NFT{buyQty !== 1 ? 's' : ''}</span>
+              </div>
+              <button
+                onClick={() => setBuyQty(Math.min(10, buyQty + 1))}
+                className="w-11 h-11 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white/60 hover:text-white hover:border-white/20 transition-all text-lg font-medium flex items-center justify-center"
+              >
+                +
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Sell: Token IDs */}
+        {mode === 'sell' && (
+          <div className="mb-5">
+            <label className={`${labelClass} mb-2 block`}>
+              Token IDs <span className="normal-case tracking-normal text-white/25">(comma-separated)</span>
+            </label>
+            <input
+              type="text"
+              value={sellIds}
+              onChange={(e) => setSellIds(e.target.value)}
+              placeholder="1, 42, 100"
+              className={inputClass}
+            />
+            {parsedSellIds.length > 0 && (
+              <p className="text-[10px] text-white/30 mt-1.5 font-mono">
+                {parsedSellIds.length} token{parsedSellIds.length !== 1 ? 's' : ''} selected
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Quote Card */}
+        {validCollection && bestAmount && hasPool && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 mb-5"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <span className={labelClass}>Price Quote</span>
+              <span className="text-[10px] font-mono text-white/25">Pool: {shortenAddress(bestPool!)}</span>
+            </div>
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-white/50">{mode === 'buy' ? 'Total Cost' : 'Payout'}</span>
+                <span className="font-mono tabular-nums text-white font-semibold">
+                  {formatTokenAmount(formatEther(bestAmount), 6)} ETH
+                </span>
+              </div>
+              {protocolFee !== undefined && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-white/50">Protocol Fee</span>
+                  <span className="font-mono tabular-nums text-white/60">
+                    {formatTokenAmount(formatEther(protocolFee), 6)} ETH
+                  </span>
+                </div>
+              )}
+              {priceImpact !== null && (
+                <div className="flex justify-between text-sm items-center">
+                  <span className="text-white/50">Price Impact</span>
+                  <PriceImpactBadge impact={priceImpact} />
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Bonding Curve in Trade Tab (when pool found) */}
+        {validCollection && hasPool && spotNum > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="mb-5"
+          >
+            <ArtCard art={ART.beachSunset} opacity={0.10} overlay="rgba(6,12,26,0.94)" border="rgba(16,185,129,0.08)">
+              <div className="p-4">
+                <p className={`${labelClass} mb-2`}>Bonding Curve</p>
+                <BondingCurveChart
+                  spotPrice={spotNum}
+                  delta={deltaNum}
+                  numSteps={10}
+                  height={180}
+                  currentPriceMarker={spotNum}
+                />
+              </div>
+            </ArtCard>
+          </motion.div>
+        )}
+
+        {/* Empty quote state */}
+        {validCollection && (!bestAmount || !hasPool) && deployed && (
+          <div className="rounded-xl border border-white/[0.04] bg-white/[0.01] p-4 mb-5 text-center">
+            <p className="text-sm text-white/30">No pools found for this collection</p>
+          </div>
+        )}
+
+        {/* Price Impact Warning Banner */}
+        {priceImpact !== null && Math.abs(priceImpact) > 5 && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            className={`rounded-xl border p-3 mb-4 text-xs font-medium flex items-center gap-2 ${
+              Math.abs(priceImpact) > 15
+                ? 'border-red-400/20 bg-red-400/5 text-red-400'
+                : 'border-yellow-400/20 bg-yellow-400/5 text-yellow-400'
             }`}
           >
-            {m === 'buy' ? 'Buy NFTs' : 'Sell NFTs'}
-          </button>
-        ))}
-      </div>
+            <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+            </svg>
+            {Math.abs(priceImpact) > 15
+              ? `High price impact (${Math.abs(priceImpact).toFixed(1)}%). Consider reducing quantity.`
+              : `Moderate price impact (${Math.abs(priceImpact).toFixed(1)}%). Proceed with caution.`}
+          </motion.div>
+        )}
 
-      {/* Collection input */}
-      <div className="mb-4">
-        <label className={`${labelClass} mb-2 block`}>Collection Address</label>
-        <div className="relative">
-          <input
-            type="text"
-            value={collection}
-            onChange={(e) => setCollection(e.target.value)}
-            placeholder="0x..."
-            className={inputClass}
-          />
-          <button
-            onClick={async () => {
-              try {
-                const text = await navigator.clipboard.readText();
-                setCollection(text.trim());
-              } catch {
-                toast.error('Failed to read clipboard');
-              }
-            }}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors text-xs font-medium"
-          >
-            PASTE
+        {/* Execute Buttons */}
+        {!deployed ? (
+          <button className={btnDisabled} disabled>
+            Contract Not Deployed
           </button>
-        </div>
-      </div>
-
-      {/* Buy: Quantity Selector */}
-      {mode === 'buy' && (
-        <div className="mb-5">
-          <label className={`${labelClass} mb-2 block`}>Quantity</label>
+        ) : needsApproval ? (
+          <div className="space-y-3">
+            <button
+              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-500 hover:to-purple-400 transition-all duration-300 text-white font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-purple-500/10"
+              disabled={isApproving || approvalStep === 'approving'}
+              onClick={handleApprove}
+            >
+              {isApproving || approvalStep === 'approving' ? (
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                  </svg>
+                  Approving...
+                </span>
+              ) : (
+                'Step 1: Approve Collection'
+              )}
+            </button>
+            <button className={btnDisabled} disabled>
+              Step 2: Sell NFTs
+            </button>
+          </div>
+        ) : (
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setBuyQty(Math.max(1, buyQty - 1))}
-              className="w-11 h-11 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white/60 hover:text-white hover:border-white/20 transition-all text-lg font-medium flex items-center justify-center"
+              className={`flex-1 ${btnPrimary}`}
+              disabled={
+                !address || !validCollection || !bestAmount || !hasPool || isConfirming ||
+                (mode === 'sell' && parsedSellIds.length === 0)
+              }
+              onClick={handleExecute}
             >
-              -
+              {!address
+                ? 'Connect Wallet'
+                : isConfirming
+                ? 'Confirming...'
+                : mode === 'buy'
+                ? `Buy ${buyQty} NFT${buyQty !== 1 ? 's' : ''}`
+                : `Sell ${parsedSellIds.length} NFT${parsedSellIds.length !== 1 ? 's' : ''}`}
             </button>
-            <div className="flex-1 text-center">
-              <span className="text-2xl font-mono font-bold text-white tabular-nums">
-                {buyQty}
-              </span>
-              <span className="text-white/30 text-sm ml-1">
-                NFT{buyQty !== 1 ? 's' : ''}
-              </span>
-            </div>
-            <button
-              onClick={() => setBuyQty(Math.min(10, buyQty + 1))}
-              className="w-11 h-11 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white/60 hover:text-white hover:border-white/20 transition-all text-lg font-medium flex items-center justify-center"
-            >
-              +
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Sell: Token IDs */}
-      {mode === 'sell' && (
-        <div className="mb-5">
-          <label className={`${labelClass} mb-2 block`}>
-            Token IDs{' '}
-            <span className="normal-case tracking-normal text-white/25">
-              (comma-separated)
-            </span>
-          </label>
-          <input
-            type="text"
-            value={sellIds}
-            onChange={(e) => setSellIds(e.target.value)}
-            placeholder="1, 42, 100"
-            className={inputClass}
-          />
-          {parsedSellIds.length > 0 && (
-            <p className="text-[10px] text-white/30 mt-1.5 font-mono">
-              {parsedSellIds.length} token{parsedSellIds.length !== 1 ? 's' : ''}{' '}
-              selected
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Quote Card */}
-      {validCollection && bestAmount && bestPool !== '0x0000000000000000000000000000000000000000' && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={`rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 mb-5`}
-        >
-          <div className="flex items-center justify-between mb-3">
-            <span className={labelClass}>Price Quote</span>
-            <span className="text-[10px] font-mono text-white/25">
-              Pool: {shortenAddress(bestPool)}
-            </span>
-          </div>
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-white/50">
-                {mode === 'buy' ? 'Total Cost' : 'Payout'}
-              </span>
-              <span className="font-mono tabular-nums text-white font-semibold">
-                {formatTokenAmount(formatEther(bestAmount), 6)} ETH
-              </span>
-            </div>
-            {protocolFee !== undefined && (
-              <div className="flex justify-between text-sm">
-                <span className="text-white/50">Protocol Fee</span>
-                <span className="font-mono tabular-nums text-white/60">
-                  {formatTokenAmount(formatEther(protocolFee), 6)} ETH
-                </span>
-              </div>
-            )}
-            {priceImpact !== null && (
-              <div className="flex justify-between text-sm">
-                <span className="text-white/50">Price Impact</span>
-                <span
-                  className={`font-mono tabular-nums font-medium ${
-                    Math.abs(priceImpact) > 5
-                      ? 'text-red-400'
-                      : Math.abs(priceImpact) > 2
-                      ? 'text-orange-400'
-                      : 'text-emerald-400'
-                  }`}
-                >
-                  {priceImpact > 0 ? '+' : ''}
-                  {priceImpact.toFixed(2)}%
-                </span>
-              </div>
+            {priceImpact !== null && Math.abs(priceImpact) > 5 && (
+              <PriceImpactBadge impact={priceImpact} />
             )}
           </div>
-        </motion.div>
-      )}
+        )}
+      </div>
+    </ArtCard>
+  );
+}
 
-      {/* Empty quote state */}
-      {validCollection && (!bestAmount || bestPool === '0x0000000000000000000000000000000000000000') && (
-        <div className="rounded-xl border border-white/[0.04] bg-white/[0.01] p-4 mb-5 text-center">
-          <p className="text-sm text-white/30">No pools found for this collection</p>
+// ─── Trade History Placeholder ────────────────────────────────────
+
+function TradeHistory() {
+  return (
+    <ArtCard art={ART.chaosScene} opacity={0.10} overlay="rgba(6,12,26,0.94)" border="rgba(139,92,246,0.08)">
+      <div className="p-6 text-center">
+        <div className="w-12 h-12 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mx-auto mb-4">
+          <svg className="w-5 h-5 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
         </div>
-      )}
-
-      {/* Execute */}
-      <button
-        className={btnPrimary}
-        disabled={
-          !address ||
-          !validCollection ||
-          !bestAmount ||
-          bestPool === '0x0000000000000000000000000000000000000000' ||
-          isConfirming ||
-          (mode === 'sell' && parsedSellIds.length === 0)
-        }
-        onClick={handleExecute}
-      >
-        {!address
-          ? 'Connect Wallet'
-          : isConfirming
-          ? 'Confirming...'
-          : mode === 'buy'
-          ? `Buy ${buyQty} NFT${buyQty !== 1 ? 's' : ''}`
-          : `Sell ${parsedSellIds.length} NFT${parsedSellIds.length !== 1 ? 's' : ''}`}
-      </button>
-    </div>
+        <h4 className="text-sm font-semibold text-white/60 mb-1.5">Trade History</h4>
+        <p className="text-xs text-white/30 leading-relaxed max-w-xs mx-auto">
+          Trade history will appear here once the protocol is live. All swaps, fees, and pool interactions will be tracked.
+        </p>
+      </div>
+    </ArtCard>
   );
 }
 
@@ -736,14 +922,19 @@ function BuySellPanel() {
 function PoolCard({
   poolAddress,
   isOwner,
+  index = 0,
 }: {
   poolAddress: Address;
   isOwner?: boolean;
+  index?: number;
 }) {
   const { address } = useAccount();
   const [expanded, setExpanded] = useState(false);
   const [liqNftIds, setLiqNftIds] = useState('');
   const [liqEth, setLiqEth] = useState('');
+  const [withdrawNftIds, setWithdrawNftIds] = useState('');
+  const [withdrawEth, setWithdrawEth] = useState('');
+  const [activeAction, setActiveAction] = useState<'deposit' | 'withdraw'>('deposit');
 
   const { data: poolInfo } = useReadContract({
     address: poolAddress,
@@ -758,15 +949,11 @@ function PoolCard({
   });
 
   const { writeContract, data: txHash } = useWriteContract();
-  const { isLoading: isConfirming } = useWaitForTransactionReceipt({
-    hash: txHash,
-  });
+  const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash });
 
   if (!poolInfo) {
     return (
-      <div
-        className={`${cardBg} ${cardClass} p-4 animate-pulse`}
-      >
+      <div className="rounded-2xl border border-[rgba(16,185,129,0.06)] bg-[rgba(13,21,48,0.6)] backdrop-blur-[20px] p-4 animate-pulse">
         <div className="h-4 bg-white/5 rounded w-24 mb-3" />
         <div className="h-3 bg-white/5 rounded w-32" />
       </div>
@@ -781,9 +968,7 @@ function PoolCard({
 
   const handleAddLiquidity = () => {
     try {
-      const ids = liqNftIds.trim()
-        ? liqNftIds.split(',').map((s) => BigInt(s.trim()))
-        : [];
+      const ids = liqNftIds.trim() ? liqNftIds.split(',').map((s) => BigInt(s.trim())) : [];
       writeContract(
         {
           address: poolAddress,
@@ -799,8 +984,33 @@ function PoolCard({
             setLiqEth('');
             setExpanded(false);
           },
-          onError: (e: Error) =>
-            toast.error(e.message?.slice(0, 100) || 'Failed'),
+          onError: (e: Error) => toast.error(e.message?.slice(0, 100) || 'Failed'),
+        }
+      );
+    } catch {
+      toast.error('Invalid input');
+    }
+  };
+
+  const handleWithdraw = () => {
+    try {
+      const ids = withdrawNftIds.trim() ? withdrawNftIds.split(',').map((s) => BigInt(s.trim())) : [];
+      const ethAmt = withdrawEth ? parseEther(withdrawEth) : 0n;
+      writeContract(
+        {
+          address: poolAddress,
+          abi: TEGRIDY_NFT_POOL_ABI,
+          functionName: 'removeLiquidity',
+          args: [ids, ethAmt],
+        },
+        {
+          onSuccess: () => {
+            toast.success('Liquidity withdrawn!');
+            setWithdrawNftIds('');
+            setWithdrawEth('');
+            setExpanded(false);
+          },
+          onError: (e: Error) => toast.error(e.message?.slice(0, 100) || 'Failed'),
         }
       );
     } catch {
@@ -811,167 +1021,206 @@ function PoolCard({
   return (
     <motion.div
       layout
-      className={`${cardBg} ${cardClass} p-5 ${
-        POOL_TYPE_ACCENT[poolType] ?? ''
-      }`}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.06 }}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2.5">
-          <PoolTypeBadge type={poolType} />
-          <span className="text-[10px] font-mono text-white/25">
-            {shortenAddress(poolAddress)}
-          </span>
-        </div>
-        {showOwnerControls && (
-          <span className="text-[9px] uppercase tracking-widest text-emerald-400/60 font-semibold">
-            Owner
-          </span>
-        )}
-      </div>
-
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 gap-x-4 gap-y-3 mb-4">
-        <div>
-          <p className={labelClass}>Spot Price</p>
-          <p className="text-sm font-mono tabular-nums text-white mt-0.5">
-            {formatTokenAmount(formatEther(spotPrice), 4)} ETH
-          </p>
-        </div>
-        <div>
-          <p className={labelClass}>Delta</p>
-          <p className="text-sm font-mono tabular-nums text-white/70 mt-0.5">
-            {formatTokenAmount(formatEther(delta), 4)} ETH
-          </p>
-        </div>
-        <div>
-          <p className={labelClass}>NFTs Held</p>
-          <p className="text-sm font-mono tabular-nums text-white mt-0.5">
-            {numNFTs.toString()}
-          </p>
-        </div>
-        <div>
-          <p className={labelClass}>ETH Balance</p>
-          <p className="text-sm font-mono tabular-nums text-white mt-0.5">
-            {formatTokenAmount(formatEther(ethBalance), 4)}
-          </p>
-        </div>
-        <div>
-          <p className={labelClass}>LP Fee</p>
-          <p className="text-sm font-mono tabular-nums text-white/70 mt-0.5">
-            {(Number(feeBps) / 100).toFixed(2)}%
-          </p>
-        </div>
-        <div>
-          <p className={labelClass}>Collection</p>
-          <p className="text-[11px] font-mono text-white/50 mt-0.5">
-            {shortenAddress(nftCollection)}
-          </p>
-        </div>
-      </div>
-
-      {/* Held Token IDs */}
-      {heldTokenIds && (heldTokenIds as bigint[]).length > 0 && (
-        <div className="mb-4">
-          <p className={`${labelClass} mb-1.5`}>Held Token IDs</p>
-          <div className="flex flex-wrap gap-1.5">
-            {(heldTokenIds as bigint[]).slice(0, 20).map((id) => (
-              <span
-                key={id.toString()}
-                className="px-2 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.06] text-[10px] font-mono text-white/50"
-              >
-                #{id.toString()}
-              </span>
-            ))}
-            {(heldTokenIds as bigint[]).length > 20 && (
-              <span className="px-2 py-0.5 text-[10px] text-white/30">
-                +{(heldTokenIds as bigint[]).length - 20} more
-              </span>
+      <ArtCard
+        art={isOwner ? ART.wrestler : ART.jungleDark}
+        opacity={0.08}
+        overlay="rgba(6,12,26,0.94)"
+        border={poolType === 0 ? 'rgba(96,165,250,0.15)' : poolType === 1 ? 'rgba(251,146,60,0.15)' : 'rgba(16,185,129,0.15)'}
+        className="rounded-2xl"
+      >
+        <div className="p-5">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2.5">
+              <PoolTypeBadge type={poolType} />
+              <span className="text-[10px] font-mono text-white/25">{shortenAddress(poolAddress)}</span>
+            </div>
+            {showOwnerControls && (
+              <span className="text-[9px] uppercase tracking-widest text-emerald-400/60 font-semibold">Owner</span>
             )}
           </div>
-        </div>
-      )}
 
-      {/* Owner: Add Liquidity */}
-      {showOwnerControls && (
-        <>
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="w-full text-left text-xs text-emerald-400/70 hover:text-emerald-400 transition-colors font-medium py-2 flex items-center gap-1.5"
-          >
-            <svg
-              className={`w-3 h-3 transition-transform duration-200 ${
-                expanded ? 'rotate-90' : ''
-              }`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M9 5l7 7-7 7"
-              />
-            </svg>
-            Add Liquidity
-          </button>
-          <AnimatePresence>
-            {expanded && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                className="overflow-hidden"
-              >
-                <div className="pt-3 space-y-3 border-t border-white/[0.04]">
-                  <div>
-                    <label className={`${labelClass} mb-1 block`}>
-                      NFT Token IDs
-                    </label>
-                    <input
-                      type="text"
-                      value={liqNftIds}
-                      onChange={(e) => setLiqNftIds(e.target.value)}
-                      placeholder="1, 42, 100"
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={`${labelClass} mb-1 block`}>
-                      ETH Amount
-                    </label>
-                    <input
-                      type="number"
-                      value={liqEth}
-                      onChange={(e) => setLiqEth(e.target.value)}
-                      placeholder="0.0"
-                      className={inputClass}
-                    />
-                  </div>
-                  <button
-                    className="w-full py-2.5 rounded-xl bg-emerald-600/80 hover:bg-emerald-600 transition-colors text-white text-sm font-medium disabled:opacity-40"
-                    disabled={
-                      isConfirming ||
-                      (!liqNftIds.trim() && !liqEth)
-                    }
-                    onClick={handleAddLiquidity}
+          {/* Stats Grid */}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3 mb-4">
+            <div>
+              <p className={labelClass}>Spot Price</p>
+              <p className="text-sm font-mono tabular-nums text-white mt-0.5">
+                {formatTokenAmount(formatEther(spotPrice), 4)} ETH
+              </p>
+            </div>
+            <div>
+              <p className={labelClass}>Delta</p>
+              <p className="text-sm font-mono tabular-nums text-white/70 mt-0.5">
+                {formatTokenAmount(formatEther(delta), 4)} ETH
+              </p>
+            </div>
+            <div>
+              <p className={labelClass}>NFTs Held</p>
+              <p className="text-sm font-mono tabular-nums text-white mt-0.5">{numNFTs.toString()}</p>
+            </div>
+            <div>
+              <p className={labelClass}>ETH Balance</p>
+              <p className="text-sm font-mono tabular-nums text-white mt-0.5">
+                {formatTokenAmount(formatEther(ethBalance), 4)}
+              </p>
+            </div>
+            <div>
+              <p className={labelClass}>LP Fee</p>
+              <p className="text-sm font-mono tabular-nums text-white/70 mt-0.5">
+                {(Number(feeBps) / 100).toFixed(2)}%
+              </p>
+            </div>
+            <div>
+              <p className={labelClass}>Collection</p>
+              <p className="text-[11px] font-mono text-white/50 mt-0.5">{shortenAddress(nftCollection)}</p>
+            </div>
+          </div>
+
+          {/* Held Token IDs */}
+          {heldTokenIds && (heldTokenIds as bigint[]).length > 0 && (
+            <div className="mb-4">
+              <p className={`${labelClass} mb-1.5`}>Held Token IDs</p>
+              <div className="flex flex-wrap gap-1.5">
+                {(heldTokenIds as bigint[]).slice(0, 20).map((id) => (
+                  <span
+                    key={id.toString()}
+                    className="px-2 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.06] text-[10px] font-mono text-white/50"
                   >
-                    {isConfirming ? 'Adding...' : 'Add Liquidity'}
-                  </button>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </>
-      )}
+                    #{id.toString()}
+                  </span>
+                ))}
+                {(heldTokenIds as bigint[]).length > 20 && (
+                  <span className="px-2 py-0.5 text-[10px] text-white/30">
+                    +{(heldTokenIds as bigint[]).length - 20} more
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Owner: Manage Liquidity */}
+          {showOwnerControls && (
+            <>
+              <button
+                onClick={() => setExpanded(!expanded)}
+                className="w-full text-left text-xs text-emerald-400/70 hover:text-emerald-400 transition-colors font-medium py-2 flex items-center gap-1.5"
+              >
+                <svg
+                  className={`w-3 h-3 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+                Manage Liquidity
+              </button>
+              <AnimatePresence>
+                {expanded && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="pt-3 border-t border-white/[0.04]">
+                      {/* Deposit / Withdraw toggle */}
+                      <div className="flex rounded-lg bg-white/[0.03] p-0.5 mb-4">
+                        {(['deposit', 'withdraw'] as const).map((a) => (
+                          <button
+                            key={a}
+                            onClick={() => setActiveAction(a)}
+                            className={`flex-1 py-2 rounded-md text-xs font-semibold transition-all capitalize ${
+                              activeAction === a
+                                ? a === 'deposit'
+                                  ? 'bg-emerald-500/20 text-emerald-400'
+                                  : 'bg-orange-500/20 text-orange-400'
+                                : 'text-white/40 hover:text-white/60'
+                            }`}
+                          >
+                            {a}
+                          </button>
+                        ))}
+                      </div>
+
+                      {activeAction === 'deposit' ? (
+                        <div className="space-y-3">
+                          <div>
+                            <label className={`${labelClass} mb-1 block`}>NFT Token IDs</label>
+                            <input
+                              type="text"
+                              value={liqNftIds}
+                              onChange={(e) => setLiqNftIds(e.target.value)}
+                              placeholder="1, 42, 100"
+                              className={inputClass}
+                            />
+                          </div>
+                          <div>
+                            <label className={`${labelClass} mb-1 block`}>ETH Amount</label>
+                            <input
+                              type="number"
+                              value={liqEth}
+                              onChange={(e) => setLiqEth(e.target.value)}
+                              placeholder="0.0"
+                              className={inputClass}
+                            />
+                          </div>
+                          <button
+                            className="w-full py-2.5 rounded-xl bg-emerald-600/80 hover:bg-emerald-600 transition-colors text-white text-sm font-medium disabled:opacity-40"
+                            disabled={isConfirming || (!liqNftIds.trim() && !liqEth)}
+                            onClick={handleAddLiquidity}
+                          >
+                            {isConfirming ? 'Adding...' : 'Deposit Liquidity'}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <div>
+                            <label className={`${labelClass} mb-1 block`}>Withdraw NFT IDs</label>
+                            <input
+                              type="text"
+                              value={withdrawNftIds}
+                              onChange={(e) => setWithdrawNftIds(e.target.value)}
+                              placeholder="1, 42, 100"
+                              className={inputClass}
+                            />
+                          </div>
+                          <div>
+                            <label className={`${labelClass} mb-1 block`}>Withdraw ETH</label>
+                            <input
+                              type="number"
+                              value={withdrawEth}
+                              onChange={(e) => setWithdrawEth(e.target.value)}
+                              placeholder="0.0"
+                              className={inputClass}
+                            />
+                          </div>
+                          <button
+                            className="w-full py-2.5 rounded-xl bg-orange-600/80 hover:bg-orange-600 transition-colors text-white text-sm font-medium disabled:opacity-40"
+                            disabled={isConfirming || (!withdrawNftIds.trim() && !withdrawEth)}
+                            onClick={handleWithdraw}
+                          >
+                            {isConfirming ? 'Withdrawing...' : 'Withdraw Liquidity'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </>
+          )}
+        </div>
+      </ArtCard>
     </motion.div>
   );
 }
 
 // ─── Pool Explorer ────────────────────────────────────────────────
 
-function PoolExplorer() {
+function PoolExplorer({ deployed }: { deployed: boolean }) {
   const [searchAddr, setSearchAddr] = useState('');
   const validSearch = isValidAddress(searchAddr);
 
@@ -980,80 +1229,75 @@ function PoolExplorer() {
     abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
     functionName: 'getPoolsForCollection',
     args: [searchAddr as Address],
-    query: { enabled: validSearch },
+    query: { enabled: validSearch && deployed },
   });
 
   const poolList = (pools as Address[] | undefined) ?? [];
 
   return (
-    <div className={`${cardBg} ${cardClass} p-6`}>
-      <h3 className="text-lg font-semibold text-white mb-5">Pool Explorer</h3>
+    <ArtCard art={ART.jungleDark} opacity={0.10} overlay="rgba(6,12,26,0.93)" className="rounded-2xl">
+      <div className="p-6">
+        <h3 className="text-lg font-semibold text-white mb-5">Pool Explorer</h3>
 
-      <div className="mb-5">
-        <label className={`${labelClass} mb-2 block`}>Collection Address</label>
-        <input
-          type="text"
-          value={searchAddr}
-          onChange={(e) => setSearchAddr(e.target.value)}
-          placeholder="0x..."
-          className={inputClass}
-        />
-      </div>
+        <div className="mb-5">
+          <label className={`${labelClass} mb-2 block`}>Collection Address</label>
+          <input
+            type="text"
+            value={searchAddr}
+            onChange={(e) => setSearchAddr(e.target.value)}
+            placeholder="0x..."
+            className={inputClass}
+          />
+        </div>
 
-      {!validSearch && (
-        <div className="text-center py-12">
-          <div className="w-12 h-12 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mx-auto mb-4">
-            <svg
-              className="w-5 h-5 text-white/20"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth="1.5"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
-              />
-            </svg>
+        {!validSearch && (
+          <ArtCard art={ART.jungleDark} opacity={0.15} overlay="rgba(6,12,26,0.90)" border="rgba(255,255,255,0.04)">
+            <div className="text-center py-12 px-4">
+              <div className="w-12 h-12 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mx-auto mb-4">
+                <svg className="w-5 h-5 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+              </div>
+              <p className="text-sm text-white/30">Enter a collection address to discover pools</p>
+            </div>
+          </ArtCard>
+        )}
+
+        {validSearch && poolList.length === 0 && (
+          <div className="text-center py-10">
+            <p className="text-sm text-white/30">No pools found</p>
           </div>
-          <p className="text-sm text-white/30">
-            Enter a collection address to discover pools
-          </p>
-        </div>
-      )}
+        )}
 
-      {validSearch && poolList.length === 0 && (
-        <div className="text-center py-10">
-          <p className="text-sm text-white/30">No pools found</p>
-        </div>
-      )}
-
-      {validSearch && poolList.length > 0 && (
-        <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10">
-          {poolList.map((addr) => (
-            <PoolCard key={addr} poolAddress={addr} />
-          ))}
-        </div>
-      )}
-    </div>
+        {validSearch && poolList.length > 0 && (
+          <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10">
+            {poolList.map((addr, i) => (
+              <PoolCard key={addr} poolAddress={addr} index={i} />
+            ))}
+          </div>
+        )}
+      </div>
+    </ArtCard>
   );
 }
 
 // ─── Trade Tab ────────────────────────────────────────────────────
 
-function TradeTab() {
+function TradeTab({ deployed }: { deployed: boolean }) {
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <BuySellPanel />
-      <PoolExplorer />
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <BuySellPanel deployed={deployed} />
+        <PoolExplorer deployed={deployed} />
+      </div>
+      <TradeHistory />
     </div>
   );
 }
 
 // ─── Create Pool Tab ──────────────────────────────────────────────
 
-function CreatePoolTab() {
+function CreatePoolTab({ deployed }: { deployed: boolean }) {
   const { address } = useAccount();
   const [step, setStep] = useState(1);
   const [collection, setCollection] = useState('');
@@ -1065,20 +1309,14 @@ function CreatePoolTab() {
   const [feeBps, setFeeBps] = useState('200');
 
   const { writeContract, data: txHash } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
-    hash: txHash,
-  });
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
   const spotNum = parseFloat(spotPriceInput) || 0;
   const deltaNum = parseFloat(deltaInput) || 0;
 
   const parsedNftIds = useMemo(() => {
     if (!nftIds.trim()) return [];
-    return nftIds
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s) => /^\d+$/.test(s))
-      .map((s) => BigInt(s));
+    return nftIds.split(',').map((s) => s.trim()).filter((s) => /^\d+$/.test(s)).map((s) => BigInt(s));
   }, [nftIds]);
 
   const canProceed = useCallback(
@@ -1119,8 +1357,7 @@ function CreatePoolTab() {
             setNftIds('');
             setEthDeposit('');
           },
-          onError: (e: Error) =>
-            toast.error(e.message?.slice(0, 100) || 'Pool creation failed'),
+          onError: (e: Error) => toast.error(e.message?.slice(0, 100) || 'Pool creation failed'),
         }
       );
     } catch {
@@ -1128,7 +1365,6 @@ function CreatePoolTab() {
     }
   };
 
-  // Step indicator
   const stepLabels = ['Collection & Type', 'Pricing', 'Liquidity & Deploy'];
 
   return (
@@ -1140,10 +1376,7 @@ function CreatePoolTab() {
           const isActive = step === num;
           const isDone = step > num;
           return (
-            <div
-              key={num}
-              className="flex items-center gap-2 flex-1"
-            >
+            <div key={num} className="flex items-center gap-2 flex-1">
               <div
                 className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 flex-shrink-0 ${
                   isActive
@@ -1161,19 +1394,11 @@ function CreatePoolTab() {
                   num
                 )}
               </div>
-              <span
-                className={`text-xs font-medium hidden sm:block ${
-                  isActive ? 'text-white' : 'text-white/30'
-                }`}
-              >
+              <span className={`text-xs font-medium hidden sm:block ${isActive ? 'text-white' : 'text-white/30'}`}>
                 {label}
               </span>
               {i < stepLabels.length - 1 && (
-                <div
-                  className={`flex-1 h-px mx-2 ${
-                    isDone ? 'bg-emerald-500/30' : 'bg-white/[0.06]'
-                  }`}
-                />
+                <div className={`flex-1 h-px mx-2 ${isDone ? 'bg-emerald-500/30' : 'bg-white/[0.06]'}`} />
               )}
             </div>
           );
@@ -1188,87 +1413,69 @@ function CreatePoolTab() {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
-            className={`${cardBg} ${cardClass} p-6`}
           >
-            <h3 className="text-lg font-semibold text-white mb-6">
-              Choose Collection & Pool Type
-            </h3>
+            <ArtCard art={ART.mumuBull} opacity={0.11} overlay="rgba(6,12,26,0.93)" className="rounded-2xl">
+              <div className="p-6">
+                <h3 className="text-lg font-semibold text-white mb-6">Choose Collection & Pool Type</h3>
 
-            <div className="mb-6">
-              <label className={`${labelClass} mb-2 block`}>
-                NFT Collection Address
-              </label>
-              <input
-                type="text"
-                value={collection}
-                onChange={(e) => setCollection(e.target.value)}
-                placeholder="0x..."
-                className={inputClass}
-              />
-            </div>
+                <div className="mb-6">
+                  <label className={`${labelClass} mb-2 block`}>NFT Collection Address</label>
+                  <input
+                    type="text"
+                    value={collection}
+                    onChange={(e) => setCollection(e.target.value)}
+                    placeholder="0x..."
+                    className={inputClass}
+                  />
+                </div>
 
-            <div className="mb-6">
-              <label className={`${labelClass} mb-3 block`}>Pool Type</label>
-              <div className="grid grid-cols-3 gap-3">
-                {([0, 1, 2] as PoolType[]).map((type) => (
-                  <button
-                    key={type}
-                    onClick={() => setPoolType(type)}
-                    className={`p-4 rounded-xl border text-left transition-all duration-200 ${
-                      poolType === type
-                        ? POOL_TYPE_BG_SELECTED[type]
-                        : 'bg-white/[0.02] border-white/[0.06] hover:border-white/[0.12]'
-                    }`}
-                  >
-                    <svg
-                      className={`w-5 h-5 mb-2 ${
-                        poolType === type
-                          ? type === 0
-                            ? 'text-blue-400'
-                            : type === 1
-                            ? 'text-orange-400'
-                            : 'text-emerald-400'
-                          : 'text-white/30'
-                      }`}
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d={POOL_TYPE_ICONS[type]}
-                      />
-                    </svg>
-                    <p
-                      className={`text-sm font-semibold mb-1 ${
-                        poolType === type
-                          ? type === 0
-                            ? 'text-blue-400'
-                            : type === 1
-                            ? 'text-orange-400'
-                            : 'text-emerald-400'
-                          : 'text-white/60'
-                      }`}
-                    >
-                      {POOL_TYPE_LABELS[type]}
-                    </p>
-                    <p className="text-[10px] text-white/30 leading-relaxed">
-                      {POOL_TYPE_DESCRIPTIONS[type]}
-                    </p>
+                <div className="mb-6">
+                  <label className={`${labelClass} mb-3 block`}>Pool Type</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {([0, 1, 2] as PoolType[]).map((type) => (
+                      <button
+                        key={type}
+                        onClick={() => setPoolType(type)}
+                        className={`p-4 rounded-xl border text-left transition-all duration-200 ${
+                          poolType === type
+                            ? POOL_TYPE_BG_SELECTED[type]
+                            : 'bg-white/[0.02] border-white/[0.06] hover:border-white/[0.12]'
+                        }`}
+                      >
+                        <svg
+                          className={`w-5 h-5 mb-2 ${
+                            poolType === type
+                              ? type === 0 ? 'text-blue-400' : type === 1 ? 'text-orange-400' : 'text-emerald-400'
+                              : 'text-white/30'
+                          }`}
+                          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d={POOL_TYPE_ICONS[type]} />
+                        </svg>
+                        <p
+                          className={`text-sm font-semibold mb-1 ${
+                            poolType === type
+                              ? type === 0 ? 'text-blue-400' : type === 1 ? 'text-orange-400' : 'text-emerald-400'
+                              : 'text-white/60'
+                          }`}
+                        >
+                          {POOL_TYPE_LABELS[type]}
+                        </p>
+                        <p className="text-[10px] text-white/30 leading-relaxed">{POOL_TYPE_DESCRIPTIONS[type]}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {!deployed ? (
+                  <button className={btnDisabled} disabled>Contract Not Deployed</button>
+                ) : (
+                  <button className={btnPrimary} disabled={!canProceed(1)} onClick={() => setStep(2)}>
+                    Continue
                   </button>
-                ))}
+                )}
               </div>
-            </div>
-
-            <button
-              className={btnPrimary}
-              disabled={!canProceed(1)}
-              onClick={() => setStep(2)}
-            >
-              Continue
-            </button>
+            </ArtCard>
           </motion.div>
         )}
 
@@ -1279,83 +1486,63 @@ function CreatePoolTab() {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
-            className={`${cardBg} ${cardClass} p-6`}
           >
-            <h3 className="text-lg font-semibold text-white mb-6">
-              Configure Pricing
-            </h3>
+            <ArtCard art={ART.mumuBull} opacity={0.11} overlay="rgba(6,12,26,0.93)" className="rounded-2xl">
+              <div className="p-6">
+                <h3 className="text-lg font-semibold text-white mb-6">Configure Pricing</h3>
 
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              <div>
-                <label className={`${labelClass} mb-2 block`}>
-                  Spot Price (ETH)
-                </label>
-                <input
-                  type="number"
-                  step="0.001"
-                  value={spotPriceInput}
-                  onChange={(e) => setSpotPriceInput(e.target.value)}
-                  className={inputClass}
-                />
-                <p className="text-[10px] text-white/25 mt-1">
-                  Starting price for the first trade
-                </p>
-              </div>
-              <div>
-                <label className={`${labelClass} mb-2 block`}>
-                  Delta (ETH)
-                </label>
-                <input
-                  type="number"
-                  step="0.001"
-                  value={deltaInput}
-                  onChange={(e) => setDeltaInput(e.target.value)}
-                  className={inputClass}
-                />
-                <p className="text-[10px] text-white/25 mt-1">
-                  Price change per trade
-                </p>
-              </div>
-            </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                  <div>
+                    <label className={`${labelClass} mb-2 block`}>Spot Price (ETH)</label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={spotPriceInput}
+                      onChange={(e) => setSpotPriceInput(e.target.value)}
+                      className={inputClass}
+                    />
+                    <p className="text-[10px] text-white/25 mt-1">Starting price for the first trade</p>
+                  </div>
+                  <div>
+                    <label className={`${labelClass} mb-2 block`}>Delta (ETH)</label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={deltaInput}
+                      onChange={(e) => setDeltaInput(e.target.value)}
+                      className={inputClass}
+                    />
+                    <p className="text-[10px] text-white/25 mt-1">Price change per trade</p>
+                  </div>
+                </div>
 
-            {/* Bonding Curve Visualization */}
-            <div className="mb-6">
-              <label className={`${labelClass} mb-3 block`}>
-                Bonding Curve Preview
-              </label>
-              <div className={`rounded-xl border border-white/[0.06] bg-[rgba(6,12,26,0.8)] p-4`}>
-                <BondingCurveChart
-                  spotPrice={spotNum}
-                  delta={deltaNum}
-                  numSteps={10}
-                  height={220}
-                />
-                <div className="flex justify-between text-[10px] text-white/25 mt-2 px-1 font-mono">
-                  <span>
-                    1st buy: {(spotNum).toFixed(4)} ETH
-                  </span>
-                  <span>
-                    10th buy: {(spotNum + deltaNum * 9).toFixed(4)} ETH
-                  </span>
+                {/* Bonding Curve Visualization */}
+                <div className="mb-6">
+                  <label className={`${labelClass} mb-3 block`}>Bonding Curve Preview</label>
+                  <ArtCard art={ART.beachSunset} opacity={0.10} overlay="rgba(6,12,26,0.92)" border="rgba(16,185,129,0.08)">
+                    <div className="p-4">
+                      <BondingCurveChart spotPrice={spotNum} delta={deltaNum} numSteps={10} height={220} />
+                      <div className="flex justify-between text-[10px] text-white/25 mt-2 px-1 font-mono">
+                        <span>1st buy: {spotNum.toFixed(4)} ETH</span>
+                        <span>10th buy: {(spotNum + deltaNum * 9).toFixed(4)} ETH</span>
+                      </div>
+                    </div>
+                  </ArtCard>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    className="flex-1 py-3.5 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:border-white/[0.15] text-white/60 hover:text-white transition-all text-sm font-medium"
+                    onClick={() => setStep(1)}
+                  >
+                    Back
+                  </button>
+                  <button className={`flex-1 ${btnPrimary}`} disabled={!canProceed(2)} onClick={() => setStep(3)}>
+                    Continue
+                  </button>
                 </div>
               </div>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                className="flex-1 py-3.5 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:border-white/[0.15] text-white/60 hover:text-white transition-all text-sm font-medium"
-                onClick={() => setStep(1)}
-              >
-                Back
-              </button>
-              <button
-                className={`flex-1 ${btnPrimary}`}
-                disabled={!canProceed(2)}
-                onClick={() => setStep(3)}
-              >
-                Continue
-              </button>
-            </div>
+            </ArtCard>
           </motion.div>
         )}
 
@@ -1366,137 +1553,99 @@ function CreatePoolTab() {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
-            className={`${cardBg} ${cardClass} p-6`}
           >
-            <h3 className="text-lg font-semibold text-white mb-6">
-              Add Initial Liquidity
-            </h3>
+            <ArtCard art={ART.mumuBull} opacity={0.11} overlay="rgba(6,12,26,0.93)" className="rounded-2xl">
+              <div className="p-6">
+                <h3 className="text-lg font-semibold text-white mb-6">Add Initial Liquidity</h3>
 
-            <div className="space-y-4 mb-6">
-              <div>
-                <label className={`${labelClass} mb-2 block`}>
-                  Initial ETH Deposit
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={ethDeposit}
-                  onChange={(e) => setEthDeposit(e.target.value)}
-                  placeholder="0.0"
-                  className={inputClass}
-                />
-              </div>
-              <div>
-                <label className={`${labelClass} mb-2 block`}>
-                  Initial NFT Token IDs{' '}
-                  <span className="normal-case tracking-normal text-white/20">
-                    (comma-separated)
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  value={nftIds}
-                  onChange={(e) => setNftIds(e.target.value)}
-                  placeholder="1, 42, 100"
-                  className={inputClass}
-                />
-                <p className="text-[10px] text-white/25 mt-1">
-                  Approve NFTs for the factory contract first
-                </p>
-              </div>
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className={`${labelClass} mb-2 block`}>Initial ETH Deposit</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={ethDeposit}
+                      onChange={(e) => setEthDeposit(e.target.value)}
+                      placeholder="0.0"
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className={`${labelClass} mb-2 block`}>
+                      Initial NFT Token IDs{' '}
+                      <span className="normal-case tracking-normal text-white/20">(comma-separated)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={nftIds}
+                      onChange={(e) => setNftIds(e.target.value)}
+                      placeholder="1, 42, 100"
+                      className={inputClass}
+                    />
+                    <p className="text-[10px] text-white/25 mt-1">Approve NFTs for the factory contract first</p>
+                  </div>
 
-              {/* Fee input for TRADE pools */}
-              {poolType === 2 && (
-                <div>
-                  <label className={`${labelClass} mb-2 block`}>
-                    LP Fee (basis points)
-                  </label>
-                  <input
-                    type="number"
-                    value={feeBps}
-                    onChange={(e) => setFeeBps(e.target.value)}
-                    placeholder="200"
-                    className={inputClass}
-                  />
-                  <p className="text-[10px] text-white/25 mt-1">
-                    {(Number(feeBps) / 100).toFixed(2)}% fee on each trade
-                    (TRADE pools only)
-                  </p>
+                  {poolType === 2 && (
+                    <div>
+                      <label className={`${labelClass} mb-2 block`}>LP Fee (basis points)</label>
+                      <input
+                        type="number"
+                        value={feeBps}
+                        onChange={(e) => setFeeBps(e.target.value)}
+                        placeholder="200"
+                        className={inputClass}
+                      />
+                      <p className="text-[10px] text-white/25 mt-1">
+                        {(Number(feeBps) / 100).toFixed(2)}% fee on each trade (TRADE pools only)
+                      </p>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            {/* Summary Card */}
-            <div className="rounded-xl border border-emerald-500/10 bg-emerald-500/[0.03] p-5 mb-6">
-              <h4 className={`${labelClass} text-emerald-400/60 mb-4`}>
-                Pool Summary
-              </h4>
-              <div className="space-y-2.5">
-                <SummaryRow
-                  label="Collection"
-                  value={shortenAddress(collection)}
-                />
-                <SummaryRow
-                  label="Pool Type"
-                  value={POOL_TYPE_LABELS[poolType]}
-                />
-                <SummaryRow
-                  label="Spot Price"
-                  value={`${spotPriceInput} ETH`}
-                />
-                <SummaryRow label="Delta" value={`${deltaInput} ETH`} />
-                {poolType === 2 && (
-                  <SummaryRow
-                    label="LP Fee"
-                    value={`${(Number(feeBps) / 100).toFixed(2)}%`}
-                  />
-                )}
-                <SummaryRow
-                  label="Initial ETH"
-                  value={ethDeposit ? `${ethDeposit} ETH` : 'None'}
-                />
-                <SummaryRow
-                  label="Initial NFTs"
-                  value={
-                    parsedNftIds.length > 0
-                      ? `${parsedNftIds.length} token${parsedNftIds.length !== 1 ? 's' : ''}`
-                      : 'None'
-                  }
-                />
-                <div className="border-t border-white/[0.04] pt-2.5 mt-2.5">
-                  <SummaryRow
-                    label="Est. 1st Buy"
-                    value={`${spotNum.toFixed(4)} ETH`}
-                    highlight
-                  />
-                  <SummaryRow
-                    label="Est. 1st Sell"
-                    value={`${Math.max(0, spotNum - deltaNum).toFixed(4)} ETH`}
-                    highlight
-                  />
+                {/* Summary Card */}
+                <ArtCard art={ART.busCrew} opacity={0.10} overlay="rgba(6,12,26,0.93)" border="rgba(16,185,129,0.10)">
+                  <div className="p-5">
+                    <h4 className={`${labelClass} text-emerald-400/60 mb-4`}>Pool Summary</h4>
+                    <div className="space-y-2.5">
+                      <SummaryRow label="Collection" value={shortenAddress(collection)} />
+                      <SummaryRow label="Pool Type" value={POOL_TYPE_LABELS[poolType]} />
+                      <SummaryRow label="Spot Price" value={`${spotPriceInput} ETH`} />
+                      <SummaryRow label="Delta" value={`${deltaInput} ETH`} />
+                      {poolType === 2 && <SummaryRow label="LP Fee" value={`${(Number(feeBps) / 100).toFixed(2)}%`} />}
+                      <SummaryRow label="Initial ETH" value={ethDeposit ? `${ethDeposit} ETH` : 'None'} />
+                      <SummaryRow
+                        label="Initial NFTs"
+                        value={parsedNftIds.length > 0 ? `${parsedNftIds.length} token${parsedNftIds.length !== 1 ? 's' : ''}` : 'None'}
+                      />
+                      <div className="border-t border-white/[0.04] pt-2.5 mt-2.5">
+                        <SummaryRow label="Est. 1st Buy" value={`${spotNum.toFixed(4)} ETH`} highlight />
+                        <SummaryRow label="Est. 1st Sell" value={`${Math.max(0, spotNum - deltaNum).toFixed(4)} ETH`} highlight />
+                      </div>
+                    </div>
+                  </div>
+                </ArtCard>
+
+                <div className="flex gap-3 mt-6">
+                  <button
+                    className="flex-1 py-3.5 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:border-white/[0.15] text-white/60 hover:text-white transition-all text-sm font-medium"
+                    onClick={() => setStep(2)}
+                  >
+                    Back
+                  </button>
+                  {!deployed ? (
+                    <button className={`flex-1 ${btnDisabled}`} disabled>Contract Not Deployed</button>
+                  ) : (
+                    <button
+                      className={`flex-1 ${btnPrimary}`}
+                      disabled={isConfirming || !address}
+                      onClick={handleDeploy}
+                    >
+                      {isConfirming ? 'Deploying Pool...' : !address ? 'Connect Wallet' : 'Deploy Pool'}
+                    </button>
+                  )}
                 </div>
               </div>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                className="flex-1 py-3.5 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:border-white/[0.15] text-white/60 hover:text-white transition-all text-sm font-medium"
-                onClick={() => setStep(2)}
-              >
-                Back
-              </button>
-              <button
-                className={`flex-1 ${btnPrimary}`}
-                disabled={isConfirming || !address}
-                onClick={handleDeploy}
-              >
-                {isConfirming
-                  ? 'Deploying Pool...'
-                  : !address
-                  ? 'Connect Wallet'
-                  : 'Deploy Pool'}
-              </button>
-            </div>
+            </ArtCard>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1504,23 +1653,11 @@ function CreatePoolTab() {
   );
 }
 
-function SummaryRow({
-  label,
-  value,
-  highlight,
-}: {
-  label: string;
-  value: string;
-  highlight?: boolean;
-}) {
+function SummaryRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div className="flex justify-between text-sm">
       <span className="text-white/40">{label}</span>
-      <span
-        className={`font-mono tabular-nums ${
-          highlight ? 'text-emerald-400 font-medium' : 'text-white/80'
-        }`}
-      >
+      <span className={`font-mono tabular-nums ${highlight ? 'text-emerald-400 font-medium' : 'text-white/80'}`}>
         {value}
       </span>
     </div>
@@ -1529,91 +1666,146 @@ function SummaryRow({
 
 // ─── My Pools Tab ─────────────────────────────────────────────────
 
-function MyPoolsTab() {
-  const { address } = useAccount();
-  const [expandedPool, setExpandedPool] = useState<string | null>(null);
-
-  const { data: poolCount } = useReadContract({
-    address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
-    abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
-    functionName: 'getPoolCount',
+function useTrackedPools() {
+  const [pools, setPools] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
   });
+
+  const addPool = useCallback((addr: string) => {
+    if (!isValidAddress(addr)) return;
+    setPools((prev) => {
+      const lower = addr.toLowerCase();
+      if (prev.some((p) => p.toLowerCase() === lower)) return prev;
+      const next = [...prev, addr];
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const removePool = useCallback((addr: string) => {
+    setPools((prev) => {
+      const next = prev.filter((p) => p.toLowerCase() !== addr.toLowerCase());
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  return { pools, addPool, removePool };
+}
+
+function MyPoolsTab({ deployed }: { deployed: boolean }) {
+  const { address } = useAccount();
+  const { pools: trackedPools, addPool, removePool } = useTrackedPools();
+  const [newPoolAddr, setNewPoolAddr] = useState('');
+
+  const handleAddPool = () => {
+    if (!isValidAddress(newPoolAddr)) return toast.error('Invalid pool address');
+    addPool(newPoolAddr);
+    setNewPoolAddr('');
+    toast.success('Pool added to tracking list');
+  };
 
   if (!address) {
     return (
-      <div className={`${cardBg} ${cardClass} p-10 text-center max-w-md mx-auto`}>
-        <div className="w-14 h-14 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mx-auto mb-5">
-          <svg
-            className="w-6 h-6 text-white/20"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth="1.5"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3"
-            />
-          </svg>
+      <ArtCard art={ART.wrestler} opacity={0.12} overlay="rgba(6,12,26,0.93)" className="rounded-2xl max-w-md mx-auto">
+        <div className="p-10 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mx-auto mb-5">
+            <svg className="w-6 h-6 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-semibold text-white mb-2">Connect Your Wallet</h3>
+          <p className="text-sm text-white/40">Connect your wallet to view and manage your liquidity pools.</p>
         </div>
-        <h3 className="text-lg font-semibold text-white mb-2">
-          Connect Your Wallet
-        </h3>
-        <p className="text-sm text-white/40">
-          Connect your wallet to view and manage your liquidity pools.
-        </p>
-      </div>
+      </ArtCard>
     );
   }
 
   return (
-    <div>
+    <div className="space-y-6">
       {/* Earnings Summary */}
-      <div className={`${cardBg} ${cardClass} p-5 mb-6`}>
-        <div className="flex items-center justify-between">
-          <div>
-            <p className={labelClass}>Your Pool Earnings</p>
-            <p className="text-2xl font-mono tabular-nums text-white font-semibold mt-1">
-              {'\u2014'}
-            </p>
-            <p className="text-[10px] text-white/25 mt-0.5">
-              Cumulative LP fees (available after launch)
-            </p>
-          </div>
-          <div className="text-right">
-            <p className={labelClass}>Active Pools</p>
-            <p className="text-2xl font-mono tabular-nums text-white font-semibold mt-1">
-              {'\u2014'}
-            </p>
+      <ArtCard art={ART.wrestler} opacity={0.13} overlay="rgba(6,12,26,0.91)" className="rounded-2xl">
+        <div className="p-5">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <p className={labelClass}>Your Pool Earnings</p>
+              <p className="text-2xl font-mono tabular-nums text-white font-semibold mt-1">{'\u2014'}</p>
+              <p className="text-[10px] text-white/25 mt-0.5">Cumulative LP fees (available after launch)</p>
+            </div>
+            <div className="text-left sm:text-right">
+              <p className={labelClass}>Tracked Pools</p>
+              <p className="text-2xl font-mono tabular-nums text-white font-semibold mt-1">{trackedPools.length}</p>
+            </div>
           </div>
         </div>
-      </div>
+      </ArtCard>
 
-      {/* Pool Table Header */}
-      <div className="hidden lg:grid grid-cols-7 gap-4 px-5 py-2 mb-2">
-        {['Collection', 'Type', 'Spot Price', 'NFTs', 'ETH Balance', 'Fee', 'Actions'].map(
-          (h) => (
-            <p key={h} className={labelClass}>
-              {h}
-            </p>
-          )
-        )}
-      </div>
-
-      {/* Placeholder rows */}
-      <div className="space-y-3">
-        <div className={`${cardBg} ${cardClass} p-5`}>
-          <div className="text-center py-8">
-            <p className="text-sm text-white/30 mb-1">
-              Pool ownership tracking available after deployment
-            </p>
-            <p className="text-[10px] text-white/20">
-              Your pools will appear here with full management controls
-            </p>
+      {/* Add Pool Input */}
+      <ArtCard art={ART.busCrew} opacity={0.10} overlay="rgba(6,12,26,0.93)" className="rounded-2xl">
+        <div className="p-5">
+          <h4 className="text-sm font-semibold text-white mb-3">Track a Pool</h4>
+          <p className="text-xs text-white/30 mb-4">
+            Enter a pool address to track it. Pool ownership is verified on-chain.
+          </p>
+          <div className="flex gap-3">
+            <input
+              type="text"
+              value={newPoolAddr}
+              onChange={(e) => setNewPoolAddr(e.target.value)}
+              placeholder="Pool address (0x...)"
+              className={`flex-1 ${inputClass}`}
+              onKeyDown={(e) => e.key === 'Enter' && handleAddPool()}
+            />
+            <button
+              onClick={handleAddPool}
+              disabled={!isValidAddress(newPoolAddr)}
+              className="px-5 py-3 rounded-xl bg-emerald-600/80 hover:bg-emerald-600 transition-colors text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+            >
+              Track
+            </button>
           </div>
         </div>
-      </div>
+      </ArtCard>
+
+      {/* Pool List */}
+      {trackedPools.length === 0 ? (
+        <ArtCard art={ART.wrestler} opacity={0.12} overlay="rgba(6,12,26,0.92)" border="rgba(255,255,255,0.04)" className="rounded-2xl">
+          <div className="py-12 px-6 text-center">
+            <div className="w-12 h-12 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mx-auto mb-4">
+              <svg className="w-5 h-5 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+            </div>
+            <p className="text-sm text-white/40 mb-1">No pools tracked yet</p>
+            <p className="text-xs text-white/25">Track your first pool by entering its address above</p>
+          </div>
+        </ArtCard>
+      ) : (
+        <div className="space-y-3">
+          {trackedPools.map((addr, i) => (
+            <div key={addr} className="relative">
+              <PoolCard poolAddress={addr as Address} isOwner index={i} />
+              <button
+                onClick={() => {
+                  removePool(addr);
+                  toast.success('Pool removed from tracking');
+                }}
+                className="absolute top-3 right-3 z-20 w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.08] hover:border-red-400/30 hover:bg-red-400/10 text-white/30 hover:text-red-400 transition-all flex items-center justify-center"
+                title="Remove from tracking"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1622,100 +1814,65 @@ function MyPoolsTab() {
 
 function ComingSoon() {
   const features = [
-    {
-      title: 'Linear Bonding Curves',
-      desc: 'Predictable pricing with configurable spot price and delta parameters.',
-    },
-    {
-      title: 'Buy / Sell / Trade Pools',
-      desc: 'Create single-sided or two-sided liquidity pools for any NFT collection.',
-    },
-    {
-      title: 'Instant NFT Liquidity',
-      desc: 'Swap NFTs instantly without waiting for a buyer or seller.',
-    },
-    {
-      title: 'LP Fee Earnings',
-      desc: 'Earn fees on every trade through your liquidity pools.',
-    },
+    { title: 'Linear Bonding Curves', desc: 'Predictable pricing with configurable spot price and delta parameters.' },
+    { title: 'Buy / Sell / Trade Pools', desc: 'Create single-sided or two-sided liquidity pools for any NFT collection.' },
+    { title: 'Instant NFT Liquidity', desc: 'Swap NFTs instantly without waiting for a buyer or seller.' },
+    { title: 'LP Fee Earnings', desc: 'Earn fees on every trade through your liquidity pools.' },
   ];
 
   return (
     <div className="max-w-xl mx-auto">
-      {/* Hero Card */}
-      <div className="relative overflow-hidden rounded-2xl border border-emerald-500/10 bg-[rgba(13,21,48,0.6)] backdrop-blur-[20px] p-8 sm:p-10">
-        {/* Glow */}
-        <div className="absolute -top-20 -right-20 w-60 h-60 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-16 -left-16 w-48 h-48 bg-purple-500/5 rounded-full blur-3xl pointer-events-none" />
+      <ArtCard art={ART.poolParty} opacity={0.14} overlay="rgba(6,12,26,0.88)" border="rgba(16,185,129,0.10)" className="rounded-2xl">
+        <div className="p-8 sm:p-10">
+          {/* Glow */}
+          <div className="absolute -top-20 -right-20 w-60 h-60 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-16 -left-16 w-48 h-48 bg-purple-500/5 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="relative z-10">
-          {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold mb-6">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            Coming Soon
-          </div>
-
-          <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3">
-            NFT AMM
-          </h2>
-          <p className="text-sm text-white/50 leading-relaxed mb-8 max-w-md">
-            Create bonding-curve liquidity pools for any NFT collection.
-            Automated market making with linear pricing, instant swaps, and
-            protocol-level fee routing.
-          </p>
-
-          {/* Blurred Preview */}
-          <div className="rounded-xl border border-white/[0.04] bg-white/[0.02] p-5 mb-8 relative overflow-hidden">
-            <div className="blur-[2px] opacity-60 pointer-events-none select-none">
-              <BondingCurveChart
-                spotPrice={0.1}
-                delta={0.005}
-                numSteps={10}
-                height={160}
-              />
+          <div className="relative z-10">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold mb-6">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Coming Soon
             </div>
-            <div className="absolute inset-0 flex items-center justify-center bg-[rgba(6,12,26,0.3)]">
-              <span className="text-sm font-medium text-white/60 bg-[rgba(13,21,48,0.8)] px-4 py-2 rounded-lg border border-white/[0.08]">
-                Interactive bonding curve visualization
-              </span>
-            </div>
-          </div>
 
-          {/* Feature List */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {features.map((f) => (
-              <div
-                key={f.title}
-                className="flex gap-3 items-start"
-              >
-                <div className="w-5 h-5 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <svg
-                    className="w-3 h-3 text-emerald-400"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M5 13l4 4L19 7"
-                    />
-                  </svg>
+            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3">NFT AMM</h2>
+            <p className="text-sm text-white/50 leading-relaxed mb-8 max-w-md">
+              Create bonding-curve liquidity pools for any NFT collection.
+              Automated market making with linear pricing, instant swaps, and protocol-level fee routing.
+            </p>
+
+            {/* Blurred Preview */}
+            <ArtCard art={ART.beachSunset} opacity={0.12} overlay="rgba(6,12,26,0.85)" border="rgba(255,255,255,0.04)" className="rounded-xl mb-8">
+              <div className="p-5 relative">
+                <div className="blur-[2px] opacity-60 pointer-events-none select-none">
+                  <BondingCurveChart spotPrice={0.1} delta={0.005} numSteps={10} height={160} />
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-white/80">
-                    {f.title}
-                  </p>
-                  <p className="text-[11px] text-white/30 leading-relaxed mt-0.5">
-                    {f.desc}
-                  </p>
+                <div className="absolute inset-0 flex items-center justify-center bg-[rgba(6,12,26,0.3)]">
+                  <span className="text-sm font-medium text-white/60 bg-[rgba(13,21,48,0.8)] px-4 py-2 rounded-lg border border-white/[0.08]">
+                    Interactive bonding curve visualization
+                  </span>
                 </div>
               </div>
-            ))}
+            </ArtCard>
+
+            {/* Feature List */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {features.map((f) => (
+                <div key={f.title} className="flex gap-3 items-start">
+                  <div className="w-5 h-5 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <svg className="w-3 h-3 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-white/80">{f.title}</p>
+                    <p className="text-[11px] text-white/30 leading-relaxed mt-0.5">{f.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      </ArtCard>
     </div>
   );
 }
@@ -1736,7 +1893,10 @@ export function AMMSection() {
   return (
     <div>
       {!deployed && (
-        <div className="rounded-xl px-4 py-3 text-center text-[13px] text-amber-400/80 border border-amber-500/20 mb-6" style={{ background: 'rgba(245,158,11,0.06)' }}>
+        <div
+          className="rounded-xl px-4 py-3 text-center text-[13px] text-amber-400/80 border border-amber-500/20 mb-6"
+          style={{ background: 'rgba(245,158,11,0.06)' }}
+        >
           NFT AMM contracts are being finalized and will be deployed soon. Explore the interface below.
         </div>
       )}
@@ -1751,9 +1911,9 @@ export function AMMSection() {
           exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.2 }}
         >
-          {activeTab === 'trade' && <TradeTab />}
-          {activeTab === 'create' && <CreatePoolTab />}
-          {activeTab === 'pools' && <MyPoolsTab />}
+          {activeTab === 'trade' && <TradeTab deployed={deployed} />}
+          {activeTab === 'create' && <CreatePoolTab deployed={deployed} />}
+          {activeTab === 'pools' && <MyPoolsTab deployed={deployed} />}
         </motion.div>
       </AnimatePresence>
     </div>
