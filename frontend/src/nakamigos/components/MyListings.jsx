@@ -184,7 +184,9 @@ const alchemyCdnUrl = (tokenId, contract) =>
 // ═══ HELPERS ═══
 
 function timeAgo(dateStr) {
+  if (!dateStr) return null;
   const ms = Date.now() - new Date(dateStr).getTime();
+  if (!Number.isFinite(ms)) return null;
   const h = Math.floor(ms / 3600000);
   if (h < 1) return "just now";
   if (h < 24) return `${h}h ago`;

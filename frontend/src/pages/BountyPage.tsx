@@ -76,10 +76,17 @@ function WithdrawBanner() {
 /*  Submission Row                                                     */
 /* ------------------------------------------------------------------ */
 function SubmissionRow({ bountyId, submissionId, onVoted }: { bountyId: number; submissionId: number; onVoted: () => void }) {
+  const { address } = useAccount();
   const { data } = useReadContract({
     address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'getSubmission',
     args: [BigInt(bountyId), BigInt(submissionId)],
   });
+  const { data: hasVoted } = useReadContract({
+    address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'hasVotedOnBounty',
+    args: address ? [BigInt(bountyId), address as `0x${string}`] : undefined,
+    query: { enabled: !!address },
+  });
+  const alreadyVoted = hasVoted === true;
   const { writeContract, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
@@ -103,12 +110,16 @@ function SubmissionRow({ bountyId, submissionId, onVoted }: { bountyId: number; 
           {contentURI.length > 60 ? contentURI.slice(0, 60) + '...' : contentURI}
         </a>
       </div>
-      <button disabled={isPending || isConfirming} onClick={() => writeContract({
-        address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'voteForSubmission',
-        args: [BigInt(bountyId), BigInt(submissionId)],
-      })} className="btn-secondary px-3 py-1.5 min-h-[36px] text-[11px] flex-shrink-0 disabled:opacity-35">
-        {isPending || isConfirming ? '...' : 'Vote'}
-      </button>
+      {alreadyVoted ? (
+        <span className="text-[10px] text-white/30 flex-shrink-0">Voted</span>
+      ) : (
+        <button disabled={isPending || isConfirming} onClick={() => writeContract({
+          address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'voteForSubmission',
+          args: [BigInt(bountyId), BigInt(submissionId)],
+        })} className="btn-secondary px-3 py-1.5 min-h-[36px] text-[11px] flex-shrink-0 disabled:opacity-35">
+          {isPending || isConfirming ? '...' : 'Vote'}
+        </button>
+      )}
     </div>
   );
 }
