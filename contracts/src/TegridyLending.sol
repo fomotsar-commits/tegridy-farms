@@ -150,6 +150,7 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     error NotNFTOwner();
     error LoanAlreadyRepaid();
     error LoanTooRecent();
+    error LockExpiresBeforeDeadline();
     error LoanAlreadyDefaultClaimed();
     error NotBorrower();
     error NotLoanLender();
@@ -265,15 +266,19 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
         // Validate collateral: check position value meets minimum
         ITegridyStaking staking = ITegridyStaking(offer.collateralContract);
-        (uint256 positionAmount,,,,,) = staking.getPosition(_tokenId);
+        (uint256 positionAmount,, uint256 lockEnd,,,) = staking.getPosition(_tokenId);
         if (positionAmount < offer.minPositionValue) revert InsufficientCollateralValue();
+
+        // Ensure position lock doesn't expire before loan deadline
+        // Prevents lender from receiving worthless unlocked collateral on default
+        uint256 deadline = block.timestamp + offer.duration;
+        if (lockEnd > 0 && lockEnd < deadline) revert LockExpiresBeforeDeadline();
 
         // Verify borrower owns the NFT
         if (staking.ownerOf(_tokenId) != msg.sender) revert NotNFTOwner();
 
         // CEI: state changes before external calls
         offer.active = false;
-        uint256 deadline = block.timestamp + offer.duration;
 
         loanId = loans.length;
         loans.push(Loan({
@@ -368,7 +373,7 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
     /// @notice Claim the collateral NFT after a loan defaults (borrower missed deadline).
     /// @param _loanId The ID of the defaulted loan
-    function claimDefaultedCollateral(uint256 _loanId) external nonReentrant {
+    function claimDefaultedCollateral(uint256 _loanId) external nonReentrant whenNotPaused {
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan storage loan = loans[_loanId];
 

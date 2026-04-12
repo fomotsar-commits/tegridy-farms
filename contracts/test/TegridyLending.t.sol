@@ -74,7 +74,7 @@ contract TegridyLendingTest is Test {
 
         vm.startPrank(alice);
         toweli.approve(address(staking), type(uint256).max);
-        staking.stake(10_000 ether, 30 days);
+        staking.stake(10_000 ether, 365 days);
         aliceTokenId = staking.userTokenId(alice);
         vm.stopPrank();
 
@@ -626,4 +626,456 @@ contract TegridyLendingTest is Test {
     }
 
     receive() external payable {}
+
+    // ═══════════════════════════════════════════════════════════════════
+    // COVERAGE GAP #1: LoanTooRecent (same-block repayment prevention)
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_repayLoan_revert_sameBlockRepayment() public {
+        // Create offer
+        uint256 offerId = _createDefaultOffer();
+
+        // Accept offer and try to repay in the same block (same timestamp)
+        vm.startPrank(alice);
+        uint256 loanId = lending.acceptOffer(offerId, aliceTokenId);
+
+        // Attempt repayment in the same block — should revert LoanTooRecent
+        vm.deal(alice, 2 ether);
+        vm.expectRevert(TegridyLending.LoanTooRecent.selector);
+        lending.repayLoan{value: 2 ether}(loanId);
+        vm.stopPrank();
+    }
+
+    function test_repayLoan_succeedsOneSecondAfterAcceptance() public {
+        uint256 offerId = _createDefaultOffer();
+
+        vm.prank(alice);
+        uint256 loanId = lending.acceptOffer(offerId, aliceTokenId);
+
+        // Warp 1 second — should no longer be "too recent"
+        vm.warp(block.timestamp + 1);
+
+        uint256 repaymentAmount = lending.getRepaymentAmount(loanId);
+        vm.deal(alice, repaymentAmount);
+
+        vm.prank(alice);
+        lending.repayLoan{value: repaymentAmount}(loanId);
+
+        (,,,,,,,,bool repaid,) = lending.getLoan(loanId);
+        assertTrue(repaid);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // COVERAGE GAP #2: calculateInterest edge cases
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_calculateInterest_oneSecond() public view {
+        // 1 ether principal, 10% APR, 1 second elapsed
+        uint256 interest = lending.calculateInterest(1 ether, 1000, 0, 1);
+        // Expected: 1e18 * 1000 * 1 / 10000 / 31536000 ≈ 3170979198
+        uint256 expected = (1 ether * 1000 * uint256(1)) / 10000 / uint256(365 days);
+        assertEq(interest, expected);
+        assertGt(interest, 0); // Must be non-zero
+    }
+
+    function test_calculateInterest_maxValues() public view {
+        // MAX_PRINCIPAL (1000 ether), MAX_APR_BPS (50000 = 500%), MAX_DURATION (365 days)
+        uint256 interest = lending.calculateInterest(
+            1000 ether,     // max principal
+            50000,          // max APR (500%)
+            0,
+            365 days        // max duration
+        );
+        // Expected: 1000 ether * 50000 * 365 days / 10000 / 365 days = 5000 ether
+        assertEq(interest, 5000 ether);
+    }
+
+    function test_calculateInterest_reverseTimestamps() public view {
+        // _currentTime < _startTime should return 0
+        uint256 interest = lending.calculateInterest(1 ether, 1000, 200, 100);
+        assertEq(interest, 0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // COVERAGE GAP #3: Staking contract paused during loan lifecycle
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_repayLoan_succeedsWhenStakingPaused() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        // Pause the staking contract (the lending contract's collateral source)
+        staking.pause();
+
+        vm.warp(block.timestamp + 15 days);
+
+        uint256 repaymentAmount = lending.getRepaymentAmount(loanId);
+        vm.deal(alice, repaymentAmount);
+
+        // Repay should still succeed — staking's _update() is not gated by whenNotPaused
+        vm.prank(alice);
+        lending.repayLoan{value: repaymentAmount}(loanId);
+
+        assertEq(staking.ownerOf(aliceTokenId), alice);
+        (,,,,,,,,bool repaid,) = lending.getLoan(loanId);
+        assertTrue(repaid);
+    }
+
+    function test_claimDefault_succeedsWhenStakingPaused() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        staking.pause();
+
+        vm.warp(block.timestamp + 31 days);
+
+        vm.prank(bob);
+        lending.claimDefaultedCollateral(loanId);
+
+        assertEq(staking.ownerOf(aliceTokenId), bob);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // COVERAGE GAP #5: Multiple concurrent loans (different borrowers)
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_multipleConcurrentLoans() public {
+        // Give carol a staking position too
+        address dave = makeAddr("dave");
+        toweli.transfer(dave, 100_000 ether);
+
+        vm.startPrank(dave);
+        toweli.approve(address(staking), type(uint256).max);
+        staking.stake(10_000 ether, 365 days);
+        uint256 daveTokenId = staking.userTokenId(dave);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 25 hours);
+
+        vm.prank(dave);
+        staking.approve(address(lending), daveTokenId);
+
+        // Create two separate offers
+        vm.deal(bob, 100 ether);
+        vm.prank(bob);
+        uint256 offer1 = lending.createLoanOffer{value: 1 ether}(
+            1000, 30 days, address(staking), 1000 ether
+        );
+
+        address lender2 = makeAddr("lender2");
+        vm.deal(lender2, 100 ether);
+        vm.prank(lender2);
+        uint256 offer2 = lending.createLoanOffer{value: 2 ether}(
+            2000, 60 days, address(staking), 1000 ether
+        );
+
+        // Alice accepts offer 1
+        vm.prank(alice);
+        uint256 loan1 = lending.acceptOffer(offer1, aliceTokenId);
+
+        // Dave accepts offer 2
+        vm.prank(dave);
+        uint256 loan2 = lending.acceptOffer(offer2, daveTokenId);
+
+        assertEq(lending.loanCount(), 2);
+
+        // Warp 15 days — alice repays loan1
+        vm.warp(block.timestamp + 15 days);
+
+        uint256 repayment1 = lending.getRepaymentAmount(loan1);
+        vm.deal(alice, repayment1);
+        vm.prank(alice);
+        lending.repayLoan{value: repayment1}(loan1);
+
+        (,,,,,,,,bool repaid1,) = lending.getLoan(loan1);
+        assertTrue(repaid1);
+
+        // Loan 2 should still be active
+        (,,,,,,,,bool repaid2, bool defaulted2) = lending.getLoan(loan2);
+        assertFalse(repaid2);
+        assertFalse(defaulted2);
+
+        // Dave repays loan2
+        uint256 repayment2 = lending.getRepaymentAmount(loan2);
+        vm.deal(dave, repayment2);
+        vm.prank(dave);
+        lending.repayLoan{value: repayment2}(loan2);
+
+        (,,,,,,,,bool repaid2After,) = lending.getLoan(loan2);
+        assertTrue(repaid2After);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // COVERAGE GAP #6: ETH transfer fails in repayLoan
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_repayLoan_revert_lenderRejectsETH() public {
+        // Deploy an ETH-rejecting contract as lender
+        ETHRejecter rejecter = new ETHRejecter();
+        vm.deal(address(rejecter), 10 ether);
+
+        // Create offer from the rejecter
+        vm.prank(address(rejecter));
+        uint256 offerId = lending.createLoanOffer{value: 1 ether}(
+            1000, 30 days, address(staking), 1000 ether
+        );
+
+        // Alice accepts
+        vm.prank(alice);
+        uint256 loanId = lending.acceptOffer(offerId, aliceTokenId);
+
+        vm.warp(block.timestamp + 15 days);
+
+        uint256 repaymentAmount = lending.getRepaymentAmount(loanId);
+        vm.deal(alice, repaymentAmount);
+
+        // Repayment should revert because lender's receive() reverts
+        vm.prank(alice);
+        vm.expectRevert(TegridyLending.ETHTransferFailed.selector);
+        lending.repayLoan{value: repaymentAmount}(loanId);
+    }
+
+    function test_cancelOffer_revert_lenderRejectsETH() public {
+        // Deploy an ETH-rejecting contract as lender
+        ETHRejecter rejecter = new ETHRejecter();
+        vm.deal(address(rejecter), 10 ether);
+
+        // Create offer from the rejecter
+        vm.prank(address(rejecter));
+        uint256 offerId = lending.createLoanOffer{value: 1 ether}(
+            1000, 30 days, address(staking), 1000 ether
+        );
+
+        // Cancel should revert because refund ETH transfer fails
+        vm.prank(address(rejecter));
+        vm.expectRevert(TegridyLending.ETHTransferFailed.selector);
+        lending.cancelOffer(offerId);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // COVERAGE GAP #7: Treasury address change mid-loan
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_treasuryChangeMidLoan_feeGoesToNewTreasury() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        // Change treasury mid-loan via timelock
+        address newTreasury = makeAddr("newTreasury");
+        lending.proposeTreasuryChange(newTreasury);
+
+        vm.warp(block.timestamp + 48 hours);
+        lending.executeTreasuryChange();
+
+        assertEq(lending.treasury(), newTreasury);
+
+        // Continue warping to accumulate some interest
+        vm.warp(block.timestamp + 10 days);
+
+        uint256 repaymentAmount = lending.getRepaymentAmount(loanId);
+        vm.deal(alice, repaymentAmount);
+
+        uint256 newTreasuryBalanceBefore = newTreasury.balance;
+        uint256 oldTreasuryBalanceBefore = treasury.balance;
+
+        vm.prank(alice);
+        lending.repayLoan{value: repaymentAmount}(loanId);
+
+        // New treasury should receive the fee
+        assertGt(newTreasury.balance - newTreasuryBalanceBefore, 0);
+        // Old treasury should receive nothing
+        assertEq(treasury.balance, oldTreasuryBalanceBefore);
+    }
+
+    function test_treasuryChangePropose_revert_zeroAddress() public {
+        vm.expectRevert(TegridyLending.ZeroAddress.selector);
+        lending.proposeTreasuryChange(address(0));
+    }
+
+    function test_treasuryChangeCancelAndVerify() public {
+        address newTreasury = makeAddr("newTreasury");
+        lending.proposeTreasuryChange(newTreasury);
+
+        lending.cancelTreasuryChange();
+
+        // Treasury unchanged
+        assertEq(lending.treasury(), treasury);
+        assertEq(lending.pendingTreasury(), address(0));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // COVERAGE GAP #8: Gas limits with many offers
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_manyOffers_gasLimits() public {
+        // Create 50 offers to verify no gas issues with array growth
+        vm.deal(bob, 100 ether);
+        for (uint256 i = 0; i < 50; i++) {
+            vm.prank(bob);
+            lending.createLoanOffer{value: 0.1 ether}(
+                1000, 30 days, address(staking), 1000 ether
+            );
+        }
+        assertEq(lending.offerCount(), 50);
+
+        // Accept the last offer — should work without gas issues
+        vm.prank(alice);
+        uint256 loanId = lending.acceptOffer(49, aliceTokenId);
+
+        (,,uint256 offerId,,,,,,, ) = lending.getLoan(loanId);
+        assertEq(offerId, 49);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // COVERAGE GAP #9: Same user is both lender and borrower
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_sameUserLenderAndBorrower() public {
+        // Alice creates an offer with her own ETH
+        vm.deal(alice, 10 ether);
+
+        vm.prank(alice);
+        uint256 offerId = lending.createLoanOffer{value: 1 ether}(
+            1000, 30 days, address(staking), 1000 ether
+        );
+
+        // Alice re-approves her NFT (it was approved in setUp for lending)
+        vm.prank(alice);
+        staking.approve(address(lending), aliceTokenId);
+
+        // Alice accepts her own offer
+        vm.prank(alice);
+        uint256 loanId = lending.acceptOffer(offerId, aliceTokenId);
+
+        // Loan created with alice as both borrower and lender
+        (address borrower, address lender,,,,,,,,) = lending.getLoan(loanId);
+        assertEq(borrower, alice);
+        assertEq(lender, alice);
+
+        // Warp and repay — alice pays herself
+        vm.warp(block.timestamp + 15 days);
+
+        uint256 repaymentAmount = lending.getRepaymentAmount(loanId);
+        vm.deal(alice, repaymentAmount);
+
+        uint256 aliceBalanceBefore = alice.balance;
+
+        vm.prank(alice);
+        lending.repayLoan{value: repaymentAmount}(loanId);
+
+        // Loan is repaid, NFT returned
+        (,,,,,,,,bool repaid,) = lending.getLoan(loanId);
+        assertTrue(repaid);
+        assertEq(staking.ownerOf(aliceTokenId), alice);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // COVERAGE GAP #10: No sweepETH — verify contract doesn't accept
+    //                   stray ETH (no receive/fallback)
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_contractRejectsStrayETH() public {
+        // TegridyLending has no receive() or fallback(), so direct ETH
+        // sends should revert (only payable functions can accept ETH)
+        vm.deal(carol, 1 ether);
+        vm.prank(carol);
+        (bool success,) = address(lending).call{value: 1 ether}("");
+        assertFalse(success, "Lending contract should reject stray ETH");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // BONUS: Invalid ID reverts
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_getOffer_revert_invalidId() public {
+        vm.expectRevert(TegridyLending.InvalidOfferId.selector);
+        lending.getOffer(999);
+    }
+
+    function test_getLoan_revert_invalidId() public {
+        vm.expectRevert(TegridyLending.InvalidLoanId.selector);
+        lending.getLoan(999);
+    }
+
+    function test_repayLoan_revert_invalidId() public {
+        vm.deal(alice, 1 ether);
+        vm.prank(alice);
+        vm.expectRevert(TegridyLending.InvalidLoanId.selector);
+        lending.repayLoan{value: 1 ether}(999);
+    }
+
+    function test_claimDefault_revert_invalidId() public {
+        vm.prank(bob);
+        vm.expectRevert(TegridyLending.InvalidLoanId.selector);
+        lending.claimDefaultedCollateral(999);
+    }
+
+    function test_isDefaulted_revert_invalidId() public {
+        vm.expectRevert(TegridyLending.InvalidLoanId.selector);
+        lending.isDefaulted(999);
+    }
+
+    function test_getRepaymentAmount_revert_invalidId() public {
+        vm.expectRevert(TegridyLending.InvalidLoanId.selector);
+        lending.getRepaymentAmount(999);
+    }
+
+    function test_cancelOffer_revert_invalidId() public {
+        vm.prank(bob);
+        vm.expectRevert(TegridyLending.InvalidOfferId.selector);
+        lending.cancelOffer(999);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // BONUS: Repay at exact deadline (boundary)
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_repayLoan_atExactDeadline() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        // Warp to exactly the deadline (30 days)
+        vm.warp(block.timestamp + 30 days);
+
+        // Should still be repayable (not defaulted until > deadline)
+        assertFalse(lending.isDefaulted(loanId));
+
+        uint256 repaymentAmount = lending.getRepaymentAmount(loanId);
+        vm.deal(alice, repaymentAmount);
+
+        vm.prank(alice);
+        lending.repayLoan{value: repaymentAmount}(loanId);
+
+        (,,,,,,,,bool repaid,) = lending.getLoan(loanId);
+        assertTrue(repaid);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // BONUS: Protocol fee change affects future repayments, not past
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_feeChangeMidLoan_usesNewFee() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        // Change protocol fee from 5% to 8% mid-loan
+        lending.proposeProtocolFeeChange(800);
+        vm.warp(block.timestamp + 48 hours);
+        lending.executeProtocolFeeChange();
+
+        assertEq(lending.protocolFeeBps(), 800);
+
+        // Warp more for interest
+        vm.warp(block.timestamp + 10 days);
+
+        uint256 repaymentAmount = lending.getRepaymentAmount(loanId);
+        vm.deal(alice, repaymentAmount);
+
+        uint256 treasuryBefore = treasury.balance;
+
+        vm.prank(alice);
+        lending.repayLoan{value: repaymentAmount}(loanId);
+
+        // Treasury fee should be 8% of interest (new fee)
+        (,,,,,,uint256 startTime,,,) = lending.getLoan(loanId);
+        uint256 interest = lending.calculateInterest(1 ether, 1000, startTime, block.timestamp);
+        uint256 expectedFee = (interest * 800) / 10000;
+
+        assertEq(treasury.balance - treasuryBefore, expectedFee);
+    }
 }
