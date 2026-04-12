@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { COLLECTIONS, COLLECTION_LORE } from "../constants";
 import { fetchCollectionStats, fetchTokens } from "../api";
@@ -67,6 +67,231 @@ function HighlightBadge({ label, color }) {
     }}>
       {label}
     </span>
+  );
+}
+
+/* ─── Cross-Collection Search ─── */
+function CrossCollectionSearch() {
+  const navigate = useNavigate();
+  const [query, setQuery] = useState("");
+  const [focused, setFocused] = useState(false);
+  const wrapperRef = useRef(null);
+
+  const results = useMemo(() => {
+    if (!query || query.length < 2) return [];
+    const q = query.toLowerCase();
+    const out = [];
+
+    for (const [slug, col] of Object.entries(COLLECTIONS)) {
+      if (col.name.toLowerCase().includes(q) || col.slug.includes(q)) {
+        out.push({ type: "collection", slug, name: col.name, image: col.image });
+      }
+      // Tag / keyword match
+      if (col.tags?.some((t) => t.toLowerCase().includes(q))) {
+        if (!out.find((r) => r.type === "collection" && r.slug === slug)) {
+          out.push({ type: "collection", slug, name: col.name, image: col.image });
+        }
+      }
+    }
+
+    // Token ID search
+    if (/^\d+$/.test(query)) {
+      const id = parseInt(query, 10);
+      for (const [slug, col] of Object.entries(COLLECTIONS)) {
+        if (id > 0 && id <= col.supply) {
+          out.push({ type: "token", slug, name: `${col.name} #${id}`, id, image: col.image });
+        }
+      }
+    }
+
+    return out;
+  }, [query]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setFocused(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const handleSelect = (r) => {
+    setQuery("");
+    setFocused(false);
+    navigate(`/nakamigos/${r.slug}/${r.type === "token" ? `nft/${r.id}` : "gallery"}`);
+  };
+
+  const showDropdown = focused && query.length >= 2 && results.length > 0;
+
+  return (
+    <div ref={wrapperRef} style={{ position: "relative", maxWidth: 480, margin: "0 auto 40px", zIndex: 20 }}>
+      {/* Search input */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        background: "var(--surface-glass)",
+        border: `1px solid ${focused ? "rgba(111,168,220,0.35)" : "var(--border)"}`,
+        borderRadius: 14,
+        padding: "0 16px",
+        backdropFilter: "var(--glass-blur)",
+        transition: "border-color 0.3s ease, box-shadow 0.3s ease",
+        boxShadow: focused ? "0 0 24px rgba(111,168,220,0.08)" : "none",
+      }}>
+        {/* Search icon */}
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.5 }}>
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onFocus={() => setFocused(true)}
+          placeholder="Search collections or token ID..."
+          style={{
+            flex: 1,
+            background: "transparent",
+            border: "none",
+            outline: "none",
+            color: "var(--text)",
+            fontFamily: "var(--mono)",
+            fontSize: 11,
+            padding: "12px 0",
+            letterSpacing: "0.02em",
+          }}
+        />
+        {query && (
+          <button
+            onClick={() => { setQuery(""); }}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--text-dim)",
+              cursor: "pointer",
+              padding: 4,
+              fontSize: 14,
+              lineHeight: 1,
+              fontFamily: "var(--mono)",
+            }}
+            aria-label="Clear search"
+          >
+            ×
+          </button>
+        )}
+      </div>
+
+      {/* Dropdown results */}
+      {showDropdown && (
+        <div style={{
+          position: "absolute",
+          top: "calc(100% + 6px)",
+          left: 0,
+          right: 0,
+          background: "rgba(16, 16, 20, 0.95)",
+          backdropFilter: "blur(20px)",
+          border: "1px solid rgba(111,168,220,0.2)",
+          borderRadius: 14,
+          overflow: "hidden",
+          boxShadow: "0 16px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(111,168,220,0.06)",
+          maxHeight: 320,
+          overflowY: "auto",
+        }}>
+          {results.map((r, i) => (
+            <button
+              key={`${r.slug}-${r.type}-${r.id ?? i}`}
+              onClick={() => handleSelect(r)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                width: "100%",
+                padding: "10px 16px",
+                background: "transparent",
+                border: "none",
+                borderBottom: i < results.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
+                cursor: "pointer",
+                color: "var(--text)",
+                fontFamily: "var(--display)",
+                fontSize: 11,
+                textAlign: "left",
+                transition: "background 0.15s ease",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(111,168,220,0.08)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+            >
+              <img
+                src={r.image}
+                alt=""
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 6,
+                  objectFit: "cover",
+                  background: "rgba(255,255,255,0.03)",
+                }}
+                onError={(e) => { e.target.style.display = "none"; }}
+              />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontFamily: "var(--display)",
+                  fontSize: 11,
+                  color: "var(--text)",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}>
+                  {r.name}
+                </div>
+                <div style={{
+                  fontFamily: "var(--mono)",
+                  fontSize: 8,
+                  color: "var(--text-dim)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  marginTop: 2,
+                }}>
+                  {r.type === "token" ? "Token" : "Collection"}
+                </div>
+              </div>
+              {/* Arrow icon */}
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.4 }}>
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* No results message */}
+      {focused && query.length >= 2 && results.length === 0 && (
+        <div style={{
+          position: "absolute",
+          top: "calc(100% + 6px)",
+          left: 0,
+          right: 0,
+          background: "rgba(16, 16, 20, 0.95)",
+          backdropFilter: "blur(20px)",
+          border: "1px solid rgba(111,168,220,0.2)",
+          borderRadius: 14,
+          padding: "16px 20px",
+          boxShadow: "0 16px 48px rgba(0,0,0,0.5)",
+        }}>
+          <div style={{
+            fontFamily: "var(--mono)",
+            fontSize: 10,
+            color: "var(--text-dim)",
+            textAlign: "center",
+            letterSpacing: "0.02em",
+          }}>
+            No results for "{query}"
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -522,6 +747,9 @@ export default function CollectionLanding() {
           opacity: 0.4,
         }} />
       </div>
+
+      {/* ── Cross-collection search ── */}
+      <CrossCollectionSearch />
 
       {/* ── Cards grid ── */}
       <div className="collection-landing-grid">

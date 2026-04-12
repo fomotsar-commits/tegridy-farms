@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { getProfile, saveProfile } from "../lib/userdata";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
+import useEns from "../hooks/useEns";
 
 /* Deterministic gradient avatar from wallet address */
 function walletHue(addr) {
@@ -17,6 +18,7 @@ function walletHue2(addr) {
 
 export default function EditProfile({ wallet, onClose, onConnect, addToast, onSave }) {
   const { slug } = useActiveCollection();
+  const { ensName } = useEns(wallet);
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
   const [twitter, setTwitter] = useState("");
@@ -206,6 +208,12 @@ export default function EditProfile({ wallet, onClose, onConnect, addToast, onSa
                 {(displayName || wallet || "?").slice(0, 2).toUpperCase()}
               </div>
             </div>
+
+            {ensName && (
+              <div style={{ textAlign: "center", marginBottom: 12 }}>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--gold)", fontWeight: 600 }}>{ensName}</span>
+              </div>
+            )}
 
             {/* Display Name */}
             <div style={{ marginBottom: 16 }}>

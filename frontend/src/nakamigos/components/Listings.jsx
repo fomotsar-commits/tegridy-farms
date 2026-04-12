@@ -12,7 +12,7 @@ import { useTradingMode } from "../contexts/TradingModeContext";
 import { fetchTokensByIds, fulfillSeaportOrder } from "../api";
 import { fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
-import { fetchCollectionOffers } from "../api-offers";
+import { fetchCollectionOffers, fetchBestOffer } from "../api-offers";
 
 /* ── Sort helpers ── */
 const SORT_OPTIONS = [
@@ -181,6 +181,37 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       };
     });
   }, [listings, allTokens, collection, purchasedIds]);
+
+  // Best offers per token (batch-fetch for first 20 listed NFTs)
+  const [bestOffers, setBestOffers] = useState(new Map());
+  useEffect(() => {
+    if (!listedNfts || listedNfts.length === 0) return;
+    let cancelled = false;
+    const idsToFetch = listedNfts
+      .slice(0, 20)
+      .map(nft => String(nft.id))
+      .filter(id => !bestOffers.has(id));
+    if (idsToFetch.length === 0) return;
+
+    (async () => {
+      const results = new Map();
+      for (const id of idsToFetch) {
+        if (cancelled) break;
+        try {
+          const offer = await fetchBestOffer(id, collection.slug, { openseaSlug: osSlug });
+          if (offer && offer.price > 0) results.set(id, offer.price);
+        } catch { /* skip */ }
+      }
+      if (!cancelled && results.size > 0) {
+        setBestOffers(prev => {
+          const next = new Map(prev);
+          for (const [k, v] of results) next.set(k, v);
+          return next;
+        });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [listedNfts.length, osSlug, collection.slug]);
 
   // Recent sales for fallback display (deduplicated by token ID, most recent sale per token)
   const recentSales = useMemo(() => {
@@ -772,6 +803,11 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
                   ) : (
                     <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
                       {floor != null ? `Floor: ${floor.toFixed(4)} ETH` : "View on marketplace"}
+                    </div>
+                  )}
+                  {bestOffers.get(String(nft.id)) && (
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--naka-blue)", marginTop: 2 }}>
+                      Best offer: <Eth size={8} /> {bestOffers.get(String(nft.id)).toFixed(4)}
                     </div>
                   )}
                   <div className="listing-card-actions">

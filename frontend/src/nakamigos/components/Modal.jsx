@@ -14,6 +14,7 @@ import { fulfillNativeOrder } from "../lib/orderbook";
 import { validateOrderQuick } from "../lib/orderValidator";
 import { recordTransaction } from "../lib/transactions";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
+import useEns from "../hooks/useEns";
 
 const ComparableSales = lazy(() => import("./ComparableSales").catch(() => ({ default: () => null })));
 
@@ -119,6 +120,7 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
   const [orderWarning, setOrderWarning] = useState(null); // { status, reason, warnings }
   const modalRef = useRef(null);
   const showOfferModalRef = useRef(false);
+  const { ensName: ownerEns } = useEns(nft?.owner);
   const { startTransaction, closeProgress, progressProps } = useTransactionProgress({ collectionName: collection.name });
 
   // Run quick validation (Layer 1+2) when modal opens with a priced order
@@ -287,7 +289,7 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
                       role="button"
                       tabIndex={0}
                     >
-                      {"\u00b7"} {nft.owner.slice(0, 6)}...{nft.owner.slice(-4)} {copied === "owner" ? "\u2713" : ""}
+                      {"\u00b7"} {ownerEns || `${nft.owner.slice(0, 6)}...${nft.owner.slice(-4)}`} {copied === "owner" ? "\u2713" : ""}
                     </span>
                     {onViewProfile && (
                       <span

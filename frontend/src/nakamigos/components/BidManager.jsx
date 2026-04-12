@@ -191,10 +191,26 @@ function timeLeft(expiry) {
   if (!expiry) return "";
   const diff = (expiry instanceof Date ? expiry : new Date(expiry)).getTime() - Date.now();
   if (diff <= 0) return "Expired";
-  const hours = Math.floor(diff / 3600000);
-  if (hours >= 24) return `${Math.floor(hours / 24)}d left`;
-  if (hours > 0) return `${hours}h left`;
-  return `${Math.floor(diff / 60000)}m left`;
+  const h = Math.floor(diff / 3600000);
+  const d = Math.floor(h / 24);
+  if (d > 0) return `${d}d ${h % 24}h left`;
+  const m = Math.floor((diff % 3600000) / 60000);
+  return h > 0 ? `${h}h ${m}m left` : `${m}m left`;
+}
+
+function expiryColor(expiry) {
+  if (!expiry) return "var(--text-dim)";
+  const ms = (expiry instanceof Date ? expiry : new Date(expiry)).getTime() - Date.now();
+  if (ms <= 0) return "var(--red)";
+  if (ms < 3600000) return "var(--red)";           // < 1 hour
+  if (ms < 86400000) return "var(--gold)";          // < 24 hours
+  return "var(--green, #4ade80)";                   // > 24 hours
+}
+
+function isExpiringUrgent(expiry) {
+  if (!expiry) return false;
+  const ms = (expiry instanceof Date ? expiry : new Date(expiry)).getTime() - Date.now();
+  return ms > 0 && ms < 3600000;
 }
 
 function bidStatus(order) {
@@ -294,6 +310,7 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [cancelling, setCancelling] = useState(null);
   const [accepting, setAccepting] = useState(null);
+  const [bidSort, setBidSort] = useState("recent"); // "recent" | "expiring"
   const [fetchError, setFetchError] = useState(null);
   const intervalRef = useRef(null);
 
@@ -460,6 +477,18 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
     if (token && onPick) onPick(token);
   }, [resolveToken, onPick]);
 
+  // Sorted bids for "My Bids" tab
+  const sortedBids = useMemo(() => {
+    if (bidSort === "expiring") {
+      return [...myBids].sort((a, b) => {
+        const aTime = a.expiry ? new Date(a.expiry).getTime() : Infinity;
+        const bTime = b.expiry ? new Date(b.expiry).getTime() : Infinity;
+        return aTime - bTime;
+      });
+    }
+    return myBids; // default: recent (already sorted desc by created_date from API)
+  }, [myBids, bidSort]);
+
   // ═══ NOT CONNECTED ═══
   if (!wallet) {
     return (
@@ -507,20 +536,49 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
       {/* ═══ MY BIDS TAB ═══ */}
       {tab === 0 && (
         <div>
+          {!loadingBids && myBids.length > 0 && (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+              <select
+                value={bidSort}
+                onChange={(e) => setBidSort(e.target.value)}
+                style={{
+                  fontFamily: "var(--mono)",
+                  fontSize: 11,
+                  color: "var(--text-dim)",
+                  background: "var(--border)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 5,
+                  padding: "6px 10px",
+                  cursor: "pointer",
+                  minHeight: 32,
+                }}
+              >
+                <option value="recent">Most Recent</option>
+                <option value="expiring">Expiring Soon</option>
+              </select>
+            </div>
+          )}
           {loadingBids ? (
             <SkeletonRows count={4} />
           ) : myBids.length === 0 ? (
             <EmptyState type="bids" />
           ) : (
-            myBids.map((bid) => {
+            sortedBids.map((bid) => {
               const token = resolveToken(bid.tokenId);
               const name = token?.name || (bid.tokenId ? `${collection.name} #${bid.tokenId}` : "Collection Offer");
               const image = token?.image || (bid.tokenId && collection.metadataBase ? `${collection.metadataBase}/${bid.tokenId}.png` : null)
                 || (bid.tokenId ? alchemyCdnUrl(bid.tokenId, collection.contract) : null);
               const nftForImage = token || { id: bid.tokenId, image, name };
+              const urgent = isExpiringUrgent(bid.expiry);
 
               return (
-                <div key={bid.orderHash} style={styles.card}>
+                <div key={bid.orderHash} style={{
+                  ...styles.card,
+                  ...(urgent ? {
+                    border: "1px solid rgba(248,113,113,0.35)",
+                    boxShadow: "0 0 12px rgba(248,113,113,0.15)",
+                  } : {}),
+                }}>
                   {bid.tokenId && (
                     <div
                       style={styles.nftThumb}
@@ -532,7 +590,7 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
                   <div style={styles.cardInfo}>
                     <div style={styles.cardName}>{name}</div>
                     <div style={styles.cardMeta}>
-                      <span>{timeLeft(bid.expiry)}</span>
+                      <span style={{ color: expiryColor(bid.expiry) }}>{timeLeft(bid.expiry)}</span>
                       <span style={styles.status("var(--gold)")}>Active</span>
                     </div>
                   </div>

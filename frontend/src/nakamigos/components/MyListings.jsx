@@ -183,6 +183,15 @@ const alchemyCdnUrl = (tokenId, contract) =>
 
 // ═══ HELPERS ═══
 
+function timeAgo(dateStr) {
+  const ms = Date.now() - new Date(dateStr).getTime();
+  const h = Math.floor(ms / 3600000);
+  if (h < 1) return "just now";
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
 function timeLeft(expiry) {
   if (!expiry) return "";
   const diff = (expiry instanceof Date ? expiry : new Date(expiry)).getTime() - Date.now();
@@ -277,6 +286,7 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
           expiry: endSec ? new Date(endSec * 1000) : null,
           protocolAddress: o.protocol_address || SEAPORT_ADDRESS,
           source: "native",
+          createdAt: o.created_at || null,
           // Keep the raw parameters + signature for on-chain cancel
           rawParameters: o.parameters,
           rawSignature: o.signature,
@@ -579,6 +589,14 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
                   )}
                   {health && (
                     <span style={styles.badge(health.color)}>{health.label}</span>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: 8, fontSize: 8, fontFamily: "var(--mono)", color: "var(--text-muted)", marginTop: 4 }}>
+                  {listing.createdAt && <span>Listed {timeAgo(listing.createdAt)}</span>}
+                  {floorPrice > 0 && listing.price && (
+                    <span style={{ color: listing.price <= floorPrice ? "var(--green)" : listing.price <= floorPrice * 1.1 ? "var(--gold)" : "var(--text-dim)" }}>
+                      {listing.price <= floorPrice ? "At floor" : `${Math.round(((listing.price / floorPrice) - 1) * 100)}% above floor`}
+                    </span>
                   )}
                 </div>
               </div>
