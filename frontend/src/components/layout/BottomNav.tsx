@@ -21,19 +21,17 @@ const TABS = [
       <rect x="14" y="14" width="7" height="7" rx="1" />
     </svg>
   )},
-  { to: '/lending', label: 'NFT Finance', icon: (
+  { to: '/community', label: 'Community', icon: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M12 2v10l4.5 2.6M12 12L7.5 14.6M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
     </svg>
   )},
 ];
 
 const MORE_PAGES = [
   { to: '/liquidity', label: 'Liquidity' },
-  { to: '/restake', label: 'Restake' },
+  { to: '/lending', label: 'NFT Finance' },
   { to: '/premium', label: 'Gold Card' },
-  { to: '/community', label: 'Community' },
-  { to: '/launchpad', label: 'Launchpad' },
   { to: '/leaderboard', label: 'Points' },
   { to: '/gallery', label: 'Gallery' },
   { to: '/nakamigos', label: 'Marketplace' },

@@ -157,8 +157,8 @@ function CollectionDetail({ dropAddress, onClose }: { dropAddress: string; onClo
   );
 }
 
-export default function LaunchpadPage() {
-  usePageTitle('Launchpad');
+export default function LaunchpadPage({ embedded }: { embedded?: boolean }) {
+  usePageTitle(embedded ? '' : 'Launchpad');
   const { isConnected } = useAccount();
   const deployed = isDeployed(TEGRIDY_LAUNCHPAD_ADDRESS);
 
@@ -208,19 +208,23 @@ export default function LaunchpadPage() {
   };
 
   return (
-    <div className="-mt-14 relative min-h-screen">
-      <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.chaosScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
-        <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, rgba(6,12,26,0.85) 50%, rgba(6,12,26,0.98) 100%)' }} />
-      </div>
+    <div className={embedded ? '' : '-mt-14 relative min-h-screen'}>
+      {!embedded && (
+        <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
+          <img src={ART.chaosScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, rgba(6,12,26,0.85) 50%, rgba(6,12,26,0.98) 100%)' }} />
+        </div>
+      )}
 
-      <div className="relative z-10 max-w-[1100px] mx-auto px-4 md:px-6 pt-24 pb-16">
-        <motion.div className="text-center mb-10" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="heading-luxury text-3xl md:text-4xl mb-3">NFT Launchpad</h1>
-          <p className="text-white/60 max-w-lg mx-auto">Launch your NFT collection with built-in allowlists, Dutch auctions, reveals, and ERC-2981 royalties.</p>
-        </motion.div>
+      <div className={`relative z-10 ${embedded ? '' : 'max-w-[1100px] mx-auto px-4 md:px-6 pt-24 pb-16'}`}>
+        {!embedded && (
+          <motion.div className="text-center mb-10" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+            <h1 className="heading-luxury text-3xl md:text-4xl mb-3">NFT Launchpad</h1>
+            <p className="text-white/60 max-w-lg mx-auto">Launch your NFT collection with built-in allowlists, Dutch auctions, reveals, and ERC-2981 royalties.</p>
+          </motion.div>
+        )}
 
-        {!isConnected ? (
+        {!isConnected && !embedded ? (
           <div className="glass-card p-8 rounded-2xl text-center max-w-md mx-auto">
             <p className="text-white/60 mb-4">Connect your wallet to launch or browse collections</p>
             <ConnectButton />

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { motion } from 'framer-motion';
 import { useAccount, useWriteContract, useReadContract, useWaitForTransactionReceipt } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -10,7 +10,10 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { formatTokenAmount } from '../lib/formatting';
 import { toast } from 'sonner';
 
-type Section = 'lending' | 'amm';
+const LaunchpadPage = lazy(() => import('./LaunchpadPage'));
+const RestakePage = lazy(() => import('./RestakePage'));
+
+type Section = 'lending' | 'amm' | 'launchpad' | 'restake';
 type LendingTab = 'lend' | 'borrow' | 'loans';
 const POOL_TYPES = ['BUY', 'SELL', 'TRADE'] as const;
 
@@ -671,24 +674,37 @@ export default function LendingPage() {
         ) : (
           <>
             {/* Section Toggle */}
-            <div className="flex justify-center gap-2 mb-8">
-              <button
-                className={`px-8 py-3 rounded-xl text-sm font-semibold transition-all ${section === 'lending' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20' : 'glass-card text-white/60 hover:text-white'}`}
-                onClick={() => setSection('lending')}
-              >
-                P2P Lending
-              </button>
-              <button
-                className={`px-8 py-3 rounded-xl text-sm font-semibold transition-all ${section === 'amm' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20' : 'glass-card text-white/60 hover:text-white'}`}
-                onClick={() => setSection('amm')}
-              >
-                NFT AMM
-              </button>
+            <div className="flex justify-center flex-wrap gap-2 mb-8">
+              {([
+                { key: 'lending' as Section, label: 'P2P Lending' },
+                { key: 'amm' as Section, label: 'NFT AMM' },
+                { key: 'launchpad' as Section, label: 'Launchpad' },
+                { key: 'restake' as Section, label: 'Restake' },
+              ]).map(({ key, label }) => (
+                <button
+                  key={key}
+                  className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all ${section === key ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20' : 'glass-card text-white/60 hover:text-white'}`}
+                  onClick={() => setSection(key)}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
             {/* Section Content */}
             <motion.div key={section} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
-              {section === 'lending' ? <LendingSection address={address} /> : <AMMSection />}
+              {section === 'lending' && <LendingSection address={address} />}
+              {section === 'amm' && <AMMSection />}
+              {section === 'launchpad' && (
+                <Suspense fallback={<div className="text-center py-20 text-white/40 animate-pulse">Loading...</div>}>
+                  <LaunchpadPage embedded />
+                </Suspense>
+              )}
+              {section === 'restake' && (
+                <Suspense fallback={<div className="text-center py-20 text-white/40 animate-pulse">Loading...</div>}>
+                  <RestakePage embedded />
+                </Suspense>
+              )}
             </motion.div>
           </>
         )}

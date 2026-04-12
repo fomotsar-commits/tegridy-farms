@@ -20,14 +20,14 @@ const HistoryPage = lazy(() => import('./pages/HistoryPage'));
 const LorePage = lazy(() => import('./pages/LorePage'));
 const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
 const CommunityPage = lazy(() => import('./pages/CommunityPage'));
-const RestakePage = lazy(() => import('./pages/RestakePage'));
+// RestakePage + LaunchpadPage merged into LendingPage (NFT Finance)
 const LiquidityPage = lazy(() => import('./pages/LiquidityPage'));
 const PremiumPage = lazy(() => import('./pages/PremiumPage'));
 // BribesPage, GrantsPage, BountyPage merged into CommunityPage
 const NakamigosApp = lazy(() => import('./nakamigos/App'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const LendingPage = lazy(() => import('./pages/LendingPage'));
-const LaunchpadPage = lazy(() => import('./pages/LaunchpadPage'));
+// LaunchpadPage lazy import removed — loaded inside LendingPage
 // NFTAMMPage merged into LendingPage (NFT Finance)
 
 const queryClient = new QueryClient({
@@ -58,13 +58,13 @@ function AnimatedRoutes() {
         <Route path="community" element={<ErrorBoundary><CommunityPage /></ErrorBoundary>} />
         <Route path="grants" element={<Navigate to="/community" replace />} />
         <Route path="bounties" element={<Navigate to="/community" replace />} />
-        <Route path="restake" element={<ErrorBoundary><RestakePage /></ErrorBoundary>} />
+        <Route path="restake" element={<Navigate to="/lending" replace />} />
         <Route path="liquidity" element={<ErrorBoundary><LiquidityPage /></ErrorBoundary>} />
         <Route path="premium" element={<ErrorBoundary><PremiumPage /></ErrorBoundary>} />
         <Route path="bribes" element={<Navigate to="/community" replace />} />
         <Route path="admin" element={<ErrorBoundary><AdminPage /></ErrorBoundary>} />
         <Route path="lending" element={<ErrorBoundary><LendingPage /></ErrorBoundary>} />
-        <Route path="launchpad" element={<ErrorBoundary><LaunchpadPage /></ErrorBoundary>} />
+        <Route path="launchpad" element={<Navigate to="/lending" replace />} />
         <Route path="nft-amm" element={<Navigate to="/lending" replace />} />
         <Route path="governance" element={<Navigate to="/community" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />

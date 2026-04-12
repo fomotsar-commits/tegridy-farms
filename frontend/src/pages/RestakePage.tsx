@@ -11,7 +11,7 @@ import { ART } from '../lib/artConfig';
 import { formatTokenAmount } from '../lib/formatting';
 import { toast } from 'sonner';
 
-export default function RestakePage() {
+export default function RestakePage({ embedded }: { embedded?: boolean }) {
   const { isConnected, address } = useAccount();
   const pos = useUserPosition();
   const isDeployed = checkDeployed(TEGRIDY_RESTAKING_ADDRESS);
@@ -102,19 +102,23 @@ export default function RestakePage() {
   };
 
   return (
-    <div className="-mt-14 relative min-h-screen">
-      <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.beachVibes.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
-        <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.45) 30%, rgba(0,0,0,0.65) 60%, rgba(0,0,0,0.85) 100%)',
-        }} />
-      </div>
+    <div className={embedded ? '' : '-mt-14 relative min-h-screen'}>
+      {!embedded && (
+        <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
+          <img src={ART.beachVibes.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
+          <div className="absolute inset-0" style={{
+            background: 'linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.45) 30%, rgba(0,0,0,0.65) 60%, rgba(0,0,0,0.85) 100%)',
+          }} />
+        </div>
+      )}
 
-      <div className="relative z-10 max-w-[800px] mx-auto px-4 md:px-6 pt-20 pb-12">
-        <motion.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Restake</h1>
-          <p className="text-white/50 text-[14px]">Deposit your staking NFT for bonus yield on top of base rewards</p>
-        </motion.div>
+      <div className={`relative z-10 ${embedded ? '' : 'max-w-[800px] mx-auto px-4 md:px-6 pt-20 pb-12'}`}>
+        {!embedded && (
+          <motion.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+            <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Restake</h1>
+            <p className="text-white/50 text-[14px]">Deposit your staking NFT for bonus yield on top of base rewards</p>
+          </motion.div>
+        )}
 
         {/* How it works */}
         <motion.div className="relative overflow-hidden rounded-xl mb-6" style={{ border: '1px solid rgba(139,92,246,0.12)' }}

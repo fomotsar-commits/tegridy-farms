@@ -12,9 +12,7 @@ const PRIMARY_NAV = [
 ];
 
 const MORE_NAV = [
-  { to: '/restake', label: 'Restake' },
-  { to: '/community', label: 'Community' },
-  { to: '/launchpad', label: 'Launchpad' },
+  { to: '/premium', label: 'Gold Card' },
   { to: '/gallery', label: 'Gallery' },
   { to: '/nakamigos', label: 'Marketplace' },
   { to: '/tokenomics', label: 'Tokenomics' },
@@ -24,7 +22,7 @@ const MORE_NAV = [
 
 const ALL_NAV = [
   ...PRIMARY_NAV,
-  { to: '/premium', label: 'Gold Card' },
+  { to: '/community', label: 'Community' },
   ...MORE_NAV,
   { to: '/leaderboard', label: 'Points' },
 ];
@@ -97,11 +95,10 @@ export const TopNav = React.memo(function TopNav() {
               </NavLink>
             ))}
 
-            {/* Gold Card — stands out */}
-            <NavLink to="/premium"
-              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-              style={{ color: '#d4a017' }}>
-              Gold Card
+            {/* Community */}
+            <NavLink to="/community"
+              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+              Community
             </NavLink>
 
             {/* More dropdown */}
