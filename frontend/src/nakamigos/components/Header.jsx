@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Eth } from "./Icons";
 import { shortenAddress } from "../api";
 import { useTradingMode, LITE_HIDDEN_PRIMARY, LITE_HIDDEN_MORE } from "../contexts/TradingModeContext";
+import { useSiweAuth } from "../hooks/useSiweAuth";
 
 function Ticker({ activities }) {
   const [idx, setIdx] = useState(0);
@@ -287,6 +288,18 @@ export default memo(function Header({
   );
   const visibleAll = useMemo(() => [...visiblePrimary, ...visibleMore], [visiblePrimary, visibleMore]);
 
+  const siwe = useSiweAuth();
+
+  const handleSignIn = useCallback(async () => {
+    try {
+      await siwe.signIn();
+    } catch (err) {
+      if (err.message !== "Sign-in cancelled") {
+        console.warn("SIWE sign-in failed:", err.message);
+      }
+    }
+  }, [siwe.signIn]);
+
   const toggleMore = useCallback(() => {
     setMoreOpen(prev => {
       if (!prev && moreBtnRef.current) {
@@ -482,6 +495,18 @@ export default memo(function Header({
             )}
           </button>
 
+          {wallet && !siwe.isAuthenticated && (
+            <button
+              onClick={handleSignIn}
+              disabled={siwe.isAuthenticating}
+              className="wallet-btn"
+              style={{ background: "linear-gradient(135deg, var(--gold), var(--gold-dim))", color: "var(--bg)", fontWeight: 700 }}
+              title="Sign in with Ethereum to enable chat, voting, and profile features"
+              aria-label="Sign in with Ethereum"
+            >
+              {siwe.isAuthenticating ? "Signing..." : "Sign In"}
+            </button>
+          )}
           <button
             onClick={handleConnect}
             className={`wallet-btn ${wallet ? "connected" : "disconnected"}`}
@@ -490,6 +515,9 @@ export default memo(function Header({
           >
             {wallet ? (
               <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                {siwe.isAuthenticated && (
+                  <span style={{ color: "var(--green)", fontSize: 9 }} title="Signed in">{"\u2713"}</span>
+                )}
                 {walletName && (
                   <span style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.5, letterSpacing: "0.02em" }}>{walletName}</span>
                 )}
