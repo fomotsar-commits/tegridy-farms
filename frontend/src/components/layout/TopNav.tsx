@@ -8,11 +8,11 @@ const PRIMARY_NAV = [
   { to: '/farm', label: 'Farm' },
   { to: '/swap', label: 'Swap' },
   { to: '/liquidity', label: 'Liquidity' },
-  { to: '/restake', label: 'Restake' },
+  { to: '/lending', label: 'Lending' },
 ];
 
 const MORE_NAV = [
-  { to: '/lending', label: 'Lending' },
+  { to: '/restake', label: 'Restake' },
   { to: '/launchpad', label: 'Launchpad' },
   { to: '/nft-amm', label: 'NFT AMM' },
   { to: '/gallery', label: 'Gallery' },
