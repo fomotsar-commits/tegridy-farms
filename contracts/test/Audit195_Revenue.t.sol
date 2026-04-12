@@ -13,20 +13,33 @@ contract MockVE195 {
     mapping(address => uint256) public lockEnds;
     mapping(address => uint256) public overrideVotingPower;
     mapping(address => bool) public hasOverride;
+    mapping(address => uint256) public tokenIds;
+    mapping(uint256 => address) internal tokenIdToUser;
     uint256 public totalLocked;
     bool public shouldRevert;
+    bool public isPaused;
+    uint256 private nextTokenId = 1;
 
     function setLock(address user, uint256 amount, uint256 end) external {
         if (lockedAmounts[user] == 0) totalLocked += amount;
         else totalLocked = totalLocked - lockedAmounts[user] + amount;
         lockedAmounts[user] = amount;
         lockEnds[user] = end;
+        if (tokenIds[user] == 0 && amount > 0) {
+            uint256 tid = nextTokenId++;
+            tokenIds[user] = tid;
+            tokenIdToUser[tid] = user;
+        }
     }
 
     function removeLock(address user) external {
         totalLocked -= lockedAmounts[user];
         lockedAmounts[user] = 0;
         lockEnds[user] = 0;
+        if (tokenIds[user] != 0) {
+            tokenIdToUser[tokenIds[user]] = address(0);
+            tokenIds[user] = 0;
+        }
     }
 
     /// @dev Override votingPowerAtTimestamp independently of lockedAmounts
@@ -54,7 +67,45 @@ contract MockVE195 {
         return (lockedAmounts[user], lockEnds[user]);
     }
 
+    function paused() external view returns (bool) {
+        return isPaused;
+    }
+
+    function userTokenId(address user) external view returns (uint256) {
+        if (shouldRevert) revert("VE_PAUSED");
+        return tokenIds[user];
+    }
+
+    function positions(uint256 tokenId) external view returns (
+        uint256 amount, uint256 boostedAmount, uint256 boostBps, uint256 lockEnd,
+        uint256 lockDuration, bool autoMaxLock, int256 rewardDebt, uint256 lastStakeTime,
+        bool jbacBoosted
+    ) {
+        // Find user by tokenId (reverse lookup)
+        // For simplicity in mock, we iterate; tests have few users
+        // We store a reverse mapping implicitly
+        return _positionsForTokenId(tokenId);
+    }
+
+    function _positionsForTokenId(uint256 tokenId) internal view returns (
+        uint256 amount, uint256 boostedAmount, uint256 boostBps, uint256 lockEnd,
+        uint256 lockDuration, bool autoMaxLock, int256 rewardDebt, uint256 lastStakeTime,
+        bool jbacBoosted
+    ) {
+        address user = tokenIdToUser[tokenId];
+        amount = lockedAmounts[user];
+        boostedAmount = amount;
+        boostBps = 10000;
+        lockEnd = lockEnds[user];
+        lockDuration = 0;
+        autoMaxLock = false;
+        rewardDebt = 0;
+        lastStakeTime = 0;
+        jbacBoosted = false;
+    }
+
     function setShouldRevert(bool _val) external { shouldRevert = _val; }
+    function setPaused(bool _val) external { isPaused = _val; }
 }
 
 contract MockRestaking195 {
@@ -122,7 +173,7 @@ contract Audit195Revenue is Test {
     uint256 constant YEAR = 365 days;
 
     function setUp() public {
-        vm.warp(2 hours);
+        vm.warp(5 hours);
         ve = new MockVE195();
         weth = new MockWETH195();
         restaking = new MockRestaking195();
@@ -141,7 +192,7 @@ contract Audit195Revenue is Test {
 
     function _distributeN(uint256 n, uint256 amt) internal {
         for (uint256 i; i < n; i++) {
-            if (i > 0) vm.warp(block.timestamp + 1 hours);
+            if (i > 0) vm.warp(block.timestamp + 4 hours + 1);
             _fund(amt);
             dist.distribute();
         }
@@ -245,7 +296,7 @@ contract Audit195Revenue is Test {
 
     function test_distributePermissionless_requires_new_eth() public {
         // No ETH in contract
-        vm.warp(block.timestamp + 2 hours);
+        vm.warp(block.timestamp + 4 hours + 1);
         vm.expectRevert(); // "NO_NEW_ETH" or NoETHToDistribute
         dist.distributePermissionless();
     }
@@ -292,7 +343,7 @@ contract Audit195Revenue is Test {
 
     function test_claim_reverts_when_too_many_epochs() public {
         // Create 501 epochs — use _distributeN which handles cooldowns
-        _distributeN(501, 0.1 ether);
+        _distributeN(501, 1 ether);
 
         vm.prank(alice);
         vm.expectRevert(RevenueDistributor.TooManyUnclaimedEpochs.selector);
@@ -336,12 +387,14 @@ contract Audit195Revenue is Test {
         assertTrue(pending > 0);
 
         // Next distribute should not re-earmark the pending amount
-        vm.warp(block.timestamp + 1 hours);
-        _fund(1 ether);
+        vm.warp(block.timestamp + 4 hours + 1);
+        _fund(3 ether);
         uint256 earBefore = dist.totalEarmarked();
+        uint256 reserved = (earBefore > dist.totalClaimed() ? earBefore - dist.totalClaimed() : 0) + dist.totalPendingWithdrawals();
+        uint256 expectedNew = address(dist).balance - reserved;
         dist.distribute();
-        // Should only earmark the 1 new ether, not the pending
-        assertEq(dist.totalEarmarked(), earBefore + 1 ether, "pending not re-earmarked");
+        // Should only earmark newETH (balance - reserved), not re-count pending
+        assertEq(dist.totalEarmarked(), earBefore + expectedNew, "pending not re-earmarked");
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -778,7 +831,7 @@ contract Audit195Revenue is Test {
     // ═══════════════════════════════════════════════════════════════════════
 
     function test_claimUpTo_caps_at_max() public {
-        _distributeN(4, 0.5 ether);
+        _distributeN(4, 1 ether);
 
         // Pass huge maxEpochs — should be capped
         vm.prank(alice);

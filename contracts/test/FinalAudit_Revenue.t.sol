@@ -61,6 +61,23 @@ contract FA_MockVotingEscrow {
     function totalBoostedStake() external view returns (uint256) {
         return totalLockedVal;
     }
+
+    function userTokenId(address user) external view returns (uint256) {
+        return lockedAmounts[user] > 0 ? uint256(uint160(user)) : 0;
+    }
+
+    function positions(uint256 tokenId) external view returns (
+        uint256 amount, uint256, uint256, uint256 _lockEnd,
+        uint256, bool, int256, uint256, bool
+    ) {
+        address user = address(uint160(tokenId));
+        amount = lockedAmounts[user];
+        _lockEnd = lockEnds[user];
+    }
+
+    function paused() external pure returns (bool) {
+        return false;
+    }
 }
 
 contract FA_MockVEGrants {
@@ -88,6 +105,10 @@ contract FA_MockVEGrants {
     }
     function totalBoostedStake() external view returns (uint256) {
         return totalBoostedStakeVal;
+    }
+
+    function userTokenId(address user) external view returns (uint256) {
+        return powers[user] > 0 ? uint256(uint160(user)) : 0;
     }
 }
 
@@ -163,6 +184,8 @@ contract FinalAuditRevenue is Test {
     address public carol = makeAddr("carol");
     address public treasury = makeAddr("treasury");
     address public feeReceiver = makeAddr("feeReceiver");
+    address public voter2 = makeAddr("voter2");
+    address public voter3 = makeAddr("voter3");
 
     function setUp() public {
         // Start at a reasonable timestamp
@@ -211,7 +234,7 @@ contract FinalAuditRevenue is Test {
     function _createDistributorEpochs(uint256 count) internal {
         for (uint256 i = 0; i < count; i++) {
             vm.deal(address(distributor), address(distributor).balance + 1 ether);
-            _advanceTime(2 hours);
+            _advanceTime(4 hours + 1);
             distributor.distribute();
         }
     }
@@ -305,6 +328,8 @@ contract FinalAuditRevenue is Test {
     function test_CommunityGrants_RollingWindowBoundaryTiming() public {
         veGrants.setPower(alice, 10000 ether);
         veGrants.setPower(bob, 10000 ether);
+        veGrants.setPower(carol, 10000 ether);
+        veGrants.setPower(voter2, 10000 ether);
 
         // Proposal 1: 25 ETH (25% of 100 ETH, under 50% cap)
         vm.startPrank(alice);
@@ -312,12 +337,17 @@ contract FinalAuditRevenue is Test {
         grants.createProposal(bob, 25 ether, "Grant 1");
         vm.stopPrank();
 
-        _advanceTime(1);
+        _advanceTime(1 days + 1);
         vm.prank(bob);
+        grants.voteOnProposal(0, true);
+        vm.prank(carol);
+        grants.voteOnProposal(0, true);
+        vm.prank(voter2);
         grants.voteOnProposal(0, true);
 
         _advanceTime(7 days + 1);
         grants.finalizeProposal(0);
+        _advanceTime(1 days + 1);
         grants.executeProposal(0);
         // Disbursed 25 ETH. Balance = 75 ETH. Rolling total = 25.
 
@@ -326,8 +356,12 @@ contract FinalAuditRevenue is Test {
         vm.prank(alice);
         grants.createProposal(carol, 5 ether, "Grant 2");
 
-        _advanceTime(1);
+        _advanceTime(1 days + 1);
         vm.prank(bob);
+        grants.voteOnProposal(1, true);
+        vm.prank(carol);
+        grants.voteOnProposal(1, true);
+        vm.prank(voter2);
         grants.voteOnProposal(1, true);
 
         _advanceTime(7 days + 1);
@@ -360,20 +394,27 @@ contract FinalAuditRevenue is Test {
     function test_CommunityGrants_RetryExecutionNoDrain() public {
         veGrants.setPower(alice, 10000 ether);
         veGrants.setPower(bob, 10000 ether);
+        veGrants.setPower(carol, 10000 ether);
+        veGrants.setPower(voter2, 10000 ether);
 
         vm.startPrank(alice);
         token.approve(address(grants), 100_000 ether);
         grants.createProposal(bob, 1 ether, "Test grant");
         vm.stopPrank();
 
-        _advanceTime(1);
+        _advanceTime(1 days + 1);
         vm.prank(bob);
+        grants.voteOnProposal(0, true);
+        vm.prank(carol);
+        grants.voteOnProposal(0, true);
+        vm.prank(voter2);
         grants.voteOnProposal(0, true);
 
         _advanceTime(7 days + 1);
         grants.finalizeProposal(0);
 
         // Execute — should succeed
+        _advanceTime(1 days + 1);
         grants.executeProposal(0);
 
         // Try retry — should revert because status is now Executed, not FailedExecution
@@ -390,14 +431,20 @@ contract FinalAuditRevenue is Test {
     function test_CommunityGrants_LapseProposalPremature() public {
         veGrants.setPower(alice, 10000 ether);
         veGrants.setPower(bob, 10000 ether);
+        veGrants.setPower(carol, 10000 ether);
+        veGrants.setPower(voter2, 10000 ether);
 
         vm.startPrank(alice);
         token.approve(address(grants), 100_000 ether);
         grants.createProposal(bob, 1 ether, "Test grant");
         vm.stopPrank();
 
-        _advanceTime(1);
+        _advanceTime(1 days + 1);
         vm.prank(bob);
+        grants.voteOnProposal(0, true);
+        vm.prank(carol);
+        grants.voteOnProposal(0, true);
+        vm.prank(voter2);
         grants.voteOnProposal(0, true);
 
         _advanceTime(7 days + 1);
@@ -408,12 +455,12 @@ contract FinalAuditRevenue is Test {
         grants.lapseProposal(0);
 
         // Warp to just before deadline expires (30 days from voting deadline)
-        _advanceTime(29 days);
+        _advanceTime(28 days);
         vm.expectRevert(CommunityGrants.ExecutionDeadlineNotExpired.selector);
         grants.lapseProposal(0);
 
         // Warp past deadline — should succeed
-        _advanceTime(2 days);
+        _advanceTime(3 days);
         grants.lapseProposal(0);
     }
 
@@ -426,6 +473,8 @@ contract FinalAuditRevenue is Test {
     function test_CommunityGrants_ApprovedPendingSerialDrain() public {
         veGrants.setPower(alice, 10000 ether);
         veGrants.setPower(bob, 10000 ether);
+        veGrants.setPower(carol, 10000 ether);
+        veGrants.setPower(voter2, 10000 ether);
 
         // Proposal 1: 20 ETH (20% of 100 ETH — under both 50% cap and 30% rolling cap)
         vm.startPrank(alice);
@@ -433,8 +482,12 @@ contract FinalAuditRevenue is Test {
         grants.createProposal(bob, 20 ether, "Grant A");
         vm.stopPrank();
 
-        _advanceTime(1);
+        _advanceTime(1 days + 1);
         vm.prank(bob);
+        grants.voteOnProposal(0, true);
+        vm.prank(carol);
+        grants.voteOnProposal(0, true);
+        vm.prank(voter2);
         grants.voteOnProposal(0, true);
         _advanceTime(7 days + 1);
         grants.finalizeProposal(0);
@@ -452,14 +505,19 @@ contract FinalAuditRevenue is Test {
         vm.prank(alice);
         grants.createProposal(carol, 10 ether, "Grant B ok");
 
-        _advanceTime(1);
+        _advanceTime(1 days + 1);
         vm.prank(bob);
+        grants.voteOnProposal(1, true);
+        vm.prank(carol);
+        grants.voteOnProposal(1, true);
+        vm.prank(voter2);
         grants.voteOnProposal(1, true);
         _advanceTime(7 days + 1);
         grants.finalizeProposal(1);
         // totalApprovedPending = 20 + 10 = 30
 
         // Execute proposal 0 (20 ETH). Rolling cap: 30% of 100 = 30. 20 < 30. OK.
+        _advanceTime(1 days + 1);
         grants.executeProposal(0);
         // Balance = 80, totalApprovedPending = 10, rollingDisbursed = 20
 
@@ -479,6 +537,8 @@ contract FinalAuditRevenue is Test {
         staking.setPower(alice, 2000 ether);
         staking.setPower(bob, 5000 ether);
         staking.setPower(carol, 5000 ether);
+        staking.setPower(voter2, 5000 ether);
+        staking.setPower(voter3, 5000 ether);
 
         // Alice creates a bounty
         vm.prank(alice);
@@ -488,8 +548,12 @@ contract FinalAuditRevenue is Test {
         vm.prank(bob);
         bountyBoard.submitWork(0, "ipfs://meme1");
 
-        // Carol votes for Bob's submission (3 votes needed for quorum = 3000e18)
+        // 3 unique voters needed for MIN_UNIQUE_VOTERS
         vm.prank(carol);
+        bountyBoard.voteForSubmission(0, 0);
+        vm.prank(voter2);
+        bountyBoard.voteForSubmission(0, 0);
+        vm.prank(voter3);
         bountyBoard.voteForSubmission(0, 0);
 
         // Past deadline + dispute period
@@ -515,6 +579,8 @@ contract FinalAuditRevenue is Test {
         staking.setPower(alice, 2000 ether);
         staking.setPower(bob, 5000 ether);
         staking.setPower(carol, 5000 ether);
+        staking.setPower(voter2, 5000 ether);
+        staking.setPower(voter3, 5000 ether);
 
         vm.prank(alice);
         bountyBoard.createBounty{value: 1 ether}("Bounty task", block.timestamp + 2 days);
@@ -522,8 +588,12 @@ contract FinalAuditRevenue is Test {
         vm.prank(bob);
         bountyBoard.submitWork(0, "ipfs://work");
 
-        // Carol votes — exceeds MIN_COMPLETION_VOTES (3000e18)
+        // 3 unique voters needed
         vm.prank(carol);
+        bountyBoard.voteForSubmission(0, 0);
+        vm.prank(voter2);
+        bountyBoard.voteForSubmission(0, 0);
+        vm.prank(voter3);
         bountyBoard.voteForSubmission(0, 0);
 
         // Warp past deadline + dispute + grace
@@ -549,6 +619,8 @@ contract FinalAuditRevenue is Test {
         staking.setPower(alice, 2000 ether);
         staking.setPower(bob, 5000 ether);
         staking.setPower(carol, 5000 ether);
+        staking.setPower(voter2, 5000 ether);
+        staking.setPower(voter3, 5000 ether);
 
         vm.prank(alice);
         bountyBoard.createBounty{value: 1 ether}("Task", block.timestamp + 2 days);
@@ -557,6 +629,10 @@ contract FinalAuditRevenue is Test {
         bountyBoard.submitWork(0, "ipfs://work");
 
         vm.prank(carol);
+        bountyBoard.voteForSubmission(0, 0);
+        vm.prank(voter2);
+        bountyBoard.voteForSubmission(0, 0);
+        vm.prank(voter3);
         bountyBoard.voteForSubmission(0, 0);
 
         // Warp past deadline + force cancel delay (7 days)
@@ -720,6 +796,8 @@ contract FinalAuditRevenue is Test {
         staking.setPower(alice, 2000 ether);
         staking.setPower(rejecterAddr, 5000 ether);
         staking.setPower(carol, 5000 ether);
+        staking.setPower(voter2, 5000 ether);
+        staking.setPower(voter3, 5000 ether);
 
         // Alice creates bounty
         vm.prank(alice);
@@ -729,8 +807,12 @@ contract FinalAuditRevenue is Test {
         vm.prank(rejecterAddr);
         bountyBoard.submitWork(0, "ipfs://work");
 
-        // Carol votes
+        // 3 unique voters needed
         vm.prank(carol);
+        bountyBoard.voteForSubmission(0, 0);
+        vm.prank(voter2);
+        bountyBoard.voteForSubmission(0, 0);
+        vm.prank(voter3);
         bountyBoard.voteForSubmission(0, 0);
 
         // Past deadline + dispute

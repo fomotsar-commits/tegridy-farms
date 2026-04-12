@@ -78,10 +78,27 @@ contract MockBribeToken is ERC20 {
     }
 }
 
-/// @dev Mock factory that says every address with code is a valid pair
+/// @dev Mock pair with token0/token1 so _validatePair passes
+contract MockPair {
+    address public token0;
+    address public token1;
+    constructor(address _t0, address _t1) {
+        token0 = _t0;
+        token1 = _t1;
+    }
+}
+
+/// @dev Mock factory that returns the registered pair for token0/token1
 contract MockFactory {
-    function getPair(address, address) external pure returns (address) {
-        return address(0); // Not used by _validatePair currently
+    mapping(bytes32 => address) internal _pairs;
+
+    function registerPair(address t0, address t1, address pairAddr) external {
+        _pairs[keccak256(abi.encodePacked(t0, t1))] = pairAddr;
+        _pairs[keccak256(abi.encodePacked(t1, t0))] = pairAddr;
+    }
+
+    function getPair(address t0, address t1) external view returns (address) {
+        return _pairs[keccak256(abi.encodePacked(t0, t1))];
     }
 }
 
@@ -106,8 +123,12 @@ contract VoteIncentivesTest is Test {
         bribeToken = new MockBribeToken();
         factory = new MockFactory();
 
-        // Use a contract address as pair so _validatePair passes (has code)
-        pair = address(bribeToken); // Any deployed contract works
+        // Create a proper mock pair with token0/token1 and register it in the factory
+        address t0 = address(0x1111);
+        address t1 = address(0x2222);
+        MockPair mockPair = new MockPair(t0, t1);
+        pair = address(mockPair);
+        factory.registerPair(t0, t1, pair);
 
         vi = new VoteIncentives(address(ve), treasury, address(weth), address(factory), 300); // 3% fee
 
@@ -219,7 +240,8 @@ contract VoteIncentivesTest is Test {
         uint256 fee = amount * 300 / 10000;
         uint256 epoch = vi.currentEpoch();
         assertEq(vi.epochBribes(epoch, pair, address(0)), amount - fee);
-        assertEq(treasury.balance, fee);
+        // ETH fees use pull pattern (accumulatedTreasuryETH), not direct transfer
+        assertEq(vi.accumulatedTreasuryETH(), fee);
     }
 
     function test_depositBribeETH_reverts_zero() public {
@@ -240,7 +262,13 @@ contract VoteIncentivesTest is Test {
         // Advance epoch to snapshot
         vi.advanceEpoch();
 
-        // Alice has 70% of voting power, Bob has 30%
+        // V2: Users must vote for the pair before claiming
+        vm.prank(alice);
+        vi.vote(0, pair, 7000e18);
+        vm.prank(bob);
+        vi.vote(0, pair, 3000e18);
+
+        // Alice has 70% of votes, Bob has 30%
         uint256 netBribe = amount - (amount * 300 / 10000);
         uint256 aliceExpected = (netBribe * 7000e18) / 10000e18; // 70%
         uint256 bobExpected = (netBribe * 3000e18) / 10000e18;   // 30%
@@ -279,6 +307,12 @@ contract VoteIncentivesTest is Test {
 
         vi.advanceEpoch();
 
+        // V2: Both users vote so proportions are 70/30
+        vm.prank(alice);
+        vi.vote(0, pair, 7000e18);
+        vm.prank(bob);
+        vi.vote(0, pair, 3000e18);
+
         uint256 netBribe = amount - (amount * 300 / 10000);
         uint256 aliceExpected = (netBribe * 7000e18) / 10000e18;
 
@@ -298,6 +332,11 @@ contract VoteIncentivesTest is Test {
         vm.stopPrank();
 
         vi.advanceEpoch();
+
+        // V2: Vote for epoch 0
+        vm.prank(alice);
+        vi.vote(0, pair, 7000e18);
+
         vm.warp(block.timestamp + 1 hours + 1);
 
         vm.startPrank(alice);
@@ -305,6 +344,10 @@ contract VoteIncentivesTest is Test {
         vm.stopPrank();
 
         vi.advanceEpoch();
+
+        // V2: Vote for epoch 1
+        vm.prank(alice);
+        vi.vote(1, pair, 7000e18);
 
         uint256 aliceBefore = bribeToken.balanceOf(alice);
         vm.prank(alice);
@@ -321,6 +364,10 @@ contract VoteIncentivesTest is Test {
         vm.stopPrank();
 
         vi.advanceEpoch();
+
+        // V2: Must vote before claiming
+        vm.prank(alice);
+        vi.vote(0, pair, 7000e18);
 
         vm.prank(alice);
         vi.claimBribes(0, pair);
@@ -477,6 +524,10 @@ contract VoteIncentivesTest is Test {
 
         vi.advanceEpoch();
 
+        // V2: Must vote before claimable returns nonzero
+        vm.prank(alice);
+        vi.vote(0, pair, 7000e18);
+
         (address[] memory tokens, uint256[] memory amounts) = vi.claimable(alice, 0, pair);
         assertEq(tokens.length, 1);
         assertEq(tokens[0], address(bribeToken));
@@ -517,12 +568,18 @@ contract VoteIncentivesTest is Test {
 
         vi.advanceEpoch();
 
+        // V2: Must vote before claiming
+        vm.prank(alice);
+        vi.vote(0, pair, 7000e18);
+        vm.prank(bob);
+        vi.vote(0, pair, 3000e18);
+
         uint256 balBefore = bribeToken.balanceOf(alice);
         vm.prank(alice);
         vi.claimBribes(0, pair);
         uint256 claimed = bribeToken.balanceOf(alice) - balBefore;
 
-        // Alice has 70% of voting power, should get ~70% of net bribe
+        // Alice has 70% of votes, should get ~70% of net bribe
         uint256 netBribe = uint256(amount) - (uint256(amount) * 300 / 10000);
         uint256 expected = (netBribe * 7000e18) / 10000e18;
         assertApproxEqAbs(claimed, expected, 1e18); // Allow rounding

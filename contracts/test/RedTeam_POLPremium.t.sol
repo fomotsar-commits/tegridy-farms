@@ -585,7 +585,7 @@ contract RedTeamPOLPremium is Test {
 
         vm.stopPrank();
 
-        // Extensions (non-expired) do NOT add to totalRevenue
+        // M-06 FIX: Extensions now DO add to totalRevenue (all subscription payments count)
         vm.prank(bob);
         premium.subscribe(1, type(uint256).max);
         uint256 rev3 = premium.totalRevenue();
@@ -594,7 +594,7 @@ contract RedTeamPOLPremium is Test {
         vm.prank(bob);
         premium.subscribe(1, type(uint256).max); // extend
         uint256 rev4 = premium.totalRevenue();
-        assertEq(rev4, rev3, "Extension should NOT add to totalRevenue");
+        assertEq(rev4, rev3 + MONTHLY_FEE, "M-06: Extension DOES add to totalRevenue");
 
         // Can attacker inflate by subscribe->cancel->subscribe cycle?
         uint256 t1 = block.timestamp + 100;

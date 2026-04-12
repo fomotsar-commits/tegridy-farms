@@ -525,7 +525,7 @@ contract Audit195Referral is Test {
         ref.claimReferralRewards();
     }
 
-    function test_claimRewards_revert_insufficientStake() public {
+    function test_claimRewards_succeedsEvenWithInsufficientStake() public {
         vm.prank(alice);
         ref.setReferrer(bob);
         caller.recordFee{value: 1 ether}(alice);
@@ -534,12 +534,15 @@ contract Audit195Referral is Test {
         // Remove bob's stake
         staking.setPower(bob, 0);
 
+        // SECURITY FIX H1: Staking check removed from claiming — earned rewards are always claimable
+        uint256 bobBefore = bob.balance;
         vm.prank(bob);
-        vm.expectRevert(ReferralSplitter.ReferrerNotStaked.selector);
         ref.claimReferralRewards();
+        uint256 expectedShare = (1 ether * REFERRAL_FEE_BPS) / BPS;
+        assertEq(bob.balance - bobBefore, expectedShare, "Earned rewards claimable regardless of stake");
     }
 
-    function test_claimRewards_revert_stakingReverts() public {
+    function test_claimRewards_succeedsEvenWhenStakingReverts() public {
         vm.prank(alice);
         ref.setReferrer(bob);
         caller.recordFee{value: 1 ether}(alice);
@@ -547,9 +550,12 @@ contract Audit195Referral is Test {
 
         staking.setRevert(true);
 
+        // SECURITY FIX H1: Staking check removed from claiming — earned rewards are always claimable
+        uint256 bobBefore = bob.balance;
         vm.prank(bob);
-        vm.expectRevert(ReferralSplitter.ReferrerNotStaked.selector);
         ref.claimReferralRewards();
+        uint256 expectedShare = (1 ether * REFERRAL_FEE_BPS) / BPS;
+        assertEq(bob.balance - bobBefore, expectedShare, "Earned rewards claimable even if staking reverts");
     }
 
     function test_claimRewards_WETHFallback() public {
@@ -711,8 +717,9 @@ contract Audit195Referral is Test {
         ref.proposeApprovedCaller(newCaller);
         assertGt(ref.pendingCallerGrantTime(newCaller), 0);
 
-        // Can't execute before timelock
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, ref.CALLER_GRANT()));
+        // Can't execute before timelock — per-address key used internally
+        bytes32 key = keccak256(abi.encode("CALLER_GRANT", newCaller));
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, key));
         ref.executeApprovedCaller(newCaller);
 
         // Warp past 24h
@@ -727,9 +734,10 @@ contract Audit195Referral is Test {
 
         ref.proposeApprovedCaller(newCaller);
 
-        // Warp past 24h + 7 days validity
+        // Warp past 24h + 7 days validity — per-address key used internally
+        bytes32 key = keccak256(abi.encode("CALLER_GRANT", newCaller));
         vm.warp(block.timestamp + 24 hours + 7 days + 1);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, ref.CALLER_GRANT()));
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, key));
         ref.executeApprovedCaller(newCaller);
     }
 
@@ -932,7 +940,7 @@ contract Audit195Referral is Test {
         assertGt(ref.accumulatedTreasuryETH(), 0, "share goes to treasury");
     }
 
-    function test_minStake_claimBlocked_belowThreshold() public {
+    function test_minStake_claimSucceeds_belowThreshold() public {
         vm.prank(alice);
         ref.setReferrer(bob);
         caller.recordFee{value: 1 ether}(alice);
@@ -941,9 +949,12 @@ contract Audit195Referral is Test {
         // Drop stake after fee recorded but before claim
         staking.setPower(bob, MIN_STAKE - 1);
 
+        // SECURITY FIX H1: Staking check removed from claiming — earned rewards are always claimable
+        uint256 bobBefore = bob.balance;
         vm.prank(bob);
-        vm.expectRevert(ReferralSplitter.ReferrerNotStaked.selector);
         ref.claimReferralRewards();
+        uint256 expectedShare = (1 ether * REFERRAL_FEE_BPS) / BPS;
+        assertEq(bob.balance - bobBefore, expectedShare, "Earned rewards claimable even below stake threshold");
     }
 
     // ════════════════════════════════════════════════════════════════════

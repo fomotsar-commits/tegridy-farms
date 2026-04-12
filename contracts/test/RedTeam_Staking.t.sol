@@ -414,7 +414,7 @@ contract RedTeamStaking is Test {
 
         // Random attacker cannot call revalidateBoost on alice's position
         vm.prank(attacker);
-        vm.expectRevert("NOT_AUTHORIZED");
+        vm.expectRevert(TegridyStaking.Unauthorized.selector);
         staking.revalidateBoost(aliceTokenId);
     }
 
@@ -635,14 +635,16 @@ contract RedTeamStaking is Test {
         vm.prank(bob);
         staking.transferFrom(bob, carol, bobTokenId);
 
-        // Carol can immediately transfer to attacker (no cooldown on second transfer)
-        // because the cooldown is based on stakeTimestamp which is already >24h ago
+        // SECURITY FIX: TransferRateLimited now enforces a 1-hour cooldown between ALL transfers.
+        // Carol cannot immediately transfer — must wait past the rate limit.
+        vm.warp(block.timestamp + 1 hours + 1);
+
         vm.prank(carol);
         staking.transferFrom(carol, attacker, bobTokenId);
 
         assertEq(staking.ownerOf(bobTokenId), attacker, "Attacker should own the NFT");
-        // NOTE: This is a design choice. The cooldown only prevents flash-loan-stake-transfer attacks.
-        // Once past the initial cooldown, the NFT is freely tradeable (which is desired for NFT markets).
+        // NOTE: The rate limit prevents rapid NFT flipping for reward drain.
+        // Each transfer now enforces a 1-hour cooldown.
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -694,7 +696,7 @@ contract RedTeamStaking is Test {
 
         // Attacker tries to strip alice's boost by calling revalidateBoost
         vm.prank(attacker);
-        vm.expectRevert("NOT_AUTHORIZED");
+        vm.expectRevert(TegridyStaking.Unauthorized.selector);
         staking.revalidateBoost(aliceTokenId);
 
         // Alice's boost remains

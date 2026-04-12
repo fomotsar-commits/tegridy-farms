@@ -285,9 +285,9 @@ contract FinalAuditPOLPremium is Test {
         emit log_named_uint("totalRevenue after extension", revenueAfterExtend);
         emit log_named_uint("Expected total earned (initial + consumed)", 1000 ether);
 
-        // totalRevenue is only 1000 (from initial sub) - consumed portion from
-        // the extension path never gets added to totalRevenue
-        assertEq(revenueAfterExtend, 1000 ether, "totalRevenue was NOT updated for consumed portion during extension");
+        // M-06 FIX: totalRevenue now always increments by cost on subscribe (including extensions)
+        // So totalRevenue = 1000 (initial) + 1000 (extension) = 2000
+        assertEq(revenueAfterExtend, 2 * MONTHLY_FEE, "totalRevenue incremented by cost on extension (M-06 fix)");
 
         // SEVERITY: LOW
         // This is purely an accounting issue for off-chain analytics. It does not

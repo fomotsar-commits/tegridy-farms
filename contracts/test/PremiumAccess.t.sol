@@ -340,8 +340,8 @@ contract PremiumAccessTest is Test {
 
         vm.prank(alice);
         premium.subscribe(1, type(uint256).max);
-        // totalRevenue should still be MONTHLY_FEE (extension doesn't add revenue)
-        assertEq(premium.totalRevenue(), MONTHLY_FEE);
+        // totalRevenue includes consumed portion from first period + new extension cost
+        assertEq(premium.totalRevenue(), 2 * MONTHLY_FEE);
     }
 
     function test_totalRevenue_incrementsOnNewSubscription() public {

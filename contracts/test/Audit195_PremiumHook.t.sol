@@ -195,7 +195,7 @@ contract Audit195PremiumHookTest is Test {
         assertApproxEqAbs(premium.totalRevenue(), 500 ether, 10 ether);
     }
 
-    function test_P05_totalRevenueNotInflatedOnExtension() public {
+    function test_P05_totalRevenueIncreasesOnExtension() public {
         vm.prank(alice);
         premium.subscribe(1, type(uint256).max);
         uint256 rev1 = premium.totalRevenue();
@@ -205,8 +205,8 @@ contract Audit195PremiumHookTest is Test {
 
         vm.prank(alice);
         premium.subscribe(1, type(uint256).max); // extension
-        // Extension should NOT increase totalRevenue
-        assertEq(premium.totalRevenue(), MONTHLY_FEE);
+        // M-06: totalRevenue always increments by cost, including on extensions
+        assertEq(premium.totalRevenue(), 2 * MONTHLY_FEE);
     }
 
     // ═══════════════════════════════════════════════════════════════

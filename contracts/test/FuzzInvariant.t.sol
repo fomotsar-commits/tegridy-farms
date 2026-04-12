@@ -61,6 +61,24 @@ contract MockVotingEscrow {
     function totalBoostedStake() external view returns (uint256) {
         return totalLocked;
     }
+
+    function userTokenId(address user) external view returns (uint256) {
+        return _locks[user].amount > 0 ? uint256(uint160(user)) : 0;
+    }
+
+    function positions(uint256 tokenId) external view returns (
+        uint256 amount, uint256, uint256, uint256 lockEndVal,
+        uint256, bool, int256, uint256, bool
+    ) {
+        address user = address(uint160(tokenId));
+        Lock memory l = _locks[user];
+        amount = l.amount;
+        lockEndVal = l.end;
+    }
+
+    function paused() external pure returns (bool) {
+        return false;
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -492,7 +510,7 @@ contract RevenueDistributorFuzzTest is Test {
     address public alice = makeAddr("alice");
 
     function setUp() public {
-        vm.warp(2 hours);
+        vm.warp(5 hours);
         votingEscrow = new MockVotingEscrow();
         weth = new MockWETHFuzz();
         distributor = new RevenueDistributor(address(votingEscrow), treasury, address(weth));
@@ -510,11 +528,11 @@ contract RevenueDistributorFuzzTest is Test {
 
         // Distribute 3 epochs
         uint256 perEpoch = ethAmount / 3;
-        if (perEpoch < 0.1 ether) perEpoch = 0.1 ether;
+        if (perEpoch < 1 ether) perEpoch = 1 ether;
         for (uint256 i = 0; i < 3; i++) {
             vm.deal(address(distributor), address(distributor).balance + perEpoch);
             distributor.distribute();
-            if (i < 2) vm.warp(block.timestamp + 1 hours);
+            if (i < 2) vm.warp(block.timestamp + 4 hours + 1);
         }
         uint256 totalFunded = perEpoch * 3;
 
@@ -542,11 +560,11 @@ contract RevenueDistributorFuzzTest is Test {
 
         // Distribute 3 epochs
         uint256 perEpoch = ethAmount / 3;
-        if (perEpoch < 0.1 ether) perEpoch = 0.1 ether;
+        if (perEpoch < 1 ether) perEpoch = 1 ether;
         for (uint256 i = 0; i < 3; i++) {
             vm.deal(address(distributor), address(distributor).balance + perEpoch);
             distributor.distribute();
-            if (i < 2) vm.warp(block.timestamp + 1 hours);
+            if (i < 2) vm.warp(block.timestamp + 4 hours + 1);
         }
         uint256 totalFunded = perEpoch * 3;
 

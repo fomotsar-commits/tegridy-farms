@@ -14,11 +14,16 @@ contract MockTokenGrants is ERC20 {
 /// @dev Mock that implements IVotingEscrowGrants interface
 contract MockVEGrants {
     mapping(address => uint256) public powers;
+    mapping(address => uint256) public _userTokenId;
     uint256 public totalLocked;
 
     function setPower(address user, uint256 power) external {
         totalLocked = totalLocked - powers[user] + power;
         powers[user] = power;
+    }
+
+    function setUserTokenId(address user, uint256 tokenId) external {
+        _userTokenId[user] = tokenId;
     }
 
     function votingPowerOf(address user) external view returns (uint256) {
@@ -35,6 +40,10 @@ contract MockVEGrants {
 
     function totalBoostedStake() external view returns (uint256) {
         return totalLocked;
+    }
+
+    function userTokenId(address user) external view returns (uint256) {
+        return _userTokenId[user];
     }
 }
 
@@ -59,6 +68,7 @@ contract CommunityGrantsTest is Test {
     address public alice = makeAddr("alice");
     address public bob = makeAddr("bob");
     address public carol = makeAddr("carol");
+    address public dave = makeAddr("dave");
     address public artist = makeAddr("artist");
     address public treasury = makeAddr("treasury");
 
@@ -73,6 +83,7 @@ contract CommunityGrantsTest is Test {
         ve.setPower(alice, 20_000 ether);
         ve.setPower(bob, 10_000 ether);
         ve.setPower(carol, 30_000 ether);
+        ve.setPower(dave, 5_000 ether);
 
         token.transfer(alice, 200_000 ether);
         token.transfer(bob, 200_000 ether);
@@ -85,6 +96,18 @@ contract CommunityGrantsTest is Test {
 
         vm.deal(address(grants), 10 ether);
         token.transfer(address(grants), 200_000 ether);
+    }
+
+    /// @dev Helper: warp past VOTING_DELAY then cast 3 "for" votes (alice, bob, carol) to meet MIN_UNIQUE_VOTERS.
+    ///      Proposer must NOT be alice, bob, or carol (use address(this) as proposer).
+    function _voteThreeFor(uint256 id) internal {
+        vm.warp(block.timestamp + 1 days); // past VOTING_DELAY
+        vm.prank(alice);
+        grants.voteOnProposal(id, true);
+        vm.prank(bob);
+        grants.voteOnProposal(id, true);
+        vm.prank(carol);
+        grants.voteOnProposal(id, true);
     }
 
     // ===== PROPOSAL CREATION WITH FEE SPLIT (50% to feeReceiver, 50% held) =====
@@ -119,6 +142,7 @@ contract CommunityGrantsTest is Test {
     function test_voteFor() public {
         grants.createProposal(artist, 1 ether, "Art grant");
 
+        vm.warp(block.timestamp + 1 days); // past VOTING_DELAY
         vm.prank(alice);
         grants.voteOnProposal(0, true);
 
@@ -130,6 +154,7 @@ contract CommunityGrantsTest is Test {
     function test_voteAgainst() public {
         grants.createProposal(artist, 1 ether, "Bad proposal");
 
+        vm.warp(block.timestamp + 1 days); // past VOTING_DELAY
         vm.prank(bob);
         grants.voteOnProposal(0, false);
 
@@ -141,6 +166,7 @@ contract CommunityGrantsTest is Test {
     function test_revert_voteTwice() public {
         grants.createProposal(artist, 1 ether, "Test");
 
+        vm.warp(block.timestamp + 1 days); // past VOTING_DELAY
         vm.prank(alice);
         grants.voteOnProposal(0, true);
 
@@ -152,6 +178,7 @@ contract CommunityGrantsTest is Test {
     function test_revert_voteNoVotingPower() public {
         grants.createProposal(artist, 1 ether, "Test");
 
+        vm.warp(block.timestamp + 1 days); // past VOTING_DELAY
         address nopower = makeAddr("nopower");
         vm.prank(nopower);
         vm.expectRevert(CommunityGrants.NoVotingPower.selector);
@@ -166,6 +193,7 @@ contract CommunityGrantsTest is Test {
         ve.setPower(alice, 0);
         ve.setPower(bob, 0);
         ve.setPower(carol, 0);
+        ve.setPower(dave, 0);
         // totalLocked is now 0
 
         grants.createProposal(artist, 1 ether, "Test quorum");
@@ -174,10 +202,11 @@ contract CommunityGrantsTest is Test {
         // Restore power so alice can vote (votingPowerAt mock returns current power)
         ve.setPower(alice, 10_000 ether);
 
+        vm.warp(block.timestamp + 1 days); // past VOTING_DELAY
         vm.prank(alice);
         grants.voteOnProposal(0, true);
 
-        vm.warp(block.timestamp + 8 days);
+        vm.warp(block.timestamp + 7 days + 1); // past voting deadline
 
         // snapshotTotalStake == 0 should cause QuorumNotMet
         vm.expectRevert(CommunityGrants.QuorumNotMet.selector);
@@ -189,10 +218,11 @@ contract CommunityGrantsTest is Test {
 
         grants.createProposal(artist, 1 ether, "Low turnout");
 
+        vm.warp(block.timestamp + 1 days); // past VOTING_DELAY
         vm.prank(bob);
         grants.voteOnProposal(0, true);
 
-        vm.warp(block.timestamp + 8 days);
+        vm.warp(block.timestamp + 7 days + 1); // past voting deadline
         vm.expectRevert(CommunityGrants.QuorumNotMet.selector);
         grants.finalizeProposal(0);
     }
@@ -203,13 +233,16 @@ contract CommunityGrantsTest is Test {
         vm.prank(alice);
         grants.createProposal(artist, 1 ether, "Bad proposal");
 
+        vm.warp(block.timestamp + 1 days); // past VOTING_DELAY
         vm.prank(bob);
         grants.voteOnProposal(0, true);
         vm.prank(carol);
         grants.voteOnProposal(0, false);
+        vm.prank(dave);
+        grants.voteOnProposal(0, false);
 
         uint256 aliceBefore = token.balanceOf(alice);
-        vm.warp(block.timestamp + 8 days);
+        vm.warp(block.timestamp + 7 days + 1); // past voting deadline
         grants.finalizeProposal(0);
 
         (,,,,,,,CommunityGrants.ProposalStatus status,,) = grants.getProposal(0);
@@ -224,11 +257,11 @@ contract CommunityGrantsTest is Test {
     function test_executeProposal() public {
         grants.createProposal(artist, 1 ether, "Pay the artist");
 
-        vm.prank(alice);
-        grants.voteOnProposal(0, true);
-        vm.warp(block.timestamp + 8 days);
+        _voteThreeFor(0);
+        vm.warp(block.timestamp + 7 days + 1); // past voting deadline
         grants.finalizeProposal(0);
 
+        vm.warp(block.timestamp + 1 days); // past EXECUTION_DELAY
         uint256 artistBefore = artist.balance;
         grants.executeProposal(0);
 
@@ -241,9 +274,15 @@ contract CommunityGrantsTest is Test {
 
     function test_revert_executeNotApproved() public {
         grants.createProposal(artist, 1 ether, "Rejected");
+
+        vm.warp(block.timestamp + 1 days); // past VOTING_DELAY
         vm.prank(alice);
         grants.voteOnProposal(0, false);
-        vm.warp(block.timestamp + 8 days);
+        vm.prank(bob);
+        grants.voteOnProposal(0, false);
+        vm.prank(carol);
+        grants.voteOnProposal(0, false);
+        vm.warp(block.timestamp + 7 days + 1); // past voting deadline
         grants.finalizeProposal(0);
 
         vm.expectRevert(CommunityGrants.NotApproved.selector);
@@ -260,11 +299,11 @@ contract CommunityGrantsTest is Test {
     function test_execute_failedExecution_thenRetry() public {
         ETHRejecter rejecter = new ETHRejecter();
         grants.createProposal(address(rejecter), 1 ether, "Will fail");
-        vm.prank(alice);
-        grants.voteOnProposal(0, true);
-        vm.warp(block.timestamp + 8 days);
+        _voteThreeFor(0);
+        vm.warp(block.timestamp + 7 days + 1); // past voting deadline
         grants.finalizeProposal(0);
 
+        vm.warp(block.timestamp + 1 days); // past EXECUTION_DELAY
         grants.executeProposal(0);
 
         (,,,,,,,CommunityGrants.ProposalStatus status,,) = grants.getProposal(0);
@@ -316,6 +355,7 @@ contract CommunityGrantsTest is Test {
 
     function test_pause_blocksVoting() public {
         grants.createProposal(artist, 1 ether, "Test");
+        vm.warp(block.timestamp + 1 days); // past VOTING_DELAY
         grants.pause();
         vm.prank(alice);
         vm.expectRevert();
@@ -371,37 +411,50 @@ contract CommunityGrantsTest is Test {
     function _createVoteFinalize(address _recipient, uint256 _amount, string memory _desc) internal returns (uint256 id) {
         id = grants.proposalCount();
         grants.createProposal(_recipient, _amount, _desc);
-        vm.prank(carol);
-        grants.voteOnProposal(id, true);
-        vm.warp(block.timestamp + 8 days);
+        _voteThreeFor(id);
+        vm.warp(block.timestamp + 7 days + 1); // past voting deadline
         grants.finalizeProposal(id);
+        vm.warp(block.timestamp + 1 days); // past EXECUTION_DELAY
     }
 
     function test_rollingLimit_blocksSerialDrain() public {
         vm.deal(address(grants), 100 ether);
 
-        // t=1: Create and vote on first grant
+        // t=1: Create first grant
         grants.createProposal(artist, 25 ether, "Grant 1");
+        // t=1d+1: Vote (past VOTING_DELAY)
+        vm.warp(1 days + 1);
+        vm.prank(alice);
+        grants.voteOnProposal(0, true);
+        vm.prank(bob);
+        grants.voteOnProposal(0, true);
         vm.prank(carol);
         grants.voteOnProposal(0, true);
 
-        // t=8d+1: Finalize and execute first grant
-        uint256 t1 = 8 days + 1;
-        vm.warp(t1);
+        // t=8d+2: Finalize (past voting deadline)
+        vm.warp(8 days + 2);
         grants.finalizeProposal(0);
+        // t=9d+2: Execute (past EXECUTION_DELAY)
+        vm.warp(9 days + 2);
         grants.executeProposal(0);
 
-        // t=10d+1: Create and vote on second grant
-        uint256 t2 = t1 + 2 days;
-        vm.warp(t2);
+        // t=10d+2: Create second grant (past cooldown)
+        vm.warp(10 days + 2);
         grants.createProposal(artist, 10 ether, "Grant 2");
+        // t=11d+3: Vote on second grant (past VOTING_DELAY)
+        vm.warp(11 days + 3);
+        vm.prank(alice);
+        grants.voteOnProposal(1, true);
+        vm.prank(bob);
+        grants.voteOnProposal(1, true);
         vm.prank(carol);
         grants.voteOnProposal(1, true);
 
-        // t=18d+1: Finalize second grant
-        uint256 t3 = t2 + 8 days;
-        vm.warp(t3);
+        // t=18d+4: Finalize second grant (past voting deadline)
+        vm.warp(18 days + 4);
         grants.finalizeProposal(1);
+        // t=19d+4: Past EXECUTION_DELAY
+        vm.warp(19 days + 4);
 
         // Second execute should fail: 25 + 10 > 30% of 75 ETH (22.5)
         vm.expectRevert(CommunityGrants.RollingDisbursementExceeded.selector);
@@ -411,13 +464,36 @@ contract CommunityGrantsTest is Test {
     function test_rollingLimit_resetsAfterWindow() public {
         vm.deal(address(grants), 100 ether);
 
-        uint256 id0 = _createVoteFinalize(artist, 20 ether, "Grant 1");
-        grants.executeProposal(id0);
+        // First grant: create, vote, finalize, execute
+        grants.createProposal(artist, 20 ether, "Grant 1");
+        vm.warp(1 days + 1);
+        vm.prank(alice);
+        grants.voteOnProposal(0, true);
+        vm.prank(bob);
+        grants.voteOnProposal(0, true);
+        vm.prank(carol);
+        grants.voteOnProposal(0, true);
+        vm.warp(8 days + 2);
+        grants.finalizeProposal(0);
+        vm.warp(9 days + 2);
+        grants.executeProposal(0);
 
-        vm.warp(block.timestamp + 31 days);
+        // Wait for rolling window to reset
+        vm.warp(40 days);
 
-        uint256 id1 = _createVoteFinalize(artist, 20 ether, "Grant 2");
-        grants.executeProposal(id1);
+        // Second grant: create, vote, finalize, execute
+        grants.createProposal(artist, 20 ether, "Grant 2");
+        vm.warp(41 days + 1);
+        vm.prank(alice);
+        grants.voteOnProposal(1, true);
+        vm.prank(bob);
+        grants.voteOnProposal(1, true);
+        vm.prank(carol);
+        grants.voteOnProposal(1, true);
+        vm.warp(48 days + 2);
+        grants.finalizeProposal(1);
+        vm.warp(49 days + 2);
+        grants.executeProposal(1);
 
         assertEq(grants.totalGranted(), 40 ether);
     }

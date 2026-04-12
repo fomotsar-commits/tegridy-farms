@@ -72,6 +72,23 @@ contract MockVotingEscrow {
         return _totalBoostedStake;
     }
 
+    function userTokenId(address user) external view returns (uint256) {
+        return _lockAmount[user] > 0 ? uint256(uint160(user)) : 0;
+    }
+
+    function positions(uint256 tokenId) external view returns (
+        uint256 amount, uint256, uint256, uint256 lockEndVal,
+        uint256, bool, int256, uint256, bool
+    ) {
+        address user = address(uint160(tokenId));
+        amount = _lockAmount[user];
+        lockEndVal = _lockEnd[user];
+    }
+
+    function paused() external pure returns (bool) {
+        return false;
+    }
+
     function locks(address user) external view returns (uint256 amount, uint256 end) {
         return (_lockAmount[user], _lockEnd[user]);
     }
@@ -216,7 +233,7 @@ contract AuditFixes_RevenueDistributorTest is Test {
     address public bob = makeAddr("bob");
 
     function setUp() public {
-        vm.warp(2 hours);
+        vm.warp(5 hours);
         escrow = new MockVotingEscrow();
         weth = new MockWETHRevDist();
         distributor = new RevenueDistributor(address(escrow), treasury, address(weth));
@@ -241,7 +258,7 @@ contract AuditFixes_RevenueDistributorTest is Test {
         for (uint256 i = 0; i < 3; i++) {
             vm.deal(address(distributor), address(distributor).balance + 10 ether);
             distributor.distribute();
-            if (i < 2) vm.warp(block.timestamp + 1 hours);
+            if (i < 2) vm.warp(block.timestamp + 4 hours + 1);
         }
 
         // Alice claims — with 1000/5000 ratio: share = 3 * 10 * 1000 / 5000 = 6 ETH
@@ -260,9 +277,9 @@ contract AuditFixes_RevenueDistributorTest is Test {
         // Create 501 epochs (one more than MAX_CLAIM_EPOCHS)
         uint256 ts = block.timestamp;
         for (uint256 i = 0; i < 501; i++) {
-            ts += 1 hours;
+            ts += 4 hours + 1;
             vm.warp(ts);
-            vm.deal(address(distributor), address(distributor).balance + 0.1 ether);
+            vm.deal(address(distributor), address(distributor).balance + 1 ether);
             distributor.distribute();
         }
 
@@ -385,6 +402,8 @@ contract AuditFixes_CommunityGrantsTest is Test {
     address public feeReceiver = makeAddr("feeReceiver");
     address public proposer = makeAddr("proposer");
     address public voter = makeAddr("voter");
+    address public voter2 = makeAddr("voter2");
+    address public voter3 = makeAddr("voter3");
 
     FailingWETHGrants public failingWeth;
 
@@ -399,10 +418,12 @@ contract AuditFixes_CommunityGrantsTest is Test {
         vm.prank(proposer);
         toweli.approve(address(grants), type(uint256).max);
 
-        // Setup voter
+        // Setup voters (3 required for MIN_UNIQUE_VOTERS)
         escrow.setVotingPower(voter, 10_000 ether);
-        escrow.setTotalBoostedStake(10_000 ether);
-        escrow.setTotalLocked(10_000 ether);
+        escrow.setVotingPower(voter2, 5_000 ether);
+        escrow.setVotingPower(voter3, 5_000 ether);
+        escrow.setTotalBoostedStake(20_000 ether);
+        escrow.setTotalLocked(20_000 ether);
 
         // Fund grants contract with ETH
         vm.deal(address(grants), 100 ether);
@@ -418,19 +439,27 @@ contract AuditFixes_CommunityGrantsTest is Test {
         vm.prank(proposer);
         grants.createProposal(address(rejector), 1 ether, "Grant to rejector");
 
-        // Vote in favor
+        uint256 t0 = block.timestamp;
+
+        // Warp past VOTING_DELAY then vote in favor (3 voters for MIN_UNIQUE_VOTERS)
+        vm.warp(t0 + 1 days);
         vm.prank(voter);
+        grants.voteOnProposal(0, true);
+        vm.prank(voter2);
+        grants.voteOnProposal(0, true);
+        vm.prank(voter3);
         grants.voteOnProposal(0, true);
 
         // Warp past voting period
-        vm.warp(block.timestamp + 8 days);
+        vm.warp(t0 + 8 days);
 
         // Finalize — should be approved
         grants.finalizeProposal(0);
         (,,,,,,, CommunityGrants.ProposalStatus status,,) = grants.getProposal(0);
         assertEq(uint256(status), uint256(CommunityGrants.ProposalStatus.Approved));
 
-        // Execute — should fail because rejector rejects ETH
+        // Warp past EXECUTION_DELAY then execute — should fail because rejector rejects ETH
+        vm.warp(t0 + 9 days);
         grants.executeProposal(0);
         (,,,,,,, CommunityGrants.ProposalStatus status2,,) = grants.getProposal(0);
         assertEq(uint256(status2), uint256(CommunityGrants.ProposalStatus.FailedExecution));

@@ -287,7 +287,7 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // Pattern from MemeBountyBoard MIN_UNIQUE_VOTERS (Nouns DAO voter diversity).
         require(proposalUniqueVoters[_proposalId] >= MIN_UNIQUE_VOTERS, "INSUFFICIENT_VOTERS");
 
-        uint256 refundable = PROPOSAL_FEE / 2;
+        uint256 refundable = PROPOSAL_FEE - PROPOSAL_FEE / 2; // must match createProposal accounting
 
         if (proposal.votesFor > proposal.votesAgainst) {
             proposal.status = ProposalStatus.Approved;
@@ -355,8 +355,7 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         _recordDisbursement(proposal.amount);
         totalApprovedPending -= proposal.amount;
         totalGranted += proposal.amount;
-        uint256 refundable = PROPOSAL_FEE - PROPOSAL_FEE / 2;
-        totalRefundableDeposits -= refundable;
+        // NOTE: totalRefundableDeposits already decremented on approval in finalizeProposal
         proposal.status = ProposalStatus.Executed;
         activeProposalCount--;
 
@@ -398,8 +397,7 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         _recordDisbursement(proposal.amount);
         totalApprovedPending -= proposal.amount;
         totalGranted += proposal.amount;
-        uint256 refundable = PROPOSAL_FEE - PROPOSAL_FEE / 2;
-        totalRefundableDeposits -= refundable;
+        // NOTE: totalRefundableDeposits already decremented on approval in finalizeProposal
         proposal.status = ProposalStatus.Executed;
         activeProposalCount--;
 
@@ -469,7 +467,7 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
         // Refund the held deposit (50% of proposal fee)
         uint256 refundable = PROPOSAL_FEE - PROPOSAL_FEE / 2;
-        totalRefundableDeposits -= refundable; // AUDIT FIX: Decrement tracked deposits
+        // NOTE: totalRefundableDeposits already decremented on approval in finalizeProposal
         // M-07: handle blacklisted proposer
         try toweli.transfer(proposal.proposer, refundable) returns (bool success) {
             if (success) {

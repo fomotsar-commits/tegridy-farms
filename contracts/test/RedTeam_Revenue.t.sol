@@ -25,7 +25,10 @@ contract MockTokenRT is ERC20 {
 contract MockVotingEscrowRT {
     mapping(address => uint256) public lockedAmounts;
     mapping(address => uint256) public lockEnds;
+    mapping(address => uint256) public tokenIds;
+    mapping(uint256 => address) public tokenOwners; // reverse mapping for positions()
     uint256 public totalLockedVal;
+    uint256 private _nextTokenId = 1;
 
     function setLock(address user, uint256 amount, uint256 end) external {
         if (lockedAmounts[user] == 0) {
@@ -35,12 +38,39 @@ contract MockVotingEscrowRT {
         }
         lockedAmounts[user] = amount;
         lockEnds[user] = end;
+        if (tokenIds[user] == 0) {
+            uint256 tid = _nextTokenId++;
+            tokenIds[user] = tid;
+            tokenOwners[tid] = user;
+        }
     }
 
     function removeLock(address user) external {
         totalLockedVal -= lockedAmounts[user];
         lockedAmounts[user] = 0;
         lockEnds[user] = 0;
+        uint256 tid = tokenIds[user];
+        if (tid != 0) {
+            tokenOwners[tid] = address(0);
+            tokenIds[user] = 0;
+        }
+    }
+
+    function paused() external pure returns (bool) {
+        return false;
+    }
+
+    function userTokenId(address user) external view returns (uint256) {
+        return tokenIds[user];
+    }
+
+    /// @dev Returns position data matching TegridyStaking.positions() signature
+    function positions(uint256 tokenId) external view returns (
+        uint256 amount, uint256, uint256, uint256 lockEnd,
+        uint256, bool, int256, uint256, bool
+    ) {
+        address user = tokenOwners[tokenId];
+        return (lockedAmounts[user], 0, 0, lockEnds[user], 0, false, 0, 0, false);
     }
 
     function votingPowerOf(address user) external view returns (uint256) {
@@ -66,13 +96,22 @@ contract MockVotingEscrowRT {
 
 contract MockVEGrantsRT {
     mapping(address => uint256) public powers;
+    mapping(address => uint256) public tokenIds;
     uint256 public totalLockedVal;
     uint256 public totalBoostedStakeVal;
+    uint256 private _nextTokenId = 1;
 
     function setPower(address user, uint256 power) external {
         totalLockedVal = totalLockedVal - powers[user] + power;
         totalBoostedStakeVal = totalLockedVal;
         powers[user] = power;
+        if (tokenIds[user] == 0 && power > 0) {
+            tokenIds[user] = _nextTokenId++;
+        }
+    }
+
+    function userTokenId(address user) external view returns (uint256) {
+        return tokenIds[user];
     }
 
     function votingPowerOf(address user) external view returns (uint256) {
@@ -435,10 +474,17 @@ contract RedTeamRevenue is Test {
         vm.prank(alice);
         grants.createProposal(carol, 50 ether, "First drain");
 
-        // Vote and finalize proposal 0
+        // Wait past VOTING_DELAY (1 day)
+        t += 1 days + 1;
+        vm.warp(t);
+
+        // Vote and finalize proposal 0 (MIN_UNIQUE_VOTERS = 3)
+        veGrants.setPower(attacker, 50000 ether);
         vm.prank(bob);
         grants.voteOnProposal(0, true);
         vm.prank(carol);
+        grants.voteOnProposal(0, true);
+        vm.prank(attacker);
         grants.voteOnProposal(0, true);
 
         t += 7 days + 1;
@@ -475,12 +521,18 @@ contract RedTeamRevenue is Test {
         vm.prank(alice);
         grants.createProposal(bob, 25 ether, "Grant 1");
 
-        // Vote and finalize
+        // Wait past VOTING_DELAY (1 day)
+        t += 1 days + 1;
+        vm.warp(t);
+
+        // Vote and finalize (MIN_UNIQUE_VOTERS = 3)
+        veGrants.setPower(carol, 50000 ether);
+        veGrants.setPower(attacker, 50000 ether);
         vm.prank(bob);
         grants.voteOnProposal(0, true);
-        // Need more voting power - use carol
-        veGrants.setPower(carol, 50000 ether);
         vm.prank(carol);
+        grants.voteOnProposal(0, true);
+        vm.prank(attacker);
         grants.voteOnProposal(0, true);
 
         t += 7 days + 1;
@@ -496,9 +548,15 @@ contract RedTeamRevenue is Test {
         vm.prank(bob);
         grants.createProposal(alice, 10 ether, "Grant 2");
 
+        // Wait past VOTING_DELAY (1 day)
+        t += 1 days + 1;
+        vm.warp(t);
+
         vm.prank(alice);
         grants.voteOnProposal(1, true);
         vm.prank(carol);
+        grants.voteOnProposal(1, true);
+        vm.prank(attacker);
         grants.voteOnProposal(1, true);
 
         t += 7 days + 1;
@@ -531,15 +589,12 @@ contract RedTeamRevenue is Test {
         vm.prank(attacker);
         grants.createProposal(alice, 1 ether, "My grant");
 
+        // Wait past VOTING_DELAY (1 day)
+        vm.warp(block.timestamp + 1 days + 1);
+
         // Attacker gets flash loan voting power AFTER proposal creation
         // The snapshot was taken at creation time, so new power won't count
         veGrants.setPower(attacker, 1000000 ether);
-
-        // Actually the mock always returns current power for any timestamp...
-        // But in production, votingPowerAtTimestamp uses the snapshot timestamp
-        // which is block.timestamp - 1 at creation time.
-        // This test verifies the MECHANISM exists - real flash loan protection
-        // depends on the voting escrow having proper historical snapshots.
 
         // Also: proposer cannot vote on their own proposal (M-29)
         vm.expectRevert("PROPOSER_CANNOT_VOTE");
@@ -560,6 +615,9 @@ contract RedTeamRevenue is Test {
 
         vm.prank(attacker);
         grants.createProposal(alice, 1 ether, "Grant 1");
+
+        // Wait past VOTING_DELAY (1 day)
+        vm.warp(block.timestamp + 1 days + 1);
 
         // Alice votes
         vm.prank(alice);
@@ -630,10 +688,12 @@ contract RedTeamRevenue is Test {
         bountyBoard.submitWork(0, "ipfs://malicious");
         maliciousWinner.setBountyId(0);
 
-        // Get votes (need MIN_COMPLETION_VOTES = 3000e18)
+        // Get votes (need MIN_COMPLETION_VOTES = 3000e18 and MIN_UNIQUE_VOTERS = 3)
         vm.prank(alice);
         bountyBoard.voteForSubmission(0, 0);
         vm.prank(bob);
+        bountyBoard.voteForSubmission(0, 0);
+        vm.prank(carol);
         bountyBoard.voteForSubmission(0, 0);
 
         // Wait for deadline + dispute period
@@ -693,8 +753,8 @@ contract RedTeamRevenue is Test {
         emit log("DEFENDED: Circular referral detected");
     }
 
-    /// @notice Attack: Claim referral rewards without staking
-    /// Expected: DEFENDED by MIN_REFERRAL_STAKE_POWER check
+    /// @notice Attack: Claim referral rewards before MIN_REFERRAL_AGE
+    /// Expected: DEFENDED by ReferralAgeTooRecent check (H1 fix: staking no longer checked at claim)
     function test_Attack7c_ClaimWithoutStaking() public {
         // Set up referral
         staking.setPower(attacker, 2000 ether);
@@ -704,15 +764,12 @@ contract RedTeamRevenue is Test {
         // Record fee
         splitter.recordFee{value: 1 ether}(alice);
 
-        // Remove staking power
-        staking.setPower(attacker, 0);
-
-        // Try to claim
-        vm.expectRevert(ReferralSplitter.ReferrerNotStaked.selector);
+        // Try to claim immediately — referral age not met (7 days)
+        vm.expectRevert(ReferralSplitter.ReferralAgeTooRecent.selector);
         vm.prank(attacker);
         splitter.claimReferralRewards();
 
-        emit log("DEFENDED: Must maintain stake to claim referral rewards");
+        emit log("DEFENDED: Must wait MIN_REFERRAL_AGE before claiming referral rewards");
     }
 
     /// @notice Attack: Reentrancy on claimReferralRewards via ETH callback
@@ -801,6 +858,7 @@ contract RedTeamRevenue is Test {
         staking.setPower(address(rejecter), 5000 ether);
         staking.setPower(alice, 5000 ether);
         staking.setPower(bob, 5000 ether);
+        staking.setPower(carol, 5000 ether);
 
         vm.prank(attacker);
         bountyBoard.createBounty{value: 5 ether}("Task", block.timestamp + 2 days);
@@ -808,9 +866,12 @@ contract RedTeamRevenue is Test {
         vm.prank(address(rejecter));
         bountyBoard.submitWork(0, "ipfs://work");
 
+        // MIN_UNIQUE_VOTERS = 3
         vm.prank(alice);
         bountyBoard.voteForSubmission(0, 0);
         vm.prank(bob);
+        bountyBoard.voteForSubmission(0, 0);
+        vm.prank(carol);
         bountyBoard.voteForSubmission(0, 0);
 
         vm.warp(block.timestamp + 2 days + 2 days + 1);
@@ -852,12 +913,12 @@ contract RedTeamRevenue is Test {
         vm.expectRevert(RevenueDistributor.DistributeTooSoon.selector);
         distributor.distribute();
 
-        // Wait 1 hour
-        t += 1 hours + 1;
+        // Wait 4 hours (MIN_DISTRIBUTE_INTERVAL)
+        t += 4 hours + 1;
         vm.warp(t);
         distributor.distribute();
 
-        emit log("DEFENDED: 1-hour cooldown prevents distribute spam");
+        emit log("DEFENDED: 4-hour cooldown prevents distribute spam");
     }
 
     /// @notice Attack: Try to DOS claims by creating so many epochs users can't iterate
@@ -867,11 +928,11 @@ contract RedTeamRevenue is Test {
         vm.warp(t);
         ve.setLock(alice, 5000 ether, t + 730 days);
 
-        // Create 501 epochs (at 2 hour intervals)
+        // Create 501 epochs (at 4 hour + 1 second intervals to satisfy MIN_DISTRIBUTE_INTERVAL)
         for (uint256 i = 0; i < 501; i++) {
-            t += 2 hours;
+            t += 4 hours + 1;
             vm.warp(t);
-            vm.deal(address(distributor), address(distributor).balance + 0.1 ether);
+            vm.deal(address(distributor), address(distributor).balance + 1 ether); // MIN_DISTRIBUTE_AMOUNT = 1 ether
             distributor.distribute();
         }
 
@@ -988,6 +1049,7 @@ contract RedTeamRevenue is Test {
     function test_Attack12_FrontrunProposalExecution() public {
         veGrants.setPower(alice, 50000 ether);
         veGrants.setPower(bob, 50000 ether);
+        veGrants.setPower(carol, 50000 ether);
 
         vm.prank(attacker);
         token.approve(address(grants), type(uint256).max);
@@ -995,9 +1057,15 @@ contract RedTeamRevenue is Test {
         vm.prank(attacker);
         grants.createProposal(alice, 40 ether, "Big grant");
 
+        // Wait past VOTING_DELAY (1 day)
+        vm.warp(block.timestamp + 1 days + 1);
+
+        // MIN_UNIQUE_VOTERS = 3
         vm.prank(alice);
         grants.voteOnProposal(0, true);
         vm.prank(bob);
+        grants.voteOnProposal(0, true);
+        vm.prank(carol);
         grants.voteOnProposal(0, true);
 
         vm.warp(block.timestamp + 7 days + 1);
@@ -1018,6 +1086,7 @@ contract RedTeamRevenue is Test {
     function test_Attack12b_PermissionlessExecutionTooEarly() public {
         veGrants.setPower(alice, 50000 ether);
         veGrants.setPower(bob, 50000 ether);
+        veGrants.setPower(carol, 50000 ether);
 
         vm.prank(attacker);
         token.approve(address(grants), type(uint256).max);
@@ -1025,9 +1094,15 @@ contract RedTeamRevenue is Test {
         vm.prank(attacker);
         grants.createProposal(alice, 1 ether, "Grant");
 
+        // Wait past VOTING_DELAY (1 day)
+        vm.warp(block.timestamp + 1 days + 1);
+
+        // MIN_UNIQUE_VOTERS = 3
         vm.prank(alice);
         grants.voteOnProposal(0, true);
         vm.prank(bob);
+        grants.voteOnProposal(0, true);
+        vm.prank(carol);
         grants.voteOnProposal(0, true);
 
         vm.warp(block.timestamp + 7 days + 1);
@@ -1097,6 +1172,7 @@ contract RedTeamRevenue is Test {
     function test_AttackBonus_PrematureLapse() public {
         veGrants.setPower(alice, 50000 ether);
         veGrants.setPower(bob, 50000 ether);
+        veGrants.setPower(carol, 50000 ether);
 
         vm.prank(attacker);
         token.approve(address(grants), type(uint256).max);
@@ -1104,9 +1180,15 @@ contract RedTeamRevenue is Test {
         vm.prank(attacker);
         grants.createProposal(alice, 1 ether, "Grant");
 
+        // Wait past VOTING_DELAY (1 day)
+        vm.warp(block.timestamp + 1 days + 1);
+
+        // MIN_UNIQUE_VOTERS = 3
         vm.prank(alice);
         grants.voteOnProposal(0, true);
         vm.prank(bob);
+        grants.voteOnProposal(0, true);
+        vm.prank(carol);
         grants.voteOnProposal(0, true);
 
         vm.warp(block.timestamp + 7 days + 1);
@@ -1119,12 +1201,14 @@ contract RedTeamRevenue is Test {
         emit log("DEFENDED: Cannot lapse proposal before execution deadline");
     }
 
-    /// @notice Attack: Bounty refundStaleBounty when winner exists
+    /// @notice Attack: Bounty refundStaleBountyWithWinner when winner exists
     /// Expected: DEFENDED by WinnerExists check
     function test_AttackBonus_RefundStaleBountyWithWinner() public {
+        address dave = makeAddr("dave");
         staking.setPower(alice, 5000 ether);
         staking.setPower(bob, 5000 ether);
         staking.setPower(carol, 5000 ether);
+        staking.setPower(dave, 5000 ether);
 
         vm.prank(attacker);
         bountyBoard.createBounty{value: 5 ether}("Task", block.timestamp + 2 days);
@@ -1132,10 +1216,12 @@ contract RedTeamRevenue is Test {
         vm.prank(alice);
         bountyBoard.submitWork(0, "ipfs://work");
 
-        // Get enough votes for quorum
+        // Get enough votes for quorum (MIN_UNIQUE_VOTERS = 3)
         vm.prank(bob);
         bountyBoard.voteForSubmission(0, 0);
         vm.prank(carol);
+        bountyBoard.voteForSubmission(0, 0);
+        vm.prank(dave);
         bountyBoard.voteForSubmission(0, 0);
 
         // Wait past deadline + dispute + grace
@@ -1182,7 +1268,7 @@ contract RedTeamRevenue is Test {
 
     function _createDistributorEpochs(uint256 count) internal {
         for (uint256 i = 0; i < count; i++) {
-            _epochClock += 7200; // 2 hours between each
+            _epochClock += 14401; // 4 hours + 1 second between each (MIN_DISTRIBUTE_INTERVAL = 4 hours)
             vm.warp(_epochClock);
             vm.deal(address(distributor), address(distributor).balance + 1 ether);
             distributor.distribute();

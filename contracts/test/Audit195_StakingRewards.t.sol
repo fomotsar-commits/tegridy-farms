@@ -350,7 +350,7 @@ contract Audit195StakingRewards is Test {
 
         // Random user (carol) cannot call claimUnsettledFor
         vm.prank(carol);
-        vm.expectRevert("NOT_AUTHORIZED");
+        vm.expectRevert(TegridyStaking.Unauthorized.selector);
         staking.claimUnsettledFor(alice);
     }
 

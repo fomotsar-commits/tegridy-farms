@@ -10,9 +10,17 @@ import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 contract MockVotingEscrow {
     mapping(address => uint256) public lockedAmounts;
     mapping(address => uint256) public lockEnds;
+    mapping(address => uint256) public userTokenId;
+    mapping(uint256 => address) public tokenOwner;
     uint256 public totalLocked;
+    uint256 private _nextTokenId = 1;
 
     function setLock(address user, uint256 amount, uint256 end) external {
+        if (userTokenId[user] == 0) {
+            uint256 tid = _nextTokenId++;
+            userTokenId[user] = tid;
+            tokenOwner[tid] = user;
+        }
         if (lockedAmounts[user] == 0) {
             totalLocked += amount;
         } else {
@@ -26,6 +34,11 @@ contract MockVotingEscrow {
         totalLocked -= lockedAmounts[user];
         lockedAmounts[user] = 0;
         lockEnds[user] = 0;
+        uint256 tid = userTokenId[user];
+        if (tid != 0) {
+            tokenOwner[tid] = address(0);
+            userTokenId[user] = 0;
+        }
     }
 
     function votingPowerOf(address user) external view returns (uint256) {
@@ -42,6 +55,19 @@ contract MockVotingEscrow {
 
     function locks(address user) external view returns (uint256 amount, uint256 end) {
         return (lockedAmounts[user], lockEnds[user]);
+    }
+
+    function positions(uint256 tokenId) external view returns (
+        uint256 amount, uint256 boostedAmount, uint256 boostBps, uint256 lockEnd,
+        uint256 lockDuration, bool autoMaxLock, int256 rewardDebt, uint256 lastStakeTime,
+        bool jbacBoosted
+    ) {
+        address user = tokenOwner[tokenId];
+        return (lockedAmounts[user], lockedAmounts[user], 10000, lockEnds[user], 0, false, int256(0), 0, false);
+    }
+
+    function paused() external pure returns (bool) {
+        return false;
     }
 }
 
@@ -97,7 +123,7 @@ contract RevenueDistributorTest is Test {
     address public treasury = makeAddr("treasury");
 
     function setUp() public {
-        vm.warp(2 hours); // Ensure first distribute() doesn't hit cooldown
+        vm.warp(4 hours + 1); // Ensure first distribute() doesn't hit cooldown (MIN_DISTRIBUTE_INTERVAL = 4 hours)
         ve = new MockVotingEscrow();
         weth = new MockWETHDistTest();
         dist = new RevenueDistributor(address(ve), treasury, address(weth));
@@ -113,7 +139,7 @@ contract RevenueDistributorTest is Test {
             (bool ok,) = address(dist).call{value: _amountEach}("");
             assertTrue(ok);
             dist.distribute();
-            if (i < _count - 1) vm.warp(block.timestamp + 1 hours);
+            if (i < _count - 1) vm.warp(block.timestamp + 4 hours);
         }
     }
 
@@ -140,7 +166,7 @@ contract RevenueDistributorTest is Test {
         assertTrue(ok);
         dist.distribute();
 
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(block.timestamp + 4 hours);
 
         (ok,) = address(dist).call{value: 2 ether}("");
         assertTrue(ok);
@@ -183,7 +209,7 @@ contract RevenueDistributorTest is Test {
         vm.deal(address(this), 501 ether);
         uint256 ts = block.timestamp;
         for (uint256 i = 0; i < 501; i++) {
-            ts += 1 hours;
+            ts += 4 hours;
             vm.warp(ts);
             (bool ok,) = address(dist).call{value: 1 ether}("");
             assertTrue(ok);
@@ -210,7 +236,7 @@ contract RevenueDistributorTest is Test {
         vm.deal(address(this), 101 ether);
         uint256 ts = block.timestamp;
         for (uint256 i = 0; i < 101; i++) {
-            ts += 1 hours;
+            ts += 4 hours;
             vm.warp(ts);
             (bool ok,) = address(dist).call{value: 1 ether}("");
             assertTrue(ok);
@@ -317,7 +343,7 @@ contract RevenueDistributorTest is Test {
         dist.distribute();
 
         // After cooldown, should succeed
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(block.timestamp + 4 hours);
         dist.distribute();
         assertEq(dist.epochCount(), 2);
     }
@@ -329,7 +355,7 @@ contract RevenueDistributorTest is Test {
         assertTrue(ok);
 
         // Ensure cooldown is not the issue
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(block.timestamp + 4 hours);
         vm.expectRevert("AMOUNT_TOO_SMALL");
         dist.distribute();
     }

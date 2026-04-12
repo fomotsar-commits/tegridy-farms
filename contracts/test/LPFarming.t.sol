@@ -334,14 +334,14 @@ contract LPFarmingTest is Test {
         assertEq(farm.totalRewardsFunded(), REWARD_AMOUNT);
     }
 
-    function test_notifyRewardAmount_permissionless() public {
-        // Anyone can fund — not just owner
+    function test_notifyRewardAmount_onlyOwner() public {
+        // Only owner can fund
         rewardToken.transfer(alice, REWARD_AMOUNT);
         vm.startPrank(alice);
         rewardToken.approve(address(farm), REWARD_AMOUNT);
+        vm.expectRevert();
         farm.notifyRewardAmount(REWARD_AMOUNT);
         vm.stopPrank();
-        assertEq(farm.totalRewardsFunded(), REWARD_AMOUNT);
     }
 
     function test_notifyRewardAmount_revertBelowMinimum() public {
