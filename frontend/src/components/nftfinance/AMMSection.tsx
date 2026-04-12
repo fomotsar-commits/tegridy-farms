@@ -100,8 +100,8 @@ const btnDisabled =
 
 function ArtCard({
   art,
-  opacity = 0.90,
-  overlay = 'rgba(6,12,26,0.30)',
+  opacity = 1,
+  overlay = 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)',
   border = 'rgba(139,92,246,0.12)',
   className = '',
   children,
@@ -407,7 +407,7 @@ function StatsBar({ poolCount }: { poolCount: bigint | undefined }) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: i * 0.08 }}
         >
-          <ArtCard art={ART.boxingRing} opacity={0.90} overlay="rgba(6,12,26,0.30)">
+          <ArtCard art={ART.boxingRing} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)">
             <div className="p-4 text-center">
               <p className={labelClass}>{s.label}</p>
               <p className="text-xl sm:text-2xl font-mono tabular-nums text-white mt-1 font-semibold">
@@ -657,7 +657,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
   }, [isSuccess]);
 
   return (
-    <ArtCard art={ART.poolParty} opacity={0.90} overlay="rgba(6,12,26,0.30)" className="rounded-2xl">
+    <ArtCard art={ART.poolParty} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl">
       <div className="p-6">
         <h3 className="text-lg font-semibold text-white mb-5">
           Instant {mode === 'buy' ? 'Buy' : 'Sell'}
@@ -799,7 +799,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
             transition={{ delay: 0.1 }}
             className="mb-5"
           >
-            <ArtCard art={ART.beachSunset} opacity={0.90} overlay="rgba(6,12,26,0.30)" border="rgba(16,185,129,0.08)">
+            <ArtCard art={ART.beachSunset} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" border="rgba(16,185,129,0.08)">
               <div className="p-4">
                 <p className={`${labelClass} mb-2`}>Bonding Curve</p>
                 <BondingCurveChart
@@ -901,7 +901,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
 
 function TradeHistory() {
   return (
-    <ArtCard art={ART.chaosScene} opacity={0.90} overlay="rgba(6,12,26,0.30)" border="rgba(139,92,246,0.08)">
+    <ArtCard art={ART.chaosScene} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" border="rgba(139,92,246,0.08)">
       <div className="p-6 text-center">
         <div className="w-12 h-12 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mx-auto mb-4">
           <svg className="w-5 h-5 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
@@ -1027,8 +1027,8 @@ function PoolCard({
     >
       <ArtCard
         art={isOwner ? ART.wrestler : ART.jungleDark}
-        opacity={0.90}
-        overlay="rgba(6,12,26,0.30)"
+        opacity={1}
+        overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)"
         border={poolType === 0 ? 'rgba(96,165,250,0.15)' : poolType === 1 ? 'rgba(251,146,60,0.15)' : 'rgba(16,185,129,0.15)'}
         className="rounded-2xl"
       >
@@ -1235,7 +1235,7 @@ function PoolExplorer({ deployed }: { deployed: boolean }) {
   const poolList = (pools as Address[] | undefined) ?? [];
 
   return (
-    <ArtCard art={ART.jungleDark} opacity={0.90} overlay="rgba(6,12,26,0.30)" className="rounded-2xl">
+    <ArtCard art={ART.jungleDark} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl">
       <div className="p-6">
         <h3 className="text-lg font-semibold text-white mb-5">Pool Explorer</h3>
 
@@ -1251,7 +1251,7 @@ function PoolExplorer({ deployed }: { deployed: boolean }) {
         </div>
 
         {!validSearch && (
-          <ArtCard art={ART.jungleDark} opacity={0.90} overlay="rgba(6,12,26,0.30)" border="rgba(255,255,255,0.04)">
+          <ArtCard art={ART.jungleDark} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" border="rgba(255,255,255,0.04)">
             <div className="text-center py-12 px-4">
               <div className="w-12 h-12 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mx-auto mb-4">
                 <svg className="w-5 h-5 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
@@ -1414,7 +1414,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
           >
-            <ArtCard art={ART.mumuBull} opacity={0.90} overlay="rgba(6,12,26,0.30)" className="rounded-2xl">
+            <ArtCard art={ART.mumuBull} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl">
               <div className="p-6">
                 <h3 className="text-lg font-semibold text-white mb-6">Choose Collection & Pool Type</h3>
 
@@ -1487,7 +1487,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
           >
-            <ArtCard art={ART.mumuBull} opacity={0.90} overlay="rgba(6,12,26,0.30)" className="rounded-2xl">
+            <ArtCard art={ART.mumuBull} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl">
               <div className="p-6">
                 <h3 className="text-lg font-semibold text-white mb-6">Configure Pricing</h3>
 
@@ -1519,7 +1519,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                 {/* Bonding Curve Visualization */}
                 <div className="mb-6">
                   <label className={`${labelClass} mb-3 block`}>Bonding Curve Preview</label>
-                  <ArtCard art={ART.beachSunset} opacity={0.90} overlay="rgba(6,12,26,0.30)" border="rgba(16,185,129,0.08)">
+                  <ArtCard art={ART.beachSunset} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" border="rgba(16,185,129,0.08)">
                     <div className="p-4">
                       <BondingCurveChart spotPrice={spotNum} delta={deltaNum} numSteps={10} height={220} />
                       <div className="flex justify-between text-[10px] text-white/25 mt-2 px-1 font-mono">
@@ -1554,7 +1554,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
           >
-            <ArtCard art={ART.mumuBull} opacity={0.90} overlay="rgba(6,12,26,0.30)" className="rounded-2xl">
+            <ArtCard art={ART.mumuBull} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl">
               <div className="p-6">
                 <h3 className="text-lg font-semibold text-white mb-6">Add Initial Liquidity</h3>
 
@@ -1603,7 +1603,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                 </div>
 
                 {/* Summary Card */}
-                <ArtCard art={ART.busCrew} opacity={0.90} overlay="rgba(6,12,26,0.30)" border="rgba(16,185,129,0.10)">
+                <ArtCard art={ART.busCrew} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" border="rgba(16,185,129,0.10)">
                   <div className="p-5">
                     <h4 className={`${labelClass} text-emerald-400/60 mb-4`}>Pool Summary</h4>
                     <div className="space-y-2.5">
@@ -1712,7 +1712,7 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
 
   if (!address) {
     return (
-      <ArtCard art={ART.wrestler} opacity={0.90} overlay="rgba(6,12,26,0.30)" className="rounded-2xl max-w-md mx-auto">
+      <ArtCard art={ART.wrestler} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl max-w-md mx-auto">
         <div className="p-10 text-center">
           <div className="w-14 h-14 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mx-auto mb-5">
             <svg className="w-6 h-6 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
@@ -1729,7 +1729,7 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
   return (
     <div className="space-y-6">
       {/* Earnings Summary */}
-      <ArtCard art={ART.wrestler} opacity={0.90} overlay="rgba(6,12,26,0.30)" className="rounded-2xl">
+      <ArtCard art={ART.wrestler} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl">
         <div className="p-5">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
@@ -1746,7 +1746,7 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
       </ArtCard>
 
       {/* Add Pool Input */}
-      <ArtCard art={ART.busCrew} opacity={0.90} overlay="rgba(6,12,26,0.30)" className="rounded-2xl">
+      <ArtCard art={ART.busCrew} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl">
         <div className="p-5">
           <h4 className="text-sm font-semibold text-white mb-3">Track a Pool</h4>
           <p className="text-xs text-white/30 mb-4">
@@ -1774,7 +1774,7 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
 
       {/* Pool List */}
       {trackedPools.length === 0 ? (
-        <ArtCard art={ART.wrestler} opacity={0.90} overlay="rgba(6,12,26,0.30)" border="rgba(255,255,255,0.04)" className="rounded-2xl">
+        <ArtCard art={ART.wrestler} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" border="rgba(255,255,255,0.04)" className="rounded-2xl">
           <div className="py-12 px-6 text-center">
             <div className="w-12 h-12 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mx-auto mb-4">
               <svg className="w-5 h-5 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
@@ -1822,7 +1822,7 @@ function ComingSoon() {
 
   return (
     <div className="max-w-xl mx-auto">
-      <ArtCard art={ART.poolParty} opacity={0.90} overlay="rgba(6,12,26,0.30)" border="rgba(16,185,129,0.10)" className="rounded-2xl">
+      <ArtCard art={ART.poolParty} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" border="rgba(16,185,129,0.10)" className="rounded-2xl">
         <div className="p-8 sm:p-10">
           {/* Glow */}
           <div className="absolute -top-20 -right-20 w-60 h-60 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
@@ -1841,7 +1841,7 @@ function ComingSoon() {
             </p>
 
             {/* Blurred Preview */}
-            <ArtCard art={ART.beachSunset} opacity={0.90} overlay="rgba(6,12,26,0.30)" border="rgba(255,255,255,0.04)" className="rounded-xl mb-8">
+            <ArtCard art={ART.beachSunset} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" border="rgba(255,255,255,0.04)" className="rounded-xl mb-8">
               <div className="p-5 relative">
                 <div className="blur-[2px] opacity-60 pointer-events-none select-none">
                   <BondingCurveChart spotPrice={0.1} delta={0.005} numSteps={10} height={160} />
