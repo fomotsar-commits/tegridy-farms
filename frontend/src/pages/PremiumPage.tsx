@@ -47,7 +47,7 @@ export default function PremiumPage() {
     <div className="-mt-14 relative min-h-screen">
       {/* Art background */}
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.swordOfLove.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.2 }} />
+        <img src={ART.swordOfLove.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
         <div className="absolute inset-0" style={{
           background: 'linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, rgba(6,12,26,0.85) 50%, rgba(6,12,26,0.98) 100%)',
         }} />
@@ -130,7 +130,7 @@ export default function PremiumPage() {
         <motion.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Coming Soon</h2>
           <p className="text-white/35 text-[12px] mb-5">In development for Gold Card holders</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3" style={{ opacity: 0.55 }}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3" style={{ opacity: 1 }}>
             {COMING_SOON_BENEFITS.map((b, i) => (
               <motion.div key={b.title} className="glass-card p-4 relative"
                 initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}

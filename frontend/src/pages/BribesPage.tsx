@@ -16,7 +16,7 @@ export default function BribesPage({ embedded }: { embedded?: boolean }) {
     return (
       <div className="-mt-14 relative min-h-screen">
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-          <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.3 }} />
+          <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
           <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.96) 100%)' }} />
         </div>
         <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
@@ -45,7 +45,7 @@ export default function BribesPage({ embedded }: { embedded?: boolean }) {
       <div className={embedded ? 'py-10 text-center' : '-mt-14 relative min-h-screen'}>
         {!embedded && (
           <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-            <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.3 }} />
+            <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
             <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.96) 100%)' }} />
           </div>
         )}
@@ -98,7 +98,7 @@ export default function BribesPage({ embedded }: { embedded?: boolean }) {
         <motion.div className="relative overflow-hidden rounded-xl mb-6" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <div className="absolute inset-0">
-            <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.1 }} />
+            <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
             <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
           </div>
           <div className="relative z-10 p-5">

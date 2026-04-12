@@ -44,7 +44,7 @@ export default function LeaderboardPage() {
           <motion.div className="relative overflow-hidden rounded-xl mb-6" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
             <div className="absolute inset-0">
-              <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%', opacity: 0.15 }} />
+              <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%', opacity: 1 }} />
               <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
             </div>
             <div className="relative z-10 p-5">
@@ -123,7 +123,7 @@ export default function LeaderboardPage() {
         <motion.div className="relative overflow-hidden rounded-xl mb-6" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
           <div className="absolute inset-0">
-            <img src={ART.jbChristmas.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%', opacity: 0.15 }} />
+            <img src={ART.jbChristmas.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%', opacity: 1 }} />
             <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
           </div>
           <div className="relative z-10 p-5">
@@ -152,7 +152,7 @@ export default function LeaderboardPage() {
         <motion.div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
           <div className="absolute inset-0">
-            <img src={ART.beachSunset.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+            <img src={ART.beachSunset.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
             <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
           </div>
           <div className="relative z-10 p-5">
@@ -173,7 +173,7 @@ export default function LeaderboardPage() {
         <motion.div className="relative overflow-hidden rounded-xl mt-6" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
           <div className="absolute inset-0">
-            <img src={ART.jbacSkeleton.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+            <img src={ART.jbacSkeleton.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
             <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
           </div>
           <div className="relative z-10 p-5">

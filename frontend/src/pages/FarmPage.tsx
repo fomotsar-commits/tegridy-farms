@@ -117,7 +117,7 @@ function LivePoolCard({ poolData }: { poolData: ReturnType<typeof usePoolTVL> })
   return (
     <div className="relative overflow-hidden rounded-xl card-hover group" style={{ border: '1px solid rgba(239,68,68,0.15)' }}>
       <div className="absolute inset-0">
-        <img src={ART.poolParty.src} alt="" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" style={{ objectPosition: 'center 30%', opacity: 0.4 }} />
+        <img src={ART.poolParty.src} alt="" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" style={{ objectPosition: 'center 30%', opacity: 1 }} />
         <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.55) 0%, rgba(6,12,26,0.85) 100%)' }} />
       </div>
       <div className="relative z-10 p-5">
@@ -170,7 +170,7 @@ function UpcomingPoolCard({ pool }: { pool: typeof UPCOMING_POOLS[number] }) {
   return (
     <div className="relative overflow-hidden rounded-xl card-hover group" style={{ border: '1px solid rgba(139,92,246,0.10)' }}>
       <div className="absolute inset-0">
-        <img src={pool.art} alt="" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" style={{ objectPosition: pool.artPos, opacity: 0.35 }} />
+        <img src={pool.art} alt="" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" style={{ objectPosition: pool.artPos, opacity: 1 }} />
         <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.5) 0%, rgba(6,12,26,0.85) 100%)' }} />
       </div>
       <div className="relative z-10 p-5">
@@ -379,7 +379,7 @@ export default function FarmPage() {
           ].map((s) => (
             <div key={s.l} className="relative overflow-hidden rounded-xl card-hover" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
               <div className="absolute inset-0">
-                <img src={s.art} alt="" className="w-full h-full object-cover" style={{ objectPosition: s.pos, opacity: 0.35 }} />
+                <img src={s.art} alt="" className="w-full h-full object-cover" style={{ objectPosition: s.pos, opacity: 1 }} />
                 <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
               </div>
               <div className="relative z-10 p-5 pt-8 pb-6">
@@ -403,7 +403,7 @@ export default function FarmPage() {
         <motion.div className="relative overflow-hidden rounded-xl mb-8" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div className="absolute inset-0">
-            <img src={ART.bobowelie.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.35 }} />
+            <img src={ART.bobowelie.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
             <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.5) 0%, rgba(6,12,26,0.85) 100%)' }} />
           </div>
           <div className="relative z-10 p-6 py-8 flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -457,7 +457,7 @@ export default function FarmPage() {
 
             <div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
               <div className="absolute inset-0">
-                <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%', opacity: 0.3 }} />
+                <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%', opacity: 1 }} />
                 <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.6) 0%, rgba(6,12,26,0.9) 100%)' }} />
               </div>
               <div className="relative z-10 p-6">
@@ -607,7 +607,7 @@ export default function FarmPage() {
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
             <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
               <div className="absolute inset-0">
-                <img src={ART.beachVibes.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%', opacity: 0.35 }} />
+                <img src={ART.beachVibes.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%', opacity: 1 }} />
                 <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.5) 0%, rgba(6,12,26,0.88) 100%)' }} />
               </div>
               <div className="relative z-10 p-6">
@@ -872,7 +872,7 @@ export default function FarmPage() {
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
             <div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
               <div className="absolute inset-0">
-                <img src={ART.swordOfLove.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%', opacity: 0.35 }} />
+                <img src={ART.swordOfLove.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%', opacity: 1 }} />
                 <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.5) 0%, rgba(6,12,26,0.88) 100%)' }} />
               </div>
               <div className="relative z-10 p-6">
@@ -901,7 +901,7 @@ export default function FarmPage() {
 
               <div className="mt-6 relative overflow-hidden rounded-lg" style={{ border: '1px solid rgba(255,178,55,0.12)' }}>
                 <div className="absolute inset-0">
-                  <img src={ART.chaosScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.3 }} />
+                  <img src={ART.chaosScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
                   <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.5) 0%, rgba(6,12,26,0.85) 100%)' }} />
                 </div>
                 <div className="relative z-10 p-4">
@@ -914,7 +914,7 @@ export default function FarmPage() {
 
               <div className="mt-4 relative overflow-hidden rounded-lg" style={{ border: '1px solid rgba(139,92,246,0.10)' }}>
                 <div className="absolute inset-0">
-                  <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.3 }} />
+                  <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
                   <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.5) 0%, rgba(6,12,26,0.85) 100%)' }} />
                 </div>
                 <div className="relative z-10 p-4">

@@ -27,7 +27,7 @@ export default function LendingPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.45 }} />
+        <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
         <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(6,12,26,0.55) 40%, rgba(6,12,26,0.88) 100%)' }} />
       </div>
 

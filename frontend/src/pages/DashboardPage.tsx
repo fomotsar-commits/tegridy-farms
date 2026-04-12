@@ -159,7 +159,7 @@ export default function DashboardPage() {
           ].map((s) => (
             <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
               <div className="absolute inset-0">
-                <img src={s.art} alt="" className="w-full h-full object-cover" style={{ opacity: 0.35 }} />
+                <img src={s.art} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
                 <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
               </div>
               <div className="relative z-10 p-5 pt-8 pb-6">
@@ -194,7 +194,7 @@ export default function DashboardPage() {
         <motion.div className="relative overflow-hidden rounded-xl mb-6" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
           <div className="absolute inset-0">
-            <img src={ART.danceNight.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.35 }} />
+            <img src={ART.danceNight.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
             <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
           </div>
           <div className="relative z-10 p-4 flex items-center justify-between">
@@ -226,7 +226,7 @@ export default function DashboardPage() {
           <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.08)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.35 }} />
+              <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
               <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
             </div>
             <div className="relative z-10 p-5">
@@ -246,7 +246,7 @@ export default function DashboardPage() {
           <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={ART.porchChill.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.35 }} />
+              <img src={ART.porchChill.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
               <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
             </div>
             <div className="relative z-10 p-4 flex items-center justify-between">
@@ -264,7 +264,7 @@ export default function DashboardPage() {
           <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.35 }} />
+              <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
               <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
             </div>
             <div className="relative z-10 p-4">
@@ -280,7 +280,7 @@ export default function DashboardPage() {
           <motion.div className="relative overflow-hidden rounded-xl mb-10 card-hover" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
             <div className="absolute inset-0">
-              <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.35 }} />
+              <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
               <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
             </div>
             <div className="relative z-10 p-5">
@@ -323,7 +323,7 @@ export default function DashboardPage() {
           <motion.div className="relative overflow-hidden rounded-xl mb-10" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={ART.jbChristmas.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 20%', opacity: 0.35 }} />
+              <img src={ART.jbChristmas.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 20%', opacity: 1 }} />
               <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
             </div>
             <div className="relative z-10 p-8 py-12 text-center">
@@ -386,7 +386,7 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
       <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
         initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
         <div className="absolute inset-0">
-          <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 55%', opacity: 0.35 }} />
+          <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 55%', opacity: 1 }} />
           <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
         </div>
         <div className="relative z-10 p-8 py-10 flex items-center justify-between">
@@ -409,7 +409,7 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
       <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
         initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
         <div className="absolute inset-0">
-          <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 55%', opacity: 0.35 }} />
+          <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 55%', opacity: 1 }} />
           <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
         </div>
         <div className="relative z-10 p-4 flex items-center justify-between">

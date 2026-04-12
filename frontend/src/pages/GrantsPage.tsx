@@ -82,7 +82,7 @@ export default function GrantsPage({ embedded }: { embedded?: boolean }) {
         <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div className="absolute inset-0">
-            <img src={ART.porchChill.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 65%', opacity: 0.15 }} />
+            <img src={ART.porchChill.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 65%', opacity: 1 }} />
             <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
           </div>
           <div className="relative z-10 p-6 py-8 flex items-center gap-10">
@@ -106,7 +106,7 @@ export default function GrantsPage({ embedded }: { embedded?: boolean }) {
           <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
             <div className="absolute inset-0">
-              <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+              <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
               <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
             </div>
             <div className="relative z-10 p-5">
@@ -143,7 +143,7 @@ export default function GrantsPage({ embedded }: { embedded?: boolean }) {
         <motion.div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div className="absolute inset-0">
-            <img src={ART.busCrew.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%', opacity: 0.15 }} />
+            <img src={ART.busCrew.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%', opacity: 1 }} />
             <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
           </div>
           <div className="relative z-10">

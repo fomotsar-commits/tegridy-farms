@@ -73,7 +73,7 @@ export default function TokenomicsPage() {
           ].map((i) => (
             <div key={i.l} className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
               <div className="absolute inset-0">
-                <img src={i.art} alt="" className="w-full h-full object-cover" style={{ objectPosition: i.pos, opacity: 0.15 }} />
+                <img src={i.art} alt="" className="w-full h-full object-cover" style={{ objectPosition: i.pos, opacity: 1 }} />
                 <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
               </div>
               <div className="relative z-10 p-5 pt-8 pb-6">
@@ -101,7 +101,7 @@ export default function TokenomicsPage() {
           <motion.div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}>
             <div className="absolute inset-0">
-              <img src={ART.danceNight.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%', opacity: 0.15 }} />
+              <img src={ART.danceNight.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%', opacity: 1 }} />
               <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
             </div>
             <div className="relative z-10 p-5">
@@ -139,7 +139,7 @@ export default function TokenomicsPage() {
           <motion.div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>
             <div className="absolute inset-0">
-              <img src={ART.jbChristmas.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+              <img src={ART.jbChristmas.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
               <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
             </div>
             <div className="relative z-10 p-5">
@@ -169,7 +169,7 @@ export default function TokenomicsPage() {
         <motion.div className="relative overflow-hidden rounded-xl mb-8" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <div className="absolute inset-0">
-            <img src={ART.beachVibes.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+            <img src={ART.beachVibes.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
             <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
           </div>
           <div className="relative z-10 p-5">
@@ -204,7 +204,7 @@ export default function TokenomicsPage() {
         <motion.div className="relative overflow-hidden rounded-xl mb-8" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <div className="absolute inset-0">
-            <img src={ART.jbacSkeleton.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+            <img src={ART.jbacSkeleton.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
             <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
           </div>
           <div className="relative z-10 p-5">

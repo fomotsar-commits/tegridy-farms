@@ -213,7 +213,7 @@ export default function BountyPage({ embedded }: { embedded?: boolean }) {
         <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div className="absolute inset-0">
-            <img src={ART.beachSunset.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%', opacity: 0.15 }} />
+            <img src={ART.beachSunset.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%', opacity: 1 }} />
             <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
           </div>
           <div className="relative z-10 p-6 py-8 flex flex-wrap items-center gap-6 md:gap-10">
@@ -233,7 +233,7 @@ export default function BountyPage({ embedded }: { embedded?: boolean }) {
           <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={ART.mumuBull.src} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+              <img src={ART.mumuBull.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
               <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
             </div>
             <div className="relative z-10 p-5">
@@ -273,7 +273,7 @@ export default function BountyPage({ embedded }: { embedded?: boolean }) {
         <motion.div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div className="absolute inset-0">
-            <img src={ART.boxingRing.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%', opacity: 0.15 }} />
+            <img src={ART.boxingRing.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%', opacity: 1 }} />
             <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
           </div>
           <div className="relative z-10">

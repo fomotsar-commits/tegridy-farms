@@ -11,6 +11,12 @@ const BribesPage = lazy(() => import('./BribesPage'));
 
 type Section = 'grants' | 'bounties' | 'bribes';
 
+const SECTIONS: { key: Section; label: string }[] = [
+  { key: 'grants', label: 'Governance' },
+  { key: 'bounties', label: 'Bounties' },
+  { key: 'bribes', label: 'Vote Incentives' },
+];
+
 export default function CommunityPage() {
   usePageTitle('Community');
   const { isConnected } = useAccount();
@@ -19,49 +25,93 @@ export default function CommunityPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.danceNight.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%', opacity: 0.15 }} />
+        <img src={ART.danceNight.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%', opacity: 1 }} />
         <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.88) 40%, rgba(0,0,0,0.96) 100%)',
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(6,12,26,0.55) 40%, rgba(6,12,26,0.88) 100%)',
         }} />
       </div>
 
-      <div className="relative z-10 max-w-[1100px] mx-auto px-4 md:px-6 pt-24 pb-16">
-        <motion.div className="text-center mb-8" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="heading-luxury text-3xl md:text-4xl mb-3">Community</h1>
-          <p className="text-white/60 max-w-lg mx-auto">Governance, bounties, and vote incentives — powered by the community.</p>
+      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-24 pb-16">
+        {/* Header */}
+        <motion.div
+          className="text-center mb-10"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <h1 className="heading-luxury text-3xl md:text-4xl mb-2 tracking-tight">Community</h1>
+          <p className="text-white/50 max-w-md mx-auto text-[14px]">
+            Governance, bounties, and vote incentives — powered by the community.
+          </p>
         </motion.div>
 
         {!isConnected ? (
-          <div className="glass-card p-8 rounded-2xl text-center max-w-md mx-auto">
-            <p className="text-white/60 mb-4">Connect your wallet to participate</p>
-            <ConnectButton />
-          </div>
+          <motion.div
+            className="max-w-md mx-auto rounded-2xl p-8 text-center relative overflow-hidden"
+            style={{ border: '1px solid rgba(16,185,129,0.08)' }}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+          >
+            <div className="absolute inset-0">
+              <img src={ART.busCrew.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
+              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+            </div>
+            <div className="relative z-10">
+              <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mx-auto mb-4">
+                <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-emerald-400">
+                  <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
+                </svg>
+              </div>
+              <p className="text-white/60 mb-5 text-[14px]">Connect your wallet to participate</p>
+              <ConnectButton />
+            </div>
+          </motion.div>
         ) : (
           <>
             {/* Section Toggle */}
-            <div className="flex justify-center gap-2 mb-8">
-              {([
-                { key: 'grants' as Section, label: 'Governance' },
-                { key: 'bounties' as Section, label: 'Bounties' },
-                { key: 'bribes' as Section, label: 'Vote Incentives' },
-              ]).map(({ key, label }) => (
+            <motion.div
+              className="flex justify-center flex-wrap gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-fit"
+              style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.04)' }}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+            >
+              {SECTIONS.map(({ key, label }) => (
                 <button
                   key={key}
-                  className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all ${
-                    section === key
-                      ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20'
-                      : 'glass-card text-white/60 hover:text-white'
+                  className={`relative px-5 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-300 ${
+                    section === key ? 'text-white' : 'text-white/40 hover:text-white/70'
                   }`}
                   onClick={() => setSection(key)}
                 >
-                  {label}
+                  {section === key && (
+                    <motion.div
+                      layoutId="community-tab"
+                      className="absolute inset-0 rounded-xl bg-emerald-600 shadow-lg shadow-emerald-600/20"
+                      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                    />
+                  )}
+                  <span className="relative z-10">{label}</span>
                 </button>
               ))}
-            </div>
+            </motion.div>
 
             {/* Section Content */}
-            <motion.div key={section} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
-              <Suspense fallback={<div className="text-center py-20 text-white/40 animate-pulse">Loading...</div>}>
+            <motion.div
+              key={section}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <Suspense fallback={
+                <div className="space-y-4 animate-pulse">
+                  <div className="rounded-xl p-6" style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.04)' }}>
+                    <div className="h-5 rounded w-40 mb-4" style={{ background: 'rgba(255,255,255,0.08)' }} />
+                    <div className="h-20 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }} />
+                  </div>
+                </div>
+              }>
                 {section === 'grants' && <GrantsPage embedded />}
                 {section === 'bounties' && <BountyPage embedded />}
                 {section === 'bribes' && <BribesPage embedded />}

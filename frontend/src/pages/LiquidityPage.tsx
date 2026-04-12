@@ -215,7 +215,7 @@ export default function LiquidityPage({ embedded }: { embedded?: boolean }) {
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
             className="relative rounded-2xl overflow-hidden border border-white/5"
           >
-            <img src={ART.poolParty.src} alt="" className="absolute inset-0 w-full h-full object-cover" style={{ opacity: 0.15 }} />
+            <img src={ART.poolParty.src} alt="" className="absolute inset-0 w-full h-full object-cover" style={{ opacity: 1 }} />
             <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
             <div className="relative p-5">
               <h2 className="text-white/60 text-xs font-semibold tracking-widest uppercase mb-4">{symbolA}/{symbolB} Pool</h2>
@@ -271,7 +271,7 @@ export default function LiquidityPage({ embedded }: { embedded?: boolean }) {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
             className="relative rounded-2xl overflow-hidden border border-white/5"
           >
-            <img src={ART.beachVibes.src} alt="" className="absolute inset-0 w-full h-full object-cover" style={{ opacity: 0.15 }} />
+            <img src={ART.beachVibes.src} alt="" className="absolute inset-0 w-full h-full object-cover" style={{ opacity: 1 }} />
             <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
             <div className="relative p-5 space-y-4">
 
@@ -408,7 +408,7 @@ export default function LiquidityPage({ embedded }: { embedded?: boolean }) {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
             className="relative rounded-2xl overflow-hidden border border-white/5"
           >
-            <img src={ART.chaosScene.src} alt="" className="absolute inset-0 w-full h-full object-cover" style={{ opacity: 0.15 }} />
+            <img src={ART.chaosScene.src} alt="" className="absolute inset-0 w-full h-full object-cover" style={{ opacity: 1 }} />
             <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.92)' }} />
             <div className="relative p-5 space-y-4">
               <div>

@@ -80,7 +80,7 @@ export default function LorePage() {
             viewport={{ once: true }} transition={{ delay: i * 0.05 }}>
             <div className="relative rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
               <div className="absolute inset-0">
-                <img src={item.art} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15 }} />
+                <img src={item.art} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
                 <div className="absolute inset-0" style={{
                   background: 'rgba(6,12,26,0.92)',
                 }} />
