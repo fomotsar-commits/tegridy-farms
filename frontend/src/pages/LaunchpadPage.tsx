@@ -7,9 +7,10 @@ import { ART } from '../lib/artConfig';
 import { TEGRIDY_LAUNCHPAD_ADDRESS, isDeployed } from '../lib/constants';
 import { TEGRIDY_LAUNCHPAD_ABI } from '../lib/contracts';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { useNFTDrop } from '../hooks/useNFTDrop';
 import { toast } from 'sonner';
 
-function CollectionCard({ collectionId }: { collectionId: number }) {
+function CollectionCard({ collectionId, isSelected, onSelect }: { collectionId: number; isSelected: boolean; onSelect: (addr: string) => void }) {
   const { data: collection } = useReadContract({
     address: TEGRIDY_LAUNCHPAD_ADDRESS,
     abi: TEGRIDY_LAUNCHPAD_ABI,
@@ -24,7 +25,10 @@ function CollectionCard({ collectionId }: { collectionId: number }) {
   const shortCreator = `${creator.slice(0, 6)}...${creator.slice(-4)}`;
 
   return (
-    <div className="glass-card p-5 rounded-xl hover:border-emerald-500/30 transition-all border border-white/5">
+    <div
+      className={`glass-card p-5 rounded-xl hover:border-emerald-500/30 transition-all cursor-pointer ${isSelected ? 'border-emerald-500/50 ring-1 ring-emerald-500/20' : 'border border-white/5'}`}
+      onClick={() => onSelect(contractAddr)}
+    >
       <div className="flex items-center gap-3 mb-3">
         <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold text-sm">
           {symbol.slice(0, 3)}
@@ -42,6 +46,7 @@ function CollectionCard({ collectionId }: { collectionId: number }) {
             target="_blank"
             rel="noopener noreferrer"
             className="text-emerald-400 hover:underline"
+            onClick={(e) => e.stopPropagation()}
           >
             {shortAddr}
           </a>
@@ -52,6 +57,81 @@ function CollectionCard({ collectionId }: { collectionId: number }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function CollectionDetail({ dropAddress, onClose }: { dropAddress: string; onClose: () => void }) {
+  const drop = useNFTDrop(dropAddress);
+  const [mintQty, setMintQty] = useState(1);
+  const shortAddr = `${dropAddress.slice(0, 6)}...${dropAddress.slice(-4)}`;
+
+  return (
+    <motion.div className="glass-card p-6 rounded-2xl mb-8" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="heading-luxury text-xl">Collection Details</h2>
+        <button onClick={onClose} className="text-white/40 hover:text-white text-sm">Close</button>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
+        <div>
+          <p className="text-xs text-white/50 mb-0.5">Phase</p>
+          <p className="text-white font-medium">{drop.phaseLabel}</p>
+        </div>
+        <div>
+          <p className="text-xs text-white/50 mb-0.5">Mint Price</p>
+          <p className="text-white font-medium">{drop.mintPriceFormatted} ETH</p>
+        </div>
+        <div>
+          <p className="text-xs text-white/50 mb-0.5">Minted</p>
+          <p className="text-white font-medium">{drop.totalMinted} / {drop.maxSupply}</p>
+        </div>
+        <div>
+          <p className="text-xs text-white/50 mb-0.5">Contract</p>
+          <a href={`https://etherscan.io/address/${dropAddress}`} target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline text-sm">{shortAddr}</a>
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      {drop.maxSupply > 0 && (
+        <div className="w-full h-2 rounded-full bg-white/5 mb-5 overflow-hidden">
+          <div
+            className="h-full rounded-full bg-emerald-500 transition-all"
+            style={{ width: `${Math.min(100, (drop.totalMinted / drop.maxSupply) * 100)}%` }}
+          />
+        </div>
+      )}
+
+      {/* Mint section */}
+      {drop.isSoldOut ? (
+        <p className="text-white/50 text-center text-sm">Sold out</p>
+      ) : drop.currentPhase === 0 ? (
+        <p className="text-white/50 text-center text-sm">Minting is paused</p>
+      ) : (
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <button
+              className="w-8 h-8 rounded-lg bg-white/5 text-white hover:bg-white/10 transition-colors"
+              onClick={() => setMintQty(Math.max(1, mintQty - 1))}
+            >-</button>
+            <span className="text-white font-medium w-8 text-center">{mintQty}</span>
+            <button
+              className="w-8 h-8 rounded-lg bg-white/5 text-white hover:bg-white/10 transition-colors"
+              onClick={() => setMintQty(mintQty + 1)}
+            >+</button>
+          </div>
+          <button
+            className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 transition-colors text-white font-medium text-sm disabled:opacity-50"
+            disabled={drop.isPending || drop.isConfirming}
+            onClick={() => drop.mint(mintQty)}
+          >
+            {drop.isPending ? 'Confirm in wallet...' : drop.isConfirming ? 'Confirming...' : `Mint ${mintQty} (${(drop.mintPriceFormatted * mintQty).toFixed(4)} ETH)`}
+          </button>
+        </div>
+      )}
+
+      {drop.isOwner && (
+        <p className="text-xs text-emerald-400/60 mt-3 text-center">You are the owner of this collection</p>
+      )}
+    </motion.div>
   );
 }
 
@@ -68,6 +148,7 @@ export default function LaunchpadPage() {
   const [maxPerWallet, setMaxPerWallet] = useState('5');
   const [royaltyBps, setRoyaltyBps] = useState('500');
   const [showForm, setShowForm] = useState(false);
+  const [selectedDrop, setSelectedDrop] = useState<string | null>(null);
 
   const { writeContract, data: txHash } = useWriteContract();
   const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash });
@@ -193,6 +274,11 @@ export default function LaunchpadPage() {
               </motion.div>
             )}
 
+            {/* Selected collection detail */}
+            {selectedDrop && (
+              <CollectionDetail dropAddress={selectedDrop} onClose={() => setSelectedDrop(null)} />
+            )}
+
             {/* Collection grid */}
             <h2 className="heading-luxury text-xl mb-4">Collections</h2>
             {collectionIds.length === 0 ? (
@@ -202,7 +288,7 @@ export default function LaunchpadPage() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {collectionIds.map((id) => (
-                  <CollectionCard key={id} collectionId={id} />
+                  <CollectionCard key={id} collectionId={id} isSelected={false} onSelect={(addr) => setSelectedDrop(addr)} />
                 ))}
               </div>
             )}
