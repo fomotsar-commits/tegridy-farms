@@ -10,7 +10,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { useNFTDrop } from '../hooks/useNFTDrop';
 import { toast } from 'sonner';
 
-function CollectionCard({ collectionId, isSelected, onSelect }: { collectionId: number; isSelected: boolean; onSelect: (addr: string) => void }) {
+function CollectionCard({ collectionId, onSelect, selectedAddr }: { collectionId: number; isSelected?: boolean; onSelect: (addr: string) => void; selectedAddr?: string | null }) {
   const { data: collection } = useReadContract({
     address: TEGRIDY_LAUNCHPAD_ADDRESS,
     abi: TEGRIDY_LAUNCHPAD_ABI,
@@ -23,10 +23,11 @@ function CollectionCard({ collectionId, isSelected, onSelect }: { collectionId: 
   const [, contractAddr, creator, name, symbol] = collection;
   const shortAddr = `${contractAddr.slice(0, 6)}...${contractAddr.slice(-4)}`;
   const shortCreator = `${creator.slice(0, 6)}...${creator.slice(-4)}`;
+  const isActive = selectedAddr?.toLowerCase() === contractAddr.toLowerCase();
 
   return (
     <div
-      className={`glass-card p-5 rounded-xl hover:border-emerald-500/30 transition-all cursor-pointer ${isSelected ? 'border-emerald-500/50 ring-1 ring-emerald-500/20' : 'border border-white/5'}`}
+      className={`glass-card p-5 rounded-xl hover:border-emerald-500/30 transition-all cursor-pointer ${isActive ? 'border-emerald-500/50 ring-1 ring-emerald-500/20' : 'border border-white/5'}`}
       onClick={() => onSelect(contractAddr)}
     >
       <div className="flex items-center gap-3 mb-3">
@@ -63,6 +64,7 @@ function CollectionCard({ collectionId, isSelected, onSelect }: { collectionId: 
 function CollectionDetail({ dropAddress, onClose }: { dropAddress: string; onClose: () => void }) {
   const drop = useNFTDrop(dropAddress);
   const [mintQty, setMintQty] = useState(1);
+  const [proofInput, setProofInput] = useState('');
   const shortAddr = `${dropAddress.slice(0, 6)}...${dropAddress.slice(-4)}`;
 
   return (
@@ -106,25 +108,45 @@ function CollectionDetail({ dropAddress, onClose }: { dropAddress: string; onClo
       ) : drop.currentPhase === 0 ? (
         <p className="text-white/50 text-center text-sm">Minting is paused</p>
       ) : (
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
+        <div className="space-y-3">
+          {drop.currentPhase === 1 && (
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">Merkle Proof (comma-separated hex strings)</label>
+              <input
+                type="text"
+                value={proofInput}
+                onChange={(e) => setProofInput(e.target.value)}
+                placeholder="0xabc...,0xdef..."
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white outline-none focus:border-emerald-500 transition-colors text-xs font-mono"
+              />
+              <span className="text-xs text-white/30 mt-1 block">Required for allowlist phase. Get your proof from the project.</span>
+            </div>
+          )}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <button
+                className="w-8 h-8 rounded-lg bg-white/5 text-white hover:bg-white/10 transition-colors"
+                onClick={() => setMintQty(Math.max(1, mintQty - 1))}
+              >-</button>
+              <span className="text-white font-medium w-8 text-center">{mintQty}</span>
+              <button
+                className="w-8 h-8 rounded-lg bg-white/5 text-white hover:bg-white/10 transition-colors"
+                onClick={() => setMintQty(mintQty + 1)}
+              >+</button>
+            </div>
             <button
-              className="w-8 h-8 rounded-lg bg-white/5 text-white hover:bg-white/10 transition-colors"
-              onClick={() => setMintQty(Math.max(1, mintQty - 1))}
-            >-</button>
-            <span className="text-white font-medium w-8 text-center">{mintQty}</span>
-            <button
-              className="w-8 h-8 rounded-lg bg-white/5 text-white hover:bg-white/10 transition-colors"
-              onClick={() => setMintQty(mintQty + 1)}
-            >+</button>
+              className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 transition-colors text-white font-medium text-sm disabled:opacity-50"
+              disabled={drop.isPending || drop.isConfirming || (drop.currentPhase === 1 && !proofInput.trim())}
+              onClick={() => {
+                const proof = proofInput.trim()
+                  ? proofInput.split(',').map(s => s.trim() as `0x${string}`)
+                  : [];
+                drop.mint(mintQty, proof);
+              }}
+            >
+              {drop.isPending ? 'Confirm in wallet...' : drop.isConfirming ? 'Confirming...' : `Mint ${mintQty} (${((drop.mintPriceFormatted ?? 0) * mintQty).toFixed(4)} ETH)`}
+            </button>
           </div>
-          <button
-            className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 transition-colors text-white font-medium text-sm disabled:opacity-50"
-            disabled={drop.isPending || drop.isConfirming}
-            onClick={() => drop.mint(mintQty)}
-          >
-            {drop.isPending ? 'Confirm in wallet...' : drop.isConfirming ? 'Confirming...' : `Mint ${mintQty} (${((drop.mintPriceFormatted || 0) * mintQty).toFixed(4)} ETH)`}
-          </button>
         </div>
       )}
 
@@ -288,7 +310,7 @@ export default function LaunchpadPage() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {collectionIds.map((id) => (
-                  <CollectionCard key={id} collectionId={id} isSelected={false} onSelect={(addr) => setSelectedDrop(addr)} />
+                  <CollectionCard key={id} collectionId={id} isSelected={selectedDrop !== null} onSelect={(addr) => setSelectedDrop(addr)} selectedAddr={selectedDrop} />
                 ))}
               </div>
             )}

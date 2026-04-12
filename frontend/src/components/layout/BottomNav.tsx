@@ -31,6 +31,9 @@ const TABS = [
 const MORE_PAGES = [
   { to: '/liquidity', label: 'Liquidity' },
   { to: '/restake', label: 'Restake' },
+  { to: '/lending', label: 'Lending' },
+  { to: '/launchpad', label: 'Launchpad' },
+  { to: '/nft-amm', label: 'NFT AMM' },
   { to: '/leaderboard', label: 'Points' },
   { to: '/gallery', label: 'Gallery' },
   { to: '/nakamigos', label: 'Marketplace' },

@@ -112,7 +112,14 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
 
   // Calculate pool share
   function getPoolShare(amountA: string): number {
-    if (!amountA || lpTotalSupply === 0n || reserveA === 0n) return 0;
+    if (!amountA) return 0;
+    // First LP to an empty pool owns 100%
+    if (lpTotalSupply === 0n || reserveA === 0n) {
+      try {
+        const amt = parseUnits(amountA, decimalsA);
+        return amt > 0n ? 100 : 0;
+      } catch { return 0; }
+    }
     try {
       const amt = parseUnits(amountA, decimalsA);
       const newLp = (amt * lpTotalSupply) / reserveA;

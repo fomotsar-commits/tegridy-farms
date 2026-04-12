@@ -11,7 +11,6 @@ interface ReferralWidgetProps {
 
 export function ReferralWidget({ address, referredCount, referralEarned, referralPending }: ReferralWidgetProps) {
   const [copied, setCopied] = useState(false);
-  const [linkCopied, setLinkCopied] = useState(false);
 
   const referralLink = `https://tegridy.farm/?ref=${address}`;
   const tweetText = encodeURIComponent(
@@ -32,21 +31,6 @@ export function ReferralWidget({ address, referredCount, referralEarned, referra
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleCopyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(referralLink);
-    } catch {
-      const el = document.createElement('textarea');
-      el.value = referralLink;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand('copy');
-      document.body.removeChild(el);
-    }
-    setLinkCopied(true);
-    setTimeout(() => setLinkCopied(false), 2000);
   };
 
   const truncatedLink = `tegridy.farm/?ref=${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -110,14 +94,14 @@ export function ReferralWidget({ address, referredCount, referralEarned, referra
               Tweet
             </a>
             <button
-              onClick={handleCopyLink}
+              onClick={handleCopy}
               className="flex items-center gap-2 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] rounded-lg px-4 py-2.5 text-white/70 hover:text-white text-[12px] transition-colors"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
                 <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
               </svg>
-              {linkCopied ? 'Copied!' : 'Copy Link'}
+              {copied ? 'Copied!' : 'Copy Link'}
             </button>
           </div>
         </div>

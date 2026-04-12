@@ -334,8 +334,9 @@ function BountyRow({ id, expanded, onToggle }: { id: number; expanded: boolean; 
 
   const isOpen = status === 0;
   const nowSec = Date.now() / 1000;
-  const daysLeft = Math.max(0, Math.ceil((Number(deadline) - nowSec) / 86400));
-  const deadlinePassed = nowSec >= Number(deadline);
+  const deadlineSec = Number(deadline);
+  const daysLeft = Number.isFinite(deadlineSec) ? Math.max(0, Math.ceil((deadlineSec - nowSec) / 86400)) : 0;
+  const deadlinePassed = Number.isFinite(deadlineSec) ? nowSec >= deadlineSec : true;
   const isCreator = address && creator.toLowerCase() === address.toLowerCase();
   const subCount = Number(subCountRaw ?? _submCount ?? 0);
 

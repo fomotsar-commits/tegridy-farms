@@ -38,7 +38,7 @@ function startFlushTimer() {
   flushTimer = setInterval(flush, FLUSH_INTERVAL_MS);
 }
 
-async function flush() {
+async function flush(useBeacon = false) {
   if (queue.length === 0) return;
   const batch = queue;
   queue = [];
@@ -51,11 +51,21 @@ async function flush() {
     return;
   }
 
+  const body = JSON.stringify({ events: batch });
+
+  // Use sendBeacon when the page is unloading — regular fetch gets cancelled
+  if (useBeacon && navigator.sendBeacon) {
+    const sent = navigator.sendBeacon(ENDPOINT, new Blob([body], { type: 'application/json' }));
+    if (!sent) queue = batch.concat(queue); // re-queue if beacon failed
+    return;
+  }
+
   try {
     await fetch(ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ events: batch }),
+      body,
+      keepalive: true,
     });
   } catch {
     // Re-queue on failure so events aren't lost
@@ -66,7 +76,7 @@ async function flush() {
 // Flush remaining events when the tab is closing
 if (typeof window !== 'undefined') {
   window.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') flush();
+    if (document.visibilityState === 'hidden') flush(true);
   });
 }
 

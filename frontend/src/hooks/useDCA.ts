@@ -162,7 +162,7 @@ export function useDCA() {
       ...schedule,
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       createdAt: Date.now(),
-      lastSwapAt: Date.now(), // prevent immediate first execution; first swap after one full interval
+      lastSwapAt: 0, // allow first swap to execute immediately
       completedSwaps: 0,
       status: 'active',
     };

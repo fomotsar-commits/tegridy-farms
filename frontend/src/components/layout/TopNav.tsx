@@ -12,6 +12,9 @@ const PRIMARY_NAV = [
 ];
 
 const MORE_NAV = [
+  { to: '/lending', label: 'Lending' },
+  { to: '/launchpad', label: 'Launchpad' },
+  { to: '/nft-amm', label: 'NFT AMM' },
   { to: '/gallery', label: 'Gallery' },
   { to: '/nakamigos', label: 'Marketplace' },
   { to: '/grants', label: 'Governance' },
