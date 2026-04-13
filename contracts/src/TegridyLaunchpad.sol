@@ -36,17 +36,24 @@ contract TegridyLaunchpad is OwnableNoRenounce, Pausable, TimelockAdmin {
 
     // ─── Timelock Keys ───────────────────────────────────────────────
     bytes32 public constant FEE_CHANGE = keccak256("LAUNCHPAD_FEE_CHANGE");
+    bytes32 public constant FEE_RECIPIENT_CHANGE = keccak256("LAUNCHPAD_FEE_RECIPIENT_CHANGE");
     uint256 public constant FEE_CHANGE_DELAY = 48 hours;
 
     // ─── State ───────────────────────────────────────────────────────
     /// @notice Canonical TegridyDrop implementation that all clones point to
     address public immutable dropTemplate;
 
+    /// @notice WETH address passed to each TegridyDrop clone
+    address public immutable weth;
+
     /// @notice Protocol fee in basis points taken from each collection's revenue
     uint16 public protocolFeeBps;
 
     /// @notice Pending protocol fee for timelocked change
     uint16 public pendingProtocolFeeBps;
+
+    /// @notice Pending fee recipient for timelocked change
+    address public pendingProtocolFeeRecipient;
 
     /// @notice Address that receives the protocol fee share on withdraw
     address public protocolFeeRecipient;
@@ -70,16 +77,20 @@ contract TegridyLaunchpad is OwnableNoRenounce, Pausable, TimelockAdmin {
     /// @param _owner              Admin / owner of the launchpad
     /// @param _protocolFeeBps     Initial protocol fee in basis points
     /// @param _protocolFeeRecipient Address that receives protocol fees
+    /// @param _weth               WETH address passed to TegridyDrop clones
     constructor(
         address _owner,
         uint16 _protocolFeeBps,
-        address _protocolFeeRecipient
+        address _protocolFeeRecipient,
+        address _weth
     ) OwnableNoRenounce(_owner) {
         if (_protocolFeeRecipient == address(0)) revert ZeroAddress();
+        if (_weth == address(0)) revert ZeroAddress();
         if (_protocolFeeBps > 10000) revert InvalidFeeBps();
 
         protocolFeeBps = _protocolFeeBps;
         protocolFeeRecipient = _protocolFeeRecipient;
+        weth = _weth;
 
         // Deploy the canonical template once
         dropTemplate = address(new TegridyDrop());
@@ -103,7 +114,11 @@ contract TegridyLaunchpad is OwnableNoRenounce, Pausable, TimelockAdmin {
         uint256 _maxPerWallet,
         uint16 _royaltyBps
     ) external whenNotPaused returns (uint256 id, address collection) {
+        require(bytes(_name).length > 0, "Empty name");
+        require(bytes(_symbol).length > 0, "Empty symbol");
         if (_maxSupply == 0) revert InvalidMaxSupply();
+        require(_maxSupply <= 100_000, "Max supply too large");
+        require(_mintPrice <= 100 ether, "Mint price too high");
 
         // Deterministic salt: creator + collection count ensures uniqueness
         bytes32 salt = keccak256(
@@ -123,7 +138,8 @@ contract TegridyLaunchpad is OwnableNoRenounce, Pausable, TimelockAdmin {
             _royaltyBps,
             msg.sender,             // creator = caller
             protocolFeeRecipient,
-            protocolFeeBps
+            protocolFeeBps,
+            weth
         );
 
         // Store collection info
@@ -184,14 +200,30 @@ contract TegridyLaunchpad is OwnableNoRenounce, Pausable, TimelockAdmin {
         emit ProtocolFeeCancelled();
     }
 
-    // ─── Admin: Fee Recipient ────────────────────────────────────────
-    /// @notice Update the protocol fee recipient address
-    /// @param newRecipient The new fee recipient
-    function setProtocolFeeRecipient(address newRecipient) external onlyOwner {
+    // ─── Admin: Fee Recipient (Timelocked — MakerDAO DSPause pattern) ──
+    /// SECURITY FIX: Added 48h timelock matching proposeProtocolFee.
+    /// Previously instant — inconsistent with codebase security posture.
+
+    /// @notice Propose a protocol fee recipient change (48h timelock)
+    /// @param newRecipient The proposed new fee recipient
+    function proposeProtocolFeeRecipient(address newRecipient) external onlyOwner {
         if (newRecipient == address(0)) revert ZeroAddress();
-        address old = protocolFeeRecipient;
-        protocolFeeRecipient = newRecipient;
-        emit ProtocolFeeRecipientChanged(old, newRecipient);
+        pendingProtocolFeeRecipient = newRecipient;
+        _propose(FEE_RECIPIENT_CHANGE, FEE_CHANGE_DELAY);
+        emit ProtocolFeeRecipientChanged(protocolFeeRecipient, newRecipient);
+    }
+
+    /// @notice Execute a previously proposed fee recipient change after timelock
+    function executeProtocolFeeRecipient() external onlyOwner {
+        _execute(FEE_RECIPIENT_CHANGE);
+        protocolFeeRecipient = pendingProtocolFeeRecipient;
+        pendingProtocolFeeRecipient = address(0);
+    }
+
+    /// @notice Cancel a pending fee recipient change
+    function cancelProtocolFeeRecipient() external onlyOwner {
+        _cancel(FEE_RECIPIENT_CHANGE);
+        pendingProtocolFeeRecipient = address(0);
     }
 
     // ─── Admin: Pause ────────────────────────────────────────────────

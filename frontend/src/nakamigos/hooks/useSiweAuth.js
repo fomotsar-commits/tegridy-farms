@@ -1,8 +1,9 @@
 /**
  * useSiweAuth — React hook for SIWE authentication
  *
- * Provides wallet-based sign-in/sign-out with JWT lifecycle management.
- * Integrates with wagmi for wallet signatures and Supabase for auth headers.
+ * Provides wallet-based sign-in/sign-out with httpOnly cookie JWT.
+ * The JWT never touches client-side JS — session status is validated
+ * via the /api/auth/me endpoint.
  */
 
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -11,10 +12,11 @@ import {
   requestNonce,
   buildSiweMessage,
   verifySignature,
-  getStoredToken,
+  checkSession,
   getStoredWallet,
   isTokenExpired,
-  clearStoredToken,
+  logout,
+  clearStoredAuth,
 } from "../lib/siweAuth";
 import { getProvider } from "../api";
 
@@ -22,40 +24,62 @@ export function useSiweAuth() {
   const { address, isConnected } = useWalletState();
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [authenticatedWallet, setAuthenticatedWallet] = useState(() => getStoredWallet());
-  const [token, setToken] = useState(() => getStoredToken());
+  const [isSessionValid, setIsSessionValid] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState(false);
 
-  // Check stored auth on mount and when wallet changes
+  // Validate session with server on mount and when wallet changes
   useEffect(() => {
-    const storedWallet = getStoredWallet();
-    const storedToken = getStoredToken();
+    let cancelled = false;
 
-    // Clear auth if wallet changed or token expired
-    if (!isConnected || !address) {
-      if (storedToken) {
-        clearStoredToken();
-        setToken(null);
-        setAuthenticatedWallet(null);
+    async function validateSession() {
+      if (!isConnected || !address) {
+        if (authenticatedWallet) {
+          clearStoredAuth();
+          setAuthenticatedWallet(null);
+          setIsSessionValid(false);
+        }
+        setSessionChecked(true);
+        return;
       }
-      return;
-    }
 
-    if (storedWallet && storedWallet !== address.toLowerCase()) {
+      const storedWallet = getStoredWallet();
+
       // Wallet changed — clear old auth
-      clearStoredToken();
-      setToken(null);
-      setAuthenticatedWallet(null);
-      return;
+      if (storedWallet && storedWallet !== address.toLowerCase()) {
+        await logout();
+        if (cancelled) return;
+        setAuthenticatedWallet(null);
+        setIsSessionValid(false);
+        setSessionChecked(true);
+        return;
+      }
+
+      // Quick local check — if metadata says expired, skip server round-trip
+      if (!storedWallet || isTokenExpired()) {
+        clearStoredAuth();
+        if (cancelled) return;
+        setAuthenticatedWallet(null);
+        setIsSessionValid(false);
+        setSessionChecked(true);
+        return;
+      }
+
+      // Validate the httpOnly cookie with the server
+      const session = await checkSession();
+      if (cancelled) return;
+
+      if (session && session.authenticated) {
+        setAuthenticatedWallet(session.wallet);
+        setIsSessionValid(true);
+      } else {
+        setAuthenticatedWallet(null);
+        setIsSessionValid(false);
+      }
+      setSessionChecked(true);
     }
 
-    if (storedToken && !isTokenExpired()) {
-      setToken(storedToken);
-      setAuthenticatedWallet(storedWallet);
-    } else if (storedToken) {
-      // Token expired
-      clearStoredToken();
-      setToken(null);
-      setAuthenticatedWallet(null);
-    }
+    validateSession();
+    return () => { cancelled = true; };
   }, [address, isConnected]);
 
   // Sign in flow
@@ -79,11 +103,11 @@ export function useSiweAuth() {
       const signer = await provider.getSigner();
       const signature = await signer.signMessage(messageString);
 
-      // 4. Verify and get JWT
+      // 4. Verify — server sets httpOnly cookie, returns wallet + expiry
       const result = await verifySignature(messageString, signature);
 
-      setToken(result.token);
       setAuthenticatedWallet(result.wallet);
+      setIsSessionValid(true);
 
       return result;
     } catch (err) {
@@ -96,24 +120,26 @@ export function useSiweAuth() {
     }
   }, [address, isConnected]);
 
-  // Sign out
-  const signOut = useCallback(() => {
-    clearStoredToken();
-    setToken(null);
+  // Sign out — clears httpOnly cookie via server + local metadata
+  const signOut = useCallback(async () => {
+    await logout();
     setAuthenticatedWallet(null);
+    setIsSessionValid(false);
   }, []);
 
   const isAuthenticated = useMemo(
-    () => !!token && !!authenticatedWallet && !isTokenExpired(),
-    [token, authenticatedWallet]
+    () => isSessionValid && !!authenticatedWallet && !isTokenExpired(),
+    [isSessionValid, authenticatedWallet]
   );
 
   return {
     isAuthenticated,
     isAuthenticating,
     authenticatedWallet,
-    token,
+    // token is no longer exposed — kept as null for backward compat
+    token: null,
     signIn,
     signOut,
+    sessionChecked,
   };
 }

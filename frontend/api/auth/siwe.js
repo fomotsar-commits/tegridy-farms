@@ -1,9 +1,11 @@
 // ═══ SIWE (Sign-In with Ethereum) AUTH ENDPOINT ═══
 // Implements EIP-4361 authentication for Supabase.
-// GET  ?action=nonce  → generate single-use nonce
-// POST { message, signature } → verify signature, issue custom JWT
+// GET  ?action=nonce    → generate single-use nonce
+// POST { message, sig } → verify signature, set httpOnly JWT cookie
+// DELETE                 → clear auth cookie (logout)
 //
-// The JWT contains a `wallet` claim used by Supabase RLS policies
+// The JWT is stored in an httpOnly cookie — never exposed to client JS.
+// It contains a `wallet` claim used by Supabase RLS policies
 // to enforce row-level ownership (e.g., wallet = jwt.wallet).
 
 import { createClient } from "@supabase/supabase-js";
@@ -35,9 +37,50 @@ if (process.env.NODE_ENV !== "production") {
 function setCors(req, res) {
   const origin = req.headers.origin || "";
   res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGINS.has(origin) ? origin : "https://nakamigos.gallery");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Vary", "Origin");
+}
+
+/**
+ * Build a Set-Cookie header value for the SIWE JWT.
+ * httpOnly + Secure + SameSite=Lax prevents XSS token theft while allowing
+ * same-site navigations to send the cookie automatically.
+ */
+function buildAuthCookie(token, maxAgeSeconds) {
+  const isProduction = process.env.NODE_ENV === "production";
+  const parts = [
+    `siwe_jwt=${token}`,
+    `HttpOnly`,
+    `Path=/`,
+    `Max-Age=${maxAgeSeconds}`,
+    `SameSite=Lax`,
+  ];
+  if (isProduction) parts.push("Secure");
+  return parts.join("; ");
+}
+
+function buildClearAuthCookie() {
+  const isProduction = process.env.NODE_ENV === "production";
+  const parts = [
+    `siwe_jwt=`,
+    `HttpOnly`,
+    `Path=/`,
+    `Max-Age=0`,
+    `SameSite=Lax`,
+  ];
+  if (isProduction) parts.push("Secure");
+  return parts.join("; ");
+}
+
+/**
+ * Parse the siwe_jwt cookie from the Cookie header.
+ */
+function parseSiweJwt(req) {
+  const cookieHeader = req.headers.cookie || "";
+  const match = cookieHeader.match(/(?:^|;\s*)siwe_jwt=([^;]*)/);
+  return match ? match[1] : null;
 }
 
 export default async function handler(req, res) {
@@ -141,11 +184,21 @@ export default async function handler(req, res) {
       .setIssuer("supabase")
       .sign(secret);
 
+    // Set JWT as httpOnly cookie — never exposed to client-side JS
+    const maxAge = TOKEN_EXPIRY_HOURS * 3600;
+    res.setHeader("Set-Cookie", buildAuthCookie(token, maxAge));
+
+    // Return wallet + expiry (non-sensitive) but NOT the token itself
     return res.json({
-      token,
       wallet,
       expiresAt: new Date(exp * 1000).toISOString(),
     });
+  }
+
+  // ── DELETE: Logout — clear the auth cookie ──
+  if (req.method === "DELETE") {
+    res.setHeader("Set-Cookie", buildClearAuthCookie());
+    return res.json({ ok: true });
   }
 
   return res.status(405).json({ error: "Method not allowed" });

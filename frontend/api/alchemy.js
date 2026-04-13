@@ -21,7 +21,7 @@ function setRateLimitHeaders(res, { limit = 60, remaining = 59, reset = 60 } = {
 }
 
 // Whitelist allowed JSON-RPC methods (for raw RPC calls via endpoint=rpc)
-const ALLOWED_RPC_METHODS = new Set(["eth_blockNumber"]);
+const ALLOWED_RPC_METHODS = new Set(["eth_blockNumber", "eth_getLogs"]);
 
 // Whitelist allowed endpoints to prevent abuse
 const ALLOWED_ENDPOINTS = new Set([
@@ -90,12 +90,36 @@ export default async function handler(req, res) {
 
   const { endpoint, ...params } = req.query;
 
-  // Handle raw JSON-RPC calls (e.g., eth_blockNumber) via endpoint=rpc
+  // Handle raw JSON-RPC calls (e.g., eth_blockNumber, eth_getLogs) via endpoint=rpc
   if (endpoint === "rpc" && req.method === "POST") {
     const method = req.body?.method;
     if (!method || !ALLOWED_RPC_METHODS.has(method)) {
       return res.status(400).json({ error: "RPC method not allowed" });
     }
+
+    // Validate eth_getLogs params — only allow querying whitelisted contracts
+    if (method === "eth_getLogs") {
+      const logParams = req.body.params?.[0];
+      if (!logParams || typeof logParams !== "object") {
+        return res.status(400).json({ error: "eth_getLogs requires a filter object" });
+      }
+      const addr = logParams.address;
+      if (!addr || !isValidAddress(addr)) {
+        return res.status(400).json({ error: "eth_getLogs requires a valid contract address" });
+      }
+      if (!ALLOWED_CONTRACTS.has(addr.toLowerCase())) {
+        return res.status(403).json({ error: "Contract not supported" });
+      }
+      // Validate fromBlock/toBlock — only allow "latest" or hex block numbers
+      const blockRe = /^(latest|0x[0-9a-fA-F]{1,16})$/;
+      if (logParams.fromBlock && !blockRe.test(logParams.fromBlock)) {
+        return res.status(400).json({ error: "Invalid fromBlock value" });
+      }
+      if (logParams.toBlock && !blockRe.test(logParams.toBlock)) {
+        return res.status(400).json({ error: "Invalid toBlock value" });
+      }
+    }
+
     try {
       const rpcRes = await fetch(RPC_BASE, {
         method: "POST",

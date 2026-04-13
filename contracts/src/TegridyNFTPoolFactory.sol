@@ -22,6 +22,7 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin {
 
     // ─── Timelock Keys ──────────────────────────────────────────────────
     bytes32 public constant PROTOCOL_FEE_CHANGE = keccak256("NFT_PROTOCOL_FEE_CHANGE");
+    bytes32 public constant PROTOCOL_FEE_RECIPIENT_CHANGE = keccak256("NFT_PROTOCOL_FEE_RECIPIENT_CHANGE");
 
     // ─── Constants ──────────────────────────────────────────────────────
     uint256 public constant MAX_PROTOCOL_FEE_BPS = 1000; // 10%
@@ -39,6 +40,12 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin {
 
     /// @notice Address that receives protocol fees from all pools
     address public protocolFeeRecipient;
+
+    /// @notice WETH address passed to each pool clone for safe ETH transfers
+    address public immutable weth;
+
+    /// @notice Pending protocol fee recipient (set during timelock proposal)
+    address public pendingProtocolFeeRecipient;
 
     /// @notice All pools ever created
     address[] internal _allPools;
@@ -60,6 +67,9 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin {
     event ProtocolFeeChangeExecuted(uint256 oldFee, uint256 newFee);
     event ProtocolFeeChangeCancelled(uint256 cancelledFee);
     event ProtocolFeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
+    event ProtocolFeeRecipientChangeProposed(address indexed oldRecipient, address indexed newRecipient, uint256 executeAfter);
+    event ProtocolFeeRecipientChangeExecuted(address indexed oldRecipient, address indexed newRecipient);
+    event ProtocolFeeRecipientChangeCancelled(address indexed cancelledRecipient);
 
     // ─── Errors ─────────────────────────────────────────────────────────
     error InvalidFee();
@@ -75,13 +85,16 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin {
     constructor(
         address _owner,
         uint256 _protocolFeeBps,
-        address _protocolFeeRecipient
+        address _protocolFeeRecipient,
+        address _weth
     ) OwnableNoRenounce(_owner) {
         if (_protocolFeeBps > MAX_PROTOCOL_FEE_BPS) revert InvalidFee();
         if (_protocolFeeRecipient == address(0)) revert ZeroAddress();
+        if (_weth == address(0)) revert ZeroAddress();
 
         protocolFeeBps = _protocolFeeBps;
         protocolFeeRecipient = _protocolFeeRecipient;
+        weth = _weth;
 
         // Deploy the implementation contract (used as clone template)
         poolImplementation = address(new TegridyNFTPool());
@@ -107,11 +120,15 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin {
     ) external payable whenNotPaused returns (address pool) {
         if (nftCollection == address(0)) revert ZeroAddress();
         require(nftCollection.code.length > 0, "NOT_CONTRACT");
+        require(msg.value >= 0.01 ether || initialTokenIds.length > 0, "MIN_DEPOSIT");
 
         // Deploy minimal proxy clone
         pool = poolImplementation.clone();
 
-        // Initialize the pool
+        // SECURITY FIX: Pass address(this) as factory so claimProtocolFees() works correctly.
+        // Previously passed protocolFeeRecipient, which broke the fee claim mechanism if
+        // protocolFeeRecipient was an EOA (couldn't call claimProtocolFees).
+        // Pattern: Uniswap V3 Factory — factory is the authorized fee claimer.
         TegridyNFTPool(payable(pool)).initialize(
             nftCollection,
             _poolType,
@@ -120,7 +137,8 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin {
             _feeBps,
             msg.sender,
             protocolFeeBps,
-            protocolFeeRecipient
+            address(this),
+            weth
         );
 
         // Index the pool
@@ -159,6 +177,30 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin {
     /// @notice Get the total number of pools created
     function getPoolCount() external view returns (uint256) {
         return _allPools.length;
+    }
+
+    /// @notice Get pools for a collection with pagination
+    /// @param collection The ERC-721 collection address
+    /// @param offset Starting index
+    /// @param limit Maximum number of pools to return
+    /// @return pools Array of pool addresses in the requested range
+    function getPoolsPaginated(
+        address collection,
+        uint256 offset,
+        uint256 limit
+    ) external view returns (address[] memory pools) {
+        address[] storage all = _poolsByCollection[collection];
+        uint256 total = all.length;
+        if (offset >= total) return new address[](0);
+
+        uint256 end = offset + limit;
+        if (end > total) end = total;
+        uint256 count = end - offset;
+
+        pools = new address[](count);
+        for (uint256 i = 0; i < count; i++) {
+            pools[i] = all[offset + i];
+        }
     }
 
     /// @notice Find the cheapest pool to buy `numItems` NFTs from a collection
@@ -256,15 +298,37 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin {
         return _executeAfter[PROTOCOL_FEE_CHANGE];
     }
 
-    // ─── Admin: Protocol Fee Recipient ──────────────────────────────────
+    // ─── Admin: Protocol Fee Recipient (Timelocked) ──────────────────────
 
-    /// @notice Update the protocol fee recipient address (owner only, immediate)
+    /// @notice Propose a protocol fee recipient change (48h timelock)
     /// @param newRecipient New address to receive protocol fees
-    function setProtocolFeeRecipient(address newRecipient) external onlyOwner {
+    function proposeProtocolFeeRecipientChange(address newRecipient) external onlyOwner {
         if (newRecipient == address(0)) revert ZeroAddress();
+        pendingProtocolFeeRecipient = newRecipient;
+        _propose(PROTOCOL_FEE_RECIPIENT_CHANGE, PROTOCOL_FEE_DELAY);
+        emit ProtocolFeeRecipientChangeProposed(protocolFeeRecipient, newRecipient, _executeAfter[PROTOCOL_FEE_RECIPIENT_CHANGE]);
+    }
+
+    /// @notice Execute a previously proposed protocol fee recipient change after timelock
+    function executeProtocolFeeRecipientChange() external onlyOwner {
+        _execute(PROTOCOL_FEE_RECIPIENT_CHANGE);
         address oldRecipient = protocolFeeRecipient;
-        protocolFeeRecipient = newRecipient;
-        emit ProtocolFeeRecipientUpdated(oldRecipient, newRecipient);
+        protocolFeeRecipient = pendingProtocolFeeRecipient;
+        pendingProtocolFeeRecipient = address(0);
+        emit ProtocolFeeRecipientChangeExecuted(oldRecipient, protocolFeeRecipient);
+    }
+
+    /// @notice Cancel a pending protocol fee recipient change proposal
+    function cancelProtocolFeeRecipientChange() external onlyOwner {
+        address cancelled = pendingProtocolFeeRecipient;
+        _cancel(PROTOCOL_FEE_RECIPIENT_CHANGE);
+        pendingProtocolFeeRecipient = address(0);
+        emit ProtocolFeeRecipientChangeCancelled(cancelled);
+    }
+
+    /// @notice View helper: get the execute-after timestamp for pending recipient change
+    function protocolFeeRecipientChangeTime() external view returns (uint256) {
+        return _executeAfter[PROTOCOL_FEE_RECIPIENT_CHANGE];
     }
 
     // ─── Admin: Pause ───────────────────────────────────────────────────
@@ -279,7 +343,31 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin {
         _unpause();
     }
 
-    // ─── Accept protocol fees from pools ────────────────────────────────
+    // ─── Protocol Fee Collection ───────────────────────────────────────
+
+    /// @notice Claim accumulated protocol fees from a specific pool.
+    ///         SECURITY FIX: Factory is now the authorized fee claimer (not protocolFeeRecipient).
+    ///         Anyone can trigger claims; fees accumulate in the factory then get forwarded.
+    /// @param pool The pool address to claim fees from
+    function claimPoolFees(address pool) external {
+        TegridyNFTPool(payable(pool)).claimProtocolFees();
+    }
+
+    /// @notice Batch claim protocol fees from multiple pools.
+    /// @param pools Array of pool addresses to claim from
+    function claimPoolFeesBatch(address[] calldata pools) external {
+        for (uint256 i = 0; i < pools.length; i++) {
+            try TegridyNFTPool(payable(pools[i])).claimProtocolFees() {} catch {}
+        }
+    }
+
+    /// @notice Withdraw accumulated protocol fees to the protocolFeeRecipient (owner only).
+    function withdrawProtocolFees() external onlyOwner {
+        uint256 balance = address(this).balance;
+        require(balance > 0, "NO_FEES");
+        (bool ok,) = protocolFeeRecipient.call{value: balance}("");
+        require(ok, "TRANSFER_FAILED");
+    }
 
     /// @notice Accept ETH (protocol fees sent by pools)
     receive() external payable {}

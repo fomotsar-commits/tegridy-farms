@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
 
 /// @title TegridyNFTPool — Sudoswap-inspired NFT AMM pool (clone template)
 /// @notice Each pool trades a single ERC-721 collection against ETH using a linear bonding curve.
@@ -32,15 +33,27 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     uint256 public protocolFeeBps;  // Protocol fee (basis points, max 1000)
     address public owner;
     address public factory;
+    address public weth;            // SECURITY FIX: WETH for safe ETH transfers (Solmate/Seaport pattern)
 
     /// @dev Held NFT token IDs — array for enumeration, mapping for O(1) lookup
     uint256[] internal _heldIds;
     mapping(uint256 => uint256) internal _idToIndex; // tokenId => index+1 (0 = not held)
 
+    /// @dev Accumulated protocol fees (pull pattern — factory claims via claimProtocolFees)
+    uint256 public accumulatedProtocolFees;
+
     // ─── Constants ──────────────────────────────────────────────────────
     uint256 public constant MAX_FEE_BPS = 9000;       // 90% max LP fee
     uint256 public constant MAX_PROTOCOL_FEE_BPS = 1000; // 10% max protocol fee
     uint256 public constant BPS = 10_000;
+    uint256 public constant MAX_DELTA = 100 ether;   // SECURITY FIX: Upper bound on delta (matches initialize cap)
+
+    // ─── Errors (additional) ────────────────────────────────────────────
+    error Expired();
+    error MaxCostExceeded();
+    error TooManyItems();
+    error DeltaTooHigh();
+    error NotFactory();
 
     // ─── Events ─────────────────────────────────────────────────────────
     event PoolInitialized(
@@ -72,6 +85,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     error NFTNotHeld(uint256 tokenId);
     error NFTAlreadyHeld(uint256 tokenId);
     error PriceUnderflow();
+    error PriceUnderflowMaxSellable(uint256 maxSellable);
     error EmptySwap();
     error ETHTransferFailed();
     error PoolTypeMismatch();
@@ -80,6 +94,11 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
         _;
+    }
+
+    // ─── Constructor (disable initializers on template) ──────────────────
+    constructor() {
+        _disableInitializers();
     }
 
     // ─── Initialization ─────────────────────────────────────────────────
@@ -101,12 +120,15 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         uint256 _feeBps,
         address _owner,
         uint256 _protocolFeeBps,
-        address _factory
+        address _factory,
+        address _weth
     ) external initializer {
         require(_nftCollection != address(0), "ZERO_COLLECTION");
         require(_owner != address(0), "ZERO_OWNER");
         require(_factory != address(0), "ZERO_FACTORY");
+        require(_weth != address(0), "ZERO_WETH");
         require(_spotPrice > 0, "ZERO_PRICE");
+        if (_delta > MAX_DELTA) revert DeltaTooHigh();
         if (_protocolFeeBps > MAX_PROTOCOL_FEE_BPS) revert InvalidFee();
 
         // Only TRADE pools may have a non-zero LP fee
@@ -124,6 +146,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         owner = _owner;
         protocolFeeBps = _protocolFeeBps;
         factory = _factory;
+        weth = _weth;
 
         emit PoolInitialized(_nftCollection, _poolType, _spotPrice, _delta, _feeBps, _owner);
     }
@@ -132,14 +155,23 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
     /// @notice Buy specific NFTs from the pool by paying ETH
     /// @param tokenIds The NFT token IDs to purchase
+    /// @param maxTotalCost Maximum ETH the buyer is willing to spend (slippage protection)
+    /// @param deadline Timestamp by which the transaction must be mined
     /// @dev Excess ETH is refunded to the buyer
-    function swapETHForNFTs(uint256[] calldata tokenIds) external payable nonReentrant whenNotPaused {
+    function swapETHForNFTs(
+        uint256[] calldata tokenIds,
+        uint256 maxTotalCost,
+        uint256 deadline
+    ) external payable nonReentrant whenNotPaused {
+        if (block.timestamp > deadline) revert Expired();
         if (poolType == PoolType.BUY) revert PoolTypeMismatch();
         uint256 numItems = tokenIds.length;
         if (numItems == 0) revert EmptySwap();
+        if (numItems > 100) revert TooManyItems();
 
         // Calculate cost using bonding curve
         (uint256 inputAmount, uint256 protocolFee) = _getBuyPrice(numItems);
+        if (inputAmount > maxTotalCost) revert MaxCostExceeded();
         if (msg.value < inputAmount) revert InsufficientETH();
 
         // Update spot price
@@ -153,9 +185,9 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
             nftCollection.safeTransferFrom(address(this), msg.sender, tokenId);
         }
 
-        // Pay protocol fee to factory
+        // Accumulate protocol fee (pull pattern)
         if (protocolFee > 0) {
-            _sendETH(factory, protocolFee);
+            accumulatedProtocolFees += protocolFee;
             emit ProtocolFeePaid(factory, protocolFee);
         }
 
@@ -173,13 +205,17 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     /// @notice Sell NFTs to the pool and receive ETH
     /// @param tokenIds The NFT token IDs to sell
     /// @param minOutput Minimum ETH the seller expects to receive (slippage protection)
+    /// @param deadline Timestamp by which the transaction must be mined
     function swapNFTsForETH(
         uint256[] calldata tokenIds,
-        uint256 minOutput
+        uint256 minOutput,
+        uint256 deadline
     ) external nonReentrant whenNotPaused {
+        if (block.timestamp > deadline) revert Expired();
         if (poolType == PoolType.SELL) revert PoolTypeMismatch();
         uint256 numItems = tokenIds.length;
         if (numItems == 0) revert EmptySwap();
+        if (numItems > 100) revert TooManyItems();
 
         // Calculate payout using bonding curve
         (uint256 outputAmount, uint256 protocolFee) = _getSellPrice(numItems);
@@ -193,9 +229,9 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
             nftCollection.safeTransferFrom(msg.sender, address(this), tokenIds[i]);
         }
 
-        // Pay protocol fee to factory
+        // Accumulate protocol fee (pull pattern)
         if (protocolFee > 0) {
-            _sendETH(factory, protocolFee);
+            accumulatedProtocolFees += protocolFee;
             emit ProtocolFeePaid(factory, protocolFee);
         }
 
@@ -253,7 +289,9 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     }
 
     /// @notice Change the delta (price step) (owner only)
+    /// SECURITY FIX: Added upper bound check matching initialize cap (Sudoswap V2 pattern)
     function changeDelta(uint256 newDelta) external onlyOwner {
+        if (newDelta > MAX_DELTA) revert DeltaTooHigh();
         uint256 oldDelta = delta;
         delta = newDelta;
         emit DeltaChanged(oldDelta, newDelta);
@@ -269,8 +307,9 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     }
 
     /// @notice Withdraw ETH from the pool (owner only)
+    /// @dev Cannot withdraw ETH reserved for accumulated protocol fees
     function withdrawETH(uint256 amount) external onlyOwner nonReentrant {
-        require(amount > 0 && address(this).balance >= amount, "INVALID_AMOUNT");
+        require(amount > 0 && address(this).balance - accumulatedProtocolFees >= amount, "INVALID_AMOUNT");
         _sendETH(msg.sender, amount);
         emit ETHWithdrawn(msg.sender, amount);
     }
@@ -294,6 +333,17 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    // ─── Protocol Fee Claim (pull pattern) ──────────────────────────────
+
+    /// @notice Claim accumulated protocol fees (factory only)
+    function claimProtocolFees() external nonReentrant {
+        if (msg.sender != factory) revert NotFactory();
+        uint256 amount = accumulatedProtocolFees;
+        if (amount == 0) return;
+        accumulatedProtocolFees = 0;
+        _sendETH(factory, amount);
     }
 
     // ─── View Functions ─────────────────────────────────────────────────
@@ -354,6 +404,19 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
             _heldIds.length,
             address(this).balance
         );
+    }
+
+    /// @notice Get the maximum number of items that can be sold before hitting price underflow
+    /// @return maxSellable Number of items sellable before spotPrice would go to zero or below
+    function getMaxSellable() public view returns (uint256 maxSellable) {
+        if (delta == 0) {
+            // With zero delta, price never decreases — unlimited sells (capped at practical max)
+            return type(uint256).max;
+        }
+        // We need: spotPrice > delta * numItems
+        // => numItems < spotPrice / delta
+        // => maxSellable = (spotPrice - 1) / delta  (integer division gives floor)
+        maxSellable = (spotPrice - 1) / delta;
     }
 
     // ─── IERC721Receiver ────────────────────────────────────────────────
@@ -426,7 +489,10 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         // But in the sum formula: each item i (0-indexed) has price = spotPrice - delta * (i + 1)
         // So item 0 pays spotPrice - delta, item 1 pays spotPrice - 2*delta, ..., item N-1 pays spotPrice - N*delta
         // We need spotPrice - delta * numItems > 0 => spotPrice > delta * numItems
-        if (delta * numItems >= spotPrice) revert PriceUnderflow();
+        if (delta * numItems >= spotPrice) {
+            uint256 maxSellable = getMaxSellable();
+            revert PriceUnderflowMaxSellable(maxSellable);
+        }
 
         // Base payout from bonding curve
         // Sum = (spotPrice - delta) + (spotPrice - 2*delta) + ... + (spotPrice - N*delta)
@@ -445,8 +511,13 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
         outputAmount = basePayout - lpFee - protocolFee;
 
-        // Ensure pool has enough ETH
-        require(address(this).balance >= outputAmount + protocolFee, "POOL_INSUFFICIENT_ETH");
+        // SECURITY FIX: Exclude accumulatedProtocolFees from available balance check.
+        // Prevents protocol fee insolvency where sells drain ETH reserved for protocol fees.
+        // Pattern: Uniswap V3 — separate accounting for protocol vs LP funds.
+        uint256 availableETH = address(this).balance > accumulatedProtocolFees
+            ? address(this).balance - accumulatedProtocolFees
+            : 0;
+        require(availableETH >= outputAmount + protocolFee, "POOL_INSUFFICIENT_ETH");
     }
 
     // ─── Internal: Held NFT Tracking ────────────────────────────────────
@@ -478,9 +549,10 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
     // ─── Internal: ETH Transfer ─────────────────────────────────────────
 
-    /// @dev Send ETH with low-level call, revert on failure
+    /// @dev SECURITY FIX: Replaced full-gas .call{value} with WETHFallbackLib.safeTransferETHOrWrap().
+    ///      Uses 10000 gas stipend to prevent cross-contract reentrancy (Solmate/Seaport pattern).
+    ///      If recipient can't receive ETH (contract without receive()), wraps as WETH (Aave V3 pattern).
     function _sendETH(address to, uint256 amount) internal {
-        (bool success,) = to.call{value: amount}("");
-        if (!success) revert ETHTransferFailed();
+        WETHFallbackLib.safeTransferETHOrWrap(weth, to, amount);
     }
 }

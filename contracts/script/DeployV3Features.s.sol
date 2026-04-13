@@ -47,7 +47,7 @@ contract DeployV3FeaturesScript is Script {
         V3Deployed memory d;
 
         // 1. TegridyLending - P2P NFT-collateralized lending
-        TegridyLending lending = new TegridyLending(TREASURY, LENDING_FEE_BPS);
+        TegridyLending lending = new TegridyLending(TREASURY, LENDING_FEE_BPS, WETH);
         d.lending = address(lending);
         console.log("1. TegridyLending:", d.lending);
 
@@ -62,7 +62,8 @@ contract DeployV3FeaturesScript is Script {
         TegridyLaunchpad launchpad = new TegridyLaunchpad(
             deployer,
             LAUNCHPAD_FEE_BPS,
-            TREASURY
+            TREASURY,
+            WETH
         );
         d.launchpad = address(launchpad);
         console.log("3. TegridyLaunchpad:", d.launchpad);
@@ -78,7 +79,8 @@ contract DeployV3FeaturesScript is Script {
         TegridyNFTPoolFactory nftPoolFactory = new TegridyNFTPoolFactory(
             deployer,
             POOL_FEE_BPS,
-            TREASURY
+            TREASURY,
+            WETH
         );
         d.nftPoolFactory = address(nftPoolFactory);
         console.log("5. TegridyNFTPoolFactory:", d.nftPoolFactory);

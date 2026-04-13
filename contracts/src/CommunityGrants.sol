@@ -293,8 +293,9 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             proposal.status = ProposalStatus.Approved;
             // AUDIT FIX H-02: Track approved ETH to prevent serial drain
             totalApprovedPending += proposal.amount;
-            // Deposit is no longer refundable once approved — will be handled at execution/lapse
-            totalRefundableDeposits -= refundable;
+            // SECURITY FIX: Do NOT decrement totalRefundableDeposits here — deposit tokens
+            // must remain reserved until actually consumed (execution) or refunded (lapse/cancel).
+            // Decrementing here allowed sweepFees() to sweep tokens still owed for lapse refunds.
         } else {
             totalRefundableDeposits -= refundable;
             proposal.status = ProposalStatus.Rejected;
@@ -355,7 +356,9 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         _recordDisbursement(proposal.amount);
         totalApprovedPending -= proposal.amount;
         totalGranted += proposal.amount;
-        // NOTE: totalRefundableDeposits already decremented on approval in finalizeProposal
+        // SECURITY FIX: Decrement totalRefundableDeposits here when deposit is actually consumed
+        uint256 refundable = PROPOSAL_FEE - PROPOSAL_FEE / 2;
+        totalRefundableDeposits -= refundable;
         proposal.status = ProposalStatus.Executed;
         activeProposalCount--;
 
@@ -397,7 +400,9 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         _recordDisbursement(proposal.amount);
         totalApprovedPending -= proposal.amount;
         totalGranted += proposal.amount;
-        // NOTE: totalRefundableDeposits already decremented on approval in finalizeProposal
+        // SECURITY FIX: Decrement totalRefundableDeposits here when deposit is actually consumed
+        uint256 refundable = PROPOSAL_FEE - PROPOSAL_FEE / 2;
+        totalRefundableDeposits -= refundable;
         proposal.status = ProposalStatus.Executed;
         activeProposalCount--;
 
@@ -467,7 +472,8 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
         // Refund the held deposit (50% of proposal fee)
         uint256 refundable = PROPOSAL_FEE - PROPOSAL_FEE / 2;
-        // NOTE: totalRefundableDeposits already decremented on approval in finalizeProposal
+        // SECURITY FIX: Decrement totalRefundableDeposits here when deposit is actually refunded
+        totalRefundableDeposits -= refundable;
         // M-07: handle blacklisted proposer
         try toweli.transfer(proposal.proposer, refundable) returns (bool success) {
             if (success) {
@@ -503,8 +509,9 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // Protect ETH committed to approved proposals that haven't been executed yet
         uint256 withdrawable = balance > totalApprovedPending ? balance - totalApprovedPending : 0;
         require(withdrawable > 0, "NO_WITHDRAWABLE_ETH");
-        (bool success,) = _recipient.call{value: withdrawable}("");
-        require(success, "TRANSFER_FAILED");
+        // SECURITY FIX: Use WETHFallbackLib with 10k gas stipend instead of full-gas .call
+        // (Solmate/Seaport pattern — prevents cross-contract reentrancy)
+        WETHFallbackLib.safeTransferETHOrWrap(weth, _recipient, withdrawable);
         emit EmergencyETHRecovered(_recipient, withdrawable);
     }
 

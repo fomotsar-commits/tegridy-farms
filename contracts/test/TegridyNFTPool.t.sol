@@ -6,6 +6,17 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyNFTPool.sol";
 import "../src/TegridyNFTPoolFactory.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
+import {IWETH} from "../src/lib/WETHFallbackLib.sol";
+
+// Minimal WETH mock for tests
+contract MockWETH {
+    string public name = "Wrapped Ether";
+    mapping(address => uint256) public balanceOf;
+    function deposit() external payable { balanceOf[msg.sender] += msg.value; }
+    function withdraw(uint256 amount) external { balanceOf[msg.sender] -= amount; payable(msg.sender).transfer(amount); }
+    function transfer(address to, uint256 amount) external returns (bool) { balanceOf[msg.sender] -= amount; balanceOf[to] += amount; return true; }
+    receive() external payable { balanceOf[msg.sender] += msg.value; }
+}
 
 contract MockNFTForPool is ERC721 {
     uint256 private _nextId = 1;
@@ -27,6 +38,7 @@ contract MockNFTForPool is ERC721 {
 contract TegridyNFTPoolTest is Test {
     TegridyNFTPoolFactory public factory;
     MockNFTForPool public nft;
+    MockWETH public weth;
 
     address public admin = makeAddr("admin");
     address public feeRecipient = makeAddr("feeRecipient");
@@ -40,7 +52,8 @@ contract TegridyNFTPoolTest is Test {
     uint256 public constant LP_FEE_BPS = 500; // 5% for TRADE pools
 
     function setUp() public {
-        factory = new TegridyNFTPoolFactory(admin, PROTOCOL_FEE_BPS, feeRecipient);
+        weth = new MockWETH();
+        factory = new TegridyNFTPoolFactory(admin, PROTOCOL_FEE_BPS, feeRecipient, address(weth));
         nft = new MockNFTForPool();
 
         vm.deal(alice, 1000 ether);
@@ -179,7 +192,7 @@ contract TegridyNFTPoolTest is Test {
         // Buy 1 NFT
         uint256[] memory buyIds = _singleId(1);
         vm.prank(bob);
-        p.swapETHForNFTs{value: cost}(buyIds);
+        p.swapETHForNFTs{value: cost}(buyIds, type(uint256).max, block.timestamp + 1 hours);
 
         assertEq(nft.ownerOf(1), bob);
         assertEq(p.spotPrice(), SPOT_PRICE + DELTA);
@@ -195,7 +208,7 @@ contract TegridyNFTPoolTest is Test {
 
         vm.prank(bob);
         vm.expectRevert(TegridyNFTPool.InsufficientETH.selector);
-        p.swapETHForNFTs{value: 0.5 ether}(buyIds);
+        p.swapETHForNFTs{value: 0.5 ether}(buyIds, type(uint256).max, block.timestamp + 1 hours);
     }
 
     // ===== SELL SWAPS =====
@@ -223,7 +236,7 @@ contract TegridyNFTPoolTest is Test {
         uint256[] memory sellIds = _singleId(11);
         vm.startPrank(carol);
         nft.approve(address(p), 11);
-        p.swapNFTsForETH(sellIds, 0);
+        p.swapNFTsForETH(sellIds, 0, block.timestamp + 1 hours);
         vm.stopPrank();
 
         assertTrue(p.isTokenHeld(11));
@@ -250,7 +263,7 @@ contract TegridyNFTPoolTest is Test {
         // Execute the buy
         uint256[] memory buyIds = _tokenIdArray(1, 3);
         vm.prank(bob);
-        p.swapETHForNFTs{value: cost}(buyIds);
+        p.swapETHForNFTs{value: cost}(buyIds, type(uint256).max, block.timestamp + 1 hours);
 
         assertEq(p.spotPrice(), SPOT_PRICE + DELTA * numItems);
         assertEq(p.getHeldCount(), 2);
@@ -337,15 +350,23 @@ contract TegridyNFTPoolTest is Test {
 
         TegridyNFTPool p = TegridyNFTPool(payable(pool));
 
-        // Note: protocol fee goes to feeRecipient (set as factory in pool.initialize)
+        // Protocol fees accumulate in pool, claimed by factory via claimProtocolFees
         (uint256 cost, uint256 expectedProtocol) = p.getBuyQuote(1);
-        uint256 recipientBefore = feeRecipient.balance;
 
         uint256[] memory buyIds = _singleId(1);
         vm.prank(bob);
-        p.swapETHForNFTs{value: cost}(buyIds);
+        p.swapETHForNFTs{value: cost}(buyIds, type(uint256).max, block.timestamp + 1 hours);
+
+        // Fees accumulated in pool
+        assertEq(p.accumulatedProtocolFees(), expectedProtocol);
+
+        // Fee recipient claims protocol fees (pool.factory = protocolFeeRecipient)
+        uint256 recipientBefore = feeRecipient.balance;
+        vm.prank(feeRecipient);
+        p.claimProtocolFees();
 
         assertEq(feeRecipient.balance - recipientBefore, expectedProtocol);
+        assertEq(p.accumulatedProtocolFees(), 0);
     }
 
     // ===== LIQUIDITY =====
@@ -481,13 +502,13 @@ contract TegridyNFTPoolTest is Test {
 
         uint256[] memory buyIds = _singleId(1);
         vm.prank(bob);
-        p.swapETHForNFTs{value: cost}(buyIds);
+        p.swapETHForNFTs{value: cost}(buyIds, type(uint256).max, block.timestamp + 1 hours);
 
         // Pool is now empty — trying to buy a non-held NFT should revert
         uint256[] memory badIds = _singleId(1);
         vm.prank(bob);
         vm.expectRevert(abi.encodeWithSelector(TegridyNFTPool.NFTNotHeld.selector, 1));
-        p.swapETHForNFTs{value: 10 ether}(badIds);
+        p.swapETHForNFTs{value: 10 ether}(badIds, type(uint256).max, block.timestamp + 1 hours);
     }
 
     function test_emptySwap_reverts() public {
@@ -499,7 +520,7 @@ contract TegridyNFTPoolTest is Test {
 
         vm.prank(bob);
         vm.expectRevert(TegridyNFTPool.EmptySwap.selector);
-        p.swapETHForNFTs{value: 1 ether}(emptyIds);
+        p.swapETHForNFTs{value: 1 ether}(emptyIds, type(uint256).max, block.timestamp + 1 hours);
     }
 
     function test_buyFromBuyPool_reverts() public {
@@ -509,7 +530,7 @@ contract TegridyNFTPoolTest is Test {
         uint256[] memory buyIds = _singleId(1);
         vm.prank(bob);
         vm.expectRevert(TegridyNFTPool.PoolTypeMismatch.selector);
-        p.swapETHForNFTs{value: 5 ether}(buyIds);
+        p.swapETHForNFTs{value: 5 ether}(buyIds, type(uint256).max, block.timestamp + 1 hours);
     }
 
     function test_sellToSellPool_reverts() public {
@@ -521,7 +542,7 @@ contract TegridyNFTPoolTest is Test {
         vm.startPrank(carol);
         nft.approve(address(p), 11);
         vm.expectRevert(TegridyNFTPool.PoolTypeMismatch.selector);
-        p.swapNFTsForETH(sellIds, 0);
+        p.swapNFTsForETH(sellIds, 0, block.timestamp + 1 hours);
         vm.stopPrank();
     }
 
@@ -531,7 +552,8 @@ contract TegridyNFTPoolTest is Test {
         TegridyNFTPool p = TegridyNFTPool(payable(pool));
 
         // Trying to sell 3 items: delta * 3 = 0.3e18 >= spotPrice 0.2e18
-        vm.expectRevert(TegridyNFTPool.PriceUnderflow.selector);
+        // maxSellable = (0.2e18 - 1) / 0.1e18 = 1
+        vm.expectRevert(abi.encodeWithSelector(TegridyNFTPool.PriceUnderflowMaxSellable.selector, 1));
         p.getSellQuote(3);
     }
 
@@ -620,7 +642,7 @@ contract TegridyNFTPoolTest is Test {
 
         uint256[] memory buyIds = _singleId(1);
         vm.prank(bob);
-        p.swapETHForNFTs{value: overpay}(buyIds);
+        p.swapETHForNFTs{value: overpay}(buyIds, type(uint256).max, block.timestamp + 1 hours);
 
         assertEq(bobBefore - bob.balance, cost);
     }
@@ -637,7 +659,7 @@ contract TegridyNFTPoolTest is Test {
         (uint256 cost,) = p.getBuyQuote(1);
         uint256[] memory buyIds = _singleId(2);
         vm.prank(bob);
-        p.swapETHForNFTs{value: cost}(buyIds);
+        p.swapETHForNFTs{value: cost}(buyIds, type(uint256).max, block.timestamp + 1 hours);
 
         assertFalse(p.isTokenHeld(2));
         assertTrue(p.isTokenHeld(1));
@@ -647,5 +669,331 @@ contract TegridyNFTPoolTest is Test {
 
         uint256[] memory held = p.getHeldTokenIds();
         assertEq(held.length, 3);
+    }
+
+    // ===== BUG FIX & EDGE CASE COVERAGE =====
+
+    function test_getMaxSellable() public {
+        // Create sell pool with spotPrice=1 ether and delta=0.2 ether
+        uint256[] memory ids = _tokenIdArray(1, 5);
+        address pool = _createSellPool(1 ether, 0.2 ether, ids);
+
+        TegridyNFTPool p = TegridyNFTPool(payable(pool));
+
+        // maxSellable = (spotPrice - 1) / delta = (1e18 - 1) / 0.2e18 = 4
+        // BUT conceptually: spotPrice > delta * numItems => 1e18 > 0.2e18 * N => N < 5
+        // So maxSellable = (1e18 - 1) / 0.2e18 = 4
+        // Actually let's verify: with the formula (spotPrice - 1) / delta
+        uint256 maxSellable = p.getMaxSellable();
+        // (1e18 - 1) / 0.2e18 = 4 (integer division)
+        assertEq(maxSellable, 4);
+
+        // Now test with delta=0 — should return type(uint256).max
+        uint256[] memory ids2 = _tokenIdArray(6, 3);
+        address pool2 = _createSellPool(1 ether, 0, ids2);
+        TegridyNFTPool p2 = TegridyNFTPool(payable(pool2));
+
+        assertEq(p2.getMaxSellable(), type(uint256).max);
+    }
+
+    function test_sellQuoteRevertWithMaxSellable() public {
+        // Create BUY pool with spotPrice=1 ether, delta=0.2 ether
+        address pool = _createBuyPool(1 ether, 0.2 ether, 20 ether);
+        TegridyNFTPool p = TegridyNFTPool(payable(pool));
+
+        uint256 maxSellable = p.getMaxSellable();
+        // maxSellable = (1e18 - 1) / 0.2e18 = 4
+
+        // Requesting more than maxSellable should revert with PriceUnderflowMaxSellable
+        vm.expectRevert(
+            abi.encodeWithSelector(TegridyNFTPool.PriceUnderflowMaxSellable.selector, maxSellable)
+        );
+        p.getSellQuote(maxSellable + 1);
+
+        // Verify that selling exactly maxSellable still works (does not revert)
+        (uint256 payout,) = p.getSellQuote(maxSellable);
+        assertGt(payout, 0);
+    }
+
+    function test_addLiquidityAfterSafeTransfer() public {
+        // Create sell pool with initial NFTs
+        uint256[] memory initIds = _tokenIdArray(1, 2);
+        address pool = _createSellPool(SPOT_PRICE, DELTA, initIds);
+
+        TegridyNFTPool p = TegridyNFTPool(payable(pool));
+        assertEq(p.getHeldCount(), 2);
+
+        // Transfer an NFT via safeTransferFrom (tracked via onERC721Received)
+        vm.prank(alice);
+        nft.safeTransferFrom(alice, pool, 3);
+        assertEq(p.getHeldCount(), 3);
+        assertTrue(p.isTokenHeld(3));
+
+        // Now call addLiquidity with additional NFTs — should NOT revert
+        // This tests the double-tracking fix: onERC721Received won't re-add
+        // tokens already tracked, and addLiquidity relies on safeTransferFrom
+        // which triggers onERC721Received for new tokens.
+        uint256[] memory moreIds = _tokenIdArray(4, 2); // tokens 4 and 5
+        vm.startPrank(alice);
+        nft.setApprovalForAll(address(p), true);
+        p.addLiquidity(moreIds);
+        vm.stopPrank();
+
+        assertEq(p.getHeldCount(), 5);
+        assertTrue(p.isTokenHeld(4));
+        assertTrue(p.isTokenHeld(5));
+    }
+
+    function test_buyAndSellSequence() public {
+        // Create TRADE pool with spotPrice=1 ether, delta=0.1 ether, 5% LP fee
+        uint256[] memory ids = _tokenIdArray(1, 5);
+        address pool = _createTradePool(SPOT_PRICE, DELTA, LP_FEE_BPS, ids, 20 ether);
+
+        TegridyNFTPool p = TegridyNFTPool(payable(pool));
+        uint256 initialSpot = p.spotPrice();
+        assertEq(initialSpot, SPOT_PRICE);
+
+        // Buy 2 NFTs — spotPrice should increase by 2 * delta
+        (uint256 buyCost,) = p.getBuyQuote(2);
+        uint256[] memory buyIds = _tokenIdArray(1, 2);
+        vm.prank(bob);
+        p.swapETHForNFTs{value: buyCost}(buyIds, type(uint256).max, block.timestamp + 1 hours);
+
+        uint256 spotAfterBuy = p.spotPrice();
+        assertEq(spotAfterBuy, SPOT_PRICE + 2 * DELTA);
+        assertEq(p.getHeldCount(), 3);
+
+        // Now sell 2 NFTs back — spotPrice should decrease by 2 * delta
+        uint256[] memory sellIds = _tokenIdArray(1, 2);
+        vm.startPrank(bob);
+        nft.setApprovalForAll(address(p), true);
+        (uint256 sellPayout,) = p.getSellQuote(2);
+        p.swapNFTsForETH(sellIds, 0, block.timestamp + 1 hours);
+        vm.stopPrank();
+
+        uint256 spotAfterSell = p.spotPrice();
+        assertEq(spotAfterSell, spotAfterBuy - 2 * DELTA);
+        // Should be back to initial spot price
+        assertEq(spotAfterSell, SPOT_PRICE);
+        assertEq(p.getHeldCount(), 5);
+
+        // Verify the NFTs are back in the pool
+        assertTrue(p.isTokenHeld(1));
+        assertTrue(p.isTokenHeld(2));
+    }
+
+    // ===== OWNER PARAMETER CHANGES =====
+
+    function test_changeSpotPrice() public {
+        uint256[] memory ids = _tokenIdArray(1, 3);
+        address pool = _createSellPool(SPOT_PRICE, DELTA, ids);
+        TegridyNFTPool p = TegridyNFTPool(payable(pool));
+
+        // Owner changes spotPrice
+        vm.prank(alice);
+        p.changeSpotPrice(2 ether);
+        assertEq(p.spotPrice(), 2 ether);
+
+        // Non-owner reverts
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTPool.NotOwner.selector);
+        p.changeSpotPrice(3 ether);
+    }
+
+    function test_changeDelta() public {
+        uint256[] memory ids = _tokenIdArray(1, 3);
+        address pool = _createSellPool(SPOT_PRICE, DELTA, ids);
+        TegridyNFTPool p = TegridyNFTPool(payable(pool));
+
+        // Owner changes delta
+        vm.prank(alice);
+        p.changeDelta(0.5 ether);
+        assertEq(p.delta(), 0.5 ether);
+
+        // Non-owner reverts
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTPool.NotOwner.selector);
+        p.changeDelta(1 ether);
+    }
+
+    function test_changeFee_tradePool() public {
+        uint256[] memory ids = _tokenIdArray(1, 3);
+        address pool = _createTradePool(SPOT_PRICE, DELTA, LP_FEE_BPS, ids, 5 ether);
+        TegridyNFTPool p = TegridyNFTPool(payable(pool));
+
+        // Owner changes fee on TRADE pool
+        vm.prank(alice);
+        p.changeFee(1000); // 10%
+        assertEq(p.feeBps(), 1000);
+
+        // Exceeds MAX_FEE_BPS reverts
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTPool.InvalidFee.selector);
+        p.changeFee(9001);
+
+        // Non-TRADE pool fee change reverts
+        uint256[] memory ids2 = _tokenIdArray(4, 2);
+        address sellPool = _createSellPool(SPOT_PRICE, DELTA, ids2);
+        TegridyNFTPool sp = TegridyNFTPool(payable(sellPool));
+
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTPool.PoolTypeMismatch.selector);
+        sp.changeFee(100);
+    }
+
+    // ===== WITHDRAW ETH RESPECTS PROTOCOL FEES =====
+
+    function test_withdrawETH_respectsProtocolFees() public {
+        uint256[] memory ids = _tokenIdArray(1, 3);
+        address pool = _createSellPool(SPOT_PRICE, DELTA, ids);
+        TegridyNFTPool p = TegridyNFTPool(payable(pool));
+
+        // Buy 1 NFT to accumulate protocol fees
+        (uint256 cost, uint256 protocolFee) = p.getBuyQuote(1);
+        uint256[] memory buyIds = _singleId(1);
+        vm.prank(bob);
+        p.swapETHForNFTs{value: cost}(buyIds, type(uint256).max, block.timestamp + 1 hours);
+
+        uint256 poolBalance = address(pool).balance;
+        uint256 accumulatedFees = p.accumulatedProtocolFees();
+        assertEq(accumulatedFees, protocolFee);
+        assertGt(accumulatedFees, 0);
+
+        // Owner can withdraw pool balance minus accumulated protocol fees
+        uint256 withdrawable = poolBalance - accumulatedFees;
+        vm.prank(alice);
+        p.withdrawETH(withdrawable);
+
+        // Owner cannot withdraw into the protocol fee reserve
+        vm.prank(alice);
+        vm.expectRevert(); // "INVALID_AMOUNT"
+        p.withdrawETH(1);
+    }
+
+    // ===== SWAP REVERT CONDITIONS =====
+
+    function test_buySwap_revert_expired() public {
+        uint256[] memory ids = _tokenIdArray(1, 1);
+        address pool = _createSellPool(SPOT_PRICE, DELTA, ids);
+        TegridyNFTPool p = TegridyNFTPool(payable(pool));
+
+        uint256[] memory buyIds = _singleId(1);
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTPool.Expired.selector);
+        p.swapETHForNFTs{value: 5 ether}(buyIds, type(uint256).max, block.timestamp - 1);
+    }
+
+    function test_buySwap_revert_maxCostExceeded() public {
+        uint256[] memory ids = _tokenIdArray(1, 1);
+        address pool = _createSellPool(SPOT_PRICE, DELTA, ids);
+        TegridyNFTPool p = TegridyNFTPool(payable(pool));
+
+        (uint256 cost,) = p.getBuyQuote(1);
+        uint256[] memory buyIds = _singleId(1);
+
+        // Set maxTotalCost below actual cost
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTPool.MaxCostExceeded.selector);
+        p.swapETHForNFTs{value: cost}(buyIds, cost - 1, block.timestamp + 1 hours);
+    }
+
+    function test_sellSwap_revert_expired() public {
+        address pool = _createBuyPool(SPOT_PRICE, DELTA, 20 ether);
+        TegridyNFTPool p = TegridyNFTPool(payable(pool));
+
+        uint256[] memory sellIds = _singleId(11);
+        vm.startPrank(carol);
+        nft.approve(address(p), 11);
+        vm.expectRevert(TegridyNFTPool.Expired.selector);
+        p.swapNFTsForETH(sellIds, 0, block.timestamp - 1);
+        vm.stopPrank();
+    }
+
+    // ===== POOL CREATION REVERT =====
+
+    function test_createPool_revert_deltaTooHigh() public {
+        uint256[] memory ids = _tokenIdArray(1, 1);
+        vm.startPrank(alice);
+        nft.setApprovalForAll(address(factory), true);
+        vm.expectRevert(TegridyNFTPool.DeltaTooHigh.selector);
+        factory.createPool(
+            address(nft),
+            TegridyNFTPool.PoolType.SELL,
+            SPOT_PRICE,
+            101 ether, // > 100 ether
+            0,
+            ids
+        );
+        vm.stopPrank();
+    }
+
+    // ===== PAUSE BLOCKS SWAPS =====
+
+    function test_pause_blocksSwaps() public {
+        uint256[] memory ids = _tokenIdArray(1, 3);
+        address pool = _createTradePool(SPOT_PRICE, DELTA, LP_FEE_BPS, ids, 20 ether);
+        TegridyNFTPool p = TegridyNFTPool(payable(pool));
+
+        // Owner pauses the pool
+        vm.prank(alice);
+        p.pause();
+
+        // Buy swap reverts while paused
+        uint256[] memory buyIds = _singleId(1);
+        vm.prank(bob);
+        vm.expectRevert(); // EnforcedPause()
+        p.swapETHForNFTs{value: 5 ether}(buyIds, type(uint256).max, block.timestamp + 1 hours);
+
+        // Sell swap reverts while paused
+        uint256[] memory sellIds = _singleId(11);
+        vm.startPrank(carol);
+        nft.approve(address(p), 11);
+        vm.expectRevert(); // EnforcedPause()
+        p.swapNFTsForETH(sellIds, 0, block.timestamp + 1 hours);
+        vm.stopPrank();
+
+        // Unpause and verify swaps work again
+        vm.prank(alice);
+        p.unpause();
+
+        // Buy swap succeeds after unpause
+        (uint256 cost,) = p.getBuyQuote(1);
+        vm.prank(bob);
+        p.swapETHForNFTs{value: cost}(buyIds, type(uint256).max, block.timestamp + 1 hours);
+        assertEq(nft.ownerOf(1), bob);
+
+        // Sell swap succeeds after unpause
+        vm.startPrank(carol);
+        p.swapNFTsForETH(sellIds, 0, block.timestamp + 1 hours);
+        vm.stopPrank();
+        assertTrue(p.isTokenHeld(11));
+    }
+
+    // ===== WITHDRAW NFTs =====
+
+    function test_withdrawNFTs() public {
+        uint256[] memory ids = _tokenIdArray(1, 3);
+        address pool = _createSellPool(SPOT_PRICE, DELTA, ids);
+        TegridyNFTPool p = TegridyNFTPool(payable(pool));
+
+        assertEq(p.getHeldCount(), 3);
+
+        // Owner withdraws specific NFTs
+        uint256[] memory withdrawIds = _tokenIdArray(1, 2); // tokens 1 and 2
+        vm.prank(alice);
+        p.withdrawNFTs(withdrawIds);
+
+        assertEq(p.getHeldCount(), 1);
+        assertFalse(p.isTokenHeld(1));
+        assertFalse(p.isTokenHeld(2));
+        assertTrue(p.isTokenHeld(3));
+        assertEq(nft.ownerOf(1), alice);
+        assertEq(nft.ownerOf(2), alice);
+
+        // Non-owner reverts
+        uint256[] memory moreIds = _singleId(3);
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTPool.NotOwner.selector);
+        p.withdrawNFTs(moreIds);
     }
 }

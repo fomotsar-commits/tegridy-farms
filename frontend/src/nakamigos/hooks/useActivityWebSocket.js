@@ -1,15 +1,11 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { tagAlchemyEvent, mergeEventStreams } from "../lib/eventFeed";
 
-const ALCHEMY_KEY = import.meta.env.VITE_ALCHEMY_API_KEY || "demo";
-const WS_URL = ALCHEMY_KEY === "demo" ? null : `wss://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`;
-
-function getWsUrl() {
-  return WS_URL;
-}
-
 // ERC-721 Transfer event topic: Transfer(address,address,uint256)
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
+// Polling interval — roughly one Ethereum block time
+const POLL_INTERVAL_MS = 12_000;
 
 // Post-merge block timestamp estimation
 const MERGE_BLOCK = 15537393;
@@ -59,192 +55,148 @@ function parseTransferLog(log) {
   };
 }
 
-const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000, 30000];
+/**
+ * Fetch the latest block number via the server-side Alchemy proxy.
+ */
+async function fetchBlockNumber(signal) {
+  const res = await fetch("/api/alchemy?endpoint=rpc", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ method: "eth_blockNumber", params: [] }),
+    signal,
+  });
+  if (!res.ok) throw new Error(`eth_blockNumber failed: ${res.status}`);
+  const data = await res.json();
+  return data.result; // hex string
+}
+
+/**
+ * Fetch Transfer logs via the server-side Alchemy proxy (eth_getLogs).
+ * API key stays server-side — never exposed to the browser.
+ */
+async function fetchTransferLogs(contractAddress, fromBlock, toBlock, signal) {
+  const res = await fetch("/api/alchemy?endpoint=rpc", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      method: "eth_getLogs",
+      params: [
+        {
+          address: contractAddress,
+          topics: [TRANSFER_TOPIC],
+          fromBlock,
+          toBlock,
+        },
+      ],
+    }),
+    signal,
+  });
+  if (!res.ok) throw new Error(`eth_getLogs failed: ${res.status}`);
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message || "eth_getLogs RPC error");
+  return data.result || [];
+}
 
 export default function useActivityWebSocket(contractAddress, openSeaEvents = []) {
   const [liveActivities, setLiveActivities] = useState([]);
   const [isWebSocketConnected, setIsWebSocketConnected] = useState(false);
-  const wsRef = useRef(null);
-  const reconnectAttemptRef = useRef(0);
-  const reconnectTimerRef = useRef(null);
   const mountedRef = useRef(true);
-  const subIdRef = useRef(null);
-  const manualCloseRef = useRef(false);
+  const lastBlockRef = useRef(null);
+  const seenKeysRef = useRef(new Set());
+  const intervalRef = useRef(null);
 
-  // Use a ref so scheduleReconnect always calls the latest connect
-  // without creating a circular useCallback dependency.
-  const connectRef = useRef(null);
-
-  const scheduleReconnect = useCallback(() => {
-    if (!mountedRef.current) return;
-
-    const attempt = reconnectAttemptRef.current;
-    const delay = RECONNECT_DELAYS[Math.min(attempt, RECONNECT_DELAYS.length - 1)];
-    reconnectAttemptRef.current = attempt + 1;
-
-    console.info(`useActivityWebSocket: Reconnecting in ${delay}ms (attempt ${attempt + 1})`);
-
-    reconnectTimerRef.current = setTimeout(() => {
-      if (mountedRef.current) {
-        connectRef.current();
-      }
-    }, delay);
-  }, []);
-
-  const connect = useCallback(async () => {
-    if (!mountedRef.current) return;
-    if (!contractAddress) {
-      console.info("useActivityWebSocket: Skipping WebSocket (no contract address)");
-      return;
-    }
-
-    const wsUrl = getWsUrl();
-    if (!wsUrl) {
-      console.info("useActivityWebSocket: Skipping WebSocket (no WS URL available)");
-      return;
-    }
-    if (!mountedRef.current) return;
+  const poll = useCallback(async (signal) => {
+    if (!contractAddress) return;
 
     try {
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+      // Get current block number
+      const currentBlock = await fetchBlockNumber(signal);
 
-      ws.onopen = () => {
-        if (!mountedRef.current) {
-          ws.close();
-          return;
+      // On first poll, only look back ~5 blocks to avoid a huge initial fetch
+      let fromBlock;
+      if (lastBlockRef.current) {
+        // Fetch from the block after the last one we processed
+        const next = parseInt(lastBlockRef.current, 16) + 1;
+        fromBlock = "0x" + next.toString(16);
+      } else {
+        const recent = parseInt(currentBlock, 16) - 5;
+        fromBlock = "0x" + Math.max(0, recent).toString(16);
+      }
+
+      lastBlockRef.current = currentBlock;
+
+      const logs = await fetchTransferLogs(contractAddress, fromBlock, currentBlock, signal);
+
+      if (!mountedRef.current) return;
+
+      if (logs.length > 0) {
+        const newActivities = [];
+        for (const log of logs) {
+          const activity = parseTransferLog(log);
+          if (!activity) continue;
+          const key = `${activity.hash}-${activity.token.id}`;
+          if (seenKeysRef.current.has(key)) continue;
+          seenKeysRef.current.add(key);
+          newActivities.push(activity);
         }
 
-        reconnectAttemptRef.current = 0;
-
-        // Subscribe to Transfer events on the collection contract
-        const subscribeMsg = {
-          jsonrpc: "2.0",
-          id: 1,
-          method: "eth_subscribe",
-          params: [
-            "logs",
-            {
-              address: contractAddress,
-              topics: [TRANSFER_TOPIC],
-            },
-          ],
-        };
-
-        ws.send(JSON.stringify(subscribeMsg));
-      };
-
-      ws.onmessage = (event) => {
-        if (!mountedRef.current) return;
-
-        try {
-          const data = JSON.parse(event.data);
-
-          // Handle subscription confirmation
-          if (data.id === 1 && data.result) {
-            subIdRef.current = data.result;
-            setIsWebSocketConnected(true);
-            console.info("useActivityWebSocket: Subscribed, id:", data.result);
-            return;
-          }
-
-          // Handle subscription error
-          if (data.id === 1 && data.error) {
-            console.warn("useActivityWebSocket: Subscription failed:", data.error.message);
-            setIsWebSocketConnected(false);
-            ws.close();
-            return;
-          }
-
-          // Handle incoming log events
-          if (data.method === "eth_subscription" && data.params?.result) {
-            const log = data.params.result;
-            const activity = parseTransferLog(log);
-            if (activity) {
-              setLiveActivities((prev) => {
-                // Deduplicate by tx hash + token id
-                const key = `${activity.hash}-${activity.token.id}`;
-                if (prev.some((a) => `${a.hash}-${a.token.id}` === key)) {
-                  return prev;
-                }
-                // Prepend new activity, cap at 100 items
-                return [activity, ...prev].slice(0, 100);
-              });
-            }
-          }
-        } catch (err) {
-          console.warn("useActivityWebSocket: Failed to parse message:", err);
+        if (newActivities.length > 0) {
+          setLiveActivities((prev) => {
+            const combined = [...newActivities.reverse(), ...prev];
+            return combined.slice(0, 100);
+          });
         }
-      };
+      }
 
-      ws.onclose = () => {
-        wsRef.current = null;
-        subIdRef.current = null;
-        if (mountedRef.current) {
-          setIsWebSocketConnected(false);
-          // Skip reconnect if close was intentional (e.g. tab hidden, cleanup)
-          if (!manualCloseRef.current) {
-            scheduleReconnect();
-          }
-          manualCloseRef.current = false;
-        }
-      };
-
-      ws.onerror = (err) => {
-        console.warn("useActivityWebSocket: Connection error:", err);
-        // onclose will fire after this, triggering reconnect
-      };
+      // Mark as connected after a successful poll
+      if (mountedRef.current) setIsWebSocketConnected(true);
     } catch (err) {
-      console.warn("useActivityWebSocket: Failed to create WebSocket:", err);
-      scheduleReconnect();
+      if (err.name === "AbortError") return;
+      console.warn("useActivityWebSocket: poll error:", err);
+      if (mountedRef.current) setIsWebSocketConnected(false);
     }
-  }, [contractAddress, scheduleReconnect]);
-
-  // Keep ref in sync so reconnect always uses the latest connect
-  connectRef.current = connect;
+  }, [contractAddress]);
 
   useEffect(() => {
     mountedRef.current = true;
-    // Clear stale activities from previous collection before reconnecting
     setLiveActivities([]);
-    connect();
+    setIsWebSocketConnected(false);
+    lastBlockRef.current = null;
+    seenKeysRef.current.clear();
+
+    if (!contractAddress) return;
+
+    const controller = new AbortController();
+
+    // Initial poll
+    poll(controller.signal);
+
+    // Set up recurring poll
+    intervalRef.current = setInterval(() => {
+      if (mountedRef.current && !document.hidden) {
+        poll(controller.signal);
+      }
+    }, POLL_INTERVAL_MS);
 
     return () => {
       mountedRef.current = false;
-      clearTimeout(reconnectTimerRef.current);
-      reconnectAttemptRef.current = 0;
-      if (wsRef.current) {
-        manualCloseRef.current = true;
-        wsRef.current.close();
-        wsRef.current = null;
-      }
+      controller.abort();
+      clearInterval(intervalRef.current);
     };
-  }, [connect]);
+  }, [contractAddress, poll]);
 
-  // Pause WebSocket when tab is hidden to save resources / API quota;
-  // reconnect when tab becomes visible again.
+  // Pause polling when tab is hidden, resume + immediate poll when visible
   useEffect(() => {
     function handleVisibility() {
-      if (document.hidden) {
-        // Tab hidden — close connection and stop reconnect attempts
-        clearTimeout(reconnectTimerRef.current);
-        if (wsRef.current) {
-          manualCloseRef.current = true;
-          wsRef.current.close();
-          wsRef.current = null;
-        }
-        setIsWebSocketConnected(false);
-      } else if (mountedRef.current) {
-        // Tab visible again — reconnect immediately (skip if already connecting/open)
-        if (wsRef.current && wsRef.current.readyState <= 1) return;
-        reconnectAttemptRef.current = 0;
-        connectRef.current();
+      if (!document.hidden && mountedRef.current && contractAddress) {
+        // Immediate poll on tab focus
+        poll(new AbortController().signal);
       }
     }
 
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, []);
+  }, [contractAddress, poll]);
 
   // Merge Alchemy transfer events with any OpenSea stream events passed in
   const mergedLiveActivities = useMemo(() => {

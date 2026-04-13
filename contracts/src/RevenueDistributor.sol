@@ -423,7 +423,8 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // SECURITY FIX C5: Only increment totalClaimed on successful direct transfer.
         // Failed transfers go to pendingWithdrawals — totalClaimed is incremented in withdrawPending().
         // Prevents totalEarmarked drift that permanently locks ETH (MakerDAO DSR pull-pattern).
-        (bool success,) = msg.sender.call{value: totalOwed}("");
+        // SECURITY FIX: Use 10k gas stipend to prevent cross-contract reentrancy (Solmate/Seaport pattern)
+        (bool success,) = msg.sender.call{value: totalOwed, gas: 10000}("");
         if (success) {
             totalClaimed += totalOwed;
         } else {
@@ -466,7 +467,8 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // SECURITY FIX C5: Only increment totalClaimed on successful direct transfer.
         // Failed transfers go to pendingWithdrawals — totalClaimed is incremented in withdrawPending().
         // Prevents totalEarmarked drift that permanently locks ETH (MakerDAO DSR pull-pattern).
-        (bool success,) = msg.sender.call{value: totalOwed}("");
+        // SECURITY FIX: Use 10k gas stipend to prevent cross-contract reentrancy (Solmate/Seaport pattern)
+        (bool success,) = msg.sender.call{value: totalOwed, gas: 10000}("");
         if (success) {
             totalClaimed += totalOwed;
         } else {

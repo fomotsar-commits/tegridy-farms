@@ -77,6 +77,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     uint256 public constant MAX_CLAIM_EPOCHS = 500;     // Same as RevenueDistributor
     uint256 public constant MAX_BATCH_ITERATIONS = 200;  // SECURITY FIX H-8: Prevent block gas limit DoS
     uint256 public constant MIN_EPOCH_INTERVAL = 1 hours;
+    uint256 public constant VOTE_DEADLINE = 7 days;     // SECURITY FIX: Voting deadline after epoch snapshot (Aerodrome pattern)
     uint256 public constant FEE_CHANGE_DELAY = 24 hours;
     uint256 public constant TREASURY_CHANGE_DELAY = 48 hours;
     uint256 public constant WHITELIST_CHANGE_DELAY = 24 hours;
@@ -116,6 +117,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     mapping(address => uint256) public pendingETHWithdrawals;
     mapping(address => mapping(address => uint256)) public pendingTokenWithdrawals;
     uint256 public totalPendingETH;
+    mapping(address => uint256) public totalPendingTokens; // SECURITY FIX: Track pending token withdrawals per token for sweep reservation
 
     // C-01/C-02 FIX: Track total unclaimed bribe amounts to prevent sweep from draining active bribes
     mapping(address => uint256) public totalUnclaimedBribes;  // token => total unclaimed amount
@@ -182,6 +184,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     error NoPendingWithdrawal();
     error StakingPaused();
     error TooManyUnclaimedEpochs();
+    error VoteDeadlinePassed();  // SECURITY FIX: Cannot vote after deadline
 
     // ─── Legacy View Helpers (for test/frontend compatibility) ───────
     function feeChangeTime() external view returns (uint256) { return _executeAfter[FEE_CHANGE]; }
@@ -253,6 +256,9 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (power == 0) revert ZeroAmount();
 
         EpochInfo memory ep = epochs[epoch];
+        // SECURITY FIX: Enforce voting deadline — prevents retroactive vote gaming after seeing bribes.
+        // Pattern: Aerodrome/Velodrome — votes must be cast within VOTE_DEADLINE of epoch snapshot.
+        if (block.timestamp > ep.timestamp + VOTE_DEADLINE) revert VoteDeadlinePassed();
         uint256 userPower = votingEscrow.votingPowerAtTimestamp(msg.sender, ep.timestamp);
         if (userPower == 0) revert NothingToClaim();
 
@@ -426,10 +432,12 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
                 try IERC20(token).transfer(msg.sender, share) returns (bool success) {
                     if (!success) {
                         pendingTokenWithdrawals[msg.sender][token] += share;
+                        totalPendingTokens[token] += share;
                         emit PendingTokenCredited(msg.sender, token, share);
                     }
                 } catch {
                     pendingTokenWithdrawals[msg.sender][token] += share;
+                    totalPendingTokens[token] += share;
                     emit PendingTokenCredited(msg.sender, token, share);
                 }
             }
@@ -505,10 +513,12 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
                     try IERC20(token).transfer(msg.sender, share) returns (bool success) {
                         if (!success) {
                             pendingTokenWithdrawals[msg.sender][token] += share;
+                            totalPendingTokens[token] += share;
                             emit PendingTokenCredited(msg.sender, token, share);
                         }
                     } catch {
                         pendingTokenWithdrawals[msg.sender][token] += share;
+                        totalPendingTokens[token] += share;
                         emit PendingTokenCredited(msg.sender, token, share);
                     }
                 }
@@ -542,6 +552,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (amount == 0) revert NoPendingWithdrawal();
 
         pendingTokenWithdrawals[msg.sender][token] = 0;
+        totalPendingTokens[token] -= amount;
 
         IERC20(token).safeTransfer(msg.sender, amount);
 
@@ -688,12 +699,13 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     // ─── H-03 FIX: Pull-Pattern Treasury Fees ─────────────────────────
 
     /// @notice Withdraw accumulated treasury ETH fees (pull pattern).
-    function withdrawTreasuryFees() external nonReentrant {
+    /// SECURITY FIX: Added onlyOwner access control + WETHFallbackLib.
+    /// Previously permissionless with full-gas .call — inconsistent with codebase security posture.
+    function withdrawTreasuryFees() external onlyOwner nonReentrant {
         uint256 amount = accumulatedTreasuryETH;
         require(amount > 0, "NO_FEES");
         accumulatedTreasuryETH = 0;
-        (bool ok,) = treasury.call{value: amount}("");
-        require(ok, "TRANSFER_FAILED");
+        WETHFallbackLib.safeTransferETHOrWrap(address(weth), treasury, amount);
     }
 
     // ─── C-02 FIX: Orphaned Bribe Rescue ────────────────────────────
@@ -737,7 +749,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     function sweepToken(address token) external onlyOwner nonReentrant {
         if (token == address(0)) revert ZeroAddress();
         uint256 balance = IERC20(token).balanceOf(address(this));
-        uint256 reserved = totalUnclaimedBribes[token];
+        uint256 reserved = totalUnclaimedBribes[token] + totalPendingTokens[token];
         uint256 sweepable = balance > reserved ? balance - reserved : 0;
         if (sweepable == 0) revert ZeroAmount();
         IERC20(token).safeTransfer(treasury, sweepable);

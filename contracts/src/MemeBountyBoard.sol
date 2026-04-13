@@ -317,7 +317,9 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         totalPaidOut += reward;
         bounty.status = BountyStatus.Completed;
 
-        (bool success,) = winner.call{value: reward}("");
+        // SECURITY FIX: Use WETHFallbackLib with 10k gas stipend (Solmate/Seaport pattern)
+        // instead of full-gas .call{value} which enabled cross-contract reentrancy.
+        (bool success,) = winner.call{value: reward, gas: 10000}("");
         if (success) {
             emit BountyCompleted(_bountyId, winner, reward);
         } else {
@@ -355,7 +357,8 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
         bounty.status = BountyStatus.Cancelled;
 
-        (bool success,) = bounty.creator.call{value: bounty.reward}("");
+        // SECURITY FIX: Use 10k gas stipend (Solmate/Seaport pattern) instead of full-gas .call
+        (bool success,) = bounty.creator.call{value: bounty.reward, gas: 10000}("");
         if (!success) {
             // A3-H-03: Credit to pendingRefund instead of reverting
             pendingRefund[bounty.creator] += bounty.reward;
@@ -385,21 +388,16 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         Bounty storage bounty = bounties[_bountyId];
         if (bounty.status != BountyStatus.Open) revert BountyNotOpen();
         if (block.timestamp < bounty.deadline + DISPUTE_PERIOD + GRACE_PERIOD) revert GracePeriodNotExpired();
-        // AUDIT FIX: Only allow refund if no submission met the completion quorum.
-        // If a valid winner exists, use completeBounty() instead — prevents creator front-running.
-        // SECURITY FIX C-1: Check BOTH vote quorum AND voter diversity (matching completeBounty).
-        // Without the diversity check, a whale solo-vote creates a deadlock: completeBounty fails
-        // on diversity, but refundStaleBounty reverts on WinnerExists. ETH is permanently locked.
         if (topSubmissionVotes[_bountyId] >= MIN_COMPLETION_VOTES && uniqueVoterCount[_bountyId] >= MIN_UNIQUE_VOTERS) revert WinnerExists();
 
         // No submission met quorum — refund creator
         bounty.status = BountyStatus.Cancelled;
 
-        (bool success,) = bounty.creator.call{value: bounty.reward}("");
+        // SECURITY FIX: Use 10k gas stipend (Solmate/Seaport pattern) instead of full-gas .call
+        (bool success,) = bounty.creator.call{value: bounty.reward, gas: 10000}("");
         if (!success) {
-            // A3-H-03: Credit to pendingRefund instead of reverting
             pendingRefund[bounty.creator] += bounty.reward;
-            refundTimestamp[bounty.creator] = block.timestamp; // M-09: Track refund time
+            refundTimestamp[bounty.creator] = block.timestamp;
             emit RefundCredited(_bountyId, bounty.creator, bounty.reward);
         }
 
@@ -407,23 +405,20 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     }
 
     /// @notice Emergency cancel by owner — refunds the bounty creator (does NOT pay any submission).
-    ///         Use only for disputes, spam, or stuck bounties.
     /// @param _bountyId The bounty ID to emergency-cancel
     function emergencyCancel(uint256 _bountyId) external nonReentrant onlyOwner {
         if (_bountyId >= bounties.length) revert InvalidBounty();
         Bounty storage bounty = bounties[_bountyId];
         if (bounty.status != BountyStatus.Open) revert BountyNotOpen();
-        // SECURITY FIX M-12: Cannot emergency cancel if any submissions exist (before or after deadline).
-        // Prevents owner from colluding with creator to extract free labor.
         if (bounty.submissionCount > 0) revert CannotCancelWithSubmissions();
 
         bounty.status = BountyStatus.Cancelled;
 
-        (bool success,) = bounty.creator.call{value: bounty.reward}("");
+        // SECURITY FIX: Use 10k gas stipend (Solmate/Seaport pattern) instead of full-gas .call
+        (bool success,) = bounty.creator.call{value: bounty.reward, gas: 10000}("");
         if (!success) {
-            // A3-H-03: Credit to pendingRefund instead of reverting
             pendingRefund[bounty.creator] += bounty.reward;
-            refundTimestamp[bounty.creator] = block.timestamp; // M-09: Track refund time
+            refundTimestamp[bounty.creator] = block.timestamp;
             emit RefundCredited(_bountyId, bounty.creator, bounty.reward);
         }
 
@@ -431,28 +426,22 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     }
 
     /// @notice FIX 2: Emergency force cancel by owner — works even with submissions.
-    ///         Requires 7 days after the bounty deadline has passed. For extreme cases only.
     /// @param _bountyId The bounty ID to force-cancel
     function emergencyForceCancel(uint256 _bountyId) external nonReentrant onlyOwner {
         if (_bountyId >= bounties.length) revert InvalidBounty();
         Bounty storage bounty = bounties[_bountyId];
         if (bounty.status != BountyStatus.Open) revert BountyNotOpen();
-        // Must wait at least 7 days after the deadline
         if (block.timestamp < bounty.deadline + EMERGENCY_FORCE_CANCEL_DELAY) revert ForceCancelTooEarly();
-        // SECURITY FIX C-1: Check BOTH vote quorum AND voter diversity (matching completeBounty).
-        // Without the diversity check, a whale solo-vote creates a deadlock.
         if (topSubmissionVotes[_bountyId] >= MIN_COMPLETION_VOTES && uniqueVoterCount[_bountyId] >= MIN_UNIQUE_VOTERS) revert WinnerExists();
-        // AUDIT FIX M-17: Also block force-cancel when aggregate engagement is high
-        // (multiple submissions with significant votes, even if none individually meet quorum).
-        // Uses 2x MIN_COMPLETION_VOTES as the aggregate threshold.
         if (totalBountyVotes[_bountyId] >= MIN_COMPLETION_VOTES * 2) revert WinnerExists();
 
         bounty.status = BountyStatus.Cancelled;
 
-        (bool success,) = bounty.creator.call{value: bounty.reward}("");
+        // SECURITY FIX: Use 10k gas stipend (Solmate/Seaport pattern) instead of full-gas .call
+        (bool success,) = bounty.creator.call{value: bounty.reward, gas: 10000}("");
         if (!success) {
             pendingRefund[bounty.creator] += bounty.reward;
-            refundTimestamp[bounty.creator] = block.timestamp; // M-09: Track refund time
+            refundTimestamp[bounty.creator] = block.timestamp;
             emit RefundCredited(_bountyId, bounty.creator, bounty.reward);
         }
 
@@ -470,8 +459,8 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         uint256 amount = pendingRefund[_user];
         pendingRefund[_user] = 0;
         refundTimestamp[_user] = 0;
-        (bool ok,) = owner().call{value: amount}("");
-        require(ok, "TRANSFER_FAILED");
+        // SECURITY FIX: Use WETHFallbackLib instead of full-gas .call (Solmate/Seaport pattern)
+        WETHFallbackLib.safeTransferETHOrWrap(weth, owner(), amount);
     }
 
     // ─── View ─────────────────────────────────────────────────────────

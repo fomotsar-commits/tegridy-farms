@@ -8,6 +8,7 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
 
 /// @title TegridyDrop — NFT Collection Template (EIP-1167 Clone)
 /// @notice Cloned by TegridyLaunchpad via CREATE2. Uses initialize() instead of constructor.
@@ -15,6 +16,12 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 ///         revenue splitting, and ERC-2981 royalties.
 contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Initializable {
     using Strings for uint256;
+
+    // ─── Constructor (disable initializers on implementation) ────────
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
 
     // ─── Enums ───────────────────────────────────────────────────────
     enum MintPhase {
@@ -71,7 +78,9 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
 
     // ─── State ───────────────────────────────────────────────────────
     // Manual owner (not OwnableNoRenounce — clone can't use constructor args)
+    // 2-step ownership transfer for safety (mirrors Ownable2Step)
     address public owner;
+    address public pendingOwner;
 
     string private _dropName;
     string private _dropSymbol;
@@ -99,6 +108,9 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
     address public creator;
     address public platformFeeRecipient;
     uint16 public platformFeeBps;
+
+    // WETH address for safe withdrawal fallback
+    address public weth;
 
     // Per-wallet mint tracking
     mapping(address => uint256) public mintedPerWallet;
@@ -129,10 +141,12 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
         uint16 _royaltyBps,
         address _creator,
         address _platformFeeRecipient,
-        uint16 _platformFeeBps
+        uint16 _platformFeeBps,
+        address _weth
     ) external initializer {
         if (_creator == address(0)) revert ZeroAddress();
         if (_platformFeeRecipient == address(0)) revert ZeroAddress();
+        if (_weth == address(0)) revert ZeroAddress();
         if (_maxSupply == 0) revert InvalidMaxSupply();
         if (_platformFeeBps > 10000) revert InvalidFeeBps();
         if (_royaltyBps > 10000) revert InvalidRoyaltyBps();
@@ -145,6 +159,7 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
         creator = _creator;
         platformFeeRecipient = _platformFeeRecipient;
         platformFeeBps = _platformFeeBps;
+        weth = _weth;
         owner = _creator;
 
         // ERC-2981: creator receives royalties
@@ -203,6 +218,9 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
     {
         if (quantity == 0) revert ZeroQuantity();
         if (mintPhase == MintPhase.CLOSED) revert MintClosed();
+        if (mintPhase == MintPhase.DUTCH_AUCTION && block.timestamp < dutchStartTime) {
+            revert DutchAuctionNotActive();
+        }
         if (totalSupply + quantity > maxSupply) revert ExceedsMaxSupply();
         if (maxPerWallet > 0 && mintedPerWallet[msg.sender] + quantity > maxPerWallet) {
             revert ExceedsWalletLimit();
@@ -274,6 +292,7 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
 
     /// @notice Set the mint price (for PUBLIC and ALLOWLIST phases)
     function setMintPrice(uint256 price) external onlyOwner {
+        require(price > 0 || mintPhase == MintPhase.CLOSED, "ZERO_PRICE_ONLY_WHEN_CLOSED");
         mintPrice = price;
         emit MintPriceChanged(price);
     }
@@ -336,7 +355,10 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
     // ─── Withdraw ────────────────────────────────────────────────────
     /// @notice Withdraw contract balance. Splits between creator and platform.
     ///         Creator gets (100% - platformFeeBps), platform gets platformFeeBps.
-    function withdraw() external nonReentrant {
+    ///         Uses WETHFallbackLib to prevent DoS if a recipient reverts on ETH transfer.
+    /// SECURITY FIX: Added onlyOwner. Previously anyone could trigger withdrawal,
+    /// removing timing control from the creator (OZ Ownable pattern).
+    function withdraw() external onlyOwner nonReentrant {
         uint256 balance = address(this).balance;
         if (balance == 0) revert WithdrawFailed();
 
@@ -344,22 +366,32 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
         uint256 creatorAmount = balance - platformAmount;
 
         if (platformAmount > 0) {
-            (bool platformSent,) = payable(platformFeeRecipient).call{value: platformAmount}("");
-            if (!platformSent) revert WithdrawFailed();
+            WETHFallbackLib.safeTransferETHOrWrap(weth, platformFeeRecipient, platformAmount);
         }
 
         if (creatorAmount > 0) {
-            (bool creatorSent,) = payable(creator).call{value: creatorAmount}("");
-            if (!creatorSent) revert WithdrawFailed();
+            WETHFallbackLib.safeTransferETHOrWrap(weth, creator, creatorAmount);
         }
 
         emit Withdrawn(creator, creatorAmount, platformFeeRecipient, platformAmount);
     }
 
-    // ─── Owner Management ────────────────────────────────────────────
-    /// @notice Transfer ownership of the collection
+    // ─── Owner Management (2-step, mirrors Ownable2Step) ─────────────
+    /// @notice Begin ownership transfer. New owner must call acceptOwnership().
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
-        owner = newOwner;
+        pendingOwner = newOwner;
+    }
+
+    /// @notice Complete ownership transfer. Must be called by the pending owner.
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotOwner();
+        owner = msg.sender;
+        pendingOwner = address(0);
+    }
+
+    /// @notice Renounce ownership is disabled for safety.
+    function renounceOwnership() external view onlyOwner {
+        revert("RENOUNCE_DISABLED");
     }
 }

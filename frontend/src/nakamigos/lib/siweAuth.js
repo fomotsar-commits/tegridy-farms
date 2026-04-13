@@ -6,20 +6,24 @@
  * 2. Construct an EIP-4361 SIWE message
  * 3. Sign with wallet via wagmi/ethers
  * 4. Send message + signature to /api/auth/siwe for verification
- * 5. Receive and store JWT for Supabase authenticated requests
+ * 5. Server sets an httpOnly cookie with the JWT (never exposed to JS)
+ * 6. Wallet address + expiry stored in localStorage (non-sensitive metadata)
+ *
+ * The JWT is NEVER stored in localStorage — it lives in an httpOnly cookie
+ * that the browser sends automatically with every request to our API.
  */
 
 import { SiweMessage } from "siwe";
 
 const AUTH_API = "/api/auth/siwe";
-const STORAGE_KEY_TOKEN = "siwe_token";
+const ME_API = "/api/auth/me";
 const STORAGE_KEY_WALLET = "siwe_wallet";
 const STORAGE_KEY_EXP = "siwe_token_exp";
 
 // ── Nonce Request ──
 
 export async function requestNonce() {
-  const res = await fetch(`${AUTH_API}?action=nonce`);
+  const res = await fetch(`${AUTH_API}?action=nonce`, { credentials: "include" });
   if (!res.ok) throw new Error("Failed to get nonce");
   return res.json(); // { nonce, expiresAt }
 }
@@ -38,23 +42,24 @@ export function buildSiweMessage(address, nonce) {
   });
 }
 
-// ── Verify Signature + Get JWT ──
+// ── Verify Signature (server sets httpOnly cookie) ──
 
 export async function verifySignature(message, signature) {
   const res = await fetch(AUTH_API, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({ message, signature }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || "Verification failed");
   }
-  const data = await res.json(); // { token, wallet, expiresAt }
+  // Server returns { wallet, expiresAt } — JWT is in the httpOnly cookie
+  const data = await res.json();
 
-  // Store in localStorage
+  // Store non-sensitive metadata in localStorage for quick UI checks
   try {
-    localStorage.setItem(STORAGE_KEY_TOKEN, data.token);
     localStorage.setItem(STORAGE_KEY_WALLET, data.wallet);
     localStorage.setItem(STORAGE_KEY_EXP, data.expiresAt);
   } catch { /* quota */ }
@@ -62,21 +67,41 @@ export async function verifySignature(message, signature) {
   return data;
 }
 
-// ── Token Management ──
+// ── Session Check (validates httpOnly cookie server-side) ──
 
-export function getStoredToken() {
+export async function checkSession() {
   try {
-    const token = localStorage.getItem(STORAGE_KEY_TOKEN);
-    const exp = localStorage.getItem(STORAGE_KEY_EXP);
-    if (!token || !exp) return null;
-    if (new Date(exp) <= new Date()) {
-      clearStoredToken();
+    const res = await fetch(ME_API, { credentials: "include" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.authenticated) {
+      // Server says not authenticated — clean up local metadata
+      clearStoredAuth();
       return null;
     }
-    return token;
+    // Keep local metadata in sync
+    try {
+      localStorage.setItem(STORAGE_KEY_WALLET, data.wallet);
+      if (data.expiresAt) localStorage.setItem(STORAGE_KEY_EXP, data.expiresAt);
+    } catch { /* quota */ }
+    return data;
   } catch {
     return null;
   }
+}
+
+// ── Token Management ──
+
+/**
+ * @deprecated — JWT is no longer in localStorage. Use checkSession() for
+ * server-validated auth status. This is kept temporarily for the Supabase
+ * client integration which needs a token for the Authorization header.
+ * It will be removed once Supabase queries go through a server proxy.
+ */
+export function getStoredToken() {
+  // JWT is now in an httpOnly cookie — inaccessible to JS.
+  // Return null so callers fall back to anon key.
+  return null;
 }
 
 export function getStoredWallet() {
@@ -97,10 +122,19 @@ export function isTokenExpired() {
   }
 }
 
-export function clearStoredToken() {
+export async function logout() {
   try {
-    localStorage.removeItem(STORAGE_KEY_TOKEN);
+    await fetch(AUTH_API, { method: "DELETE", credentials: "include" });
+  } catch { /* best effort */ }
+  clearStoredAuth();
+}
+
+export function clearStoredAuth() {
+  try {
     localStorage.removeItem(STORAGE_KEY_WALLET);
     localStorage.removeItem(STORAGE_KEY_EXP);
   } catch { /* noop */ }
 }
+
+// Legacy alias — some callers may still reference this
+export const clearStoredToken = clearStoredAuth;
