@@ -84,6 +84,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     mapping(address => uint256) public unforwardedBaseRewards; // AUDIT FIX H-02: Track base rewards arriving outside claimAll
     uint256 public totalUnforwardedBase; // SECURITY FIX: Track total unforwarded to cap attribution
     mapping(address => uint256) public pendingUnsettledRewards;
+    uint256 public totalPendingUnsettled; // SECURITY FIX: Track total pending unsettled for recoverStuckPrincipal
 
     // SECURITY FIX #13: Timelock for reward rate changes
     uint256 public constant BONUS_RATE_TIMELOCK = 48 hours;
@@ -498,6 +499,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         uint256 priorPending = pendingUnsettledRewards[msg.sender];
         uint256 totalOwed = userUnsettledDelta + priorPending;
         pendingUnsettledRewards[msg.sender] = 0;
+        // SECURITY FIX: Decrement totalPendingUnsettled by prior amount being rolled into totalOwed
+        if (priorPending > 0) totalPendingUnsettled -= priorPending;
 
         if (totalOwed > 0) {
             uint256 balBeforeUnsettled = rewardToken.balanceOf(address(this));
@@ -511,6 +514,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             uint256 shortfall = totalOwed - userPortion;
             if (shortfall > 0) {
                 pendingUnsettledRewards[msg.sender] = shortfall;
+                // SECURITY FIX: Track new shortfall in totalPendingUnsettled
+                totalPendingUnsettled += shortfall;
             }
             if (userPortion > 0) {
                 rewardToken.safeTransfer(msg.sender, userPortion);
@@ -548,7 +553,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         uint256 available = rewardToken.balanceOf(address(this));
         uint256 payout = owed > available ? available : owed;
         pendingUnsettledRewards[msg.sender] = owed - payout;
+        // SECURITY FIX: Decrement totalPendingUnsettled by the amount paid out
         if (payout > 0) {
+            totalPendingUnsettled -= payout;
             rewardToken.safeTransfer(msg.sender, payout);
             emit UnsettledRecovered(msg.sender, payout);
         }
@@ -624,8 +631,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         require(currentAmount == 0, "POSITION_STILL_ACTIVE");
 
         // Calculate how much rewardToken (TOWELI) this contract has beyond tracked obligations
+        // SECURITY FIX: Include totalPendingUnsettled in reserved amount to protect other users' unclaimed rewards
         uint256 balance = rewardToken.balanceOf(address(this));
-        uint256 reserved = totalUnforwardedBase;
+        uint256 reserved = totalUnforwardedBase + totalPendingUnsettled;
         uint256 recoverable = balance > reserved ? balance - reserved : 0;
 
         // Cap to the user's original position amount (they shouldn't get more than they staked)
@@ -715,6 +723,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         uint256 priorPending = pendingUnsettledRewards[msg.sender];
         uint256 totalOwed = userUnsettledDelta + priorPending;
         pendingUnsettledRewards[msg.sender] = 0;
+        // SECURITY FIX: Decrement totalPendingUnsettled by prior amount being rolled into totalOwed
+        if (priorPending > 0) totalPendingUnsettled -= priorPending;
 
         if (totalOwed > 0) {
             uint256 balBefore = rewardToken.balanceOf(address(this));
@@ -727,6 +737,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             uint256 shortfall = totalOwed - userPortion;
             if (shortfall > 0) {
                 pendingUnsettledRewards[msg.sender] = shortfall;
+                // SECURITY FIX: Track new shortfall in totalPendingUnsettled
+                totalPendingUnsettled += shortfall;
             }
             if (userPortion > 0) {
                 rewardToken.safeTransfer(msg.sender, userPortion);
@@ -937,6 +949,49 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         info.bonusDebt = _safeInt256((newBoostedAmount * accBonusPerShare) / ACC_PRECISION);
 
         emit BoostRevalidated(_user, tokenId, oldBoosted, newBoostedAmount);
+    }
+
+    // ─── SECURITY FIX: Decay Expired Restaker ─────────────────────
+    /// @notice Permissionless: force-refresh a restaker whose staking lock has expired.
+    /// @dev Without this, a restaker whose lock expires continues earning bonus rewards
+    ///      at their full boosted rate because TegridyRestaking's cached `totalRestaked`
+    ///      and per-user `boostedAmount` are never updated when TegridyStaking decays them.
+    ///      This function reads the current position from TegridyStaking (where boostedAmount
+    ///      is decayed to 0 on expiry) and syncs the cached values here.
+    /// @param _restaker The restaker address to decay
+    function decayExpiredRestaker(address _restaker) external nonReentrant updateBonus {
+        RestakeInfo storage info = restakers[_restaker];
+        if (info.tokenId == 0) revert NotRestaked();
+
+        // Read current position from staking contract (where decay has been applied)
+        (, uint256 currentBoosted,,,,,,, ) = staking.positions(info.tokenId);
+
+        // Only proceed if the cached value differs (i.e., decay happened)
+        if (currentBoosted == info.boostedAmount) revert("NO_DECAY");
+
+        // Settle pending bonus on old (stale) boostedAmount before updating
+        uint256 oldBoosted = info.boostedAmount;
+        if (oldBoosted > 0) {
+            int256 accumulated = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
+            int256 diff = accumulated - info.bonusDebt;
+            uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
+            if (bonusPending > 0) {
+                bonusRewardToken.safeTransfer(_restaker, bonusPending);
+                totalBonusDistributed += bonusPending;
+                emit BonusClaimed(_restaker, bonusPending);
+            }
+        }
+
+        // Update cached boostedAmount and totalRestaked
+        info.boostedAmount = currentBoosted;
+        totalRestaked = totalRestaked - oldBoosted + currentBoosted;
+        info.bonusDebt = _safeInt256((currentBoosted * accBonusPerShare) / ACC_PRECISION);
+
+        // Also refresh positionAmount
+        (uint256 currentAmount,,,,,,,,) = staking.positions(info.tokenId);
+        info.positionAmount = currentAmount;
+
+        emit PositionRefreshed(_restaker, info.tokenId, oldBoosted, currentBoosted);
     }
 
     // ─── M-27: Safe Int256 Helper ───────────────────────────────────

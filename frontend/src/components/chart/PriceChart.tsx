@@ -57,6 +57,11 @@ async function fetchOHLCV(tf: Timeframe, signal?: AbortSignal): Promise<Candlest
       const vals = { open: Number(o), high: Number(h), low: Number(l), close: Number(c) };
       const time = Math.floor(Number(ts));
       if (!Number.isFinite(time) || !Number.isFinite(vals.open) || !Number.isFinite(vals.high) || !Number.isFinite(vals.low) || !Number.isFinite(vals.close)) return null;
+      // lightweight-charts throws "Value is null" if OHLC values are 0 or invalid
+      if (vals.open <= 0 || vals.high <= 0 || vals.low <= 0 || vals.close <= 0) return null;
+      // Ensure OHLC ordering: high must be highest, low must be lowest
+      vals.high = Math.max(vals.open, vals.high, vals.low, vals.close);
+      vals.low = Math.min(vals.open, vals.low, vals.high, vals.close);
       return { time: (time as unknown) as Time, ...vals };
     })
     .filter((b): b is CandlestickData<Time> => b !== null);
@@ -187,8 +192,13 @@ function PriceChartInner() {
           return;
         }
         retryCountRef.current = 0;
-        seriesRef.current.setData(bars);
-        chartRef.current?.timeScale().fitContent();
+        try {
+          seriesRef.current.setData(bars);
+          chartRef.current?.timeScale().fitContent();
+        } catch (chartErr) {
+          console.warn('Chart setData error, falling back to embed:', chartErr);
+          setUseEmbed(true);
+        }
         setLoading(false);
       })
       .catch((err) => {

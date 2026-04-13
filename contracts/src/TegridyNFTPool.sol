@@ -422,14 +422,18 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     // ─── IERC721Receiver ────────────────────────────────────────────────
 
     /// @notice Handle ERC-721 safe transfers. Only accepts NFTs from the configured collection.
+    /// SECURITY FIX: Restrict deposits to owner + this contract (during swaps) to prevent
+    /// unsolicited NFT deposits that inflate pool inventory and manipulate pricing.
     function onERC721Received(
-        address,
+        address operator,
         address,
         uint256 tokenId,
         bytes calldata
     ) external override returns (bytes4) {
         // Only accept NFTs from the configured collection
         require(msg.sender == address(nftCollection), "WRONG_COLLECTION");
+        // SECURITY FIX: Only allow deposits from owner (addLiquidity) or self (during swapNFTsForETH)
+        require(operator == owner || operator == address(this), "UNAUTHORIZED_DEPOSIT");
         // Track the token if not already tracked (direct safeTransferFrom)
         if (_idToIndex[tokenId] == 0) {
             _addHeldId(tokenId);

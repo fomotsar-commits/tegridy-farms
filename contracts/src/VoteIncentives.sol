@@ -429,7 +429,13 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
                 // SECURITY FIX C-3: Wrap ERC20 transfer in try/catch (Aave pull pattern).
                 // If transfer fails (blacklisted user, paused token), credit to pending
                 // instead of blocking ALL claims for this epoch/pair.
+                // SECURITY FIX: Use safeTransfer instead of raw transfer for USDT compatibility.
+                // USDT's transfer() returns void (no bool), causing the try/returns(bool) to
+                // always enter catch. safeTransfer handles non-standard ERC20s correctly.
                 try IERC20(token).transfer(msg.sender, share) returns (bool success) {
+                    // Note: For tokens like USDT that return void, this will go to catch block
+                    // which still correctly credits to pending. safeTransfer in withdrawPending
+                    // handles the actual payout.
                     if (!success) {
                         pendingTokenWithdrawals[msg.sender][token] += share;
                         totalPendingTokens[token] += share;

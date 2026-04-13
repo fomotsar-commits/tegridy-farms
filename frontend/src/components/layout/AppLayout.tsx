@@ -7,7 +7,7 @@ import { Background } from './Background';
 import { Footer } from './Footer';
 import { Toaster } from 'sonner';
 import { useState, useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
+
 import { CHAIN_ID } from '../../lib/constants';
 import { AppLoader } from '../loader';
 import { PriceProvider } from '../../contexts/PriceContext';
@@ -107,20 +107,11 @@ export function AppLayout() {
       {/* pb-20 for bottom nav height + safe-area-inset-bottom for notched devices */}
       <div className="min-h-screen relative z-10 pt-14 pb-20 md:pb-0 safe-area-content-bottom">
         <main>
-          <motion.div
-            key={location.pathname}
-            initial={{ opacity: 0, y: isMobile ? 12 : 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{
-              duration: isMobile ? 0.3 : 0.6,
-              delay: isMobile ? 0 : 0.15,
-              ease: [0.25, 0.1, 0.25, 1],
-            }}
-          >
+          <div key={location.pathname}>
             <ErrorBoundary resetKeys={[location.pathname]}>
               <Outlet />
             </ErrorBoundary>
-          </motion.div>
+          </div>
         </main>
         <Footer />
       </div>

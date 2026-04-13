@@ -129,6 +129,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     // AUDIT FIX C-02: Restaking contract change timelock (48h delay)
     address public pendingRestakingContract;
 
+
     // ─── Events ───────────────────────────────────────────────────────
 
     event Staked(address indexed user, uint256 indexed tokenId, uint256 amount, uint256 lockDuration, uint256 boostBps);
@@ -154,6 +155,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     event EmergencyExitRequested(address indexed user, uint256 indexed tokenId, uint256 executeAfter); // AUDIT FIX C-05
     event EmergencyExitCancelled(address indexed user, uint256 indexed tokenId); // AUDIT FIX C-05
     // V2: PenaltyDustReconciled event removed (dead code)
+    event AmountIncreased(uint256 indexed tokenId, uint256 addedAmount, uint256 newTotal);
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -443,6 +445,40 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         emit LockExtended(tokenId, _newLockDuration, p.lockEnd);
     }
 
+    /// @notice Add more TOWELI to an existing staking position without withdrawing.
+    /// @param tokenId The NFT token ID of the staking position
+    /// @param _additionalAmount Amount of TOWELI to add (must be > 0)
+    function increaseAmount(uint256 tokenId, uint256 _additionalAmount) external nonReentrant whenNotPaused updateReward {
+        if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
+        Position storage p = positions[tokenId];
+        if (p.amount == 0) revert NoPosition();
+        if (_additionalAmount == 0) revert ZeroAmount();
+
+        // Claim pending rewards before changing position
+        _getReward(tokenId, p);
+
+        // Decay expired boost before recalculating
+        _decayIfExpired(tokenId, p);
+
+        // Update amounts
+        totalBoostedStake -= p.boostedAmount;
+        totalStaked += _additionalAmount;
+        p.amount += _additionalAmount;
+        p.boostedAmount = (p.amount * uint256(p.boostBps)) / BOOST_PRECISION;
+        totalBoostedStake += p.boostedAmount;
+
+        // Reset reward debt to prevent retroactive rewards
+        p.rewardDebt = _safeInt256((p.boostedAmount * rewardPerTokenStored) / ACC_PRECISION);
+
+        // Transfer tokens
+        rewardToken.safeTransferFrom(msg.sender, address(this), _additionalAmount);
+
+        // Update voting power
+        _writeCheckpoint(msg.sender);
+
+        emit AmountIncreased(tokenId, _additionalAmount, p.amount);
+    }
+
     /// @notice Withdraw after lock expires. No penalty. Burns the position NFT.
     /// @param tokenId The NFT token ID of the staking position to withdraw
     function withdraw(uint256 tokenId) external nonReentrant whenNotPaused updateReward {
@@ -591,8 +627,10 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             if (block.timestamp < positions[tokenId].stakeTimestamp + TRANSFER_COOLDOWN) revert TransferCooldownActive();
             // SECURITY FIX: Rate-limit transfers to prevent rapid-fire reward drain via unsettledRewards
             // (Convex pattern — limits transfer frequency to prevent reward manipulation)
-            // Exempt contracts (e.g. TegridyRestaking) which need to transfer for restake/unrestake
-            if (from.code.length == 0 && to.code.length == 0) {
+            // SECURITY FIX: Only exempt the restaking contract, not all contracts.
+            // Previous check (from.code.length == 0 && to.code.length == 0) exempted ALL contracts,
+            // allowing any proxy contract to bypass rate limiting. Now only restakingContract is exempt.
+            if (from != restakingContract && to != restakingContract) {
                 if (block.timestamp < lastTransferTime[tokenId] + TRANSFER_RATE_LIMIT) revert TransferRateLimited();
             }
             lastTransferTime[tokenId] = block.timestamp;
@@ -1033,10 +1071,11 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     }
 
     // ─── AUDIT FIX M-14: On-chain tokenURI metadata ─────────────────
-    // NOTE: SVG generation removed to reduce contract size below EIP-170 limit.
-    // Full on-chain SVG can be restored by moving tokenURI to an external reader contract.
+    // NOTE: SVG generation in external TegridyTokenURIReader contract.
+    // TegridyStaking is at the EIP-170 size limit — delegation must be added
+    // in a future contract migration or by splitting the staking contract.
 
-    /// @notice Minimal tokenURI — full on-chain SVG metadata in a future reader contract.
+    /// @notice Minimal tokenURI — query TegridyTokenURIReader directly for full SVG metadata.
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
         if (_ownerOf(tokenId) == address(0)) revert InvalidTokenId();
         return "";

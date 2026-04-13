@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {TegridyNFTPool} from "./TegridyNFTPool.sol";
+import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 /// @title TegridyNFTPoolFactory — Deploys and indexes TegridyNFTPool clones
@@ -363,12 +364,13 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     }
 
     /// @notice Withdraw accumulated protocol fees to the protocolFeeRecipient (owner only).
-    /// SECURITY FIX: Added nonReentrant + WETHFallbackLib (caught in re-audit)
+    /// SECURITY FIX: Use WETHFallbackLib to prevent fees getting stuck if recipient can't receive ETH.
+    /// Previously used raw .call{value, gas: 10000} which would revert permanently if recipient
+    /// is a multisig or contract that needs more than 10k gas for receive().
     function withdrawProtocolFees() external onlyOwner nonReentrant {
         uint256 balance = address(this).balance;
         require(balance > 0, "NO_FEES");
-        (bool ok,) = protocolFeeRecipient.call{value: balance, gas: 10000}("");
-        require(ok, "TRANSFER_FAILED");
+        WETHFallbackLib.safeTransferETHOrWrap(weth, protocolFeeRecipient, balance);
     }
 
     /// @notice Accept ETH (protocol fees sent by pools)

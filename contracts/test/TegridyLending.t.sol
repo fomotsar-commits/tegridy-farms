@@ -31,6 +31,19 @@ contract MockJBAC is ERC721 {
     }
 }
 
+/// @dev Minimal WETH mock for testing WETHFallbackLib
+contract MockWETHLending {
+    mapping(address => uint256) public balanceOf;
+    function deposit() external payable { balanceOf[msg.sender] += msg.value; }
+    function transfer(address to, uint256 value) external returns (bool) {
+        require(balanceOf[msg.sender] >= value, "insufficient");
+        balanceOf[msg.sender] -= value;
+        balanceOf[to] += value;
+        return true;
+    }
+    receive() external payable {}
+}
+
 /// @dev Contract that rejects ETH — used to test failed ETH transfers
 contract ETHRejecter {
     receive() external payable {
@@ -43,6 +56,7 @@ contract ETHRejecter {
 contract TegridyLendingTest is Test {
     MockToweli public toweli;
     MockJBAC public jbac;
+    MockWETHLending public weth;
     TegridyStaking public staking;
     TegridyLending public lending;
 
@@ -66,8 +80,9 @@ contract TegridyLendingTest is Test {
             1e18 // rewardRate
         );
 
-        // 3. Deploy TegridyLending (constructor: treasury, protocolFeeBps)
-        lending = new TegridyLending(treasury, 500); // 5% protocol fee
+        // 3. Deploy MockWETH and TegridyLending
+        weth = new MockWETHLending();
+        lending = new TegridyLending(treasury, 500, address(weth)); // 5% protocol fee
 
         // 4. Fund alice with TOWELI and have her stake to get a position NFT
         toweli.transfer(alice, 100_000 ether);
@@ -672,8 +687,10 @@ contract TegridyLendingTest is Test {
     function test_calculateInterest_oneSecond() public view {
         // 1 ether principal, 10% APR, 1 second elapsed
         uint256 interest = lending.calculateInterest(1 ether, 1000, 0, 1);
-        // Expected: 1e18 * 1000 * 1 / 10000 / 31536000 ≈ 3170979198
-        uint256 expected = (1 ether * 1000 * uint256(1)) / 10000 / uint256(365 days);
+        // With ceiling division, result is floor + 1 for non-exact divisions
+        uint256 numerator = 1 ether * 1000 * uint256(1);
+        uint256 denominator = 10000 * uint256(365 days);
+        uint256 expected = (numerator + denominator - 1) / denominator; // ceil div
         assertEq(interest, expected);
         assertGt(interest, 0); // Must be non-zero
     }
@@ -807,7 +824,7 @@ contract TegridyLendingTest is Test {
     // COVERAGE GAP #6: ETH transfer fails in repayLoan
     // ═══════════════════════════════════════════════════════════════════
 
-    function test_repayLoan_revert_lenderRejectsETH() public {
+    function test_repayLoan_lenderRejectsETH_getsWETH() public {
         // Deploy an ETH-rejecting contract as lender
         ETHRejecter rejecter = new ETHRejecter();
         vm.deal(address(rejecter), 10 ether);
@@ -827,13 +844,19 @@ contract TegridyLendingTest is Test {
         uint256 repaymentAmount = lending.getRepaymentAmount(loanId);
         vm.deal(alice, repaymentAmount);
 
-        // Repayment should revert because lender's receive() reverts
+        // Repayment succeeds — lender gets WETH instead of ETH (WETHFallbackLib)
         vm.prank(alice);
-        vm.expectRevert(TegridyLending.ETHTransferFailed.selector);
         lending.repayLoan{value: repaymentAmount}(loanId);
+
+        // Verify loan is repaid
+        (,,,,,,,,bool repaid,) = lending.getLoan(loanId);
+        assertTrue(repaid, "Loan should be repaid even if lender rejects ETH");
+
+        // Lender received WETH instead of raw ETH
+        assertGt(IERC20(address(weth)).balanceOf(address(rejecter)), 0, "Lender should receive WETH");
     }
 
-    function test_cancelOffer_revert_lenderRejectsETH() public {
+    function test_cancelOffer_lenderRejectsETH_getsWETH() public {
         // Deploy an ETH-rejecting contract as lender
         ETHRejecter rejecter = new ETHRejecter();
         vm.deal(address(rejecter), 10 ether);
@@ -844,10 +867,12 @@ contract TegridyLendingTest is Test {
             1000, 30 days, address(staking), 1000 ether
         );
 
-        // Cancel should revert because refund ETH transfer fails
+        // Cancel succeeds — lender gets WETH refund instead of ETH (WETHFallbackLib)
         vm.prank(address(rejecter));
-        vm.expectRevert(TegridyLending.ETHTransferFailed.selector);
         lending.cancelOffer(offerId);
+
+        // Lender received WETH
+        assertEq(IERC20(address(weth)).balanceOf(address(rejecter)), 1 ether, "Lender should receive WETH refund");
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1077,5 +1102,125 @@ contract TegridyLendingTest is Test {
         uint256 expectedFee = (interest * 800) / 10000;
 
         assertEq(treasury.balance - treasuryBefore, expectedFee);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // INTEREST ROUNDING FIX & EDGE CASES
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_interestRoundsUp() public {
+        // Create a very small loan: 0.001 ether principal, 100 bps (1% APR), 1 day duration
+        vm.deal(bob, 10 ether);
+        vm.prank(bob);
+        uint256 offerId = lending.createLoanOffer{value: 0.001 ether}(
+            100,                    // 1% APR
+            1 days,                 // minimum duration
+            address(staking),
+            1000 ether
+        );
+
+        vm.prank(alice);
+        uint256 loanId = lending.acceptOffer(offerId, aliceTokenId);
+
+        // Warp forward 1 day
+        vm.warp(block.timestamp + 1 days);
+
+        // Calculate interest — with ceilDiv, even tiny amounts should round up to > 0
+        uint256 interest = lending.calculateInterest(0.001 ether, 100, block.timestamp - 1 days, block.timestamp);
+        assertGt(interest, 0, "Interest must be > 0 even for tiny loan amounts (rounds up)");
+
+        // Verify via the loan's repayment amount (should exceed principal)
+        uint256 repaymentAmount = lending.getRepaymentAmount(loanId);
+        assertGt(repaymentAmount, 0.001 ether, "Repayment must exceed principal");
+    }
+
+    function test_maxPrincipalOffer() public {
+        // Exactly MAX_PRINCIPAL (1000 ether) should succeed
+        vm.deal(bob, 2002 ether);
+        vm.prank(bob);
+        uint256 offerId = lending.createLoanOffer{value: 1000 ether}(
+            1000, 30 days, address(staking), 1000 ether
+        );
+        (,uint256 principal,,,,,) = lending.getOffer(offerId);
+        assertEq(principal, 1000 ether);
+
+        // 1001 ether should revert
+        vm.prank(bob);
+        vm.expectRevert(TegridyLending.PrincipalTooLarge.selector);
+        lending.createLoanOffer{value: 1001 ether}(
+            1000, 30 days, address(staking), 1000 ether
+        );
+    }
+
+    function test_maxAPROffer() public {
+        // Exactly MAX_APR_BPS (50000 = 500%) should succeed
+        vm.prank(bob);
+        uint256 offerId = lending.createLoanOffer{value: 1 ether}(
+            50000,                  // exactly MAX_APR_BPS
+            30 days,
+            address(staking),
+            1000 ether
+        );
+        (,,uint256 aprBps,,,,) = lending.getOffer(offerId);
+        assertEq(aprBps, 50000);
+
+        // 50001 should revert
+        vm.prank(bob);
+        vm.expectRevert(TegridyLending.AprTooHigh.selector);
+        lending.createLoanOffer{value: 1 ether}(
+            50001, 30 days, address(staking), 1000 ether
+        );
+    }
+
+    function test_repaymentBeforeMinDuration() public {
+        // Create and accept an offer
+        uint256 offerId = _createDefaultOffer();
+
+        vm.startPrank(alice);
+        uint256 loanId = lending.acceptOffer(offerId, aliceTokenId);
+
+        // Try to repay in the same block (same timestamp) — must revert
+        vm.deal(alice, 2 ether);
+        vm.expectRevert(TegridyLending.LoanTooRecent.selector);
+        lending.repayLoan{value: 2 ether}(loanId);
+        vm.stopPrank();
+    }
+
+    function test_cannotClaimBeforeDeadline() public {
+        uint256 offerId = _createDefaultOffer();
+
+        vm.prank(alice);
+        uint256 loanId = lending.acceptOffer(offerId, aliceTokenId);
+
+        // Record the deadline from the loan struct
+        (,,,,,,, uint256 deadline,,) = lending.getLoan(loanId);
+
+        // Warp to 1 second before the deadline
+        vm.warp(deadline - 1);
+
+        // Attempt to claim default — should revert (deadline not yet passed)
+        vm.prank(bob);
+        vm.expectRevert(TegridyLending.LoanNotDefaulted.selector);
+        lending.claimDefaultedCollateral(loanId);
+
+        // Warp to exactly the deadline — still should revert (requires > deadline)
+        vm.warp(deadline);
+
+        vm.prank(bob);
+        vm.expectRevert(TegridyLending.LoanNotDefaulted.selector);
+        lending.claimDefaultedCollateral(loanId);
+
+        // Warp 1 second past the deadline — should succeed
+        vm.warp(deadline + 1);
+
+        vm.prank(bob);
+        lending.claimDefaultedCollateral(loanId);
+
+        // Verify lender received the NFT
+        assertEq(staking.ownerOf(aliceTokenId), bob);
+
+        // Verify loan marked as default claimed
+        (,,,,,,,,,bool defaultClaimed) = lending.getLoan(loanId);
+        assertTrue(defaultClaimed);
     }
 }

@@ -1,12 +1,10 @@
 /**
- * WARNING: OPEN RLS POLICIES — REVIEW BEFORE PRODUCTION
+ * SIWE-VERIFIED RLS POLICIES
  *
- * TODO(security): The messages table INSERT policy uses `WITH CHECK (true)` with
- * only length constraints. While the UPDATE policy is locked (`USING (false)`),
- * any anonymous client can insert messages as any `author` address without
- * cryptographic verification. For production, require an EIP-4361 (SIWE)
- * signature verified server-side before allowing inserts, and bind the `author`
- * field to the verified wallet address.
+ * The messages table INSERT policy now requires SIWE JWT verification.
+ * The `author` field must match the `wallet` claim in the JWT issued by
+ * /api/auth/siwe. See supabase/migrations/001_siwe_auth_rls.sql for the
+ * secure policy definitions that replace the old open `WITH CHECK (true)` policies.
  *
  * Supabase chat backend with localStorage fallback.
  *
@@ -49,15 +47,10 @@
  *   -- Anyone can read messages
  *   CREATE POLICY "Anyone can read" ON messages FOR SELECT USING (true);
  *
- *   -- Anyone can insert (author is stored but not auth-verified; see SIWE note below)
- *   -- TODO(security): Replace with SIWE-verified JWT check:
- *   --   CREATE POLICY "Verified can insert" ON messages FOR INSERT WITH CHECK (
- *   --     author = current_setting('request.jwt.claims', true)::json->>'wallet'
- *   --     AND char_length(text) <= 280 AND char_length(slug) <= 64
- *   --   );
- *   CREATE POLICY "Anyone can insert" ON messages FOR INSERT WITH CHECK (
- *     char_length(text) <= 280 AND char_length(author) <= 42
- *     AND char_length(slug) <= 64
+ *   -- SIWE-verified insert (see supabase/migrations/001_siwe_auth_rls.sql)
+ *   CREATE POLICY "Verified can insert" ON messages FOR INSERT WITH CHECK (
+ *     author = lower(current_setting('request.jwt.claims', true)::json->>'wallet')
+ *     AND char_length(text) <= 280 AND char_length(slug) <= 64
  *   );
  *
  *   -- Updates restricted to the likes column only

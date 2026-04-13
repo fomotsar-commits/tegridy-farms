@@ -4,16 +4,17 @@ out = "out"
 libs = ["lib"]
 solc = "0.8.26"
 optimizer = true
-optimizer_runs = 100 # Reduced from 200 to fit TegridyStaking under 24KB EIP-170 limit
-# AUDIT #91: via_ir=false may compile significantly faster and should be tested.
-# Only enable via_ir when needed for deep stack or complex optimizations.
+optimizer_runs = 10 # Minimized to fit TegridyStaking + increaseAmount() under 24KB
+# AUDIT #91: via_ir required for SwapFeeRouter (stack too deep without it)
 via_ir = true
 # NOTE: cancun is required by OpenZeppelin v5.6.1 (uses mcopy opcode).
 # For L2 deployment (Arbitrum, Optimism), compile with cancun but verify L2 opcode support.
 # PUSH0 (shanghai+) is now supported on major L2s as of 2025.
 evm_version = "cancun"
-# Ignore code size limit for testnet deployments (TegridyStaking is slightly over 24KB)
-code_size_limit = 50000
+# WARNING: EIP-170 mainnet limit is 24576 bytes. This override MASKS deployment failures.
+# If TegridyStaking exceeds 24KB, it will compile but FAIL to deploy on mainnet.
+# TODO: Split TegridyStaking or reduce size to fit within 24576 bytes.
+code_size_limit = 24576
 
 remappings = [
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",

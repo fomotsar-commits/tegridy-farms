@@ -108,3 +108,42 @@ BEGIN
   RETURN result;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ── 8. Trade Offers Table (SECURITY FIX: Missing from original migration) ──
+-- Without RLS, any anonymous client can modify any trade's status, forge trade
+-- offers from other wallets, or delete trades.
+ALTER TABLE trade_offers ENABLE ROW LEVEL SECURITY;
+
+-- Anyone can read trade offers (needed for marketplace display)
+DROP POLICY IF EXISTS "Anyone can read trades" ON trade_offers;
+CREATE POLICY "Anyone can read trades" ON trade_offers
+  FOR SELECT USING (true);
+
+-- Only the sender can create trade offers (verified via JWT wallet)
+DROP POLICY IF EXISTS "Owner can insert trades" ON trade_offers;
+CREATE POLICY "Owner can insert trades" ON trade_offers
+  FOR INSERT WITH CHECK (
+    from_wallet = lower(current_setting('request.jwt.claims', true)::json->>'wallet')
+  );
+
+-- Only trade participants can update status (accept/decline/cancel)
+DROP POLICY IF EXISTS "Participants can update trades" ON trade_offers;
+CREATE POLICY "Participants can update trades" ON trade_offers
+  FOR UPDATE USING (
+    from_wallet = lower(current_setting('request.jwt.claims', true)::json->>'wallet')
+    OR to_wallet = lower(current_setting('request.jwt.claims', true)::json->>'wallet')
+  );
+
+-- ── 9. Push Subscriptions Table (SECURITY FIX: Missing from original migration) ──
+-- Without RLS, any anonymous client can read ALL push subscription endpoints/keys,
+-- delete other users' subscriptions, or inject fake subscription data.
+ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+
+-- Users can only manage their own push subscriptions
+DROP POLICY IF EXISTS "Owner can manage own subs" ON push_subscriptions;
+CREATE POLICY "Owner can manage own subs" ON push_subscriptions
+  FOR ALL USING (
+    wallet = lower(current_setting('request.jwt.claims', true)::json->>'wallet')
+  ) WITH CHECK (
+    wallet = lower(current_setting('request.jwt.claims', true)::json->>'wallet')
+  );

@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
+import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
 
 /// @dev Minimal interface for TegridyStaking NFT position queries and transfers.
 interface ITegridyStaking {
@@ -53,6 +54,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     uint256 public constant MAX_PROTOCOL_FEE_BPS = 1000; // 10%
     uint256 public constant BPS = 10000;
     uint256 public constant SECONDS_PER_YEAR = 365 days;
+
+    // ─── WETH Fallback ──────────────────────────────────────────────
+    address public immutable weth; // WETH for fallback payout to revert-on-receive lenders
 
     // ─── Timelock Delays ─────────────────────────────────────────────
     uint256 public constant PROTOCOL_FEE_TIMELOCK = 48 hours;
@@ -175,15 +179,19 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @notice Deploy the lending protocol.
     /// @param _treasury Address to receive protocol fees
     /// @param _protocolFeeBps Initial protocol fee in basis points (applied to interest)
+    /// @param _weth Canonical WETH address (e.g., 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 on mainnet)
     constructor(
         address _treasury,
-        uint256 _protocolFeeBps
+        uint256 _protocolFeeBps,
+        address _weth
     ) OwnableNoRenounce(msg.sender) {
         if (_treasury == address(0)) revert ZeroAddress();
+        if (_weth == address(0)) revert ZeroAddress();
         if (_protocolFeeBps > MAX_PROTOCOL_FEE_BPS) revert FeeTooHigh();
 
         treasury = _treasury;
         protocolFeeBps = _protocolFeeBps;
+        weth = _weth;
     }
 
     // ─── Loan Offers ─────────────────────────────────────────────────
@@ -242,8 +250,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         offer.active = false;
         uint256 refundAmount = offer.principal;
 
-        (bool success,) = msg.sender.call{value: refundAmount}("");
-        if (!success) revert ETHTransferFailed();
+        // SECURITY FIX: Use WETHFallbackLib to prevent DoS if lender is a contract that reverts on receive
+        WETHFallbackLib.safeTransferETHOrWrap(weth, msg.sender, refundAmount);
 
         emit LoanOfferCancelled(_offerId, msg.sender);
     }
@@ -264,15 +272,25 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
         if (!offer.active) revert OfferNotActive();
 
+        // GAS: Cache storage reads into local variables
+        uint256 principal = offer.principal;
+        uint256 aprBps = offer.aprBps;
+        address lender = offer.lender;
+        uint256 duration = offer.duration;
+        address collateralContract = offer.collateralContract;
+        uint256 minPositionValue = offer.minPositionValue;
+
         // Validate collateral: check position value meets minimum
-        ITegridyStaking staking = ITegridyStaking(offer.collateralContract);
+        ITegridyStaking staking = ITegridyStaking(collateralContract);
         (uint256 positionAmount,, uint256 lockEnd,,,) = staking.getPosition(_tokenId);
-        if (positionAmount < offer.minPositionValue) revert InsufficientCollateralValue();
+        if (positionAmount < minPositionValue) revert InsufficientCollateralValue();
 
         // Ensure position lock doesn't expire before loan deadline
         // Prevents lender from receiving worthless unlocked collateral on default
-        uint256 deadline = block.timestamp + offer.duration;
-        if (lockEnd > 0 && lockEnd < deadline) revert LockExpiresBeforeDeadline();
+        // SECURITY FIX: Also reject lockEnd == 0 (unlocked positions) — an unlocked position
+        // could have its underlying tokens withdrawn, leaving the collateral worthless.
+        uint256 deadline = block.timestamp + duration;
+        if (lockEnd == 0 || lockEnd < deadline) revert LockExpiresBeforeDeadline();
 
         // Verify borrower owns the NFT
         if (staking.ownerOf(_tokenId) != msg.sender) revert NotNFTOwner();
@@ -283,11 +301,11 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         loanId = loans.length;
         loans.push(Loan({
             borrower: msg.sender,
-            lender: offer.lender,
+            lender: lender,
             offerId: _offerId,
             tokenId: _tokenId,
-            principal: offer.principal,
-            aprBps: offer.aprBps,
+            principal: principal,
+            aprBps: aprBps,
             startTime: block.timestamp,
             deadline: deadline,
             repaid: false,
@@ -298,16 +316,16 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         staking.transferFrom(msg.sender, address(this), _tokenId);
 
         // Send principal ETH to borrower
-        (bool success,) = msg.sender.call{value: offer.principal}("");
+        (bool success,) = msg.sender.call{value: principal}("");
         if (!success) revert ETHTransferFailed();
 
         emit LoanAccepted(
             loanId,
             _offerId,
             msg.sender,
-            offer.lender,
+            lender,
             _tokenId,
-            offer.principal,
+            principal,
             deadline
         );
     }
@@ -316,57 +334,75 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
     /// @notice Repay a loan. Borrower sends principal + interest.
     ///         NFT is returned to borrower. Interest goes to lender (minus protocol fee).
+    ///         SECURITY FIX: Callable even when paused — prevents forced defaults during pause.
+    ///         If repayLoan were paused, deadlines would still expire, letting lenders claim
+    ///         collateral on loans that borrowers intended to repay (griefing vector).
     /// @param _loanId The ID of the loan to repay
-    function repayLoan(uint256 _loanId) external payable nonReentrant whenNotPaused {
+    function repayLoan(uint256 _loanId) external payable nonReentrant {
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan storage loan = loans[_loanId];
 
         if (loan.repaid) revert LoanAlreadyRepaid();
         if (loan.defaultClaimed) revert LoanAlreadyDefaultClaimed();
-        if (msg.sender != loan.borrower) revert NotBorrower();
+
+        // GAS: Cache storage reads into local variables
+        address borrower = loan.borrower;
+        address lender = loan.lender;
+        uint256 principal = loan.principal;
+        uint256 aprBps = loan.aprBps;
+        uint256 startTime = loan.startTime;
+        uint256 tokenId = loan.tokenId;
+        uint256 offerId = loan.offerId;
+
+        if (msg.sender != borrower) revert NotBorrower();
         // Prevent same-block zero-interest repayment
-        if (block.timestamp == loan.startTime) revert LoanTooRecent();
+        if (block.timestamp == startTime) revert LoanTooRecent();
 
         uint256 interest = calculateInterest(
-            loan.principal,
-            loan.aprBps,
-            loan.startTime,
+            principal,
+            aprBps,
+            startTime,
             block.timestamp
         );
-        uint256 totalRepayment = loan.principal + interest;
+        uint256 totalRepayment = principal + interest;
         if (msg.value < totalRepayment) revert InsufficientRepayment();
 
         // CEI: state change before external calls
         loan.repaid = true;
 
+        // SECURITY FIX: Enforce deadline — borrower cannot repay after deadline.
+        // Without this check, a borrower could front-run a lender's claimDefaultedCollateral()
+        // after deadline, stealing their rightful default claim. This makes default deterministic.
+        if (block.timestamp > loan.deadline) revert LoanNotDefaulted();
+
         // Calculate protocol fee on interest
         uint256 fee = (interest * protocolFeeBps) / BPS;
-        uint256 lenderAmount = loan.principal + interest - fee;
+        uint256 lenderAmount = principal + interest - fee;
 
         // Return NFT to borrower
         ITegridyStaking staking = ITegridyStaking(
-            offers[loan.offerId].collateralContract
+            offers[offerId].collateralContract
         );
-        staking.transferFrom(address(this), loan.borrower, loan.tokenId);
+        staking.transferFrom(address(this), borrower, tokenId);
 
-        // Send funds to lender (principal + interest - fee)
-        (bool lenderSuccess,) = loan.lender.call{value: lenderAmount}("");
-        if (!lenderSuccess) revert ETHTransferFailed();
+        // SECURITY FIX: Use WETHFallbackLib to prevent DoS by revert-on-receive lender contracts.
+        // A malicious lender could deploy a contract that reverts on ETH receive, permanently blocking
+        // repayment and stealing the NFT collateral via claimDefaultedCollateral(). With WETH fallback,
+        // if the raw ETH send fails, funds are wrapped as WETH and sent as ERC-20 instead.
+        WETHFallbackLib.safeTransferETHOrWrap(weth, lender, lenderAmount);
 
-        // Send protocol fee to treasury
+        // Send protocol fee to treasury (also uses WETH fallback for robustness)
         if (fee > 0) {
-            (bool feeSuccess,) = treasury.call{value: fee}("");
-            if (!feeSuccess) revert ETHTransferFailed();
+            WETHFallbackLib.safeTransferETHOrWrap(weth, treasury, fee);
         }
 
-        // Refund overpayment
+        // Refund overpayment to borrower (borrower is msg.sender, use plain transfer)
         uint256 overpayment = msg.value - totalRepayment;
         if (overpayment > 0) {
-            (bool refundSuccess,) = msg.sender.call{value: overpayment}("");
-            if (!refundSuccess) revert ETHTransferFailed();
+            WETHFallbackLib.safeTransferETH(msg.sender, overpayment);
         }
 
-        emit LoanRepaid(_loanId, loan.borrower, loan.principal, interest, fee);
+        emit LoanRepaid(_loanId, borrower, principal, interest, fee);
     }
 
     // ─── Default ─────────────────────────────────────────────────────
@@ -379,7 +415,13 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
         if (loan.repaid) revert LoanAlreadyRepaid();
         if (loan.defaultClaimed) revert LoanAlreadyDefaultClaimed();
-        if (msg.sender != loan.lender) revert NotLoanLender();
+
+        // GAS: Cache storage reads into local variables
+        address lender = loan.lender;
+        uint256 tokenId = loan.tokenId;
+        uint256 offerId = loan.offerId;
+
+        if (msg.sender != lender) revert NotLoanLender();
         if (block.timestamp <= loan.deadline) revert LoanNotDefaulted();
 
         // CEI: state change before external call
@@ -387,11 +429,11 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
         // Transfer NFT to lender
         ITegridyStaking staking = ITegridyStaking(
-            offers[loan.offerId].collateralContract
+            offers[offerId].collateralContract
         );
-        staking.transferFrom(address(this), loan.lender, loan.tokenId);
+        staking.transferFrom(address(this), lender, tokenId);
 
-        emit DefaultClaimed(_loanId, loan.lender, loan.tokenId);
+        emit DefaultClaimed(_loanId, lender, tokenId);
     }
 
     // ─── View Functions ──────────────────────────────────────────────
@@ -448,7 +490,7 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         return (l.borrower, l.lender, l.offerId, l.tokenId, l.principal, l.aprBps, l.startTime, l.deadline, l.repaid, l.defaultClaimed);
     }
 
-    /// @notice Calculate pro-rata interest accrued.
+    /// @notice Calculate pro-rata interest accrued (rounds up to protect protocol).
     /// @param _principal The loan principal
     /// @param _aprBps The annual percentage rate in basis points
     /// @param _startTime The loan start time
@@ -462,7 +504,12 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ) public pure returns (uint256 interest) {
         if (_currentTime <= _startTime) return 0;
         uint256 elapsed = _currentTime - _startTime;
-        interest = (_principal * _aprBps * elapsed) / BPS / SECONDS_PER_YEAR;
+        interest = _ceilDiv(_principal * _aprBps * elapsed, BPS * SECONDS_PER_YEAR);
+    }
+
+    /// @dev Ceiling division: returns ceil(a / b) for positive a, b.
+    function _ceilDiv(uint256 a, uint256 b) private pure returns (uint256) {
+        return (a + b - 1) / b;
     }
 
     /// @notice Get the total repayment amount for a loan at the current time.

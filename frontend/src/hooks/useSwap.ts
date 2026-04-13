@@ -44,9 +44,12 @@ export function useSwap() {
   const [toToken, setToToken] = useState<TokenInfo | null>(null);
   const [inputAmount, setInputAmount] = useState('');
   const [slippageRaw, setSlippageRaw] = useState(1.0);
-  const slippage = Math.min(Math.max(slippageRaw, 0), 49);
+  // SECURITY FIX: Reduced max slippage from 49% to 20%.
+  // 49% slippage allows users to lose nearly half their swap value to MEV/sandwich attacks.
+  // 20% is already very generous — most swaps should use 0.5-5%.
+  const slippage = Math.min(Math.max(slippageRaw, 0), 20);
   const setSlippage = useCallback((val: number) => {
-    setSlippageRaw(Math.min(Math.max(val, 0), 49));
+    setSlippageRaw(Math.min(Math.max(val, 0), 20));
   }, []);
   const [deadline, setDeadline] = useState(5);
   const [customTokens, setCustomTokens] = useState<TokenInfo[]>(() => {

@@ -244,10 +244,11 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
         totalSupply += quantity;
         mintedPerWallet[msg.sender] += quantity;
 
-        // Refund overpayment
+        // SECURITY FIX: Use WETHFallbackLib for refund instead of full-gas .call{value}.
+        // Full-gas call allows recipient to execute arbitrary code during callback.
+        // WETHFallbackLib uses 10k gas stipend to prevent cross-contract reentrancy.
         if (msg.value > totalCost) {
-            (bool refunded,) = payable(msg.sender).call{value: msg.value - totalCost}("");
-            if (!refunded) revert WithdrawFailed();
+            WETHFallbackLib.safeTransferETHOrWrap(weth, msg.sender, msg.value - totalCost);
         }
 
         emit Minted(msg.sender, startId, quantity, totalCost);

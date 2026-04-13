@@ -142,10 +142,9 @@ export default function HistoryPage() {
       TOWELI_ADDRESS, VOTE_INCENTIVES_ADDRESS,
     ].map(a => a.toLowerCase());
 
-    // Etherscan free-tier API key via VITE_ env var — intentionally public/client-side.
-    // This key is rate-limited (5 req/s) and carries no privileged access.
-    const etherscanKey = import.meta.env.VITE_ETHERSCAN_API_KEY || '';
-    fetch(`https://api.etherscan.io/api?module=account&action=txlist&address=${addr}&startblock=0&endblock=99999999&sort=desc&apikey=${etherscanKey}`, { signal })
+    // SECURITY FIX: Route Etherscan calls through server-side proxy to keep API key hidden.
+    // Previously used VITE_ETHERSCAN_API_KEY which was exposed in client-side bundle.
+    fetch(`/api/etherscan?module=account&action=txlist&address=${addr}&startblock=0&endblock=99999999&sort=desc`, { signal })
       .then(r => r.json())
       .then(data => {
         if (signal.aborted) return;

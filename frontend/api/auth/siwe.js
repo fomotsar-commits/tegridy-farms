@@ -49,7 +49,10 @@ function setCors(req, res) {
  * same-site navigations to send the cookie automatically.
  */
 function buildAuthCookie(token, maxAgeSeconds) {
-  const isProduction = process.env.NODE_ENV === "production";
+  // SECURITY FIX: Default to Secure=true, only disable for explicit localhost development.
+  // Previously relied on NODE_ENV=production which could be misconfigured on the deployment
+  // platform, causing the JWT cookie to be sent over plain HTTP (MITM risk).
+  const isLocalDev = process.env.DISABLE_SECURE_COOKIE === "true";
   const parts = [
     `siwe_jwt=${token}`,
     `HttpOnly`,
@@ -57,12 +60,12 @@ function buildAuthCookie(token, maxAgeSeconds) {
     `Max-Age=${maxAgeSeconds}`,
     `SameSite=Lax`,
   ];
-  if (isProduction) parts.push("Secure");
+  if (!isLocalDev) parts.push("Secure");
   return parts.join("; ");
 }
 
 function buildClearAuthCookie() {
-  const isProduction = process.env.NODE_ENV === "production";
+  const isLocalDev = process.env.DISABLE_SECURE_COOKIE === "true";
   const parts = [
     `siwe_jwt=`,
     `HttpOnly`,
@@ -70,7 +73,7 @@ function buildClearAuthCookie() {
     `Max-Age=0`,
     `SameSite=Lax`,
   ];
-  if (isProduction) parts.push("Secure");
+  if (!isLocalDev) parts.push("Secure");
   return parts.join("; ");
 }
 

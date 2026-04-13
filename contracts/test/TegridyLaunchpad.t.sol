@@ -16,6 +16,7 @@ contract TegridyLaunchpadTest is Test {
     address public alice = makeAddr("alice");
     address public bob = makeAddr("bob");
     address public carol = makeAddr("carol");
+    address public weth = makeAddr("weth");
 
     uint16 public constant PROTOCOL_FEE_BPS = 500; // 5%
     uint256 public constant MINT_PRICE = 0.05 ether;
@@ -24,7 +25,7 @@ contract TegridyLaunchpadTest is Test {
     uint16 public constant ROYALTY_BPS = 750; // 7.5%
 
     function setUp() public {
-        launchpad = new TegridyLaunchpad(admin, PROTOCOL_FEE_BPS, platform);
+        launchpad = new TegridyLaunchpad(admin, PROTOCOL_FEE_BPS, platform, weth);
 
         vm.deal(creator, 100 ether);
         vm.deal(alice, 100 ether);
@@ -560,5 +561,80 @@ contract TegridyLaunchpadTest is Test {
         vm.prank(alice);
         vm.expectRevert(TegridyDrop.ZeroQuantity.selector);
         drop.mint{value: 0}(0, emptyProof);
+    }
+
+    // ===== INPUT VALIDATION EDGE CASES =====
+
+    function test_createCollectionEmptyNameReverts() public {
+        vm.prank(creator);
+        vm.expectRevert("Empty name");
+        launchpad.createCollection("", "TDROP", MAX_SUPPLY, MINT_PRICE, MAX_PER_WALLET, ROYALTY_BPS);
+    }
+
+    function test_createCollectionEmptySymbolReverts() public {
+        vm.prank(creator);
+        vm.expectRevert("Empty symbol");
+        launchpad.createCollection("TestDrop", "", MAX_SUPPLY, MINT_PRICE, MAX_PER_WALLET, ROYALTY_BPS);
+    }
+
+    function test_createCollectionMaxSupplyTooLargeReverts() public {
+        vm.prank(creator);
+        vm.expectRevert("Max supply too large");
+        launchpad.createCollection("TestDrop", "TDROP", 100_001, MINT_PRICE, MAX_PER_WALLET, ROYALTY_BPS);
+    }
+
+    function test_createCollectionMintPriceTooHighReverts() public {
+        vm.prank(creator);
+        vm.expectRevert("Mint price too high");
+        launchpad.createCollection("TestDrop", "TDROP", MAX_SUPPLY, 101 ether, MAX_PER_WALLET, ROYALTY_BPS);
+    }
+
+    // ===== DUTCH AUCTION: CANNOT MINT BEFORE START =====
+
+    function test_dutchAuctionCannotMintBeforeStart() public {
+        (, address collection) = _createDefaultCollection();
+        TegridyDrop drop = TegridyDrop(collection);
+
+        uint256 startPrice = 1 ether;
+        uint256 endPrice = 0.1 ether;
+        uint256 startTime = block.timestamp + 1000;
+        uint256 duration = 2000;
+
+        vm.startPrank(creator);
+        drop.configureDutchAuction(startPrice, endPrice, startTime, duration);
+        drop.setMintPhase(TegridyDrop.MintPhase.DUTCH_AUCTION);
+        vm.stopPrank();
+
+        // Attempt to mint before the auction start time
+        vm.warp(startTime - 1);
+        bytes32[] memory emptyProof = new bytes32[](0);
+
+        vm.prank(alice);
+        vm.expectRevert(TegridyDrop.DutchAuctionNotActive.selector);
+        drop.mint{value: startPrice}(1, emptyProof);
+    }
+
+    // ===== TWO-STEP OWNERSHIP =====
+
+    function test_twoStepOwnership() public {
+        (, address collection) = _createDefaultCollection();
+        TegridyDrop drop = TegridyDrop(collection);
+
+        address newOwner = bob;
+
+        // Step 1: creator initiates transfer — owner should NOT change yet
+        vm.prank(creator);
+        drop.transferOwnership(newOwner);
+        assertEq(drop.owner(), creator);
+
+        // Step 2: new owner accepts — ownership transfers
+        vm.prank(newOwner);
+        drop.acceptOwnership();
+        assertEq(drop.owner(), newOwner);
+
+        // Verify renounceOwnership is disabled
+        vm.prank(newOwner);
+        vm.expectRevert("RENOUNCE_DISABLED");
+        drop.renounceOwnership();
     }
 }

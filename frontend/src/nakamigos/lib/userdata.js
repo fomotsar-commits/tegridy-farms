@@ -1,14 +1,10 @@
 /**
- * WARNING: OPEN RLS POLICIES — MUST FIX BEFORE PRODUCTION
+ * SIWE-VERIFIED RLS POLICIES
  *
- * TODO(security): The Supabase RLS policies below use `WITH CHECK (true)` and
- * `USING (true)` on INSERT/UPDATE/DELETE, meaning ANY anonymous client can
- * write/modify/delete ANY row in user_profiles, user_favorites, user_watchlist,
- * and votes. This must be fixed in the Supabase dashboard SQL editor:
- *   - INSERT/UPDATE/DELETE policies should verify that the `wallet` column
- *     matches the authenticated user (e.g., via a SIWE-verified JWT or
- *     a server-side signature check before writing).
- *   - At minimum, restrict DELETE/UPDATE to rows WHERE wallet = requesting_wallet.
+ * All user data tables (user_profiles, user_favorites, user_watchlist, votes)
+ * now use JWT-verified RLS policies that check the `wallet` claim from the
+ * SIWE-issued JWT. See supabase/migrations/001_siwe_auth_rls.sql for the
+ * secure policy definitions.
  *
  * Supabase-backed user data persistence with localStorage fallback.
  * Handles favorites, watchlist, and profiles across devices.
