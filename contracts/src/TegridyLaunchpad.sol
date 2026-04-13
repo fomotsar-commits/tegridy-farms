@@ -210,14 +210,17 @@ contract TegridyLaunchpad is OwnableNoRenounce, Pausable, TimelockAdmin {
         if (newRecipient == address(0)) revert ZeroAddress();
         pendingProtocolFeeRecipient = newRecipient;
         _propose(FEE_RECIPIENT_CHANGE, FEE_CHANGE_DELAY);
-        emit ProtocolFeeRecipientChanged(protocolFeeRecipient, newRecipient);
+        // SECURITY FIX: Emit proposal event, not changed event (caught in re-audit)
+        emit ProtocolFeeProposed(protocolFeeBps, _executeAfter[FEE_RECIPIENT_CHANGE]);
     }
 
     /// @notice Execute a previously proposed fee recipient change after timelock
     function executeProtocolFeeRecipient() external onlyOwner {
         _execute(FEE_RECIPIENT_CHANGE);
+        address old = protocolFeeRecipient;
         protocolFeeRecipient = pendingProtocolFeeRecipient;
         pendingProtocolFeeRecipient = address(0);
+        emit ProtocolFeeRecipientChanged(old, protocolFeeRecipient);
     }
 
     /// @notice Cancel a pending fee recipient change

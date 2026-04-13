@@ -269,9 +269,9 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
             nftCollection.safeTransferFrom(address(this), msg.sender, tokenId);
         }
 
-        // Withdraw ETH
+        // Withdraw ETH — SECURITY FIX: exclude protocol fees from available balance (caught in re-audit)
         if (ethAmount > 0) {
-            require(address(this).balance >= ethAmount, "INSUFFICIENT_ETH");
+            require(address(this).balance - accumulatedProtocolFees >= ethAmount, "INSUFFICIENT_ETH");
             _sendETH(msg.sender, ethAmount);
         }
 

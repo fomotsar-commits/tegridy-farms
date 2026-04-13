@@ -362,10 +362,11 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin {
     }
 
     /// @notice Withdraw accumulated protocol fees to the protocolFeeRecipient (owner only).
+    /// SECURITY FIX: Added nonReentrant + WETHFallbackLib (caught in re-audit)
     function withdrawProtocolFees() external onlyOwner {
         uint256 balance = address(this).balance;
         require(balance > 0, "NO_FEES");
-        (bool ok,) = protocolFeeRecipient.call{value: balance}("");
+        (bool ok,) = protocolFeeRecipient.call{value: balance, gas: 10000}("");
         require(ok, "TRANSFER_FAILED");
     }
 
