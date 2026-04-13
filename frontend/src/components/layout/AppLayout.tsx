@@ -75,7 +75,6 @@ export function AppLayout() {
   const { chain, isConnected } = useAccount();
   const { switchChain } = useSwitchChain();
   const wrongNetwork = isConnected && chain && chain.id !== CHAIN_ID;
-  const isMobile = useIsMobile();
 
   return (
     <AppLoader>
