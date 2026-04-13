@@ -49,7 +49,10 @@ function MobileGlitchTransition({ config }: { config: GlitchConfig }) {
   const rafRef = useRef<number>(0);
   const startRef = useRef<number>(0);
   const imagesRef = useRef<HTMLImageElement[]>([]);
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState(() => {
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return true;
+    return false;
+  });
   const skippedRef = useRef(false);
   const seedRef = useRef(Math.floor(Math.random() * 99999));
   const subliminalWord = useRef(
@@ -58,19 +61,26 @@ function MobileGlitchTransition({ config }: { config: GlitchConfig }) {
 
   // Preload 3 random art images
   useEffect(() => {
+    let cancelled = false;
     const shuffled = [...ART_IMAGES].sort(() => Math.random() - 0.5);
     const toLoad = shuffled.slice(0, 3);
-    let loaded = 0;
+    const images: HTMLImageElement[] = [];
     toLoad.forEach((src) => {
       const img = new Image();
+      images.push(img);
       img.crossOrigin = 'anonymous';
       img.onload = () => {
-        loaded++;
-        imagesRef.current.push(img);
+        if (!cancelled) imagesRef.current.push(img);
       };
-      img.onerror = () => { loaded++; };
+      img.onerror = () => { /* no-op */ };
       img.src = src;
     });
+    return () => {
+      cancelled = true;
+      // Abort any in-flight loads and release references
+      images.forEach((img) => { img.onload = null; img.onerror = null; img.src = ''; });
+      imagesRef.current = [];
+    };
   }, []);
 
   useEffect(() => {
@@ -603,13 +613,14 @@ function NoiseCanvas({ config, phase }: { config: GlitchConfig; phase: 'active' 
 }
 
 function DesktopGlitchTransition({ config }: { config: GlitchConfig }) {
+  const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const seed = useState(() => Math.floor(Math.random() * 2147483646))[0];
   const rand = seededRandom(seed);
 
   const [slices] = useState(() => generateSlices(config, rand));
   const [hLines] = useState(() => generateHLines(config, rand));
   const [subliminal] = useState(() => generateSubliminal(config, rand));
-  const [phase, setPhase] = useState<'active' | 'afterimage' | 'done'>('active');
+  const [phase, setPhase] = useState<'active' | 'afterimage' | 'done'>(prefersReducedMotion ? 'done' : 'active');
   const [showSubliminal, setShowSubliminal] = useState(false);
   const [showFlash, setShowFlash] = useState(false);
   const [secondFlash, setSecondFlash] = useState(false);
@@ -674,7 +685,7 @@ function DesktopGlitchTransition({ config }: { config: GlitchConfig }) {
 
         {/* Primary white flash — brighter, longer */}
         {showFlash && <div className="absolute inset-0" style={{
-          zIndex: 4, background: 'radial-gradient(ellipse at center, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0.2) 70%, transparent 100%)',
+          zIndex: 4, background: 'radial-gradient(ellipse at center, rgba(255,255,255,1) 0%, rgba(255,255,255,0.2) 70%, transparent 100%)',
           animation: 'glitch-screen-flash 120ms steps(1) forwards', opacity: 0,
         }} />}
 

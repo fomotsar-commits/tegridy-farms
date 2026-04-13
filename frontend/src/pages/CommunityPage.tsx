@@ -4,6 +4,7 @@ import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { ART } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 
 const GrantsPage = lazy(() => import('./GrantsPage'));
 const BountyPage = lazy(() => import('./BountyPage'));
@@ -25,10 +26,7 @@ export default function CommunityPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.danceNight.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%', opacity: 1 }} />
-        <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(6,12,26,0.55) 40%, rgba(6,12,26,0.88) 100%)',
-        }} />
+        <img src={ART.danceNight.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%' }} />
       </div>
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-24 pb-16">
@@ -40,7 +38,7 @@ export default function CommunityPage() {
           transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
         >
           <h1 className="heading-luxury text-3xl md:text-4xl mb-2 tracking-tight">Community</h1>
-          <p className="text-white/50 max-w-md mx-auto text-[14px]">
+          <p className="text-white max-w-md mx-auto text-[14px]">
             Governance, bounties, and vote incentives — powered by the community.
           </p>
         </motion.div>
@@ -54,16 +52,16 @@ export default function CommunityPage() {
             transition={{ delay: 0.1 }}
           >
             <div className="absolute inset-0">
-              <img src={ART.busCrew.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+              <img src={ART.busCrew.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.10) 0%, rgba(6,12,26,0.35) 100%)' }} />
             </div>
             <div className="relative z-10">
-              <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mx-auto mb-4">
-                <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-emerald-400">
+              <div className="w-12 h-12 rounded-xl bg-emerald-500/30 border border-emerald-500/40 flex items-center justify-center mx-auto mb-4">
+                <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-black" aria-hidden="true">
                   <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
                 </svg>
               </div>
-              <p className="text-white/60 mb-5 text-[14px]">Connect your wallet to participate</p>
+              <p className="text-white mb-5 text-[14px]">Connect your wallet to participate</p>
               <ConnectButton />
             </div>
           </motion.div>
@@ -72,7 +70,8 @@ export default function CommunityPage() {
             {/* Section Toggle */}
             <motion.div
               className="flex justify-center flex-wrap gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-fit"
-              style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.04)' }}
+              style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
+              role="tablist"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
@@ -80,8 +79,10 @@ export default function CommunityPage() {
               {SECTIONS.map(({ key, label }) => (
                 <button
                   key={key}
+                  role="tab"
+                  aria-selected={section === key}
                   className={`relative px-5 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-300 ${
-                    section === key ? 'text-white' : 'text-white/40 hover:text-white/70'
+                    section === key ? 'text-white' : 'text-white hover:text-white'
                   }`}
                   onClick={() => setSection(key)}
                 >
@@ -104,18 +105,20 @@ export default function CommunityPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
             >
-              <Suspense fallback={
-                <div className="space-y-4 animate-pulse">
-                  <div className="rounded-xl p-6" style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.04)' }}>
-                    <div className="h-5 rounded w-40 mb-4" style={{ background: 'rgba(255,255,255,0.08)' }} />
-                    <div className="h-20 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }} />
+              <ErrorBoundary>
+                <Suspense fallback={
+                  <div className="space-y-4 animate-pulse">
+                    <div className="rounded-xl p-6" style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}>
+                      <div className="h-5 rounded w-40 mb-4" style={{ background: 'rgba(255,255,255,0.08)' }} />
+                      <div className="h-20 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }} />
+                    </div>
                   </div>
-                </div>
-              }>
-                {section === 'grants' && <GrantsPage embedded />}
-                {section === 'bounties' && <BountyPage embedded />}
-                {section === 'bribes' && <BribesPage embedded />}
-              </Suspense>
+                }>
+                  {section === 'grants' && <GrantsPage embedded />}
+                  {section === 'bounties' && <BountyPage embedded />}
+                  {section === 'bribes' && <BribesPage embedded />}
+                </Suspense>
+              </ErrorBoundary>
             </motion.div>
           </>
         )}

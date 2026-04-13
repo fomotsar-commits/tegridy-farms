@@ -3,7 +3,7 @@ import { useReadContract, useReadContracts, useWriteContract, useWaitForTransact
 import { parseUnits, formatUnits, maxUint256 } from 'viem';
 import { toast } from 'sonner';
 import { UNISWAP_V2_ROUTER_ABI, UNISWAP_V2_FACTORY_ABI, ERC20_ABI, UNISWAP_V2_PAIR_ABI, SWAP_FEE_ROUTER_ABI, TEGRIDY_ROUTER_ABI, TEGRIDY_FACTORY_ABI } from '../lib/contracts';
-import { UNISWAP_V2_ROUTER, WETH_ADDRESS, UNISWAP_V2_FACTORY, SWAP_FEE_ROUTER_ADDRESS, TEGRIDY_FACTORY_ADDRESS, TEGRIDY_ROUTER_ADDRESS } from '../lib/constants';
+import { UNISWAP_V2_ROUTER, WETH_ADDRESS, UNISWAP_V2_FACTORY, SWAP_FEE_ROUTER_ADDRESS, TEGRIDY_FACTORY_ADDRESS, TEGRIDY_ROUTER_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { type TokenInfo } from '../lib/tokenList';
 import { getAggregatorPrice, calculateAggregatorSpread, AGGREGATOR_NAMES, type AggregatorSpread, type AggregatorQuote, type AggregatorSource } from '../lib/aggregator';
 
@@ -43,16 +43,32 @@ export function useSwap() {
   const [fromToken, setFromToken] = useState<TokenInfo | null>(null);
   const [toToken, setToToken] = useState<TokenInfo | null>(null);
   const [inputAmount, setInputAmount] = useState('');
-  const [slippageRaw, setSlippageRaw] = useState(0.5);
+  const [slippageRaw, setSlippageRaw] = useState(1.0);
   const slippage = Math.min(Math.max(slippageRaw, 0), 49);
   const setSlippage = useCallback((val: number) => {
     setSlippageRaw(Math.min(Math.max(val, 0), 49));
   }, []);
   const [deadline, setDeadline] = useState(5);
-  const [customTokens, setCustomTokens] = useState<TokenInfo[]>([]);
+  const [customTokens, setCustomTokens] = useState<TokenInfo[]>(() => {
+    try {
+      const stored = localStorage.getItem('tegridy_custom_tokens');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  // Persist custom tokens to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('tegridy_custom_tokens', JSON.stringify(customTokens));
+    } catch {
+      // Storage full or unavailable — ignore
+    }
+  }, [customTokens]);
+
   const [unlimitedApproval, setUnlimitedApproval] = useState(false);
 
-  const { data: ethBalance } = useBalance({ address, chainId: 1, query: { refetchInterval: 30_000 } });
+  const { data: ethBalance } = useBalance({ address, chainId: CHAIN_ID, query: { refetchInterval: 30_000 } });
 
   // Derived values
   const swapType = fromToken && toToken ? getSwapType(fromToken, toToken) : null;
@@ -186,7 +202,7 @@ export function useSwap() {
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: [address!],
-    chainId: 1,
+    chainId: CHAIN_ID,
     query: { enabled: !!address && !!fromToken && !fromToken.isNative, refetchInterval: 30_000 },
   });
 
@@ -195,7 +211,7 @@ export function useSwap() {
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: [address!],
-    chainId: 1,
+    chainId: CHAIN_ID,
     query: { enabled: !!address && !!toToken && !toToken.isNative, refetchInterval: 30_000 },
   });
 
@@ -243,22 +259,21 @@ export function useSwap() {
 
   // Meta-aggregator: queries 7 DEX aggregators in parallel (DefiLlama-style)
   const [aggQuoteResult, setAggQuoteResult] = useState<{ amountOut: string; priceImpact: number; source: AggregatorSource; allQuotes: AggregatorQuote[] } | null>(null);
-  const [useAggregator, setUseAggregator] = useState(false);
 
   useEffect(() => {
     if (!fromToken || !toToken || parsedAmount === 0n || !address) {
       setAggQuoteResult(null);
       return;
     }
-    let cancelled = false;
+    const abortController = new AbortController();
     const sellToken = fromToken.isNative ? 'ETH' : fromToken.address;
     const buyToken = toToken.isNative ? 'ETH' : toToken.address;
     const timer = setTimeout(() => {
-      getAggregatorPrice(sellToken, buyToken, parsedAmount.toString(), address, fromDecimals)
-        .then(q => { if (!cancelled) setAggQuoteResult(q); })
-        .catch(() => { if (!cancelled) setAggQuoteResult(null); });
+      getAggregatorPrice(sellToken, buyToken, parsedAmount.toString(), address, fromDecimals, abortController.signal)
+        .then(q => { if (!abortController.signal.aborted) setAggQuoteResult(q); })
+        .catch(() => { if (!abortController.signal.aborted) setAggQuoteResult(null); });
     }, 800);
-    return () => { cancelled = true; clearTimeout(timer); };
+    return () => { abortController.abort(); clearTimeout(timer); };
   }, [fromToken, toToken, parsedAmount, address, fromDecimals]);
 
   // ─── Smart Route Selection ────────────────────────────────────
@@ -611,8 +626,6 @@ export function useSwap() {
     aggOutputFormatted: aggOutputAmount > 0n ? formatUnits(aggOutputAmount, toDecimals) : null,
     bestAggregatorName,
     allAggQuotes,
-    useAggregator,
-    setUseAggregator,
     txHash: hash,
     // Aggregator revenue spread info
     aggSpread,

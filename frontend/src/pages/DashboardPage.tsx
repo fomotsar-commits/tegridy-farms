@@ -1,14 +1,15 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useAccount, useBalance, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from 'react-router-dom';
+import { toast } from 'sonner';
 import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, isDeployed } from '../lib/constants';
 import { ERC20_ABI, REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
 import { useUserPosition } from '../hooks/useUserPosition';
 import { usePoolData } from '../hooks/usePoolData';
-import { useToweliPrice } from '../hooks/useToweliPrice';
+import { useTOWELIPrice } from '../contexts/PriceContext';
 import { useFarmActions } from '../hooks/useFarmActions';
 import { useNFTBoost } from '../hooks/useNFTBoost';
 import { useDCA } from '../hooks/useDCA';
@@ -33,9 +34,9 @@ export default function DashboardPage() {
   usePageTitle('Dashboard');
   const { isConnected, address } = useAccount();
   const { isWrongNetwork } = useNetworkCheck();
-  const { data: ethBalance } = useBalance({ address });
+  const { data: ethBalance, isLoading: isEthLoading, error: ethError } = useBalance({ address });
   // useToweliPrice already fetches from GeckoTerminal as fallback — no duplicate fetch needed
-  const price = useToweliPrice();
+  const price = useTOWELIPrice();
   const farmActions = useFarmActions();
   const nft = useNFTBoost();
   const dca = useDCA();
@@ -45,7 +46,7 @@ export default function DashboardPage() {
   const { history: priceHistory } = usePriceHistory(price.priceInUsd);
   const revenueStats = useRevenueStats();
 
-  const { data: toweliBalance } = useReadContract({
+  const { data: toweliBalance, isLoading: isToweliLoading, error: toweliError } = useReadContract({
     address: TOWELI_ADDRESS,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
@@ -72,25 +73,31 @@ export default function DashboardPage() {
     farmActions.claim(pos.tokenId);
   };
 
+  // Show success toast after claim confirms
+  useEffect(() => {
+    if (farmActions.isSuccess) {
+      toast.success('Rewards claimed successfully!');
+    }
+  }, [farmActions.isSuccess]);
 
   // Price change indicator
   const priceChangeStr = price.priceChange !== 0
     ? `${price.priceChange > 0 ? '+' : ''}${(price.priceChange ?? 0).toFixed(2)}%`
     : '';
 
+  // Determine loading states for stat cards
+  const statCardsLoading = !price.isLoaded || isToweliLoading || isEthLoading;
+
   if (!isConnected) {
     return (
       <div className="-mt-14 relative min-h-screen">
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-          <img src={ART.busCrew.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 5%' }} />
-          <div className="absolute inset-0" style={{
-            background: 'radial-gradient(ellipse at center, rgba(0,0,0,0.80) 0%, rgba(0,0,0,0.85) 60%, rgba(0,0,0,0.96) 100%)',
-          }} />
+          <img src={ART.busCrew.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 5%' }} />
         </div>
         <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
           <motion.div className="text-center max-w-sm" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}>
             <h2 className="heading-luxury text-2xl text-white mb-2">Connect Wallet</h2>
-            <p className="text-white/40 text-[13px] mb-6">View your portfolio, positions, and earnings.</p>
+            <p className="text-white text-[13px] mb-6">View your portfolio, positions, and earnings.</p>
             <ConnectButton.Custom>
               {({ openConnectModal, mounted }) => (
                 <div {...(!mounted && { style: { opacity: 0, pointerEvents: 'none' } })}>
@@ -109,10 +116,7 @@ export default function DashboardPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.towelieWindow.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 85%' }} />
-        <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.85) 30%, rgba(0,0,0,0.92) 60%, rgba(0,0,0,0.96) 100%)',
-        }} />
+        <img src={ART.towelieWindow.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 85%' }} />
       </div>
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-12">
@@ -123,7 +127,7 @@ export default function DashboardPage() {
         )}
         {/* Header with Portfolio Value */}
         <motion.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-3">
               <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Dashboard</h1>
               {nft.boostLabel && (
@@ -131,10 +135,10 @@ export default function DashboardPage() {
               )}
             </div>
             <div className="flex items-center gap-3">
-              <Link to="/leaderboard" className="text-[12px] text-primary/50 hover:text-primary transition-colors">
+              <Link to="/leaderboard" className="text-[12px] text-white hover:text-white transition-colors">
                 Points &#8594;
               </Link>
-              <Link to="/history" className="text-[12px] text-white/30 hover:text-primary transition-colors">
+              <Link to="/history" className="text-[12px] text-white hover:text-white transition-colors">
                 History &#8594;
               </Link>
             </div>
@@ -145,45 +149,51 @@ export default function DashboardPage() {
             ) : (
               <Skeleton width={120} height={32} />
             )}
-            <span className="text-white/30 text-[13px]">Portfolio Value</span>
+            <span className="text-white text-[13px]">Portfolio Value</span>
           </div>
         </motion.div>
 
         {/* Summary Stats */}
         <motion.div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           {[
-            { l: 'TOWELI Balance', numVal: walletToweli, decimals: 0, sub: price.isLoaded ? formatCurrency(walletToweli * price.priceInUsd) : '–', art: ART.mumuBull.src },
-            { l: 'ETH Balance', numVal: ethBal, decimals: 4, sub: ethBalance && price.ethUsd > 0 ? formatCurrency(ethBal * price.ethUsd) : '–', art: ART.jungleBus.src },
-            { l: 'Claimable', numVal: pendingTotal, decimals: 2, sub: price.isLoaded ? formatCurrency(pendingTotal * price.priceInUsd) : '–', accent: true, art: ART.swordOfLove.src },
-            { l: 'TOWELI Price', numVal: price.priceInUsd, decimals: price.priceInUsd < 0.01 ? 8 : 6, prefix: '$', sub: priceChangeStr || (price.priceInUsd > 0 ? 'Live' : (price.oracleStale ? 'Stale' : '–')), priceUp: price.priceChange > 0, priceDown: price.priceChange < 0, stale: price.oracleStale, art: ART.bobowelie.src, showSparkline: true, isPrice: true },
+            { l: 'TOWELI Balance', numVal: walletToweli, decimals: 0, sub: price.isLoaded ? formatCurrency(walletToweli * price.priceInUsd) : '–', art: ART.mumuBull.src, loading: isToweliLoading, error: toweliError },
+            { l: 'ETH Balance', numVal: ethBal, decimals: 4, sub: ethBalance && price.ethUsd > 0 ? formatCurrency(ethBal * price.ethUsd) : '–', art: ART.jungleBus.src, loading: isEthLoading, error: ethError },
+            { l: 'Claimable', numVal: pendingTotal, decimals: 2, sub: price.isLoaded ? formatCurrency(pendingTotal * price.priceInUsd) : '–', accent: true, art: ART.swordOfLove.src, loading: !price.isLoaded },
+            { l: 'TOWELI Price', numVal: price.priceInUsd, decimals: price.priceInUsd < 0.01 ? 8 : 6, prefix: '$', sub: priceChangeStr || (price.priceInUsd > 0 ? 'Live' : (price.oracleStale ? 'Stale' : '–')), priceUp: price.priceChange > 0, priceDown: price.priceChange < 0, stale: price.oracleStale, art: ART.bobowelie.src, showSparkline: true, isPrice: true, loading: !price.isLoaded },
           ].map((s) => (
-            <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+            <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
               <div className="absolute inset-0">
-                <img src={s.art} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+                <img src={s.art} alt="" loading="lazy" className="w-full h-full object-cover" />
               </div>
               <div className="relative z-10 p-5 pt-8 pb-6">
-              <p className="text-white/50 text-[11px] uppercase tracking-wider mb-2">{s.l}</p>
-              <div className={`flex items-center gap-2`}>
-                {s.isPrice ? (
+              <div className="flex items-center gap-1.5">
+                <p className="text-white text-[11px] uppercase tracking-wider label-pill mb-2">{s.l}</p>
+                {s.error && (
+                  <span className="w-2 h-2 rounded-full bg-danger mb-2 shrink-0" title="Failed to load" />
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {s.loading ? (
+                  <Skeleton width={80} height={24} />
+                ) : s.isPrice ? (
                   <FlashValue value={s.numVal}>
-                    <AnimatedCounter value={s.numVal} prefix={s.prefix} decimals={s.decimals} className={`stat-value text-2xl ${s.accent ? 'text-primary' : 'text-white'}`} />
+                    <AnimatedCounter value={s.numVal} prefix={s.prefix} decimals={s.decimals} className="stat-value text-2xl text-white" />
                   </FlashValue>
                 ) : (
-                  <AnimatedCounter value={s.numVal} prefix={s.prefix} decimals={s.decimals} className={`stat-value text-2xl ${s.accent ? 'text-primary' : 'text-white'}`} />
+                  <AnimatedCounter value={s.numVal} prefix={s.prefix} decimals={s.decimals} className="stat-value text-2xl text-white" />
                 )}
                 {s.showSparkline && priceHistory.length > 1 && (
                   <Sparkline data={priceHistory} width={48} height={18} />
                 )}
               </div>
-              <p className={`text-[12px] mt-1.5 ${s.stale ? 'text-warning' : s.priceUp ? 'text-success' : s.priceDown ? 'text-danger' : 'text-white/30'}`}>
+              <p className={`text-[12px] mt-1.5 ${s.stale ? 'text-warning' : s.priceUp ? 'text-success' : s.priceDown ? 'text-danger' : 'text-white'}`}>
                 {s.priceUp && '▲ '}{s.priceDown && '▼ '}
                 {s.stale ? (
                   <span className="inline-flex items-center gap-1">
                     <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>Stale</span>
                   </span>
                 ) : s.sub === 'Live' ? <span className="inline-flex items-center gap-1">Live <PulseDot size={5} /></span> : s.sub}
-                {(s.priceUp || s.priceDown) && <span className="text-white/20 text-[10px] ml-1">since session start</span>}
+                {(s.priceUp || s.priceDown) && <span className="text-white text-[10px] ml-1">since session start</span>}
               </p>
               </div>
             </div>
@@ -191,15 +201,14 @@ export default function DashboardPage() {
         </motion.div>
 
         {/* Tegridy Score */}
-        <motion.div className="relative overflow-hidden rounded-xl mb-6" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
+        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
           <div className="absolute inset-0">
-            <img src={ART.danceNight.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+            <img src={ART.danceNight.src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
-          <div className="relative z-10 p-4 flex items-center justify-between">
+          <div className="relative z-10 p-4 flex items-center justify-between flex-wrap gap-2">
             <TegridyScoreMini />
-            <Link to="/leaderboard" className="text-[11px] text-primary/50 hover:text-primary transition-colors">
+            <Link to="/leaderboard" className="text-[11px] text-white hover:text-white transition-colors">
               View Breakdown &#8594;
             </Link>
           </div>
@@ -210,7 +219,7 @@ export default function DashboardPage() {
           <motion.div className="mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <button onClick={handleClaim}
               disabled={farmActions.isPending || farmActions.isConfirming}
-              className="btn-primary px-6 py-2.5 text-[13px] disabled:opacity-35 disabled:cursor-not-allowed">
+              className="btn-primary px-6 py-2.5 text-[13px] disabled:opacity-70 disabled:cursor-not-allowed">
               {farmActions.isPending || farmActions.isConfirming
                 ? 'Claiming...'
                 : `Claim Rewards (${formatTokenAmount(pendingTotal.toString(), 2)} TOWELI)`}
@@ -223,18 +232,17 @@ export default function DashboardPage() {
 
         {/* POL Accumulator */}
         {!isDeployed(POL_ACCUMULATOR_ADDRESS) && (
-          <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.08)' }}
+          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+              <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-5">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-white text-[15px] font-medium">POL Accumulator</span>
-                <span className="px-2 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase" style={{ background: 'rgba(139,92,246,0.12)', color: '#8b5cf6', border: '1px solid rgba(139,92,246,0.2)' }}>Coming Soon</span>
+                <span className="px-2 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase" style={{ background: 'rgba(139,92,246,0.75)', color: '#000000', border: '1px solid rgba(139,92,246,0.2)' }}>Coming Soon</span>
               </div>
-              <p className="text-white/35 text-[12px] leading-relaxed max-w-lg">
+              <p className="text-white text-[12px] leading-relaxed max-w-lg">
                 Protocol-Owned Liquidity will automatically accumulate LP positions from a share of swap fees, deepening TOWELI liquidity permanently and reducing reliance on external LPs.
               </p>
             </div>
@@ -243,16 +251,15 @@ export default function DashboardPage() {
 
         {/* DCA Due Alerts */}
         {dca.dueSchedules.length > 0 && (
-          <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
+          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={ART.porchChill.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+              <img src={ART.porchChill.src} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
-            <div className="relative z-10 p-4 flex items-center justify-between">
+            <div className="relative z-10 p-4 flex items-center justify-between flex-wrap gap-2">
               <div>
                 <p className="text-warning text-[13px] font-medium">{dca.dueSchedules.length} DCA swap{dca.dueSchedules.length > 1 ? 's' : ''} due</p>
-                <p className="text-white/30 text-[11px]">Go to Swap to execute</p>
+                <p className="text-white text-[11px]">Go to Swap to execute</p>
               </div>
               <Link to="/swap" className="btn-secondary px-4 py-2 text-[12px]">Execute &#8594;</Link>
             </div>
@@ -261,15 +268,14 @@ export default function DashboardPage() {
 
         {/* Active Limit Orders */}
         {limitOrders.activeOrders.length > 0 && (
-          <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
+          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+              <img src={ART.roseApe.src} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-4">
-              <p className="text-white/60 text-[13px] font-medium mb-1">{limitOrders.activeOrders.length} active price alert{limitOrders.activeOrders.length > 1 ? 's' : ''}</p>
-              <p className="text-white/25 text-[11px]">Check Swap for details</p>
+              <p className="text-white text-[13px] font-medium mb-1">{limitOrders.activeOrders.length} active price alert{limitOrders.activeOrders.length > 1 ? 's' : ''}</p>
+              <p className="text-white text-[11px]">Check Swap for details</p>
             </div>
           </motion.div>
         )}
@@ -277,34 +283,33 @@ export default function DashboardPage() {
         {/* Position */}
         <h2 className="heading-luxury text-[16px] text-white mb-4">Your Position</h2>
         {pos.hasPosition ? (
-          <motion.div className="relative overflow-hidden rounded-xl mb-10 card-hover" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
+          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10 card-hover" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
             <div className="absolute inset-0">
-              <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+              <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-5">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
-                  <p className="text-white/30 text-[10px] mb-0.5">Staked</p>
+                  <p className="text-white text-[10px] mb-0.5">Staked</p>
                   <AnimatedCounter value={stakedTotal} decimals={2} className="stat-value text-[16px] text-white" />
                 </div>
                 <div>
-                  <p className="text-white/30 text-[10px] mb-0.5">Boost</p>
-                  <AnimatedCounter value={pos.boostMultiplier} decimals={2} suffix="x" className="stat-value text-[16px] text-primary" />
+                  <p className="text-white text-[10px] mb-0.5">Boost</p>
+                  <AnimatedCounter value={pos.boostMultiplier} decimals={2} suffix="x" className="stat-value text-[16px] text-white" />
                 </div>
                 <div>
-                  <p className="text-white/30 text-[10px] mb-0.5">Lock Expires</p>
+                  <p className="text-white text-[10px] mb-0.5">Lock Expires</p>
                   <p className="stat-value text-[14px] text-white">
                     {pos.autoMaxLock ? 'Auto-Max (Forever)' : pos.isLocked ? new Date(pos.lockEnd * 1000).toLocaleDateString() : 'Unlocked'}
                   </p>
                 </div>
                 <div>
-                  <p className="text-white/30 text-[10px] mb-0.5">Voting Power</p>
+                  <p className="text-white text-[10px] mb-0.5">Voting Power</p>
                   <AnimatedCounter value={pos.isLocked ? stakedTotal * pos.boostMultiplier : 0} decimals={0} className="stat-value text-[14px] text-white" />
                 </div>
               </div>
-              <div className="flex items-center gap-2 mt-4">
+              <div className="flex items-center gap-2 mt-4 flex-wrap">
                 {pos.isLocked && (
                   <span className="badge badge-warning text-[10px]">
                     {pos.autoMaxLock ? 'Auto-Max Lock' : `Locked until ${new Date(pos.lockEnd * 1000).toLocaleDateString()}`}
@@ -313,21 +318,20 @@ export default function DashboardPage() {
                 {nft.boostLabel && (
                   <span className="badge badge-primary text-[10px]">{nft.boostLabel}</span>
                 )}
-                <Link to="/restake" className="text-[11px] text-primary/50 hover:text-primary transition-colors ml-auto">
+                <Link to="/restake" className="text-[11px] text-white hover:text-white transition-colors ml-auto">
                   Restake for bonus yield &#8594;
                 </Link>
               </div>
             </div>
           </motion.div>
         ) : (
-          <motion.div className="relative overflow-hidden rounded-xl mb-10" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
+          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={ART.jbChristmas.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 20%', opacity: 1 }} />
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+              <img src={ART.jbChristmas.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 20%' }} />
             </div>
             <div className="relative z-10 p-8 py-12 text-center">
-              <p className="text-white/50 text-[15px] mb-4">No staking position yet</p>
+              <p className="text-white text-[15px] mb-4">No staking position yet</p>
               <Link to="/farm" className="btn-primary px-8 py-3 text-[14px]">Start Staking &#8594;</Link>
             </div>
           </motion.div>
@@ -354,8 +358,8 @@ export default function DashboardPage() {
         {/* Chart */}
         <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <h3 className="heading-luxury text-[16px] text-white mb-3">Price Chart</h3>
-          <div className="relative rounded-xl overflow-hidden h-[280px] md:h-[400px]" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
-            <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white/30 text-[13px]">Chart unavailable</div>}><PriceChart /></ErrorBoundary>
+          <div className="relative rounded-xl overflow-hidden glass-card-animated h-[280px] md:h-[400px]" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
+            <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}><PriceChart /></ErrorBoundary>
           </div>
         </motion.div>
       </div>
@@ -364,7 +368,7 @@ export default function DashboardPage() {
 }
 
 function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrongNetwork: boolean }) {
-  const { data: pendingETH } = useReadContract({
+  const { data: pendingETH, error: pendingError, isLoading: isPendingLoading } = useReadContract({
     address: REVENUE_DISTRIBUTOR_ADDRESS,
     abi: REVENUE_DISTRIBUTOR_ABI,
     functionName: 'pendingETH',
@@ -372,54 +376,38 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
     query: { enabled: !!address },
   });
 
-  // No registration needed — RevenueDistributor is checkpoint-based
-  const isRegistered = true;
-
   const { writeContract, data: hash, isPending } = useWriteContract();
-  const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash });
+  const { isLoading: isConfirming, isSuccess: isClaimSuccess } = useWaitForTransactionReceipt({ hash });
 
   const pending = pendingETH ? Number(formatEther(pendingETH as bigint)) : 0;
-  const registered = isRegistered as boolean;
 
-  if (!registered && pending === 0) {
-    return (
-      <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-        <div className="absolute inset-0">
-          <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 55%', opacity: 1 }} />
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
-        </div>
-        <div className="relative z-10 p-8 py-10 flex items-center justify-between">
-          <div>
-            <p className="text-white text-[20px] font-medium mb-2">ETH Revenue Sharing</p>
-            <p className="text-white/40 text-[14px]">Register to earn ETH from protocol fees</p>
-          </div>
-          <button onClick={() => writeContract({ address: REVENUE_DISTRIBUTOR_ADDRESS, abi: REVENUE_DISTRIBUTOR_ABI, functionName: 'register' as any })}
-            disabled={isPending || isConfirming || isWrongNetwork}
-            className="btn-primary px-6 py-3 text-[14px] disabled:opacity-35">
-            {isPending || isConfirming ? 'Registering...' : 'Register'}
-          </button>
-        </div>
-      </motion.div>
-    );
-  }
+  // Show success toast after ETH claim confirms
+  useEffect(() => {
+    if (isClaimSuccess) {
+      toast.success('ETH revenue claimed successfully!');
+    }
+  }, [isClaimSuccess]);
 
   if (pending > 0) {
     return (
-      <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
+      <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
         initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
         <div className="absolute inset-0">
-          <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 55%', opacity: 1 }} />
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+          <img src={ART.smokingDuo.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 55%' }} />
         </div>
-        <div className="relative z-10 p-4 flex items-center justify-between">
+        <div className="relative z-10 p-4 flex items-center justify-between flex-wrap gap-2">
           <div>
-            <p className="text-white text-[13px] font-medium">ETH Revenue</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-white text-[13px] font-medium">ETH Revenue</p>
+              {pendingError && (
+                <span className="w-2 h-2 rounded-full bg-danger shrink-0" title="Failed to load" />
+              )}
+            </div>
             <span className="stat-value text-[16px] text-success"><AnimatedCounter value={pending} decimals={6} suffix=" ETH" /></span>
           </div>
           <button onClick={() => writeContract({ address: REVENUE_DISTRIBUTOR_ADDRESS, abi: REVENUE_DISTRIBUTOR_ABI, functionName: 'claim' })}
             disabled={isPending || isConfirming || isWrongNetwork}
-            className="btn-primary px-5 py-2.5 text-[13px] disabled:opacity-35">
+            className="btn-primary px-5 py-2.5 text-[13px] disabled:opacity-70">
             {isPending || isConfirming ? 'Claiming...' : 'Claim ETH'}
           </button>
         </div>
@@ -438,9 +426,9 @@ function Projections({ staked, apr, price, boost = 1 }: {
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       {[{ l: '7 Days', m: 7 }, { l: '30 Days', m: 30 }, { l: '90 Days', m: 90 }, { l: '1 Year', m: 365 }].map(({ l, m }) => (
         <div key={l} className="glass-card rounded-lg p-3 text-center card-hover">
-          <p className="text-white/40 text-[10px] mb-1">{l}</p>
-          <AnimatedCounter value={daily * m} decimals={0} className="stat-value text-[14px] text-primary" />
-          <p className="text-white/25 text-[9px]">~{formatCurrency(daily * m * price)}</p>
+          <p className="text-white text-[10px] mb-1">{l}</p>
+          <AnimatedCounter value={daily * m} decimals={0} className="stat-value text-[14px] text-white" />
+          <p className="text-white text-[9px]">~{formatCurrency(daily * m * price)}</p>
         </div>
       ))}
     </div>

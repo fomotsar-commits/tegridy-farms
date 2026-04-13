@@ -49,7 +49,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   const pairAddr = pairExists ? pairAddress as `0x${string}` : PLACEHOLDER_ADDR;
 
   // Fetch pair reserves + token0 + LP info + user balances + allowances
-  const { data, refetch } = useReadContracts({
+  const { data, refetch, isLoading: isLoadingPool } = useReadContracts({
     contracts: [
       // Pair info
       { address: pairAddr, abi: UNISWAP_V2_PAIR_ABI, functionName: 'getReserves' },
@@ -65,7 +65,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
       { address: addrB, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr] },
       { address: addrB, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, TEGRIDY_ROUTER_ADDRESS] },
     ],
-    query: { enabled: !!address && pairExists, refetchInterval: 15_000, refetchOnWindowFocus: true },
+    query: { enabled: !!address, refetchInterval: 15_000, refetchOnWindowFocus: true },
   });
 
   const reserves = data?.[0]?.status === 'success' ? data[0].result as readonly [bigint, bigint, number] : undefined;
@@ -135,47 +135,66 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
         action: { label: 'Etherscan', onClick: () => window.open(`https://etherscan.io/tx/${hash}`, '_blank') },
       });
       refetch();
+      setTimeout(() => reset(), 4000);
     }
   }, [isSuccess, hash]);
 
   useEffect(() => {
-    if (isTxError && hash) toast.error('Transaction failed', { id: `err-${hash}` });
+    if (isTxError && hash) {
+      toast.error('Transaction failed', { id: `err-${hash}` });
+      setTimeout(() => reset(), 4000);
+    }
   }, [isTxError, hash]);
 
   useEffect(() => {
-    if (writeError) toast.error(writeError.message?.slice(0, 120) ?? 'Unknown error', { id: 'write-error' });
+    if (writeError) {
+      toast.error(writeError.message?.slice(0, 120) ?? 'Unknown error', { id: 'write-error' });
+      setTimeout(() => reset(), 4000);
+    }
   }, [writeError]);
 
   // ─── Actions ──────────────────────────────────────────────────
 
   function approveTokenA(amount: string) {
     if (!tokenA || tokenA.isNative) return;
-    writeContract({
-      address: addrA,
-      abi: ERC20_ABI,
-      functionName: 'approve',
-      args: [TEGRIDY_ROUTER_ADDRESS, parseUnits(amount, decimalsA)],
-    });
+    try {
+      writeContract({
+        address: addrA,
+        abi: ERC20_ABI,
+        functionName: 'approve',
+        args: [TEGRIDY_ROUTER_ADDRESS, parseUnits(amount, decimalsA)],
+      });
+    } catch {
+      toast.error('Invalid amount for token A approval');
+    }
   }
 
   function approveTokenB(amount: string) {
     if (!tokenB || tokenB.isNative) return;
-    writeContract({
-      address: addrB,
-      abi: ERC20_ABI,
-      functionName: 'approve',
-      args: [TEGRIDY_ROUTER_ADDRESS, parseUnits(amount, decimalsB)],
-    });
+    try {
+      writeContract({
+        address: addrB,
+        abi: ERC20_ABI,
+        functionName: 'approve',
+        args: [TEGRIDY_ROUTER_ADDRESS, parseUnits(amount, decimalsB)],
+      });
+    } catch {
+      toast.error('Invalid amount for token B approval');
+    }
   }
 
   function approveLP(amount: string) {
     if (!pairExists) return;
-    writeContract({
-      address: pairAddr,
-      abi: ERC20_ABI,
-      functionName: 'approve',
-      args: [TEGRIDY_ROUTER_ADDRESS, parseUnits(amount, 18)],
-    });
+    try {
+      writeContract({
+        address: pairAddr,
+        abi: ERC20_ABI,
+        functionName: 'approve',
+        args: [TEGRIDY_ROUTER_ADDRESS, parseUnits(amount, 18)],
+      });
+    } catch {
+      toast.error('Invalid LP amount for approval');
+    }
   }
 
   // Add liquidity — dispatches to correct variant based on ETH involvement
@@ -184,80 +203,88 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800); // 30min
     const slippageFactor = BigInt(10000 - slippageBps);
 
-    if (involvesETH) {
-      // One token is ETH — use addLiquidityETH
-      const isAEth = ethSide === 'A';
-      const tokenAddr = isAEth ? addrB : addrA;
-      const tokenAmount = isAEth ? parseUnits(amountBStr, decimalsB) : parseUnits(amountAStr, decimalsA);
-      const ethAmount = isAEth ? parseUnits(amountAStr, 18) : parseUnits(amountBStr, 18);
-      const tokenMin = (tokenAmount * slippageFactor) / 10000n;
-      const ethMin = (ethAmount * slippageFactor) / 10000n;
+    try {
+      if (involvesETH) {
+        // One token is ETH — use addLiquidityETH
+        const isAEth = ethSide === 'A';
+        const tokenAddr = isAEth ? addrB : addrA;
+        const tokenAmount = isAEth ? parseUnits(amountBStr, decimalsB) : parseUnits(amountAStr, decimalsA);
+        const ethAmount = isAEth ? parseUnits(amountAStr, 18) : parseUnits(amountBStr, 18);
+        const tokenMin = (tokenAmount * slippageFactor) / 10000n;
+        const ethMin = (ethAmount * slippageFactor) / 10000n;
 
-      writeContract({
-        address: TEGRIDY_ROUTER_ADDRESS,
-        abi: TEGRIDY_ROUTER_ABI,
-        functionName: 'addLiquidityETH',
-        args: [tokenAddr, tokenAmount, tokenMin, ethMin, address, deadline],
-        value: ethAmount,
-      });
-    } else {
-      // Both are ERC20 tokens — use addLiquidity
-      const amountAWei = parseUnits(amountAStr, decimalsA);
-      const amountBWei = parseUnits(amountBStr, decimalsB);
-      const amountAMin = (amountAWei * slippageFactor) / 10000n;
-      const amountBMin = (amountBWei * slippageFactor) / 10000n;
+        writeContract({
+          address: TEGRIDY_ROUTER_ADDRESS,
+          abi: TEGRIDY_ROUTER_ABI,
+          functionName: 'addLiquidityETH',
+          args: [tokenAddr, tokenAmount, tokenMin, ethMin, address, deadline],
+          value: ethAmount,
+        });
+      } else {
+        // Both are ERC20 tokens — use addLiquidity
+        const amountAWei = parseUnits(amountAStr, decimalsA);
+        const amountBWei = parseUnits(amountBStr, decimalsB);
+        const amountAMin = (amountAWei * slippageFactor) / 10000n;
+        const amountBMin = (amountBWei * slippageFactor) / 10000n;
 
-      writeContract({
-        address: TEGRIDY_ROUTER_ADDRESS,
-        abi: TEGRIDY_ROUTER_ABI,
-        functionName: 'addLiquidity',
-        args: [addrA, addrB, amountAWei, amountBWei, amountAMin, amountBMin, address, deadline],
-      });
+        writeContract({
+          address: TEGRIDY_ROUTER_ADDRESS,
+          abi: TEGRIDY_ROUTER_ABI,
+          functionName: 'addLiquidity',
+          args: [addrA, addrB, amountAWei, amountBWei, amountAMin, amountBMin, address, deadline],
+        });
+      }
+    } catch {
+      toast.error('Invalid amount entered');
     }
   }
 
   // Remove liquidity — dispatches to correct variant
   function removeLiquidity(lpAmount: string, slippageBps = 50) {
     if (!address || !tokenA || !tokenB || !pairExists) return;
-    const lpWei = parseUnits(lpAmount, 18);
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800);
-    const slippageFactor = BigInt(10000 - slippageBps);
+    try {
+      const lpWei = parseUnits(lpAmount, 18);
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800);
+      const slippageFactor = BigInt(10000 - slippageBps);
 
-    // Calculate expected outputs from pool share
-    const expectedA = lpTotalSupply > 0n ? (lpWei * reserveA) / lpTotalSupply : 0n;
-    const expectedB = lpTotalSupply > 0n ? (lpWei * reserveB) / lpTotalSupply : 0n;
+      // Calculate expected outputs from pool share
+      const expectedA = lpTotalSupply > 0n ? (lpWei * reserveA) / lpTotalSupply : 0n;
+      const expectedB = lpTotalSupply > 0n ? (lpWei * reserveB) / lpTotalSupply : 0n;
 
-    if (involvesETH) {
-      const isAEth = ethSide === 'A';
-      const tokenAddr = isAEth ? addrB : addrA;
-      const tokenOut = isAEth ? expectedB : expectedA;
-      const ethOut = isAEth ? expectedA : expectedB;
+      if (involvesETH) {
+        const isAEth = ethSide === 'A';
+        const tokenAddr = isAEth ? addrB : addrA;
+        const tokenOut = isAEth ? expectedB : expectedA;
+        const ethOut = isAEth ? expectedA : expectedB;
 
-      writeContract({
-        address: TEGRIDY_ROUTER_ADDRESS,
-        abi: TEGRIDY_ROUTER_ABI,
-        functionName: 'removeLiquidityETH',
-        args: [
-          tokenAddr,
-          lpWei,
-          (tokenOut * slippageFactor) / 10000n,
-          (ethOut * slippageFactor) / 10000n,
-          address, deadline,
-        ],
-      });
-    } else {
-      writeContract({
-        address: TEGRIDY_ROUTER_ADDRESS,
-        abi: TEGRIDY_ROUTER_ABI,
-        functionName: 'removeLiquidity',
-        args: [
-          addrA, addrB,
-          lpWei,
-          (expectedA * slippageFactor) / 10000n,
-          (expectedB * slippageFactor) / 10000n,
-          address, deadline,
-        ],
-      });
+        writeContract({
+          address: TEGRIDY_ROUTER_ADDRESS,
+          abi: TEGRIDY_ROUTER_ABI,
+          functionName: 'removeLiquidityETH',
+          args: [
+            tokenAddr,
+            lpWei,
+            (tokenOut * slippageFactor) / 10000n,
+            (ethOut * slippageFactor) / 10000n,
+            address, deadline,
+          ],
+        });
+      } else {
+        writeContract({
+          address: TEGRIDY_ROUTER_ADDRESS,
+          abi: TEGRIDY_ROUTER_ABI,
+          functionName: 'removeLiquidity',
+          args: [
+            addrA, addrB,
+            lpWei,
+            (expectedA * slippageFactor) / 10000n,
+            (expectedB * slippageFactor) / 10000n,
+            address, deadline,
+          ],
+        });
+      }
+    } catch {
+      toast.error('Invalid LP amount entered');
     }
   }
 
@@ -297,6 +324,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
     isPending,
     isConfirming,
     isSuccess,
+    isLoadingPool,
     hash,
     reset,
     refetch: () => { refetch(); refetchPair(); },

@@ -1,23 +1,15 @@
 export function PageSkeleton() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: 12 }}>
-      <div style={{
-        width: 40, height: 40, border: '3px solid rgba(139,92,246,0.15)',
-        borderTopColor: 'rgba(139,92,246,0.6)', borderRadius: '50%',
-        animation: 'skeletonSpin 0.8s linear infinite',
-      }} />
-      <div style={{
-        color: 'rgba(139,92,246,0.6)',
-        fontSize: 14,
-        fontFamily: 'monospace',
-        animation: 'skeletonPulse 1.5s ease-in-out infinite',
-      }}>
+    <div
+      role="status"
+      aria-live="polite"
+      aria-label="Loading page"
+      className="flex flex-col items-center justify-center min-h-[60vh] gap-3"
+    >
+      <div className="size-8 sm:size-10 md:size-12 rounded-full border-3 border-primary-dim border-t-primary-glow animate-[spin_0.8s_linear_infinite]" />
+      <span className="text-primary-glow text-xs sm:text-sm font-mono animate-[skeleton-pulse_1.5s_ease-in-out_infinite]">
         Loading...
-      </div>
-      <style>{`
-        @keyframes skeletonSpin { to { transform: rotate(360deg); } }
-        @keyframes skeletonPulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
-      `}</style>
+      </span>
     </div>
   );
 }

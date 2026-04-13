@@ -17,14 +17,13 @@ export interface PriceHistoryResult {
   isLoading: boolean;
 }
 
-export function usePriceHistory(currentPrice: number): PriceHistoryResult {
+export function usePriceHistory(_currentPrice?: number): PriceHistoryResult {
   const [history, setHistory] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const retryCount = useRef(0);
 
   useEffect(() => {
-    if (currentPrice <= 0) return;
 
     // Check cache
     try {
@@ -44,6 +43,7 @@ export function usePriceHistory(currentPrice: number): PriceHistoryResult {
       }
     } catch {}
 
+    const abortController = new AbortController();
     let cancelled = false;
     retryCount.current = 0;
 
@@ -56,7 +56,7 @@ export function usePriceHistory(currentPrice: number): PriceHistoryResult {
           const url = `https://api.geckoterminal.com/api/v2/networks/eth/pools/${TOWELI_WETH_LP_ADDRESS}/ohlcv/hour?aggregate=1&limit=24`;
           const res = await fetch(url, {
             headers: { Accept: 'application/json' },
-            signal: AbortSignal.timeout(8000),
+            signal: abortController.signal,
           });
 
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -104,8 +104,8 @@ export function usePriceHistory(currentPrice: number): PriceHistoryResult {
     }
 
     fetchHistory();
-    return () => { cancelled = true; };
-  }, [currentPrice]);
+    return () => { cancelled = true; abortController.abort(); };
+  }, []);
 
   return { history, error, isLoading };
 }

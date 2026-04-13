@@ -17,7 +17,7 @@ export function useRevenueStats() {
 
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash });
 
-  const { data, refetch } = useReadContracts({
+  const { data, refetch, isLoading: isDataLoading, isError: isDataError, error: dataError } = useReadContracts({
     contracts: [
       // Revenue Distributor — global
       { address: REVENUE_DISTRIBUTOR_ADDRESS, abi: REVENUE_DISTRIBUTOR_ABI, functionName: 'totalDistributed' },
@@ -100,9 +100,14 @@ export function useRevenueStats() {
     claimRevenue,
     claimReferralRewards,
     // TX
+    hash: claimHash,
     isPending,
     isConfirming,
     isSuccess,
+    // Data loading / error
+    isDataLoading,
+    isDataError,
+    dataError,
     refetch,
   };
 }

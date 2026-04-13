@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { useToweliPrice } from '../hooks/useToweliPrice';
+import { useTOWELIPrice } from '../contexts/PriceContext';
 import { usePriceHistory } from '../hooks/usePriceHistory';
 import { formatCurrency } from '../lib/formatting';
 import { Sparkline } from './Sparkline';
@@ -8,8 +8,8 @@ import { PulseDot } from './PulseDot';
 
 export function LiveActivity() {
   const [visible, setVisible] = useState(false);
-  const { priceInUsd, isLoaded } = useToweliPrice();
-  const { history: priceData } = usePriceHistory(priceInUsd);
+  const { priceInUsd, isLoaded } = useTOWELIPrice();
+  const { history: priceData } = usePriceHistory();
 
   useEffect(() => {
     const timer = setTimeout(() => setVisible(true), 2000);
@@ -37,15 +37,15 @@ export function LiveActivity() {
           backdropFilter: 'blur(12px)',
           WebkitBackdropFilter: 'blur(12px)',
           border: '1px solid rgba(139, 92, 246, 0.15)',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.3), 0 0 10px rgba(139,92,246,0.1)',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.65), 0 0 10px rgba(139,92,246,0.1)',
           maxWidth: 200,
         }}
       >
         <PulseDot color="#22c55e" size={6} />
-        <span className="text-[11px] text-white/50 whitespace-nowrap">Protocol Active</span>
+        <span className="text-[11px] text-white whitespace-nowrap">Protocol Active</span>
         {displayPrice && (
           <>
-            <span className="text-[11px] font-mono text-primary whitespace-nowrap">{displayPrice}</span>
+            <span className="text-[11px] font-mono text-white whitespace-nowrap">{displayPrice}</span>
             {priceData.length > 1 && (
               <Sparkline data={priceData} width={36} height={12} />
             )}

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useTegridyScore } from '../hooks/useTegridyScore';
 
@@ -8,9 +8,11 @@ const RADIUS = (RING_SIZE - STROKE_WIDTH) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 export function TegridyScoreMini() {
-  const { score, rank, percentile } = useTegridyScore();
+  const { score, rank, tier } = useTegridyScore();
   const [displayScore, setDisplayScore] = useState(0);
   const [progress, setProgress] = useState(0);
+
+  const rafRef = useRef<number>(0);
 
   useEffect(() => {
     const duration = 1000;
@@ -25,11 +27,12 @@ export function TegridyScoreMini() {
       setProgress(eased * score);
 
       if (t < 1) {
-        requestAnimationFrame(animate);
+        rafRef.current = requestAnimationFrame(animate);
       }
     }
 
-    requestAnimationFrame(animate);
+    rafRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(rafRef.current);
   }, [score]);
 
   const dashOffset = CIRCUMFERENCE - (progress / 100) * CIRCUMFERENCE;
@@ -55,7 +58,7 @@ export function TegridyScoreMini() {
             cy={RING_SIZE / 2}
             r={RADIUS}
             fill="none"
-            stroke="rgba(139,92,246,0.08)"
+            stroke="rgba(139,92,246,0.75)"
             strokeWidth={STROKE_WIDTH}
           />
           <circle
@@ -76,9 +79,9 @@ export function TegridyScoreMini() {
         </div>
       </div>
       <div>
-        <p className="text-[13px] text-white/70 font-medium">{rank}</p>
-        <p className="text-[11px] text-white/30">{percentile}</p>
-        <p className="text-[10px] text-primary/50 mt-0.5">Tegridy Score</p>
+        <p className="text-[13px] text-white font-medium">{rank}</p>
+        <p className="text-[11px] text-white">{tier}</p>
+        <p className="text-[10px] text-white mt-0.5">Tegridy Score</p>
         <p className="text-[9px] text-white/15 mt-0.5 italic">On-chain verified</p>
       </div>
     </motion.div>

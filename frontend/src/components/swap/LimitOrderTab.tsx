@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { toast } from 'sonner';
 import { useLimitOrders, type LimitOrder } from '../../hooks/useLimitOrders';
 import { DEFAULT_TOKENS } from '../../lib/tokenList';
 import { formatTokenAmount } from '../../lib/formatting';
@@ -12,6 +13,13 @@ const EXPIRY_OPTIONS = [
   { label: '30 Days', ms: 2592000000 },
 ];
 
+const MAX_AMOUNT_ETH = 100;
+
+/** Block minus/negative sign in number inputs */
+const blockNegativeKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  if (e.key === '-' || e.key === 'e') e.preventDefault();
+};
+
 export function LimitOrderTab() {
   const { isConnected } = useAccount();
   const { activeOrders, pastOrders, createOrder, cancelOrder } = useLimitOrders();
@@ -19,9 +27,24 @@ export function LimitOrderTab() {
   const [amount, setAmount] = useState('');
   const [targetPrice, setTargetPrice] = useState('');
   const [expiryIdx, setExpiryIdx] = useState(2); // default 7 days
+  const [showAllPast, setShowAllPast] = useState(false);
 
   const fromToken = DEFAULT_TOKENS.find(t => t.symbol === 'ETH')!;
   const toToken = DEFAULT_TOKENS.find(t => t.symbol === 'TOWELI')!;
+
+  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    const num = parseFloat(val);
+    if (val !== '' && num < 0) return;
+    setAmount(val);
+  };
+
+  const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    const num = parseFloat(val);
+    if (val !== '' && num < 0) return;
+    setTargetPrice(val);
+  };
 
   const handleCreate = () => {
     if (!amount || !targetPrice || parseFloat(amount) <= 0 || parseFloat(targetPrice) <= 0) return;
@@ -34,43 +57,51 @@ export function LimitOrderTab() {
     });
     setAmount('');
     setTargetPrice('');
+    toast.success('Limit order created');
   };
+
+  const visiblePastOrders = showAllPast ? pastOrders : pastOrders.slice(0, 3);
 
   return (
     <div className="p-5">
-      <p className="text-white/30 text-[11px] mb-3">Set a price target. When the market price reaches your target, the swap executes automatically — your wallet will prompt for approval.</p>
+      <p className="text-white text-[11px] mb-3">Set a price target. When the market price reaches your target, the swap executes automatically — your wallet will prompt for approval.</p>
       <p className="text-amber-400/60 text-[10px] mb-4 bg-amber-900/20 rounded px-2 py-1 border border-amber-700/30">⚠️ Browser-only feature: Orders only execute while this tab is open. This is not an on-chain limit order — closing the tab cancels all pending orders. Use for convenience, not reliability.</p>
 
       {/* Amount */}
       <div className="mb-3">
-        <label htmlFor="limit-amount" className="text-white/40 text-[11px] mb-1.5 block">Amount (ETH)</label>
-        <input id="limit-amount" type="number" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)}
-          placeholder="0.1" min="0" step="0.01"
+        <div className="flex items-center justify-between mb-1.5">
+          <label htmlFor="limit-amount" className="text-white text-[11px]">Amount (ETH)</label>
+          <span className="text-white/40 text-[10px] font-mono">Max: {MAX_AMOUNT_ETH} ETH</span>
+        </div>
+        <input id="limit-amount" type="number" inputMode="decimal" value={amount} onChange={handleAmountChange}
+          onKeyDown={blockNegativeKey}
+          placeholder="0.1" min="0" max={MAX_AMOUNT_ETH} step="0.01"
           className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
-          style={{ border: '1px solid rgba(255,255,255,0.06)' }} />
+          style={{ border: '1px solid rgba(255,255,255,0.20)' }} />
       </div>
 
       {/* Target Price */}
       <div className="mb-3">
-        <label htmlFor="limit-target-price" className="text-white/40 text-[11px] mb-1.5 block">Target Price (TOWELI per ETH)</label>
-        <input id="limit-target-price" type="number" inputMode="decimal" value={targetPrice} onChange={e => setTargetPrice(e.target.value)}
+        <label htmlFor="limit-target-price" className="text-white text-[11px] mb-1.5 block">Target Price (TOWELI per ETH)</label>
+        <input id="limit-target-price" type="number" inputMode="decimal" value={targetPrice} onChange={handlePriceChange}
+          onKeyDown={blockNegativeKey}
           placeholder="25000000" min="0"
           className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
-          style={{ border: '1px solid rgba(255,255,255,0.06)' }} />
+          style={{ border: '1px solid rgba(255,255,255,0.20)' }} />
       </div>
 
       {/* Expiry */}
       <div className="mb-4">
-        <span id="limit-expiry-label" className="text-white/40 text-[11px] mb-1.5 block">Expires In</span>
+        <span id="limit-expiry-label" className="text-white text-[11px] mb-1.5 block">Expires In</span>
         <div className="flex gap-1.5" role="group" aria-labelledby="limit-expiry-label">
           {EXPIRY_OPTIONS.map((opt, i) => (
             <button key={opt.label} onClick={() => setExpiryIdx(i)}
               aria-pressed={expiryIdx === i}
               className="flex-1 py-2 min-h-[44px] rounded-lg text-[11px] font-medium cursor-pointer transition-all"
               style={{
-                background: expiryIdx === i ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.03)',
+                background: expiryIdx === i ? 'rgba(139,92,246,0.75)' : 'rgba(0,0,0,0.55)',
                 color: expiryIdx === i ? 'var(--color-primary)' : 'rgba(255,255,255,0.4)',
-                border: expiryIdx === i ? '1px solid rgba(139,92,246,0.30)' : '1px solid rgba(255,255,255,0.06)',
+                border: expiryIdx === i ? '1px solid rgba(139,92,246,0.75)' : '1px solid rgba(255,255,255,0.25)',
               }}>
               {opt.label}
             </button>
@@ -82,7 +113,7 @@ export function LimitOrderTab() {
         <button type="button" onClick={handleCreate}
           disabled={!amount || !targetPrice || parseFloat(amount) <= 0 || parseFloat(targetPrice) <= 0}
           aria-disabled={!amount || !targetPrice || parseFloat(amount) <= 0 || parseFloat(targetPrice) <= 0}
-          className="btn-primary w-full py-3 min-h-[44px] text-[13px] disabled:opacity-35 disabled:cursor-not-allowed">
+          className="btn-primary w-full py-3 min-h-[44px] text-[13px] disabled:opacity-70 disabled:cursor-not-allowed">
           Create Limit Order
         </button>
       ) : (
@@ -97,8 +128,8 @@ export function LimitOrderTab() {
 
       {/* Active Orders */}
       {activeOrders.length > 0 && (
-        <div className="mt-4 pt-3" style={{ borderTop: '1px solid rgba(139,92,246,0.08)' }}>
-          <p className="text-white/30 text-[10px] uppercase tracking-wider mb-2">Active Orders</p>
+        <div className="mt-4 pt-3" style={{ borderTop: '1px solid rgba(139,92,246,0.75)' }}>
+          <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-2">Active Orders</p>
           {activeOrders.map(order => (
             <OrderRow key={order.id} order={order} onCancel={() => cancelOrder(order.id)} />
           ))}
@@ -107,10 +138,17 @@ export function LimitOrderTab() {
 
       {pastOrders.length > 0 && (
         <div className="mt-3">
-          <p className="text-white/20 text-[10px] uppercase tracking-wider mb-2">Past Orders</p>
-          {pastOrders.slice(0, 3).map(order => (
+          <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-2">Past Orders</p>
+          {visiblePastOrders.map(order => (
             <OrderRow key={order.id} order={order} />
           ))}
+          {pastOrders.length > 3 && (
+            <button
+              onClick={() => setShowAllPast(prev => !prev)}
+              className="text-purple-400 hover:text-purple-300 text-[11px] mt-2 cursor-pointer transition-colors w-full text-center min-h-[44px] flex items-center justify-center">
+              {showAllPast ? 'Show less' : `Show all (${pastOrders.length})`}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -118,6 +156,15 @@ export function LimitOrderTab() {
 }
 
 function OrderRow({ order, onCancel }: { order: LimitOrder; onCancel?: () => void }) {
+  const [, setTick] = useState(0);
+
+  // Update remaining time every minute so it doesn't go stale
+  useEffect(() => {
+    if (order.status !== 'active' && order.status !== 'executing') return;
+    const timer = setInterval(() => setTick(t => t + 1), 60_000);
+    return () => clearInterval(timer);
+  }, [order.status]);
+
   const timeLeft = order.expiresAt - Date.now();
   const hoursLeft = Math.max(0, Math.floor(timeLeft / 3600000));
   const daysLeft = Math.floor(hoursLeft / 24);
@@ -125,20 +172,28 @@ function OrderRow({ order, onCancel }: { order: LimitOrder; onCancel?: () => voi
     order.status === 'filled' ? 'Filled' :
     daysLeft > 0 ? `${daysLeft}d ${hoursLeft % 24}h` : `${hoursLeft}h`;
 
+  const statusLabel = order.status === 'expired' ? 'Order expired' :
+    order.status === 'filled' ? 'Order filled' :
+    order.status === 'executing' ? 'Order executing' :
+    `Order active, ${expiryStr} remaining`;
+
   return (
-    <div className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-white/[0.02]"
-      style={{ borderBottom: '1px solid rgba(139,92,246,0.04)' }}>
+    <div className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-black/60"
+      style={{ borderBottom: '1px solid rgba(139,92,246,0.75)' }}>
       <div>
-        <span className="text-white/60 text-[12px] font-medium">{order.amount} {order.fromToken.symbol}</span>
-        <span className="text-white/20 text-[11px] mx-1.5">→</span>
-        <span className="text-white/40 text-[11px]">@ {formatTokenAmount(order.targetPrice, 0)}</span>
+        <span className="text-white text-[12px] font-medium">{order.amount} {order.fromToken.symbol}</span>
+        <span className="text-white text-[11px] mx-1.5">→</span>
+        <span className="text-white text-[11px]">@ {formatTokenAmount(order.targetPrice, 0)}</span>
       </div>
       <div className="flex items-center gap-2">
-        <span className={`text-[10px] ${order.status === 'active' ? 'text-success' : order.status === 'expired' ? 'text-danger' : 'text-primary'}`}>
+        <span
+          aria-label={statusLabel}
+          className={`text-[10px] ${order.status === 'active' ? 'text-success' : order.status === 'expired' ? 'text-danger' : 'text-white'}`}>
           {expiryStr}
         </span>
         {onCancel && order.status === 'active' && (
-          <button onClick={onCancel} className="text-white/20 hover:text-danger text-[10px] cursor-pointer transition-colors">
+          <button onClick={onCancel}
+            className="text-white hover:text-danger text-[10px] min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer transition-colors">
             Cancel
           </button>
         )}

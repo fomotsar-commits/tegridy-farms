@@ -12,11 +12,16 @@ export function usePremiumAccess() {
   const { writeContract: writeApprove, data: approveHash, isPending: isApprovePending, reset: resetApprove, error: approveError } = useWriteContract();
   const { writeContract: writeAction, data: actionHash, isPending: isActionPending, reset: resetAction, error: actionError } = useWriteContract();
 
-  const hash = approveHash ?? actionHash;
   const isPending = isApprovePending || isActionPending;
-  const writeError = approveError ?? actionError;
 
-  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash });
+  // Track each tx independently so approve doesn't shadow the subsequent action tx
+  const { isLoading: isApproveConfirming, isSuccess: isApproveSuccess, isError: isApproveTxError } = useWaitForTransactionReceipt({ hash: approveHash });
+  const { isLoading: isActionConfirming, isSuccess: isActionSuccess, isError: isActionTxError } = useWaitForTransactionReceipt({ hash: actionHash });
+
+  const isConfirming = isApproveConfirming || isActionConfirming;
+  const isSuccess = isApproveSuccess || isActionSuccess;
+  const isTxError = isApproveTxError || isActionTxError;
+  const hash = actionHash ?? approveHash;
 
   // Check if user holds a JBAC NFT
   const { data: jbacBalance } = useReadContract({
@@ -28,7 +33,7 @@ export function usePremiumAccess() {
   });
   const holdsJBAC = jbacBalance != null && (jbacBalance as bigint) > 0n;
 
-  const { data, refetch } = useReadContracts({
+  const { data, refetch, isLoading: isDataLoading, isError: isDataError, error: dataError } = useReadContracts({
     contracts: [
       // User subscription
       { address: PREMIUM_ACCESS_ADDRESS, abi: PREMIUM_ACCESS_ABI, functionName: 'hasPremium', args: [userAddr] },
@@ -104,18 +109,57 @@ export function usePremiumAccess() {
 
   // Toast feedback — defer reset to next tick so isSuccess is readable by consumers this render
   useEffect(() => {
-    if (isSuccess) {
+    if (isApproveSuccess) {
+      toast.success('Approval confirmed!');
+      refetch();
+      const t = setTimeout(() => { resetApprove(); }, 0);
+      return () => clearTimeout(t);
+    }
+  }, [isApproveSuccess, refetch, resetApprove]);
+
+  useEffect(() => {
+    if (isActionSuccess) {
       toast.success('Transaction confirmed!');
       refetch();
-      const t = setTimeout(() => { resetApprove(); resetAction(); }, 0);
+      const t = setTimeout(() => { resetAction(); }, 0);
       return () => clearTimeout(t);
     }
-    if (isTxError || writeError) {
-      toast.error('Transaction failed');
-      const t = setTimeout(() => { resetApprove(); resetAction(); }, 0);
+  }, [isActionSuccess, refetch, resetAction]);
+
+  useEffect(() => {
+    if (isApproveTxError) {
+      toast.error('Approval transaction failed on-chain');
+      const t = setTimeout(() => { resetApprove(); }, 0);
       return () => clearTimeout(t);
     }
-  }, [isSuccess, isTxError, writeError, refetch, resetApprove, resetAction]);
+  }, [isApproveTxError, resetApprove]);
+
+  useEffect(() => {
+    if (isActionTxError) {
+      toast.error('Transaction failed on-chain');
+      const t = setTimeout(() => { resetAction(); }, 0);
+      return () => clearTimeout(t);
+    }
+  }, [isActionTxError, resetAction]);
+
+  // Surface wallet/write errors (user rejection, gas estimation, etc.)
+  useEffect(() => {
+    if (approveError) {
+      const msg = (approveError as Error)?.message?.split('\n')[0] ?? 'Approval failed';
+      toast.error(msg);
+      const t = setTimeout(() => { resetApprove(); }, 0);
+      return () => clearTimeout(t);
+    }
+  }, [approveError, resetApprove]);
+
+  useEffect(() => {
+    if (actionError) {
+      const msg = (actionError as Error)?.message?.split('\n')[0] ?? 'Transaction failed';
+      toast.error(msg);
+      const t = setTimeout(() => { resetAction(); }, 0);
+      return () => clearTimeout(t);
+    }
+  }, [actionError, resetAction]);
 
   return {
     // Subscription status
@@ -142,9 +186,17 @@ export function usePremiumAccess() {
     refetch,
     // TX state
     hash,
+    approveHash,
+    actionHash,
     isPending,
     isConfirming,
     isSuccess,
+    isApproveSuccess,
+    isActionSuccess,
+    // Data loading / error
+    isDataLoading,
+    isDataError,
+    dataError,
     reset: () => { resetApprove(); resetAction(); },
   };
 }

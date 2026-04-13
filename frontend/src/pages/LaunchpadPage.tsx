@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useAccount, useWriteContract, useReadContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useWriteContract, useReadContract, useWaitForTransactionReceipt, useChains } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { parseEther, formatEther } from 'viem';
 import { ART } from '../lib/artConfig';
@@ -12,12 +12,12 @@ import { toast } from 'sonner';
 
 /* ─── design tokens ─── */
 const GLASS =
-  'bg-gradient-to-br from-[rgba(13,21,48,0.6)] to-[rgba(6,12,26,0.8)] backdrop-blur-[20px] border border-white/[0.06]';
+  'bg-gradient-to-br from-[rgba(13,21,48,0.6)] to-[rgba(6,12,26,0.8)] backdrop-blur-[20px] border border-white/20';
 const INPUT =
-  'w-full bg-transparent border-b border-white/10 px-1 py-2.5 text-white outline-none focus:border-emerald-500 transition-colors placeholder:text-white/20';
-const LABEL = 'text-[11px] uppercase tracking-wider text-white/40 mb-1.5 block';
+  'w-full bg-transparent border-b border-white/10 px-1 py-2.5 text-white outline-none focus:border-emerald-500 transition-colors placeholder:text-white';
+const LABEL = 'text-[11px] uppercase tracking-wider label-pill text-white mb-1.5 block';
 const BTN_EMERALD =
-  'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 transition-colors text-white font-medium disabled:opacity-40 disabled:pointer-events-none';
+  'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 transition-colors text-white font-medium disabled:opacity-70 disabled:pointer-events-none';
 
 const PHASE_LABELS = ['Paused', 'Allowlist', 'Public'] as const;
 const FEATURE_BULLETS = [
@@ -30,13 +30,23 @@ const FEATURE_BULLETS = [
 ];
 
 const fadeUp = { initial: { opacity: 0, y: 14 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.35 } };
-const stagger = { animate: { transition: { staggerChildren: 0.06 } } };
+const fadeUpVariants = { hidden: { opacity: 0, y: 14 }, visible: { opacity: 1, y: 0, transition: { duration: 0.35 } } };
+const stagger = { hidden: {}, visible: { transition: { staggerChildren: 0.06 } } };
+
+/** Return the block explorer address URL for the current chain */
+function useExplorerAddressUrl(address: string) {
+  const chains = useChains();
+  const { chain } = useAccount();
+  const activeChain = chain ?? chains[0];
+  const base = activeChain?.blockExplorers?.default?.url ?? 'https://etherscan.io';
+  return `${base}/address/${address}`;
+}
 
 /* ─── Art-backed glass card helper ─── */
 function ArtCard({
   art,
   opacity = 1,
-  overlay = 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)',
+  overlay = 'none',
   className = '',
   children,
 }: {
@@ -48,8 +58,8 @@ function ArtCard({
 }) {
   return (
     <div
-      className={`relative overflow-hidden rounded-xl ${className}`}
-      style={{ border: '1px solid rgba(139,92,246,0.12)' }}
+      className={`relative overflow-hidden rounded-xl glass-card-animated ${className}`}
+      style={{ border: '1px solid rgba(139,92,246,0.75)' }}
     >
       <div className="absolute inset-0">
         <img src={art.src} alt="" className="w-full h-full object-cover" style={{ opacity }} />
@@ -77,7 +87,7 @@ function PhaseBadge({ phase }: { phase: number }) {
         )}
         <span className={`relative inline-flex rounded-full h-2 w-2 ${config.color}`} />
       </span>
-      <span className={`text-[10px] font-medium uppercase tracking-wider ${config.text}`}>
+      <span className={`text-[10px] font-medium uppercase tracking-wider label-pill ${config.text}`}>
         {config.label}
       </span>
     </div>
@@ -94,7 +104,7 @@ function PhaseIndicator({ current }: { current: number }) {
           {i > 0 && (
             <div
               className={`w-8 sm:w-12 h-[2px] transition-colors duration-500 ${
-                i <= current ? 'bg-emerald-500' : 'bg-white/10'
+                i <= current ? 'bg-emerald-500' : 'bg-black/60'
               }`}
             />
           )}
@@ -111,8 +121,8 @@ function PhaseIndicator({ current }: { current: number }) {
               {i <= current && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
             </div>
             <span
-              className={`text-[10px] uppercase tracking-wider ${
-                i === current ? 'text-emerald-400' : 'text-white/30'
+              className={`text-[10px] uppercase tracking-wider label-pill ${
+                i === current ? 'text-black' : 'text-white'
               }`}
             >
               {label}
@@ -147,6 +157,7 @@ function CollectionCard({
   // Read live drop data for this card
   const contractAddr = collection ? (collection as unknown[])[1] as string : '';
   const drop = useNFTDrop(contractAddr);
+  const explorerUrl = useExplorerAddressUrl(contractAddr);
 
   if (!collection) {
     return <div className={`${GLASS} rounded-xl p-5 animate-pulse h-44`} />;
@@ -159,22 +170,27 @@ function CollectionCard({
   const progressPct = drop.maxSupply > 0 ? Math.min(100, (drop.totalMinted / drop.maxSupply) * 100) : 0;
 
   return (
-    <motion.div {...fadeUp}>
-      <ArtCard art={ART.galleryCollage} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className={`cursor-pointer transition-all duration-300 group ${
+    <motion.div variants={fadeUpVariants}>
+      <ArtCard art={ART.galleryCollage} opacity={1} overlay="none" className={`cursor-pointer transition-all duration-300 group ${
         isActive
           ? 'ring-1 ring-emerald-500/40 shadow-[0_0_24px_-6px_rgba(16,185,129,0.15)]'
           : 'hover:shadow-[0_0_20px_-6px_rgba(16,185,129,0.08)]'
       }`}>
-        <div onClick={() => onSelect(contractAddr)}>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => onSelect(contractAddr)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(contractAddr); } }}
+        >
           {/* Phase badge top-right */}
           <div className="flex items-start justify-between mb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-emerald-500/15 flex items-center justify-center text-emerald-400 font-bold text-xs tracking-wide">
+              <div className="w-10 h-10 rounded-lg bg-emerald-500/15 flex items-center justify-center text-black font-bold text-xs tracking-wide">
                 {symbol.slice(0, 3)}
               </div>
               <div className="min-w-0">
                 <h3 className="text-white font-medium truncate">{name}</h3>
-                <span className="inline-block text-[10px] uppercase tracking-wider text-emerald-400/70 bg-emerald-500/10 px-1.5 py-0.5 rounded mt-0.5">
+                <span className="inline-block text-[10px] uppercase tracking-wider label-pill text-black/70 bg-emerald-500/30 px-1.5 py-0.5 rounded mt-0.5">
                   {symbol}
                 </span>
               </div>
@@ -184,11 +200,11 @@ function CollectionCard({
 
           {/* Mini progress bar */}
           <div className="mb-3">
-            <div className="flex justify-between text-[10px] text-white/30 mb-1">
+            <div className="flex justify-between text-[10px] text-white mb-1">
               <span className="font-mono tabular-nums">{drop.totalMinted}/{drop.maxSupply}</span>
               <span className="font-mono tabular-nums">{progressPct.toFixed(0)}%</span>
             </div>
-            <div className="w-full h-1.5 rounded-full bg-white/5 overflow-hidden">
+            <div className="w-full h-1.5 rounded-full bg-black/60 overflow-hidden" role="progressbar" aria-valuenow={Math.round(progressPct)} aria-valuemin={0} aria-valuemax={100}>
               <motion.div
                 className="h-full rounded-full bg-gradient-to-r from-emerald-600 to-emerald-400"
                 initial={{ width: 0 }}
@@ -200,25 +216,25 @@ function CollectionCard({
 
           {/* Info rows */}
           <div className="space-y-1.5 text-sm">
-            <div className="flex justify-between text-white/50">
+            <div className="flex justify-between text-white">
               <span>Price</span>
-              <span className="text-emerald-400/80 font-mono text-xs tabular-nums">{drop.mintPriceFormatted} ETH</span>
+              <span className="text-black/80 font-mono text-xs tabular-nums">{drop.mintPriceFormatted} ETH</span>
             </div>
-            <div className="flex justify-between text-white/50">
+            <div className="flex justify-between text-white">
               <span>Contract</span>
               <a
-                href={`https://etherscan.io/address/${contractAddr}`}
+                href={explorerUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-emerald-400/80 hover:text-emerald-400 hover:underline font-mono text-xs"
+                className="text-black/80 hover:text-black hover:underline font-mono text-xs"
                 onClick={(e) => e.stopPropagation()}
               >
                 {shortAddr}
               </a>
             </div>
-            <div className="flex justify-between text-white/50">
+            <div className="flex justify-between text-white">
               <span>Creator</span>
-              <span className="text-white/70 font-mono text-xs">{shortCreator}</span>
+              <span className="text-white font-mono text-xs">{shortCreator}</span>
             </div>
           </div>
         </div>
@@ -258,17 +274,17 @@ function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string; deplo
   );
 
   return (
-    <ArtCard art={ART.roseApe} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="mt-6">
+    <ArtCard art={ART.roseApe} opacity={1} overlay="none" className="mt-6">
       <button
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between text-sm"
       >
-        <span className="text-emerald-400 font-semibold tracking-wide uppercase text-[11px]">
+        <span className="text-black font-semibold tracking-wide uppercase text-[11px]">
           Owner Admin
         </span>
         <motion.span
           animate={{ rotate: open ? 180 : 0 }}
-          className="text-emerald-400/50 text-xs"
+          className="text-black/50 text-xs"
         >
           \u25BC
         </motion.span>
@@ -278,7 +294,7 @@ function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string; deplo
         {open && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
+            animate={{ height: 'auto' }}
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
@@ -299,7 +315,7 @@ function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string; deplo
                       className={`py-2 rounded-lg text-xs font-medium transition-all ${
                         phase === String(i)
                           ? 'bg-emerald-600 text-white shadow-[0_0_12px_-4px_rgba(16,185,129,0.4)]'
-                          : 'bg-white/5 text-white/50 hover:text-white border border-white/10 hover:border-white/20'
+                          : 'bg-black/60 text-white hover:text-white border border-white/25 hover:border-white/20'
                       }`}
                       onClick={() => setPhase(String(i))}
                     >
@@ -318,8 +334,9 @@ function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string; deplo
 
               {/* Merkle Root */}
               <div>
-                <label className={LABEL}>Merkle Root</label>
+                <label className={LABEL} htmlFor="admin-merkleRoot">Merkle Root</label>
                 <input
+                  id="admin-merkleRoot"
                   type="text"
                   value={merkleRoot}
                   onChange={(e) => setMerkleRoot(e.target.value)}
@@ -328,7 +345,7 @@ function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string; deplo
                 />
                 <button
                   className={`mt-2 w-full py-2 rounded-lg text-xs ${BTN_EMERALD}`}
-                  disabled={busy || !merkleRoot.startsWith('0x')}
+                  disabled={busy || !/^0x[0-9a-fA-F]{64}$/.test(merkleRoot)}
                   onClick={() =>
                     exec('setMerkleRoot', [merkleRoot as `0x${string}`], {
                       onSuccess: () => setMerkleRoot(''),
@@ -341,8 +358,9 @@ function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string; deplo
 
               {/* Reveal */}
               <div>
-                <label className={LABEL}>Reveal Base URI</label>
+                <label className={LABEL} htmlFor="admin-revealURI">Reveal Base URI</label>
                 <input
+                  id="admin-revealURI"
                   type="text"
                   value={revealURI}
                   onChange={(e) => setRevealURI(e.target.value)}
@@ -362,7 +380,7 @@ function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string; deplo
 
               {/* Withdraw */}
               <button
-                className="w-full py-2.5 rounded-lg bg-amber-600/70 hover:bg-amber-600 text-white text-xs font-medium border border-amber-500/20 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                className="w-full py-2.5 rounded-lg bg-amber-600/70 hover:bg-amber-600 text-white text-xs font-medium border border-amber-500/20 transition-colors disabled:opacity-70 disabled:pointer-events-none"
                 disabled={busy}
                 onClick={() => exec('withdraw')}
               >
@@ -382,23 +400,23 @@ function CreatorRevenueDashboard({ drop }: { drop: ReturnType<typeof useNFTDrop>
   const totalRevenue = Number(formatEther(drop.mintPrice * BigInt(drop.totalMinted)));
 
   return (
-    <ArtCard art={ART.roseApe} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="mb-6">
-      <h3 className="text-emerald-400 font-semibold tracking-wide uppercase text-[11px] mb-4">
+    <ArtCard art={ART.roseApe} opacity={1} overlay="none" className="mb-6">
+      <h3 className="text-black font-semibold tracking-wide uppercase text-[11px] mb-4">
         Creator Revenue Dashboard
       </h3>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="text-center p-3 rounded-lg bg-white/[0.03] border border-white/[0.04]">
+        <div className="text-center p-3 rounded-lg bg-black/60 border border-white/20">
           <p className={LABEL}>Total Minted</p>
           <p className="text-white font-mono text-xl tabular-nums">{drop.totalMinted}</p>
         </div>
-        <div className="text-center p-3 rounded-lg bg-white/[0.03] border border-white/[0.04]">
+        <div className="text-center p-3 rounded-lg bg-black/60 border border-white/20">
           <p className={LABEL}>Total Revenue</p>
-          <p className="text-white font-mono text-xl tabular-nums">{totalRevenue.toFixed(4)} <span className="text-white/40 text-sm">ETH</span></p>
+          <p className="text-white font-mono text-xl tabular-nums">{totalRevenue.toFixed(4)} <span className="text-white text-sm">ETH</span></p>
         </div>
-        <div className="text-center p-3 rounded-lg bg-white/[0.03] border border-white/[0.04]">
+        <div className="text-center p-3 rounded-lg bg-black/60 border border-white/20">
           <p className={LABEL}>Unique Holders</p>
-          <p className="text-white/40 font-mono text-xl tabular-nums">--</p>
-          <p className="text-[9px] text-white/20 mt-0.5">Coming soon</p>
+          <p className="text-white font-mono text-xl tabular-nums">--</p>
+          <p className="text-[9px] text-white mt-0.5">Coming soon</p>
         </div>
       </div>
     </ArtCard>
@@ -416,31 +434,31 @@ function LiveMintFeed() {
   ];
 
   return (
-    <ArtCard art={ART.danceNight} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="mb-6">
-      <h3 className="text-emerald-400 font-semibold tracking-wide uppercase text-[11px] mb-4">
+    <ArtCard art={ART.danceNight} opacity={1} overlay="none" className="mb-6">
+      <h3 className="text-black font-semibold tracking-wide uppercase text-[11px] mb-4">
         Live Mint Feed
       </h3>
       <div className="space-y-2.5 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
         {mockMints.map((m, i) => (
           <div
             key={i}
-            className="flex items-center justify-between py-2 px-3 rounded-lg bg-white/[0.03] border border-white/[0.04]"
+            className="flex items-center justify-between py-2 px-3 rounded-lg bg-black/60 border border-white/20"
           >
             <div className="flex items-center gap-2.5">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-50" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
               </span>
-              <span className="text-white/70 font-mono text-xs">{m.addr}</span>
+              <span className="text-white font-mono text-xs">{m.addr}</span>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-emerald-400/80 text-xs font-mono">x{m.qty}</span>
-              <span className="text-white/25 text-[10px]">{m.time}</span>
+              <span className="text-black/80 text-xs font-mono">x{m.qty}</span>
+              <span className="text-white text-[10px]">{m.time}</span>
             </div>
           </div>
         ))}
       </div>
-      <p className="text-center text-[10px] text-white/20 mt-3">
+      <p className="text-center text-[10px] text-white mt-3">
         Recent mints will appear here when the collection is live
       </p>
     </ArtCard>
@@ -460,6 +478,7 @@ function CollectionDetail({
 }) {
   const { isConnected } = useAccount();
   const drop = useNFTDrop(dropAddress);
+  const explorerUrl = useExplorerAddressUrl(dropAddress);
   const [mintQty, setMintQty] = useState(1);
   const [proofInput, setProofInput] = useState('');
   const shortAddr = `${dropAddress.slice(0, 6)}...${dropAddress.slice(-4)}`;
@@ -506,23 +525,24 @@ function CollectionDetail({
       className="mb-8"
     >
       {/* Hero */}
-      <ArtCard art={ART.beachVibes} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl mb-0">
+      <ArtCard art={ART.beachVibes} opacity={1} overlay="none" className="rounded-2xl mb-0">
         <div className="p-1 sm:p-3">
           <div className="flex items-start justify-between mb-6">
             <div>
               <h2 className="heading-luxury text-xl sm:text-2xl mb-1">Collection Details</h2>
               <a
-                href={`https://etherscan.io/address/${dropAddress}`}
+                href={explorerUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-emerald-400/70 hover:text-emerald-400 text-xs font-mono hover:underline"
+                className="text-black/70 hover:text-black text-xs font-mono hover:underline"
               >
                 {shortAddr}
               </a>
             </div>
             <button
               onClick={onClose}
-              className="text-white/30 hover:text-white text-sm transition-colors p-1"
+              aria-label="Close"
+              className="text-white hover:text-white text-sm transition-colors p-1"
             >
               \u2715
             </button>
@@ -535,31 +555,31 @@ function CollectionDetail({
 
           {/* Stats Row */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-            <div className="rounded-xl p-3 sm:p-4 text-center bg-white/[0.03] border border-white/[0.05]">
+            <div className="rounded-xl p-3 sm:p-4 text-center bg-black/60 border border-white/[0.05]">
               <p className={LABEL}>Minted</p>
               <p className="text-white font-mono text-lg tabular-nums">
                 {drop.totalMinted}
-                <span className="text-white/30">/{drop.maxSupply}</span>
+                <span className="text-white">/{drop.maxSupply}</span>
               </p>
             </div>
-            <div className="rounded-xl p-3 sm:p-4 text-center bg-white/[0.03] border border-white/[0.05]">
+            <div className="rounded-xl p-3 sm:p-4 text-center bg-black/60 border border-white/[0.05]">
               <p className={LABEL}>Price</p>
               <p className="text-white font-mono text-lg tabular-nums">{drop.mintPriceFormatted} ETH</p>
             </div>
-            <div className="rounded-xl p-3 sm:p-4 text-center bg-white/[0.03] border border-white/[0.05]">
+            <div className="rounded-xl p-3 sm:p-4 text-center bg-black/60 border border-white/[0.05]">
               <p className={LABEL}>Phase</p>
-              <p className="text-emerald-400 font-medium text-lg">{drop.phaseLabel}</p>
+              <p className="text-black font-medium text-lg">{drop.phaseLabel}</p>
             </div>
           </div>
 
           {/* Progress Bar */}
           {drop.maxSupply > 0 && (
             <div className="mb-8">
-              <div className="flex justify-between text-[10px] text-white/30 mb-1.5 uppercase tracking-wider">
+              <div className="flex justify-between text-[10px] text-white mb-1.5 uppercase tracking-wider label-pill">
                 <span>Progress</span>
                 <span className="font-mono tabular-nums">{progressPct.toFixed(1)}%</span>
               </div>
-              <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden">
+              <div className="w-full h-2 rounded-full bg-black/60 overflow-hidden" role="progressbar" aria-valuenow={Math.round(progressPct)} aria-valuemin={0} aria-valuemax={100}>
                 <motion.div
                   className="h-full rounded-full bg-gradient-to-r from-emerald-600 to-emerald-400"
                   initial={{ width: 0 }}
@@ -575,30 +595,31 @@ function CollectionDetail({
 
           {/* Paused empty state */}
           {drop.currentPhase === 0 && (
-            <ArtCard art={ART.towelieWindow} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="mb-6">
+            <ArtCard art={ART.towelieWindow} opacity={1} overlay="none" className="mb-6">
               <div className="text-center py-4">
                 <div className="text-white/15 text-4xl mb-3">\u23F8</div>
-                <p className="text-white/40 text-sm">Minting is currently paused for this collection.</p>
+                <p className="text-white text-sm">Minting is currently paused for this collection.</p>
               </div>
             </ArtCard>
           )}
 
           {/* Mint Interface */}
-          <ArtCard art={ART.danceNight} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)">
+          <ArtCard art={ART.danceNight} opacity={1} overlay="none">
             <div className="space-y-4">
               {/* Allowlist proof input */}
               <AnimatePresence>
                 {drop.currentPhase === 1 && (
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
-                    <label className={LABEL}>Merkle Proof</label>
+                    <label className={LABEL} htmlFor="mint-merkleProof">Merkle Proof</label>
                     <input
+                      id="mint-merkleProof"
                       type="text"
                       value={proofInput}
                       onChange={(e) => setProofInput(e.target.value)}
                       placeholder="0xabc...,0xdef..."
                       className={`${INPUT} font-mono text-xs`}
                     />
-                    <span className="text-[10px] text-white/25 mt-1 block">
+                    <span className="text-[10px] text-white mt-1 block">
                       Comma-separated hex strings. Get your proof from the project.
                     </span>
                   </motion.div>
@@ -609,7 +630,7 @@ function CollectionDetail({
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                 <div className="flex items-center gap-2">
                   <button
-                    className="w-9 h-9 rounded-lg bg-white/5 hover:bg-white/10 text-white transition-colors text-lg leading-none"
+                    className="w-9 h-9 rounded-lg bg-black/60 hover:bg-black/60 text-white transition-colors text-lg leading-none"
                     onClick={() => setMintQty(Math.max(1, mintQty - 1))}
                   >
                     \u2212
@@ -618,14 +639,14 @@ function CollectionDetail({
                     {mintQty}
                   </span>
                   <button
-                    className="w-9 h-9 rounded-lg bg-white/5 hover:bg-white/10 text-white transition-colors text-lg leading-none"
-                    onClick={() => setMintQty(mintQty + 1)}
+                    className="w-9 h-9 rounded-lg bg-black/60 hover:bg-black/60 text-white transition-colors text-lg leading-none"
+                    onClick={() => setMintQty((q) => { const cap = drop.maxPerWallet > 0 ? drop.maxPerWallet : Infinity; return Math.min(q + 1, cap); })}
                   >
                     +
                   </button>
                   <button
-                    className="px-3 h-9 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white text-[10px] uppercase tracking-wider transition-colors"
-                    onClick={() => setMintQty(10)}
+                    className="px-3 h-9 rounded-lg bg-black/60 hover:bg-black/60 text-white hover:text-white text-[10px] uppercase tracking-wider label-pill transition-colors"
+                    onClick={() => setMintQty(drop.maxPerWallet > 0 ? drop.maxPerWallet : 10)}
                   >
                     Max
                   </button>
@@ -634,7 +655,7 @@ function CollectionDetail({
                 <button
                   className={`flex-1 py-3 rounded-xl text-sm font-medium transition-all ${
                     mintDisabled
-                      ? 'bg-white/5 text-white/30 cursor-not-allowed'
+                      ? 'bg-black/60 text-white cursor-not-allowed'
                       : `${BTN_EMERALD} shadow-[0_0_20px_-6px_rgba(16,185,129,0.3)]`
                   }`}
                   disabled={mintDisabled}
@@ -646,7 +667,7 @@ function CollectionDetail({
 
               {/* Total cost */}
               {drop.currentPhase > 0 && !drop.isSoldOut && deployed && (
-                <p className="text-center text-xs text-white/30 font-mono tabular-nums">
+                <p className="text-center text-xs text-white font-mono tabular-nums">
                   Total: {totalCost.toFixed(4)} ETH
                 </p>
               )}
@@ -678,8 +699,6 @@ function CreateCollectionForm({ onCreated, deployed }: { onCreated: () => void; 
   const [mintPrice, setMintPrice] = useState('0.05');
   const [maxPerWallet, setMaxPerWallet] = useState('5');
   const [royaltyBps, setRoyaltyBps] = useState(500);
-  const [baseURI, setBaseURI] = useState('');
-  const [preRevealURI, setPreRevealURI] = useState('');
 
   const { writeContract, data: txHash, isPending } = useWriteContract();
   const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash });
@@ -712,8 +731,6 @@ function CreateCollectionForm({ onCreated, deployed }: { onCreated: () => void; 
           toast.success('Collection deployed!');
           setName('');
           setSymbol('');
-          setBaseURI('');
-          setPreRevealURI('');
           onCreated();
         },
         onError: (e) => toast.error(e.message.slice(0, 80)),
@@ -727,7 +744,7 @@ function CreateCollectionForm({ onCreated, deployed }: { onCreated: () => void; 
       animate={{ opacity: 1, y: 0 }}
       className="mb-8"
     >
-      <ArtCard art={ART.chaosScene} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl">
+      <ArtCard art={ART.chaosScene} opacity={1} overlay="none" className="rounded-2xl">
         <div className="p-1 sm:p-3">
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-8">
             {/* Form Fields */}
@@ -736,8 +753,9 @@ function CreateCollectionForm({ onCreated, deployed }: { onCreated: () => void; 
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
                 <div>
-                  <label className={LABEL}>Name</label>
+                  <label className={LABEL} htmlFor="create-name">Name</label>
                   <input
+                    id="create-name"
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
@@ -746,8 +764,9 @@ function CreateCollectionForm({ onCreated, deployed }: { onCreated: () => void; 
                   />
                 </div>
                 <div>
-                  <label className={LABEL}>Symbol</label>
+                  <label className={LABEL} htmlFor="create-symbol">Symbol</label>
                   <input
+                    id="create-symbol"
                     type="text"
                     value={symbol}
                     onChange={(e) => setSymbol(e.target.value.toUpperCase())}
@@ -756,82 +775,60 @@ function CreateCollectionForm({ onCreated, deployed }: { onCreated: () => void; 
                   />
                 </div>
                 <div>
-                  <label className={LABEL}>Max Supply</label>
+                  <label className={LABEL} htmlFor="create-maxSupply">Max Supply</label>
                   <input
+                    id="create-maxSupply"
                     type="number"
                     value={maxSupply}
-                    onChange={(e) => setMaxSupply(e.target.value)}
+                    onChange={(e) => setMaxSupply(String(Math.max(0, parseInt(e.target.value) || 0)))}
                     className={`${INPUT} font-mono`}
                   />
                 </div>
                 <div>
-                  <label className={LABEL}>Mint Price (ETH)</label>
+                  <label className={LABEL} htmlFor="create-mintPrice">Mint Price (ETH)</label>
                   <input
+                    id="create-mintPrice"
                     type="number"
                     value={mintPrice}
-                    onChange={(e) => setMintPrice(e.target.value)}
+                    onChange={(e) => setMintPrice(String(Math.max(0, parseFloat(e.target.value) || 0)))}
                     className={`${INPUT} font-mono`}
                   />
                 </div>
                 <div>
-                  <label className={LABEL}>Max Per Wallet</label>
+                  <label className={LABEL} htmlFor="create-maxPerWallet">Max Per Wallet</label>
                   <input
+                    id="create-maxPerWallet"
                     type="number"
                     value={maxPerWallet}
-                    onChange={(e) => setMaxPerWallet(e.target.value)}
+                    onChange={(e) => setMaxPerWallet(String(Math.max(0, parseInt(e.target.value) || 0)))}
                     className={`${INPUT} font-mono`}
                   />
-                  <span className="text-[10px] text-white/25 mt-1 block">0 = unlimited</span>
+                  <span className="text-[10px] text-white mt-1 block">0 = unlimited</span>
                 </div>
                 <div>
-                  <label className={LABEL}>Royalty ({royaltyPct}%)</label>
+                  <label className={LABEL} htmlFor="create-royalty">Royalty ({royaltyPct}%)</label>
                   <input
+                    id="create-royalty"
                     type="range"
                     min={0}
                     max={1000}
                     step={25}
                     value={royaltyBps}
                     onChange={(e) => setRoyaltyBps(Number(e.target.value))}
-                    className="w-full h-1.5 rounded-full appearance-none bg-white/10 accent-emerald-500 cursor-pointer mt-2"
+                    className="w-full h-1.5 rounded-full appearance-none bg-black/60 accent-emerald-500 cursor-pointer mt-2"
                   />
                   {/* Royalty fill visualization */}
-                  <div className="w-full h-1.5 rounded-full bg-white/5 overflow-hidden mt-1.5">
+                  <div className="w-full h-1.5 rounded-full bg-black/60 overflow-hidden mt-1.5" role="progressbar" aria-valuenow={Math.round(royaltyFillPct)} aria-valuemin={0} aria-valuemax={100}>
                     <div
                       className="h-full rounded-full bg-gradient-to-r from-emerald-600 to-emerald-400 transition-all duration-300"
                       style={{ width: `${royaltyFillPct}%` }}
                     />
                   </div>
-                  <div className="flex justify-between text-[10px] text-white/25 mt-1">
+                  <div className="flex justify-between text-[10px] text-white mt-1">
                     <span>0%</span>
-                    <span className="text-emerald-400/60 font-mono">{royaltyBps} bps</span>
+                    <span className="text-black/60 font-mono">{royaltyBps} bps</span>
                     <span>10%</span>
                   </div>
-                </div>
-                <div className="sm:col-span-2">
-                  <label className={LABEL}>Base URI (IPFS metadata prefix)</label>
-                  <input
-                    type="text"
-                    value={baseURI}
-                    onChange={(e) => setBaseURI(e.target.value)}
-                    placeholder="ipfs://QmYour.../metadata/"
-                    className={`${INPUT} font-mono text-xs`}
-                  />
-                  <span className="text-[10px] text-white/25 mt-1 block">
-                    IPFS prefix for token metadata JSON files
-                  </span>
-                </div>
-                <div className="sm:col-span-2">
-                  <label className={LABEL}>Pre-Reveal URI (placeholder image)</label>
-                  <input
-                    type="text"
-                    value={preRevealURI}
-                    onChange={(e) => setPreRevealURI(e.target.value)}
-                    placeholder="ipfs://QmPlaceholder.../hidden.json"
-                    className={`${INPUT} font-mono text-xs`}
-                  />
-                  <span className="text-[10px] text-white/25 mt-1 block">
-                    Shown before reveal. Leave blank if no delayed reveal.
-                  </span>
                 </div>
               </div>
 
@@ -851,15 +848,15 @@ function CreateCollectionForm({ onCreated, deployed }: { onCreated: () => void; 
             {/* Preview Card */}
             <div className="hidden lg:block">
               <label className={LABEL}>Live Preview</label>
-              <ArtCard art={ART.galleryCollage} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="mt-1.5">
+              <ArtCard art={ART.galleryCollage} opacity={1} overlay="none" className="mt-1.5">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-emerald-500/15 flex items-center justify-center text-emerald-400 font-bold text-xs">
+                    <div className="w-10 h-10 rounded-lg bg-emerald-500/15 flex items-center justify-center text-black font-bold text-xs">
                       {(symbol || '???').slice(0, 3)}
                     </div>
                     <div className="min-w-0">
                       <h3 className="text-white font-medium truncate text-sm">{name || 'Collection Name'}</h3>
-                      <span className="inline-block text-[10px] uppercase tracking-wider text-emerald-400/70 bg-emerald-500/10 px-1.5 py-0.5 rounded mt-0.5">
+                      <span className="inline-block text-[10px] uppercase tracking-wider label-pill text-black/70 bg-emerald-500/30 px-1.5 py-0.5 rounded mt-0.5">
                         {symbol || 'SYM'}
                       </span>
                     </div>
@@ -868,31 +865,25 @@ function CreateCollectionForm({ onCreated, deployed }: { onCreated: () => void; 
                 </div>
                 {/* Mini progress preview */}
                 <div className="mb-3">
-                  <div className="flex justify-between text-[10px] text-white/30 mb-1">
+                  <div className="flex justify-between text-[10px] text-white mb-1">
                     <span className="font-mono">0/{maxSupply || '0'}</span>
                     <span className="font-mono">0%</span>
                   </div>
-                  <div className="w-full h-1.5 rounded-full bg-white/5" />
+                  <div className="w-full h-1.5 rounded-full bg-black/60" />
                 </div>
-                <div className="space-y-1.5 text-xs text-white/40">
+                <div className="space-y-1.5 text-xs text-white">
                   <div className="flex justify-between">
                     <span>Supply</span>
-                    <span className="text-white/60 font-mono tabular-nums">{maxSupply || '0'}</span>
+                    <span className="text-white font-mono tabular-nums">{maxSupply || '0'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Price</span>
-                    <span className="text-white/60 font-mono tabular-nums">{mintPrice || '0'} ETH</span>
+                    <span className="text-white font-mono tabular-nums">{mintPrice || '0'} ETH</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Royalty</span>
-                    <span className="text-white/60 font-mono tabular-nums">{royaltyPct}%</span>
+                    <span className="text-white font-mono tabular-nums">{royaltyPct}%</span>
                   </div>
-                  {baseURI && (
-                    <div className="flex justify-between">
-                      <span>Base URI</span>
-                      <span className="text-white/60 font-mono tabular-nums truncate max-w-[120px]">{baseURI}</span>
-                    </div>
-                  )}
                 </div>
               </ArtCard>
             </div>
@@ -908,10 +899,10 @@ function CreateCollectionForm({ onCreated, deployed }: { onCreated: () => void; 
 function ComingSoonPanel() {
   return (
     <motion.div className="max-w-2xl mx-auto text-center" {...fadeUp}>
-      <ArtCard art={ART.jungleBus} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl mb-8">
+      <ArtCard art={ART.jungleBus} opacity={1} overlay="none" className="rounded-2xl mb-8">
         <div className="p-3 sm:p-5">
           <h2 className="heading-luxury text-2xl mb-3">Coming Soon</h2>
-          <p className="text-white/50 max-w-md mx-auto mb-8 text-sm leading-relaxed">
+          <p className="text-white max-w-md mx-auto mb-8 text-sm leading-relaxed">
             The Tegridy Launchpad is under development. Deploy NFT collections as minimal-proxy
             clones with multi-phase minting, Merkle allowlists, and Dutch auctions.
           </p>
@@ -919,17 +910,17 @@ function ComingSoonPanel() {
           <motion.div
             className="grid grid-cols-2 sm:grid-cols-3 gap-3"
             variants={stagger}
-            initial="initial"
-            animate="animate"
+            initial="hidden"
+            animate="visible"
           >
             {FEATURE_BULLETS.map(({ label, icon }) => (
               <motion.div
                 key={label}
-                variants={fadeUp}
-                className="rounded-xl p-4 flex flex-col items-center gap-2.5 bg-white/[0.03] border border-white/[0.06] hover:border-emerald-500/20 transition-colors"
+                variants={fadeUpVariants}
+                className="rounded-xl p-4 flex flex-col items-center gap-2.5 bg-black/60 border border-white/20 hover:border-emerald-500/40 transition-colors"
               >
-                <span className="text-emerald-400 text-xl">{icon}</span>
-                <span className="text-white/70 text-xs text-center leading-snug">{label}</span>
+                <span className="text-black text-xl">{icon}</span>
+                <span className="text-white text-xs text-center leading-snug">{label}</span>
               </motion.div>
             ))}
           </motion.div>
@@ -976,13 +967,13 @@ export default function LaunchpadPage({ embedded }: { embedded?: boolean }) {
             src={ART.chaosScene.src}
             alt=""
             className="w-full h-full object-cover"
-            style={{ opacity: 1 }}
+           
           />
           <div
             className="absolute inset-0"
             style={{
               background:
-                'linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, rgba(6,12,26,0.88) 45%, rgba(6,12,26,0.88) 100%)',
+                'none',
             }}
           />
         </div>
@@ -996,10 +987,10 @@ export default function LaunchpadPage({ embedded }: { embedded?: boolean }) {
         {/* Heading (standalone only) */}
         {!embedded && (
           <motion.div className="text-center mb-10" {...fadeUp}>
-            <ArtCard art={ART.jbChristmas} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="inline-block rounded-2xl px-2 py-1 mb-0">
+            <ArtCard art={ART.jbChristmas} opacity={1} overlay="none" className="inline-block rounded-2xl px-2 py-1 mb-0">
               <div className="px-4 sm:px-8 py-4">
                 <h1 className="heading-luxury text-3xl md:text-4xl mb-3">NFT Launchpad</h1>
-                <p className="text-white/50 max-w-lg mx-auto text-sm leading-relaxed">
+                <p className="text-white max-w-lg mx-auto text-sm leading-relaxed">
                   Launch your NFT collection with built-in allowlists, Dutch auctions, delayed
                   reveals, and ERC-2981 royalties.
                 </p>
@@ -1014,7 +1005,7 @@ export default function LaunchpadPage({ embedded }: { embedded?: boolean }) {
             className={`${GLASS} rounded-2xl p-8 text-center max-w-md mx-auto`}
             {...fadeUp}
           >
-            <p className="text-white/50 mb-5 text-sm">
+            <p className="text-white mb-5 text-sm">
               Connect your wallet to launch or browse collections.
             </p>
             <ConnectButton />
@@ -1034,7 +1025,7 @@ export default function LaunchpadPage({ embedded }: { embedded?: boolean }) {
               {...fadeUp}
             >
               <div className="flex gap-3">
-                <ArtCard art={ART.jbChristmas} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-xl">
+                <ArtCard art={ART.jbChristmas} opacity={1} overlay="none" className="rounded-xl">
                   <p className={LABEL}>Collections</p>
                   <p className="text-white font-mono text-xl tabular-nums">
                     {collectionCount?.toString() ?? '0'}
@@ -1044,9 +1035,9 @@ export default function LaunchpadPage({ embedded }: { embedded?: boolean }) {
               <button
                 className={`px-6 py-2.5 rounded-xl text-sm transition-all ${
                   showForm
-                    ? 'bg-white/5 text-white/60 hover:text-white border border-white/10'
+                    ? 'bg-black/60 text-white hover:text-white border border-white/10'
                     : !deployed
-                      ? 'bg-white/5 text-white/30 cursor-not-allowed border border-white/10'
+                      ? 'bg-black/60 text-white cursor-not-allowed border border-white/10'
                       : BTN_EMERALD
                 }`}
                 onClick={() => deployed && setShowForm(!showForm)}
@@ -1084,10 +1075,10 @@ export default function LaunchpadPage({ embedded }: { embedded?: boolean }) {
 
             {collectionIds.length === 0 ? (
               <motion.div {...fadeUp}>
-                <ArtCard art={ART.towelieWindow} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl">
+                <ArtCard art={ART.towelieWindow} opacity={1} overlay="none" className="rounded-2xl">
                   <div className="text-center py-6">
                     <div className="text-white/10 text-5xl mb-4">{'\u25C8'}</div>
-                    <p className="text-white/40 text-sm">
+                    <p className="text-white text-sm">
                       No collections launched yet. Be the first to deploy.
                     </p>
                   </div>
@@ -1097,8 +1088,8 @@ export default function LaunchpadPage({ embedded }: { embedded?: boolean }) {
               <motion.div
                 className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
                 variants={stagger}
-                initial="initial"
-                animate="animate"
+                initial="hidden"
+                animate="visible"
               >
                 {collectionIds.map((id) => (
                   <CollectionCard

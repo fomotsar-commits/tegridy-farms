@@ -1,6 +1,14 @@
 import { motion } from 'framer-motion';
 
+const prefersReducedMotion =
+  typeof window !== 'undefined' &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 export function PageTransition({ children }: { children: React.ReactNode }) {
+  if (prefersReducedMotion) {
+    return <div>{children}</div>;
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20, scale: 0.98 }}

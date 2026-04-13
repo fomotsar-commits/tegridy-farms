@@ -33,7 +33,7 @@ export interface AggregatorQuote {
 // Free, no API key needed
 
 async function getSwapApiQuote(
-  tokenIn: string, tokenOut: string, amount: string, sender: string,
+  tokenIn: string, tokenOut: string, amount: string, sender: string, _fromDecimals?: number, signal?: AbortSignal,
 ): Promise<AggregatorQuote | null> {
   try {
     const sellToken = normalizeTokenAddress(tokenIn, 'native');
@@ -42,7 +42,7 @@ async function getSwapApiQuote(
       tokenIn: sellToken, tokenOut: buyToken,
       amount, sender, maxSlippage: '0.05',
     });
-    const res = await fetch(`https://api.swapapi.dev/v1/swap/${CHAIN_ID}?${params}`);
+    const res = await fetch(`https://api.swapapi.dev/v1/swap/${CHAIN_ID}?${params}`, { signal });
     if (!res.ok) return null;
     const data = await res.json();
     if (!data || typeof data.amountOut !== 'string' || !/^\d+$/.test(data.amountOut) || data.amountOut === '0' ||
@@ -58,7 +58,7 @@ async function getSwapApiQuote(
 // Docs: https://docs.odos.xyz
 
 async function getOdosQuote(
-  tokenIn: string, tokenOut: string, amount: string, sender: string,
+  tokenIn: string, tokenOut: string, amount: string, sender: string, _fromDecimals?: number, signal?: AbortSignal,
 ): Promise<AggregatorQuote | null> {
   try {
     const inAddr = normalizeTokenAddress(tokenIn, 'zero');
@@ -76,6 +76,7 @@ async function getOdosQuote(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal,
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -96,7 +97,7 @@ async function getOdosQuote(
 // Docs: https://api.cow.fi/docs
 
 async function getCowSwapQuote(
-  tokenIn: string, tokenOut: string, amount: string, sender: string,
+  tokenIn: string, tokenOut: string, amount: string, sender: string, _fromDecimals?: number, signal?: AbortSignal,
 ): Promise<AggregatorQuote | null> {
   try {
     // CowSwap uses WETH address, not native ETH
@@ -116,6 +117,7 @@ async function getCowSwapQuote(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal,
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -134,7 +136,7 @@ async function getCowSwapQuote(
 // Docs: https://docs.li.fi
 
 async function getLiFiQuote(
-  tokenIn: string, tokenOut: string, amount: string, sender: string,
+  tokenIn: string, tokenOut: string, amount: string, sender: string, _fromDecimals?: number, signal?: AbortSignal,
 ): Promise<AggregatorQuote | null> {
   try {
     const fromToken = normalizeTokenAddress(tokenIn, 'native');
@@ -146,7 +148,7 @@ async function getLiFiQuote(
       fromAmount: amount,
       fromAddress: sender,
     });
-    const res = await fetch(`/api/lifi/v1/quote?${params}`);
+    const res = await fetch(`/api/lifi/v1/quote?${params}`, { signal });
     if (!res.ok) return null;
     const data = await res.json();
     const toAmount = data?.estimate?.toAmount;
@@ -165,7 +167,7 @@ async function getLiFiQuote(
 // Docs: https://docs.kyberswap.com
 
 async function getKyberSwapQuote(
-  tokenIn: string, tokenOut: string, amount: string, _sender: string,
+  tokenIn: string, tokenOut: string, amount: string, _sender: string, _fromDecimals?: number, signal?: AbortSignal,
 ): Promise<AggregatorQuote | null> {
   try {
     const inAddr = normalizeTokenAddress(tokenIn, 'native');
@@ -175,6 +177,7 @@ async function getKyberSwapQuote(
     });
     const res = await fetch(`/api/kyber/ethereum/api/v1/routes?${params}`, {
       headers: { 'X-Client-Id': 'tegridy-farms' },
+      signal,
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -194,7 +197,7 @@ async function getKyberSwapQuote(
 // Docs: https://docs.openocean.finance
 
 async function getOpenOceanQuote(
-  tokenIn: string, tokenOut: string, amount: string, _sender: string, fromDecimals: number = 18,
+  tokenIn: string, tokenOut: string, amount: string, _sender: string, fromDecimals: number = 18, signal?: AbortSignal,
 ): Promise<AggregatorQuote | null> {
   try {
     const inAddr = normalizeTokenAddress(tokenIn, 'native');
@@ -210,7 +213,7 @@ async function getOpenOceanQuote(
       inTokenAddress: inAddr, outTokenAddress: outAddr,
       amount: humanAmount, gasPrice: '5',
     });
-    const res = await fetch(`/api/openocean/v4/eth/quote?${params}`);
+    const res = await fetch(`/api/openocean/v4/eth/quote?${params}`, { signal });
     if (!res.ok) return null;
     const data = await res.json();
     const outAmount = data?.data?.outAmount;
@@ -229,7 +232,7 @@ async function getOpenOceanQuote(
 // Docs: https://developers.velora.xyz
 
 async function getParaSwapQuote(
-  tokenIn: string, tokenOut: string, amount: string, _sender: string,
+  tokenIn: string, tokenOut: string, amount: string, _sender: string, _fromDecimals?: number, signal?: AbortSignal,
 ): Promise<AggregatorQuote | null> {
   try {
     const srcToken = normalizeTokenAddress(tokenIn, 'native');
@@ -238,7 +241,7 @@ async function getParaSwapQuote(
       srcToken, destToken, amount,
       side: 'SELL', network: String(CHAIN_ID),
     });
-    const res = await fetch(`/api/paraswap/prices?${params}`);
+    const res = await fetch(`/api/paraswap/prices?${params}`, { signal });
     if (!res.ok) return null;
     const data = await res.json();
     const destAmount = data?.priceRoute?.destAmount;
@@ -267,15 +270,16 @@ export async function getMetaAggregatorQuotes(
   amount: string,
   sender: string,
   fromDecimals: number = 18,
+  signal?: AbortSignal,
 ): Promise<MetaAggregatorResult> {
   const results = await Promise.allSettled([
-    getSwapApiQuote(tokenIn, tokenOut, amount, sender),
-    getOdosQuote(tokenIn, tokenOut, amount, sender),
-    getCowSwapQuote(tokenIn, tokenOut, amount, sender),
-    getLiFiQuote(tokenIn, tokenOut, amount, sender),
-    getKyberSwapQuote(tokenIn, tokenOut, amount, sender),
-    getOpenOceanQuote(tokenIn, tokenOut, amount, sender, fromDecimals),
-    getParaSwapQuote(tokenIn, tokenOut, amount, sender),
+    getSwapApiQuote(tokenIn, tokenOut, amount, sender, undefined, signal),
+    getOdosQuote(tokenIn, tokenOut, amount, sender, undefined, signal),
+    getCowSwapQuote(tokenIn, tokenOut, amount, sender, undefined, signal),
+    getLiFiQuote(tokenIn, tokenOut, amount, sender, undefined, signal),
+    getKyberSwapQuote(tokenIn, tokenOut, amount, sender, undefined, signal),
+    getOpenOceanQuote(tokenIn, tokenOut, amount, sender, fromDecimals, signal),
+    getParaSwapQuote(tokenIn, tokenOut, amount, sender, undefined, signal),
   ]);
 
   const quotes: AggregatorQuote[] = [];
@@ -309,8 +313,9 @@ export async function getAggregatorPrice(
   amount: string,
   sender: string,
   fromDecimals: number = 18,
+  signal?: AbortSignal,
 ): Promise<{ amountOut: string; priceImpact: number; source: AggregatorSource; allQuotes: AggregatorQuote[] } | null> {
-  const result = await getMetaAggregatorQuotes(tokenIn, tokenOut, amount, sender, fromDecimals);
+  const result = await getMetaAggregatorQuotes(tokenIn, tokenOut, amount, sender, fromDecimals, signal);
   if (!result.best) return null;
   return {
     amountOut: result.best.amountOut,

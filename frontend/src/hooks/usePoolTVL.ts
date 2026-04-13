@@ -3,13 +3,13 @@ import { useReadContracts } from 'wagmi';
 import { formatEther } from 'viem';
 import { UNISWAP_V2_PAIR_ABI, ERC20_ABI, SWAP_FEE_ROUTER_ABI } from '../lib/contracts';
 import { TOWELI_WETH_LP_ADDRESS, TOWELI_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
-import { useToweliPrice } from './useToweliPrice';
+import { useTOWELIPrice } from '../contexts/PriceContext';
 
 const MAX_APR = 500;
 const POOL_LAUNCH_TIMESTAMP = new Date('2025-03-01').getTime() / 1000;
 
 export function usePoolTVL() {
-  const price = useToweliPrice();
+  const price = useTOWELIPrice();
   const hasFeeRouter = checkDeployed(SWAP_FEE_ROUTER_ADDRESS);
 
   const { data } = useReadContracts({

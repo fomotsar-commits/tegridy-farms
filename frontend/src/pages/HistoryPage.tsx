@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -46,68 +46,68 @@ function categorizeTx(tx: TxRecord): { type: string; color: string } {
 
   // Swap routers
   if (to === SWAP_FEE_ROUTER_ADDRESS.toLowerCase() || to === UNISWAP_V2_ROUTER.toLowerCase()) {
-    if (fn.includes('swap') || fn.includes('Swap')) return { type: 'Swap', color: 'text-primary' };
-    return { type: 'Router', color: 'text-white/50' };
+    if (fn.includes('swap') || fn.includes('Swap')) return { type: 'Swap', color: 'text-white' };
+    return { type: 'Router', color: 'text-white' };
   }
   // Staking
   if (to === TEGRIDY_STAKING_ADDRESS.toLowerCase()) {
     if (fn === 'stake') return { type: 'Stake', color: 'text-success' };
     if (fn === 'withdraw') return { type: 'Unstake', color: 'text-warning' };
-    if (fn === 'getReward') return { type: 'Claim', color: 'text-primary' };
+    if (fn === 'getReward') return { type: 'Claim', color: 'text-white' };
     if (fn === 'earlyWithdraw') return { type: 'Early Exit', color: 'text-danger' };
-    if (fn === 'toggleAutoMaxLock') return { type: 'Auto-Lock', color: 'text-white/50' };
-    return { type: 'Farm', color: 'text-white/50' };
+    if (fn === 'toggleAutoMaxLock') return { type: 'Auto-Lock', color: 'text-white' };
+    return { type: 'Farm', color: 'text-white' };
   }
   // Restaking
   if (to === TEGRIDY_RESTAKING_ADDRESS.toLowerCase()) {
     if (fn === 'restake') return { type: 'Restake', color: 'text-success' };
     if (fn === 'unrestake') return { type: 'Unrestake', color: 'text-warning' };
-    if (fn === 'claimAll') return { type: 'Claim', color: 'text-primary' };
-    return { type: 'Restake', color: 'text-white/50' };
+    if (fn === 'claimAll') return { type: 'Claim', color: 'text-white' };
+    return { type: 'Restake', color: 'text-white' };
   }
   // Revenue & Referrals
   if (to === REVENUE_DISTRIBUTOR_ADDRESS.toLowerCase()) {
     if (fn === 'register') return { type: 'Register', color: 'text-success' };
-    if (fn === 'claim') return { type: 'Revenue', color: 'text-primary' };
-    return { type: 'Revenue', color: 'text-white/50' };
+    if (fn === 'claim') return { type: 'Revenue', color: 'text-white' };
+    return { type: 'Revenue', color: 'text-white' };
   }
   if (to === REFERRAL_SPLITTER_ADDRESS.toLowerCase()) {
-    if (fn === 'claimReferralRewards') return { type: 'Referral', color: 'text-primary' };
+    if (fn === 'claimReferralRewards') return { type: 'Referral', color: 'text-white' };
     if (fn === 'setReferrer') return { type: 'Referral', color: 'text-success' };
-    return { type: 'Referral', color: 'text-white/50' };
+    return { type: 'Referral', color: 'text-white' };
   }
   // Governance
   if (to === COMMUNITY_GRANTS_ADDRESS.toLowerCase()) {
-    if (fn === 'createProposal') return { type: 'Proposal', color: 'text-primary' };
+    if (fn === 'createProposal') return { type: 'Proposal', color: 'text-white' };
     if (fn === 'voteOnProposal') return { type: 'Vote', color: 'text-success' };
     if (fn === 'finalizeProposal') return { type: 'Finalize', color: 'text-warning' };
-    return { type: 'Grants', color: 'text-white/50' };
+    return { type: 'Grants', color: 'text-white' };
   }
   // Bounties
   if (to === MEME_BOUNTY_BOARD_ADDRESS.toLowerCase()) {
-    if (fn === 'createBounty') return { type: 'Bounty', color: 'text-primary' };
+    if (fn === 'createBounty') return { type: 'Bounty', color: 'text-white' };
     if (fn === 'submitWork') return { type: 'Submit', color: 'text-success' };
     if (fn === 'voteForSubmission') return { type: 'Vote', color: 'text-success' };
-    return { type: 'Bounty', color: 'text-white/50' };
+    return { type: 'Bounty', color: 'text-white' };
   }
   // Premium
   if (to === PREMIUM_ACCESS_ADDRESS.toLowerCase()) {
-    if (fn === 'subscribe') return { type: 'Subscribe', color: 'text-primary' };
+    if (fn === 'subscribe') return { type: 'Subscribe', color: 'text-white' };
     if (fn === 'claimNFTAccess') return { type: 'NFT Claim', color: 'text-success' };
-    return { type: 'Premium', color: 'text-white/50' };
+    return { type: 'Premium', color: 'text-white' };
   }
   // Vote Incentives (Bribes)
   if (to === VOTE_INCENTIVES_ADDRESS.toLowerCase()) {
-    if (fn === 'depositBribe' || fn === 'depositBribeETH') return { type: 'Bribe', color: 'text-primary' };
+    if (fn === 'depositBribe' || fn === 'depositBribeETH') return { type: 'Bribe', color: 'text-white' };
     if (fn === 'claimBribes' || fn === 'claimBribesBatch') return { type: 'Claim Bribe', color: 'text-success' };
-    if (fn === 'advanceEpoch') return { type: 'Epoch', color: 'text-white/50' };
-    return { type: 'Bribes', color: 'text-white/50' };
+    if (fn === 'advanceEpoch') return { type: 'Epoch', color: 'text-white' };
+    return { type: 'Bribes', color: 'text-white' };
   }
   // Token approvals
   if (fn === 'approve') {
-    return { type: 'Approve', color: 'text-white/40' };
+    return { type: 'Approve', color: 'text-white' };
   }
-  return { type: 'Other', color: 'text-white/30' };
+  return { type: 'Other', color: 'text-white' };
 }
 
 export default function HistoryPage() {
@@ -117,23 +117,24 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    if (!address) return;
-
+  const fetchHistory = useCallback((addr: string, signal: AbortSignal, skipCache = false) => {
     // Check cache first
-    const cacheKey = `tegridy_tx_history_${address}`;
-    try {
-      const cached = localStorage.getItem(cacheKey);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (parsed && typeof parsed.ts === 'number' && Array.isArray(parsed.data) && Date.now() - parsed.ts < 300000) {
-          setTxs(parsed.data.filter(isValidTxRecord).map(truncateTxFields));
-          return;
+    const cacheKey = `tegridy_tx_history_${addr}`;
+    if (!skipCache) {
+      try {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && typeof parsed.ts === 'number' && Array.isArray(parsed.data) && Date.now() - parsed.ts < 300000) {
+            setTxs(parsed.data.filter(isValidTxRecord).map(truncateTxFields));
+            return;
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    }
 
     setLoading(true);
+    setError('');
     const contracts = [
       SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, TEGRIDY_STAKING_ADDRESS,
       TEGRIDY_RESTAKING_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS,
@@ -144,9 +145,10 @@ export default function HistoryPage() {
     // Etherscan free-tier API key via VITE_ env var — intentionally public/client-side.
     // This key is rate-limited (5 req/s) and carries no privileged access.
     const etherscanKey = import.meta.env.VITE_ETHERSCAN_API_KEY || '';
-    fetch(`https://api.etherscan.io/api?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&sort=desc&apikey=${etherscanKey}`)
+    fetch(`https://api.etherscan.io/api?module=account&action=txlist&address=${addr}&startblock=0&endblock=99999999&sort=desc&apikey=${etherscanKey}`, { signal })
       .then(r => r.json())
       .then(data => {
+        if (signal.aborted) return;
         if (data.status === '1' && Array.isArray(data.result)) {
           const relevant = data.result.filter((tx: unknown) =>
             isValidTxRecord(tx) && contracts.includes(tx.to?.toLowerCase())
@@ -155,11 +157,34 @@ export default function HistoryPage() {
           try {
             localStorage.setItem(cacheKey, JSON.stringify({ data: relevant, ts: Date.now() }));
           } catch {}
+        } else if (data.status === '0' && data.message === 'No transactions found') {
+          setTxs([]);
+        } else {
+          setError(data.message || 'Failed to load history. Try again later.');
         }
       })
-      .catch(() => setError('Failed to load history. Try again later.'))
-      .finally(() => setLoading(false));
-  }, [address]);
+      .catch((err) => {
+        if (!signal.aborted) setError(err?.message || 'Failed to load history. Try again later.');
+      })
+      .finally(() => {
+        if (!signal.aborted) setLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!address) return;
+    const controller = new AbortController();
+    fetchHistory(address, controller.signal);
+    return () => controller.abort();
+  }, [address, fetchHistory]);
+
+  const handleRetry = useCallback(() => {
+    if (!address) return;
+    const cacheKey = `tegridy_tx_history_${address}`;
+    try { localStorage.removeItem(cacheKey); } catch {}
+    const controller = new AbortController();
+    fetchHistory(address, controller.signal, true);
+  }, [address, fetchHistory]);
 
   const categorized = useMemo(() => txs.map(tx => ({
     ...tx,
@@ -171,12 +196,11 @@ export default function HistoryPage() {
       <div className="-mt-14 relative min-h-screen">
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
           <img src={ART.jungleDark.src} alt="" className="w-full h-full object-cover" />
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.96) 100%)' }} />
         </div>
         <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
           <motion.div className="text-center max-w-sm" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}>
             <h2 className="heading-luxury text-2xl text-white mb-2">Transaction History</h2>
-            <p className="text-white/40 text-[13px] mb-6">Connect your wallet to view your history.</p>
+            <p className="text-white text-[13px] mb-6">Connect your wallet to view your history.</p>
             <ConnectButton.Custom>
               {({ openConnectModal, mounted }) => (
                 <div {...(!mounted && { style: { opacity: 0, pointerEvents: 'none' } })}>
@@ -194,15 +218,12 @@ export default function HistoryPage() {
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <img src={ART.jungleDark.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%' }} />
-        <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.85) 30%, rgba(0,0,0,0.92) 60%, rgba(0,0,0,0.96) 100%)',
-        }} />
       </div>
 
       <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-20 pb-12">
         <motion.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">History</h1>
-          <p className="text-white/50 text-[14px]">Your recent transactions on Tegridy Farms</p>
+          <p className="text-white text-[14px]">Your recent transactions on Tegridy Farms</p>
         </motion.div>
 
         <motion.div className="glass-card rounded-xl overflow-hidden" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
@@ -218,61 +239,75 @@ export default function HistoryPage() {
               ))}
             </div>
           ) : error ? (
-            <div className="p-6 text-center text-danger text-[13px]">{error}</div>
+            <div className="p-6 text-center">
+              <p className="text-danger text-[13px] mb-3">{error}</p>
+              <button onClick={handleRetry} className="btn-primary px-5 py-1.5 text-[12px]">Retry</button>
+            </div>
           ) : categorized.length === 0 ? (
             <div className="p-8 text-center">
-              <p className="text-white/30 text-[14px] mb-1">No transactions found</p>
-              <p className="text-white/20 text-[12px]">Swap, stake, or claim to see your history here.</p>
+              <p className="text-white text-[14px] mb-1">No transactions found</p>
+              <p className="text-white text-[12px]">Swap, stake, or claim to see your history here.</p>
             </div>
           ) : (
-            <div>
-              {/* Header */}
-              <div className="px-4 md:px-5 py-3 hidden md:flex items-center gap-4 text-[11px] text-white/30 uppercase tracking-wider"
-                style={{ borderBottom: '1px solid rgba(139,92,246,0.08)' }}>
-                <span className="w-20">Type</span>
-                <span className="w-24">Function</span>
-                <span className="flex-1">Tx Hash</span>
-                <span className="w-20 text-right">Time</span>
-                <span className="w-16 text-right">Status</span>
-              </div>
-
-              {/* Rows */}
-              {categorized.map(tx => (
-                <a key={tx.hash} href={`https://etherscan.io/tx/${tx.hash}`} target="_blank" rel="noopener noreferrer"
-                  className="block px-4 md:px-5 py-3 hover:bg-white/[0.02] transition-colors"
-                  style={{ borderBottom: '1px solid rgba(139,92,246,0.04)' }}>
-                  {/* Desktop row */}
-                  <div className="hidden md:flex items-center gap-4">
-                    <span className={`w-20 text-[12px] font-semibold ${tx.color}`}>{tx.type}</span>
-                    <span className="w-24 text-[11px] text-white/25 font-mono truncate">{tx.functionName?.split('(')[0] || '–'}</span>
-                    <span className="flex-1 text-[11px] font-mono text-primary/70 truncate">
-                      {shortenAddress(tx.hash, 8)}
-                    </span>
-                    <span className="w-20 text-right text-[11px] text-white/25">
-                      {formatTimeAgo(parseInt(tx.timeStamp))}
-                    </span>
-                    <span className={`w-16 text-right text-[11px] font-medium ${tx.isError === '0' ? 'text-success' : 'text-danger'}`}>
-                      {tx.isError === '0' ? 'OK' : 'Failed'}
-                    </span>
-                  </div>
-                  {/* Mobile row */}
-                  <div className="md:hidden flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className={`text-[12px] font-semibold flex-shrink-0 ${tx.color}`}>{tx.type}</span>
-                      <span className="text-[11px] font-mono text-primary/70 truncate">
-                        {shortenAddress(tx.hash, 6)}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-[11px] text-white/25">{formatTimeAgo(parseInt(tx.timeStamp))}</span>
+            <table className="w-full">
+              <thead className="hidden md:table-header-group">
+                <tr className="text-[11px] text-white uppercase tracking-wider label-pill"
+                  style={{ borderBottom: '1px solid rgba(139,92,246,0.75)' }}>
+                  <th className="px-4 md:px-5 py-3 text-left font-normal w-20">Type</th>
+                  <th className="py-3 text-left font-normal w-24">Function</th>
+                  <th className="py-3 text-left font-normal">Tx Hash</th>
+                  <th className="py-3 text-right font-normal w-20">Time</th>
+                  <th className="px-4 md:px-5 py-3 text-right font-normal w-16">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {categorized.map(tx => (
+                  <tr key={tx.hash} className="hover:bg-black/60 transition-colors"
+                    style={{ borderBottom: '1px solid rgba(139,92,246,0.75)' }}>
+                    {/* Desktop cells */}
+                    <td className="hidden md:table-cell px-4 md:px-5 py-3">
+                      <a href={`https://etherscan.io/tx/${tx.hash}`} target="_blank" rel="noopener noreferrer"
+                        className={`text-[12px] font-semibold ${tx.color}`}>{tx.type}</a>
+                    </td>
+                    <td className="hidden md:table-cell py-3">
+                      <span className="text-[11px] text-white font-mono truncate block w-24">{tx.functionName?.split('(')[0] || '–'}</span>
+                    </td>
+                    <td className="hidden md:table-cell py-3">
+                      <a href={`https://etherscan.io/tx/${tx.hash}`} target="_blank" rel="noopener noreferrer"
+                        className="text-[11px] font-mono text-white truncate block">
+                        {shortenAddress(tx.hash, 8)}
+                      </a>
+                    </td>
+                    <td className="hidden md:table-cell py-3 text-right text-[11px] text-white">
+                      {formatTimeAgo(parseInt(tx.timeStamp, 10))}
+                    </td>
+                    <td className="hidden md:table-cell px-4 md:px-5 py-3 text-right">
                       <span className={`text-[11px] font-medium ${tx.isError === '0' ? 'text-success' : 'text-danger'}`}>
-                        {tx.isError === '0' ? 'OK' : 'Fail'}
+                        {tx.isError === '0' ? 'OK' : 'Failed'}
                       </span>
-                    </div>
-                  </div>
-                </a>
-              ))}
-            </div>
+                    </td>
+                    {/* Mobile cell — single cell spanning full width */}
+                    <td className="md:hidden px-4 py-3" colSpan={5}>
+                      <a href={`https://etherscan.io/tx/${tx.hash}`} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={`text-[12px] font-semibold flex-shrink-0 ${tx.color}`}>{tx.type}</span>
+                          <span className="text-[11px] font-mono text-white truncate">
+                            {shortenAddress(tx.hash, 6)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className="text-[11px] text-white">{formatTimeAgo(parseInt(tx.timeStamp, 10))}</span>
+                          <span className={`text-[11px] font-medium ${tx.isError === '0' ? 'text-success' : 'text-danger'}`}>
+                            {tx.isError === '0' ? 'OK' : 'Fail'}
+                          </span>
+                        </div>
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </motion.div>
 

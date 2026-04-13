@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, formatEther, type Address } from 'viem';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -11,14 +11,15 @@ import {
 import { TEGRIDY_LENDING_ABI, TEGRIDY_STAKING_ABI } from '../../lib/contracts';
 import { formatTokenAmount, shortenAddress } from '../../lib/formatting';
 import { ART } from '../../lib/artConfig';
+import { useTOWELIPrice } from '../../contexts/PriceContext';
 
 // ─── Design tokens ──────────────────────────────────────────────
 const CARD_BG = 'rgba(13, 21, 48, 0.6)';
 const CARD_BORDER = 'rgba(139, 92, 246, 0.12)';
 const CARD_BORDER_HOVER = 'rgba(139, 92, 246, 0.25)';
 const ROW_BORDER = 'rgba(255, 255, 255, 0.04)';
-const DARK_OVERLAY = 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)';
-const DARK_OVERLAY_HEAVY = 'linear-gradient(to bottom, rgba(6,12,26,0.50) 0%, rgba(6,12,26,0.88) 100%)';
+const DARK_OVERLAY = 'none';
+const DARK_OVERLAY_HEAVY = 'none';
 const SHIMMER_BG =
   'linear-gradient(90deg, rgba(13,21,48,0.8) 25%, rgba(17,29,58,0.8) 50%, rgba(13,21,48,0.8) 75%)';
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -106,10 +107,10 @@ function useCountdown(deadline: bigint): { text: string; isUrgent: boolean; isEx
 
 function computeLTV(principal: bigint, positionValueEth: string): { ratio: number; color: string } {
   const pv = parseFloat(positionValueEth);
-  if (pv <= 0) return { ratio: 0, color: 'text-white/40' };
+  if (pv <= 0) return { ratio: 0, color: 'text-white' };
   const principalEth = parseFloat(formatEther(principal));
   const ratio = (principalEth / pv) * 100;
-  if (ratio < 50) return { ratio, color: 'text-emerald-400' };
+  if (ratio < 50) return { ratio, color: 'text-black' };
   if (ratio < 75) return { ratio, color: 'text-yellow-400' };
   return { ratio, color: 'text-red-400' };
 }
@@ -132,7 +133,7 @@ function ArtPanel({
 }) {
   return (
     <div
-      className={`relative overflow-hidden rounded-xl ${className}`}
+      className={`relative overflow-hidden rounded-xl glass-card-animated ${className}`}
       style={{ border: `1px solid ${CARD_BORDER}`, ...style }}
     >
       <div className="absolute inset-0">
@@ -189,7 +190,7 @@ function SkeletonLayout() {
 // ─── Status Badge ───────────────────────────────────────────────
 const STATUS_COLORS: Record<LoanStatus, { bg: string; text: string; dot: string }> = {
   active: { bg: 'bg-blue-500/10', text: 'text-blue-400', dot: 'bg-blue-400' },
-  repaid: { bg: 'bg-emerald-500/10', text: 'text-emerald-400', dot: 'bg-emerald-400' },
+  repaid: { bg: 'bg-emerald-500/30', text: 'text-black', dot: 'bg-emerald-400' },
   overdue: { bg: 'bg-orange-500/10', text: 'text-orange-400', dot: 'bg-orange-400' },
   defaulted: { bg: 'bg-red-500/10', text: 'text-red-400', dot: 'bg-red-400' },
 };
@@ -246,15 +247,15 @@ function EmptyState({
   subtitle: string;
 }) {
   return (
-    <ArtPanel artSrc={artSrc} opacity={1} overlay="rgba(6,12,26,0.85)">
+    <ArtPanel artSrc={artSrc} opacity={1} overlay="none">
       <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
-        <div className="w-10 h-10 rounded-full bg-purple-500/10 flex items-center justify-center mb-4">
-          <svg className="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <div className="w-10 h-10 rounded-full bg-purple-500/40 flex items-center justify-center mb-4">
+          <svg className="w-5 h-5 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
           </svg>
         </div>
         <h4 className="text-white font-semibold text-sm mb-1">{title}</h4>
-        <p className="text-white/40 text-xs max-w-xs">{subtitle}</p>
+        <p className="text-white text-xs max-w-xs">{subtitle}</p>
       </div>
     </ArtPanel>
   );
@@ -275,8 +276,8 @@ function FilterPill({
       onClick={onClick}
       className={`px-3 py-1 rounded-full text-[11px] font-medium transition-all duration-200 ${
         active
-          ? 'bg-purple-500/20 text-purple-400 border border-purple-500/40'
-          : 'bg-white/5 text-white/40 border border-white/10 hover:border-white/20 hover:text-white/60'
+          ? 'bg-purple-500/50 text-black border border-purple-500/40'
+          : 'bg-black/60 text-white border border-white/25 hover:border-white/20 hover:text-white'
       }`}
       style={{ transitionTimingFunction: `cubic-bezier(${EASE.join(',')})` }}
     >
@@ -310,7 +311,7 @@ function ComingSoonState() {
           {['12', '3', '1.50', '24.5000'].map((val, i) => (
             <ArtPanel key={i} artSrc={ART.forestScene.src} opacity={1}>
               <div className="p-4">
-                <div className="text-[11px] uppercase tracking-wider text-white/40 mb-1">
+                <div className="text-[11px] uppercase tracking-wider label-pill text-white mb-1">
                   {['Total Offers', 'Active Loans', 'Protocol Fee', 'TVL (ETH)'][i]}
                 </div>
                 <div className="font-mono text-xl text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -325,7 +326,7 @@ function ComingSoonState() {
           {['Lend', 'Borrow', 'My Loans'].map((t, i) => (
             <div
               key={t}
-              className={`pb-3 text-sm font-medium ${i === 1 ? 'text-emerald-400' : 'text-white/30'}`}
+              className={`pb-3 text-sm font-medium ${i === 1 ? 'text-black' : 'text-white'}`}
             >
               {t}
             </div>
@@ -335,7 +336,7 @@ function ComingSoonState() {
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
-              <tr className="text-[11px] uppercase tracking-wider text-white/40">
+              <tr className="text-[11px] uppercase tracking-wider label-pill text-white">
                 <th className="py-2 pr-4 font-medium">Offer #</th>
                 <th className="py-2 pr-4 font-medium">Principal</th>
                 <th className="py-2 pr-4 font-medium">APR</th>
@@ -347,12 +348,12 @@ function ComingSoonState() {
             <tbody>
               {mockOffers.map((o) => (
                 <tr key={o.id} style={{ borderTop: `1px solid ${ROW_BORDER}` }}>
-                  <td className="py-3 pr-4 font-mono text-white/60">#{o.id}</td>
-                  <td className="py-3 pr-4 font-mono text-white/60">{o.principal} ETH</td>
-                  <td className="py-3 pr-4 font-mono text-emerald-400/60">{o.apr}%</td>
-                  <td className="py-3 pr-4 text-white/60">{o.duration}</td>
-                  <td className="py-3 pr-4 font-mono text-white/60">{o.min} ETH</td>
-                  <td className="py-3 pr-4 font-mono text-white/40">{o.lender}</td>
+                  <td className="py-3 pr-4 font-mono text-white">#{o.id}</td>
+                  <td className="py-3 pr-4 font-mono text-white">{o.principal} ETH</td>
+                  <td className="py-3 pr-4 font-mono text-black/60">{o.apr}%</td>
+                  <td className="py-3 pr-4 text-white">{o.duration}</td>
+                  <td className="py-3 pr-4 font-mono text-white">{o.min} ETH</td>
+                  <td className="py-3 pr-4 font-mono text-white">{o.lender}</td>
                 </tr>
               ))}
             </tbody>
@@ -362,17 +363,17 @@ function ComingSoonState() {
 
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <div className="text-center">
-          <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold tracking-wider uppercase bg-purple-500/20 text-purple-400 border border-purple-500/30 mb-4">
+          <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold tracking-wider uppercase bg-purple-500/50 text-black border border-purple-500/30 mb-4">
             Coming Soon
           </span>
           <h3 className="text-2xl font-bold text-white mb-2">NFT-Backed P2P Lending</h3>
-          <p className="text-white/40 text-sm mb-6 max-w-md">
+          <p className="text-white text-sm mb-6 max-w-md">
             Institutional-grade peer-to-peer lending using staked TOWELI positions as collateral.
           </p>
           <ul className="space-y-2 text-left inline-block">
             {features.map((f) => (
-              <li key={f} className="flex items-center gap-2 text-sm text-white/60">
-                <svg className="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <li key={f} className="flex items-center gap-2 text-sm text-white">
+                <svg className="w-4 h-4 text-black flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
                 {f}
@@ -388,18 +389,12 @@ function ComingSoonState() {
 // ═══════════════════════════════════════════════════════════════════
 // STATS BAR
 // ═══════════════════════════════════════════════════════════════════
-function StatsBar() {
-  const { data: offerCount } = useReadContract({
-    address: TEGRIDY_LENDING_ADDRESS as Address,
-    abi: TEGRIDY_LENDING_ABI,
-    functionName: 'offerCount',
-  });
-
-  const { data: loanCount } = useReadContract({
-    address: TEGRIDY_LENDING_ADDRESS as Address,
-    abi: TEGRIDY_LENDING_ABI,
-    functionName: 'loanCount',
-  });
+function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[] }) {
+  const offerCountNum = allOffers.length;
+  const activeLoansCount = allLoans.filter((l) => {
+    const s = getLoanStatus(l);
+    return s === 'active' || s === 'overdue';
+  }).length;
 
   const { data: protocolFeeBps } = useReadContract({
     address: TEGRIDY_LENDING_ADDRESS as Address,
@@ -407,21 +402,34 @@ function StatsBar() {
     functionName: 'protocolFeeBps',
   });
 
+  // TVL = sum of principal from active offers + outstanding loan principal
+  const tvl = useMemo(() => {
+    let total = 0n;
+    for (const o of allOffers) {
+      if (o.active) total += o.principal;
+    }
+    for (const l of allLoans) {
+      const s = getLoanStatus(l);
+      if (s === 'active' || s === 'overdue') total += l.principal;
+    }
+    return total;
+  }, [allOffers, allLoans]);
+
   const stats = [
     {
       label: 'Total Offers',
-      value: offerCount !== undefined ? Number(offerCount).toString() : '--',
+      value: offerCountNum.toString(),
       icon: (
-        <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <svg className="w-4 h-4 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
         </svg>
       ),
     },
     {
       label: 'Active Loans',
-      value: loanCount !== undefined ? Number(loanCount).toString() : '--',
+      value: activeLoansCount.toString(),
       icon: (
-        <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <svg className="w-4 h-4 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
         </svg>
       ),
@@ -438,7 +446,7 @@ function StatsBar() {
     },
     {
       label: 'TVL (ETH)',
-      value: '--',
+      value: formatTokenAmount(formatEther(tvl)),
       icon: (
         <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -460,10 +468,10 @@ function StatsBar() {
             <div className="p-4">
               <div className="flex items-center gap-2 mb-2">
                 {s.icon}
-                <span className="text-[11px] uppercase tracking-wider text-white/40">{s.label}</span>
+                <span className="text-[11px] uppercase tracking-wider label-pill text-white">{s.label}</span>
               </div>
               <div
-                className="font-mono text-xl text-white group-hover:text-emerald-400 transition-colors duration-300"
+                className="font-mono text-xl text-white group-hover:text-black transition-colors duration-300"
                 style={{ fontVariantNumeric: 'tabular-nums' }}
               >
                 {s.value}
@@ -493,7 +501,7 @@ function TabNav({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
           key={t.key}
           onClick={() => setTab(t.key)}
           className={`relative pb-3 text-sm font-medium transition-colors duration-300 ${
-            tab === t.key ? 'text-emerald-400' : 'text-white/30 hover:text-white/60'
+            tab === t.key ? 'text-black' : 'text-white hover:text-white'
           }`}
           style={{ transitionTimingFunction: `cubic-bezier(${EASE.join(',')})` }}
         >
@@ -541,31 +549,31 @@ function OfferFilterBar({
     <ArtPanel artSrc={ART.porchChill.src} opacity={1} overlay={DARK_OVERLAY_HEAVY}>
       <div className="p-4">
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-[11px] uppercase tracking-wider text-white/40 mr-1">Filters</span>
+          <span className="text-[11px] uppercase tracking-wider label-pill text-white mr-1">Filters</span>
 
           {/* APR */}
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-white/30 uppercase">APR:</span>
+            <span className="text-[10px] text-white uppercase">APR:</span>
             <FilterPill label="Low <5%" active={aprFilter === 'low'} onClick={() => setAprFilter(aprFilter === 'low' ? 'all' : 'low')} />
             <FilterPill label="Med 5-15%" active={aprFilter === 'med'} onClick={() => setAprFilter(aprFilter === 'med' ? 'all' : 'med')} />
             <FilterPill label="High 15%+" active={aprFilter === 'high'} onClick={() => setAprFilter(aprFilter === 'high' ? 'all' : 'high')} />
           </div>
 
-          <div className="hidden sm:block w-px h-5 bg-white/10" />
+          <div className="hidden sm:block w-px h-5 bg-black/60" />
 
           {/* Duration */}
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-white/30 uppercase">Duration:</span>
+            <span className="text-[10px] text-white uppercase">Duration:</span>
             <FilterPill label="<30d" active={durationFilter === 'short'} onClick={() => setDurationFilter(durationFilter === 'short' ? 'all' : 'short')} />
             <FilterPill label="30-90d" active={durationFilter === 'medium'} onClick={() => setDurationFilter(durationFilter === 'medium' ? 'all' : 'medium')} />
             <FilterPill label="90d+" active={durationFilter === 'long'} onClick={() => setDurationFilter(durationFilter === 'long' ? 'all' : 'long')} />
           </div>
 
-          <div className="hidden sm:block w-px h-5 bg-white/10" />
+          <div className="hidden sm:block w-px h-5 bg-black/60" />
 
           {/* Principal */}
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-white/30 uppercase">Size:</span>
+            <span className="text-[10px] text-white uppercase">Size:</span>
             <FilterPill label="<1 ETH" active={principalFilter === 'small'} onClick={() => setPrincipalFilter(principalFilter === 'small' ? 'all' : 'small')} />
             <FilterPill label="1-10 ETH" active={principalFilter === 'medium'} onClick={() => setPrincipalFilter(principalFilter === 'medium' ? 'all' : 'medium')} />
             <FilterPill label="10+ ETH" active={principalFilter === 'large'} onClick={() => setPrincipalFilter(principalFilter === 'large' ? 'all' : 'large')} />
@@ -596,17 +604,17 @@ function applyOfferFilters(
     const aprPct = Number(o.aprBps) / 100;
     if (aprFilter === 'low' && aprPct >= 5) return false;
     if (aprFilter === 'med' && (aprPct < 5 || aprPct > 15)) return false;
-    if (aprFilter === 'high' && aprPct <= 15) return false;
+    if (aprFilter === 'high' && aprPct < 15) return false;
 
     const days = daysFromSeconds(o.duration);
     if (durationFilter === 'short' && days >= 30) return false;
     if (durationFilter === 'medium' && (days < 30 || days > 90)) return false;
-    if (durationFilter === 'long' && days <= 90) return false;
+    if (durationFilter === 'long' && days < 90) return false;
 
     const ethVal = parseFloat(formatEther(o.principal));
     if (principalFilter === 'small' && ethVal >= 1) return false;
     if (principalFilter === 'medium' && (ethVal < 1 || ethVal > 10)) return false;
-    if (principalFilter === 'large' && ethVal <= 10) return false;
+    if (principalFilter === 'large' && ethVal < 10) return false;
 
     return true;
   });
@@ -617,6 +625,7 @@ function applyOfferFilters(
 // ═══════════════════════════════════════════════════════════════════
 function LendTab({ deployed }: { deployed: boolean }) {
   const { address } = useAccount();
+  const { ethUsd } = useTOWELIPrice();
   const [principal, setPrincipal] = useState('');
   const [aprBps, setAprBps] = useState('');
   const [durationDays, setDurationDays] = useState(30);
@@ -685,7 +694,7 @@ function LendTab({ deployed }: { deployed: boolean }) {
       <div className="p-5 sm:p-6 max-w-lg space-y-5">
         {/* Principal */}
         <div>
-          <label className="text-[11px] uppercase tracking-wider text-white/40 block mb-1.5">
+          <label className="text-[11px] uppercase tracking-wider label-pill text-white block mb-1.5">
             Principal (ETH)
           </label>
           <input
@@ -699,15 +708,17 @@ function LendTab({ deployed }: { deployed: boolean }) {
             className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-0 py-2.5 border-b border-white/10 focus:border-purple-400/40 transition-colors duration-300"
           />
           {principal && parseFloat(principal) > 0 && (
-            <div className="text-[11px] text-white/30 mt-1 font-mono">
-              ~${formatTokenAmount(parseFloat(principal) * 3200, 2)} USD estimate
+            <div className="text-[11px] text-white mt-1 font-mono">
+              {ethUsd > 0
+                ? `~$${formatTokenAmount(parseFloat(principal) * ethUsd, 2)} USD estimate`
+                : 'USD estimate unavailable'}
             </div>
           )}
         </div>
 
         {/* APR */}
         <div>
-          <label className="text-[11px] uppercase tracking-wider text-white/40 block mb-1.5">
+          <label className="text-[11px] uppercase tracking-wider label-pill text-white block mb-1.5">
             APR (basis points)
           </label>
           <div className="flex items-center gap-3">
@@ -722,7 +733,7 @@ function LendTab({ deployed }: { deployed: boolean }) {
               step="1"
               className="flex-1 bg-transparent font-mono text-[16px] text-white outline-none px-0 py-2.5 border-b border-white/10 focus:border-purple-400/40 transition-colors duration-300"
             />
-            <span className="text-emerald-400 font-mono text-sm whitespace-nowrap">
+            <span className="text-black font-mono text-sm whitespace-nowrap">
               = {aprPercent}%
             </span>
           </div>
@@ -730,7 +741,7 @@ function LendTab({ deployed }: { deployed: boolean }) {
 
         {/* Duration */}
         <div>
-          <label className="text-[11px] uppercase tracking-wider text-white/40 block mb-1.5">
+          <label className="text-[11px] uppercase tracking-wider label-pill text-white block mb-1.5">
             Duration ({durationDays} days)
           </label>
           <div className="flex flex-wrap gap-2 mb-2">
@@ -740,8 +751,8 @@ function LendTab({ deployed }: { deployed: boolean }) {
                 onClick={() => setDurationDays(p.days)}
                 className={`px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 ${
                   durationDays === p.days
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                    : 'bg-white/5 text-white/40 border border-white/10 hover:border-white/20 hover:text-white/60'
+                    ? 'bg-emerald-500/40 text-black border border-emerald-500/40'
+                    : 'bg-black/60 text-white border border-white/25 hover:border-white/20 hover:text-white'
                 }`}
               >
                 {p.label}
@@ -760,7 +771,7 @@ function LendTab({ deployed }: { deployed: boolean }) {
 
         {/* Min Collateral */}
         <div>
-          <label className="text-[11px] uppercase tracking-wider text-white/40 block mb-1.5">
+          <label className="text-[11px] uppercase tracking-wider label-pill text-white block mb-1.5">
             Min Collateral Value (ETH)
           </label>
           <input
@@ -780,21 +791,21 @@ function LendTab({ deployed }: { deployed: boolean }) {
           className="rounded-lg px-4 py-3"
           style={{ background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.1)' }}
         >
-          <div className="text-[11px] uppercase tracking-wider text-white/40 mb-0.5">Estimated Earnings</div>
-          <div className="font-mono text-emerald-400" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          <div className="text-[11px] uppercase tracking-wider label-pill text-white mb-0.5">Estimated Earnings</div>
+          <div className="font-mono text-black" style={{ fontVariantNumeric: 'tabular-nums' }}>
             {estimatedEarnings} ETH
-            <span className="text-white/30 text-sm ml-2">over {durationDays} days</span>
+            <span className="text-white text-sm ml-2">over {durationDays} days</span>
           </div>
         </div>
 
         {/* Submit */}
         {!address ? (
-          <div className="text-white/40 text-sm text-center py-3">Connect wallet to create an offer</div>
+          <div className="text-white text-sm text-center py-3">Connect wallet to create an offer</div>
         ) : (
           <button
             onClick={handleCreate}
             disabled={loading || !principal || !aprBps || !minCollateral || !deployed}
-            className="w-full py-3 rounded-xl font-semibold text-sm transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed bg-emerald-500 hover:bg-emerald-400 text-black"
+            className="w-full py-3 rounded-xl font-semibold text-sm transition-all duration-300 disabled:opacity-70 disabled:cursor-not-allowed bg-emerald-500 hover:bg-emerald-400 text-black"
             style={{ transitionTimingFunction: `cubic-bezier(${EASE.join(',')})` }}
           >
             {!deployed ? (
@@ -917,25 +928,25 @@ function OfferRow({
   // Desktop row
   const desktopRow = (
     <tr
-      className="cursor-pointer hover:bg-white/[0.02] transition-colors duration-200 hidden sm:table-row"
+      className="cursor-pointer hover:bg-black/60 transition-colors duration-200 hidden sm:table-row"
       style={{ borderTop: `1px solid ${ROW_BORDER}` }}
       onClick={() => setExpanded(!expanded)}
     >
-      <td className="py-3 pr-4 font-mono text-white/60 text-sm">#{offer.id}</td>
+      <td className="py-3 pr-4 font-mono text-white text-sm">#{offer.id}</td>
       <td className="py-3 pr-4 font-mono text-white text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
         {formatTokenAmount(formatEther(offer.principal))} ETH
       </td>
-      <td className="py-3 pr-4 font-mono text-emerald-400 text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
+      <td className="py-3 pr-4 font-mono text-black text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
         {bpsToPercent(offer.aprBps)}%
       </td>
-      <td className="py-3 pr-4 text-white/60 text-sm">{daysFromSeconds(offer.duration)}d</td>
-      <td className="py-3 pr-4 font-mono text-white/60 text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
+      <td className="py-3 pr-4 text-white text-sm">{daysFromSeconds(offer.duration)}d</td>
+      <td className="py-3 pr-4 font-mono text-white text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
         {formatTokenAmount(formatEther(offer.minPositionValue))} ETH
       </td>
-      <td className="py-3 pr-4 font-mono text-white/40 text-sm">{shortenAddress(offer.lender)}</td>
+      <td className="py-3 pr-4 font-mono text-white text-sm">{shortenAddress(offer.lender)}</td>
       <td className="py-3 text-sm">
         <svg
-          className={`w-4 h-4 text-white/30 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
+          className={`w-4 h-4 text-white transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -959,9 +970,9 @@ function OfferRow({
           onClick={() => setExpanded(!expanded)}
         >
           <div className="flex items-center justify-between mb-2">
-            <span className="font-mono text-white/60 text-xs">#{offer.id}</span>
+            <span className="font-mono text-white text-xs">#{offer.id}</span>
             <svg
-              className={`w-4 h-4 text-white/30 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
+              className={`w-4 h-4 text-white transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
               fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
@@ -969,29 +980,29 @@ function OfferRow({
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div>
-              <span className="text-[10px] uppercase tracking-wider text-white/30">Principal</span>
+              <span className="text-[10px] uppercase tracking-wider label-pill text-white">Principal</span>
               <div className="font-mono text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                 {formatTokenAmount(formatEther(offer.principal))} ETH
               </div>
             </div>
             <div>
-              <span className="text-[10px] uppercase tracking-wider text-white/30">APR</span>
-              <div className="font-mono text-emerald-400" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              <span className="text-[10px] uppercase tracking-wider label-pill text-white">APR</span>
+              <div className="font-mono text-black" style={{ fontVariantNumeric: 'tabular-nums' }}>
                 {bpsToPercent(offer.aprBps)}%
               </div>
             </div>
             <div>
-              <span className="text-[10px] uppercase tracking-wider text-white/30">Duration</span>
-              <div className="text-white/60">{daysFromSeconds(offer.duration)}d</div>
+              <span className="text-[10px] uppercase tracking-wider label-pill text-white">Duration</span>
+              <div className="text-white">{daysFromSeconds(offer.duration)}d</div>
             </div>
             <div>
-              <span className="text-[10px] uppercase tracking-wider text-white/30">Min Collateral</span>
-              <div className="font-mono text-white/60" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              <span className="text-[10px] uppercase tracking-wider label-pill text-white">Min Collateral</span>
+              <div className="font-mono text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                 {formatTokenAmount(formatEther(offer.minPositionValue))} ETH
               </div>
             </div>
           </div>
-          <div className="mt-1 font-mono text-[10px] text-white/30">{shortenAddress(offer.lender)}</div>
+          <div className="mt-1 font-mono text-[10px] text-white">{shortenAddress(offer.lender)}</div>
         </motion.div>
       </td>
     </tr>
@@ -1005,7 +1016,7 @@ function OfferRow({
           <td colSpan={7} className="p-0">
             <motion.div
               initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
+              animate={{ height: 'auto' }}
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.25, ease: EASE as unknown as number[] }}
               className="overflow-hidden"
@@ -1013,7 +1024,7 @@ function OfferRow({
               <ArtPanel artSrc={ART.apeHug.src} opacity={1} overlay={DARK_OVERLAY_HEAVY} className="mx-2 mb-2">
                 <div className="p-4">
                   {!userAddress ? (
-                    <p className="text-white/40 text-sm">Connect wallet to borrow</p>
+                    <p className="text-white text-sm">Connect wallet to borrow</p>
                   ) : tokenId === 0 ? (
                     <div className="flex items-center gap-2 text-orange-400 text-sm">
                       <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1025,25 +1036,25 @@ function OfferRow({
                     <div className="space-y-3">
                       <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
                         <div>
-                          <span className="text-[11px] uppercase tracking-wider text-white/40">Your Position</span>
+                          <span className="text-[11px] uppercase tracking-wider label-pill text-white">Your Position</span>
                           <div className="font-mono text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                             Token #{tokenId} -- {formatTokenAmount(positionAmount)} TOWELI
                           </div>
                         </div>
                         <div>
-                          <span className="text-[11px] uppercase tracking-wider text-white/40">Position Value</span>
-                          <div className="font-mono text-white/70" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          <span className="text-[11px] uppercase tracking-wider label-pill text-white">Position Value</span>
+                          <div className="font-mono text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                             {formatTokenAmount(positionAmount)} ETH
                           </div>
                         </div>
                         <div>
-                          <span className="text-[11px] uppercase tracking-wider text-white/40">Loan Amount</span>
-                          <div className="font-mono text-emerald-400" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          <span className="text-[11px] uppercase tracking-wider label-pill text-white">Loan Amount</span>
+                          <div className="font-mono text-black" style={{ fontVariantNumeric: 'tabular-nums' }}>
                             {formatTokenAmount(formatEther(offer.principal))} ETH
                           </div>
                         </div>
                         <div>
-                          <span className="text-[11px] uppercase tracking-wider text-white/40">LTV Ratio</span>
+                          <span className="text-[11px] uppercase tracking-wider label-pill text-white">LTV Ratio</span>
                           <div className={`font-mono ${ltv.color}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                             {ltv.ratio.toFixed(1)}%
                             {ltv.ratio >= 75 && (
@@ -1054,7 +1065,7 @@ function OfferRow({
                       </div>
 
                       {/* LTV bar */}
-                      <div className="w-full h-1.5 rounded-full bg-white/5 overflow-hidden">
+                      <div className="w-full h-1.5 rounded-full bg-black/60 overflow-hidden">
                         <div
                           className="h-full rounded-full transition-all duration-500"
                           style={{
@@ -1071,19 +1082,19 @@ function OfferRow({
                             <button
                               onClick={(e) => { e.stopPropagation(); handleApprove(); }}
                               disabled={approvePending || approveConfirming || !deployed}
-                              className="px-4 py-2 rounded-lg text-sm font-medium bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30 transition-colors duration-200 disabled:opacity-40"
+                              className="px-4 py-2 rounded-lg text-sm font-medium bg-purple-500/50 text-black border border-purple-500/30 hover:bg-purple-500/30 transition-colors duration-200 disabled:opacity-70"
                             >
                               {approvePending || approveConfirming ? 'Approving...' : '1. Approve NFT'}
                             </button>
                           ) : (
-                            <span className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            <span className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-500/30 text-black border border-emerald-500/40">
                               Approved
                             </span>
                           )}
                           <button
                             onClick={(e) => { e.stopPropagation(); handleAccept(); }}
                             disabled={!isApproved || acceptPending || acceptConfirming || !deployed}
-                            className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-500 text-black hover:bg-emerald-400 transition-colors duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-500 text-black hover:bg-emerald-400 transition-colors duration-200 disabled:opacity-70 disabled:cursor-not-allowed"
                           >
                             {acceptPending || acceptConfirming ? 'Accepting...' : '2. Accept Offer'}
                           </button>
@@ -1109,7 +1120,7 @@ function OfferRow({
   );
 }
 
-function BorrowTab({ deployed }: { deployed: boolean }) {
+function BorrowTab({ deployed, allOffers, offersLoading }: { deployed: boolean; allOffers: Offer[]; offersLoading: boolean }) {
   const { address } = useAccount();
   const [sortKey, setSortKey] = useState<SortKey>('id');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -1117,51 +1128,12 @@ function BorrowTab({ deployed }: { deployed: boolean }) {
   const [durationFilter, setDurationFilter] = useState<DurationFilter>('all');
   const [principalFilter, setPrincipalFilter] = useState<PrincipalFilter>('all');
 
-  const { data: offerCount } = useReadContract({
-    address: TEGRIDY_LENDING_ADDRESS as Address,
-    abi: TEGRIDY_LENDING_ABI,
-    functionName: 'offerCount',
-  });
-
-  const count = offerCount ? Number(offerCount) : 0;
-
-  const [offers, setOffers] = useState<Offer[]>([]);
-
-  const { data: offer0 } = useReadContract({
-    address: TEGRIDY_LENDING_ADDRESS as Address,
-    abi: TEGRIDY_LENDING_ABI,
-    functionName: 'getOffer',
-    args: [0n],
-    query: { enabled: count > 0 },
-  });
-
-  useEffect(() => {
-    if (count === 0) {
-      setOffers([]);
-      return;
-    }
-    if (offer0) {
-      const o = offer0 as readonly [string, bigint, bigint, bigint, string, bigint, boolean];
-      if (o[6]) {
-        setOffers([
-          {
-            id: 0,
-            lender: o[0],
-            principal: o[1],
-            aprBps: o[2],
-            duration: o[3],
-            collateralContract: o[4],
-            minPositionValue: o[5],
-            active: o[6],
-          },
-        ]);
-      }
-    }
-  }, [offer0, count]);
+  // Only show active offers for borrowers
+  const activeOffers = useMemo(() => allOffers.filter((o) => o.active), [allOffers]);
 
   const filteredOffers = useMemo(
-    () => applyOfferFilters(offers, aprFilter, durationFilter, principalFilter),
-    [offers, aprFilter, durationFilter, principalFilter],
+    () => applyOfferFilters(activeOffers, aprFilter, durationFilter, principalFilter),
+    [activeOffers, aprFilter, durationFilter, principalFilter],
   );
 
   const sortedOffers = useMemo(() => {
@@ -1201,7 +1173,7 @@ function BorrowTab({ deployed }: { deployed: boolean }) {
 
   const SortHeader = ({ label, sk }: { label: string; sk: SortKey }) => (
     <th
-      className="py-2 pr-4 font-medium cursor-pointer select-none hover:text-white/60 transition-colors"
+      className="py-2 pr-4 font-medium cursor-pointer select-none hover:text-white transition-colors"
       onClick={() => handleSort(sk)}
     >
       <span className="inline-flex items-center gap-1">
@@ -1233,20 +1205,30 @@ function BorrowTab({ deployed }: { deployed: boolean }) {
         setPrincipalFilter={setPrincipalFilter}
       />
 
-      {sortedOffers.length === 0 && count === 0 ? (
+      {offersLoading ? (
+        <ArtPanel artSrc={ART.beachVibes.src} opacity={1} overlay={DARK_OVERLAY_HEAVY}>
+          <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+            <svg className="animate-spin h-8 w-8 text-purple-400 mb-4" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <p className="text-white text-sm">Loading offers...</p>
+          </div>
+        </ArtPanel>
+      ) : sortedOffers.length === 0 && activeOffers.length === 0 ? (
         <EmptyState
           artSrc={ART.beachVibes.src}
           title="No loan offers yet"
           subtitle="Create the first one! Switch to the Lend tab to get started."
         />
       ) : sortedOffers.length === 0 ? (
-        <div className="text-center py-12 text-white/30 text-sm">
+        <div className="text-center py-12 text-white text-sm">
           No offers match your filters. Try adjusting them.
         </div>
       ) : (
         <ArtPanel artSrc={ART.poolParty.src} opacity={1} overlay={DARK_OVERLAY_HEAVY}>
           <div className="p-4 overflow-x-auto -mx-1">
-            <table className="w-full text-left text-[11px] uppercase tracking-wider text-white/40">
+            <table className="w-full text-left text-[11px] uppercase tracking-wider label-pill text-white">
               <thead>
                 <tr className="hidden sm:table-row">
                   <SortHeader label="Offer #" sk="id" />
@@ -1312,48 +1294,48 @@ function PnlSummaryCard({
   const netPnl = interestEarned - interestPaid;
 
   return (
-    <ArtPanel artSrc={ART.swordOfLove.src} opacity={1} overlay="rgba(6,12,26,0.85)">
+    <ArtPanel artSrc={ART.swordOfLove.src} opacity={1} overlay="none">
       <div className="p-5">
         <div className="flex items-center gap-2 mb-4">
-          <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <svg className="w-4 h-4 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
           </svg>
-          <span className="text-[11px] uppercase tracking-wider text-white/50 font-medium">P&L Summary</span>
+          <span className="text-[11px] uppercase tracking-wider label-pill text-white font-medium">P&L Summary</span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           <div>
-            <span className="text-[10px] uppercase tracking-wider text-white/30 block mb-1">Interest Earned</span>
-            <div className="font-mono text-emerald-400 text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <span className="text-[10px] uppercase tracking-wider label-pill text-white block mb-1">Interest Earned</span>
+            <div className="font-mono text-black text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
               +{formatTokenAmount(interestEarned)} ETH
             </div>
           </div>
           <div>
-            <span className="text-[10px] uppercase tracking-wider text-white/30 block mb-1">Interest Paid</span>
+            <span className="text-[10px] uppercase tracking-wider label-pill text-white block mb-1">Interest Paid</span>
             <div className="font-mono text-red-400 text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
               -{formatTokenAmount(interestPaid)} ETH
             </div>
           </div>
           <div>
-            <span className="text-[10px] uppercase tracking-wider text-white/30 block mb-1">Net PnL</span>
+            <span className="text-[10px] uppercase tracking-wider label-pill text-white block mb-1">Net PnL</span>
             <div
-              className={`font-mono text-sm ${netPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}
+              className={`font-mono text-sm ${netPnl >= 0 ? 'text-black' : 'text-red-400'}`}
               style={{ fontVariantNumeric: 'tabular-nums' }}
             >
               {netPnl >= 0 ? '+' : ''}{formatTokenAmount(netPnl)} ETH
             </div>
           </div>
           <div>
-            <span className="text-[10px] uppercase tracking-wider text-white/30 block mb-1">Active Positions</span>
+            <span className="text-[10px] uppercase tracking-wider label-pill text-white block mb-1">Active Positions</span>
             <div className="font-mono text-white text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
               {activeBorrowed + activeLent}
-              <span className="text-white/30 text-[10px] ml-1">({activeBorrowed}B / {activeLent}L)</span>
+              <span className="text-white text-[10px] ml-1">({activeBorrowed}B / {activeLent}L)</span>
             </div>
           </div>
           <div>
-            <span className="text-[10px] uppercase tracking-wider text-white/30 block mb-1">Completed</span>
-            <div className="font-mono text-white/60 text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <span className="text-[10px] uppercase tracking-wider label-pill text-white block mb-1">Completed</span>
+            <div className="font-mono text-white text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
               {completedBorrowed + completedLent}
-              <span className="text-white/30 text-[10px] ml-1">({completedBorrowed}B / {completedLent}L)</span>
+              <span className="text-white text-[10px] ml-1">({completedBorrowed}B / {completedLent}L)</span>
             </div>
           </div>
         </div>
@@ -1450,10 +1432,10 @@ function LoanRow({
         <span className="font-mono text-sm text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
           {formatTokenAmount(formatEther(loan.principal))} ETH
         </span>
-        <span className="font-mono text-sm text-emerald-400" style={{ fontVariantNumeric: 'tabular-nums' }}>
+        <span className="font-mono text-sm text-black" style={{ fontVariantNumeric: 'tabular-nums' }}>
           {bpsToPercent(loan.aprBps)}%
         </span>
-        <span className="text-sm text-white/40">NFT #{Number(loan.tokenId)}</span>
+        <span className="text-sm text-white">NFT #{Number(loan.tokenId)}</span>
         {(status === 'active' || status === 'overdue') && (
           countdown.isExpired ? (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 text-[11px] font-medium">
@@ -1462,7 +1444,7 @@ function LoanRow({
             </span>
           ) : (
             <span
-              className={`font-mono text-sm ${countdown.isUrgent ? 'text-red-400' : 'text-white/50'}`}
+              className={`font-mono text-sm ${countdown.isUrgent ? 'text-red-400' : 'text-white'}`}
               style={{
                 fontVariantNumeric: 'tabular-nums',
                 animation: countdown.isUrgent ? 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' : undefined,
@@ -1473,7 +1455,7 @@ function LoanRow({
           )
         )}
         {repaymentAmount && (status === 'active' || status === 'overdue') && (
-          <span className="text-[11px] text-white/30 font-mono" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          <span className="text-[11px] text-white font-mono" style={{ fontVariantNumeric: 'tabular-nums' }}>
             Repay: {formatTokenAmount(formatEther(repaymentAmount as bigint))} ETH
           </span>
         )}
@@ -1485,7 +1467,7 @@ function LoanRow({
             <button
               onClick={handleRepay}
               disabled={repayLoading || !deployed}
-              className="px-4 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 transition-colors disabled:opacity-40"
+              className="px-4 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/40 text-black border border-emerald-500/30 hover:bg-emerald-500/30 transition-colors disabled:opacity-70"
             >
               {repayLoading ? 'Repaying...' : 'Repay'}
             </button>
@@ -1496,7 +1478,7 @@ function LoanRow({
             <button
               onClick={handleClaim}
               disabled={claimLoading || !deployed}
-              className="px-4 py-1.5 rounded-lg text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-colors disabled:opacity-40"
+              className="px-4 py-1.5 rounded-lg text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-colors disabled:opacity-70"
             >
               {claimLoading ? 'Claiming...' : 'Claim Collateral'}
             </button>
@@ -1507,45 +1489,9 @@ function LoanRow({
   );
 }
 
-function MyLoansTab({ deployed }: { deployed: boolean }) {
+function MyLoansTab({ deployed, allLoans, loansLoading }: { deployed: boolean; allLoans: Loan[]; loansLoading: boolean }) {
   const { address } = useAccount();
   const [subTab, setSubTab] = useState<LoanSubTab>('borrower');
-
-  const { data: loanCount } = useReadContract({
-    address: TEGRIDY_LENDING_ADDRESS as Address,
-    abi: TEGRIDY_LENDING_ABI,
-    functionName: 'loanCount',
-  });
-
-  const count = loanCount ? Number(loanCount) : 0;
-
-  const { data: loan0 } = useReadContract({
-    address: TEGRIDY_LENDING_ADDRESS as Address,
-    abi: TEGRIDY_LENDING_ABI,
-    functionName: 'getLoan',
-    args: [0n],
-    query: { enabled: count > 0 },
-  });
-
-  const allLoans = useMemo<Loan[]>(() => {
-    if (!loan0) return [];
-    const l = loan0 as readonly [string, string, bigint, bigint, bigint, bigint, bigint, bigint, boolean, boolean];
-    return [
-      {
-        id: 0,
-        borrower: l[0],
-        lender: l[1],
-        offerId: l[2],
-        tokenId: l[3],
-        principal: l[4],
-        aprBps: l[5],
-        startTime: l[6],
-        deadline: l[7],
-        repaid: l[8],
-        defaultClaimed: l[9],
-      },
-    ];
-  }, [loan0]);
 
   const myBorrowed = useMemo(
     () => allLoans.filter((l) => l.borrower.toLowerCase() === address?.toLowerCase()),
@@ -1561,8 +1507,20 @@ function MyLoansTab({ deployed }: { deployed: boolean }) {
 
   if (!address) {
     return (
-      <div className="text-center py-12 text-white/30 text-sm pt-4">
+      <div className="text-center py-12 text-white text-sm pt-4">
         Connect wallet to view your loans
+      </div>
+    );
+  }
+
+  if (loansLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+        <svg className="animate-spin h-8 w-8 text-purple-400 mb-4" viewBox="0 0 24 24" fill="none">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+        <p className="text-white text-sm">Loading loans...</p>
       </div>
     );
   }
@@ -1580,12 +1538,12 @@ function MyLoansTab({ deployed }: { deployed: boolean }) {
             onClick={() => setSubTab(st)}
             className={`text-sm font-medium px-3 py-1.5 rounded-lg transition-all duration-200 ${
               subTab === st
-                ? 'bg-white/10 text-white'
-                : 'text-white/30 hover:text-white/60 hover:bg-white/5'
+                ? 'bg-black/60 text-white'
+                : 'text-white hover:text-white hover:bg-white/5'
             }`}
           >
             As {st === 'borrower' ? 'Borrower' : 'Lender'}
-            <span className="ml-1.5 text-[11px] font-mono text-white/30">
+            <span className="ml-1.5 text-[11px] font-mono text-white">
               ({st === 'borrower' ? myBorrowed.length : myLent.length})
             </span>
           </button>
@@ -1614,35 +1572,126 @@ function MyLoansTab({ deployed }: { deployed: boolean }) {
 // ═══════════════════════════════════════════════════════════════════
 // MAIN EXPORT
 // ═══════════════════════════════════════════════════════════════════
+// ─── Hook: Batch-fetch all offers ──────────────────────────────
+function useAllOffers() {
+  const { data: offerCount } = useReadContract({
+    address: TEGRIDY_LENDING_ADDRESS as Address,
+    abi: TEGRIDY_LENDING_ABI,
+    functionName: 'offerCount',
+  });
+
+  const count = offerCount ? Number(offerCount) : 0;
+
+  const offerContracts = useMemo(() => {
+    if (count === 0) return [];
+    return Array.from({ length: count }, (_, i) => ({
+      address: TEGRIDY_LENDING_ADDRESS as Address,
+      abi: TEGRIDY_LENDING_ABI,
+      functionName: 'getOffer' as const,
+      args: [BigInt(i)] as const,
+    }));
+  }, [count]);
+
+  const { data: offerResults, isLoading } = useReadContracts({
+    contracts: offerContracts,
+    query: { enabled: count > 0 },
+  });
+
+  const offers = useMemo<Offer[]>(() => {
+    if (!offerResults) return [];
+    const parsed: Offer[] = [];
+    for (let i = 0; i < offerResults.length; i++) {
+      const result = offerResults[i]!;
+      if (result.status !== 'success' || !result.result) continue;
+      const o = result.result as readonly [string, bigint, bigint, bigint, string, bigint, boolean];
+      parsed.push({
+        id: i,
+        lender: o[0],
+        principal: o[1],
+        aprBps: o[2],
+        duration: o[3],
+        collateralContract: o[4],
+        minPositionValue: o[5],
+        active: o[6],
+      });
+    }
+    return parsed;
+  }, [offerResults]);
+
+  return { offers, isLoading, count };
+}
+
+// ─── Hook: Batch-fetch all loans ───────────────────────────────
+function useAllLoans() {
+  const { data: loanCount } = useReadContract({
+    address: TEGRIDY_LENDING_ADDRESS as Address,
+    abi: TEGRIDY_LENDING_ABI,
+    functionName: 'loanCount',
+  });
+
+  const count = loanCount ? Number(loanCount) : 0;
+
+  const loanContracts = useMemo(() => {
+    if (count === 0) return [];
+    return Array.from({ length: count }, (_, i) => ({
+      address: TEGRIDY_LENDING_ADDRESS as Address,
+      abi: TEGRIDY_LENDING_ABI,
+      functionName: 'getLoan' as const,
+      args: [BigInt(i)] as const,
+    }));
+  }, [count]);
+
+  const { data: loanResults, isLoading } = useReadContracts({
+    contracts: loanContracts,
+    query: { enabled: count > 0 },
+  });
+
+  const loans = useMemo<Loan[]>(() => {
+    if (!loanResults) return [];
+    const parsed: Loan[] = [];
+    for (let i = 0; i < loanResults.length; i++) {
+      const result = loanResults[i]!;
+      if (result.status !== 'success' || !result.result) continue;
+      const l = result.result as readonly [string, string, bigint, bigint, bigint, bigint, bigint, bigint, boolean, boolean];
+      parsed.push({
+        id: i,
+        borrower: l[0],
+        lender: l[1],
+        offerId: l[2],
+        tokenId: l[3],
+        principal: l[4],
+        aprBps: l[5],
+        startTime: l[6],
+        deadline: l[7],
+        repaid: l[8],
+        defaultClaimed: l[9],
+      });
+    }
+    return parsed;
+  }, [loanResults]);
+
+  return { loans, isLoading, count };
+}
+
 export function LendingSection({ address: propAddress }: { address?: string }) {
   const [tab, setTab] = useState<Tab>('lend');
-  const [ready, setReady] = useState(false);
   const deployed = isDeployed(TEGRIDY_LENDING_ADDRESS);
 
-  useEffect(() => {
-    const t = setTimeout(() => setReady(true), 600);
-    return () => clearTimeout(t);
-  }, []);
-
-  if (!ready) {
-    return (
-      <section className="w-full">
-        <SkeletonLayout />
-      </section>
-    );
-  }
+  // Batch-fetch all offers and loans at the top level
+  const { offers: allOffers, isLoading: offersLoading } = useAllOffers();
+  const { loans: allLoans, isLoading: loansLoading } = useAllLoans();
 
   return (
     <section className="w-full space-y-6">
       <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }`}</style>
       {!deployed && (
-        <ArtPanel artSrc={ART.smokingDuo.src} opacity={1} overlay="rgba(6,12,26,0.85)">
+        <ArtPanel artSrc={ART.smokingDuo.src} opacity={1} overlay="none">
           <div className="px-4 py-3 text-center text-[13px] text-amber-400/80">
             Lending contracts are being audited and will be deployed soon. Explore the interface below.
           </div>
         </ArtPanel>
       )}
-      <StatsBar />
+      <StatsBar allOffers={allOffers} allLoans={allLoans} />
       <TabNav tab={tab} setTab={setTab} />
       <AnimatePresence mode="wait">
         <motion.div
@@ -1653,8 +1702,8 @@ export function LendingSection({ address: propAddress }: { address?: string }) {
           transition={{ duration: 0.2, ease: EASE as unknown as number[] }}
         >
           {tab === 'lend' && <LendTab deployed={deployed} />}
-          {tab === 'borrow' && <BorrowTab deployed={deployed} />}
-          {tab === 'myloans' && <MyLoansTab deployed={deployed} />}
+          {tab === 'borrow' && <BorrowTab deployed={deployed} allOffers={allOffers} offersLoading={offersLoading} />}
+          {tab === 'myloans' && <MyLoansTab deployed={deployed} allLoans={allLoans} loansLoading={loansLoading} />}
         </motion.div>
       </AnimatePresence>
     </section>

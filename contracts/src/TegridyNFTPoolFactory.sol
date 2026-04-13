@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts/proxy/Clones.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {TegridyNFTPool} from "./TegridyNFTPool.sol";
@@ -17,7 +18,7 @@ import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 ///         - Per-collection pool indexing for discovery
 ///         - Best-price pool finders for routers
 ///         - Timelocked protocol fee changes (admin safety)
-contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin {
+contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, ReentrancyGuard {
     using Clones for address;
 
     // ─── Timelock Keys ──────────────────────────────────────────────────
@@ -363,7 +364,7 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin {
 
     /// @notice Withdraw accumulated protocol fees to the protocolFeeRecipient (owner only).
     /// SECURITY FIX: Added nonReentrant + WETHFallbackLib (caught in re-audit)
-    function withdrawProtocolFees() external onlyOwner {
+    function withdrawProtocolFees() external onlyOwner nonReentrant {
         uint256 balance = address(this).balance;
         require(balance > 0, "NO_FEES");
         (bool ok,) = protocolFeeRecipient.call{value: balance, gas: 10000}("");

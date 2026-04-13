@@ -1,6 +1,6 @@
 import { useAccount, useReadContracts, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { VOTE_INCENTIVES_ABI } from '../lib/contracts';
 import { VOTE_INCENTIVES_ADDRESS, TOWELI_WETH_LP_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
@@ -38,6 +38,21 @@ export function useBribes() {
   const latestEpoch = latestEpochData
     ? { totalPower: (latestEpochData as [bigint, bigint])[0], timestamp: Number((latestEpochData as [bigint, bigint])[1]) }
     : null;
+
+  // Cooldown tracking for advance epoch (MIN_EPOCH_INTERVAL = 1 hour)
+  const MIN_EPOCH_INTERVAL = 3600;
+  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+
+  useEffect(() => {
+    if (!latestEpoch) { setCooldownRemaining(0); return; }
+    const update = () => {
+      const elapsed = Math.floor(Date.now() / 1000) - latestEpoch.timestamp;
+      setCooldownRemaining(Math.max(0, MIN_EPOCH_INTERVAL - elapsed));
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [latestEpoch?.timestamp]);
 
   // Check user's claimable bribes for the main TOWELI/WETH pair across recent epochs
   const { data: claimableData } = useReadContract({
@@ -127,6 +142,7 @@ export function useBribes() {
     isPending,
     isConfirming,
     isSuccess,
+    cooldownRemaining,
     refetch,
   };
 }

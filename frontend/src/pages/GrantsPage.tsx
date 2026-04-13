@@ -11,7 +11,8 @@ import { validateAddress } from '../lib/tokenList';
 import { usePageTitle } from '../hooks/usePageTitle';
 
 const STATUS_LABELS = ['Active', 'Approved', 'Rejected', 'Executed', 'Cancelled', 'Lapsed'];
-const STATUS_COLORS = ['text-primary', 'text-success', 'text-danger', 'text-white/50', 'text-white/25', 'text-white/30'];
+const STATUS_COLORS = ['text-white', 'text-success', 'text-danger', 'text-white', 'text-white', 'text-white'];
+const DESC_MAX_LENGTH = 500;
 
 export default function GrantsPage({ embedded }: { embedded?: boolean }) {
   usePageTitle(embedded ? '' : 'Governance');
@@ -33,16 +34,25 @@ export default function GrantsPage({ embedded }: { embedded?: boolean }) {
   });
 
   const count = Number(proposalCount ?? 0);
+  const displayLimit = 20;
 
   const toastShownRef = useRef<string | null>(null);
 
-  const handleCreate = () => {
+  const handleCreate = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!recipient || !amount || !description) return;
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount < 0.001) {
+      toast.error('Amount must be at least 0.001 ETH');
+      return;
+    }
     const validRecipient = validateAddress(recipient);
     if (!validRecipient) { toast.error('Invalid recipient address'); return; }
     writeContract({
       address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'createProposal',
       args: [validRecipient, parseEther(amount), description],
+    }, {
+      onError: (err) => toast.error(err.shortMessage || err.message || 'Failed to create proposal'),
     });
   };
 
@@ -58,10 +68,7 @@ export default function GrantsPage({ embedded }: { embedded?: boolean }) {
     <div className={embedded ? '' : '-mt-14 relative min-h-screen'}>
       {!embedded && (
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-          <img src={ART.danceNight.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%' }} />
-          <div className="absolute inset-0" style={{
-            background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.88) 40%, rgba(0,0,0,0.96) 100%)',
-          }} />
+          <img src={ART.danceNight.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%' }} />
         </div>
       )}
 
@@ -69,7 +76,7 @@ export default function GrantsPage({ embedded }: { embedded?: boolean }) {
         <motion.div className="mb-6 flex items-center justify-between" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div>
             {!embedded && <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Governance</h1>}
-            <p className="text-white/50 text-[14px]">Community proposals &amp; grants — voted by veTOWELI holders</p>
+            <p className="text-white text-[14px]">Community proposals &amp; grants — voted by veTOWELI holders</p>
           </div>
           {isConnected && (
             <button onClick={() => setShowCreate(!showCreate)} className="btn-secondary px-4 py-2 text-[13px]">
@@ -79,23 +86,22 @@ export default function GrantsPage({ embedded }: { embedded?: boolean }) {
         </motion.div>
 
         {/* Stats */}
-        <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
+        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
           initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div className="absolute inset-0">
-            <img src={ART.porchChill.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 65%', opacity: 1 }} />
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+            <img src={ART.porchChill.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 65%' }} />
           </div>
           <div className="relative z-10 p-6 py-8 flex items-center gap-10">
             <div>
-              <p className="text-white/40 text-[11px] uppercase tracking-wider mb-1">Proposals</p>
+              <p className="text-white text-[11px] uppercase tracking-wider label-pill mb-1">Proposals</p>
               <p className="stat-value text-[28px] text-white">{count}</p>
             </div>
             <div>
-              <p className="text-white/40 text-[11px] uppercase tracking-wider mb-1">Total Granted</p>
-              <p className="stat-value text-[28px] text-primary">{totalGranted ? formatTokenAmount(formatEther(totalGranted as bigint), 4) : '0'} ETH</p>
+              <p className="text-white text-[11px] uppercase tracking-wider label-pill mb-1">Total Granted</p>
+              <p className="stat-value text-[28px] text-white">{totalGranted ? formatTokenAmount(formatEther(totalGranted as bigint), 4) : '0'} ETH</p>
             </div>
             <div>
-              <p className="text-white/40 text-[11px] uppercase tracking-wider mb-1">Treasury</p>
+              <p className="text-white text-[11px] uppercase tracking-wider label-pill mb-1">Treasury</p>
               <p className="stat-value text-[28px] text-success">Active</p>
             </div>
           </div>
@@ -103,64 +109,67 @@ export default function GrantsPage({ embedded }: { embedded?: boolean }) {
 
         {/* Create Proposal */}
         {showCreate && (
-          <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
+          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
             initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
             <div className="absolute inset-0">
-              <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+              <img src={ART.smokingDuo.src} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-5">
             <h3 className="text-white text-[15px] font-semibold mb-3">Create Proposal</h3>
-            <div className="space-y-3">
+            <form onSubmit={handleCreate} className="space-y-3">
               <div>
-                <label className="text-white/40 text-[11px] mb-1 block">Recipient Address</label>
-                <input value={recipient} onChange={e => setRecipient(e.target.value)} placeholder="0x..."
+                <label htmlFor="grant-recipient" className="text-white text-[11px] mb-1 block">Recipient Address</label>
+                <input id="grant-recipient" value={recipient} onChange={e => setRecipient(e.target.value)} placeholder="0x..."
                   className="w-full bg-transparent text-[13px] font-mono text-white outline-none px-3 py-2.5 rounded-lg"
-                  style={{ border: '1px solid rgba(255,255,255,0.06)' }} />
+                  style={{ border: '1px solid rgba(255,255,255,0.20)' }} />
               </div>
               <div>
-                <label className="text-white/40 text-[11px] mb-1 block">Amount (ETH)</label>
-                <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.1"
+                <label htmlFor="grant-amount" className="text-white text-[11px] mb-1 block">Amount (ETH)</label>
+                <input id="grant-amount" type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.1"
+                  min="0.001" step="any"
                   className="w-full bg-transparent text-[13px] font-mono text-white outline-none px-3 py-2.5 rounded-lg token-input"
-                  style={{ border: '1px solid rgba(255,255,255,0.06)' }} />
+                  style={{ border: '1px solid rgba(255,255,255,0.20)' }} />
               </div>
               <div>
-                <label className="text-white/40 text-[11px] mb-1 block">Description</label>
-                <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="What is this grant for?" maxLength={500}
+                <label htmlFor="grant-description" className="text-white text-[11px] mb-1 block">Description</label>
+                <textarea id="grant-description" value={description} onChange={e => setDescription(e.target.value)} placeholder="What is this grant for?" maxLength={DESC_MAX_LENGTH}
                   rows={3} className="w-full bg-transparent text-[13px] text-white outline-none px-3 py-2.5 rounded-lg resize-none"
-                  style={{ border: '1px solid rgba(255,255,255,0.06)' }} />
+                  style={{ border: '1px solid rgba(255,255,255,0.20)' }} />
+                <p className="text-white text-[10px] text-right mt-0.5">{description.length}/{DESC_MAX_LENGTH}</p>
               </div>
-              <button onClick={handleCreate} disabled={isPending || isConfirming || !recipient || !amount || !description}
-                className="btn-primary w-full py-3 text-[14px] disabled:opacity-35">
+              <button type="submit" disabled={isPending || isConfirming || !recipient || !amount || !description}
+                className="btn-primary w-full py-3 text-[14px] disabled:opacity-70">
                 {isPending || isConfirming ? 'Submitting...' : 'Submit Proposal'}
               </button>
-            </div>
+            </form>
             </div>
           </motion.div>
         )}
 
         {/* Proposals List */}
-        <motion.div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
+        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div className="absolute inset-0">
-            <img src={ART.busCrew.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%', opacity: 1 }} />
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+            <img src={ART.busCrew.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%' }} />
           </div>
           <div className="relative z-10">
           {isCountLoading ? (
             <div className="p-10 text-center min-h-[60vh] flex flex-col items-center justify-center">
-              <p className="text-white/40 text-[14px] animate-pulse">Loading proposals...</p>
+              <p className="text-white text-[14px] animate-pulse">Loading proposals...</p>
             </div>
           ) : count === 0 ? (
             <div className="p-10 text-center min-h-[60vh] flex flex-col items-center justify-center">
-              <p className="text-white/50 text-[22px] mb-3">No proposals yet</p>
-              <p className="text-white/30 text-[14px]">Be the first to submit a grant proposal.</p>
+              <p className="text-white text-[22px] mb-3">No proposals yet</p>
+              <p className="text-white text-[14px]">Be the first to submit a grant proposal.</p>
             </div>
           ) : (
             <div>
-              {Array.from({ length: Math.min(count, 20) }).map((_, i) => {
+              {count > displayLimit && (
+                <p className="text-white text-[11px] px-5 pt-3">Showing first {displayLimit} of {count} proposals</p>
+              )}
+              {Array.from({ length: Math.min(count, displayLimit) }).map((_, i) => {
                 const proposalId = count - 1 - i;
-                return <ProposalRow key={proposalId} id={proposalId} address={address} />;
+                return <ProposalRow key={proposalId} id={proposalId} address={address} onActionSuccess={refetch} />;
               })}
             </div>
           )}
@@ -171,8 +180,8 @@ export default function GrantsPage({ embedded }: { embedded?: boolean }) {
   );
 }
 
-function ProposalRow({ id, address }: { id: number; address?: string }) {
-  const { data } = useReadContract({
+function ProposalRow({ id, address, onActionSuccess }: { id: number; address?: string; onActionSuccess: () => void }) {
+  const { data, refetch: refetchProposal } = useReadContract({
     address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'getProposal',
     args: [BigInt(id)],
   });
@@ -184,8 +193,17 @@ function ProposalRow({ id, address }: { id: number; address?: string }) {
   });
 
   const { writeContract, data: txHash, isPending } = useWriteContract();
-  const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash });
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
   const [lastAction, setLastAction] = useState<'voteFor' | 'voteAgainst' | 'finalize' | 'execute' | 'cancel' | 'lapse' | null>(null);
+
+  const txDoneRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (isSuccess && txHash && txDoneRef.current !== txHash) {
+      txDoneRef.current = txHash;
+      refetchProposal();
+      onActionSuccess();
+    }
+  }, [isSuccess, txHash, refetchProposal, onActionSuccess]);
 
   if (!data) return null;
   const [proposer, recipient, amount, description, votesFor, votesAgainst, deadline, status] = data as [string, string, bigint, string, bigint, bigint, bigint, number];
@@ -200,14 +218,15 @@ function ProposalRow({ id, address }: { id: number; address?: string }) {
   const deadlineSeconds = Number(deadline);
   const nowSeconds = Math.floor(Date.now() / 1000);
   const secondsLeft = deadlineSeconds - nowSeconds;
-  const daysLeft = Math.max(0, Math.ceil(secondsLeft / 86400));
+
+  const onWriteError = (err: any) => toast.error(err.shortMessage || err.message || 'Transaction failed');
 
   return (
-    <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(139,92,246,0.06)' }}>
+    <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(139,92,246,0.75)' }}>
       <div className="flex items-start justify-between mb-2">
         <div className="flex-1">
-          <p className="text-white/80 text-[13px] font-medium mb-0.5">{description}</p>
-          <p className="text-white/25 text-[11px]">
+          <p className="text-white text-[13px] font-medium mb-0.5">{description}</p>
+          <p className="text-white text-[11px]">
             To {shortenAddress(recipient)} &middot; {formatEther(amount)} ETH &middot; By {shortenAddress(proposer)}
           </p>
         </div>
@@ -221,22 +240,22 @@ function ProposalRow({ id, address }: { id: number; address?: string }) {
         {isActive && !isExpired && address && (
           <div className="ml-auto flex items-center gap-2">
             {alreadyVoted ? (
-              <span className="text-[11px] text-white/30">Already Voted</span>
+              <span className="text-[11px] text-white">Already Voted</span>
             ) : (
               <>
-                <button onClick={() => { setLastAction('voteFor'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'voteOnProposal', args: [BigInt(id), true] }); }}
-                  disabled={isPending || isConfirming} className="text-[11px] text-success hover:opacity-80 cursor-pointer disabled:opacity-40">
+                <button onClick={() => { setLastAction('voteFor'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'voteOnProposal', args: [BigInt(id), true] }, { onError: onWriteError }); }}
+                  disabled={isPending || isConfirming} className="text-[11px] text-success hover:opacity-80 cursor-pointer disabled:opacity-70">
                   {(isPending || isConfirming) && lastAction === 'voteFor' ? 'Voting...' : 'Vote For'}
                 </button>
-                <button onClick={() => { setLastAction('voteAgainst'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'voteOnProposal', args: [BigInt(id), false] }); }}
-                  disabled={isPending || isConfirming} className="text-[11px] text-danger hover:opacity-80 cursor-pointer disabled:opacity-40">
+                <button onClick={() => { setLastAction('voteAgainst'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'voteOnProposal', args: [BigInt(id), false] }, { onError: onWriteError }); }}
+                  disabled={isPending || isConfirming} className="text-[11px] text-danger hover:opacity-80 cursor-pointer disabled:opacity-70">
                   {(isPending || isConfirming) && lastAction === 'voteAgainst' ? 'Voting...' : 'Vote Against'}
                 </button>
               </>
             )}
             {isProposer && (
-              <button onClick={() => { setLastAction('cancel'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'cancelProposal', args: [BigInt(id)] }); }}
-                disabled={isPending || isConfirming} className="text-[11px] text-red-400 hover:opacity-80 cursor-pointer disabled:opacity-40">
+              <button onClick={() => { setLastAction('cancel'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'cancelProposal', args: [BigInt(id)] }, { onError: onWriteError }); }}
+                disabled={isPending || isConfirming} className="text-[11px] text-red-400 hover:opacity-80 cursor-pointer disabled:opacity-70">
                 {(isPending || isConfirming) && lastAction === 'cancel' ? 'Cancelling...' : 'Cancel'}
               </button>
             )}
@@ -245,13 +264,13 @@ function ProposalRow({ id, address }: { id: number; address?: string }) {
 
         {isActive && isExpired && (
           <div className="ml-auto flex items-center gap-2">
-            <button onClick={() => { setLastAction('finalize'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'finalizeProposal', args: [BigInt(id)] }); }}
-              disabled={isPending || isConfirming} className="text-[11px] text-primary hover:opacity-80 cursor-pointer disabled:opacity-40">
+            <button onClick={() => { setLastAction('finalize'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'finalizeProposal', args: [BigInt(id)] }, { onError: onWriteError }); }}
+              disabled={isPending || isConfirming} className="text-[11px] text-white hover:opacity-80 cursor-pointer disabled:opacity-70">
               {(isPending || isConfirming) && lastAction === 'finalize' ? 'Finalizing...' : 'Finalize'}
             </button>
             {isProposer && (
-              <button onClick={() => { setLastAction('cancel'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'cancelProposal', args: [BigInt(id)] }); }}
-                disabled={isPending || isConfirming} className="text-[11px] text-red-400 hover:opacity-80 cursor-pointer disabled:opacity-40">
+              <button onClick={() => { setLastAction('cancel'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'cancelProposal', args: [BigInt(id)] }, { onError: onWriteError }); }}
+                disabled={isPending || isConfirming} className="text-[11px] text-red-400 hover:opacity-80 cursor-pointer disabled:opacity-70">
                 {(isPending || isConfirming) && lastAction === 'cancel' ? 'Cancelling...' : 'Cancel'}
               </button>
             )}
@@ -260,12 +279,12 @@ function ProposalRow({ id, address }: { id: number; address?: string }) {
 
         {isApproved && (
           <div className="ml-auto flex items-center gap-2">
-            <button onClick={() => { setLastAction('execute'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'executeProposal', args: [BigInt(id)] }); }}
-              disabled={isPending || isConfirming} className="btn-primary text-[11px] px-3 py-1 disabled:opacity-40">
+            <button onClick={() => { setLastAction('execute'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'executeProposal', args: [BigInt(id)] }, { onError: onWriteError }); }}
+              disabled={isPending || isConfirming} className="btn-primary text-[11px] px-3 py-1 disabled:opacity-70">
               {(isPending || isConfirming) && lastAction === 'execute' ? 'Executing...' : 'Execute Grant'}
             </button>
-            <button onClick={() => { setLastAction('lapse'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'lapseProposal', args: [BigInt(id)] }); }}
-              disabled={isPending || isConfirming} className="text-[11px] text-white/40 hover:opacity-80 cursor-pointer disabled:opacity-40">
+            <button onClick={() => { setLastAction('lapse'); writeContract({ address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'lapseProposal', args: [BigInt(id)] }, { onError: onWriteError }); }}
+              disabled={isPending || isConfirming} className="text-[11px] text-white hover:opacity-80 cursor-pointer disabled:opacity-70">
               {(isPending || isConfirming) && lastAction === 'lapse' ? 'Lapsing...' : 'Mark as Lapsed'}
             </button>
           </div>
@@ -274,8 +293,12 @@ function ProposalRow({ id, address }: { id: number; address?: string }) {
 
       {/* Vote deadline countdown */}
       {isActive && (
-        <p className="text-white/25 text-[10px] mt-1.5">
-          {secondsLeft > 0 ? `${daysLeft} day${daysLeft !== 1 ? 's' : ''} left` : 'Voting ended'}
+        <p className="text-white text-[10px] mt-1.5">
+          {secondsLeft > 0
+            ? secondsLeft < 86400
+              ? `${Math.ceil(secondsLeft / 3600)}h left`
+              : `${Math.ceil(secondsLeft / 86400)}d left`
+            : 'Voting ended'}
         </p>
       )}
     </div>

@@ -16,9 +16,9 @@ interface Particle {
 }
 
 // #87 audit: hardware-adaptive particle counts with reduced-motion support
-function getParticleCounts(): { particles: number; stars: number } {
+function getParticleCounts(reducedMotion: boolean): { particles: number; stars: number } {
   // Respect prefers-reduced-motion — minimal particles
-  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+  if (reducedMotion) {
     return { particles: 0, stars: 0 };
   }
   const cores = navigator?.hardwareConcurrency ?? 2;
@@ -30,8 +30,6 @@ function getParticleCounts(): { particles: number; stars: number } {
   // High-end: cap at 500 particles max (1000 absolute cap never reached for background)
   return { particles: Math.min(cores * 30, 500), stars: Math.min(cores * 3, 30) };
 }
-
-const { particles: PARTICLE_COUNT, stars: STAR_COUNT } = getParticleCounts();
 const COLORS: readonly { color: string; opacity: number }[] = [
   { color: '139, 92, 246', opacity: 0.40 },  // purple
   { color: '212, 160, 23', opacity: 0.30 },   // gold
@@ -62,24 +60,64 @@ export function ParticleBackground() {
   const particlesRef = useRef<Particle[]>([]);
   const rafRef = useRef<number>(0);
   const timeRef = useRef<number>(0);
+  const lastTimeRef = useRef<number>(0);
+  // Cached viewport dimensions — updated only in resize handler
+  const sizeRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
+  const animateFnRef = useRef<((ts: number) => void) | null>(null);
 
   useEffect(() => {
+    // Evaluate reduced-motion inside the component so it can react to changes
+    const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let { particles: particleCount, stars: starCount } = getParticleCounts(motionQuery.matches);
+
+    // Re-evaluate particle counts when the user toggles reduced-motion
+    const handleMotionChange = (e: MediaQueryListEvent) => {
+      const counts = getParticleCounts(e.matches);
+      particleCount = counts.particles;
+      starCount = counts.stars;
+      if (particleCount === 0 && starCount === 0) {
+        cancelAnimationFrame(rafRef.current);
+        particlesRef.current = [];
+        const cvs = canvasRef.current;
+        if (cvs) {
+          const c = cvs.getContext('2d');
+          c?.clearRect(0, 0, sizeRef.current.w, sizeRef.current.h);
+        }
+      } else if (particlesRef.current.length === 0) {
+        // Re-init particles and restart animation
+        const { w, h } = sizeRef.current;
+        const normal = Array.from({ length: particleCount }, () => createParticle(w, h, false, false));
+        const stars = Array.from({ length: starCount }, () => createParticle(w, h, false, true));
+        particlesRef.current = [...normal, ...stars];
+        lastTimeRef.current = 0;
+        if (animateFnRef.current) {
+          rafRef.current = requestAnimationFrame(animateFnRef.current);
+        }
+      }
+    };
+    motionQuery.addEventListener('change', handleMotionChange);
+
     // #87 audit: skip animation entirely when reduced-motion is preferred or zero particles
-    if (PARTICLE_COUNT === 0 && STAR_COUNT === 0) return;
+    if (particleCount === 0 && starCount === 0) {
+      return () => { motionQuery.removeEventListener('change', handleMotionChange); };
+    }
 
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) return () => { motionQuery.removeEventListener('change', handleMotionChange); };
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) return () => { motionQuery.removeEventListener('change', handleMotionChange); };
 
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
-      canvas.width = window.innerWidth * dpr;
-      canvas.height = window.innerHeight * dpr;
-      canvas.style.width = `${window.innerWidth}px`;
-      canvas.style.height = `${window.innerHeight}px`;
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      sizeRef.current = { w, h };
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     const debouncedResize = () => {
@@ -90,18 +128,23 @@ export function ParticleBackground() {
     resize();
 
     // Initialize particles
-    const normalParticles = Array.from({ length: PARTICLE_COUNT }, () =>
-      createParticle(window.innerWidth, window.innerHeight, false, false)
+    const { w: initW, h: initH } = sizeRef.current;
+    const normalParticles = Array.from({ length: particleCount }, () =>
+      createParticle(initW, initH, false, false)
     );
-    const starParticles = Array.from({ length: STAR_COUNT }, () =>
-      createParticle(window.innerWidth, window.innerHeight, false, true)
+    const starParticles = Array.from({ length: starCount }, () =>
+      createParticle(initW, initH, false, true)
     );
     particlesRef.current = [...normalParticles, ...starParticles];
 
-    const animate = () => {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      timeRef.current += 0.016; // ~60fps
+    const animate = (timestamp: number) => {
+      // Compute actual frame delta instead of assuming 60fps
+      if (lastTimeRef.current === 0) lastTimeRef.current = timestamp;
+      const delta = (timestamp - lastTimeRef.current) / 1000;
+      lastTimeRef.current = timestamp;
+      timeRef.current += delta;
+
+      const { w, h } = sizeRef.current;
       const t = timeRef.current;
 
       ctx.clearRect(0, 0, w, h);
@@ -144,6 +187,7 @@ export function ParticleBackground() {
       rafRef.current = requestAnimationFrame(animate);
     };
 
+    animateFnRef.current = animate;
     rafRef.current = requestAnimationFrame(animate);
 
     // Pause animation when tab is hidden to save resources
@@ -151,6 +195,8 @@ export function ParticleBackground() {
       if (document.hidden) {
         cancelAnimationFrame(rafRef.current);
       } else {
+        // Reset lastTimeRef so we don't get a huge delta spike on resume
+        lastTimeRef.current = 0;
         rafRef.current = requestAnimationFrame(animate);
       }
     };
@@ -162,6 +208,7 @@ export function ParticleBackground() {
       if (resizeTimer) clearTimeout(resizeTimer);
       window.removeEventListener('resize', debouncedResize);
       document.removeEventListener('visibilitychange', handleVisibility);
+      motionQuery.removeEventListener('change', handleMotionChange);
     };
   }, []);
 

@@ -41,7 +41,7 @@ const POOL_TYPE_ACCENT: Record<number, string> = {
 const POOL_TYPE_BG_SELECTED: Record<number, string> = {
   0: 'bg-blue-500/20 border-blue-400 ring-1 ring-blue-400/30',
   1: 'bg-orange-500/20 border-orange-400 ring-1 ring-orange-400/30',
-  2: 'bg-emerald-500/20 border-emerald-400 ring-1 ring-emerald-400/30',
+  2: 'bg-emerald-500/40 border-emerald-400 ring-1 ring-emerald-400/30',
 };
 
 const POOL_TYPE_DESCRIPTIONS: Record<number, string> = {
@@ -88,21 +88,21 @@ const LOCAL_STORAGE_KEY = 'tegridy-amm-tracked-pools';
 const isValidAddress = (addr: string): addr is `0x${string}` =>
   /^0x[a-fA-F0-9]{40}$/.test(addr);
 
-const labelClass = 'text-[11px] uppercase tracking-wider text-white/40 font-medium';
+const labelClass = 'text-[11px] uppercase tracking-wider label-pill text-white font-medium';
 const inputClass =
-  'w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-white outline-none focus:border-emerald-500/60 focus:ring-1 focus:ring-emerald-500/20 transition-all duration-200 font-mono text-sm placeholder:text-white/20';
+  'w-full bg-black/60 border border-white/25 rounded-xl px-4 py-3 text-white outline-none focus:border-emerald-500/60 focus:ring-1 focus:ring-emerald-500/20 transition-all duration-200 font-mono text-sm placeholder:text-white';
 const btnPrimary =
-  'w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 transition-all duration-300 text-white font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-emerald-500/10';
+  'w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 transition-all duration-300 text-white font-semibold text-sm disabled:opacity-70 disabled:cursor-not-allowed shadow-lg shadow-emerald-500/10';
 const btnDisabled =
-  'w-full py-3.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white/30 text-sm font-semibold cursor-not-allowed';
+  'w-full py-3.5 rounded-xl bg-black/60 border border-white/25 text-white text-sm font-semibold cursor-not-allowed';
 
 // ─── Art Card Wrapper ────────────────────────────────────────────
 
 function ArtCard({
   art,
   opacity = 1,
-  overlay = 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)',
-  border = 'rgba(139,92,246,0.12)',
+  overlay = 'none',
+  border = 'rgba(139,92,246,0.75)',
   className = '',
   children,
 }: {
@@ -115,7 +115,7 @@ function ArtCard({
 }) {
   return (
     <div
-      className={`relative overflow-hidden rounded-xl ${className}`}
+      className={`relative overflow-hidden rounded-xl glass-card-animated ${className}`}
       style={{ border: `1px solid ${border}` }}
     >
       <div className="absolute inset-0">
@@ -333,11 +333,11 @@ function BondingCurveChart({
         {/* Legend */}
         <g transform={`translate(${chartWidth - padding.right - 100}, ${padding.top})`}>
           <line x1="0" y1="0" x2="14" y2="0" stroke="rgb(16,185,129)" strokeWidth="2" />
-          <text x="18" y="3" fill="rgba(255,255,255,0.5)" fontSize="9">
+          <text x="18" y="3" fill="rgba(255,255,255,1)" fontSize="9">
             Buy Price
           </text>
           <line x1="0" y1="14" x2="14" y2="14" stroke="rgb(251,146,60)" strokeWidth="1.5" opacity="0.7" />
-          <text x="18" y="17" fill="rgba(255,255,255,0.5)" fontSize="9">
+          <text x="18" y="17" fill="rgba(255,255,255,1)" fontSize="9">
             Sell Price
           </text>
         </g>
@@ -407,7 +407,7 @@ function StatsBar({ poolCount }: { poolCount: bigint | undefined }) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: i * 0.08 }}
         >
-          <ArtCard art={ART.boxingRing} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)">
+          <ArtCard art={ART.boxingRing} opacity={1} overlay="none">
             <div className="p-4 text-center">
               <p className={labelClass}>{s.label}</p>
               <p className="text-xl sm:text-2xl font-mono tabular-nums text-white mt-1 font-semibold">
@@ -431,13 +431,13 @@ function TabNav({ active, onChange }: { active: Tab; onChange: (t: Tab) => void 
   ];
 
   return (
-    <div className="relative flex gap-1 mb-8 border-b border-white/[0.06]">
+    <div className="relative flex gap-1 mb-8 border-b border-white/20">
       {tabs.map((t) => (
         <button
           key={t.id}
           onClick={() => onChange(t.id)}
           className={`relative px-5 py-3 text-sm font-medium transition-colors duration-200 ${
-            active === t.id ? 'text-white' : 'text-white/40 hover:text-white/70'
+            active === t.id ? 'text-white' : 'text-white/60 hover:text-white/80'
           }`}
         >
           {t.label}
@@ -487,7 +487,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
   const validCollection = isValidAddress(collection);
 
   // Best buy pool quote
-  const { data: buyQuote } = useReadContract({
+  const { data: buyQuote, refetch: refetchBuyQuote, isFetching: isFetchingBuy } = useReadContract({
     address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
     abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
     functionName: 'getBestBuyPool',
@@ -501,13 +501,15 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
     return sellIds.split(',').map((s) => s.trim()).filter((s) => /^\d+$/.test(s)).map((s) => BigInt(s));
   }, [sellIds]);
 
-  const { data: sellQuote } = useReadContract({
+  const { data: sellQuote, refetch: refetchSellQuote, isFetching: isFetchingSell } = useReadContract({
     address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
     abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
     functionName: 'getBestSellPool',
     args: [collection as Address, BigInt(parsedSellIds.length)],
     query: { enabled: validCollection && mode === 'sell' && parsedSellIds.length > 0 && deployed },
   });
+
+  const isFetchingPoolData = isFetchingBuy || isFetchingSell;
 
   const bestPool = mode === 'buy'
     ? (buyQuote as [Address, bigint] | undefined)?.[0]
@@ -538,6 +540,16 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
   const protocolFee = mode === 'buy'
     ? (detailedBuyQuote as [bigint, bigint] | undefined)?.[1]
     : (detailedSellQuote as [bigint, bigint] | undefined)?.[1];
+
+  // Get held token IDs from the best buy pool (needed for swapETHForNFTs)
+  const { data: heldTokenIdsRaw, refetch: refetchHeldIds } = useReadContract({
+    address: bestPool as Address,
+    abi: TEGRIDY_NFT_POOL_ABI,
+    functionName: 'getHeldTokenIds',
+    query: { enabled: !!hasPool && mode === 'buy' },
+  });
+
+  const heldTokenIds = heldTokenIdsRaw as bigint[] | undefined;
 
   // Get spot price + delta for bonding curve
   const { data: currentSpotPrice } = useReadContract({
@@ -616,12 +628,19 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
 
     try {
       if (mode === 'buy') {
+        if (!heldTokenIds || heldTokenIds.length === 0) {
+          return toast.error('No NFTs available in this pool');
+        }
+        const idsToSwap = heldTokenIds.slice(0, buyQty);
+        if (idsToSwap.length === 0) {
+          return toast.error('No NFTs available to buy');
+        }
         writeContract(
           {
             address: bestPool as Address,
             abi: TEGRIDY_NFT_POOL_ABI,
             functionName: 'swapETHForNFTs',
-            args: [[]],
+            args: [idsToSwap],
             value: bestAmount!,
           },
           {
@@ -653,18 +672,22 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
     if (isSuccess) {
       setBuyQty(1);
       setSellIds('');
+      // Refetch pool data after successful transaction
+      refetchBuyQuote();
+      refetchSellQuote();
+      refetchHeldIds();
     }
-  }, [isSuccess]);
+  }, [isSuccess, refetchBuyQuote, refetchSellQuote, refetchHeldIds]);
 
   return (
-    <ArtCard art={ART.poolParty} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl">
+    <ArtCard art={ART.poolParty} opacity={1} overlay="none" className="rounded-2xl">
       <div className="p-6">
         <h3 className="text-lg font-semibold text-white mb-5">
           Instant {mode === 'buy' ? 'Buy' : 'Sell'}
         </h3>
 
         {/* Buy/Sell Toggle */}
-        <div className="flex rounded-xl bg-white/[0.03] p-1 mb-5">
+        <div className="flex rounded-xl bg-black/60 p-1 mb-5">
           {(['buy', 'sell'] as const).map((m) => (
             <button
               key={m}
@@ -672,9 +695,9 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
               className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
                 mode === m
                   ? m === 'buy'
-                    ? 'bg-emerald-500/20 text-emerald-400 shadow-inner'
+                    ? 'bg-emerald-500/40 text-emerald-300 shadow-inner'
                     : 'bg-orange-500/20 text-orange-400 shadow-inner'
-                  : 'text-white/40 hover:text-white/60'
+                  : 'text-white/60 hover:text-white/80'
               }`}
             >
               {m === 'buy' ? 'Buy NFTs' : 'Sell NFTs'}
@@ -702,7 +725,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
                   toast.error('Failed to read clipboard');
                 }
               }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors text-xs font-medium"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-white hover:text-white transition-colors text-xs font-medium"
             >
               PASTE
             </button>
@@ -712,21 +735,21 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
         {/* Buy: Quantity Selector */}
         {mode === 'buy' && (
           <div className="mb-5">
-            <label className={`${labelClass} mb-2 block`}>Quantity</label>
+            <label className={`${labelClass} mb-2 block`}>Quantity <span className="normal-case tracking-normal text-white/50">(max 10)</span></label>
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setBuyQty(Math.max(1, buyQty - 1))}
-                className="w-11 h-11 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white/60 hover:text-white hover:border-white/20 transition-all text-lg font-medium flex items-center justify-center"
+                className="w-11 h-11 rounded-xl bg-black/60 border border-white/25 text-white hover:text-white hover:border-white/20 transition-all text-lg font-medium flex items-center justify-center"
               >
                 -
               </button>
               <div className="flex-1 text-center">
                 <span className="text-2xl font-mono font-bold text-white tabular-nums">{buyQty}</span>
-                <span className="text-white/30 text-sm ml-1">NFT{buyQty !== 1 ? 's' : ''}</span>
+                <span className="text-white text-sm ml-1">NFT{buyQty !== 1 ? 's' : ''}</span>
               </div>
               <button
                 onClick={() => setBuyQty(Math.min(10, buyQty + 1))}
-                className="w-11 h-11 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white/60 hover:text-white hover:border-white/20 transition-all text-lg font-medium flex items-center justify-center"
+                className="w-11 h-11 rounded-xl bg-black/60 border border-white/25 text-white hover:text-white hover:border-white/20 transition-all text-lg font-medium flex items-center justify-center"
               >
                 +
               </button>
@@ -738,7 +761,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
         {mode === 'sell' && (
           <div className="mb-5">
             <label className={`${labelClass} mb-2 block`}>
-              Token IDs <span className="normal-case tracking-normal text-white/25">(comma-separated)</span>
+              Token IDs <span className="normal-case tracking-normal text-white">(comma-separated)</span>
             </label>
             <input
               type="text"
@@ -748,10 +771,21 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
               className={inputClass}
             />
             {parsedSellIds.length > 0 && (
-              <p className="text-[10px] text-white/30 mt-1.5 font-mono">
+              <p className="text-[10px] text-white mt-1.5 font-mono">
                 {parsedSellIds.length} token{parsedSellIds.length !== 1 ? 's' : ''} selected
               </p>
             )}
+          </div>
+        )}
+
+        {/* Loading indicator */}
+        {validCollection && isFetchingPoolData && !bestAmount && (
+          <div className="rounded-xl border border-white/20 bg-black/60 p-4 mb-5 flex items-center justify-center gap-2">
+            <svg className="animate-spin w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+            </svg>
+            <span className="text-sm text-white/60">Fetching pool data...</span>
           </div>
         )}
 
@@ -760,30 +794,30 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 mb-5"
+            className="rounded-xl border border-white/20 bg-black/60 p-4 mb-5"
           >
             <div className="flex items-center justify-between mb-3">
               <span className={labelClass}>Price Quote</span>
-              <span className="text-[10px] font-mono text-white/25">Pool: {shortenAddress(bestPool!)}</span>
+              <span className="text-[10px] font-mono text-white">Pool: {shortenAddress(bestPool!)}</span>
             </div>
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="text-white/50">{mode === 'buy' ? 'Total Cost' : 'Payout'}</span>
+                <span className="text-white">{mode === 'buy' ? 'Total Cost' : 'Payout'}</span>
                 <span className="font-mono tabular-nums text-white font-semibold">
                   {formatTokenAmount(formatEther(bestAmount), 6)} ETH
                 </span>
               </div>
               {protocolFee !== undefined && (
                 <div className="flex justify-between text-sm">
-                  <span className="text-white/50">Protocol Fee</span>
-                  <span className="font-mono tabular-nums text-white/60">
+                  <span className="text-white">Protocol Fee</span>
+                  <span className="font-mono tabular-nums text-white">
                     {formatTokenAmount(formatEther(protocolFee), 6)} ETH
                   </span>
                 </div>
               )}
               {priceImpact !== null && (
                 <div className="flex justify-between text-sm items-center">
-                  <span className="text-white/50">Price Impact</span>
+                  <span className="text-white">Price Impact</span>
                   <PriceImpactBadge impact={priceImpact} />
                 </div>
               )}
@@ -799,7 +833,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
             transition={{ delay: 0.1 }}
             className="mb-5"
           >
-            <ArtCard art={ART.beachSunset} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" border="rgba(16,185,129,0.08)">
+            <ArtCard art={ART.beachSunset} opacity={1} overlay="none" border="rgba(16,185,129,0.08)">
               <div className="p-4">
                 <p className={`${labelClass} mb-2`}>Bonding Curve</p>
                 <BondingCurveChart
@@ -816,8 +850,8 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
 
         {/* Empty quote state */}
         {validCollection && (!bestAmount || !hasPool) && deployed && (
-          <div className="rounded-xl border border-white/[0.04] bg-white/[0.01] p-4 mb-5 text-center">
-            <p className="text-sm text-white/30">No pools found for this collection</p>
+          <div className="rounded-xl border border-white/20 bg-black/60 p-4 mb-5 text-center">
+            <p className="text-sm text-white">No pools found for this collection</p>
           </div>
         )}
 
@@ -849,7 +883,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
         ) : needsApproval ? (
           <div className="space-y-3">
             <button
-              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-500 hover:to-purple-400 transition-all duration-300 text-white font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-purple-500/10"
+              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-500 hover:to-purple-400 transition-all duration-300 text-white font-semibold text-sm disabled:opacity-70 disabled:cursor-not-allowed shadow-lg shadow-purple-500/10"
               disabled={isApproving || approvalStep === 'approving'}
               onClick={handleApprove}
             >
@@ -901,15 +935,15 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
 
 function TradeHistory() {
   return (
-    <ArtCard art={ART.chaosScene} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" border="rgba(139,92,246,0.08)">
+    <ArtCard art={ART.chaosScene} opacity={1} overlay="none" border="rgba(139,92,246,0.75)">
       <div className="p-6 text-center">
-        <div className="w-12 h-12 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mx-auto mb-4">
-          <svg className="w-5 h-5 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+        <div className="w-12 h-12 rounded-xl bg-black/60 border border-white/20 flex items-center justify-center mx-auto mb-4">
+          <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         </div>
-        <h4 className="text-sm font-semibold text-white/60 mb-1.5">Trade History</h4>
-        <p className="text-xs text-white/30 leading-relaxed max-w-xs mx-auto">
+        <h4 className="text-sm font-semibold text-white mb-1.5">Trade History</h4>
+        <p className="text-xs text-white leading-relaxed max-w-xs mx-auto">
           Trade history will appear here once the protocol is live. All swaps, fees, and pool interactions will be tracked.
         </p>
       </div>
@@ -936,26 +970,34 @@ function PoolCard({
   const [withdrawEth, setWithdrawEth] = useState('');
   const [activeAction, setActiveAction] = useState<'deposit' | 'withdraw'>('deposit');
 
-  const { data: poolInfo } = useReadContract({
+  const { data: poolInfo, refetch: refetchPoolInfo } = useReadContract({
     address: poolAddress,
     abi: TEGRIDY_NFT_POOL_ABI,
     functionName: 'getPoolInfo',
   });
 
-  const { data: heldTokenIds } = useReadContract({
+  const { data: heldTokenIds, refetch: refetchPoolHeldIds } = useReadContract({
     address: poolAddress,
     abi: TEGRIDY_NFT_POOL_ABI,
     functionName: 'getHeldTokenIds',
   });
 
   const { writeContract, data: txHash } = useWriteContract();
-  const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash });
+  const { isLoading: isConfirming, isSuccess: poolTxSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+
+  // Refetch pool data after successful liquidity operations
+  useEffect(() => {
+    if (poolTxSuccess) {
+      refetchPoolInfo();
+      refetchPoolHeldIds();
+    }
+  }, [poolTxSuccess, refetchPoolInfo, refetchPoolHeldIds]);
 
   if (!poolInfo) {
     return (
       <div className="rounded-2xl border border-[rgba(16,185,129,0.06)] bg-[rgba(13,21,48,0.6)] backdrop-blur-[20px] p-4 animate-pulse">
-        <div className="h-4 bg-white/5 rounded w-24 mb-3" />
-        <div className="h-3 bg-white/5 rounded w-32" />
+        <div className="h-4 bg-black/60 rounded w-24 mb-3" />
+        <div className="h-3 bg-black/60 rounded w-32" />
       </div>
     );
   }
@@ -1028,7 +1070,7 @@ function PoolCard({
       <ArtCard
         art={isOwner ? ART.wrestler : ART.jungleDark}
         opacity={1}
-        overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)"
+        overlay="none"
         border={poolType === 0 ? 'rgba(96,165,250,0.15)' : poolType === 1 ? 'rgba(251,146,60,0.15)' : 'rgba(16,185,129,0.15)'}
         className="rounded-2xl"
       >
@@ -1037,7 +1079,7 @@ function PoolCard({
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2.5">
               <PoolTypeBadge type={poolType} />
-              <span className="text-[10px] font-mono text-white/25">{shortenAddress(poolAddress)}</span>
+              <span className="text-[10px] font-mono text-white">{shortenAddress(poolAddress)}</span>
             </div>
             {showOwnerControls && (
               <span className="text-[9px] uppercase tracking-widest text-emerald-400/60 font-semibold">Owner</span>
@@ -1054,7 +1096,7 @@ function PoolCard({
             </div>
             <div>
               <p className={labelClass}>Delta</p>
-              <p className="text-sm font-mono tabular-nums text-white/70 mt-0.5">
+              <p className="text-sm font-mono tabular-nums text-white mt-0.5">
                 {formatTokenAmount(formatEther(delta), 4)} ETH
               </p>
             </div>
@@ -1070,13 +1112,13 @@ function PoolCard({
             </div>
             <div>
               <p className={labelClass}>LP Fee</p>
-              <p className="text-sm font-mono tabular-nums text-white/70 mt-0.5">
+              <p className="text-sm font-mono tabular-nums text-white mt-0.5">
                 {(Number(feeBps) / 100).toFixed(2)}%
               </p>
             </div>
             <div>
               <p className={labelClass}>Collection</p>
-              <p className="text-[11px] font-mono text-white/50 mt-0.5">{shortenAddress(nftCollection)}</p>
+              <p className="text-[11px] font-mono text-white mt-0.5">{shortenAddress(nftCollection)}</p>
             </div>
           </div>
 
@@ -1088,13 +1130,13 @@ function PoolCard({
                 {(heldTokenIds as bigint[]).slice(0, 20).map((id) => (
                   <span
                     key={id.toString()}
-                    className="px-2 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.06] text-[10px] font-mono text-white/50"
+                    className="px-2 py-0.5 rounded-md bg-black/60 border border-white/20 text-[10px] font-mono text-white"
                   >
                     #{id.toString()}
                   </span>
                 ))}
                 {(heldTokenIds as bigint[]).length > 20 && (
-                  <span className="px-2 py-0.5 text-[10px] text-white/30">
+                  <span className="px-2 py-0.5 text-[10px] text-white">
                     +{(heldTokenIds as bigint[]).length - 20} more
                   </span>
                 )}
@@ -1107,7 +1149,7 @@ function PoolCard({
             <>
               <button
                 onClick={() => setExpanded(!expanded)}
-                className="w-full text-left text-xs text-emerald-400/70 hover:text-emerald-400 transition-colors font-medium py-2 flex items-center gap-1.5"
+                className="w-full text-left text-xs text-white/50 hover:text-white/80 transition-colors font-medium py-2 flex items-center gap-1.5"
               >
                 <svg
                   className={`w-3 h-3 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
@@ -1121,13 +1163,13 @@ function PoolCard({
                 {expanded && (
                   <motion.div
                     initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
+                    animate={{ height: 'auto' }}
                     exit={{ height: 0, opacity: 0 }}
                     className="overflow-hidden"
                   >
-                    <div className="pt-3 border-t border-white/[0.04]">
+                    <div className="pt-3 border-t border-white/20">
                       {/* Deposit / Withdraw toggle */}
-                      <div className="flex rounded-lg bg-white/[0.03] p-0.5 mb-4">
+                      <div className="flex rounded-lg bg-black/60 p-0.5 mb-4">
                         {(['deposit', 'withdraw'] as const).map((a) => (
                           <button
                             key={a}
@@ -1135,9 +1177,9 @@ function PoolCard({
                             className={`flex-1 py-2 rounded-md text-xs font-semibold transition-all capitalize ${
                               activeAction === a
                                 ? a === 'deposit'
-                                  ? 'bg-emerald-500/20 text-emerald-400'
+                                  ? 'bg-emerald-500/40 text-emerald-300'
                                   : 'bg-orange-500/20 text-orange-400'
-                                : 'text-white/40 hover:text-white/60'
+                                : 'text-white/60 hover:text-white/80'
                             }`}
                           >
                             {a}
@@ -1168,7 +1210,7 @@ function PoolCard({
                             />
                           </div>
                           <button
-                            className="w-full py-2.5 rounded-xl bg-emerald-600/80 hover:bg-emerald-600 transition-colors text-white text-sm font-medium disabled:opacity-40"
+                            className="w-full py-2.5 rounded-xl bg-emerald-600/80 hover:bg-emerald-600 transition-colors text-white text-sm font-medium disabled:opacity-70"
                             disabled={isConfirming || (!liqNftIds.trim() && !liqEth)}
                             onClick={handleAddLiquidity}
                           >
@@ -1198,7 +1240,7 @@ function PoolCard({
                             />
                           </div>
                           <button
-                            className="w-full py-2.5 rounded-xl bg-orange-600/80 hover:bg-orange-600 transition-colors text-white text-sm font-medium disabled:opacity-40"
+                            className="w-full py-2.5 rounded-xl bg-orange-600/80 hover:bg-orange-600 transition-colors text-white text-sm font-medium disabled:opacity-70"
                             disabled={isConfirming || (!withdrawNftIds.trim() && !withdrawEth)}
                             onClick={handleWithdraw}
                           >
@@ -1224,7 +1266,7 @@ function PoolExplorer({ deployed }: { deployed: boolean }) {
   const [searchAddr, setSearchAddr] = useState('');
   const validSearch = isValidAddress(searchAddr);
 
-  const { data: pools } = useReadContract({
+  const { data: pools, isFetching: isFetchingPools } = useReadContract({
     address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
     abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
     functionName: 'getPoolsForCollection',
@@ -1235,7 +1277,7 @@ function PoolExplorer({ deployed }: { deployed: boolean }) {
   const poolList = (pools as Address[] | undefined) ?? [];
 
   return (
-    <ArtCard art={ART.jungleDark} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl">
+    <ArtCard art={ART.jungleDark} opacity={1} overlay="none" className="rounded-2xl">
       <div className="p-6">
         <h3 className="text-lg font-semibold text-white mb-5">Pool Explorer</h3>
 
@@ -1251,21 +1293,31 @@ function PoolExplorer({ deployed }: { deployed: boolean }) {
         </div>
 
         {!validSearch && (
-          <ArtCard art={ART.jungleDark} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" border="rgba(255,255,255,0.04)">
+          <ArtCard art={ART.jungleDark} opacity={1} overlay="none" border="rgba(255,255,255,0.04)">
             <div className="text-center py-12 px-4">
-              <div className="w-12 h-12 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mx-auto mb-4">
-                <svg className="w-5 h-5 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+              <div className="w-12 h-12 rounded-xl bg-black/60 border border-white/20 flex items-center justify-center mx-auto mb-4">
+                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                 </svg>
               </div>
-              <p className="text-sm text-white/30">Enter a collection address to discover pools</p>
+              <p className="text-sm text-white">Enter a collection address to discover pools</p>
             </div>
           </ArtCard>
         )}
 
-        {validSearch && poolList.length === 0 && (
+        {validSearch && isFetchingPools && poolList.length === 0 && (
+          <div className="text-center py-10 flex flex-col items-center gap-2">
+            <svg className="animate-spin w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+            </svg>
+            <p className="text-sm text-white/60">Searching for pools...</p>
+          </div>
+        )}
+
+        {validSearch && !isFetchingPools && poolList.length === 0 && (
           <div className="text-center py-10">
-            <p className="text-sm text-white/30">No pools found</p>
+            <p className="text-sm text-white">No pools found</p>
           </div>
         )}
 
@@ -1382,8 +1434,8 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                   isActive
                     ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30'
                     : isDone
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-white/[0.04] text-white/30 border border-white/[0.06]'
+                    ? 'bg-emerald-500/40 text-emerald-300 border border-emerald-500/30'
+                    : 'bg-black/60 text-white border border-white/20'
                 }`}
               >
                 {isDone ? (
@@ -1394,11 +1446,11 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                   num
                 )}
               </div>
-              <span className={`text-xs font-medium hidden sm:block ${isActive ? 'text-white' : 'text-white/30'}`}>
+              <span className={`text-xs font-medium hidden sm:block ${isActive ? 'text-white' : 'text-white/50'}`}>
                 {label}
               </span>
               {i < stepLabels.length - 1 && (
-                <div className={`flex-1 h-px mx-2 ${isDone ? 'bg-emerald-500/30' : 'bg-white/[0.06]'}`} />
+                <div className={`flex-1 h-px mx-2 ${isDone ? 'bg-emerald-500/30' : 'bg-black/60'}`} />
               )}
             </div>
           );
@@ -1414,7 +1466,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
           >
-            <ArtCard art={ART.mumuBull} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl">
+            <ArtCard art={ART.mumuBull} opacity={1} overlay="none" className="rounded-2xl">
               <div className="p-6">
                 <h3 className="text-lg font-semibold text-white mb-6">Choose Collection & Pool Type</h3>
 
@@ -1439,14 +1491,14 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                         className={`p-4 rounded-xl border text-left transition-all duration-200 ${
                           poolType === type
                             ? POOL_TYPE_BG_SELECTED[type]
-                            : 'bg-white/[0.02] border-white/[0.06] hover:border-white/[0.12]'
+                            : 'bg-black/60 border-white/20 hover:border-white/[0.12]'
                         }`}
                       >
                         <svg
                           className={`w-5 h-5 mb-2 ${
                             poolType === type
                               ? type === 0 ? 'text-blue-400' : type === 1 ? 'text-orange-400' : 'text-emerald-400'
-                              : 'text-white/30'
+                              : 'text-white'
                           }`}
                           fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5"
                         >
@@ -1456,12 +1508,12 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                           className={`text-sm font-semibold mb-1 ${
                             poolType === type
                               ? type === 0 ? 'text-blue-400' : type === 1 ? 'text-orange-400' : 'text-emerald-400'
-                              : 'text-white/60'
+                              : 'text-white'
                           }`}
                         >
                           {POOL_TYPE_LABELS[type]}
                         </p>
-                        <p className="text-[10px] text-white/30 leading-relaxed">{POOL_TYPE_DESCRIPTIONS[type]}</p>
+                        <p className="text-[10px] text-white leading-relaxed">{POOL_TYPE_DESCRIPTIONS[type]}</p>
                       </button>
                     ))}
                   </div>
@@ -1487,7 +1539,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
           >
-            <ArtCard art={ART.mumuBull} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl">
+            <ArtCard art={ART.mumuBull} opacity={1} overlay="none" className="rounded-2xl">
               <div className="p-6">
                 <h3 className="text-lg font-semibold text-white mb-6">Configure Pricing</h3>
 
@@ -1501,7 +1553,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                       onChange={(e) => setSpotPriceInput(e.target.value)}
                       className={inputClass}
                     />
-                    <p className="text-[10px] text-white/25 mt-1">Starting price for the first trade</p>
+                    <p className="text-[10px] text-white mt-1">Starting price for the first trade</p>
                   </div>
                   <div>
                     <label className={`${labelClass} mb-2 block`}>Delta (ETH)</label>
@@ -1512,17 +1564,17 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                       onChange={(e) => setDeltaInput(e.target.value)}
                       className={inputClass}
                     />
-                    <p className="text-[10px] text-white/25 mt-1">Price change per trade</p>
+                    <p className="text-[10px] text-white mt-1">Price change per trade</p>
                   </div>
                 </div>
 
                 {/* Bonding Curve Visualization */}
                 <div className="mb-6">
                   <label className={`${labelClass} mb-3 block`}>Bonding Curve Preview</label>
-                  <ArtCard art={ART.beachSunset} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" border="rgba(16,185,129,0.08)">
+                  <ArtCard art={ART.beachSunset} opacity={1} overlay="none" border="rgba(16,185,129,0.08)">
                     <div className="p-4">
                       <BondingCurveChart spotPrice={spotNum} delta={deltaNum} numSteps={10} height={220} />
-                      <div className="flex justify-between text-[10px] text-white/25 mt-2 px-1 font-mono">
+                      <div className="flex justify-between text-[10px] text-white mt-2 px-1 font-mono">
                         <span>1st buy: {spotNum.toFixed(4)} ETH</span>
                         <span>10th buy: {(spotNum + deltaNum * 9).toFixed(4)} ETH</span>
                       </div>
@@ -1532,7 +1584,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
 
                 <div className="flex gap-3">
                   <button
-                    className="flex-1 py-3.5 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:border-white/[0.15] text-white/60 hover:text-white transition-all text-sm font-medium"
+                    className="flex-1 py-3.5 rounded-xl bg-black/60 border border-white/25 hover:border-white/[0.15] text-white hover:text-white transition-all text-sm font-medium"
                     onClick={() => setStep(1)}
                   >
                     Back
@@ -1554,7 +1606,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
           >
-            <ArtCard art={ART.mumuBull} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl">
+            <ArtCard art={ART.mumuBull} opacity={1} overlay="none" className="rounded-2xl">
               <div className="p-6">
                 <h3 className="text-lg font-semibold text-white mb-6">Add Initial Liquidity</h3>
 
@@ -1573,7 +1625,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                   <div>
                     <label className={`${labelClass} mb-2 block`}>
                       Initial NFT Token IDs{' '}
-                      <span className="normal-case tracking-normal text-white/20">(comma-separated)</span>
+                      <span className="normal-case tracking-normal text-white">(comma-separated)</span>
                     </label>
                     <input
                       type="text"
@@ -1582,7 +1634,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                       placeholder="1, 42, 100"
                       className={inputClass}
                     />
-                    <p className="text-[10px] text-white/25 mt-1">Approve NFTs for the factory contract first</p>
+                    <p className="text-[10px] text-white mt-1">Approve NFTs for the factory contract first</p>
                   </div>
 
                   {poolType === 2 && (
@@ -1595,7 +1647,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                         placeholder="200"
                         className={inputClass}
                       />
-                      <p className="text-[10px] text-white/25 mt-1">
+                      <p className="text-[10px] text-white mt-1">
                         {(Number(feeBps) / 100).toFixed(2)}% fee on each trade (TRADE pools only)
                       </p>
                     </div>
@@ -1603,9 +1655,9 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                 </div>
 
                 {/* Summary Card */}
-                <ArtCard art={ART.busCrew} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" border="rgba(16,185,129,0.10)">
+                <ArtCard art={ART.busCrew} opacity={1} overlay="none" border="rgba(16,185,129,0.10)">
                   <div className="p-5">
-                    <h4 className={`${labelClass} text-emerald-400/60 mb-4`}>Pool Summary</h4>
+                    <h4 className={`${labelClass} text-white/60 mb-4`}>Pool Summary</h4>
                     <div className="space-y-2.5">
                       <SummaryRow label="Collection" value={shortenAddress(collection)} />
                       <SummaryRow label="Pool Type" value={POOL_TYPE_LABELS[poolType]} />
@@ -1617,7 +1669,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                         label="Initial NFTs"
                         value={parsedNftIds.length > 0 ? `${parsedNftIds.length} token${parsedNftIds.length !== 1 ? 's' : ''}` : 'None'}
                       />
-                      <div className="border-t border-white/[0.04] pt-2.5 mt-2.5">
+                      <div className="border-t border-white/20 pt-2.5 mt-2.5">
                         <SummaryRow label="Est. 1st Buy" value={`${spotNum.toFixed(4)} ETH`} highlight />
                         <SummaryRow label="Est. 1st Sell" value={`${Math.max(0, spotNum - deltaNum).toFixed(4)} ETH`} highlight />
                       </div>
@@ -1627,7 +1679,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
 
                 <div className="flex gap-3 mt-6">
                   <button
-                    className="flex-1 py-3.5 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:border-white/[0.15] text-white/60 hover:text-white transition-all text-sm font-medium"
+                    className="flex-1 py-3.5 rounded-xl bg-black/60 border border-white/25 hover:border-white/[0.15] text-white hover:text-white transition-all text-sm font-medium"
                     onClick={() => setStep(2)}
                   >
                     Back
@@ -1656,8 +1708,8 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
 function SummaryRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div className="flex justify-between text-sm">
-      <span className="text-white/40">{label}</span>
-      <span className={`font-mono tabular-nums ${highlight ? 'text-emerald-400 font-medium' : 'text-white/80'}`}>
+      <span className="text-white">{label}</span>
+      <span className={`font-mono tabular-nums ${highlight ? 'text-emerald-400 font-medium' : 'text-white'}`}>
         {value}
       </span>
     </div>
@@ -1670,7 +1722,10 @@ function useTrackedPools() {
   const [pools, setPools] = useState<string[]>(() => {
     try {
       const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-      return stored ? JSON.parse(stored) : [];
+      if (!stored) return [];
+      const parsed = JSON.parse(stored);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((item: unknown) => typeof item === 'string' && isValidAddress(item));
     } catch {
       return [];
     }
@@ -1712,15 +1767,15 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
 
   if (!address) {
     return (
-      <ArtCard art={ART.wrestler} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl max-w-md mx-auto">
+      <ArtCard art={ART.wrestler} opacity={1} overlay="none" className="rounded-2xl max-w-md mx-auto">
         <div className="p-10 text-center">
-          <div className="w-14 h-14 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mx-auto mb-5">
-            <svg className="w-6 h-6 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+          <div className="w-14 h-14 rounded-2xl bg-black/60 border border-white/20 flex items-center justify-center mx-auto mb-5">
+            <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3" />
             </svg>
           </div>
           <h3 className="text-lg font-semibold text-white mb-2">Connect Your Wallet</h3>
-          <p className="text-sm text-white/40">Connect your wallet to view and manage your liquidity pools.</p>
+          <p className="text-sm text-white">Connect your wallet to view and manage your liquidity pools.</p>
         </div>
       </ArtCard>
     );
@@ -1729,13 +1784,13 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
   return (
     <div className="space-y-6">
       {/* Earnings Summary */}
-      <ArtCard art={ART.wrestler} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl">
+      <ArtCard art={ART.wrestler} opacity={1} overlay="none" className="rounded-2xl">
         <div className="p-5">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <p className={labelClass}>Your Pool Earnings</p>
               <p className="text-2xl font-mono tabular-nums text-white font-semibold mt-1">{'\u2014'}</p>
-              <p className="text-[10px] text-white/25 mt-0.5">Cumulative LP fees (available after launch)</p>
+              <p className="text-[10px] text-white mt-0.5">Cumulative LP fees (available after launch)</p>
             </div>
             <div className="text-left sm:text-right">
               <p className={labelClass}>Tracked Pools</p>
@@ -1746,10 +1801,10 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
       </ArtCard>
 
       {/* Add Pool Input */}
-      <ArtCard art={ART.busCrew} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" className="rounded-2xl">
+      <ArtCard art={ART.busCrew} opacity={1} overlay="none" className="rounded-2xl">
         <div className="p-5">
           <h4 className="text-sm font-semibold text-white mb-3">Track a Pool</h4>
-          <p className="text-xs text-white/30 mb-4">
+          <p className="text-xs text-white mb-4">
             Enter a pool address to track it. Pool ownership is verified on-chain.
           </p>
           <div className="flex gap-3">
@@ -1764,7 +1819,7 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
             <button
               onClick={handleAddPool}
               disabled={!isValidAddress(newPoolAddr)}
-              className="px-5 py-3 rounded-xl bg-emerald-600/80 hover:bg-emerald-600 transition-colors text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+              className="px-5 py-3 rounded-xl bg-emerald-600/80 hover:bg-emerald-600 transition-colors text-white text-sm font-medium disabled:opacity-70 disabled:cursor-not-allowed flex-shrink-0"
             >
               Track
             </button>
@@ -1774,15 +1829,15 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
 
       {/* Pool List */}
       {trackedPools.length === 0 ? (
-        <ArtCard art={ART.wrestler} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" border="rgba(255,255,255,0.04)" className="rounded-2xl">
+        <ArtCard art={ART.wrestler} opacity={1} overlay="none" border="rgba(255,255,255,0.04)" className="rounded-2xl">
           <div className="py-12 px-6 text-center">
-            <div className="w-12 h-12 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mx-auto mb-4">
-              <svg className="w-5 h-5 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+            <div className="w-12 h-12 rounded-xl bg-black/60 border border-white/20 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
             </div>
-            <p className="text-sm text-white/40 mb-1">No pools tracked yet</p>
-            <p className="text-xs text-white/25">Track your first pool by entering its address above</p>
+            <p className="text-sm text-white mb-1">No pools tracked yet</p>
+            <p className="text-xs text-white">Track your first pool by entering its address above</p>
           </div>
         </ArtCard>
       ) : (
@@ -1795,7 +1850,7 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
                   removePool(addr);
                   toast.success('Pool removed from tracking');
                 }}
-                className="absolute top-3 right-3 z-20 w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.08] hover:border-red-400/30 hover:bg-red-400/10 text-white/30 hover:text-red-400 transition-all flex items-center justify-center"
+                className="absolute top-3 right-3 z-20 w-7 h-7 rounded-lg bg-black/60 border border-white/25 hover:border-red-400/30 hover:bg-red-400/10 text-white hover:text-red-400 transition-all flex items-center justify-center"
                 title="Remove from tracking"
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -1822,32 +1877,32 @@ function ComingSoon() {
 
   return (
     <div className="max-w-xl mx-auto">
-      <ArtCard art={ART.poolParty} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" border="rgba(16,185,129,0.10)" className="rounded-2xl">
+      <ArtCard art={ART.poolParty} opacity={1} overlay="none" border="rgba(16,185,129,0.10)" className="rounded-2xl">
         <div className="p-8 sm:p-10">
           {/* Glow */}
           <div className="absolute -top-20 -right-20 w-60 h-60 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
           <div className="absolute -bottom-16 -left-16 w-48 h-48 bg-purple-500/5 rounded-full blur-3xl pointer-events-none" />
 
           <div className="relative z-10">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold mb-6">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-semibold mb-6">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               Coming Soon
             </div>
 
             <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3">NFT AMM</h2>
-            <p className="text-sm text-white/50 leading-relaxed mb-8 max-w-md">
+            <p className="text-sm text-white leading-relaxed mb-8 max-w-md">
               Create bonding-curve liquidity pools for any NFT collection.
               Automated market making with linear pricing, instant swaps, and protocol-level fee routing.
             </p>
 
             {/* Blurred Preview */}
-            <ArtCard art={ART.beachSunset} opacity={1} overlay="linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)" border="rgba(255,255,255,0.04)" className="rounded-xl mb-8">
+            <ArtCard art={ART.beachSunset} opacity={1} overlay="none" border="rgba(255,255,255,0.04)" className="rounded-xl mb-8">
               <div className="p-5 relative">
                 <div className="blur-[2px] opacity-60 pointer-events-none select-none">
                   <BondingCurveChart spotPrice={0.1} delta={0.005} numSteps={10} height={160} />
                 </div>
                 <div className="absolute inset-0 flex items-center justify-center bg-[rgba(6,12,26,0.3)]">
-                  <span className="text-sm font-medium text-white/60 bg-[rgba(13,21,48,0.8)] px-4 py-2 rounded-lg border border-white/[0.08]">
+                  <span className="text-sm font-medium text-white bg-[rgba(13,21,48,0.8)] px-4 py-2 rounded-lg border border-white/25">
                     Interactive bonding curve visualization
                   </span>
                 </div>
@@ -1858,14 +1913,14 @@ function ComingSoon() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {features.map((f) => (
                 <div key={f.title} className="flex gap-3 items-start">
-                  <div className="w-5 h-5 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <svg className="w-3 h-3 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <div className="w-5 h-5 rounded-md bg-emerald-500/30 border border-emerald-500/40 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <svg className="w-3 h-3 text-emerald-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-white/80">{f.title}</p>
-                    <p className="text-[11px] text-white/30 leading-relaxed mt-0.5">{f.desc}</p>
+                    <p className="text-sm font-medium text-white">{f.title}</p>
+                    <p className="text-[11px] text-white leading-relaxed mt-0.5">{f.desc}</p>
                   </div>
                 </div>
               ))}
@@ -1887,7 +1942,7 @@ export function AMMSection() {
     address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
     abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
     functionName: 'getPoolCount',
-    query: { enabled: deployed },
+    query: { enabled: deployed, refetchInterval: 15000 },
   });
 
   return (

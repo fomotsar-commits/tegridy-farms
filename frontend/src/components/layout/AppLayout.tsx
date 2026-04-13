@@ -16,10 +16,11 @@ import { TransactionReceiptProvider } from '../TransactionReceipt';
 import { ParticleBackground } from '../ParticleBackground';
 import { LiveActivity } from '../LiveActivity';
 import { GlitchTransition, type GlitchConfig } from '../GlitchTransition';
+import { ErrorBoundary } from '../ui/ErrorBoundary';
 
 const NAV_ORDER = [
-  '/', '/dashboard', '/farm', '/swap', '/gallery', '/tokenomics', '/lore',
-  '/leaderboard', '/grants', '/bounties', '/restake', '/liquidity', '/premium', '/history',
+  '/', '/dashboard', '/farm', '/swap', '/lending', '/gallery', '/tokenomics',
+  '/lore', '/leaderboard', '/community', '/premium', '/history', '/admin',
 ];
 
 function getGlitchConfig(from: string, to: string): GlitchConfig {
@@ -57,12 +58,14 @@ function RouteGlitch() {
 }
 
 function useIsMobile() {
-  const [mobile, setMobile] = useState(false);
+  const [mobile, setMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 767px)').matches : false
+  );
   useEffect(() => {
-    const check = () => setMobile(window.innerWidth < 768);
-    check();
-    window.addEventListener('resize', check);
-    return () => window.removeEventListener('resize', check);
+    const mql = window.matchMedia('(max-width: 767px)');
+    const onChange = (e: MediaQueryListEvent) => setMobile(e.matches);
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
   }, []);
   return mobile;
 }
@@ -79,8 +82,8 @@ export function AppLayout() {
     <PriceProvider>
     <ConfettiProvider>
     <TransactionReceiptProvider>
-      <ParticleBackground />
       <Background />
+      <ParticleBackground />
       <TopNav />
       <RouteGlitch />
 
@@ -92,7 +95,7 @@ export function AppLayout() {
           {switchChain && (
             <button
               onClick={() => switchChain({ chainId: mainnet.id })}
-              className="ml-3 underline underline-offset-2 hover:text-white/80 transition-colors"
+              className="ml-3 underline underline-offset-2 hover:text-white transition-colors"
             >
               Switch now
             </button>
@@ -100,11 +103,6 @@ export function AppLayout() {
         </div>
       )}
 
-      {/* Migration Banner for v2 contract upgrade */}
-      <div className="bg-yellow-900/80 border-b border-yellow-600 text-yellow-100 text-center py-2 px-4 text-[12px] md:text-sm fixed top-14 left-0 right-0 z-40" style={{ paddingLeft: 'max(1rem, env(safe-area-inset-left))', paddingRight: 'max(1rem, env(safe-area-inset-right))' }}>
-        <strong>Security Upgrade:</strong> Contracts have been upgraded. If you had staked positions, please withdraw from the old contracts and re-stake.{' '}
-        <a href="https://etherscan.io/address/0x65D8b87917c59a0B33009493fB236bCccF1Ea421" target="_blank" rel="noopener noreferrer" className="underline text-yellow-300">New Staking Contract</a>
-      </div>
 
       {/* pb-20 for bottom nav height + safe-area-inset-bottom for notched devices */}
       <div className="min-h-screen relative z-10 pt-14 pb-20 md:pb-0 safe-area-content-bottom">
@@ -115,11 +113,13 @@ export function AppLayout() {
             animate={{ opacity: 1, y: 0 }}
             transition={{
               duration: isMobile ? 0.3 : 0.6,
-              delay: isMobile ? 0 : 0.7,
+              delay: isMobile ? 0 : 0.15,
               ease: [0.25, 0.1, 0.25, 1],
             }}
           >
-            <Outlet />
+            <ErrorBoundary resetKeys={[location.pathname]}>
+              <Outlet />
+            </ErrorBoundary>
           </motion.div>
         </main>
         <Footer />
@@ -135,7 +135,7 @@ export function AppLayout() {
           style: {
             background: 'var(--color-bg-elevated)',
             border: '1px solid var(--color-border)',
-            color: 'var(--color-text-primary)',
+            color: 'var(--color-text-white)',
             fontFamily: "'Inter', sans-serif",
           },
         }}

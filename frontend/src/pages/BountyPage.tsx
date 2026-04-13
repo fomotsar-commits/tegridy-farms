@@ -8,6 +8,7 @@ import { MEME_BOUNTY_BOARD_ADDRESS } from '../lib/constants';
 import { ART } from '../lib/artConfig';
 import { shortenAddress, formatTokenAmount } from '../lib/formatting';
 import { useTransactionReceipt } from '../hooks/useTransactionReceipt';
+import { useNetworkCheck } from '../hooks/useNetworkCheck';
 import { usePageTitle } from '../hooks/usePageTitle';
 
 const STATUS_LABELS = ['Open', 'Completed', 'Cancelled'];
@@ -18,6 +19,7 @@ const STATUS_COLORS = ['text-success', 'text-white', 'text-white'];
 /* ------------------------------------------------------------------ */
 function WithdrawBanner() {
   const { address } = useAccount();
+  const { isWrongNetwork } = useNetworkCheck();
   const { writeContract, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
@@ -42,7 +44,6 @@ function WithdrawBanner() {
   return (
     <motion.div className="relative overflow-hidden rounded-xl mb-5" style={{ border: '1px solid rgba(34,197,94,0.2)' }}
       initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-      <div className="absolute inset-0" style={{ background: 'none' }} />
       <div className="relative z-10 p-5 flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex-1">
           <p className="text-white text-[14px] font-semibold mb-1">Funds Available</p>
@@ -53,16 +54,16 @@ function WithdrawBanner() {
         </div>
         <div className="flex gap-2">
           {payout > 0n && (
-            <button disabled={isPending || isConfirming} onClick={() => writeContract({
+            <button disabled={isPending || isConfirming || isWrongNetwork} onClick={() => writeContract({
               address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'withdrawPayout',
-            })} className="btn-primary px-4 py-2 min-h-[44px] text-[13px] disabled:opacity-70">
+            }, { onError: (err) => toast.error(err.shortMessage ?? 'Withdraw payout failed') })} className="btn-primary px-4 py-2 min-h-[44px] text-[13px] disabled:opacity-70">
               {isPending || isConfirming ? 'Withdrawing...' : 'Withdraw Payout'}
             </button>
           )}
           {refund > 0n && (
-            <button disabled={isPending || isConfirming} onClick={() => writeContract({
+            <button disabled={isPending || isConfirming || isWrongNetwork} onClick={() => writeContract({
               address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'withdrawRefund',
-            })} className="btn-secondary px-4 py-2 min-h-[44px] text-[13px] disabled:opacity-70">
+            }, { onError: (err) => toast.error(err.shortMessage ?? 'Withdraw refund failed') })} className="btn-secondary px-4 py-2 min-h-[44px] text-[13px] disabled:opacity-70">
               {isPending || isConfirming ? 'Withdrawing...' : 'Withdraw Refund'}
             </button>
           )}
@@ -77,6 +78,7 @@ function WithdrawBanner() {
 /* ------------------------------------------------------------------ */
 function SubmissionRow({ bountyId, submissionId, onVoted }: { bountyId: number; submissionId: number; onVoted: () => void }) {
   const { address } = useAccount();
+  const { isWrongNetwork } = useNetworkCheck();
   const { data } = useReadContract({
     address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'getSubmission',
     args: [BigInt(bountyId), BigInt(submissionId)],
@@ -120,10 +122,10 @@ function SubmissionRow({ bountyId, submissionId, onVoted }: { bountyId: number; 
       {alreadyVoted ? (
         <span className="text-[10px] text-white flex-shrink-0">Voted</span>
       ) : (
-        <button disabled={isPending || isConfirming} onClick={() => writeContract({
+        <button disabled={isPending || isConfirming || isWrongNetwork} onClick={() => writeContract({
           address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'voteForSubmission',
           args: [BigInt(bountyId), BigInt(submissionId)],
-        })} className="btn-secondary px-3 py-1.5 min-h-[36px] text-[11px] flex-shrink-0 disabled:opacity-70">
+        }, { onError: (err) => toast.error(err.shortMessage ?? 'Vote failed') })} className="btn-secondary px-3 py-1.5 min-h-[36px] text-[11px] flex-shrink-0 disabled:opacity-70">
           {isPending || isConfirming ? '...' : 'Vote'}
         </button>
       )}
@@ -137,6 +139,7 @@ function SubmissionRow({ bountyId, submissionId, onVoted }: { bountyId: number; 
 export default function BountyPage({ embedded }: { embedded?: boolean }) {
   usePageTitle(embedded ? '' : 'Bounties');
   const { isConnected } = useAccount();
+  const { isWrongNetwork } = useNetworkCheck();
   const [description, setDescription] = useState('');
   const [reward, setReward] = useState('');
   const [days, setDays] = useState('7');
@@ -168,7 +171,7 @@ export default function BountyPage({ embedded }: { embedded?: boolean }) {
     writeContract({
       address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'createBounty',
       args: [description, deadline], value: parseEther(reward),
-    });
+    }, { onError: (err) => toast.error(err.shortMessage ?? 'Create bounty failed') });
   };
 
   useEffect(() => {
@@ -193,10 +196,7 @@ export default function BountyPage({ embedded }: { embedded?: boolean }) {
     <div className={embedded ? '' : '-mt-14 relative min-h-screen'}>
       {!embedded && (
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-          <img src={ART.wrestler.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 0%' }} />
-          <div className="absolute inset-0" style={{
-            background: 'none',
-          }} />
+          <img src={ART.wrestler.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 0%' }} />
         </div>
       )}
 
@@ -220,8 +220,7 @@ export default function BountyPage({ embedded }: { embedded?: boolean }) {
         <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
           initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div className="absolute inset-0">
-            <img src={ART.beachSunset.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%', opacity: 1 }} />
-            <div className="absolute inset-0" style={{ background: 'none' }} />
+            <img src={ART.beachSunset.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
           </div>
           <div className="relative z-10 p-6 py-8 flex flex-wrap items-center gap-6 md:gap-10">
             <div>
@@ -240,8 +239,7 @@ export default function BountyPage({ embedded }: { embedded?: boolean }) {
           <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={ART.mumuBull.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-              <div className="absolute inset-0" style={{ background: 'none' }} />
+              <img src={ART.mumuBull.src} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-5">
               <h3 className="text-white text-[15px] font-semibold mb-3">Post a Bounty</h3>
@@ -267,7 +265,7 @@ export default function BountyPage({ embedded }: { embedded?: boolean }) {
                       style={{ border: '1px solid rgba(255,255,255,0.20)' }} />
                   </div>
                 </div>
-                <button onClick={handleCreate} disabled={isPending || isConfirming || !description || !reward}
+                <button onClick={handleCreate} disabled={isPending || isConfirming || !description || !reward || isWrongNetwork}
                   className="btn-primary w-full py-3 min-h-[44px] text-[14px] disabled:opacity-70">
                   {isPending || isConfirming ? 'Posting...' : `Post Bounty (${reward || '0'} ETH)`}
                 </button>
@@ -280,8 +278,7 @@ export default function BountyPage({ embedded }: { embedded?: boolean }) {
         <motion.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div className="absolute inset-0">
-            <img src={ART.boxingRing.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%', opacity: 1 }} />
-            <div className="absolute inset-0" style={{ background: 'none' }} />
+            <img src={ART.boxingRing.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%' }} />
           </div>
           <div className="relative z-10">
           {isCountLoading ? (
@@ -314,6 +311,7 @@ export default function BountyPage({ embedded }: { embedded?: boolean }) {
 /* ------------------------------------------------------------------ */
 function BountyRow({ id, expanded, onToggle }: { id: number; expanded: boolean; onToggle: () => void }) {
   const { address } = useAccount();
+  const { isWrongNetwork } = useNetworkCheck();
   const [contentURI, setContentURI] = useState('');
 
   const { data, refetch: refetchBounty } = useReadContract({
@@ -352,7 +350,8 @@ function BountyRow({ id, expanded, onToggle }: { id: number; expanded: boolean; 
   return (
     <div style={{ borderBottom: '1px solid rgba(139,92,246,0.75)' }}>
       {/* Header row - clickable */}
-      <div className="px-5 py-4 cursor-pointer hover:bg-black/60 transition-colors" onClick={onToggle}>
+      <div className="px-5 py-4 cursor-pointer hover:bg-black/60 transition-colors" role="button" tabIndex={0}
+        onClick={onToggle} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}>
         <div className="flex items-start justify-between mb-1">
           <p className="text-white text-[13px] font-medium flex-1 mr-3">{description}</p>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -379,17 +378,17 @@ function BountyRow({ id, expanded, onToggle }: { id: number; expanded: boolean; 
           {isCreator && isOpen && (
             <div className="flex gap-2">
               {deadlinePassed && (
-                <button disabled={isPending || isConfirming} onClick={() => writeContract({
+                <button disabled={isPending || isConfirming || isWrongNetwork} onClick={() => writeContract({
                   address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'completeBounty',
                   args: [BigInt(id)],
-                })} className="btn-primary px-4 py-2 min-h-[44px] text-[12px] disabled:opacity-70">
+                }, { onError: (err) => toast.error(err.shortMessage ?? 'Complete bounty failed') })} className="btn-primary px-4 py-2 min-h-[44px] text-[12px] disabled:opacity-70">
                   {isPending || isConfirming ? 'Completing...' : 'Complete Bounty'}
                 </button>
               )}
-              <button disabled={isPending || isConfirming} onClick={() => writeContract({
+              <button disabled={isPending || isConfirming || isWrongNetwork} onClick={() => writeContract({
                 address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'cancelBounty',
                 args: [BigInt(id)],
-              })} className="btn-secondary px-4 py-2 min-h-[44px] text-[12px] disabled:opacity-70">
+              }, { onError: (err) => toast.error(err.shortMessage ?? 'Cancel bounty failed') })} className="btn-secondary px-4 py-2 min-h-[44px] text-[12px] disabled:opacity-70">
                 {isPending || isConfirming ? 'Cancelling...' : 'Cancel Bounty'}
               </button>
             </div>
@@ -402,10 +401,10 @@ function BountyRow({ id, expanded, onToggle }: { id: number; expanded: boolean; 
                 placeholder="Content URI (IPFS or URL)"
                 className="flex-1 bg-transparent text-[13px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg"
                 style={{ border: '1px solid rgba(255,255,255,0.20)' }} />
-              <button disabled={isPending || isConfirming || !contentURI.trim()} onClick={() => writeContract({
+              <button disabled={isPending || isConfirming || !contentURI.trim() || isWrongNetwork} onClick={() => writeContract({
                 address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'submitWork',
                 args: [BigInt(id), contentURI.trim()],
-              })} className="btn-primary px-4 py-2 min-h-[44px] text-[12px] flex-shrink-0 disabled:opacity-70">
+              }, { onError: (err) => toast.error(err.shortMessage ?? 'Submit work failed') })} className="btn-primary px-4 py-2 min-h-[44px] text-[12px] flex-shrink-0 disabled:opacity-70">
                 {isPending || isConfirming ? 'Submitting...' : 'Submit'}
               </button>
             </div>

@@ -5,7 +5,7 @@ import { formatPrice } from "../lib/formatPrice";
 import { Eth } from "./Icons";
 import Skeleton from "./Skeleton";
 import { useActiveCollection } from "../contexts/CollectionContext";
-import { useToweliPrice } from "../../hooks/useToweliPrice";
+import { useTOWELIPrice } from "../../contexts/PriceContext";
 
 // ── Helpers ────────────────────────────────────────────────────
 function pnlColor(value) {
@@ -121,7 +121,7 @@ function ValueChart({ snapshots }) {
 // ── Main Component ─────────────────────────────────────────────
 export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }) {
   const collection = useActiveCollection();
-  const { ethUsd } = useToweliPrice();
+  const { ethUsd } = useTOWELIPrice();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [pnlData, setPnlData] = useState(null);

@@ -53,59 +53,53 @@ export default function LorePage() {
     <div className="-mt-14 relative min-h-screen">
       {/* Fixed background covering entire page */}
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.mfersHeaven.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 32%' }} />
-        <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.85) 30%, rgba(0,0,0,0.92) 60%, rgba(0,0,0,0.96) 100%)',
-        }} />
+        <img src={ART.mfersHeaven.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 32%' }} />
       </div>
 
       {/* Hero */}
       <div className="relative z-10 h-[60vh] min-h-[400px] flex items-center justify-center">
         <motion.div className="text-center px-6" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-          <p className="text-primary/60 text-[12px] uppercase tracking-[0.2em] mb-3">The Origin Story</p>
+          <p className="text-white text-[12px] uppercase tracking-[0.2em] mb-3">The Origin Story</p>
           <h1 className="heading-luxury text-4xl md:text-6xl text-white tracking-tight mb-4">
-            From Rug to <span className="text-primary">Riches</span>
+            From Rug to Riches
           </h1>
-          <p className="text-white/50 text-base max-w-lg mx-auto">
+          <p className="text-white text-base max-w-lg mx-auto">
             How a community of degens rose from the ashes of a failed project to build something with real TEGRIDY.
           </p>
         </motion.div>
       </div>
 
       {/* Timeline */}
-      <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pb-16">
+      <ol className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pb-16 list-none m-0 p-0" style={{ paddingLeft: 0 }}>
         {TIMELINE.map((item, i) => (
-          <motion.div key={item.phase} className="mb-10"
+          <motion.li key={item.phase} className="mb-10"
             initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }} transition={{ delay: i * 0.05 }}>
-            <div className="relative rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+            <div className="relative rounded-2xl overflow-hidden glass-card-animated" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
               <div className="absolute inset-0">
-                <img src={item.art} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-                <div className="absolute inset-0" style={{
-                  background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)',
-                }} />
+                <img src={item.art} alt={`Phase ${item.phase}: ${item.title}`} loading="lazy" className="w-full h-full object-cover" />
               </div>
               <div className="relative z-10 p-5 md:p-10">
                 <div className="flex items-start gap-4 md:gap-8">
-                  <span className="stat-value text-[32px] md:text-[52px] text-primary/20 leading-none flex-shrink-0">{item.phase}</span>
+                  <span className="stat-value text-[32px] md:text-[52px] text-white/20 leading-none flex-shrink-0">{item.phase}</span>
                   <div>
                     <h3 className="heading-luxury text-xl md:text-2xl text-white mb-3">{item.title}</h3>
-                    <div className="gold-divider mb-4" />
-                    <p className="text-white/50 text-[14px] md:text-[15px] leading-relaxed max-w-xl">{item.description}</p>
+                    <div className="accent-divider mb-4" />
+                    <p className="text-white text-[14px] md:text-[15px] leading-relaxed max-w-xl">{item.description}</p>
                   </div>
                 </div>
               </div>
             </div>
-          </motion.div>
+          </motion.li>
         ))}
 
         {/* Call to action */}
         <motion.div className="text-center mt-12" initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }}>
-          <p className="text-primary/40 text-[13px] uppercase tracking-wider mb-2">DM+T = Memetic Finance</p>
-          <p className="text-white/30 text-[14px] mb-1">We came for the art. We stayed to FAFO.</p>
+          <p className="text-white text-[13px] uppercase tracking-wider label-pill mb-2">DM+T = Memetic Finance</p>
+          <p className="text-white text-[14px] mb-1">We came for the art. We stayed to FAFO.</p>
           <p className="heading-luxury text-2xl text-white">This is Jungle Bay.</p>
         </motion.div>
-      </div>
+      </ol>
     </div>
   );
 }

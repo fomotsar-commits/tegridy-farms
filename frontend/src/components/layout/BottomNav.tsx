@@ -44,6 +44,7 @@ const MORE_PATHS = MORE_PAGES.map(p => p.to);
 export const BottomNav = React.memo(function BottomNav() {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const moreBtnRef = useRef<HTMLButtonElement>(null);
   const location = useLocation();
   const isMoreActive = MORE_PATHS.some(p => location.pathname === p || location.pathname.startsWith(p + '/'));
 
@@ -54,7 +55,11 @@ export const BottomNav = React.memo(function BottomNav() {
   useEffect(() => {
     if (!open) return;
     function handleClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        menuRef.current && !menuRef.current.contains(target) &&
+        moreBtnRef.current && !moreBtnRef.current.contains(target)
+      ) {
         setOpen(false);
       }
     }
@@ -68,7 +73,7 @@ export const BottomNav = React.memo(function BottomNav() {
         background: 'rgba(6,12,26,0.95)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
-        borderTop: '1px solid rgba(139,92,246,0.15)',
+        borderTop: '1px solid rgba(139,92,246,0.75)',
       }}>
 
       {/* More menu popup */}
@@ -95,8 +100,8 @@ export const BottomNav = React.memo(function BottomNav() {
                     key={page.to}
                     to={page.to}
                     className={({ isActive }) =>
-                      `flex items-center justify-center py-2.5 px-2 rounded-lg text-[12px] font-medium transition-colors ${
-                        isActive ? 'text-primary bg-primary/10' : 'text-white/50 hover:text-white hover:bg-white/5'
+                      `flex items-center justify-center py-2.5 px-2 min-h-[44px] rounded-lg text-[12px] font-medium transition-colors ${
+                        isActive ? 'text-purple-400 bg-primary/10' : 'text-white/60 hover:text-white hover:bg-white/5'
                       }`
                     }
                   >
@@ -114,21 +119,22 @@ export const BottomNav = React.memo(function BottomNav() {
           <NavLink key={tab.to} to={tab.to} aria-label={tab.label}
             className={({ isActive }) =>
               `flex flex-col items-center justify-center gap-0.5 min-w-[52px] min-h-[48px] px-2 py-2 transition-colors ${
-                isActive ? (tab.gold ? 'text-[#d4a017]' : 'text-primary') : (tab.gold ? 'text-[#d4a017]/50' : 'text-white/40')
+                isActive ? 'text-purple-400' : 'text-white/60'
               }`
             }>
             {tab.icon}
-            <span className={`text-[10px] font-medium ${tab.gold ? '' : ''}`}>{tab.label}</span>
+            <span className="text-[10px] font-medium">{tab.label}</span>
           </NavLink>
         ))}
 
         {/* More button */}
         <button
+          ref={moreBtnRef}
           onClick={() => setOpen(!open)}
           aria-label="More pages"
           aria-expanded={open}
           className={`flex flex-col items-center justify-center gap-0.5 min-w-[52px] min-h-[48px] px-2 py-2 transition-colors cursor-pointer ${
-            isMoreActive || open ? 'text-primary' : 'text-white/40'
+            isMoreActive || open ? 'text-purple-400' : 'text-white/60'
           }`}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">

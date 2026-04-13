@@ -174,7 +174,7 @@ export function useLimitOrders() {
       if (address) saveOrders(address, updated);
       return updated;
     });
-    toast.success('Limit order filled!');
+    toast.success('Limit order confirmed on-chain!');
   }, [address]);
 
   const revertOrderStatus = useCallback((orderId: string) => {
@@ -185,6 +185,23 @@ export function useLimitOrders() {
       return updated;
     });
   }, [address]);
+
+  const waitForReceipt = useCallback(async (hash: `0x${string}`, orderId: string) => {
+    if (!publicClient) return;
+    try {
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      if (receipt.status === 'success') {
+        markFilled(orderId);
+      } else {
+        revertOrderStatus(orderId);
+        toast.error('Limit order transaction reverted on-chain.');
+      }
+    } catch (err) {
+      revertOrderStatus(orderId);
+      toast.error('Limit order failed: could not confirm transaction.');
+      console.error('Limit order waitForTransactionReceipt error:', err);
+    }
+  }, [publicClient, markFilled, revertOrderStatus]);
 
   const executeOrder = useCallback(async (order: LimitOrder) => {
     if (!address || !writeContract || !publicClient) return;
@@ -249,6 +266,16 @@ export function useLimitOrders() {
       }
     }
 
+    const onTxSubmitted = (hash: `0x${string}`) => {
+      toast.info('Limit order submitted, waiting for on-chain confirmation...');
+      waitForReceipt(hash, order.id);
+    };
+    const onTxError = (err: Error) => {
+      revertOrderStatus(order.id);
+      const msg = (err as Error & { shortMessage?: string }).shortMessage || err.message || 'Transaction rejected';
+      toast.error(`Limit order failed: ${msg}`);
+    };
+
     try {
       if (isFromNative) {
         writeContract({
@@ -258,8 +285,8 @@ export function useLimitOrders() {
           args: [minOut, path, address, deadlineTs, MAX_FEE_BPS],
           value: parsedAmount,
         }, {
-          onSuccess: () => markFilled(order.id),
-          onError: () => revertOrderStatus(order.id),
+          onSuccess: onTxSubmitted,
+          onError: onTxError,
         });
       } else if (order.toToken.isNative) {
         writeContract({
@@ -268,8 +295,8 @@ export function useLimitOrders() {
           functionName: 'swapExactTokensForETH',
           args: [parsedAmount, minOut, path, address, deadlineTs, MAX_FEE_BPS],
         }, {
-          onSuccess: () => markFilled(order.id),
-          onError: () => revertOrderStatus(order.id),
+          onSuccess: onTxSubmitted,
+          onError: onTxError,
         });
       } else {
         writeContract({
@@ -278,14 +305,14 @@ export function useLimitOrders() {
           functionName: 'swapExactTokensForTokens',
           args: [parsedAmount, minOut, path, address, deadlineTs, MAX_FEE_BPS],
         }, {
-          onSuccess: () => markFilled(order.id),
-          onError: () => revertOrderStatus(order.id),
+          onSuccess: onTxSubmitted,
+          onError: onTxError,
         });
       }
     } catch {
       revertOrderStatus(order.id);
     }
-  }, [address, writeContract, publicClient, markFilled, revertOrderStatus]);
+  }, [address, writeContract, publicClient, markFilled, revertOrderStatus, waitForReceipt]);
 
   // Price polling: check active orders against on-chain price
   useEffect(() => {
@@ -342,7 +369,9 @@ export function useLimitOrders() {
             if (targetPriceNum > 0 && currentPrice >= targetPriceNum) {
               executeOrder(order);
             }
-          } catch {}
+          } catch (err) {
+            console.error(`Limit order price poll failed for ${order.fromToken.symbol} → ${order.toToken.symbol}:`, err);
+          }
         }
       } finally {
         isChecking = false;

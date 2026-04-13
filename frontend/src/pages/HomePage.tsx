@@ -5,14 +5,16 @@ import { ART, GALLERY_ORDER } from '../lib/artConfig';
 import { useFarmStats } from '../hooks/useFarmStats';
 import { Sparkline } from '../components/Sparkline';
 import { PulseDot } from '../components/PulseDot';
-import { useToweliPrice } from '../hooks/useToweliPrice';
+import { useTOWELIPrice } from '../contexts/PriceContext';
 import { usePriceHistory } from '../hooks/usePriceHistory';
 import { formatCurrency } from '../lib/formatting';
 import { FlashValue } from '../components/FlashValue';
+import { usePageTitle } from '../hooks/usePageTitle';
 
 export default function HomePage() {
+  usePageTitle('Home');
   const stats = useFarmStats();
-  const price = useToweliPrice();
+  const price = useTOWELIPrice();
   const priceHistory = usePriceHistory(price.priceInUsd);
   const { history: priceData, error: priceError } = priceHistory;
 
@@ -23,9 +25,6 @@ export default function HomePage() {
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <img src={ART.galleryCollage.src} alt="" className="w-full h-full object-cover object-center" />
-        <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.3) 25%, rgba(0,0,0,0.5) 50%, rgba(0,0,0,0.7) 75%, rgba(0,0,0,0.85) 100%)',
-        }} />
       </div>
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6">
@@ -34,14 +33,14 @@ export default function HomePage() {
             <div className="badge badge-primary mb-5 text-[10px]">LIVE ON ETHEREUM</div>
 
             <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
-              Yield with<br /><span className="text-primary">Tegridy Farms</span>
+              Yield with<br /><span className="text-white">Tegridy Farms</span>
             </h1>
 
-            <p className="text-white/60 text-base md:text-lg mb-3 max-w-md leading-relaxed">
+            <p className="text-white text-base md:text-lg mb-3 max-w-md leading-relaxed">
               Stake TOWELI & LP tokens to earn rewards. 100% of protocol revenue goes to stakers.
             </p>
-            <p className="text-primary/40 text-[12px] font-mono mb-1">DM+T = Memetic Finance</p>
-            <p className="text-white/25 text-[11px] mb-6">Dank Memes + Time = Real Value. The Jungle Bay formula.</p>
+            <p className="text-white text-[12px] font-mono mb-1">DM+T = Memetic Finance</p>
+            <p className="text-white text-[11px] mb-6">Dank Memes + Time = Real Value. The Jungle Bay formula.</p>
 
             <div className="flex flex-wrap gap-3">
               <ConnectButton.Custom>
@@ -77,19 +76,19 @@ export default function HomePage() {
               { l: 'Rewards Paid', v: stats.rewardsDistributed },
             ].map((s) => (
               <div key={s.l} className="glass-card flex items-center gap-3 px-4 py-2.5">
-                <span className="text-white/40 text-[12px] flex items-center gap-1.5">{s.l}{s.showSparkline && <PulseDot size={5} />}</span>
+                <span className="text-white text-[12px] flex items-center gap-1.5">{s.l}{s.showSparkline && <PulseDot size={5} />}</span>
                 {s.showSparkline ? (
                   <FlashValue value={price.priceInUsd}>
-                    <span className="stat-value text-white text-[13px]">{(!s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-white/10 shimmer" /> : s.v}</span>
+                    <span className="stat-value text-white text-[13px]">{(!s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-black/60 shimmer" /> : s.v}</span>
                   </FlashValue>
                 ) : (
-                  <span className="stat-value text-white text-[13px]">{(!s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-white/10 shimmer" /> : s.v}</span>
+                  <span className="stat-value text-white text-[13px]">{(!s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-black/60 shimmer" /> : s.v}</span>
                 )}
                 {s.showSparkline && priceData.length > 1 && (
                   <Sparkline data={priceData} width={48} height={16} />
                 )}
                 {s.showSparkline && priceError && priceData.length === 0 && (
-                  <span className="text-white/30 text-[10px]">Price data unavailable</span>
+                  <span className="text-white text-[10px]">Price data unavailable</span>
                 )}
               </div>
             ))}
@@ -100,7 +99,7 @@ export default function HomePage() {
         <div className="pb-16">
           <motion.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1">Protocol Overview</h2>
-            <p className="text-white/40 text-[13px]">Farm, swap, and track your positions.</p>
+            <p className="text-white text-[13px]">Farm, swap, and track your positions.</p>
           </motion.div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -111,19 +110,16 @@ export default function HomePage() {
             ].map((f, i) => (
               <motion.div key={f.title} initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }}
                 viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
-                <Link to={f.to} className="block group relative rounded-xl overflow-hidden glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+                <Link to={f.to} className="block group relative rounded-xl overflow-hidden glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
                   <div className="absolute inset-0">
                     <img src={f.art} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
-                    <div className="absolute inset-0" style={{
-                      background: 'linear-gradient(to bottom, rgba(6,12,26,0.40) 0%, rgba(6,12,26,0.75) 50%, rgba(6,12,26,0.92) 100%)',
-                    }} />
                   </div>
                   <div className="relative z-10 p-6 min-h-[220px] flex flex-col">
-                    <h3 className="heading-luxury text-[17px] text-white mb-2 group-hover:text-primary transition-colors">{f.title}</h3>
-                    <p className="text-white/50 text-[13px] leading-relaxed mb-auto">{f.desc}</p>
-                    <div className="pt-4 flex items-center justify-between mt-4" style={{ borderTop: '1px solid rgba(139,92,246,0.10)' }}>
-                      <span className="stat-value text-primary text-[16px]">{f.stat}</span>
-                      <span className="text-white/30 text-[11px] uppercase tracking-wider">{f.label}</span>
+                    <h3 className="heading-luxury text-[17px] text-white mb-2 group-hover:text-white transition-colors">{f.title}</h3>
+                    <p className="text-white text-[13px] leading-relaxed mb-auto">{f.desc}</p>
+                    <div className="pt-4 flex items-center justify-between mt-4" style={{ borderTop: '1px solid rgba(139,92,246,0.75)' }}>
+                      <span className="stat-value text-white text-[16px]">{f.stat}</span>
+                      <span className="text-white text-[11px] uppercase tracking-wider label-pill">{f.label}</span>
                     </div>
                   </div>
                 </Link>
@@ -137,9 +133,9 @@ export default function HomePage() {
           <div className="flex items-end justify-between mb-6">
             <div>
               <h2 className="heading-luxury text-xl text-white tracking-tight">The Collection</h2>
-              <p className="text-white/40 text-[12px] mt-0.5">{GALLERY_ORDER.length} original pieces</p>
+              <p className="text-white text-[12px] mt-0.5">{GALLERY_ORDER.length} original pieces</p>
             </div>
-            <Link to="/gallery" className="text-primary text-[13px] font-medium hover:opacity-80 transition-opacity">
+            <Link to="/gallery" className="text-white text-[13px] font-medium hover:opacity-80 transition-opacity">
               View all →
             </Link>
           </div>
@@ -149,13 +145,13 @@ export default function HomePage() {
               <motion.div key={piece.src} initial={{ opacity: 0, y: 25, scale: 0.85 }} whileInView={{ opacity: 1, y: 0, scale: 1 }}
                 viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
                 <Link to="/gallery" className="block group">
-                  <div className="rounded-xl aspect-square relative overflow-hidden card-hover" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+                  <div className="rounded-xl aspect-square relative overflow-hidden glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
                     <img src={piece.src} alt={piece.title}
                       className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/35 transition-all flex items-end">
                       <div className="w-full p-3 opacity-0 group-hover:opacity-100 transition-opacity"
                         style={{ background: 'linear-gradient(to top, rgba(6,12,26,0.8) 0%, transparent 100%)' }}>
-                        <span className="text-[12px] text-white/90 font-medium">{piece.title}</span>
+                        <span className="text-[12px] text-white font-medium">{piece.title}</span>
                       </div>
                     </div>
                   </div>
@@ -168,43 +164,40 @@ export default function HomePage() {
         {/* Ecosystem */}
         <div className="pb-16">
           <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Ecosystem</h2>
-          <p className="text-white/40 text-[12px] mb-5">The Jungle Bay universe</p>
+          <p className="text-white text-[12px] mb-5">The Jungle Bay universe</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <motion.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0, type: 'spring', damping: 20, stiffness: 100 }}>
             <a href="https://opensea.io/collection/junglebay" target="_blank" rel="noopener noreferrer"
-              className="relative overflow-hidden rounded-xl group block" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+              className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
               <div className="absolute inset-0">
                 <img src={ART.apeHug.src} alt="" className="w-full h-full object-cover" loading="lazy" />
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
               </div>
               <div className="relative z-10 p-5">
-                <p className="text-white text-[14px] font-semibold group-hover:text-primary transition-colors mb-1">JBAC NFTs</p>
-                <p className="text-white/35 text-[12px]">5,555 customizable apes. The genesis collection that started it all.</p>
+                <p className="text-white text-[14px] font-semibold group-hover:text-white transition-colors mb-1">JBAC NFTs</p>
+                <p className="text-white text-[12px]">5,555 customizable apes. The genesis collection that started it all.</p>
               </div>
             </a>
             </motion.div>
             <motion.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
             <a href="https://app.uniswap.org/swap?chain=base" target="_blank" rel="noopener noreferrer"
-              className="relative overflow-hidden rounded-xl group block" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+              className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
               <div className="absolute inset-0">
                 <img src={ART.beachSunset.src} alt="" className="w-full h-full object-cover" loading="lazy" />
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
               </div>
               <div className="relative z-10 p-5">
-                <p className="text-white text-[14px] font-semibold group-hover:text-primary transition-colors mb-1">$JBM on Base</p>
-                <p className="text-white/35 text-[12px]">The accidental community token. Born from a bot glitch, adopted by the degens.</p>
+                <p className="text-white text-[14px] font-semibold group-hover:text-white transition-colors mb-1">$JBM on Base</p>
+                <p className="text-white text-[12px]">The accidental community token. Born from a bot glitch, adopted by the degens.</p>
               </div>
             </a>
             </motion.div>
             <motion.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.3, type: 'spring', damping: 20, stiffness: 100 }}>
-            <Link to="/lore" className="relative overflow-hidden rounded-xl group block" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+            <Link to="/lore" className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
               <div className="absolute inset-0">
                 <img src={ART.jungleDark.src} alt="" className="w-full h-full object-cover" loading="lazy" />
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.72) 50%, rgba(6,12,26,0.88) 100%)' }} />
               </div>
               <div className="relative z-10 p-5">
-                <p className="text-white text-[14px] font-semibold group-hover:text-primary transition-colors mb-1">The Story</p>
-                <p className="text-white/35 text-[12px]">From rug to riches. How we became the blueprint for community-built DeFi.</p>
+                <p className="text-white text-[14px] font-semibold group-hover:text-white transition-colors mb-1">The Story</p>
+                <p className="text-white text-[12px]">From rug to riches. How we became the blueprint for community-built DeFi.</p>
               </div>
             </Link>
             </motion.div>

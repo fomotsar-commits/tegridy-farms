@@ -201,8 +201,25 @@ export function useDCA() {
       if (address) saveSchedules(address, updated);
       return updated;
     });
-    toast.success('DCA swap submitted!');
+    toast.success('DCA swap confirmed on-chain!');
   }, [address]);
+
+  const waitForReceipt = useCallback(async (hash: `0x${string}`, scheduleId: string) => {
+    if (!publicClient) return;
+    try {
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      if (receipt.status === 'success') {
+        markComplete(scheduleId);
+      } else {
+        executingRef.current.delete(scheduleId);
+        toast.error('DCA swap transaction reverted on-chain.');
+      }
+    } catch (err) {
+      executingRef.current.delete(scheduleId);
+      toast.error('DCA swap failed: could not confirm transaction.');
+      console.error('DCA waitForTransactionReceipt error:', err);
+    }
+  }, [publicClient, markComplete]);
 
   const executeDCASwap = useCallback(async (schedule: DCASchedule) => {
     if (!address || !writeContract || !publicClient) return;
@@ -264,6 +281,16 @@ export function useDCA() {
       }
     }
 
+    const onTxSubmitted = (hash: `0x${string}`) => {
+      toast.info('DCA swap submitted, waiting for on-chain confirmation...');
+      waitForReceipt(hash, schedule.id);
+    };
+    const onTxError = (err: Error) => {
+      executingRef.current.delete(schedule.id);
+      const msg = (err as Error & { shortMessage?: string }).shortMessage || err.message || 'Transaction rejected';
+      toast.error(`DCA swap failed: ${msg}`);
+    };
+
     try {
       if (isFromNative) {
         writeContract({
@@ -273,8 +300,8 @@ export function useDCA() {
           args: [minOut, path, address, deadlineTs, MAX_FEE_BPS],
           value: parsedAmount,
         }, {
-          onSuccess: () => markComplete(schedule.id),
-          onError: () => { executingRef.current.delete(schedule.id); },
+          onSuccess: onTxSubmitted,
+          onError: onTxError,
         });
       } else if (schedule.toToken.isNative) {
         writeContract({
@@ -283,8 +310,8 @@ export function useDCA() {
           functionName: 'swapExactTokensForETH',
           args: [parsedAmount, minOut, path, address, deadlineTs, MAX_FEE_BPS],
         }, {
-          onSuccess: () => markComplete(schedule.id),
-          onError: () => { executingRef.current.delete(schedule.id); },
+          onSuccess: onTxSubmitted,
+          onError: onTxError,
         });
       } else {
         writeContract({
@@ -293,14 +320,14 @@ export function useDCA() {
           functionName: 'swapExactTokensForTokens',
           args: [parsedAmount, minOut, path, address, deadlineTs, MAX_FEE_BPS],
         }, {
-          onSuccess: () => markComplete(schedule.id),
-          onError: () => { executingRef.current.delete(schedule.id); },
+          onSuccess: onTxSubmitted,
+          onError: onTxError,
         });
       }
     } catch {
       executingRef.current.delete(schedule.id);
     }
-  }, [address, writeContract, publicClient, markComplete]);
+  }, [address, writeContract, publicClient, markComplete, waitForReceipt]);
 
   // Polling: check for due schedules and auto-execute
   useEffect(() => {

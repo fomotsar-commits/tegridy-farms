@@ -16,7 +16,7 @@ export function useLPFarming() {
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash });
 
   // Batch read: global stats + user data
-  const { data, refetch } = useReadContracts({
+  const { data, refetch, isLoading: isReadLoading } = useReadContracts({
     contracts: [
       { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'totalSupply' },
       { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'rewardRate' },
@@ -62,15 +62,22 @@ export function useLPFarming() {
         action: { label: 'Etherscan', onClick: () => window.open(`https://etherscan.io/tx/${hash}`, '_blank') },
       });
       refetch();
+      setTimeout(() => reset(), 4000);
     }
   }, [isSuccess, hash, refetch]);
 
   useEffect(() => {
-    if (isTxError && hash) toast.error('Transaction failed', { id: `err-${hash}` });
+    if (isTxError && hash) {
+      toast.error('Transaction failed', { id: `err-${hash}` });
+      setTimeout(() => reset(), 4000);
+    }
   }, [isTxError, hash]);
 
   useEffect(() => {
-    if (writeError) toast.error(writeError.message?.slice(0, 120) ?? 'Unknown error', { id: 'write-error' });
+    if (writeError) {
+      toast.error(writeError.message?.slice(0, 120) ?? 'Unknown error', { id: 'write-error' });
+      setTimeout(() => reset(), 4000);
+    }
   }, [writeError]);
 
   // Actions
@@ -155,6 +162,7 @@ export function useLPFarming() {
     emergencyWithdraw,
     // State
     isDeployed,
+    isReadLoading,
     isPending,
     isConfirming,
     isSuccess,

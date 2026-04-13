@@ -20,6 +20,7 @@ export function useNFTDrop(dropAddress: string) {
       { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'totalMinted' },
       { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'maxSupply' },
       { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'owner' },
+      { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'maxPerWallet' },
     ],
     query: { enabled, refetchInterval: 15_000, refetchOnWindowFocus: true },
   });
@@ -29,6 +30,7 @@ export function useNFTDrop(dropAddress: string) {
   const totalMinted = data?.[2]?.status === 'success' ? Number(data[2].result as bigint) : 0;
   const maxSupply = data?.[3]?.status === 'success' ? Number(data[3].result as bigint) : 0;
   const owner = data?.[4]?.status === 'success' ? (data[4].result as string) : '';
+  const maxPerWallet = data?.[5]?.status === 'success' ? Number(data[5].result as bigint) : 0;
 
   const mintPriceFormatted = Number(formatEther(mintPrice));
   const isSoldOut = maxSupply > 0 && totalMinted >= maxSupply;
@@ -71,6 +73,7 @@ export function useNFTDrop(dropAddress: string) {
     mintPriceFormatted,
     totalMinted,
     maxSupply,
+    maxPerWallet,
     owner,
     isSoldOut,
     isOwner,

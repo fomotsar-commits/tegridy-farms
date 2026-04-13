@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { usePoolData } from '../hooks/usePoolData';
-import { useToweliPrice } from '../hooks/useToweliPrice';
+import { useTOWELIPrice } from '../contexts/PriceContext';
 import { ART } from '../lib/artConfig';
 import {
   TOWELI_ADDRESS, TEGRIDY_STAKING_ADDRESS, SWAP_FEE_ROUTER_ADDRESS,
@@ -19,9 +19,9 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 
 const SUPPLY_DATA = [
-  { name: 'Circulating', value: 65, color: '#8b5cf6' },
+  { name: 'Circulating', value: 65, color: '#000000' },
   { name: 'Staking Rewards', value: 20, color: '#ffb237' },
-  { name: 'LP Rewards', value: 10, color: '#8b5cf6' },
+  { name: 'LP Rewards', value: 10, color: '#000000' },
   { name: 'Treasury', value: 5, color: '#ff4ea3' },
 ];
 
@@ -39,7 +39,7 @@ const CONTRACTS = [
 
 export default function TokenomicsPage() {
   usePageTitle('Tokenomics');
-  const price = useToweliPrice();
+  const price = useTOWELIPrice();
   const pool = usePoolData();
   const priceHistory = usePriceHistory(price.priceInUsd);
   const { history: priceData, error: priceError } = priceHistory;
@@ -52,15 +52,12 @@ export default function TokenomicsPage() {
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0">
         <img src={ART.swordOfLove.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 25%' }} />
-        <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.85) 30%, rgba(0,0,0,0.92) 60%, rgba(0,0,0,0.96) 100%)',
-        }} />
       </div>
 
       <div className="relative z-10 max-w-[1000px] mx-auto px-4 md:px-6 pt-20 pb-12">
         <motion.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Tokenomics</h1>
-          <p className="text-white/50 text-[14px]">TOWELI token economics and protocol transparency</p>
+          <p className="text-white text-[14px]">TOWELI token economics and protocol transparency</p>
         </motion.div>
 
         {/* Token info */}
@@ -71,13 +68,12 @@ export default function TokenomicsPage() {
             { l: 'Price', v: price.priceInUsd > 0 ? undefined : '–', numVal: price.priceInUsd, decimals: price.priceInUsd < 0.01 ? 8 : 6, prefix: '$', showSparkline: true, art: ART.mumuBull.src, pos: 'center 30%' },
             { l: 'FDV', v: price.priceInUsd > 0 ? undefined : '–', numVal: TOWELI_TOTAL_SUPPLY * price.priceInUsd, decimals: 2, prefix: '$', art: ART.bobowelie.src, pos: 'center 20%' },
           ].map((i) => (
-            <div key={i.l} className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+            <div key={i.l} className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
               <div className="absolute inset-0">
-                <img src={i.art} alt="" className="w-full h-full object-cover" style={{ objectPosition: i.pos, opacity: 1 }} />
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+                <img src={i.art} alt="" className="w-full h-full object-cover" style={{ objectPosition: i.pos }} />
               </div>
               <div className="relative z-10 p-5 pt-8 pb-6">
-              <p className="text-white/50 text-[11px] uppercase tracking-wider mb-2">{i.l}</p>
+              <p className="text-white text-[11px] uppercase tracking-wider label-pill mb-2">{i.l}</p>
               <div className="flex items-center gap-2">
                 {i.v !== undefined ? (
                   <p className="stat-value text-2xl text-white">{i.v}</p>
@@ -88,7 +84,7 @@ export default function TokenomicsPage() {
                   <Sparkline data={priceData} width={48} height={18} />
                 )}
                 {i.showSparkline && priceError && priceData.length === 0 && (
-                  <span className="text-white/30 text-[10px]">Price data unavailable</span>
+                  <span className="text-white text-[10px]">Price data unavailable</span>
                 )}
               </div>
               </div>
@@ -98,16 +94,15 @@ export default function TokenomicsPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
           {/* Chart */}
-          <motion.div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
+          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
             initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}>
             <div className="absolute inset-0">
-              <img src={ART.danceNight.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%', opacity: 1 }} />
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+              <img src={ART.danceNight.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
             </div>
             <div className="relative z-10 p-5">
             <h3 className="heading-luxury text-[15px] text-white mb-3">Supply Distribution</h3>
             <div className="h-48">
-              <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white/30 text-[13px]">Chart unavailable</div>}>
+              <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie data={SUPPLY_DATA} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value" stroke="none">
@@ -115,8 +110,8 @@ export default function TokenomicsPage() {
                   </Pie>
                   <Tooltip
                     contentStyle={{
-                      background: 'rgba(6,12,26,0.55)', border: '1px solid rgba(139,92,246,0.15)',
-                      borderRadius: '8px', fontFamily: "'Inter', sans-serif", color: '#f0ead6', fontSize: '12px',
+                      background: 'rgba(6,12,26,0.85)', border: '1px solid rgba(139,92,246,0.75)',
+                      borderRadius: '8px', fontFamily: 'var(--font-family-body)', color: '#f0ead6', fontSize: '12px',
                     }}
                     formatter={(v) => `${v}%`}
                   />
@@ -128,7 +123,7 @@ export default function TokenomicsPage() {
               {SUPPLY_DATA.map((d) => (
                 <div key={d.name} className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full" style={{ backgroundColor: d.color }} />
-                  <span className="text-white/40 text-[11px]">{d.name} · {d.value}%</span>
+                  <span className="text-white text-[11px]">{d.name} · {d.value}%</span>
                 </div>
               ))}
             </div>
@@ -136,11 +131,10 @@ export default function TokenomicsPage() {
           </motion.div>
 
           {/* Emissions */}
-          <motion.div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
+          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
             initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>
             <div className="absolute inset-0">
-              <img src={ART.jbChristmas.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+              <img src={ART.jbChristmas.src} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-5">
             <h3 className="heading-luxury text-[15px] text-white mb-3">Emission Schedule</h3>
@@ -152,12 +146,12 @@ export default function TokenomicsPage() {
                 { l: 'Est. Duration', v: pool.isDeployed && daysLeft > 0 ? `~${Math.floor(daysLeft)} days` : '–' },
               ].map((r) => (
                 <div key={r.l} className="flex items-center justify-between">
-                  <span className="text-white/40 text-[13px]">{r.l}</span>
+                  <span className="text-white text-[13px]">{r.l}</span>
                   <span className="stat-value text-[13px] text-white">{r.v}</span>
                 </div>
               ))}
-              <div className="pt-3 gold-divider" />
-              <p className="text-white/30 text-[11px] leading-relaxed pt-2">
+              <div className="pt-3 accent-divider" />
+              <p className="text-white text-[11px] leading-relaxed pt-2">
                 Rewards split: LP Pool (60%) + Staking Pool (40%). 100% of protocol revenue goes to stakers.
               </p>
             </div>
@@ -166,34 +160,33 @@ export default function TokenomicsPage() {
         </div>
 
         {/* Community Treasury */}
-        <motion.div className="relative overflow-hidden rounded-xl mb-8" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
+        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-8" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
           initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <div className="absolute inset-0">
-            <img src={ART.beachVibes.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+            <img src={ART.beachVibes.src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 p-5">
             <div className="flex items-center justify-between mb-3">
               <h3 className="heading-luxury text-[15px] text-white">Community Treasury</h3>
               <a href={`https://etherscan.io/address/${TEGRIDY_STAKING_ADDRESS}`} target="_blank" rel="noopener noreferrer"
-                className="text-[11px] text-primary/60 hover:text-primary transition-colors">
+                className="text-[11px] text-white hover:text-white transition-colors">
                 View on Etherscan &#8599;
               </a>
             </div>
-            <p className="text-white/30 text-[12px] mb-3">
+            <p className="text-white text-[12px] mb-3">
               100% of protocol revenue is distributed to stakers. The farm contract holds all staked tokens and manages reward distribution transparently on-chain.
             </p>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-              <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.08)' }}>
-                <p className="text-white/30 text-[10px] uppercase tracking-wider mb-0.5">Rewards Remaining</p>
-                <p className="stat-value text-[13px] text-primary">{pool.totalRewardsFunded || '0'} TOWELI</p>
+              <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">Rewards Remaining</p>
+                <p className="stat-value text-[13px] text-white">{pool.totalRewardsFunded || '0'} TOWELI</p>
               </div>
-              <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.08)' }}>
-                <p className="text-white/30 text-[10px] uppercase tracking-wider mb-0.5">Emission Rate</p>
+              <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">Emission Rate</p>
                 <p className="stat-value text-[13px] text-white">{((parseFloat(pool.rewardRate) || 0) * 86400).toFixed(2)} / day</p>
               </div>
-              <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.08)' }}>
-                <p className="text-white/30 text-[10px] uppercase tracking-wider mb-0.5">Est. Duration</p>
+              <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">Est. Duration</p>
                 <p className="stat-value text-[13px] text-white">{daysLeft > 0 ? `${daysLeft.toFixed(0)} days` : '–'}</p>
               </div>
             </div>
@@ -201,11 +194,10 @@ export default function TokenomicsPage() {
         </motion.div>
 
         {/* Contracts */}
-        <motion.div className="relative overflow-hidden rounded-xl mb-8" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
+        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-8" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
           initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <div className="absolute inset-0">
-            <img src={ART.jbacSkeleton.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+            <img src={ART.jbacSkeleton.src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 p-5">
             <h3 className="heading-luxury text-[15px] text-white mb-3">Contracts</h3>
@@ -214,22 +206,22 @@ export default function TokenomicsPage() {
                 const deployed = isDeployed(c.address);
                 return (
                   <div key={c.label} className="rounded-lg p-3 flex items-center justify-between flex-wrap gap-2"
-                    style={{ background: 'rgba(139,92,246,0.03)', border: '1px solid rgba(139,92,246,0.08)', opacity: deployed ? 1 : 0.6 }}>
+                    style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)', opacity: deployed ? 1 : 0.6 }}>
                     <div className="flex items-center gap-2">
-                      <span className="text-white/60 text-[13px]">{c.label}</span>
+                      <span className="text-white text-[13px]">{c.label}</span>
                       {deployed && c.live ? (
                         <span className="badge badge-success text-[9px]">Live</span>
                       ) : !deployed ? (
-                        <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: 'rgba(139,92,246,0.12)', color: '#8b5cf6' }}>Pending</span>
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: 'rgba(139,92,246,0.75)', color: '#000000' }}>Pending</span>
                       ) : (
                         <span className="badge badge-warning text-[9px]">Deployed</span>
                       )}
                     </div>
                     {deployed ? (
                       <CopyButton text={c.address} display={shortenAddress(c.address, 6)}
-                        className="font-mono text-[11px] text-primary" />
+                        className="font-mono text-[11px] text-white" />
                     ) : (
-                      <span className="text-white/20 text-[11px]">Not yet deployed</span>
+                      <span className="text-white text-[11px]">Not yet deployed</span>
                     )}
                   </div>
                 );
@@ -247,9 +239,9 @@ export default function TokenomicsPage() {
           ].map((l) => (
             <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
               className="rounded-xl p-3.5 flex items-center justify-between group"
-              style={{ background: 'rgba(6,12,26,0.82)', border: '1px solid rgba(139,92,246,0.12)', backdropFilter: 'blur(8px)' }}>
-              <span className="text-white/50 text-[13px] group-hover:text-white transition-colors">{l.label}</span>
-              <span className="text-white/30 text-[12px] group-hover:text-primary transition-colors">→</span>
+              style={{ background: 'rgba(6,12,26,0.82)', border: '1px solid rgba(139,92,246,0.75)', backdropFilter: 'blur(8px)' }}>
+              <span className="text-white text-[13px] group-hover:text-white transition-colors">{l.label}</span>
+              <span className="text-white text-[12px] group-hover:text-white transition-colors">→</span>
             </a>
           ))}
         </div>

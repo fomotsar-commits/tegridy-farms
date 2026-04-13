@@ -49,6 +49,15 @@ export const TopNav = React.memo(function TopNav() {
   // Close dropdown on route change
   useEffect(() => { setMoreOpen(false); }, [location.pathname]);
 
+  // Close mobile drawer on Escape key
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    if (open) document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [open]);
+
   return (
     <>
       <header
@@ -58,12 +67,12 @@ export const TopNav = React.memo(function TopNav() {
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
           borderBottom: '1px solid rgba(139, 92, 246, 0.20)',
-          boxShadow: '0 1px 12px rgba(139,92,246,0.06), 0 0 1px rgba(139,92,246,0.12)',
+          boxShadow: '0 1px 12px rgba(139,92,246,0.75), 0 0 1px rgba(139,92,246,0.75)',
         }}
       >
         {/* Subtle accent line at very top */}
         <div className="absolute top-0 left-0 right-0 h-[1px]" style={{
-          background: 'linear-gradient(90deg, transparent 0%, rgba(139,92,246,0.35) 30%, rgba(139,92,246,0.5) 50%, rgba(139,92,246,0.35) 70%, transparent 100%)',
+          background: 'linear-gradient(90deg, transparent 0%, rgba(139,92,246,0.75) 30%, rgba(139,92,246,0.5) 50%, rgba(139,92,246,0.75) 70%, transparent 100%)',
         }} />
         <div className="max-w-[1200px] mx-auto h-full px-4 md:px-6 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -75,14 +84,14 @@ export const TopNav = React.memo(function TopNav() {
               }}
               className="w-7 h-7 rounded-md overflow-hidden flex-shrink-0 cursor-pointer hover:scale-110 transition-transform"
               style={{ border: '1px solid rgba(139,92,246,0.25)' }}
-              title="Replay splash screen"
-              aria-label="Replay splash screen"
+              title="Replay splash screen (full reload)"
+              aria-label="Replay splash screen (full reload)"
             >
               <img src="/art/bobowelie.jpg" alt="" className="w-full h-full object-cover" />
             </button>
-            <Link to="/" className="flex items-center gap-1">
-              <span className="heading-luxury text-[16px] tracking-wide text-primary">TEGRIDY</span>
-              <span className="text-[15px] font-semibold tracking-tight text-text-primary">FARMS</span>
+            <Link to="/" className="flex items-center gap-1" title="Go to home page">
+              <span className="heading-luxury text-[16px] tracking-wide text-white">TEGRIDY</span>
+              <span className="text-[15px] font-semibold tracking-tight text-text-white">FARMS</span>
             </Link>
           </div>
 
@@ -128,7 +137,7 @@ export const TopNav = React.memo(function TopNav() {
                   >
                     {MORE_NAV.map((n) => (
                       <NavLink key={n.to} to={n.to}
-                        className={({ isActive }) => `block px-4 py-2 text-[13px] transition-colors ${isActive ? 'text-primary' : 'text-white/60 hover:text-white hover:bg-white/5'}`}>
+                        className={({ isActive }) => `block px-4 py-2 text-[13px] transition-colors ${isActive ? 'text-white' : 'text-white hover:text-white hover:bg-white/5'}`}>
                         {n.label}
                       </NavLink>
                     ))}
@@ -158,7 +167,7 @@ export const TopNav = React.memo(function TopNav() {
                     ) : (
                       <button onClick={openAccountModal} aria-label="Account details"
                         className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[13px] font-mono text-text-secondary"
-                        style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.15)' }}>
+                        style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
                         <span className="w-1.5 h-1.5 rounded-full bg-success" />
                         {account.displayName}
                       </button>
@@ -186,7 +195,7 @@ export const TopNav = React.memo(function TopNav() {
               onClick={() => setOpen(false)} />
             <motion.div
               className="fixed right-0 top-0 bottom-0 z-50 w-56 md:hidden flex flex-col"
-              style={{ background: 'var(--color-bg-surface)', borderLeft: '1px solid rgba(139,92,246,0.15)' }}
+              style={{ background: 'var(--color-bg-surface)', borderLeft: '1px solid rgba(139,92,246,0.75)' }}
               initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}>
               <div className="p-4 flex justify-end">

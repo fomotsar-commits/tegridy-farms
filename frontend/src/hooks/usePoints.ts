@@ -74,7 +74,7 @@ export function usePoints() {
       address: SWAP_FEE_ROUTER_ADDRESS,
       event: SWAP_EXECUTED_EVENT,
       args: { user: address },
-      fromBlock: 'earliest',
+      fromBlock: 18000000n,
       toBlock: 'latest',
     }).then(logs => {
       if (!cancelled) setSwapCount(logs.length);

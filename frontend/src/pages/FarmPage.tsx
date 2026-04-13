@@ -14,7 +14,7 @@ import { formatTokenAmount } from '../lib/formatting';
 import { AnimatedCounter } from '../components/AnimatedCounter';
 import { Sparkline } from '../components/Sparkline';
 import { PulseDot } from '../components/PulseDot';
-import { useToweliPrice } from '../hooks/useToweliPrice';
+import { useTOWELIPrice } from '../contexts/PriceContext';
 import { usePriceHistory } from '../hooks/usePriceHistory';
 import { useTransactionReceipt } from '../hooks/useTransactionReceipt';
 import type { ReceiptType } from '../hooks/useTransactionReceipt';
@@ -25,6 +25,9 @@ import { useLPFarming } from '../hooks/useLPFarming';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { usePoints } from '../hooks/usePoints';
 import { parseEther } from 'viem';
+
+/** Early withdrawal penalty percentage — should match the contract's EARLY_EXIT_PENALTY_BPS / 100 */
+const EARLY_WITHDRAWAL_PENALTY_PCT = 25;
 
 /* ── Native LP Pools ─────────────────────────────────────────────────── */
 interface LPPool {
@@ -99,9 +102,9 @@ const UPCOMING_POOLS: Omit<LPPool, 'tvl' | 'apr' | 'volume24h'>[] = [
 function PoolStatusBadge({ status }: { status: LPPool['status'] }) {
   const styles = {
     live: { bg: 'rgba(45,139,78,0.15)', border: 'rgba(45,139,78,0.35)', color: '#2D8B4E', label: 'LIVE' },
-    new: { bg: 'rgba(139,92,246,0.15)', border: 'rgba(139,92,246,0.35)', color: '#8b5cf6', label: 'NEW' },
+    new: { bg: 'rgba(139,92,246,0.75)', border: 'rgba(139,92,246,0.75)', color: '#000000', label: 'NEW' },
     hot: { bg: 'rgba(239,68,68,0.15)', border: 'rgba(239,68,68,0.35)', color: '#ef4444', label: '🔥 HOT' },
-    soon: { bg: 'rgba(139,92,246,0.12)', border: 'rgba(139,92,246,0.30)', color: '#a78bfa', label: 'PROPOSED · NOT GUARANTEED' },
+    soon: { bg: 'rgba(139,92,246,0.75)', border: 'rgba(139,92,246,0.75)', color: '#000000', label: 'PROPOSED · NOT GUARANTEED' },
   };
   const s = styles[status];
   return (
@@ -117,8 +120,7 @@ function LivePoolCard({ poolData }: { poolData: ReturnType<typeof usePoolTVL> })
   return (
     <div className="relative overflow-hidden rounded-xl card-hover group" style={{ border: '1px solid rgba(239,68,68,0.15)' }}>
       <div className="absolute inset-0">
-        <img src={ART.poolParty.src} alt="" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" style={{ objectPosition: 'center 30%', opacity: 1 }} />
-        <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.55) 0%, rgba(6,12,26,0.85) 100%)' }} />
+        <img src={ART.poolParty.src} alt="" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" style={{ objectPosition: 'center 30%' }} />
       </div>
       <div className="relative z-10 p-5">
         {/* Header */}
@@ -132,29 +134,29 @@ function LivePoolCard({ poolData }: { poolData: ReturnType<typeof usePoolTVL> })
             </div>
             <div>
               <p className="text-white font-semibold text-[15px]">TOWELI / ETH</p>
-              <p className="text-white/30 text-[11px]">Fee: 0.3%</p>
+              <p className="text-white text-[11px]">Fee: 0.3%</p>
             </div>
           </div>
           <PoolStatusBadge status="hot" />
         </div>
 
         {/* Stats Grid — live data */}
-        <div className="grid grid-cols-3 gap-2 mb-4">
-          <div className="rounded-lg p-2.5" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.08)' }}>
-            <p className="text-white/30 text-[10px] uppercase tracking-wider mb-0.5">TVL</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+          <div className="rounded-lg p-2.5" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+            <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">TVL</p>
             <p className="stat-value text-[14px] text-white">{poolData.tvlFormatted}</p>
           </div>
           <div className="rounded-lg p-2.5" style={{ background: 'rgba(45,139,78,0.04)', border: '1px solid rgba(45,139,78,0.08)' }}>
-            <p className="text-white/30 text-[10px] uppercase tracking-wider mb-0.5">Est. APR</p>
-            <p className="stat-value text-[14px] text-primary">{poolData.apr}</p>
+            <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">Est. APR</p>
+            <p className="stat-value text-[14px] text-white">{poolData.apr}</p>
           </div>
           <div className="rounded-lg p-2.5" style={{ background: 'rgba(212,160,23,0.04)', border: '1px solid rgba(212,160,23,0.08)' }}>
-            <p className="text-white/30 text-[10px] uppercase tracking-wider mb-0.5">Est. 24h Vol</p>
-            <p className="stat-value text-[14px] text-white/80">{poolData.vol24hFormatted}</p>
+            <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">Est. 24h Vol</p>
+            <p className="stat-value text-[14px] text-white">{poolData.vol24hFormatted}</p>
           </div>
         </div>
 
-        <p className="text-white/20 text-[10px] mb-3 text-center">APR &amp; volume estimated from on-chain reserves</p>
+        <p className="text-white text-[10px] mb-3 text-center">APR &amp; volume estimated from on-chain reserves</p>
 
         {/* Action */}
         <Link to="/liquidity" className="btn-primary w-full py-2.5 text-[13px] text-center block">
@@ -168,42 +170,41 @@ function LivePoolCard({ poolData }: { poolData: ReturnType<typeof usePoolTVL> })
 /** Coming soon pool card */
 function UpcomingPoolCard({ pool }: { pool: typeof UPCOMING_POOLS[number] }) {
   return (
-    <div className="relative overflow-hidden rounded-xl card-hover group" style={{ border: '1px solid rgba(139,92,246,0.10)' }}>
+    <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover group" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
       <div className="absolute inset-0">
-        <img src={pool.art} alt="" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" style={{ objectPosition: pool.artPos, opacity: 1 }} />
-        <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.5) 0%, rgba(6,12,26,0.85) 100%)' }} />
+        <img src={pool.art} alt="" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" style={{ objectPosition: pool.artPos }} />
       </div>
       <div className="relative z-10 p-5">
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="flex -space-x-2">
-              <img src={pool.tokenA.logo} alt={pool.tokenA.symbol} className="w-9 h-9 rounded-full object-cover bg-white/5"
+              <img src={pool.tokenA.logo} alt={pool.tokenA.symbol} className="w-9 h-9 rounded-full object-cover bg-black/60"
                 style={{ border: '2px solid rgba(255,255,255,0.12)' }} />
-              <img src={pool.tokenB.logo} alt={pool.tokenB.symbol} className="w-9 h-9 rounded-full object-cover bg-white/5"
+              <img src={pool.tokenB.logo} alt={pool.tokenB.symbol} className="w-9 h-9 rounded-full object-cover bg-black/60"
                 style={{ border: '2px solid rgba(255,255,255,0.12)' }} />
             </div>
             <div>
-              <p className="text-white/60 font-semibold text-[15px]">{pool.name}</p>
-              <p className="text-white/20 text-[11px]">Fee: {pool.fee}</p>
+              <p className="text-white font-semibold text-[15px]">{pool.name}</p>
+              <p className="text-white text-[11px]">Fee: {pool.fee}</p>
             </div>
           </div>
           <PoolStatusBadge status="soon" />
         </div>
 
         {/* Placeholder Stats */}
-        <div className="grid grid-cols-3 gap-2 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
           {['TVL', 'APR', '24h Vol'].map((label) => (
-            <div key={label} className="rounded-lg p-2.5" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)' }}>
-              <p className="text-white/20 text-[10px] uppercase tracking-wider mb-0.5">{label}</p>
-              <p className="stat-value text-[14px] text-white/20">–</p>
+            <div key={label} className="rounded-lg p-2.5" style={{ background: 'rgba(0,0,0,0.50)', border: '1px solid rgba(255,255,255,0.20)' }}>
+              <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">{label}</p>
+              <p className="stat-value text-[14px] text-white">–</p>
             </div>
           ))}
         </div>
 
         {/* Action — link to liquidity page */}
         <Link to="/liquidity" className="w-full py-2.5 text-[13px] text-center rounded-lg font-semibold block transition-colors"
-          style={{ background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.25)', color: '#a78bfa' }}>
+          style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.25)', color: '#000000' }}>
           Add Liquidity
         </Link>
       </div>
@@ -241,7 +242,7 @@ export default function FarmPage() {
   const actions = useFarmActions();
   const nft = useNFTBoost();
   const points = usePoints();
-  const price = useToweliPrice();
+  const price = useTOWELIPrice();
   const priceHistory = usePriceHistory(price.priceInUsd);
   const { history: priceData, error: priceError } = priceHistory;
 
@@ -249,6 +250,8 @@ export default function FarmPage() {
   const confetti = useConfetti();
   const lastActionRef = useRef<ReceiptType | null>(null);
   const receiptShownHashRef = useRef<string | null>(null);
+  // Capture values at submission time to avoid stale closures in the receipt effect
+  const submittedDataRef = useRef<{ stakeAmount: string; lockLabel: string; boostDisplay: string } | null>(null);
 
   const [stakeAmount, setStakeAmount] = useState('');
   const [selectedLock, setSelectedLock] = useState(LOCK_OPTIONS[2]); // Default 90 days
@@ -256,6 +259,7 @@ export default function FarmPage() {
   const [confirmEarlyWithdraw, setConfirmEarlyWithdraw] = useState(false);
   const [showExtendLock, setShowExtendLock] = useState(false);
   const [extendLockDuration, setExtendLockDuration] = useState(LOCK_OPTIONS[2]);
+  const [confirmEmergencyExit, setConfirmEmergencyExit] = useState(false);
 
   const poolTVL = usePoolTVL();
   const lpFarm = useLPFarming();
@@ -274,6 +278,12 @@ export default function FarmPage() {
     const t = setTimeout(() => setConfirmEarlyWithdraw(false), 5000);
     return () => clearTimeout(t);
   }, [confirmEarlyWithdraw]);
+
+  useEffect(() => {
+    if (!confirmEmergencyExit) return;
+    const t = setTimeout(() => setConfirmEmergencyExit(false), 5000);
+    return () => clearTimeout(t);
+  }, [confirmEmergencyExit]);
 
   const boostBps = calculateBoost(selectedLock.seconds);
   const nftBonus = nft.holdsJBAC ? JBAC_BONUS_BPS : 0;
@@ -295,6 +305,7 @@ export default function FarmPage() {
       actions.approve(stakeAmount);
     } else {
       lastActionRef.current = 'stake';
+      submittedDataRef.current = { stakeAmount, lockLabel: selectedLock.label, boostDisplay };
       actions.stake(stakeAmount, BigInt(selectedLock.seconds));
     }
   };
@@ -306,17 +317,19 @@ export default function FarmPage() {
       const actionType = lastActionRef.current ?? 'stake';
 
       if (actionType === 'stake') {
+        const submitted = submittedDataRef.current;
         showReceipt({
           type: 'stake',
           data: {
-            amount: stakeAmount,
+            amount: submitted?.stakeAmount ?? stakeAmount,
             token: 'TOWELI',
-            lockDuration: selectedLock.label,
-            boost: boostDisplay,
+            lockDuration: submitted?.lockLabel ?? selectedLock.label,
+            boost: submitted?.boostDisplay ?? boostDisplay,
             estimatedAPR: pool.isDeployed ? pool.apr : undefined,
             txHash: actions.hash,
           },
         });
+        submittedDataRef.current = null;
       } else if (actionType === 'claim') {
         showReceipt({
           type: 'claim',
@@ -345,15 +358,21 @@ export default function FarmPage() {
         confetti.fire();
       }
     }
-  }, [actions.isSuccess, actions.hash, showReceipt, confetti, stakeAmount, selectedLock.label, boostDisplay, pool.isDeployed, pool.apr, pos.pendingFormatted, pos.stakedFormatted]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- stakeAmount/selectedLock/boostDisplay captured via submittedDataRef at submission time
+  }, [actions.isSuccess, actions.hash, showReceipt, confetti, pool.isDeployed, pool.apr, pos.pendingFormatted, pos.stakedFormatted]);
+
+  // Clear LP inputs only after transaction confirms
+  useEffect(() => {
+    if (lpFarm.isSuccess) {
+      setLpStakeAmount('');
+      setLpWithdrawAmount('');
+    }
+  }, [lpFarm.isSuccess]);
 
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <img src={ART.jungleBus.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 20%' }} />
-        <div className="absolute inset-0" style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.85) 30%, rgba(0,0,0,0.92) 60%, rgba(0,0,0,0.96) 100%)',
-        }} />
       </div>
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-12">
@@ -366,7 +385,7 @@ export default function FarmPage() {
         )}
         <motion.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Farm</h1>
-          <p className="text-white/50 text-[14px]">Stake TOWELI and earn rewards &middot; <span className="text-primary/40">FAFO</span></p>
+          <p className="text-white text-[14px]">Stake TOWELI and earn rewards &middot; <span className="text-white">FAFO</span></p>
         </motion.div>
 
         {/* Stats */}
@@ -377,34 +396,32 @@ export default function FarmPage() {
             { l: 'Base APR', v: pool.isDeployed ? `${pool.apr}%` : '–', accent: true, art: ART.wrestler.src, pos: 'center 0%', sub: pool.aprDisclaimer },
             { l: 'Season', v: `${daysLeft}d left`, sub: CURRENT_SEASON.name, art: ART.beachSunset.src, pos: 'center 30%' },
           ].map((s) => (
-            <div key={s.l} className="relative overflow-hidden rounded-xl card-hover" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+            <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
               <div className="absolute inset-0">
-                <img src={s.art} alt="" className="w-full h-full object-cover" style={{ objectPosition: s.pos, opacity: 1 }} />
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.45) 0%, rgba(6,12,26,0.85) 100%)' }} />
+                <img src={s.art} alt="" className="w-full h-full object-cover" style={{ objectPosition: s.pos }} />
               </div>
               <div className="relative z-10 p-5 pt-8 pb-6">
-              <p className="text-white/50 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5">{s.l}{s.l === 'TOWELI Price' && <PulseDot size={5} />}</p>
+              <p className="text-white text-[11px] uppercase tracking-wider label-pill mb-2 flex items-center gap-1.5">{s.l}{s.l === 'TOWELI Price' && <PulseDot size={5} />}</p>
               <div className="flex items-center gap-2">
-                <p className={`stat-value text-2xl ${s.accent ? 'text-primary' : 'text-white'}`}>{s.v}</p>
+                <p className={`stat-value text-2xl text-white`}>{s.v}</p>
                 {s.l === 'TOWELI Price' && priceData.length > 1 && (
                   <Sparkline data={priceData} width={48} height={18} />
                 )}
                 {s.l === 'TOWELI Price' && priceError && priceData.length === 0 && (
-                  <span className="text-white/30 text-[10px]">Price data unavailable</span>
+                  <span className="text-white text-[10px]">Price data unavailable</span>
                 )}
               </div>
-              {s.sub && <p className="text-white/30 text-[11px] mt-1">{s.sub}</p>}
+              {s.sub && <p className="text-white text-[11px] mt-1">{s.sub}</p>}
               </div>
             </div>
           ))}
         </motion.div>
 
         {/* Season banner */}
-        <motion.div className="relative overflow-hidden rounded-xl mb-8" style={{ border: '1px solid rgba(139,92,246,0.12)' }}
+        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-8" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
           initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div className="absolute inset-0">
-            <img src={ART.bobowelie.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.5) 0%, rgba(6,12,26,0.85) 100%)' }} />
+            <img src={ART.bobowelie.src} alt="" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 p-6 py-8 flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div>
@@ -412,14 +429,14 @@ export default function FarmPage() {
                 <span className="text-white text-[17px] font-semibold">Season {CURRENT_SEASON.number}: {CURRENT_SEASON.name}</span>
                 {nft.boostLabel && <span className="badge badge-warning text-[10px]">{nft.boostLabel}</span>}
               </div>
-              <p className="text-white/40 text-[13px]">
+              <p className="text-white text-[13px]">
                 Lock TOWELI for up to 4x boost. Longer lock = more rewards + governance power.
               </p>
             </div>
             {nft.holdsJBAC && (
               <div className="md:text-right">
-                <p className="stat-value text-[16px] text-primary">+0.5x NFT Boost</p>
-                <p className="text-white/25 text-[11px]">{nft.holdsGoldCard ? 'Gold Card' : 'JBAC Holder'}</p>
+                <p className="stat-value text-[16px] text-white">+0.5x NFT Boost</p>
+                <p className="text-white text-[11px]">{nft.holdsGoldCard ? 'Gold Card' : 'JBAC Holder'}</p>
               </div>
             )}
           </div>
@@ -430,9 +447,9 @@ export default function FarmPage() {
           <div className="flex items-center justify-between mb-5">
             <div>
               <h2 className="heading-luxury text-white text-[22px] tracking-tight">Liquidity Pools</h2>
-              <p className="text-white/40 text-[13px] mt-0.5">Provide liquidity to native pairs &middot; earn trading fees</p>
+              <p className="text-white text-[13px] mt-0.5">Provide liquidity to native pairs &middot; earn trading fees</p>
             </div>
-            <Link to="/liquidity" className="text-primary/60 text-[12px] hover:text-primary transition-colors">
+            <Link to="/liquidity" className="text-white/60 text-[12px] hover:text-white transition-colors">
               View all pools &#8594;
             </Link>
           </div>
@@ -445,38 +462,58 @@ export default function FarmPage() {
         </motion.div>
 
         {/* ── LP Farming ── */}
-        {lpFarm.isDeployed && (
+        {lpFarm.isDeployed && lpFarm.isReadLoading && (
+          <motion.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <div className="h-6 w-40 rounded bg-white/10 animate-pulse" />
+                <div className="h-4 w-64 rounded bg-white/10 animate-pulse mt-1.5" />
+              </div>
+            </div>
+            <div className="rounded-xl p-6" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(139,92,246,0.15)' }}>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.15)' }}>
+                    <div className="h-3 w-20 rounded bg-white/10 animate-pulse mb-2" />
+                    <div className="h-5 w-24 rounded bg-white/10 animate-pulse" />
+                  </div>
+                ))}
+              </div>
+              <div className="h-10 w-full rounded-lg bg-white/10 animate-pulse" />
+            </div>
+          </motion.div>
+        )}
+        {lpFarm.isDeployed && !lpFarm.isReadLoading && (
           <motion.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
             <div className="flex items-center justify-between mb-5">
               <div>
                 <h2 className="heading-luxury text-white text-[22px] tracking-tight">LP Farming</h2>
-                <p className="text-white/40 text-[13px] mt-0.5">Stake LP tokens &middot; earn TOWELI rewards</p>
+                <p className="text-white text-[13px] mt-0.5">Stake LP tokens &middot; earn TOWELI rewards</p>
               </div>
               {lpFarm.isActive && <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-500/20 text-green-400 border border-green-500/30">LIVE</span>}
             </div>
 
-            <div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+            <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
               <div className="absolute inset-0">
-                <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%', opacity: 1 }} />
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.6) 0%, rgba(6,12,26,0.9) 100%)' }} />
+                <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
               </div>
               <div className="relative z-10 p-6">
                 {/* Stats row */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-                  <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.10)' }}>
-                    <p className="text-white/30 text-[10px] mb-0.5">Total LP Staked</p>
+                  <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                    <p className="text-white text-[10px] mb-0.5">Total LP Staked</p>
                     <p className="stat-value text-[14px] text-white font-mono">{formatTokenAmount(lpFarm.totalStakedFormatted)}</p>
                   </div>
-                  <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.10)' }}>
-                    <p className="text-white/30 text-[10px] mb-0.5">Reward Rate</p>
+                  <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                    <p className="text-white text-[10px] mb-0.5">Reward Rate</p>
                     <p className="stat-value text-[14px] text-white font-mono">{formatTokenAmount(String(lpFarm.rewardRatePerDay))} / day</p>
                   </div>
-                  <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.10)' }}>
-                    <p className="text-white/30 text-[10px] mb-0.5">Total Funded</p>
+                  <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                    <p className="text-white text-[10px] mb-0.5">Total Funded</p>
                     <p className="stat-value text-[14px] text-white font-mono">{formatTokenAmount(lpFarm.totalRewardsFundedFormatted)} TOWELI</p>
                   </div>
-                  <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.10)' }}>
-                    <p className="text-white/30 text-[10px] mb-0.5">Period Ends</p>
+                  <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                    <p className="text-white text-[10px] mb-0.5">Period Ends</p>
                     <p className="stat-value text-[14px] text-white font-mono">
                       {lpFarm.periodFinish > 0 ? new Date(lpFarm.periodFinish * 1000).toLocaleDateString() : '–'}
                     </p>
@@ -485,7 +522,7 @@ export default function FarmPage() {
 
                 {!isConnected ? (
                   <div className="text-center py-8">
-                    <p className="text-white/40 text-sm mb-3">Connect wallet to stake LP tokens</p>
+                    <p className="text-white text-sm mb-3">Connect wallet to stake LP tokens</p>
                     <ConnectButton />
                   </div>
                 ) : (
@@ -495,16 +532,16 @@ export default function FarmPage() {
                       <div className="rounded-lg p-4 mb-4" style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.15)' }}>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-center">
                           <div>
-                            <p className="text-white/30 text-[10px]">Your Staked LP</p>
+                            <p className="text-white text-[10px]">Your Staked LP</p>
                             <p className="text-white font-mono text-[14px]">{formatTokenAmount(lpFarm.stakedBalanceFormatted)}</p>
                           </div>
                           <div>
-                            <p className="text-white/30 text-[10px]">Pending Rewards</p>
+                            <p className="text-white text-[10px]">Pending Rewards</p>
                             <p className="text-green-400 font-mono text-[14px]">{formatTokenAmount(lpFarm.pendingRewardFormatted)} TOWELI</p>
                           </div>
                           <div>
-                            <p className="text-white/30 text-[10px]">Wallet LP</p>
-                            <p className="text-white/60 font-mono text-[14px]">{formatTokenAmount(lpFarm.walletLPBalanceFormatted)}</p>
+                            <p className="text-white text-[10px]">Wallet LP</p>
+                            <p className="text-white font-mono text-[14px]">{formatTokenAmount(lpFarm.walletLPBalanceFormatted)}</p>
                           </div>
                         </div>
                         <div className="flex gap-2 mt-4">
@@ -529,22 +566,22 @@ export default function FarmPage() {
                     {/* Stake / Withdraw inputs */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {/* Stake */}
-                      <div className="rounded-lg p-4" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.10)' }}>
-                        <p className="text-white/50 text-[11px] mb-2 font-semibold uppercase tracking-wider">Stake LP</p>
+                      <div className="rounded-lg p-4" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                        <p className="text-white text-[11px] mb-2 font-semibold uppercase tracking-wider label-pill">Stake LP</p>
                         <div className="flex gap-2 mb-2">
                           <input
                             type="number" inputMode="decimal"
                             placeholder="0.0"
                             value={lpStakeAmount}
-                            onChange={e => setLpStakeAmount(e.target.value)}
-                            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 min-h-[44px] text-white text-sm font-mono"
+                            onChange={e => setLpStakeAmount(e.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))}
+                            className="flex-1 bg-black/60 border border-white/25 rounded-lg px-3 py-2 min-h-[44px] text-white text-sm font-mono"
                           />
                           <button
-                            className="text-[10px] text-primary/60 hover:text-primary"
+                            className="text-[10px] text-white/60 hover:text-white"
                             onClick={() => setLpStakeAmount(lpFarm.walletLPBalanceFormatted)}
                           >MAX</button>
                         </div>
-                        <p className="text-white/20 text-[10px] mb-2 font-mono">Wallet: {formatTokenAmount(lpFarm.walletLPBalanceFormatted)} LP</p>
+                        <p className="text-white text-[10px] mb-2 font-mono">Wallet: {formatTokenAmount(lpFarm.walletLPBalanceFormatted)} LP</p>
                         {(() => {
                           const amt = parseFloat(lpStakeAmount) || 0;
                           let needsApproval = false;
@@ -561,7 +598,7 @@ export default function FarmPage() {
                             <button
                               className="btn-primary w-full py-2 text-sm rounded-lg"
                               disabled={amt <= 0 || lpFarm.isPending || lpFarm.isConfirming}
-                              onClick={() => { lpFarm.stake(lpStakeAmount); setLpStakeAmount(''); }}
+                              onClick={() => { lpFarm.stake(lpStakeAmount); }}
                             >
                               {lpFarm.isPending || lpFarm.isConfirming ? 'Staking...' : 'Stake'}
                             </button>
@@ -570,26 +607,26 @@ export default function FarmPage() {
                       </div>
 
                       {/* Withdraw */}
-                      <div className="rounded-lg p-4" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.10)' }}>
-                        <p className="text-white/50 text-[11px] mb-2 font-semibold uppercase tracking-wider">Withdraw LP</p>
+                      <div className="rounded-lg p-4" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                        <p className="text-white text-[11px] mb-2 font-semibold uppercase tracking-wider label-pill">Withdraw LP</p>
                         <div className="flex gap-2 mb-2">
                           <input
                             type="number" inputMode="decimal"
                             placeholder="0.0"
                             value={lpWithdrawAmount}
-                            onChange={e => setLpWithdrawAmount(e.target.value)}
-                            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 min-h-[44px] text-white text-sm font-mono"
+                            onChange={e => setLpWithdrawAmount(e.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))}
+                            className="flex-1 bg-black/60 border border-white/25 rounded-lg px-3 py-2 min-h-[44px] text-white text-sm font-mono"
                           />
                           <button
-                            className="text-[10px] text-primary/60 hover:text-primary"
+                            className="text-[10px] text-white/60 hover:text-white"
                             onClick={() => setLpWithdrawAmount(lpFarm.stakedBalanceFormatted)}
                           >MAX</button>
                         </div>
-                        <p className="text-white/20 text-[10px] mb-2 font-mono">Staked: {formatTokenAmount(lpFarm.stakedBalanceFormatted)} LP</p>
+                        <p className="text-white text-[10px] mb-2 font-mono">Staked: {formatTokenAmount(lpFarm.stakedBalanceFormatted)} LP</p>
                         <button
                           className="btn-secondary w-full py-2 text-sm rounded-lg"
                           disabled={(parseFloat(lpWithdrawAmount) || 0) <= 0 || lpFarm.stakedBalance === 0n || lpFarm.isPending || lpFarm.isConfirming}
-                          onClick={() => { lpFarm.withdraw(lpWithdrawAmount); setLpWithdrawAmount(''); }}
+                          onClick={() => { lpFarm.withdraw(lpWithdrawAmount); }}
                         >
                           {lpFarm.isPending || lpFarm.isConfirming ? 'Withdrawing...' : 'Withdraw'}
                         </button>
@@ -605,10 +642,9 @@ export default function FarmPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12">
           {/* Staking Card */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-            <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+            <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
               <div className="absolute inset-0">
-                <img src={ART.beachVibes.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%', opacity: 1 }} />
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.5) 0%, rgba(6,12,26,0.88) 100%)' }} />
+                <img src={ART.beachVibes.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%' }} />
               </div>
               <div className="relative z-10 p-6">
               <h3 className="heading-luxury text-white text-[20px] mb-5">
@@ -619,28 +655,28 @@ export default function FarmPage() {
                 /* Existing position display */
                 <div>
                   <div className="grid grid-cols-2 gap-3 mb-4">
-                    <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.10)' }}>
-                      <p className="text-white/30 text-[10px] mb-0.5">Staked</p>
+                    <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                      <p className="text-white text-[10px] mb-0.5">Staked</p>
                       <AnimatedCounter value={parseFloat(pos.stakedFormatted) || 0} decimals={2} className="stat-value text-[16px] text-white" />
                     </div>
-                    <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.10)' }}>
-                      <p className="text-white/30 text-[10px] mb-0.5">Boost</p>
-                      <AnimatedCounter value={pos.boostMultiplier} decimals={2} suffix="x" className="stat-value text-[16px] text-primary" />
+                    <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                      <p className="text-white text-[10px] mb-0.5">Boost</p>
+                      <AnimatedCounter value={pos.boostMultiplier} decimals={2} suffix="x" className="stat-value text-[16px] text-white" />
                       {pos.hasPosition && !pos.isLocked && pos.boostMultiplier > 1 && (
                         <button
                           onClick={() => actions.revalidateBoost(pos.tokenId)}
                           disabled={actions.isPending || actions.isConfirming}
-                          className="btn-secondary text-[11px] mt-1.5 w-full py-1.5 rounded-lg disabled:opacity-35 disabled:cursor-not-allowed">
+                          className="btn-secondary text-[11px] mt-1.5 w-full py-1.5 rounded-lg disabled:opacity-70 disabled:cursor-not-allowed">
                           Revalidate Boost
                         </button>
                       )}
                     </div>
-                    <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.10)' }}>
-                      <p className="text-white/30 text-[10px] mb-0.5">Claimable</p>
-                      <AnimatedCounter value={parseFloat(pos.pendingFormatted) || 0} decimals={4} className="stat-value text-[16px] text-primary" />
+                    <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                      <p className="text-white text-[10px] mb-0.5">Claimable</p>
+                      <AnimatedCounter value={parseFloat(pos.pendingFormatted) || 0} decimals={4} className="stat-value text-[16px] text-white" />
                     </div>
-                    <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.10)' }}>
-                      <p className="text-white/30 text-[10px] mb-0.5">Lock Expires</p>
+                    <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                      <p className="text-white text-[10px] mb-0.5">Lock Expires</p>
                       <p className="stat-value text-[14px] text-white">
                         {pos.autoMaxLock ? 'Auto-Max' : pos.isLocked ? new Date(pos.lockEnd * 1000).toLocaleDateString() : 'Unlocked'}
                       </p>
@@ -648,7 +684,7 @@ export default function FarmPage() {
                         <button
                           onClick={() => setShowExtendLock(true)}
                           disabled={actions.isPending || actions.isConfirming}
-                          className="btn-secondary text-[11px] mt-1.5 w-full py-1.5 rounded-lg disabled:opacity-35 disabled:cursor-not-allowed">
+                          className="btn-secondary text-[11px] mt-1.5 w-full py-1.5 rounded-lg disabled:opacity-70 disabled:cursor-not-allowed">
                           Extend Lock
                         </button>
                       )}
@@ -659,9 +695,9 @@ export default function FarmPage() {
                               <button key={opt.label} onClick={() => setExtendLockDuration(opt)}
                                 className="rounded-lg px-2 py-1.5 text-center cursor-pointer transition-all text-[10px]"
                                 style={{
-                                  background: extendLockDuration.label === opt.label ? 'rgba(139,92,246,0.12)' : 'rgba(255,255,255,0.03)',
-                                  border: extendLockDuration.label === opt.label ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(255,255,255,0.06)',
-                                  color: extendLockDuration.label === opt.label ? '#8b5cf6' : 'rgba(255,255,255,0.5)',
+                                  background: extendLockDuration.label === opt.label ? 'rgba(139,92,246,0.75)' : 'rgba(0,0,0,0.55)',
+                                  border: extendLockDuration.label === opt.label ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(255,255,255,0.25)',
+                                  color: extendLockDuration.label === opt.label ? '#000000' : 'rgba(255,255,255,1)',
                                 }}>
                                 {opt.label}
                               </button>
@@ -670,14 +706,14 @@ export default function FarmPage() {
                           <div className="flex gap-1.5">
                             <button
                               onClick={() => setShowExtendLock(false)}
-                              className="flex-1 py-1.5 rounded-lg text-[10px] text-white/50 cursor-pointer"
-                              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                              className="flex-1 py-1.5 rounded-lg text-[10px] text-white cursor-pointer"
+                              style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.20)' }}>
                               Cancel
                             </button>
                             <button
                               onClick={() => { actions.extendLock(pos.tokenId, BigInt(extendLockDuration.seconds)); setShowExtendLock(false); }}
                               disabled={actions.isPending || actions.isConfirming}
-                              className="btn-secondary flex-1 py-1.5 rounded-lg text-[10px] disabled:opacity-35 disabled:cursor-not-allowed">
+                              className="btn-secondary flex-1 py-1.5 rounded-lg text-[10px] disabled:opacity-70 disabled:cursor-not-allowed">
                               Extend {extendLockDuration.label}
                             </button>
                           </div>
@@ -689,16 +725,16 @@ export default function FarmPage() {
                   <div className="flex flex-col gap-2">
                     <button onClick={() => { lastActionRef.current = 'claim'; actions.claim(pos.tokenId); }}
                       disabled={actions.isPending || actions.isConfirming || pos.isLoading || Number(pos.pendingFormatted) < 0.01}
-                      className="btn-primary w-full py-3 text-[14px] disabled:opacity-35 disabled:cursor-not-allowed">
+                      className="btn-primary w-full py-3 text-[14px] disabled:opacity-70 disabled:cursor-not-allowed">
                       {actions.isPending || actions.isConfirming ? 'Processing...' : 'Claim Rewards'}
                     </button>
                     {pos.unsettledFormatted && parseFloat(pos.unsettledFormatted) > 0 && (
-                      <div className="rounded-lg p-3 mt-2" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.10)' }}>
-                        <p className="text-white/40 text-[11px] mb-1.5">Unsettled: {pos.unsettledFormatted} TOWELI</p>
+                      <div className="rounded-lg p-3 mt-2" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                        <p className="text-white text-[11px] mb-1.5">Unsettled: {pos.unsettledFormatted} TOWELI</p>
                         <button
                           onClick={() => actions.claimUnsettled()}
                           disabled={actions.isPending || actions.isConfirming}
-                          className="btn-secondary w-full py-2 text-[13px] disabled:opacity-35 disabled:cursor-not-allowed">
+                          className="btn-secondary w-full py-2 text-[13px] disabled:opacity-70 disabled:cursor-not-allowed">
                           {actions.isPending || actions.isConfirming ? 'Processing...' : 'Claim Unsettled'}
                         </button>
                       </div>
@@ -707,7 +743,7 @@ export default function FarmPage() {
                       {pos.canWithdraw && !confirmWithdraw && (
                         <button onClick={() => setConfirmWithdraw(true)}
                           disabled={actions.isPending || actions.isConfirming}
-                          className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-35">
+                          className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-70">
                           Withdraw
                         </button>
                       )}
@@ -716,13 +752,13 @@ export default function FarmPage() {
                           <p className="text-warning/80 text-[11px] mb-2">Withdraw <span className="font-mono font-semibold">{pos.stakedFormatted} TOWELI</span>? This will unstake your full position.</p>
                           <div className="flex gap-2">
                             <button onClick={() => setConfirmWithdraw(false)}
-                              className="flex-1 py-2 rounded-lg text-[12px] text-white/50 cursor-pointer"
-                              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                              className="flex-1 py-2 rounded-lg text-[12px] text-white cursor-pointer"
+                              style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.20)' }}>
                               Cancel
                             </button>
                             <button onClick={() => { setConfirmWithdraw(false); lastActionRef.current = 'unstake'; actions.withdraw(pos.tokenId); }}
                               disabled={actions.isPending || actions.isConfirming}
-                              className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-warning cursor-pointer disabled:opacity-35"
+                              className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-warning cursor-pointer disabled:opacity-70"
                               style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.25)' }}>
                               Confirm Withdraw
                             </button>
@@ -732,23 +768,23 @@ export default function FarmPage() {
                       {pos.isLocked && !confirmEarlyWithdraw && (
                         <button onClick={() => setConfirmEarlyWithdraw(true)}
                           disabled={actions.isPending || actions.isConfirming}
-                          className="w-full py-2.5 text-[13px] rounded-lg disabled:opacity-35"
+                          className="w-full py-2.5 text-[13px] rounded-lg disabled:opacity-70"
                           style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: 'rgba(239,68,68,0.8)' }}>
-                          Early Withdraw (25% penalty)
+                          Early Withdraw ({EARLY_WITHDRAWAL_PENALTY_PCT}% penalty)
                         </button>
                       )}
                       {pos.isLocked && confirmEarlyWithdraw && (
                         <div className="col-span-2 rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
-                          <p className="text-danger text-[11px] font-semibold mb-1">Warning: Early withdrawal incurs a penalty. You will lose 25% of your <span className="font-mono">{pos.stakedFormatted} TOWELI</span>. This cannot be undone.</p>
+                          <p className="text-danger text-[11px] font-semibold mb-1">Warning: Early withdrawal incurs a penalty. You will lose {EARLY_WITHDRAWAL_PENALTY_PCT}% of your <span className="font-mono">{pos.stakedFormatted} TOWELI</span>. This cannot be undone.</p>
                           <div className="flex gap-2 mt-2">
                             <button onClick={() => setConfirmEarlyWithdraw(false)}
-                              className="flex-1 py-2 rounded-lg text-[12px] text-white/50 cursor-pointer"
-                              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                              className="flex-1 py-2 rounded-lg text-[12px] text-white cursor-pointer"
+                              style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.20)' }}>
                               Cancel
                             </button>
                             <button onClick={() => { setConfirmEarlyWithdraw(false); lastActionRef.current = 'unstake'; actions.earlyWithdraw(pos.tokenId); }}
                               disabled={actions.isPending || actions.isConfirming}
-                              className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-danger cursor-pointer disabled:opacity-35"
+                              className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-danger cursor-pointer disabled:opacity-70"
                               style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.25)' }}>
                               Confirm Early Withdrawal
                             </button>
@@ -757,30 +793,45 @@ export default function FarmPage() {
                       )}
                       <button onClick={() => actions.toggleAutoMaxLock(pos.tokenId)}
                         disabled={actions.isPending || actions.isConfirming}
-                        className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-35">
+                        className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-70">
                         {pos.autoMaxLock ? 'Disable Auto-Lock' : 'Enable Auto-Max Lock'}
                       </button>
-                      {pos.isPaused && pos.hasPosition && (
+                      {pos.isPaused && pos.hasPosition && !confirmEmergencyExit && (
                         <button
-                          onClick={() => {
-                            if (!confirm('Emergency exit forfeits all pending rewards. Continue?')) return;
-                            actions.emergencyExit(pos.tokenId);
-                          }}
+                          onClick={() => setConfirmEmergencyExit(true)}
                           disabled={actions.isPending || actions.isConfirming}
-                          className="col-span-2 w-full py-2.5 text-[13px] rounded-lg font-semibold disabled:opacity-35 disabled:cursor-not-allowed"
+                          className="col-span-2 w-full py-2.5 text-[13px] rounded-lg font-semibold disabled:opacity-70 disabled:cursor-not-allowed"
                           style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}>
                           Emergency Exit (Forfeit Rewards)
                         </button>
                       )}
+                      {pos.isPaused && pos.hasPosition && confirmEmergencyExit && (
+                        <div className="col-span-2 rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
+                          <p className="text-danger text-[11px] font-semibold mb-1">Emergency exit forfeits all pending rewards. This cannot be undone.</p>
+                          <div className="flex gap-2 mt-2">
+                            <button onClick={() => setConfirmEmergencyExit(false)}
+                              className="flex-1 py-2 rounded-lg text-[12px] text-white cursor-pointer"
+                              style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.20)' }}>
+                              Cancel
+                            </button>
+                            <button onClick={() => { setConfirmEmergencyExit(false); actions.emergencyExit(pos.tokenId); }}
+                              disabled={actions.isPending || actions.isConfirming}
+                              className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-danger cursor-pointer disabled:opacity-70"
+                              style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.25)' }}>
+                              Confirm Emergency Exit
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <Link to="/restake" className="text-center text-primary/60 text-[12px] hover:text-primary transition-colors mt-1">
+                    <Link to="/restake" className="text-center text-white/60 text-[12px] hover:text-white transition-colors mt-1">
                       Restake for bonus yield &#8594;
                     </Link>
                   </div>
                 </div>
               ) : !isConnected ? (
                 <div className="text-center py-8">
-                  <p className="text-white/40 text-[13px] mb-4">Connect wallet to start staking</p>
+                  <p className="text-white text-[13px] mb-4">Connect wallet to start staking</p>
                   <ConnectButton.Custom>
                     {({ openConnectModal, mounted }) => (
                       <div {...(!mounted && { style: { opacity: 0, pointerEvents: 'none' } })}>
@@ -796,28 +847,28 @@ export default function FarmPage() {
                 <div>
                   <div className="mb-4">
                     <div className="flex items-center justify-between mb-2">
-                      <label className="text-white/40 text-[11px] uppercase tracking-wider">Amount</label>
+                      <label className="text-white text-[11px] uppercase tracking-wider label-pill">Amount</label>
                       <button onClick={() => setStakeAmount(pos.walletBalanceFormatted)}
-                        className="text-primary/50 text-[11px] hover:text-primary transition-colors cursor-pointer">
+                        className="text-white/60 text-[11px] hover:text-white transition-colors cursor-pointer">
                         Balance: {formatTokenAmount(pos.walletBalanceFormatted, 0)}
                       </button>
                     </div>
-                    <input type="number" inputMode="decimal" value={stakeAmount} onChange={(e) => setStakeAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                    <input type="number" inputMode="decimal" value={stakeAmount} onChange={(e) => setStakeAmount(e.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))}
                       placeholder="0" min="0" step="any"
                       className="w-full rounded-lg p-4 min-h-[44px] font-mono text-xl text-white outline-none token-input"
-                      style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.12)' }} />
+                      style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }} />
                   </div>
 
                   <div className="mb-4">
-                    <label className="text-white/40 text-[11px] uppercase tracking-wider mb-2 block">Lock Duration</label>
+                    <label className="text-white text-[11px] uppercase tracking-wider label-pill mb-2 block">Lock Duration</label>
                     <div className="grid grid-cols-3 md:grid-cols-4 gap-2">
                       {LOCK_OPTIONS.map((opt) => (
                         <button key={opt.label} onClick={() => setSelectedLock(opt)}
                           className="rounded-lg p-2.5 min-h-[44px] text-center cursor-pointer transition-all text-[12px]"
                           style={{
-                            background: selectedLock.label === opt.label ? 'rgba(139,92,246,0.12)' : 'rgba(255,255,255,0.03)',
-                            border: selectedLock.label === opt.label ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(255,255,255,0.06)',
-                            color: selectedLock.label === opt.label ? '#8b5cf6' : 'rgba(255,255,255,0.5)',
+                            background: selectedLock.label === opt.label ? 'rgba(139,92,246,0.75)' : 'rgba(0,0,0,0.55)',
+                            border: selectedLock.label === opt.label ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(255,255,255,0.25)',
+                            color: selectedLock.label === opt.label ? '#000000' : 'rgba(255,255,255,1)',
                           }}>
                           {opt.label}
                         </button>
@@ -826,26 +877,26 @@ export default function FarmPage() {
                   </div>
 
                   {/* Boost preview */}
-                  <div className="rounded-lg p-4 mb-4" style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.10)' }}>
+                  <div className="rounded-lg p-4 mb-4" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-white/40 text-[11px]">Your Boost</span>
-                      <span className="stat-value text-[16px] text-primary">{boostDisplay}x</span>
+                      <span className="text-white text-[11px]">Your Boost</span>
+                      <span className="stat-value text-[16px] text-white">{boostDisplay}x</span>
                     </div>
                     {nft.holdsJBAC && (
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-white/30 text-[11px]">Includes JBAC bonus</span>
-                        <span className="text-primary/50 text-[11px]">+0.5x</span>
+                        <span className="text-white text-[11px]">Includes JBAC bonus</span>
+                        <span className="text-white text-[11px]">+0.5x</span>
                       </div>
                     )}
                     {amtNum > 0 && (
                       <>
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-white/30 text-[11px]">Effective stake</span>
-                          <span className="text-white/60 text-[11px]">{formatTokenAmount(effectiveStake.toString(), 0)} TOWELI</span>
+                          <span className="text-white text-[11px]">Effective stake</span>
+                          <span className="text-white text-[11px]">{formatTokenAmount(effectiveStake.toString(), 0)} TOWELI</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-white/30 text-[11px]">Voting power</span>
-                          <span className="text-white/60 text-[11px]">{formatTokenAmount(effectiveStake.toString(), 0)}</span>
+                          <span className="text-white text-[11px]">Voting power</span>
+                          <span className="text-white text-[11px]">{formatTokenAmount(effectiveStake.toString(), 0)}</span>
                         </div>
                       </>
                     )}
@@ -853,14 +904,14 @@ export default function FarmPage() {
 
                   <button onClick={handleStake}
                     disabled={actions.isPending || actions.isConfirming || amtNum <= 0}
-                    className="btn-primary w-full py-3.5 text-[14px] disabled:opacity-35 disabled:cursor-not-allowed">
+                    className="btn-primary w-full py-3.5 text-[14px] disabled:opacity-70 disabled:cursor-not-allowed">
                     {actions.isPending || actions.isConfirming
                       ? 'Processing...'
                       : stakeNeedsApproval ? 'Approve TOWELI' : amtNum <= 0 ? 'Enter Amount' : `Stake & Lock for ${selectedLock.label}`}
                   </button>
 
-                  <p className="text-white/20 text-[10px] text-center mt-3">
-                    Early withdrawal available with 25% penalty (redistributed to stakers)
+                  <p className="text-white text-[10px] text-center mt-3">
+                    Early withdrawal available with {EARLY_WITHDRAWAL_PENALTY_PCT}% penalty (redistributed to stakers)
                   </p>
                 </div>
               )}
@@ -870,14 +921,13 @@ export default function FarmPage() {
 
           {/* Boost Table */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-            <div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+            <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
               <div className="absolute inset-0">
-                <img src={ART.swordOfLove.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%', opacity: 1 }} />
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.5) 0%, rgba(6,12,26,0.88) 100%)' }} />
+                <img src={ART.swordOfLove.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
               </div>
               <div className="relative z-10 p-6">
               <h3 className="heading-luxury text-white text-[20px] mb-5">Boost Schedule</h3>
-              <p className="text-white/40 text-[12px] mb-4">Lock longer = higher boost + more voting power. JBAC NFT holders get +0.5x bonus.</p>
+              <p className="text-white text-[12px] mb-4">Lock longer = higher boost + more voting power. JBAC NFT holders get +0.5x bonus.</p>
 
               <div className="space-y-1.5">
                 {LOCK_OPTIONS.map((opt) => {
@@ -886,13 +936,13 @@ export default function FarmPage() {
                   return (
                     <div key={opt.label} className="flex items-center justify-between rounded-lg px-4 py-2.5"
                       style={{
-                        background: selectedLock.label === opt.label ? 'rgba(139,92,246,0.08)' : 'rgba(255,255,255,0.02)',
+                        background: selectedLock.label === opt.label ? 'rgba(139,92,246,0.75)' : 'rgba(0,0,0,0.50)',
                         border: selectedLock.label === opt.label ? '1px solid rgba(139,92,246,0.2)' : '1px solid transparent',
                       }}>
-                      <span className="text-white/60 text-[13px]">{opt.label}</span>
+                      <span className="text-white text-[13px]">{opt.label}</span>
                       <div className="flex items-center gap-3">
-                        <span className="stat-value text-[14px] text-primary">{(b / 10000).toFixed(2)}x</span>
-                        <span className="text-white/20 text-[11px]">({(withNft / 10000).toFixed(2)}x w/NFT)</span>
+                        <span className="stat-value text-[14px] text-white">{(b / 10000).toFixed(2)}x</span>
+                        <span className="text-white text-[11px]">({(withNft / 10000).toFixed(2)}x w/NFT)</span>
                       </div>
                     </div>
                   );
@@ -901,25 +951,23 @@ export default function FarmPage() {
 
               <div className="mt-6 relative overflow-hidden rounded-lg" style={{ border: '1px solid rgba(255,178,55,0.12)' }}>
                 <div className="absolute inset-0">
-                  <img src={ART.chaosScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-                  <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.5) 0%, rgba(6,12,26,0.85) 100%)' }} />
+                  <img src={ART.chaosScene.src} alt="" className="w-full h-full object-cover" />
                 </div>
                 <div className="relative z-10 p-4">
                   <p className="text-warning/80 text-[12px] font-medium mb-1">Early Withdrawal</p>
-                  <p className="text-white/40 text-[11px]">
-                    You can exit your lock at any time with a 25% penalty. Penalty tokens are redistributed to remaining stakers — so diamond hands get rewarded.
+                  <p className="text-white text-[11px]">
+                    You can exit your lock at any time with a {EARLY_WITHDRAWAL_PENALTY_PCT}% penalty. Penalty tokens are redistributed to remaining stakers — so diamond hands get rewarded.
                   </p>
                 </div>
               </div>
 
-              <div className="mt-4 relative overflow-hidden rounded-lg" style={{ border: '1px solid rgba(139,92,246,0.10)' }}>
+              <div className="mt-4 relative overflow-hidden rounded-lg" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
                 <div className="absolute inset-0">
-                  <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" style={{ opacity: 1 }} />
-                  <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(6,12,26,0.5) 0%, rgba(6,12,26,0.85) 100%)' }} />
+                  <img src={ART.forestScene.src} alt="" className="w-full h-full object-cover" />
                 </div>
                 <div className="relative z-10 p-4">
-                  <p className="text-primary/80 text-[12px] font-medium mb-1">Auto-Max Lock</p>
-                  <p className="text-white/40 text-[11px]">
+                  <p className="text-white text-[12px] font-medium mb-1">Auto-Max Lock</p>
+                  <p className="text-white text-[11px]">
                     Enable auto-max lock to keep maximum boost (4.0x) perpetually. Your lock auto-renews on every claim. Disable anytime to let it expire naturally.
                   </p>
                 </div>

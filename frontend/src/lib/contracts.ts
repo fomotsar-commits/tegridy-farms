@@ -285,6 +285,7 @@ export const TEGRIDY_DROP_ABI = [
   { type: 'function', name: 'reveal', inputs: [{ name: 'revealURI', type: 'string' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'withdraw', inputs: [], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'owner', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
+  { type: 'function', name: 'maxPerWallet', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
 ] as const;
 
 // ─── TegridyNFTPool (Sudoswap-style NFT AMM Pool) ─────────────

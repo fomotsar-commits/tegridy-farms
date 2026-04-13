@@ -94,12 +94,16 @@ export default defineConfig(({ mode }) => {
       },
     },
     build: {
+      target: 'es2023',
       sourcemap: false,
       rollupOptions: {
         output: {
           manualChunks(id) {
             if (id.includes('node_modules/react-dom') || id.includes('node_modules/react/') || id.includes('node_modules/react-router')) {
               return 'vendor-react';
+            }
+            if (id.includes('node_modules/viem')) {
+              return 'vendor-viem';
             }
             if (id.includes('node_modules/wagmi') || id.includes('node_modules/@rainbow-me')) {
               return 'vendor-wagmi';

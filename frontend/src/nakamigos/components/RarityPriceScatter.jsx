@@ -631,20 +631,23 @@ export default function RarityPriceScatter({ tokens, listings, activities, onPic
         const ty = Math.max(10, Math.min(p.py - 20, rect.height - 80));
         tooltip.style.left = `${tx}px`;
         tooltip.style.top = `${ty}px`;
-        // Sanitize external NFT metadata before injecting into DOM.
-        // `type` comes from NFT attributes (external API data) and could
-        // contain malicious HTML/scripts if an attacker crafts metadata.
-        const esc = (s) => {
-          const el = document.createElement("span");
-          el.textContent = s;
-          return el.innerHTML;
-        };
-        tooltip.innerHTML =
-          `<strong>#${esc(String(d.id))}</strong><br/>` +
-          `Price: ${(d.price ?? 0).toFixed(4)} ETH<br/>` +
-          `Rank: #${d.rank.toLocaleString()}<br/>` +
-          (type ? `Type: ${esc(type)}<br/>` : "") +
-          `vs Trend: ${sign}${discountPct}%`;
+        // Build tooltip with DOM API to eliminate innerHTML XSS surface.
+        // All values come from external NFT metadata / API data and must
+        // never be inserted as raw HTML.
+        tooltip.textContent = "";
+        const strong = document.createElement("strong");
+        strong.textContent = `#${d.id}`;
+        tooltip.appendChild(strong);
+        tooltip.appendChild(document.createElement("br"));
+        tooltip.appendChild(document.createTextNode(`Price: ${(d.price ?? 0).toFixed(4)} ETH`));
+        tooltip.appendChild(document.createElement("br"));
+        tooltip.appendChild(document.createTextNode(`Rank: #${d.rank.toLocaleString()}`));
+        if (type) {
+          tooltip.appendChild(document.createElement("br"));
+          tooltip.appendChild(document.createTextNode(`Type: ${type}`));
+        }
+        tooltip.appendChild(document.createElement("br"));
+        tooltip.appendChild(document.createTextNode(`vs Trend: ${sign}${discountPct}%`));
         canvas.style.cursor = "pointer";
         return;
       }

@@ -150,11 +150,19 @@ export function reportError(
 }
 
 export function installGlobalHandlers() {
-  window.onerror = (_msg, _source, _line, _col, error) => {
-    reportError(error ?? _msg);
-  };
+  window.addEventListener('error', (event) => {
+    try {
+      reportError(event.error ?? event.message);
+    } catch {
+      // Prevent the error handler itself from throwing
+    }
+  });
 
   window.addEventListener('unhandledrejection', (event) => {
-    reportError(event.reason);
+    try {
+      reportError(event.reason);
+    } catch {
+      // Prevent the error handler itself from throwing
+    }
   });
 }

@@ -24,7 +24,7 @@ export interface TegridyScoreResult {
   score: number;
   breakdown: TegridyScoreBreakdown;
   rank: string;
-  percentile: string;
+  tier: string;
   tips: string[];
   selfReported: string[];
 }
@@ -134,18 +134,18 @@ function getRank(score: number): string {
   return 'Seedling \u{1F331}';
 }
 
-function getPercentile(score: number): string {
-  if (score >= 95) return 'Top 1%';
-  if (score >= 90) return 'Top 3%';
-  if (score >= 85) return 'Top 5%';
-  if (score >= 80) return 'Top 8%';
-  if (score >= 70) return 'Top 12%';
-  if (score >= 60) return 'Top 20%';
-  if (score >= 50) return 'Top 35%';
-  if (score >= 40) return 'Top 50%';
-  if (score >= 30) return 'Top 65%';
-  if (score >= 20) return 'Top 80%';
-  return 'Top 95%';
+function getTier(score: number): string {
+  if (score >= 95) return 'Tier: Mythic';
+  if (score >= 90) return 'Tier: Legend';
+  if (score >= 85) return 'Tier: Master';
+  if (score >= 80) return 'Tier: Diamond';
+  if (score >= 70) return 'Tier: Platinum';
+  if (score >= 60) return 'Tier: Gold';
+  if (score >= 50) return 'Tier: Silver';
+  if (score >= 40) return 'Tier: Bronze';
+  if (score >= 30) return 'Tier: Iron';
+  if (score >= 20) return 'Tier: Copper';
+  return 'Tier: Seedling';
 }
 
 function getTips(breakdown: TegridyScoreBreakdown): string[] {
@@ -212,7 +212,7 @@ export function useTegridyScore(): TegridyScoreResult {
               abi: COMMUNITY_GRANTS_ABI,
               functionName: 'hasVotedOnProposal',
               args: [BigInt(id), address],
-            }).catch(() => false)
+            }).catch((err) => { console.error('Failed to check vote status:', err); return false; })
           )
         );
         const proposals = await Promise.all(
@@ -222,7 +222,7 @@ export function useTegridyScore(): TegridyScoreResult {
               abi: COMMUNITY_GRANTS_ABI,
               functionName: 'getProposal',
               args: [BigInt(id)],
-            }).catch(() => null)
+            }).catch((err) => { console.error('Failed to fetch proposal:', err); return null; })
           )
         );
         if (cancelled) return;
@@ -268,7 +268,7 @@ export function useTegridyScore(): TegridyScoreResult {
               abi: MEME_BOUNTY_BOARD_ABI,
               functionName: 'getBounty',
               args: [BigInt(id)],
-            }).catch(() => null)
+            }).catch((err) => { console.error('Failed to fetch bounty:', err); return null; })
           )
         );
         if (cancelled) return;
@@ -304,7 +304,8 @@ export function useTegridyScore(): TegridyScoreResult {
         const block = await publicClient.getBlock({ blockNumber: logs[0].blockNumber });
         if (!cancelled) setFirstInteractionTs(Number(block.timestamp));
       }
-    }).catch(() => {
+    }).catch((err) => {
+      console.error('Failed to fetch first interaction timestamp:', err);
       if (!cancelled) setFirstInteractionTs(0);
     });
     return () => { cancelled = true; };
@@ -342,7 +343,7 @@ export function useTegridyScore(): TegridyScoreResult {
       score,
       breakdown,
       rank: getRank(score),
-      percentile: getPercentile(score),
+      tier: getTier(score),
       tips: getTips(breakdown),
       selfReported,
     };

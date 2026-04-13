@@ -1,6 +1,5 @@
-import { useRef, useCallback, type ReactNode } from 'react';
+import { useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import html2canvas from 'html2canvas';
 import {
   TransactionReceiptContext,
   useTransactionReceiptState,
@@ -112,6 +111,36 @@ function buildDetailRows(receipt: ReceiptData): { label: string; value: string }
       if (data.bountyTitle) rows.push({ label: 'Bounty', value: sanitize(data.bountyTitle) });
       if (data.bountyReward) rows.push({ label: 'Reward', value: `${sanitize(data.bountyReward)} ETH` });
       break;
+
+    case 'approve':
+      if (data.token) rows.push({ label: 'Token', value: sanitize(data.token) });
+      if (data.spender) rows.push({ label: 'Spender', value: sanitize(data.spender) });
+      if (data.amount) rows.push({ label: 'Amount', value: `${formatTokenAmount(data.amount, 4)} ${sanitize(data.token)}` });
+      break;
+
+    case 'liquidity_add':
+      if (data.tokenA && data.amountA) rows.push({ label: 'Token A', value: `${formatTokenAmount(data.amountA, 6)} ${sanitize(data.tokenA)}` });
+      if (data.tokenB && data.amountB) rows.push({ label: 'Token B', value: `${formatTokenAmount(data.amountB, 6)} ${sanitize(data.tokenB)}` });
+      if (data.poolName) rows.push({ label: 'Pool', value: sanitize(data.poolName) });
+      break;
+
+    case 'liquidity_remove':
+      if (data.tokenA && data.amountA) rows.push({ label: 'Token A', value: `${formatTokenAmount(data.amountA, 6)} ${sanitize(data.tokenA)}` });
+      if (data.tokenB && data.amountB) rows.push({ label: 'Token B', value: `${formatTokenAmount(data.amountB, 6)} ${sanitize(data.tokenB)}` });
+      if (data.poolName) rows.push({ label: 'Pool', value: sanitize(data.poolName) });
+      if (data.percent) rows.push({ label: 'Removed', value: `${sanitize(data.percent)}%` });
+      break;
+
+    case 'subscribe':
+      if (data.tier) rows.push({ label: 'Tier', value: sanitize(data.tier) });
+      if (data.amount && data.token) rows.push({ label: 'Cost', value: `${formatTokenAmount(data.amount, 4)} ${sanitize(data.token)}` });
+      if (data.duration) rows.push({ label: 'Duration', value: sanitize(data.duration) });
+      break;
+
+    case 'claim_revenue':
+      if (data.rewardAmount && data.token) rows.push({ label: 'Revenue', value: `${formatTokenAmount(data.rewardAmount, 6)} ${sanitize(data.token)}` });
+      if (data.epoch) rows.push({ label: 'Epoch', value: sanitize(data.epoch) });
+      break;
   }
 
   return rows;
@@ -128,15 +157,25 @@ function TransactionReceiptOverlay({
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const config = TYPE_CONFIG[receipt.type];
-  const rows = buildDetailRows(receipt);
-  const timestamp = new Date().toLocaleString('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZoneName: 'short',
-  });
+  const rows = useMemo(() => buildDetailRows(receipt), [receipt]);
+
+  // Capture timestamp once when the receipt is first shown (stable across re-renders).
+  // If receipt data includes a blockTimestamp, prefer that over wall-clock time.
+  const initialTimestampRef = useRef<string | null>(null);
+  if (initialTimestampRef.current === null) {
+    const dateSource = receipt.data.blockTimestamp
+      ? new Date(Number(receipt.data.blockTimestamp) * 1000)
+      : new Date();
+    initialTimestampRef.current = dateSource.toLocaleString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZoneName: 'short',
+    });
+  }
+  const timestamp = initialTimestampRef.current;
 
   const safeTxHash = sanitizeTxHash(receipt.data.txHash);
   const etherscanUrl = safeTxHash
@@ -156,6 +195,7 @@ function TransactionReceiptOverlay({
   const handleCopyImage = useCallback(async () => {
     if (!cardRef.current) return;
     try {
+      const html2canvas = (await import('html2canvas')).default;
       const canvas = await html2canvas(cardRef.current, {
         backgroundColor: '#060c1a',
         scale: 2,
@@ -206,7 +246,7 @@ function TransactionReceiptOverlay({
         style={{
           background: 'linear-gradient(145deg, rgba(6,12,26,0.95) 0%, rgba(16,30,54,0.95) 100%)',
           border: '1px solid rgba(139,92,246,0.25)',
-          boxShadow: '0 0 0 1px rgba(139,92,246,0.08), 0 24px 64px rgba(0,0,0,0.6), 0 0 48px rgba(139,92,246,0.08)',
+          boxShadow: '0 0 0 1px rgba(139,92,246,0.75), 0 24px 64px rgba(0,0,0,0.6), 0 0 48px rgba(139,92,246,0.75)',
         }}
         initial={{ opacity: 0, y: 40, scale: 0.95 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -240,7 +280,7 @@ function TransactionReceiptOverlay({
           </div>
 
           {/* Divider */}
-          <div className="gold-divider mb-5" />
+          <div className="accent-divider mb-5" />
 
           {/* Type label */}
           <div className="flex items-center gap-2 mb-5">
@@ -255,13 +295,13 @@ function TransactionReceiptOverlay({
 
           {/* Swap hero line */}
           {receipt.type === 'swap' && receipt.data.fromAmount && receipt.data.toAmount && (
-            <div className="mb-5 px-4 py-3 rounded-xl" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.12)' }}>
+            <div className="mb-5 px-4 py-3 rounded-xl" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
               <div className="flex items-center justify-center gap-2 md:gap-3 flex-wrap">
-                <span className="stat-value text-[14px] md:text-[16px] text-white/80">
+                <span className="stat-value text-[14px] md:text-[16px] text-white">
                   {formatTokenAmount(receipt.data.fromAmount, 6)} {sanitize(receipt.data.fromToken)}
                 </span>
-                <span className="text-primary text-[14px] md:text-[16px]">{'\u{2192}'}</span>
-                <span className="stat-value text-[14px] md:text-[16px] text-primary">
+                <span className="text-white text-[14px] md:text-[16px]">{'\u{2192}'}</span>
+                <span className="stat-value text-[14px] md:text-[16px] text-white">
                   {formatTokenAmount(receipt.data.toAmount, 6)} {sanitize(receipt.data.toToken)}
                 </span>
               </div>
@@ -272,8 +312,8 @@ function TransactionReceiptOverlay({
           <div className="space-y-2.5 mb-5">
             {rows.map((row) => (
               <div key={row.label} className="flex items-center justify-between">
-                <span className="text-white/40 text-[12px]">{row.label}</span>
-                <span className="stat-value text-[13px] text-white/80">{row.value}</span>
+                <span className="text-white text-[12px]">{row.label}</span>
+                <span className="stat-value text-[13px] text-white">{row.value}</span>
               </div>
             ))}
           </div>
@@ -281,12 +321,12 @@ function TransactionReceiptOverlay({
           {/* Tx Hash */}
           {etherscanUrl && (
             <div className="flex items-center justify-between mb-4">
-              <span className="text-white/40 text-[12px]">Tx Hash</span>
+              <span className="text-white text-[12px]">Tx Hash</span>
               <a
                 href={etherscanUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="stat-value text-[12px] text-primary hover:text-primary/80 transition-colors"
+                className="stat-value text-[12px] text-white hover:text-white transition-colors"
               >
                 {safeTxHash!.slice(0, 6)}...{safeTxHash!.slice(-4)} {'\u{2197}'}
               </a>
@@ -294,12 +334,12 @@ function TransactionReceiptOverlay({
           )}
 
           {/* Timestamp */}
-          <div className="text-white/25 text-[11px] text-center mb-5">
+          <div className="text-white text-[11px] text-center mb-5">
             {timestamp}
           </div>
 
           {/* Divider */}
-          <div className="gold-divider mb-4" />
+          <div className="accent-divider mb-4" />
 
           {/* Action buttons */}
           <div className="flex gap-2">
@@ -307,9 +347,9 @@ function TransactionReceiptOverlay({
               onClick={handleShareX}
               className="flex-1 py-2.5 rounded-lg text-[13px] font-semibold cursor-pointer transition-all"
               style={{
-                background: 'rgba(139,92,246,0.10)',
+                background: 'rgba(139,92,246,0.75)',
                 border: '1px solid rgba(139,92,246,0.25)',
-                color: '#8b5cf6',
+                color: '#ffffff',
               }}
             >
               Share to X
@@ -318,7 +358,7 @@ function TransactionReceiptOverlay({
               onClick={handleCopyImage}
               className="flex-1 py-2.5 rounded-lg text-[13px] font-semibold cursor-pointer transition-all"
               style={{
-                background: 'rgba(255,255,255,0.03)',
+                background: 'rgba(0,0,0,0.55)',
                 border: '1px solid rgba(255,255,255,0.08)',
                 color: 'rgba(255,255,255,0.6)',
               }}
@@ -329,7 +369,7 @@ function TransactionReceiptOverlay({
               onClick={onClose}
               className="flex-1 py-2.5 rounded-lg text-[13px] font-semibold cursor-pointer transition-all"
               style={{
-                background: 'rgba(255,255,255,0.03)',
+                background: 'rgba(0,0,0,0.55)',
                 border: '1px solid rgba(255,255,255,0.08)',
                 color: 'rgba(255,255,255,0.4)',
               }}

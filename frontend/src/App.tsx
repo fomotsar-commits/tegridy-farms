@@ -1,12 +1,11 @@
 import { lazy, Suspense, useEffect } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Link } from 'react-router-dom';
 import { WagmiProvider } from 'wagmi';
 import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import '@rainbow-me/rainbowkit/styles.css';
 import { config } from './lib/wagmi';
 import { AppLayout } from './components/layout/AppLayout';
-import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { PageSkeleton } from './components/PageSkeleton';
 import { safeSetItem } from './lib/storage';
 
@@ -40,34 +39,54 @@ const queryClient = new QueryClient({
   },
 });
 
+function NotFoundPage() {
+  return (
+    <div className="min-h-[60vh] flex items-center justify-center px-6">
+      <div className="text-center max-w-sm">
+        <h1 className="heading-luxury text-5xl text-white mb-3">404</h1>
+        <h2 className="heading-luxury text-xl text-white mb-2">Page Not Found</h2>
+        <p className="text-white/70 text-[13px] mb-6">
+          The page you are looking for does not exist or has been moved.
+        </p>
+        <Link
+          to="/"
+          className="btn-primary inline-block px-7 py-2.5 text-[14px]"
+        >
+          Back to Home
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 function AnimatedRoutes() {
   return (
     <Routes>
       {/* Nakamigos marketplace — renders outside AppLayout (has its own header/footer/background) */}
-      <Route path="nakamigos/*" element={<ErrorBoundary><NakamigosApp /></ErrorBoundary>} />
+      <Route path="nakamigos/*" element={<NakamigosApp />} />
       <Route element={<AppLayout />}>
-        <Route index element={<ErrorBoundary><HomePage /></ErrorBoundary>} />
-        <Route path="farm" element={<ErrorBoundary><FarmPage /></ErrorBoundary>} />
-        <Route path="swap" element={<ErrorBoundary><TradePage /></ErrorBoundary>} />
-        <Route path="dashboard" element={<ErrorBoundary><DashboardPage /></ErrorBoundary>} />
-        <Route path="gallery" element={<ErrorBoundary><GalleryPage /></ErrorBoundary>} />
-        <Route path="tokenomics" element={<ErrorBoundary><TokenomicsPage /></ErrorBoundary>} />
-        <Route path="history" element={<ErrorBoundary><HistoryPage /></ErrorBoundary>} />
-        <Route path="lore" element={<ErrorBoundary><LorePage /></ErrorBoundary>} />
-        <Route path="leaderboard" element={<ErrorBoundary><LeaderboardPage /></ErrorBoundary>} />
-        <Route path="community" element={<ErrorBoundary><CommunityPage /></ErrorBoundary>} />
+        <Route index element={<HomePage />} />
+        <Route path="farm" element={<FarmPage />} />
+        <Route path="swap" element={<TradePage />} />
+        <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="gallery" element={<GalleryPage />} />
+        <Route path="tokenomics" element={<TokenomicsPage />} />
+        <Route path="history" element={<HistoryPage />} />
+        <Route path="lore" element={<LorePage />} />
+        <Route path="leaderboard" element={<LeaderboardPage />} />
+        <Route path="community" element={<CommunityPage />} />
         <Route path="grants" element={<Navigate to="/community" replace />} />
         <Route path="bounties" element={<Navigate to="/community" replace />} />
         <Route path="restake" element={<Navigate to="/lending" replace />} />
         <Route path="liquidity" element={<Navigate to="/swap" replace />} />
-        <Route path="premium" element={<ErrorBoundary><PremiumPage /></ErrorBoundary>} />
+        <Route path="premium" element={<PremiumPage />} />
         <Route path="bribes" element={<Navigate to="/community" replace />} />
-        <Route path="admin" element={<ErrorBoundary><AdminPage /></ErrorBoundary>} />
-        <Route path="lending" element={<ErrorBoundary><LendingPage /></ErrorBoundary>} />
+        <Route path="admin" element={<AdminPage />} />
+        <Route path="lending" element={<LendingPage />} />
         <Route path="launchpad" element={<Navigate to="/lending" replace />} />
         <Route path="nft-amm" element={<Navigate to="/lending" replace />} />
         <Route path="governance" element={<Navigate to="/community" replace />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
   );
@@ -81,24 +100,22 @@ function App() {
   }, []);
 
   return (
-    <ErrorBoundary>
-      <WagmiProvider config={config}>
-        <QueryClientProvider client={queryClient}>
-          <RainbowKitProvider
-            theme={darkTheme({
-              accentColor: '#2D8B4E',
-              accentColorForeground: 'white',
-              borderRadius: 'large',
-              overlayBlur: 'small',
-            })}
-          >
-            <Suspense fallback={<PageSkeleton />}>
-              <AnimatedRoutes />
-            </Suspense>
-          </RainbowKitProvider>
-        </QueryClientProvider>
-      </WagmiProvider>
-    </ErrorBoundary>
+    <WagmiProvider config={config}>
+      <QueryClientProvider client={queryClient}>
+        <RainbowKitProvider
+          theme={darkTheme({
+            accentColor: '#2D8B4E',
+            accentColorForeground: 'white',
+            borderRadius: 'large',
+            overlayBlur: 'small',
+          })}
+        >
+          <Suspense fallback={<PageSkeleton />}>
+            <AnimatedRoutes />
+          </Suspense>
+        </RainbowKitProvider>
+      </QueryClientProvider>
+    </WagmiProvider>
   );
 }
 

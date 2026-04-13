@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useTegridyScore, type TegridyScoreBreakdown } from '../hooks/useTegridyScore';
+import { ART } from '../lib/artConfig';
 
 const RING_SIZE = 160;
 const STROKE_WIDTH = 10;
@@ -8,8 +9,8 @@ const RADIUS = (RING_SIZE - STROKE_WIDTH) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 const BREAKDOWN_LABELS: { key: keyof TegridyScoreBreakdown; label: string; color: string }[] = [
-  { key: 'stakingScore', label: 'Staking', color: '#8b5cf6' },
-  { key: 'lockScore', label: 'Lock', color: '#a78bfa' },
+  { key: 'stakingScore', label: 'Staking', color: '#a78bfa' },
+  { key: 'lockScore', label: 'Lock', color: '#c4b5fd' },
   { key: 'activityScore', label: 'Activity', color: '#c4b5fd' },
   { key: 'governanceScore', label: 'Governance', color: '#7c3aed' },
   { key: 'communityScore', label: 'Community', color: '#6d28d9' },
@@ -17,7 +18,7 @@ const BREAKDOWN_LABELS: { key: keyof TegridyScoreBreakdown; label: string; color
 ];
 
 export function TegridyScore() {
-  const { score, breakdown, rank, percentile, tips } = useTegridyScore();
+  const { score, breakdown, rank, tier, tips } = useTegridyScore();
   const [displayScore, setDisplayScore] = useState(0);
   const [progress, setProgress] = useState(0);
 
@@ -49,11 +50,16 @@ export function TegridyScore() {
 
   return (
     <motion.div
-      className="glass-card-strong p-6"
+      className="relative overflow-hidden rounded-xl glass-card-animated"
+      style={{ border: '1px solid rgba(139,92,246,0.75)' }}
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
+      <div className="absolute inset-0">
+        <img src={ART.jungleDark.src} alt="" className="w-full h-full object-cover" />
+      </div>
+      <div className="relative z-10 p-6">
       {/* Circle + Score */}
       <div className="flex flex-col items-center mb-6">
         <div className="relative" style={{ width: RING_SIZE, height: RING_SIZE }}>
@@ -61,7 +67,7 @@ export function TegridyScore() {
           <div
             className="absolute inset-0 rounded-full"
             style={{
-              background: 'radial-gradient(circle, rgba(139,92,246,0.25) 0%, rgba(139,92,246,0.08) 50%, transparent 70%)',
+              background: 'radial-gradient(circle, rgba(139,92,246,0.25) 0%, rgba(139,92,246,0.75) 50%, transparent 70%)',
               animation: 'scoreGlow 3s ease-in-out infinite',
             }}
           />
@@ -79,7 +85,7 @@ export function TegridyScore() {
               cy={RING_SIZE / 2}
               r={RADIUS}
               fill="none"
-              stroke="rgba(139,92,246,0.08)"
+              stroke="rgba(139,92,246,0.75)"
               strokeWidth={STROKE_WIDTH}
             />
             {/* Progress ring */}
@@ -102,9 +108,9 @@ export function TegridyScore() {
           </div>
         </div>
 
-        <p className="text-[15px] text-white/80 font-medium mt-3">{rank}</p>
-        <p className="text-[12px] text-white/35 mt-0.5">{percentile}</p>
-        <p className="text-[10px] text-white/20 mt-1.5 italic">Score based on on-chain activity</p>
+        <p className="text-[15px] text-white font-medium mt-3">{rank}</p>
+        <p className="text-[12px] text-white mt-0.5">{tier}</p>
+        <p className="text-[10px] text-white mt-1.5 italic">Score based on on-chain activity</p>
       </div>
 
       {/* Breakdown bars with stagger */}
@@ -114,10 +120,10 @@ export function TegridyScore() {
           return (
             <div key={key}>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] text-white/40">{label}</span>
-                <span className="stat-value text-[11px] text-white/60">{value}</span>
+                <span className="text-[11px] text-white">{label}</span>
+                <span className="stat-value text-[11px] text-white">{value}</span>
               </div>
-              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(139,92,246,0.08)' }}>
+              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(139,92,246,0.75)' }}>
                 <motion.div
                   className="h-full rounded-full"
                   style={{ background: color }}
@@ -131,31 +137,24 @@ export function TegridyScore() {
         })}
       </div>
 
-      {/* Glow keyframes injected via style tag */}
-      <style>{`
-        @keyframes scoreGlow {
-          0%, 100% { opacity: 0.5; transform: scale(1); }
-          50% { opacity: 1; transform: scale(1.06); }
-        }
-      `}</style>
-
       {/* Tips */}
       {tips.length > 0 && (
-        <div className="pt-4" style={{ borderTop: '1px solid rgba(139,92,246,0.08)' }}>
+        <div className="pt-4" style={{ borderTop: '1px solid rgba(139,92,246,0.75)' }}>
           <div className="space-y-2">
-            {tips.map((tip, i) => (
+            {tips.map((tip) => (
               <div
-                key={i}
+                key={tip}
                 className="flex items-start gap-2 px-3 py-2 rounded-lg"
-                style={{ background: 'rgba(139,92,246,0.04)', border: '1px solid rgba(139,92,246,0.06)' }}
+                style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}
               >
                 <span className="text-[12px] text-warning mt-px">*</span>
-                <span className="text-[12px] text-white/50">{tip}</span>
+                <span className="text-[12px] text-white">{tip}</span>
               </div>
             ))}
           </div>
         </div>
       )}
+      </div>
     </motion.div>
   );
 }
