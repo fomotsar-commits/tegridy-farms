@@ -206,7 +206,7 @@ export default function AdminPage() {
   return (
     <div className="w-full max-w-5xl mx-auto px-4 py-10 space-y-8">
       <div>
-        <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">
+        <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">
           Admin Dashboard
         </h1>
         <p className="text-white text-sm">

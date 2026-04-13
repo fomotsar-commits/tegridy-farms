@@ -69,9 +69,9 @@ export default function GalleryPage() {
         <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover object-center" />
       </div>
 
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-12">
+      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         <motion.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">The Collection</h1>
+          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">The Collection</h1>
           <p className="text-white text-[14px]">{GALLERY_ORDER.length} original hand-drawn pieces from the Tegridy universe</p>
         </motion.div>
 
@@ -79,7 +79,7 @@ export default function GalleryPage() {
           <p className="text-white text-[11px]">Votes are for fun only — stored locally in your browser, not on-chain.</p>
         </div>
 
-        <div className="columns-2 sm:columns-3 gap-3 space-y-3">
+        <div className="columns-1 sm:columns-2 md:columns-3 gap-3 space-y-3">
           {sortedPieces.map((piece, i) => (
             // Fix #3: outer element is a div (not button) to avoid nested buttons
             <motion.div key={piece.id} onClick={() => setSelectedIndex(i)}

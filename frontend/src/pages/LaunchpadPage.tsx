@@ -308,7 +308,7 @@ function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string; deplo
               {/* Phase Control */}
               <div>
                 <label className={LABEL}>Mint Phase</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {PHASE_LABELS.map((label, i) => (
                     <button
                       key={label}
@@ -989,7 +989,7 @@ export default function LaunchpadPage({ embedded }: { embedded?: boolean }) {
           <motion.div className="text-center mb-10" {...fadeUp}>
             <ArtCard art={ART.jbChristmas} opacity={1} overlay="none" className="inline-block rounded-2xl px-2 py-1 mb-0">
               <div className="px-4 sm:px-8 py-4">
-                <h1 className="heading-luxury text-3xl md:text-4xl mb-3">NFT Launchpad</h1>
+                <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl mb-3">NFT Launchpad</h1>
                 <p className="text-white max-w-lg mx-auto text-sm leading-relaxed">
                   Launch your NFT collection with built-in allowlists, Dutch auctions, delayed
                   reveals, and ERC-2981 royalties.

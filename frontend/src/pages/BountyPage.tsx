@@ -200,10 +200,10 @@ export default function BountyPage({ embedded }: { embedded?: boolean }) {
         </div>
       )}
 
-      <div className={`relative z-10 max-w-[700px] mx-auto ${embedded ? '' : 'px-4 md:px-6 pt-20 pb-12'}`}>
+      <div className={`relative z-10 max-w-[700px] mx-auto ${embedded ? '' : 'px-4 md:px-6 pt-20 pb-28 md:pb-12'}`}>
         <motion.div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div>
-            {!embedded && <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Bounty Board</h1>}
+            {!embedded && <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Bounty Board</h1>}
             <p className="text-white text-[14px]">Seize the memes of production — get paid for creating</p>
           </div>
           {isConnected && (

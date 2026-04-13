@@ -375,7 +375,7 @@ export default function FarmPage() {
         <img src={ART.jungleBus.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 20%' }} />
       </div>
 
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-12">
+      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         {/* Wrong network banner (#82 audit) */}
         {isWrongNetwork && (
           <div className="mb-4 px-5 py-4 rounded-xl text-[14px] font-semibold text-yellow-200 flex items-center gap-3" style={{ background: 'rgba(234,179,8,0.18)', border: '2px solid rgba(234,179,8,0.4)' }}>
@@ -384,12 +384,12 @@ export default function FarmPage() {
           </div>
         )}
         <motion.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Farm</h1>
+          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Farm</h1>
           <p className="text-white text-[14px]">Stake TOWELI and earn rewards &middot; <span className="text-white">FAFO</span></p>
         </motion.div>
 
         {/* Stats */}
-        <motion.div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+        <motion.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           {[
             { l: 'Total Value Locked', v: stats.tvl, art: ART.apeHug.src, pos: 'center 30%' },
             { l: 'TOWELI Price', v: stats.toweliPrice + (price.displayPriceStale ? ' (stale)' : ''), art: ART.roseApe.src, pos: 'center 30%' },
@@ -471,7 +471,7 @@ export default function FarmPage() {
               </div>
             </div>
             <div className="rounded-xl p-6" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(139,92,246,0.15)' }}>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
                 {[...Array(4)].map((_, i) => (
                   <div key={i} className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.15)' }}>
                     <div className="h-3 w-20 rounded bg-white/10 animate-pulse mb-2" />
@@ -499,7 +499,7 @@ export default function FarmPage() {
               </div>
               <div className="relative z-10 p-6">
                 {/* Stats row */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
                   <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
                     <p className="text-white text-[10px] mb-0.5">Total LP Staked</p>
                     <p className="stat-value text-[14px] text-white font-mono">{formatTokenAmount(lpFarm.totalStakedFormatted)}</p>
@@ -530,7 +530,7 @@ export default function FarmPage() {
                     {/* User position */}
                     {lpFarm.stakedBalance > 0n && (
                       <div className="rounded-lg p-4 mb-4" style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.15)' }}>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-center">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-center">
                           <div>
                             <p className="text-white text-[10px]">Your Staked LP</p>
                             <p className="text-white font-mono text-[14px]">{formatTokenAmount(lpFarm.stakedBalanceFormatted)}</p>
@@ -861,7 +861,7 @@ export default function FarmPage() {
 
                   <div className="mb-4">
                     <label className="text-white text-[11px] uppercase tracking-wider label-pill mb-2 block">Lock Duration</label>
-                    <div className="grid grid-cols-3 md:grid-cols-4 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
                       {LOCK_OPTIONS.map((opt) => (
                         <button key={opt.label} onClick={() => setSelectedLock(opt)}
                           className="rounded-lg p-2.5 min-h-[44px] text-center cursor-pointer transition-all text-[12px]"

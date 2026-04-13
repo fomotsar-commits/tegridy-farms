@@ -193,16 +193,16 @@ export default function SwapPage({ embedded }: { embedded?: boolean }) {
         </div>
       )}
 
-      <div className={`relative z-10 ${embedded ? '' : 'max-w-[1100px] mx-auto px-4 md:px-6 pt-20 pb-12'}`}>
+      <div className={`relative z-10 ${embedded ? '' : 'max-w-[1100px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12'}`}>
         {/* Page header */}
         {!embedded && (
           <motion.div className="mb-5" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-            <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Swap</h1>
+            <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Swap</h1>
             <p className="text-white text-[13px]">Trade any token via Uniswap V2</p>
           </motion.div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] xl:grid-cols-[1fr_420px] gap-4 items-stretch">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_320px] lg:grid-cols-[1fr_380px] xl:grid-cols-[1fr_420px] gap-4 items-stretch">
 
         {/* Left column: unified chart card */}
         <motion.div className="flex flex-col" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
@@ -288,7 +288,7 @@ export default function SwapPage({ embedded }: { embedded?: boolean }) {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05 }}
-          className="sticky top-20 rounded-2xl overflow-hidden relative glass-card-animated card-hover"
+          className="sticky top-16 md:top-20 rounded-2xl overflow-hidden relative glass-card-animated card-hover"
           style={{
             border: '1px solid rgba(139,92,246,0.75)',
             boxShadow: '0 8px 40px rgba(0,0,0,0.65), 0 0 1px rgba(139,92,246,0.2)',

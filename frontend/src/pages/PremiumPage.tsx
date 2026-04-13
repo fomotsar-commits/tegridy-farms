@@ -78,7 +78,7 @@ export default function PremiumPage() {
         <img src={ART.swordOfLove.src} alt="" className="w-full h-full object-cover" />
       </div>
 
-      <div className="relative z-10 max-w-[1000px] mx-auto px-4 md:px-6 pt-24 pb-16">
+      <div className="relative z-10 max-w-[1000px] mx-auto px-4 md:px-6 pt-24 pb-28 md:pb-16">
         {/* Hero */}
         <motion.div className="text-center mb-12" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <div className="inline-block mb-4">
@@ -89,7 +89,7 @@ export default function PremiumPage() {
               <img src={ART.bobowelie.src} alt="" className="w-full h-full object-cover" />
             </div>
           </div>
-          <h1 className="heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3">
+          <h1 className="heading-luxury text-2xl md:text-4xl lg:text-5xl text-white tracking-tight mb-3">
             Gold <span style={{ color: '#d4a017' }}>Card</span>
           </h1>
           <p className="text-white text-base md:text-lg max-w-lg mx-auto">
@@ -154,7 +154,7 @@ export default function PremiumPage() {
         )}
 
         {/* Stats Row */}
-        <motion.div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-10"
+        <motion.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-10"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15 }}>
           {/* Fix #3: Loading skeletons for stats */}
           {isLoading ? (
@@ -223,7 +223,7 @@ export default function PremiumPage() {
             <p className="text-white text-[12px] mb-5">Pay in TOWELI. Longer plans save more.</p>
 
             {/* Plan Cards — Fix #1: BigInt-derived display values */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
               {PLANS.map((p, i) => {
                 const planCostRaw = p.discount > 0
                   ? premium.monthlyFee * BigInt(p.months) * BigInt(100 - p.discount) / 100n

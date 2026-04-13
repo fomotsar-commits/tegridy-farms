@@ -54,14 +54,14 @@ export default function TokenomicsPage() {
         <img src={ART.swordOfLove.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 25%' }} />
       </div>
 
-      <div className="relative z-10 max-w-[1000px] mx-auto px-4 md:px-6 pt-20 pb-12">
+      <div className="relative z-10 max-w-[1000px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         <motion.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Tokenomics</h1>
+          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Tokenomics</h1>
           <p className="text-white text-[14px]">TOWELI token economics and protocol transparency</p>
         </motion.div>
 
         {/* Token info */}
-        <motion.div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+        <motion.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           {[
             { l: 'Token', v: 'TOWELI', art: ART.smokingDuo.src, pos: 'center 40%' },
             { l: 'Total Supply', v: '1B', art: ART.poolParty.src, pos: 'center 30%' },
@@ -176,7 +176,7 @@ export default function TokenomicsPage() {
             <p className="text-white text-[12px] mb-3">
               100% of protocol revenue is distributed to stakers. The farm contract holds all staked tokens and manages reward distribution transparently on-chain.
             </p>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
                 <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">Rewards Remaining</p>
                 <p className="stat-value text-[13px] text-white">{pool.totalRewardsFunded || '0'} TOWELI</p>

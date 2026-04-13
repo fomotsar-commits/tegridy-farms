@@ -29,9 +29,9 @@ export default function LeaderboardPage() {
         <img src={JB_CHRISTMAS_SRC} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
       </div>
 
-      <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-20 pb-12">
+      <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         <motion.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Leaderboard</h1>
+          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Leaderboard</h1>
           <p className="text-white text-[14px]">{CURRENT_SEASON.name} — Earn points by using the protocol</p>
           <p className="text-amber-400/50 text-[11px] mt-1">Points are tracked locally for fun. Any future rewards will be based on on-chain activity only.</p>
         </motion.div>
@@ -58,7 +58,7 @@ export default function LeaderboardPage() {
               )}
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
               <div className="rounded-lg p-3 text-center" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
                 <p className="text-white text-[10px] mb-1">Points</p>
                 <AnimatedCounter value={points.data?.points ?? 0} decimals={0} className="stat-value text-xl text-white" />
@@ -137,7 +137,7 @@ export default function LeaderboardPage() {
           </div>
           <div className="relative z-10 p-5">
             <h3 className="text-white text-[15px] font-semibold mb-3">How Points Work</h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               {[
                 { action: 'Swap', pts: 10 },
                 { action: 'Stake / Unstake', pts: 25 },
@@ -165,7 +165,7 @@ export default function LeaderboardPage() {
           </div>
           <div className="relative z-10 p-5">
             <h3 className="text-white text-[15px] font-semibold mb-3">Tiers</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
               {TIER_THRESHOLDS.map(t => (
                 <div key={t.name} className="rounded-lg p-3 text-center"
                   style={{ background: 'rgba(139,92,246,0.75)', border: `1px solid ${t.color}20` }}>

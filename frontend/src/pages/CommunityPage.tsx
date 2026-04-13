@@ -37,7 +37,7 @@ export default function CommunityPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
         >
-          <h1 className="heading-luxury text-3xl md:text-4xl mb-2 tracking-tight">Community</h1>
+          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl mb-2 tracking-tight">Community</h1>
           <p className="text-white max-w-md mx-auto text-[14px]">
             Governance, bounties, and vote incentives — powered by the community.
           </p>
@@ -69,7 +69,7 @@ export default function CommunityPage() {
           <>
             {/* Section Toggle */}
             <motion.div
-              className="flex justify-center flex-wrap gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-fit"
+              className="grid grid-cols-3 md:flex justify-center gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit"
               style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
               role="tablist"
               initial={{ opacity: 0, y: 8 }}
@@ -81,7 +81,7 @@ export default function CommunityPage() {
                   key={key}
                   role="tab"
                   aria-selected={section === key}
-                  className={`relative px-5 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-300 ${
+                  className={`relative px-3 py-2 md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 ${
                     section === key ? 'text-white' : 'text-white hover:text-white'
                   }`}
                   onClick={() => setSection(key)}

@@ -177,7 +177,7 @@ export const TopNav = React.memo(function TopNav() {
               }}
             </ConnectButton.Custom>
 
-            <button onClick={() => setOpen(true)} aria-label="Open navigation menu" aria-expanded={open} className="md:hidden p-2.5 -mr-2 text-text-muted min-w-[44px] min-h-[44px] flex items-center justify-center">
+            <button onClick={() => setOpen(true)} aria-label="Open navigation menu" aria-expanded={open} className="md:hidden p-2.5 -mr-2 text-text-muted min-w-[48px] min-h-[48px] flex items-center justify-center">
               <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
                 <path d="M3 5h14M3 10h14M3 15h14" />
               </svg>
@@ -199,7 +199,7 @@ export const TopNav = React.memo(function TopNav() {
               initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}>
               <div className="p-4 flex justify-end">
-                <button onClick={() => setOpen(false)} aria-label="Close navigation menu" className="text-text-muted p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center">
+                <button onClick={() => setOpen(false)} aria-label="Close navigation menu" className="text-text-muted p-2.5 min-w-[48px] min-h-[48px] flex items-center justify-center">
                   <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
                     <path d="M5 5l10 10M15 5l-10 10" />
                   </svg>

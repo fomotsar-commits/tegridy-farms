@@ -38,7 +38,7 @@ export default function LendingPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
         >
-          <h1 className="heading-luxury text-3xl md:text-4xl mb-2 tracking-tight">NFT Finance</h1>
+          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl mb-2 tracking-tight">NFT Finance</h1>
           <p className="text-white max-w-md mx-auto text-[14px]">
             Lend, borrow, and trade NFTs — institutional-grade tools, all in one place.
           </p>
@@ -67,7 +67,7 @@ export default function LendingPage() {
           <>
             {/* Section Toggle */}
             <motion.div
-              className="flex justify-center flex-wrap gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-fit"
+              className="grid grid-cols-2 md:flex justify-center gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit"
               style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
@@ -76,7 +76,7 @@ export default function LendingPage() {
               {SECTIONS.map(({ key, label }) => (
                 <button
                   key={key}
-                  className={`relative px-5 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-300 ${
+                  className={`relative px-3 py-2 md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 ${
                     section === key
                       ? 'text-white'
                       : 'text-white hover:text-white'
@@ -125,7 +125,7 @@ export default function LendingPage() {
 function SectionLoader() {
   return (
     <div className="space-y-4 animate-pulse">
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {[1, 2, 3].map(i => (
           <div key={i} className="rounded-xl p-5" style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}>
             <div className="h-3 rounded w-16 mx-auto mb-2" style={{ background: 'rgba(255,255,255,0.25)' }} />

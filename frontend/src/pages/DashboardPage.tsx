@@ -119,7 +119,7 @@ export default function DashboardPage() {
         <img src={ART.towelieWindow.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 85%' }} />
       </div>
 
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-12">
+      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         {isWrongNetwork && (
           <div className="mb-4 px-4 py-3 rounded-xl bg-warning/10 border border-warning/30 text-warning text-[13px] text-center">
             Wrong network detected. Please switch to Ethereum Mainnet.
@@ -129,7 +129,7 @@ export default function DashboardPage() {
         <motion.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-3">
-              <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Dashboard</h1>
+              <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Dashboard</h1>
               {nft.boostLabel && (
                 <span className="badge badge-warning text-[10px]">{nft.boostLabel}</span>
               )}
@@ -154,7 +154,7 @@ export default function DashboardPage() {
         </motion.div>
 
         {/* Summary Stats */}
-        <motion.div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+        <motion.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           {[
             { l: 'TOWELI Balance', numVal: walletToweli, decimals: 0, sub: price.isLoaded ? formatCurrency(walletToweli * price.priceInUsd) : '–', art: ART.mumuBull.src, loading: isToweliLoading, error: toweliError },
             { l: 'ETH Balance', numVal: ethBal, decimals: 4, sub: ethBalance && price.ethUsd > 0 ? formatCurrency(ethBal * price.ethUsd) : '–', art: ART.jungleBus.src, loading: isEthLoading, error: ethError },
@@ -289,7 +289,7 @@ export default function DashboardPage() {
               <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-5">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
                   <p className="text-white text-[10px] mb-0.5">Staked</p>
                   <AnimatedCounter value={stakedTotal} decimals={2} className="stat-value text-[16px] text-white" />
@@ -423,7 +423,7 @@ function Projections({ staked, apr, price, boost = 1 }: {
 }) {
   const daily = (staked * apr / 100) / 365 * boost;
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
       {[{ l: '7 Days', m: 7 }, { l: '30 Days', m: 30 }, { l: '90 Days', m: 90 }, { l: '1 Year', m: 365 }].map(({ l, m }) => (
         <div key={l} className="glass-card rounded-lg p-3 text-center card-hover">
           <p className="text-white text-[10px] mb-1">{l}</p>

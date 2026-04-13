@@ -219,9 +219,9 @@ export default function HistoryPage() {
         <img src={ART.jungleDark.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%' }} />
       </div>
 
-      <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-20 pb-12">
+      <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         <motion.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">History</h1>
+          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">History</h1>
           <p className="text-white text-[14px]">Your recent transactions on Tegridy Farms</p>
         </motion.div>
 

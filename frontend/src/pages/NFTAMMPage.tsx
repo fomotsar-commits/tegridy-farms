@@ -299,7 +299,7 @@ export default function NFTAMMPage() {
 
       <div className="relative z-10 max-w-[1100px] mx-auto px-4 md:px-6 pt-24 pb-16">
         <motion.div className="text-center mb-10" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="heading-luxury text-3xl md:text-4xl mb-3">NFT AMM</h1>
+          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl mb-3">NFT AMM</h1>
           <p className="text-white max-w-lg mx-auto">Instant NFT liquidity with bonding-curve pools. Buy, sell, or provide two-sided liquidity for any ERC-721 collection.</p>
         </motion.div>
 

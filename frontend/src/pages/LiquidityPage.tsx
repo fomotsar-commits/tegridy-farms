@@ -200,7 +200,7 @@ export default function LiquidityPage({ embedded }: { embedded?: boolean }) {
     <div className={embedded ? '' : 'min-h-screen relative'}>
       {/* Background removed — handled by AppLayout */}
 
-      <div className={`relative z-10 ${embedded ? 'space-y-6' : 'max-w-lg mx-auto px-4 py-8 space-y-6'}`}>
+      <div className={`relative z-10 ${embedded ? 'space-y-6' : 'w-full md:max-w-lg mx-auto px-4 py-8 space-y-6'}`}>
         {/* Header */}
         {!embedded && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center">
@@ -231,7 +231,7 @@ export default function LiquidityPage({ embedded }: { embedded?: boolean }) {
             <img src={ART.poolParty.src} alt="" className="absolute inset-0 w-full h-full object-cover" />
             <div className="relative p-5">
               <h2 className="text-white text-xs font-semibold tracking-widest uppercase mb-4">{symbolA}/{symbolB} Pool</h2>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <p className="text-white text-[11px]">{symbolA} Reserve</p>
                   <p className="text-white font-semibold text-sm">{reserveAFmt}</p>

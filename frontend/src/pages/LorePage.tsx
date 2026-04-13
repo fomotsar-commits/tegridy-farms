@@ -60,7 +60,7 @@ export default function LorePage() {
       <div className="relative z-10 h-[60vh] min-h-[400px] flex items-center justify-center">
         <motion.div className="text-center px-6" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <p className="text-white text-[12px] uppercase tracking-[0.2em] mb-3">The Origin Story</p>
-          <h1 className="heading-luxury text-4xl md:text-6xl text-white tracking-tight mb-4">
+          <h1 className="heading-luxury text-3xl md:text-4xl lg:text-6xl text-white tracking-tight mb-4">
             From Rug to Riches
           </h1>
           <p className="text-white text-base max-w-lg mx-auto">

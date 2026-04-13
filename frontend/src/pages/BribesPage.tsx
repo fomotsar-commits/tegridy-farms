@@ -66,16 +66,16 @@ export default function BribesPage({ embedded }: { embedded?: boolean }) {
         </div>
       )}
 
-      <div className={`relative z-10 max-w-[900px] mx-auto ${embedded ? '' : 'px-4 md:px-6 pt-20 pb-12'}`}>
+      <div className={`relative z-10 max-w-[900px] mx-auto ${embedded ? '' : 'px-4 md:px-6 pt-20 pb-28 md:pb-12'}`}>
         {!embedded && (
           <motion.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-            <h1 className="heading-luxury text-3xl md:text-4xl text-white tracking-tight mb-1">Vote Incentives</h1>
+            <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Vote Incentives</h1>
             <p className="text-white text-[14px]">Earn bribes from protocols competing for veTOWELI votes</p>
           </motion.div>
         )}
 
         {/* Stats Overview */}
-        <motion.div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+        <motion.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
           {[
             { label: 'Current Epoch', value: String(bribes.currentEpoch) },
             { label: 'Completed Epochs', value: String(bribes.epochCount) },
