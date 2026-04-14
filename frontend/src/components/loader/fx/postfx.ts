@@ -145,7 +145,7 @@ export class PostFX {
     gl.bindVertexArray(this.vao);
 
     // 1. Extract bright pixels
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos[0].fb);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos[0]!.fb);
     gl.viewport(0, 0, this.halfW, this.halfH);
     gl.useProgram(this.extractProg);
     gl.activeTexture(gl.TEXTURE0);
@@ -155,17 +155,17 @@ export class PostFX {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
     // 2. Blur horizontal
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos[1].fb);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos[1]!.fb);
     gl.useProgram(this.blurProg);
-    gl.bindTexture(gl.TEXTURE_2D, this.fbos[0].tex);
+    gl.bindTexture(gl.TEXTURE_2D, this.fbos[0]!.tex);
     gl.uniform1i(gl.getUniformLocation(this.blurProg!, 'u_tex'), 0);
     gl.uniform2f(gl.getUniformLocation(this.blurProg!, 'u_dir'), 1.0, 0.0);
     gl.uniform2f(gl.getUniformLocation(this.blurProg!, 'u_resolution'), this.halfW, this.halfH);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
     // 3. Blur vertical
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos[0].fb);
-    gl.bindTexture(gl.TEXTURE_2D, this.fbos[1].tex);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos[0]!.fb);
+    gl.bindTexture(gl.TEXTURE_2D, this.fbos[1]!.tex);
     gl.uniform2f(gl.getUniformLocation(this.blurProg!, 'u_dir'), 0.0, 1.0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
@@ -177,7 +177,7 @@ export class PostFX {
     gl.bindTexture(gl.TEXTURE_2D, this.sceneTex);
     gl.uniform1i(gl.getUniformLocation(this.combineProg!, 'u_scene'), 0);
     gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, this.fbos[0].tex);
+    gl.bindTexture(gl.TEXTURE_2D, this.fbos[0]!.tex);
     gl.uniform1i(gl.getUniformLocation(this.combineProg!, 'u_bloom'), 1);
     gl.uniform1f(gl.getUniformLocation(this.combineProg!, 'u_bloomIntensity'), bloomIntensity);
     gl.uniform1f(gl.getUniformLocation(this.combineProg!, 'u_caStrength'), caStrength);

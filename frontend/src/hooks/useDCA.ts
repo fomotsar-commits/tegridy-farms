@@ -241,7 +241,7 @@ export function useDCA() {
         args: [parsedAmount, path],
       });
       const amountsOut = result as bigint[];
-      const expectedOut = amountsOut[amountsOut.length - 1];
+      const expectedOut = amountsOut[amountsOut.length - 1] ?? 0n;
       minOut = expectedOut - (expectedOut * SLIPPAGE_BPS / 10000n);
     } catch {
       // If quote fails, do not proceed with 0 slippage -- abort
@@ -340,7 +340,7 @@ export function useDCA() {
         if (s.status !== 'active') continue;
         if (s.completedSwaps >= s.totalSwaps) continue;
         if (executingRef.current.has(s.id)) continue;
-        const intervalMs = INTERVAL_MS[s.interval] || INTERVAL_MS.daily;
+        const intervalMs = INTERVAL_MS[s.interval] ?? INTERVAL_MS.daily ?? 86400000;
         if (now - s.lastSwapAt >= intervalMs) {
           executeDCASwap(s);
         }
@@ -361,7 +361,7 @@ export function useDCA() {
   const dueSchedules = schedules.filter(s => {
     if (s.status !== 'active') return false;
     if (s.completedSwaps >= s.totalSwaps) return false;
-    const intervalMs = INTERVAL_MS[s.interval] || INTERVAL_MS.daily;
+    const intervalMs = INTERVAL_MS[s.interval] ?? INTERVAL_MS.daily ?? 86400000;
     return Date.now() - s.lastSwapAt >= intervalMs;
   });
 

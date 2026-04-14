@@ -222,9 +222,9 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
         let r = 200, g = 180, b = 140;
         if (pixelData) {
           const idx = (Math.floor(py) * oc.width + Math.floor(px)) * 4;
-          r = pixelData.data[idx];
-          g = pixelData.data[idx + 1];
-          b = pixelData.data[idx + 2];
+          r = pixelData.data[idx] ?? 200;
+          g = pixelData.data[idx + 1] ?? 180;
+          b = pixelData.data[idx + 2] ?? 140;
         }
         const angle = Math.random() * Math.PI * 2;
         const speed = 2 + Math.random() * 6;
@@ -257,9 +257,10 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
       const allPts = shuffle([...mainPts, ...subPts]);
       const shuffled = shuffle([...Array(s.particles.length).keys()]);
       for (let i = 0; i < Math.min(allPts.length, s.particles.length); i++) {
-        const p = s.particles[shuffled[i]];
-        p.targetX = allPts[i].x;
-        p.targetY = allPts[i].y;
+        const idx = shuffled[i]!;
+        const p = s.particles[idx]!;
+        p.targetX = allPts[i]!.x;
+        p.targetY = allPts[i]!.y;
         p.hasTarget = true;
       }
       s.textTargetsReady = true;
@@ -323,13 +324,13 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
         if (pieceIdx >= s.images.length) {
           s.phase = 'shatter';
           s.t0 = now;
-          createParticles(s.images[s.images.length - 1]);
+          createParticles(s.images[s.images.length - 1]!);
           rafId = requestAnimationFrame(tick);
           return;
         }
 
-        const img = s.images[pieceIdx];
-        const title = s.titles[pieceIdx] || '';
+        const img = s.images[pieceIdx]!;
+        const title = s.titles[pieceIdx] ?? '';
 
         // Particle morph during glitch window
         if (s.morphParticles.length > 0) {
@@ -370,7 +371,7 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
           // Spawn morph particles at start of glitch
           if (glitchTime < 50 && s.morphParticles.length === 0) {
             const nextIdx = pieceIdx + 1;
-            const nextImg = nextIdx < s.images.length ? s.images[nextIdx] : null;
+            const nextImg = nextIdx < s.images.length ? s.images[nextIdx]! : null;
             s.morphParticles = createMorphParticles(img, nextImg, W, H);
           }
         }
@@ -429,7 +430,7 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
 
         // Background art (same as hold phase)
         if (s.images.length > 0) {
-          const bgImg = s.images[s.images.length - 1];
+          const bgImg = s.images[s.images.length - 1]!;
           const bgFit = coverFit(bgImg, W, H);
           ctx!.save();
           ctx!.globalAlpha = 0.35;

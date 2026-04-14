@@ -52,7 +52,7 @@ export default function GrantsPage({ embedded }: { embedded?: boolean }) {
       address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'createProposal',
       args: [validRecipient, parseEther(amount), description],
     }, {
-      onError: (err) => toast.error(err.shortMessage || err.message || 'Failed to create proposal'),
+      onError: (err) => toast.error((err as { shortMessage?: string }).shortMessage || err.message || 'Failed to create proposal'),
     });
   };
 

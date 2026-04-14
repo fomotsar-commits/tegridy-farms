@@ -27,6 +27,21 @@ export interface ReceiptData {
     // For bounties
     bountyTitle?: string;
     bountyReward?: string;
+    // For approvals
+    spender?: string;
+    // For liquidity
+    tokenA?: string;
+    amountA?: string;
+    tokenB?: string;
+    amountB?: string;
+    percent?: string;
+    // For subscriptions
+    tier?: string;
+    duration?: string;
+    // For revenue claims
+    epoch?: string;
+    // Block info
+    blockTimestamp?: string;
     // Common
     txHash?: string;
   };

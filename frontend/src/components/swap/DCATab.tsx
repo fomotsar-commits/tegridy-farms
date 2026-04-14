@@ -50,7 +50,7 @@ export function DCATab() {
       fromToken: { symbol: fromToken.symbol, address: fromToken.address, decimals: fromToken.decimals, ...(fromToken.isNative && { isNative: true }) },
       toToken: { symbol: toToken.symbol, address: toToken.address, decimals: toToken.decimals, ...(toToken.isNative && { isNative: true }) },
       amountPerSwap: amount,
-      interval: INTERVALS[intervalIdx].value,
+      interval: INTERVALS[intervalIdx]!.value,
       totalSwaps: parsed,
     });
     setAmount('');
@@ -117,7 +117,7 @@ export function DCATab() {
           </div>
           <div className="flex items-center justify-between mb-1">
             <span className="text-white text-[11px]">Schedule</span>
-            <span className="text-white text-[12px]">{INTERVALS[intervalIdx].label} × {totalSwaps}</span>
+            <span className="text-white text-[12px]">{INTERVALS[intervalIdx]!.label} × {totalSwaps}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-white text-[11px]">Total cost</span>

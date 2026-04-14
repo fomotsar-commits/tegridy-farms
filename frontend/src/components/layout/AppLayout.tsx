@@ -57,6 +57,7 @@ function RouteGlitch() {
   return glitchConfig ? <GlitchTransition config={glitchConfig} /> : null;
 }
 
+/* useIsMobile — kept for future responsive hooks
 function useIsMobile() {
   const [mobile, setMobile] = useState(() =>
     typeof window !== 'undefined' ? window.matchMedia('(max-width: 767px)').matches : false
@@ -69,6 +70,7 @@ function useIsMobile() {
   }, []);
   return mobile;
 }
+*/
 
 export function AppLayout() {
   const location = useLocation();

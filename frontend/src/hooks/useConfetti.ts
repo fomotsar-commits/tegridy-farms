@@ -50,7 +50,7 @@ function createParticle(x: number, y: number): Particle {
     vx: Math.cos(angle) * speed + (Math.random() - 0.5) * 3,
     vy: Math.sin(angle) * speed,
     size: 4 + Math.random() * 4,
-    color: COLORS[Math.floor(Math.random() * COLORS.length)],
+    color: COLORS[Math.floor(Math.random() * COLORS.length)] ?? '#8b5cf6',
     shape: Math.random() > 0.5 ? 'square' : 'circle',
     rotation: Math.random() * Math.PI * 2,
     rotationSpeed: (Math.random() - 0.5) * 0.15,

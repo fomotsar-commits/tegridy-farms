@@ -32,9 +32,9 @@ export function createMorphParticles(
     let r = 200, g = 180, b = 140;
     if (pixelData) {
       const idx = (Math.floor(py) * oc.width + Math.floor(px)) * 4;
-      r = pixelData.data[idx];
-      g = pixelData.data[idx + 1];
-      b = pixelData.data[idx + 2];
+      r = pixelData.data[idx] ?? 200;
+      g = pixelData.data[idx + 1] ?? 180;
+      b = pixelData.data[idx + 2] ?? 140;
     }
 
     const angle = Math.random() * Math.PI * 2;
@@ -60,7 +60,7 @@ export function updateMorphParticles(
   ctx: CanvasRenderingContext2D, s: LoaderState, progress: number,
 ) {
   for (let i = s.morphParticles.length - 1; i >= 0; i--) {
-    const p = s.morphParticles[i];
+    const p = s.morphParticles[i]!;
     p.progress = progress;
 
     if (progress < 0.4) {

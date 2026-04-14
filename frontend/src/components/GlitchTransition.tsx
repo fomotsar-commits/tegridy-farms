@@ -56,7 +56,7 @@ function MobileGlitchTransition({ config }: { config: GlitchConfig }) {
   const skippedRef = useRef(false);
   const seedRef = useRef(Math.floor(Math.random() * 99999));
   const subliminalWord = useRef(
-    SUBLIMINAL_PHRASES[Math.floor(Math.random() * SUBLIMINAL_PHRASES.length)]
+    SUBLIMINAL_PHRASES[Math.floor(Math.random() * SUBLIMINAL_PHRASES.length)] ?? 'TEGRIDY'
   );
 
   // Preload 3 random art images
@@ -139,7 +139,8 @@ function MobileGlitchTransition({ config }: { config: GlitchConfig }) {
         seed = seedRef.current + Math.floor(elapsed / 80) * 7; // Change slices every ~80ms
 
         for (let i = 0; i < sliceCount; i++) {
-          const img = images[Math.floor(srand() * images.length)];
+          const img = images[Math.floor(srand() * images.length)]!;
+          if (!img) continue;
           const sliceY = Math.floor(srand() * H);
           const sliceH = Math.max(20, Math.floor(30 + srand() * (H * 0.15)));
           const offsetX = dirSign * (srand() - 0.3) * 40;
@@ -221,7 +222,7 @@ function MobileGlitchTransition({ config }: { config: GlitchConfig }) {
         const subAlpha = progress < 0.35
           ? (progress - 0.3) / 0.05
           : (0.45 - progress) / 0.1;
-        const word = subliminalWord.current;
+        const word: string = subliminalWord.current;
         const fontSize = Math.min(32, W * 0.09);
         ctx.save();
         ctx.translate(W / 2, H / 2);
@@ -312,12 +313,12 @@ const SLICE_STEPS: SliceStep[] = [
 ];
 
 function interpolateSlice(progress: number, offsetX: number, skewX: number) {
-  let a = SLICE_STEPS[0];
-  let b = SLICE_STEPS[SLICE_STEPS.length - 1];
+  let a = SLICE_STEPS[0]!;
+  let b = SLICE_STEPS[SLICE_STEPS.length - 1]!;
   for (let i = 0; i < SLICE_STEPS.length - 1; i++) {
-    if (progress >= SLICE_STEPS[i].at && progress <= SLICE_STEPS[i + 1].at) {
-      a = SLICE_STEPS[i];
-      b = SLICE_STEPS[i + 1];
+    if (progress >= SLICE_STEPS[i]!.at && progress <= SLICE_STEPS[i + 1]!.at) {
+      a = SLICE_STEPS[i]!;
+      b = SLICE_STEPS[i + 1]!;
       break;
     }
   }
@@ -340,7 +341,7 @@ function generateSlices(config: GlitchConfig, rand: () => number): SliceData[] {
   // More slices for desktop, spread across the full duration
   const delaySpread = config.duration * 0.45; // 45% of duration for stagger
   for (let i = 0; i < config.sliceCount; i++) {
-    const src = shuffled[i % shuffled.length];
+    const src = shuffled[i % shuffled.length]!;
     const height = 8 + rand() * 40; // taller slices possible
     const top = rand() * (100 - height);
     const baseOffset = 50 + rand() * 120; // much wider offsets
@@ -375,7 +376,7 @@ interface SubliminalData {
 
 function generateSubliminal(config: GlitchConfig, rand: () => number): SubliminalData {
   return {
-    text: SUBLIMINAL_PHRASES[Math.floor(rand() * SUBLIMINAL_PHRASES.length)],
+    text: SUBLIMINAL_PHRASES[Math.floor(rand() * SUBLIMINAL_PHRASES.length)] ?? 'TEGRIDY',
     offsetX: (rand() - 0.5) * 80,
     offsetY: (rand() - 0.5) * 50,
     rotation: (rand() - 0.5) * 8,

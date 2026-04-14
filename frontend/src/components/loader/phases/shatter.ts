@@ -9,7 +9,7 @@ export function drawShatterPhase(
 
   // Extra dramatic glitch on first 300ms
   if (elapsed < 300 && s.images.length > 0) {
-    const lastImg = s.images[s.images.length - 1];
+    const lastImg = s.images[s.images.length - 1]!;
     const gp = elapsed / 300;
     const alpha = 1 - easeInOutCubicLocal(gp);
     if (alpha > 0.05) {

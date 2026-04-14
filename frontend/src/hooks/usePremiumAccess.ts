@@ -20,7 +20,7 @@ export function usePremiumAccess() {
 
   const isConfirming = isApproveConfirming || isActionConfirming;
   const isSuccess = isApproveSuccess || isActionSuccess;
-  const isTxError = isApproveTxError || isActionTxError;
+  void (isApproveTxError || isActionTxError);
   const hash = actionHash ?? approveHash;
 
   // Check if user holds a JBAC NFT

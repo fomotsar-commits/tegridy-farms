@@ -73,7 +73,7 @@ export default function RestakePage({ embedded }: { embedded?: boolean }) {
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'approve',
       args: [TEGRIDY_RESTAKING_ADDRESS, pos.tokenId],
-    }, { onError: (err) => toast.error(err.shortMessage ?? 'Approve failed') });
+    }, { onError: (err) => toast.error((err as { shortMessage?: string }).shortMessage ?? 'Approve failed') });
   };
 
   // Step 2: Deposit NFT into restaking contract
@@ -84,7 +84,7 @@ export default function RestakePage({ embedded }: { embedded?: boolean }) {
       abi: TEGRIDY_RESTAKING_ABI,
       functionName: 'restake',
       args: [pos.tokenId],
-    }, { onError: (err) => toast.error(err.shortMessage ?? 'Restake failed') });
+    }, { onError: (err) => toast.error((err as { shortMessage?: string }).shortMessage ?? 'Restake failed') });
   };
 
   const handleClaimAll = () => {
@@ -92,7 +92,7 @@ export default function RestakePage({ embedded }: { embedded?: boolean }) {
       address: TEGRIDY_RESTAKING_ADDRESS,
       abi: TEGRIDY_RESTAKING_ABI,
       functionName: 'claimAll',
-    }, { onError: (err) => toast.error(err.shortMessage ?? 'Claim failed') });
+    }, { onError: (err) => toast.error((err as { shortMessage?: string }).shortMessage ?? 'Claim failed') });
   };
 
   const handleUnrestake = () => {
@@ -100,7 +100,7 @@ export default function RestakePage({ embedded }: { embedded?: boolean }) {
       address: TEGRIDY_RESTAKING_ADDRESS,
       abi: TEGRIDY_RESTAKING_ABI,
       functionName: 'unrestake',
-    }, { onError: (err) => toast.error(err.shortMessage ?? 'Unrestake failed') });
+    }, { onError: (err) => toast.error((err as { shortMessage?: string }).shortMessage ?? 'Unrestake failed') });
   };
 
   return (

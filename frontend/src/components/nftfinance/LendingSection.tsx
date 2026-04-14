@@ -16,13 +16,14 @@ import { useTOWELIPrice } from '../../contexts/PriceContext';
 // ─── Design tokens ──────────────────────────────────────────────
 const CARD_BG = 'rgba(13, 21, 48, 0.6)';
 const CARD_BORDER = 'rgba(139, 92, 246, 0.12)';
-const CARD_BORDER_HOVER = 'rgba(139, 92, 246, 0.25)';
+/** @internal Reserved for future styling */
+export const CARD_BORDER_HOVER = 'rgba(139, 92, 246, 0.25)';
 const ROW_BORDER = 'rgba(255, 255, 255, 0.04)';
 const DARK_OVERLAY = 'none';
 const DARK_OVERLAY_HEAVY = 'none';
 const SHIMMER_BG =
   'linear-gradient(90deg, rgba(13,21,48,0.8) 25%, rgba(17,29,58,0.8) 50%, rgba(13,21,48,0.8) 75%)';
-const EASE = [0.22, 1, 0.36, 1] as const;
+const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
 
 // ─── Duration presets ───────────────────────────────────────────
 const DURATION_PRESETS = [
@@ -161,7 +162,8 @@ function Shimmer({ className }: { className?: string }) {
   );
 }
 
-function SkeletonLayout() {
+/** @internal Reserved for loading state */
+export function SkeletonLayout() {
   return (
     <div className="space-y-6">
       <style>{`@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
@@ -208,7 +210,8 @@ function StatusBadge({ status }: { status: LoanStatus }) {
 }
 
 // ─── Pulse Dot ──────────────────────────────────────────────────
-function PulseDot({ color = 'bg-emerald-400' }: { color?: string }) {
+/** @internal Reserved for future use */
+export function LendingPulseDot({ color = 'bg-emerald-400' }: { color?: string }) {
   return (
     <span className="relative flex h-1.5 w-1.5">
       <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${color} opacity-75`} />
@@ -289,7 +292,8 @@ function FilterPill({
 // ═══════════════════════════════════════════════════════════════════
 // COMING SOON STATE
 // ═══════════════════════════════════════════════════════════════════
-function ComingSoonState() {
+/** @internal Reserved for future use */
+export function ComingSoonState() {
   const features = [
     'P2P fixed-term loans',
     'No oracles required',
@@ -312,7 +316,7 @@ function ComingSoonState() {
             <ArtPanel key={i} artSrc={ART.forestScene.src} opacity={1}>
               <div className="p-4">
                 <div className="text-[11px] uppercase tracking-wider label-pill text-white mb-1">
-                  {['Total Offers', 'Active Loans', 'Protocol Fee', 'TVL (ETH)'][i]}
+                  {['Total Offers', 'Active Loans', 'Protocol Fee', 'TVL (ETH)'][i] ?? ''}
                 </div>
                 <div className="font-mono text-xl text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                   {i === 2 ? `${val}%` : val}
@@ -436,7 +440,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
     },
     {
       label: 'Protocol Fee',
-      value: protocolFeeBps !== undefined ? `${bpsToPercent(protocolFeeBps)}%` : '--%',
+      value: protocolFeeBps !== undefined ? `${bpsToPercent(protocolFeeBps as bigint)}%` : '--%',
       icon: (
         <svg className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
@@ -462,7 +466,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
           key={s.label}
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: idx * 0.08, ease: EASE as unknown as number[] }}
+          transition={{ duration: 0.5, delay: idx * 0.08, ease: EASE as [number, number, number, number] }}
         >
           <ArtPanel artSrc={ART.forestScene.src} opacity={1} overlay={DARK_OVERLAY} className="group hover:scale-[1.02] transition-transform duration-300" style={{ transitionTimingFunction: `cubic-bezier(${EASE.join(',')})` }}>
             <div className="p-4">
@@ -922,7 +926,7 @@ function OfferRow({
     });
   };
 
-  const positionAmount = position ? formatEther((position as readonly bigint[])[0]) : '0';
+  const positionAmount = position ? formatEther((position as readonly bigint[])[0] ?? 0n) : '0';
   const ltv = computeLTV(offer.principal, positionAmount);
 
   // Desktop row
@@ -965,7 +969,7 @@ function OfferRow({
         <motion.div
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: idx * 0.05, ease: EASE as unknown as number[] }}
+          transition={{ duration: 0.3, delay: idx * 0.05, ease: EASE as [number, number, number, number] }}
           className="p-3 cursor-pointer"
           onClick={() => setExpanded(!expanded)}
         >
@@ -1018,7 +1022,7 @@ function OfferRow({
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto' }}
               exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.25, ease: EASE as unknown as number[] }}
+              transition={{ duration: 0.25, ease: EASE as [number, number, number, number] }}
               className="overflow-hidden"
             >
               <ArtPanel artSrc={ART.apeHug.src} opacity={1} overlay={DARK_OVERLAY_HEAVY} className="mx-2 mb-2">
@@ -1423,7 +1427,7 @@ function LoanRow({
     <motion.div
       initial={{ opacity: 0, x: -8 }}
       animate={{ opacity: 1, x: 0 }}
-      transition={{ duration: 0.35, delay: idx * 0.06, ease: EASE as unknown as number[] }}
+      transition={{ duration: 0.35, delay: idx * 0.06, ease: EASE as [number, number, number, number] }}
       className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-3 px-1"
       style={{ borderBottom: `1px solid ${ROW_BORDER}` }}
     >
@@ -1673,7 +1677,7 @@ function useAllLoans() {
   return { loans, isLoading, count };
 }
 
-export function LendingSection({ address: propAddress }: { address?: string }) {
+export function LendingSection({ address: _propAddress }: { address?: string }) {
   const [tab, setTab] = useState<Tab>('lend');
   const deployed = isDeployed(TEGRIDY_LENDING_ADDRESS);
 
@@ -1699,7 +1703,7 @@ export function LendingSection({ address: propAddress }: { address?: string }) {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -8 }}
-          transition={{ duration: 0.2, ease: EASE as unknown as number[] }}
+          transition={{ duration: 0.2, ease: EASE as [number, number, number, number] }}
         >
           {tab === 'lend' && <LendTab deployed={deployed} />}
           {tab === 'borrow' && <BorrowTab deployed={deployed} allOffers={allOffers} offersLoading={offersLoading} />}

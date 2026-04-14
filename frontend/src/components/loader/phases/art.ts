@@ -30,7 +30,7 @@ export function drawArtPiece(
   const fit = coverFit(img, artW, artH);
 
   for (let i = 0; i < layers.length; i++) {
-    const layer = layers[i];
+    const layer = layers[i]!;
     ctx.save();
     ctx.translate(W / 2 + layer.ox, H / 2 + layer.oy);
     ctx.scale(zoom * layer.scale, zoom * layer.scale);

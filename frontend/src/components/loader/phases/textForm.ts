@@ -11,7 +11,7 @@ export function drawTextFormPhase(
 
   // Fade in background art as text forms
   if (s.images.length > 0 && tp > 0.3) {
-    const img = s.images[s.images.length - 1];
+    const img = s.images[s.images.length - 1]!;
     const fit = coverFit(img, W, H);
     const fadeIn = Math.min(1, (tp - 0.3) / 0.7);
     ctx.save();

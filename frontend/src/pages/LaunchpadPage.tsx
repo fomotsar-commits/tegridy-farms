@@ -37,7 +37,7 @@ const stagger = { hidden: {}, visible: { transition: { staggerChildren: 0.06 } }
 function useExplorerAddressUrl(address: string) {
   const chains = useChains();
   const { chain } = useAccount();
-  const activeChain = chain ?? chains[0];
+  const activeChain = chain ?? chains[0]!;
   const base = activeChain?.blockExplorers?.default?.url ?? 'https://etherscan.io';
   return `${base}/address/${address}`;
 }
@@ -140,7 +140,7 @@ function CollectionCard({
   collectionId,
   onSelect,
   selectedAddr,
-  deployed,
+  deployed: _deployed,
 }: {
   collectionId: number;
   onSelect: (addr: string) => void;
@@ -155,7 +155,7 @@ function CollectionCard({
   });
 
   // Read live drop data for this card
-  const contractAddr = collection ? (collection as unknown[])[1] as string : '';
+  const contractAddr = collection ? (collection as unknown as unknown[])[1] as string : '';
   const drop = useNFTDrop(contractAddr);
   const explorerUrl = useExplorerAddressUrl(contractAddr);
 
@@ -260,7 +260,7 @@ function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string; deplo
     (fn: string, args?: unknown[], opts?: { onSuccess?: () => void }) => {
       if (!deployed) return;
       writeContract(
-        { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: fn, args: args as never[] },
+        { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: fn, args: args as never[] } as never,
         {
           onSuccess: () => {
             toast.success(`${fn} succeeded`);
@@ -896,7 +896,8 @@ function CreateCollectionForm({ onCreated, deployed }: { onCreated: () => void; 
 
 /* ─────────────────────────── Coming Soon ──────────────────────────────── */
 
-function ComingSoonPanel() {
+/** @internal Reserved for future use */
+export function ComingSoonPanel() {
   return (
     <motion.div className="max-w-2xl mx-auto text-center" {...fadeUp}>
       <ArtCard art={ART.jungleBus} opacity={1} overlay="none" className="rounded-2xl mb-8">

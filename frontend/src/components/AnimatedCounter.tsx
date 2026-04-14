@@ -29,7 +29,7 @@ function formatAnimatedNumber(num: number, decimals: number): string {
 
   // Format with fixed decimals then add commas to integer part
   const fixed = num.toFixed(decimals);
-  const [intPart, decPart] = fixed.split('.');
+  const [intPart, decPart] = fixed.split('.') as [string, string | undefined];
   const withCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return decPart !== undefined ? `${withCommas}.${decPart}` : withCommas;
 }

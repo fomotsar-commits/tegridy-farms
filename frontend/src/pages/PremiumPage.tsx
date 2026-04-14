@@ -58,7 +58,7 @@ export default function PremiumPage() {
   const revenue = useRevenueStats();
   const [selectedPlan, setSelectedPlan] = useState(1); // index
 
-  const plan = PLANS[selectedPlan];
+  const plan = PLANS[selectedPlan]!;
   // Fix #1: Derive display cost from BigInt calculation, not float math
   const totalCostRaw = plan.discount > 0
     ? premium.monthlyFee * BigInt(plan.months) * BigInt(100 - plan.discount) / 100n
@@ -122,7 +122,7 @@ export default function PremiumPage() {
               border: '1px solid rgba(239,68,68,0.3)',
             }}>
             <div className="text-red-400 text-[13px] font-semibold mb-1">Error Loading Data</div>
-            <div className="text-white text-[12px]">{errorMsg.split('\n')[0]}</div>
+            <div className="text-white text-[12px]">{errorMsg.split('\n')[0] ?? errorMsg}</div>
             <button onClick={() => { premium.refetch(); revenue.refetch(); }}
               className="mt-2 text-[12px] font-semibold px-3 py-1 rounded-lg"
               style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }}>

@@ -56,14 +56,14 @@ function WithdrawBanner() {
           {payout > 0n && (
             <button disabled={isPending || isConfirming || isWrongNetwork} onClick={() => writeContract({
               address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'withdrawPayout',
-            }, { onError: (err) => toast.error(err.shortMessage ?? 'Withdraw payout failed') })} className="btn-primary px-4 py-2 min-h-[44px] text-[13px] disabled:opacity-70">
+            }, { onError: (err) => toast.error((err as Error & { shortMessage?: string }).shortMessage ?? 'Withdraw payout failed') })} className="btn-primary px-4 py-2 min-h-[44px] text-[13px] disabled:opacity-70">
               {isPending || isConfirming ? 'Withdrawing...' : 'Withdraw Payout'}
             </button>
           )}
           {refund > 0n && (
             <button disabled={isPending || isConfirming || isWrongNetwork} onClick={() => writeContract({
               address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'withdrawRefund',
-            }, { onError: (err) => toast.error(err.shortMessage ?? 'Withdraw refund failed') })} className="btn-secondary px-4 py-2 min-h-[44px] text-[13px] disabled:opacity-70">
+            }, { onError: (err) => toast.error((err as Error & { shortMessage?: string }).shortMessage ?? 'Withdraw refund failed') })} className="btn-secondary px-4 py-2 min-h-[44px] text-[13px] disabled:opacity-70">
               {isPending || isConfirming ? 'Withdrawing...' : 'Withdraw Refund'}
             </button>
           )}
@@ -125,7 +125,7 @@ function SubmissionRow({ bountyId, submissionId, onVoted }: { bountyId: number; 
         <button disabled={isPending || isConfirming || isWrongNetwork} onClick={() => writeContract({
           address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'voteForSubmission',
           args: [BigInt(bountyId), BigInt(submissionId)],
-        }, { onError: (err) => toast.error(err.shortMessage ?? 'Vote failed') })} className="btn-secondary px-3 py-1.5 min-h-[36px] text-[11px] flex-shrink-0 disabled:opacity-70">
+        }, { onError: (err) => toast.error((err as Error & { shortMessage?: string }).shortMessage ?? 'Vote failed') })} className="btn-secondary px-3 py-1.5 min-h-[36px] text-[11px] flex-shrink-0 disabled:opacity-70">
           {isPending || isConfirming ? '...' : 'Vote'}
         </button>
       )}
@@ -171,7 +171,7 @@ export default function BountyPage({ embedded }: { embedded?: boolean }) {
     writeContract({
       address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'createBounty',
       args: [description, deadline], value: parseEther(reward),
-    }, { onError: (err) => toast.error(err.shortMessage ?? 'Create bounty failed') });
+    }, { onError: (err) => toast.error((err as Error & { shortMessage?: string }).shortMessage ?? 'Create bounty failed') });
   };
 
   useEffect(() => {
@@ -355,7 +355,7 @@ function BountyRow({ id, expanded, onToggle }: { id: number; expanded: boolean; 
         <div className="flex items-start justify-between mb-1">
           <p className="text-white text-[13px] font-medium flex-1 mr-3">{description}</p>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <span className={`text-[11px] font-semibold ${STATUS_COLORS[status]}`}>{STATUS_LABELS[status]}</span>
+            <span className={`text-[11px] font-semibold ${STATUS_COLORS[status] ?? ''}`}>{STATUS_LABELS[status] ?? 'Unknown'}</span>
             <span className="text-white text-[11px]">{expanded ? '\u25B2' : '\u25BC'}</span>
           </div>
         </div>
@@ -381,14 +381,14 @@ function BountyRow({ id, expanded, onToggle }: { id: number; expanded: boolean; 
                 <button disabled={isPending || isConfirming || isWrongNetwork} onClick={() => writeContract({
                   address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'completeBounty',
                   args: [BigInt(id)],
-                }, { onError: (err) => toast.error(err.shortMessage ?? 'Complete bounty failed') })} className="btn-primary px-4 py-2 min-h-[44px] text-[12px] disabled:opacity-70">
+                }, { onError: (err) => toast.error((err as Error & { shortMessage?: string }).shortMessage ?? 'Complete bounty failed') })} className="btn-primary px-4 py-2 min-h-[44px] text-[12px] disabled:opacity-70">
                   {isPending || isConfirming ? 'Completing...' : 'Complete Bounty'}
                 </button>
               )}
               <button disabled={isPending || isConfirming || isWrongNetwork} onClick={() => writeContract({
                 address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'cancelBounty',
                 args: [BigInt(id)],
-              }, { onError: (err) => toast.error(err.shortMessage ?? 'Cancel bounty failed') })} className="btn-secondary px-4 py-2 min-h-[44px] text-[12px] disabled:opacity-70">
+              }, { onError: (err) => toast.error((err as Error & { shortMessage?: string }).shortMessage ?? 'Cancel bounty failed') })} className="btn-secondary px-4 py-2 min-h-[44px] text-[12px] disabled:opacity-70">
                 {isPending || isConfirming ? 'Cancelling...' : 'Cancel Bounty'}
               </button>
             </div>
@@ -404,7 +404,7 @@ function BountyRow({ id, expanded, onToggle }: { id: number; expanded: boolean; 
               <button disabled={isPending || isConfirming || !contentURI.trim() || isWrongNetwork} onClick={() => writeContract({
                 address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'submitWork',
                 args: [BigInt(id), contentURI.trim()],
-              }, { onError: (err) => toast.error(err.shortMessage ?? 'Submit work failed') })} className="btn-primary px-4 py-2 min-h-[44px] text-[12px] flex-shrink-0 disabled:opacity-70">
+              }, { onError: (err) => toast.error((err as Error & { shortMessage?: string }).shortMessage ?? 'Submit work failed') })} className="btn-primary px-4 py-2 min-h-[44px] text-[12px] flex-shrink-0 disabled:opacity-70">
                 {isPending || isConfirming ? 'Submitting...' : 'Submit'}
               </button>
             </div>

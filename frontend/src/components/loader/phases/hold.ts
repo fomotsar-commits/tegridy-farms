@@ -10,7 +10,7 @@ export function drawHoldPhase(
 
   // Background art — dark, cinematic, with slow Ken Burns
   if (s.images.length > 0) {
-    const img = s.images[s.images.length - 1];
+    const img = s.images[s.images.length - 1]!;
     const fit = coverFit(img, W, H);
     const slowZoom = 1.02 + Math.sin(breathT * 0.15) * 0.01;
     ctx.save();
@@ -89,7 +89,7 @@ export function drawHoldPhase(
   }
   // Update and draw trail
   for (let i = s.trailParticles.length - 1; i >= 0; i--) {
-    const tp = s.trailParticles[i];
+    const tp = s.trailParticles[i]!;
     tp.x += tp.vx;
     tp.y += tp.vy;
     tp.alpha -= 0.02;

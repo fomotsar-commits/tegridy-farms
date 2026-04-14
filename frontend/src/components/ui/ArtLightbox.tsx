@@ -49,8 +49,8 @@ export function ArtLightbox({ pieces, selectedIndex, onClose, onNavigate }: ArtL
       if (e.key === 'Tab') {
         const focusable = [prevBtnRef.current, closeBtnRef.current, nextBtnRef.current].filter(Boolean) as HTMLElement[];
         if (focusable.length === 0) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
+        const first = focusable[0]!;
+        const last = focusable[focusable.length - 1]!;
         if (e.shiftKey) {
           if (document.activeElement === first || !focusable.includes(document.activeElement as HTMLElement)) {
             e.preventDefault();

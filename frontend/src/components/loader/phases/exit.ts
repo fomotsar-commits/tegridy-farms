@@ -25,14 +25,14 @@ function drawCracks(
     ctx.shadowBlur = W < 768 ? 3 : 6;
     ctx.globalAlpha = 0.9;
     ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
+    ctx.moveTo(pts[0]!.x, pts[0]!.y);
     for (let i = 1; i <= drawCount; i++) {
-      ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.lineTo(pts[i]!.x, pts[i]!.y);
     }
     // Partial segment for smooth animation
     if (drawCount < pts.length - 1) {
       const frac = (crackProgress * (pts.length - 1)) - drawCount;
-      const a = pts[drawCount], b = pts[drawCount + 1];
+      const a = pts[drawCount]!, b = pts[drawCount + 1]!;
       ctx.lineTo(a.x + (b.x - a.x) * frac, a.y + (b.y - a.y) * frac);
     }
     ctx.stroke();
@@ -60,7 +60,7 @@ function drawSpiderWeb(
   function collect(segs: CrackSegment[]) {
     for (const s of segs) {
       if (s.progress > 0.5 && s.points.length > 1) {
-        endpoints.push(s.points[s.points.length - 1]);
+        endpoints.push(s.points[s.points.length - 1]!);
       }
       collect(s.children);
     }
@@ -72,14 +72,14 @@ function drawSpiderWeb(
   ctx.lineWidth = 0.5;
   for (let i = 0; i < endpoints.length; i++) {
     for (let j = i + 1; j < endpoints.length; j++) {
-      const dx = endpoints[i].x - endpoints[j].x;
-      const dy = endpoints[i].y - endpoints[j].y;
+      const dx = endpoints[i]!.x - endpoints[j]!.x;
+      const dy = endpoints[i]!.y - endpoints[j]!.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
       const maxConnectDist = 150 * Math.min(1, W / 1080);
       if (dist < maxConnectDist) {
         ctx.beginPath();
-        ctx.moveTo(endpoints[i].x, endpoints[i].y);
-        ctx.lineTo(endpoints[j].x, endpoints[j].y);
+        ctx.moveTo(endpoints[i]!.x, endpoints[i]!.y);
+        ctx.lineTo(endpoints[j]!.x, endpoints[j]!.y);
         ctx.stroke();
       }
     }
@@ -151,7 +151,7 @@ export function buildExitDOM(
   // Create shards
   const largeShardsCount = Math.min(10, shardDefs.length);
   for (let si = 0; si < shardDefs.length; si++) {
-    const sh = shardDefs[si];
+    const sh = shardDefs[si]!;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const p of sh.poly) {
       if (p.x < minX) minX = p.x;
@@ -173,9 +173,9 @@ export function buildExitDOM(
     offCvs.height = th;
     const offCtx = offCvs.getContext('2d')!;
     offCtx.beginPath();
-    offCtx.moveTo(sh.poly[0].x - minX, sh.poly[0].y - minY);
+    offCtx.moveTo(sh.poly[0]!.x - minX, sh.poly[0]!.y - minY);
     for (let i = 1; i < sh.poly.length; i++) {
-      offCtx.lineTo(sh.poly[i].x - minX, sh.poly[i].y - minY);
+      offCtx.lineTo(sh.poly[i]!.x - minX, sh.poly[i]!.y - minY);
     }
     offCtx.closePath();
     offCtx.clip();
@@ -339,10 +339,10 @@ export function tickRagdollShards(
 
   // Simple shard-shard collision (circle approximation)
   for (let i = 0; i < shards.length; i++) {
-    if (now < shards[i].startTime) continue;
+    if (now < shards[i]!.startTime) continue;
     for (let j = i + 1; j < shards.length; j++) {
-      if (now < shards[j].startTime) continue;
-      const a = shards[i], b = shards[j];
+      if (now < shards[j]!.startTime) continue;
+      const a = shards[i]!, b = shards[j]!;
       const dx = (a.x + a.w / 2) - (b.x + b.w / 2);
       const dy = (a.y + a.h / 2) - (b.y + b.h / 2);
       const dist = Math.sqrt(dx * dx + dy * dy);

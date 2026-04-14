@@ -36,7 +36,7 @@ const COLORS: readonly { color: string; opacity: number }[] = [
 ] as const;
 
 function createParticle(canvasW: number, canvasH: number, startAtBottom?: boolean, isStar = false): Particle {
-  const colorDef = COLORS[Math.random() < 0.6 ? 0 : 1];
+  const colorDef = COLORS[Math.random() < 0.6 ? 0 : 1]!;
   const baseSize = isStar ? (6 + Math.random() * 2) : (2 + Math.random() * 3);
   const baseOpacity = isStar ? (0.35 + Math.random() * 0.15) : colorDef.opacity;
   return {

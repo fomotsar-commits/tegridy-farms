@@ -179,21 +179,21 @@ export function computeOnChainPoints(metrics: OnChainMetrics): number {
   let pts = 0;
   // Clamp swap count to prevent overflow from unexpectedly large values
   const safeSwapCount = Math.min(metrics.swapCount, 100_000);
-  pts += safeSwapCount * POINTS_MAP.swap;
+  pts += safeSwapCount * (POINTS_MAP.swap ?? 0);
   if (metrics.stakedAmount > 0n) {
-    pts += POINTS_MAP.stake;
+    pts += POINTS_MAP.stake ?? 0;
     const stakeDays = Math.min(Math.floor(metrics.stakeDurationSec / 86400), 1460);
     pts += stakeDays * 2;
   }
   if (metrics.lpBalance > 0n) {
-    pts += POINTS_MAP.lp_provide;
+    pts += POINTS_MAP.lp_provide ?? 0;
     // Safe bigint-to-number conversion with ceiling cap
     const lpTokens = safeBigintToNumber(metrics.lpBalance / (10n ** 18n), 1_000_000);
     const lpScore = Math.min(200, lpTokens * 5);
     pts += Math.floor(lpScore);
   }
   const safeReferralCount = Math.min(metrics.referralCount, 10_000);
-  pts += safeReferralCount * POINTS_MAP.referral_swap;
+  pts += safeReferralCount * (POINTS_MAP.referral_swap ?? 0);
   return clampPoints(pts);
 }
 
@@ -216,7 +216,7 @@ export function getStreakMultiplier(streak: number): number {
 
 export function getTier(points: number) {
   for (let i = TIER_THRESHOLDS.length - 1; i >= 0; i--) {
-    if (points >= TIER_THRESHOLDS[i].min) return TIER_THRESHOLDS[i];
+    if (points >= TIER_THRESHOLDS[i]!.min) return TIER_THRESHOLDS[i]!;
   }
   return TIER_THRESHOLDS[0];
 }
@@ -230,8 +230,8 @@ export function getNextTier(points: number) {
 
 export function recordAction(address: string, actionType: string, goldCardBoost: boolean = false): PointsData {
   const data = getPointsData(address);
-  const basePoints = POINTS_MAP[actionType] ?? 0;
-  if (basePoints === 0) return data;
+  const basePoints = POINTS_MAP[actionType];
+  if (!basePoints) return data;
 
   const pts = goldCardBoost ? basePoints * 3 : basePoints;
   data.actions.push({ type: actionType, pts, ts: Date.now() });
@@ -273,7 +273,7 @@ export function recordDailyVisit(address: string): PointsData {
     data.streak.longest = Math.min(data.streak.current, MAX_STREAK);
   }
 
-  const basePoints = POINTS_MAP.daily_visit;
+  const basePoints = POINTS_MAP.daily_visit ?? 0;
   const streakMult = getStreakMultiplier(data.streak.current);
   const totalPts = Math.round(basePoints * streakMult);
   data.actions.push({ type: 'daily_visit', pts: totalPts, ts: Date.now() });
@@ -295,8 +295,9 @@ export function setReferrer(address: string, referrer: string) {
 export function incrementReferralCount(referrerAddress: string) {
   const data = getPointsData(referrerAddress);
   data.referralCount = Math.min(data.referralCount + 1, 10_000);
-  data.points = clampPoints(data.points + POINTS_MAP.referral_swap);
-  data.actions.push({ type: 'referral_swap', pts: POINTS_MAP.referral_swap, ts: Date.now() });
+  const referralPts = POINTS_MAP.referral_swap ?? 0;
+  data.points = clampPoints(data.points + referralPts);
+  data.actions.push({ type: 'referral_swap', pts: referralPts, ts: Date.now() });
   if (data.actions.length > MAX_ACTIONS) data.actions = data.actions.slice(-MAX_ACTIONS);
   savePointsData(referrerAddress, data);
 }

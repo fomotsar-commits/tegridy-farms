@@ -361,7 +361,7 @@ export function useLimitOrders() {
               args: [parsedAmount, path],
             });
             const amountsOut = result as bigint[];
-            const outputAmount = amountsOut[amountsOut.length - 1];
+            const outputAmount = amountsOut[amountsOut.length - 1] ?? 0n;
             // NOTE: Number() precision risk for very large values (>2^53); acceptable for price comparison heuristic
             const currentPrice = Number(formatUnits(outputAmount, order.toToken.decimals)) / Number(order.amount);
             const targetPriceNum = parseFloat(order.targetPrice);

@@ -4,7 +4,6 @@ import {
   useAccount,
   useWriteContract,
   useReadContract,
-  useReadContracts,
   useWaitForTransactionReceipt,
 } from 'wagmi';
 import { parseEther, formatEther } from 'viem';
@@ -32,7 +31,8 @@ const POOL_TYPE_COLORS: Record<number, string> = {
   2: 'text-emerald-400 border-emerald-400/30 bg-emerald-400/10',
 };
 
-const POOL_TYPE_ACCENT: Record<number, string> = {
+/** @internal Reserved for future styling */
+export const POOL_TYPE_ACCENT: Record<number, string> = {
   0: 'border-blue-400/20 hover:border-blue-400/40',
   1: 'border-orange-400/20 hover:border-orange-400/40',
   2: 'border-emerald-400/20 hover:border-emerald-400/40',
@@ -172,11 +172,11 @@ function BondingCurveChart({
     let d = '';
     for (let i = 0; i < prices.length; i++) {
       const x = scaleX(i);
-      const y = scaleY(prices[i]);
+      const y = scaleY(prices[i]!);
       if (i === 0) {
         d += `M${x},${y}`;
       } else {
-        d += ` L${x},${scaleY(prices[i - 1])} L${x},${y}`;
+        d += ` L${x},${scaleY(prices[i - 1]!)} L${x},${y}`;
       }
     }
     return d;
@@ -243,7 +243,7 @@ function BondingCurveChart({
               fontSize="9"
               fontFamily="monospace"
             >
-              {ticks[i] < 0.001 ? ticks[i].toExponential(1) : ticks[i].toFixed(3)}
+              {ticks[i]! < 0.001 ? ticks[i]!.toExponential(1) : ticks[i]!.toFixed(3)}
             </text>
           </g>
         ))}
@@ -460,7 +460,7 @@ function PoolTypeBadge({ type }: { type: number }) {
   return (
     <span
       className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-widest border ${
-        POOL_TYPE_COLORS[type] ?? POOL_TYPE_COLORS[2]
+        POOL_TYPE_COLORS[type] ?? POOL_TYPE_COLORS[2] ?? ''
       }`}
     >
       {POOL_TYPE_LABELS[type] ?? 'UNKNOWN'}
@@ -1002,7 +1002,7 @@ function PoolCard({
     );
   }
 
-  const [nftCollection, poolType, spotPrice, delta, feeBps, protocolFeeBps, owner, numNFTs, ethBalance] =
+  const [nftCollection, poolType, spotPrice, delta, feeBps, _protocolFeeBps, owner, numNFTs, ethBalance] =
     poolInfo as [Address, number, bigint, bigint, bigint, bigint, Address, bigint, bigint];
 
   const poolOwnerIsUser = address && owner.toLowerCase() === address.toLowerCase();
@@ -1042,8 +1042,8 @@ function PoolCard({
         {
           address: poolAddress,
           abi: TEGRIDY_NFT_POOL_ABI,
-          functionName: 'removeLiquidity',
-          args: [ids, ethAmt],
+          functionName: 'removeLiquidity' as 'addLiquidity',
+          args: [ids, ethAmt] as never,
         },
         {
           onSuccess: () => {
@@ -1361,7 +1361,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
   const [feeBps, setFeeBps] = useState('200');
 
   const { writeContract, data: txHash } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+  const { isLoading: isConfirming, isSuccess: _isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
   const spotNum = parseFloat(spotPriceInput) || 0;
   const deltaNum = parseFloat(deltaInput) || 0;
@@ -1490,7 +1490,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                         onClick={() => setPoolType(type)}
                         className={`p-4 rounded-xl border text-left transition-all duration-200 ${
                           poolType === type
-                            ? POOL_TYPE_BG_SELECTED[type]
+                            ? (POOL_TYPE_BG_SELECTED[type] ?? '')
                             : 'bg-black/60 border-white/20 hover:border-white/[0.12]'
                         }`}
                       >
@@ -1502,7 +1502,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                           }`}
                           fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5"
                         >
-                          <path strokeLinecap="round" strokeLinejoin="round" d={POOL_TYPE_ICONS[type]} />
+                          <path strokeLinecap="round" strokeLinejoin="round" d={POOL_TYPE_ICONS[type] ?? ''} />
                         </svg>
                         <p
                           className={`text-sm font-semibold mb-1 ${
@@ -1511,9 +1511,9 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                               : 'text-white'
                           }`}
                         >
-                          {POOL_TYPE_LABELS[type]}
+                          {POOL_TYPE_LABELS[type] ?? 'UNKNOWN'}
                         </p>
-                        <p className="text-[10px] text-white leading-relaxed">{POOL_TYPE_DESCRIPTIONS[type]}</p>
+                        <p className="text-[10px] text-white leading-relaxed">{POOL_TYPE_DESCRIPTIONS[type] ?? ''}</p>
                       </button>
                     ))}
                   </div>
@@ -1660,7 +1660,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                     <h4 className={`${labelClass} text-white/60 mb-4`}>Pool Summary</h4>
                     <div className="space-y-2.5">
                       <SummaryRow label="Collection" value={shortenAddress(collection)} />
-                      <SummaryRow label="Pool Type" value={POOL_TYPE_LABELS[poolType]} />
+                      <SummaryRow label="Pool Type" value={POOL_TYPE_LABELS[poolType] ?? 'UNKNOWN'} />
                       <SummaryRow label="Spot Price" value={`${spotPriceInput} ETH`} />
                       <SummaryRow label="Delta" value={`${deltaInput} ETH`} />
                       {poolType === 2 && <SummaryRow label="LP Fee" value={`${(Number(feeBps) / 100).toFixed(2)}%`} />}
@@ -1753,7 +1753,7 @@ function useTrackedPools() {
   return { pools, addPool, removePool };
 }
 
-function MyPoolsTab({ deployed }: { deployed: boolean }) {
+function MyPoolsTab({ deployed: _deployed }: { deployed: boolean }) {
   const { address } = useAccount();
   const { pools: trackedPools, addPool, removePool } = useTrackedPools();
   const [newPoolAddr, setNewPoolAddr] = useState('');
@@ -1867,7 +1867,8 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
 
 // ─── Coming Soon State ────────────────────────────────────────────
 
-function ComingSoon() {
+/** @internal Reserved for future use */
+export function ComingSoon() {
   const features = [
     { title: 'Linear Bonding Curves', desc: 'Predictable pricing with configurable spot price and delta parameters.' },
     { title: 'Buy / Sell / Trade Pools', desc: 'Create single-sided or two-sided liquidity pools for any NFT collection.' },

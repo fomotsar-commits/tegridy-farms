@@ -53,7 +53,7 @@ export function LimitOrderTab() {
       toToken: { symbol: toToken.symbol, address: toToken.address, decimals: toToken.decimals, ...(toToken.isNative && { isNative: true }) },
       amount,
       targetPrice,
-      expiresAt: Date.now() + EXPIRY_OPTIONS[expiryIdx].ms,
+      expiresAt: Date.now() + EXPIRY_OPTIONS[expiryIdx]!.ms,
     });
     setAmount('');
     setTargetPrice('');

@@ -22,12 +22,12 @@ export function drawGlitchCut(
         const i = (y * cw + x) * 4;
         const rxSrc = Math.min(x + Math.floor(offset * dpr), cw - 1);
         const ri = (y * cw + rxSrc) * 4;
-        sd[i] = data[ri];
-        sd[i + 1] = data[i + 1];
+        sd[i] = data[ri] ?? 0;
+        sd[i + 1] = data[i + 1] ?? 0;
         const bxSrc = Math.max(x - Math.floor(offset * dpr), 0);
         const bi = (y * cw + bxSrc) * 4;
-        sd[i + 2] = data[bi + 2];
-        sd[i + 3] = data[i + 3];
+        sd[i + 2] = data[bi + 2] ?? 0;
+        sd[i + 3] = data[i + 3] ?? 0;
       }
     }
     ctx.putImageData(shifted, 0, 0);
@@ -75,7 +75,7 @@ export function drawGlitchCut(
       'rgba(139,92,246,0.07)', 'rgba(212,160,23,0.06)', 'rgba(0,255,100,0.05)',
     ];
     ctx.save();
-    ctx.fillStyle = colors[i];
+    ctx.fillStyle = colors[i]!;
     ctx.fillRect(0, by, W, bh);
     ctx.restore();
   }
@@ -165,7 +165,7 @@ export function drawGlitchCut(
 }
 
 export function drawSubliminalText(ctx: CanvasRenderingContext2D, W: number, H: number) {
-  const word = SUBLIMINAL[Math.floor(Math.random() * SUBLIMINAL.length)];
+  const word = SUBLIMINAL[Math.floor(Math.random() * SUBLIMINAL.length)]!;
   const fontSize = Math.min(72, W * 0.15);
   ctx.save();
   ctx.translate(W / 2, H / 2);

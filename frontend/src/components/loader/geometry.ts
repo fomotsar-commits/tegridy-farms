@@ -10,7 +10,7 @@ export function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
+    [a[i], a[j]] = [a[j]!, a[i]!];
   }
   return a;
 }
@@ -59,7 +59,7 @@ export function getTextPixels(
   const step = W <= 480 ? 2 : W < 768 ? 3 : Math.max(3, Math.floor(Math.min(W, H) / 250));
   for (let y = 0; y < H; y += step) {
     for (let x = 0; x < W; x += step) {
-      if (d[(y * W + x) * 4 + 3] > 128) pts.push({ x, y });
+      if ((d[(y * W + x) * 4 + 3] ?? 0) > 128) pts.push({ x, y });
     }
   }
   _textPixelCache.set(key, pts);
@@ -113,12 +113,12 @@ export function buildExitShards(clickX: number, clickY: number, W: number, H: nu
     verts[r] = [];
     for (let a = 0; a < numRadials; a++) {
       if (r === 0) {
-        verts[r][a] = { x: clickX, y: clickY };
+        verts[r]![a] = { x: clickX, y: clickY };
       } else {
-        const jitter = rings[r] * 0.08;
-        verts[r][a] = {
-          x: clickX + Math.cos(angles[a]) * rings[r] + (Math.random() - 0.5) * jitter,
-          y: clickY + Math.sin(angles[a]) * rings[r] + (Math.random() - 0.5) * jitter,
+        const jitter = rings[r]! * 0.08;
+        verts[r]![a] = {
+          x: clickX + Math.cos(angles[a]!) * rings[r]! + (Math.random() - 0.5) * jitter,
+          y: clickY + Math.sin(angles[a]!) * rings[r]! + (Math.random() - 0.5) * jitter,
         };
       }
     }
@@ -128,9 +128,9 @@ export function buildExitShards(clickX: number, clickY: number, W: number, H: nu
   for (let r = 0; r < numRings; r++) {
     for (let a = 0; a < numRadials; a++) {
       const na = (a + 1) % numRadials;
-      const poly = r === 0
-        ? [verts[0][a], verts[1][a], verts[1][na]]
-        : [verts[r][a], verts[r + 1][a], verts[r + 1][na], verts[r][na]];
+      const poly: Array<{ x: number; y: number }> = r === 0
+        ? [verts[0]![a]!, verts[1]![a]!, verts[1]![na]!]
+        : [verts[r]![a]!, verts[r + 1]![a]!, verts[r + 1]![na]!, verts[r]![na]!];
 
       const cx = poly.reduce((s, p) => s + p.x, 0) / poly.length;
       const cy = poly.reduce((s, p) => s + p.y, 0) / poly.length;
@@ -191,7 +191,7 @@ function buildCrackBranch(
       const branchAngle = curAngle + (Math.random() > 0.5 ? 1 : -1) * (0.3 + Math.random() * 0.7);
       const branchLen = length * (0.3 + Math.random() * 0.3);
       const pt = points[i];
-      children.push(buildCrackBranch(pt.x, pt.y, branchAngle, branchLen, width * 0.6, delay + i * 0.05));
+      children.push(buildCrackBranch(pt!.x, pt!.y, branchAngle, branchLen, width * 0.6, delay + i * 0.05));
     }
   }
 

@@ -21,8 +21,8 @@ import { TOWELI_ADDRESS } from '../lib/constants';
 type Tab = 'add' | 'remove';
 
 // Default tokens for liquidity: TOWELI and ETH
-const defaultTokenA = DEFAULT_TOKENS.find(t => t.address.toLowerCase() === TOWELI_ADDRESS.toLowerCase()) ?? DEFAULT_TOKENS[2];
-const defaultTokenB = DEFAULT_TOKENS.find(t => t.isNative) ?? DEFAULT_TOKENS[0];
+const defaultTokenA = DEFAULT_TOKENS.find(t => t.address.toLowerCase() === TOWELI_ADDRESS.toLowerCase()) ?? DEFAULT_TOKENS[2] ?? null;
+const defaultTokenB = DEFAULT_TOKENS.find(t => t.isNative) ?? DEFAULT_TOKENS[0] ?? null;
 
 export default function LiquidityPage({ embedded }: { embedded?: boolean }) {
   usePageTitle(embedded ? '' : 'Liquidity');

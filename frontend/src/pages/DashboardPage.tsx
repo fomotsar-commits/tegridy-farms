@@ -86,7 +86,7 @@ export default function DashboardPage() {
     : '';
 
   // Determine loading states for stat cards
-  const statCardsLoading = !price.isLoaded || isToweliLoading || isEthLoading;
+  void (!price.isLoaded || isToweliLoading || isEthLoading);
 
   if (!isConnected) {
     return (
@@ -368,7 +368,7 @@ export default function DashboardPage() {
 }
 
 function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrongNetwork: boolean }) {
-  const { data: pendingETH, error: pendingError, isLoading: isPendingLoading } = useReadContract({
+  const { data: pendingETH, error: pendingError } = useReadContract({
     address: REVENUE_DISTRIBUTOR_ADDRESS,
     abi: REVENUE_DISTRIBUTOR_ABI,
     functionName: 'pendingETH',

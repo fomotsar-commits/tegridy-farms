@@ -62,13 +62,13 @@ function calcLockScore(lockDuration: number): number {
     { d: 365, s: 80 },
     { d: 1460, s: 100 },
   ];
-  if (days <= breakpoints[0].d) {
-    return Math.round((days / breakpoints[0].d) * breakpoints[0].s);
+  if (days <= breakpoints[0]!.d) {
+    return Math.round((days / breakpoints[0]!.d) * breakpoints[0]!.s);
   }
   for (let i = 1; i < breakpoints.length; i++) {
-    if (days <= breakpoints[i].d) {
-      const prev = breakpoints[i - 1];
-      const curr = breakpoints[i];
+    if (days <= breakpoints[i]!.d) {
+      const prev = breakpoints[i - 1]!;
+      const curr = breakpoints[i]!;
       const t = (days - prev.d) / (curr.d - prev.d);
       return Math.round(prev.s + t * (curr.s - prev.s));
     }
@@ -84,13 +84,13 @@ function calcActivityScore(onChainPoints: number): number {
     { p: 2000, s: 75 },
     { p: 5000, s: 100 },
   ];
-  if (onChainPoints <= breakpoints[0].p) {
-    return Math.round((onChainPoints / breakpoints[0].p) * breakpoints[0].s);
+  if (onChainPoints <= breakpoints[0]!.p) {
+    return Math.round((onChainPoints / breakpoints[0]!.p) * breakpoints[0]!.s);
   }
   for (let i = 1; i < breakpoints.length; i++) {
-    if (onChainPoints <= breakpoints[i].p) {
-      const prev = breakpoints[i - 1];
-      const curr = breakpoints[i];
+    if (onChainPoints <= breakpoints[i]!.p) {
+      const prev = breakpoints[i - 1]!;
+      const curr = breakpoints[i]!;
       const t = (onChainPoints - prev.p) / (curr.p - prev.p);
       return Math.round(prev.s + t * (curr.s - prev.s));
     }
@@ -301,7 +301,7 @@ export function useTegridyScore(): TegridyScoreResult {
     }).then(async (logs) => {
       if (cancelled) return;
       if (logs.length > 0) {
-        const block = await publicClient.getBlock({ blockNumber: logs[0].blockNumber });
+        const block = await publicClient.getBlock({ blockNumber: logs[0]!.blockNumber });
         if (!cancelled) setFirstInteractionTs(Number(block.timestamp));
       }
     }).catch((err) => {

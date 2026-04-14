@@ -60,8 +60,8 @@ const UPCOMING_POOLS: Omit<LPPool, 'tvl' | 'apr' | 'volume24h'>[] = [
   {
     id: 'usdt-usdc',
     name: 'USDT / USDC',
-    tokenA: { symbol: 'USDT', logo: TOKEN_LOGOS.USDT },
-    tokenB: { symbol: 'USDC', logo: TOKEN_LOGOS.USDC },
+    tokenA: { symbol: 'USDT', logo: TOKEN_LOGOS.USDT! },
+    tokenB: { symbol: 'USDC', logo: TOKEN_LOGOS.USDC! },
     fee: '0.05%',
     status: 'soon',
     art: ART.beachSunset.src,
@@ -70,8 +70,8 @@ const UPCOMING_POOLS: Omit<LPPool, 'tvl' | 'apr' | 'volume24h'>[] = [
   {
     id: 'eth-wbtc',
     name: 'ETH / WBTC',
-    tokenA: { symbol: 'ETH', logo: TOKEN_LOGOS.ETH },
-    tokenB: { symbol: 'WBTC', logo: TOKEN_LOGOS.WBTC },
+    tokenA: { symbol: 'ETH', logo: TOKEN_LOGOS.ETH! },
+    tokenB: { symbol: 'WBTC', logo: TOKEN_LOGOS.WBTC! },
     fee: '0.3%',
     status: 'soon',
     art: ART.boxingRing.src,
@@ -80,8 +80,8 @@ const UPCOMING_POOLS: Omit<LPPool, 'tvl' | 'apr' | 'volume24h'>[] = [
   {
     id: 'dot-eth',
     name: 'DOT / ETH',
-    tokenA: { symbol: 'DOT', logo: TOKEN_LOGOS.DOT },
-    tokenB: { symbol: 'ETH', logo: TOKEN_LOGOS.ETH },
+    tokenA: { symbol: 'DOT', logo: TOKEN_LOGOS.DOT! },
+    tokenB: { symbol: 'ETH', logo: TOKEN_LOGOS.ETH! },
     fee: '0.3%',
     status: 'soon',
     art: ART.forestScene.src,
@@ -90,8 +90,8 @@ const UPCOMING_POOLS: Omit<LPPool, 'tvl' | 'apr' | 'volume24h'>[] = [
   {
     id: 'mana-eth',
     name: 'MANA / ETH',
-    tokenA: { symbol: 'MANA', logo: TOKEN_LOGOS.MANA },
-    tokenB: { symbol: 'ETH', logo: TOKEN_LOGOS.ETH },
+    tokenA: { symbol: 'MANA', logo: TOKEN_LOGOS.MANA! },
+    tokenB: { symbol: 'ETH', logo: TOKEN_LOGOS.ETH! },
     fee: '0.3%',
     status: 'soon',
     art: ART.jungleDark.src,
@@ -254,11 +254,11 @@ export default function FarmPage() {
   const submittedDataRef = useRef<{ stakeAmount: string; lockLabel: string; boostDisplay: string } | null>(null);
 
   const [stakeAmount, setStakeAmount] = useState('');
-  const [selectedLock, setSelectedLock] = useState(LOCK_OPTIONS[2]); // Default 90 days
+  const [selectedLock, setSelectedLock] = useState(LOCK_OPTIONS[2]!); // Default 90 days
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   const [confirmEarlyWithdraw, setConfirmEarlyWithdraw] = useState(false);
   const [showExtendLock, setShowExtendLock] = useState(false);
-  const [extendLockDuration, setExtendLockDuration] = useState(LOCK_OPTIONS[2]);
+  const [extendLockDuration, setExtendLockDuration] = useState(LOCK_OPTIONS[2]!);
   const [confirmEmergencyExit, setConfirmEmergencyExit] = useState(false);
 
   const poolTVL = usePoolTVL();

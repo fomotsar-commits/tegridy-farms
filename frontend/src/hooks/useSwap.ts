@@ -280,8 +280,8 @@ export function useSwap() {
   }, [fromToken, toToken, parsedAmount, address, fromDecimals]);
 
   // ─── Smart Route Selection ────────────────────────────────────
-  const uniOutputAmount = uniAmountsOut ? uniAmountsOut[uniAmountsOut.length - 1] : 0n;
-  const tegridyOutputAmount = tegridyAmountsOut ? tegridyAmountsOut[tegridyAmountsOut.length - 1] : 0n;
+  const uniOutputAmount = uniAmountsOut ? (uniAmountsOut[uniAmountsOut.length - 1] ?? 0n) : 0n;
+  const tegridyOutputAmount = tegridyAmountsOut ? (tegridyAmountsOut[tegridyAmountsOut.length - 1] ?? 0n) : 0n;
 
   let aggOutputAmount = 0n;
   try {
@@ -350,21 +350,21 @@ export function useSwap() {
       try {
         const fromAddr = (fromToken.isNative ? WETH_ADDRESS : fromToken.address).toLowerCase();
         const isLeg1Token0From = leg1Token0.toLowerCase() === fromAddr;
-        const r1In = isLeg1Token0From ? leg1Reserves[0] : leg1Reserves[1];
-        const r1Out = isLeg1Token0From ? leg1Reserves[1] : leg1Reserves[0];
+        const r1In = isLeg1Token0From ? (leg1Reserves[0] ?? 0n) : (leg1Reserves[1] ?? 0n);
+        const r1Out = isLeg1Token0From ? (leg1Reserves[1] ?? 0n) : (leg1Reserves[0] ?? 0n);
         if (r1In <= 0n || r1Out <= 0n) return 0.5;
 
         const midPrice1 = (r1Out * 10n ** 18n) / r1In;
-        const execPrice1 = (activeAmountsOut[1] * 10n ** 18n) / activeAmountsOut[0];
+        const execPrice1 = ((activeAmountsOut[1] ?? 0n) * 10n ** 18n) / (activeAmountsOut[0] ?? 1n);
         const ratio1 = midPrice1 > 0n ? (execPrice1 * 10n ** 18n) / midPrice1 : 10n ** 18n;
 
         const isLeg2Token0Weth = leg2Token0.toLowerCase() === WETH_ADDRESS.toLowerCase();
-        const r2In = isLeg2Token0Weth ? leg2Reserves[0] : leg2Reserves[1];
-        const r2Out = isLeg2Token0Weth ? leg2Reserves[1] : leg2Reserves[0];
+        const r2In = isLeg2Token0Weth ? (leg2Reserves[0] ?? 0n) : (leg2Reserves[1] ?? 0n);
+        const r2Out = isLeg2Token0Weth ? (leg2Reserves[1] ?? 0n) : (leg2Reserves[0] ?? 0n);
         if (r2In <= 0n || r2Out <= 0n) return 0.5;
 
         const midPrice2 = (r2Out * 10n ** 18n) / r2In;
-        const execPrice2 = (activeAmountsOut[2] * 10n ** 18n) / activeAmountsOut[1];
+        const execPrice2 = ((activeAmountsOut[2] ?? 0n) * 10n ** 18n) / (activeAmountsOut[1] ?? 1n);
         const ratio2 = midPrice2 > 0n ? (execPrice2 * 10n ** 18n) / midPrice2 : 10n ** 18n;
 
         const combinedRatio = (ratio1 * ratio2) / 10n ** 18n;
@@ -622,8 +622,8 @@ export function useSwap() {
     // Smart routing
     selectedRoute,
     hasTegridyPair,
-    tegridyOutputFormatted: tegridyOutputAmount > 0n ? formatUnits(tegridyOutputAmount, toDecimals) : null,
-    uniOutputFormatted: uniOutputAmount > 0n ? formatUnits(uniOutputAmount, toDecimals) : null,
+    tegridyOutputFormatted: tegridyOutputAmount > 0n ? formatUnits(tegridyOutputAmount as bigint, toDecimals) : null,
+    uniOutputFormatted: uniOutputAmount > 0n ? formatUnits(uniOutputAmount as bigint, toDecimals) : null,
     // Meta-aggregator (7 DEX aggregators queried in parallel)
     aggBetter,
     aggOutputFormatted: aggOutputAmount > 0n ? formatUnits(aggOutputAmount, toDecimals) : null,

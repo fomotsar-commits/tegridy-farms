@@ -69,9 +69,9 @@ export function useBribes() {
     return tokens.map((token, i) => ({
       token,
       amount: amounts[i],
-      formatted: formatEther(amounts[i]),
+      formatted: formatEther(amounts[i] ?? 0n),
       isETH: token === '0x0000000000000000000000000000000000000000',
-    })).filter(t => t.amount > 0n);
+    })).filter(t => (t.amount ?? 0n) > 0n);
   }, [claimableData]);
 
   // Actions

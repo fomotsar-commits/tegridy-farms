@@ -20,7 +20,7 @@ export function Sparkline({
   const range = max - min || 1; // prevent division by zero
 
   // Determine color based on trend if not provided
-  const trendColor = color ?? (data[data.length - 1] >= data[0] ? '#22c55e' : '#ef4444');
+  const trendColor = color ?? ((data[data.length - 1] ?? 0) >= (data[0] ?? 0) ? '#22c55e' : '#ef4444');
 
   // Padding so the line doesn't clip at edges
   const pad = 1;
