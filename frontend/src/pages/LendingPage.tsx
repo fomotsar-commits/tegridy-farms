@@ -6,14 +6,16 @@ import { ART } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { LendingSection } from '../components/nftfinance/LendingSection';
 import { AMMSection } from '../components/nftfinance/AMMSection';
+import { NFTLendingSection } from '../components/nftfinance/NFTLendingSection';
 
 const LaunchpadPage = lazy(() => import('./LaunchpadPage'));
 const RestakePage = lazy(() => import('./RestakePage'));
 
-type Section = 'lending' | 'amm' | 'launchpad' | 'restake';
+type Section = 'lending' | 'nftlending' | 'amm' | 'launchpad' | 'restake';
 
 const SECTIONS: { key: Section; label: string }[] = [
   { key: 'lending', label: 'P2P Lending' },
+  { key: 'nftlending', label: 'NFT Lending' },
   { key: 'amm', label: 'NFT AMM' },
   { key: 'launchpad', label: 'Launchpad' },
   { key: 'restake', label: 'Restake' },
@@ -46,7 +48,7 @@ export default function LendingPage() {
 
         {/* Section Toggle — always visible so users can see what's available */}
         <motion.div
-          className="grid grid-cols-2 md:flex justify-center gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit"
+          className="grid grid-cols-3 sm:grid-cols-5 md:flex justify-center gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit"
           style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -101,6 +103,7 @@ export default function LendingPage() {
             transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
           >
             {section === 'lending' && <LendingSection address={address} />}
+            {section === 'nftlending' && <NFTLendingSection />}
             {section === 'amm' && <AMMSection />}
             {section === 'launchpad' && (
               <Suspense fallback={<SectionLoader />}>
