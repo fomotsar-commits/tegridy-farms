@@ -400,7 +400,7 @@ export default function FarmPage() {
               <div className="absolute inset-0">
                 <img src={s.art} alt="" className="w-full h-full object-cover" style={{ objectPosition: s.pos }} />
               </div>
-              <div className="relative z-10 p-5 pt-8 pb-6">
+              <div className="relative z-10 p-3 md:p-5 pt-8 pb-6">
               <p className="text-white text-[11px] uppercase tracking-wider label-pill mb-2 flex items-center gap-1.5">{s.l}{s.l === 'TOWELI Price' && <PulseDot size={5} />}</p>
               <div className="flex items-center gap-2">
                 <p className={`stat-value text-2xl text-white`}>{s.v}</p>

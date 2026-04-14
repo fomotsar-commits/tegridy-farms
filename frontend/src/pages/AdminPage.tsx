@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useAccount, useChains, useReadContract, useReadContracts } from 'wagmi';
 import { formatEther } from 'viem';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { ART } from '../lib/artConfig';
 import { formatTokenAmount, formatNumber } from '../lib/formatting';
 import {
   TEGRIDY_STAKING_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, PREMIUM_ACCESS_ADDRESS,
@@ -168,10 +169,15 @@ export default function AdminPage() {
   // Not connected
   if (!isConnected) {
     return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <div className="glass-card p-8 rounded-2xl text-center max-w-md">
-          <h1 className="heading-luxury text-2xl text-white mb-3">Admin Panel</h1>
-          <p className="text-white text-sm">Connect your wallet to access this page.</p>
+      <div className="-mt-14 relative min-h-screen">
+        <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
+          <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        </div>
+        <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
+          <div className="glass-card p-8 rounded-2xl text-center max-w-md">
+            <h1 className="heading-luxury text-2xl text-white mb-3">Admin Panel</h1>
+            <p className="text-white text-sm">Connect your wallet to access this page.</p>
+          </div>
         </div>
       </div>
     );
@@ -180,10 +186,15 @@ export default function AdminPage() {
   // Loading
   if (ownerLoading) {
     return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <div className="glass-card p-8 rounded-2xl text-center max-w-md">
-          <h1 className="heading-luxury text-2xl text-white mb-3">Admin Panel</h1>
-          <p className="text-white text-sm">Checking authorization...</p>
+      <div className="-mt-14 relative min-h-screen">
+        <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
+          <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        </div>
+        <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
+          <div className="glass-card p-8 rounded-2xl text-center max-w-md">
+            <h1 className="heading-luxury text-2xl text-white mb-3">Admin Panel</h1>
+            <p className="text-white text-sm">Checking authorization...</p>
+          </div>
         </div>
       </div>
     );
@@ -192,67 +203,78 @@ export default function AdminPage() {
   // Not owner
   if (!isOwner) {
     return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <div className="glass-card p-8 rounded-2xl text-center max-w-md">
-          <h1 className="heading-luxury text-2xl text-white mb-3">Not Authorized</h1>
-          <p className="text-white text-sm">
-            This page is restricted to the contract owner.
-          </p>
+      <div className="-mt-14 relative min-h-screen">
+        <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
+          <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        </div>
+        <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
+          <div className="glass-card p-8 rounded-2xl text-center max-w-md">
+            <h1 className="heading-luxury text-2xl text-white mb-3">Not Authorized</h1>
+            <p className="text-white text-sm">
+              This page is restricted to the contract owner.
+            </p>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="w-full max-w-5xl mx-auto px-4 py-10 space-y-8">
-      <div>
-        <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">
-          Admin Dashboard
-        </h1>
-        <p className="text-white text-sm">
-          Timelock overview for all Tegridy Farms contracts.
-        </p>
+    <div className="-mt-14 relative min-h-screen">
+      <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
+        <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
 
-      {contractReadsError && (
-        <div className="glass-card p-4 rounded-xl border border-red-500/40 bg-red-500/10">
-          <p className="text-sm text-red-300">
-            Failed to load contract data. {contractReadsError.message || 'Please try again later.'}
+      <div className="relative z-10 max-w-5xl mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12 space-y-8">
+        <div>
+          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">
+            Admin Dashboard
+          </h1>
+          <p className="text-white text-sm">
+            Timelock overview for all Tegridy Farms contracts.
           </p>
         </div>
-      )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <ContractCard
-          name="Swap Fee Router"
-          address={SWAP_FEE_ROUTER_ADDRESS}
-          explorerBaseUrl={explorerBaseUrl}
-          items={feeRouterItems}
-        />
-        <ContractCard
-          name="Premium Access"
-          address={PREMIUM_ACCESS_ADDRESS}
-          explorerBaseUrl={explorerBaseUrl}
-          items={premiumItems}
-        />
-        <ContractCard
-          name="Tegridy Staking"
-          address={TEGRIDY_STAKING_ADDRESS}
-          explorerBaseUrl={explorerBaseUrl}
-          items={stakingItems}
-        />
-        <ContractCard
-          name="LP Farming"
-          address={LP_FARMING_ADDRESS}
-          explorerBaseUrl={explorerBaseUrl}
-          items={lpFarmItems}
-        />
-      </div>
+        {contractReadsError && (
+          <div className="glass-card p-4 rounded-xl border border-red-500/40 bg-red-500/10">
+            <p className="text-sm text-red-300">
+              Failed to load contract data. {contractReadsError.message || 'Please try again later.'}
+            </p>
+          </div>
+        )}
 
-      <div className="glass-card p-4 rounded-xl">
-        <p className="text-xs text-white text-center">
-          Admin panel for contract owner. Manage timelocks via direct contract interaction.
-        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <ContractCard
+            name="Swap Fee Router"
+            address={SWAP_FEE_ROUTER_ADDRESS}
+            explorerBaseUrl={explorerBaseUrl}
+            items={feeRouterItems}
+          />
+          <ContractCard
+            name="Premium Access"
+            address={PREMIUM_ACCESS_ADDRESS}
+            explorerBaseUrl={explorerBaseUrl}
+            items={premiumItems}
+          />
+          <ContractCard
+            name="Tegridy Staking"
+            address={TEGRIDY_STAKING_ADDRESS}
+            explorerBaseUrl={explorerBaseUrl}
+            items={stakingItems}
+          />
+          <ContractCard
+            name="LP Farming"
+            address={LP_FARMING_ADDRESS}
+            explorerBaseUrl={explorerBaseUrl}
+            items={lpFarmItems}
+          />
+        </div>
+
+        <div className="glass-card p-4 rounded-xl">
+          <p className="text-xs text-white text-center">
+            Admin panel for contract owner. Manage timelocks via direct contract interaction.
+          </p>
+        </div>
       </div>
     </div>
   );

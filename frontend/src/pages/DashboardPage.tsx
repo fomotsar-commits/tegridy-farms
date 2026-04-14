@@ -165,7 +165,7 @@ export default function DashboardPage() {
               <div className="absolute inset-0">
                 <img src={s.art} alt="" loading="lazy" className="w-full h-full object-cover" />
               </div>
-              <div className="relative z-10 p-5 pt-8 pb-6">
+              <div className="relative z-10 p-3 md:p-5 pt-8 pb-6">
               <div className="flex items-center gap-1.5">
                 <p className="text-white text-[11px] uppercase tracking-wider label-pill mb-2">{s.l}</p>
                 {s.error && (

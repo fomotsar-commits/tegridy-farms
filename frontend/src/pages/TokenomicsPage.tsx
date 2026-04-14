@@ -72,7 +72,7 @@ export default function TokenomicsPage() {
               <div className="absolute inset-0">
                 <img src={i.art} alt="" className="w-full h-full object-cover" style={{ objectPosition: i.pos }} />
               </div>
-              <div className="relative z-10 p-5 pt-8 pb-6">
+              <div className="relative z-10 p-3 md:p-5 pt-8 pb-6">
               <p className="text-white text-[11px] uppercase tracking-wider label-pill mb-2">{i.l}</p>
               <div className="flex items-center gap-2">
                 {i.v !== undefined ? (
