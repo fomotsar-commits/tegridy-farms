@@ -44,6 +44,36 @@ export default function LendingPage() {
           </p>
         </motion.div>
 
+        {/* Section Toggle — always visible so users can see what's available */}
+        <motion.div
+          className="grid grid-cols-2 md:flex justify-center gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit"
+          style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+        >
+          {SECTIONS.map(({ key, label }) => (
+            <button
+              key={key}
+              className={`relative px-3 py-2 md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 ${
+                section === key
+                  ? 'text-white'
+                  : 'text-white hover:text-white'
+              }`}
+              onClick={() => setSection(key)}
+            >
+              {section === key && (
+                <motion.div
+                  layoutId="nft-finance-tab"
+                  className="absolute inset-0 rounded-xl bg-emerald-600 shadow-lg shadow-emerald-600/20"
+                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                />
+              )}
+              <span className="relative z-10">{label}</span>
+            </button>
+          ))}
+        </motion.div>
+
         {!isConnected ? (
           <motion.div
             className="max-w-md mx-auto rounded-2xl p-8 text-center"
@@ -64,58 +94,25 @@ export default function LendingPage() {
             <ConnectButton />
           </motion.div>
         ) : (
-          <>
-            {/* Section Toggle */}
-            <motion.div
-              className="grid grid-cols-2 md:flex justify-center gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit"
-              style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-            >
-              {SECTIONS.map(({ key, label }) => (
-                <button
-                  key={key}
-                  className={`relative px-3 py-2 md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 ${
-                    section === key
-                      ? 'text-white'
-                      : 'text-white hover:text-white'
-                  }`}
-                  onClick={() => setSection(key)}
-                >
-                  {section === key && (
-                    <motion.div
-                      layoutId="nft-finance-tab"
-                      className="absolute inset-0 rounded-xl bg-emerald-600 shadow-lg shadow-emerald-600/20"
-                      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                    />
-                  )}
-                  <span className="relative z-10">{label}</span>
-                </button>
-              ))}
-            </motion.div>
-
-            {/* Section Content */}
-            <motion.div
-              key={section}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-            >
-              {section === 'lending' && <LendingSection address={address} />}
-              {section === 'amm' && <AMMSection />}
-              {section === 'launchpad' && (
-                <Suspense fallback={<SectionLoader />}>
-                  <LaunchpadPage embedded />
-                </Suspense>
-              )}
-              {section === 'restake' && (
-                <Suspense fallback={<SectionLoader />}>
-                  <RestakePage embedded />
-                </Suspense>
-              )}
-            </motion.div>
-          </>
+          <motion.div
+            key={section}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+          >
+            {section === 'lending' && <LendingSection address={address} />}
+            {section === 'amm' && <AMMSection />}
+            {section === 'launchpad' && (
+              <Suspense fallback={<SectionLoader />}>
+                <LaunchpadPage embedded />
+              </Suspense>
+            )}
+            {section === 'restake' && (
+              <Suspense fallback={<SectionLoader />}>
+                <RestakePage embedded />
+              </Suspense>
+            )}
+          </motion.div>
         )}
       </div>
     </div>

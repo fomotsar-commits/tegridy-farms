@@ -43,6 +43,37 @@ export default function CommunityPage() {
           </p>
         </motion.div>
 
+        {/* Section Toggle — always visible so users can see what's available */}
+        <motion.div
+          className="grid grid-cols-3 md:flex justify-center gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit"
+          style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
+          role="tablist"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+        >
+          {SECTIONS.map(({ key, label }) => (
+            <button
+              key={key}
+              role="tab"
+              aria-selected={section === key}
+              className={`relative px-3 py-2 md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 ${
+                section === key ? 'text-white' : 'text-white hover:text-white'
+              }`}
+              onClick={() => setSection(key)}
+            >
+              {section === key && (
+                <motion.div
+                  layoutId="community-tab"
+                  className="absolute inset-0 rounded-xl bg-emerald-600 shadow-lg shadow-emerald-600/20"
+                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                />
+              )}
+              <span className="relative z-10">{label}</span>
+            </button>
+          ))}
+        </motion.div>
+
         {!isConnected ? (
           <motion.div
             className="max-w-md mx-auto rounded-2xl p-8 text-center relative overflow-hidden"
@@ -66,61 +97,27 @@ export default function CommunityPage() {
             </div>
           </motion.div>
         ) : (
-          <>
-            {/* Section Toggle */}
-            <motion.div
-              className="grid grid-cols-3 md:flex justify-center gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit"
-              style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
-              role="tablist"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-            >
-              {SECTIONS.map(({ key, label }) => (
-                <button
-                  key={key}
-                  role="tab"
-                  aria-selected={section === key}
-                  className={`relative px-3 py-2 md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 ${
-                    section === key ? 'text-white' : 'text-white hover:text-white'
-                  }`}
-                  onClick={() => setSection(key)}
-                >
-                  {section === key && (
-                    <motion.div
-                      layoutId="community-tab"
-                      className="absolute inset-0 rounded-xl bg-emerald-600 shadow-lg shadow-emerald-600/20"
-                      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                    />
-                  )}
-                  <span className="relative z-10">{label}</span>
-                </button>
-              ))}
-            </motion.div>
-
-            {/* Section Content */}
-            <motion.div
-              key={section}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-            >
-              <ErrorBoundary>
-                <Suspense fallback={
-                  <div className="space-y-4 animate-pulse">
-                    <div className="rounded-xl p-6" style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}>
-                      <div className="h-5 rounded w-40 mb-4" style={{ background: 'rgba(255,255,255,0.08)' }} />
-                      <div className="h-20 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }} />
-                    </div>
+          <motion.div
+            key={section}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <ErrorBoundary>
+              <Suspense fallback={
+                <div className="space-y-4 animate-pulse">
+                  <div className="rounded-xl p-6" style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}>
+                    <div className="h-5 rounded w-40 mb-4" style={{ background: 'rgba(255,255,255,0.08)' }} />
+                    <div className="h-20 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }} />
                   </div>
-                }>
-                  {section === 'grants' && <GrantsPage embedded />}
-                  {section === 'bounties' && <BountyPage embedded />}
-                  {section === 'bribes' && <BribesPage embedded />}
-                </Suspense>
-              </ErrorBoundary>
-            </motion.div>
-          </>
+                </div>
+              }>
+                {section === 'grants' && <GrantsPage embedded />}
+                {section === 'bounties' && <BountyPage embedded />}
+                {section === 'bribes' && <BribesPage embedded />}
+              </Suspense>
+            </ErrorBoundary>
+          </motion.div>
         )}
       </div>
     </div>
