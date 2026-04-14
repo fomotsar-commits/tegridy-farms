@@ -134,7 +134,7 @@ contract TegridyRestakingTest is Test {
     function test_unrestake_worksWhenStakingPaused() public {
         uint256 tokenId = _stakeAndRestake(alice);
 
-        vm.warp(block.timestamp + 50);
+        vm.warp(block.timestamp + 1 hours + 1); // Must exceed TRANSFER_RATE_LIMIT
 
         // Pause the staking contract so claim() reverts
         staking.pause();
@@ -170,7 +170,7 @@ contract TegridyRestakingTest is Test {
     function test_emergencyWithdraw_forfeitsRewards() public {
         uint256 tokenId = _stakeAndRestake(alice);
 
-        vm.warp(block.timestamp + 100);
+        vm.warp(block.timestamp + 1 hours + 1); // Must exceed TRANSFER_RATE_LIMIT
 
         // Verify there are pending rewards
         assertGt(restaking.pendingBonus(alice), 0, "Should have pending bonus");
@@ -190,7 +190,7 @@ contract TegridyRestakingTest is Test {
         uint256 toweliGain = toweli.balanceOf(alice) - toweliBefore;
         assertGe(toweliGain, 0, "Base gain should be non-negative");
         // The unsettled recovery should not exceed what staking would have paid out
-        uint256 maxExpectedBase = 100 * REWARD_RATE; // 100 seconds * reward rate
+        uint256 maxExpectedBase = (1 hours + 1) * REWARD_RATE; // elapsed time * reward rate
         assertLe(toweliGain, maxExpectedBase, "Recovered base should not exceed max accrued");
 
         // NFT should be back
@@ -241,7 +241,7 @@ contract TegridyRestakingTest is Test {
     function test_unrestake_returns_nft_and_claims() public {
         uint256 tokenId = _stakeAndRestake(alice);
 
-        vm.warp(block.timestamp + 100);
+        vm.warp(block.timestamp + 1 hours + 1); // Must exceed TRANSFER_RATE_LIMIT
 
         uint256 toweliBalBefore = toweli.balanceOf(alice);
         uint256 wethBalBefore = weth.balanceOf(alice);
@@ -452,7 +452,7 @@ contract TegridyRestakingTest is Test {
     function test_unrestake_notInflatedByExternalTransfer() public {
         uint256 tokenId = _stakeAndRestake(alice);
 
-        vm.warp(block.timestamp + 100);
+        vm.warp(block.timestamp + 1 hours + 1); // Must exceed TRANSFER_RATE_LIMIT
 
         uint256 expectedBase = restaking.pendingBase(alice);
         assertGt(expectedBase, 0, "Should have pending base rewards");

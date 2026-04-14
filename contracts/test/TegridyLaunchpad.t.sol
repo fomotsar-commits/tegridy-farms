@@ -356,6 +356,7 @@ contract TegridyLaunchpadTest is Test {
         uint256 creatorBefore = creator.balance;
         uint256 platformBefore = platform.balance;
 
+        vm.prank(creator);
         drop.withdraw();
 
         assertEq(creator.balance - creatorBefore, expectedCreator);

@@ -345,8 +345,9 @@ contract RedTeamRevenue is Test {
         reentrancyBot.attack();
 
         // Check: reentrancy bot should NOT have been able to claim multiple times
-        // If reentryCalls > 0 but they all reverted, we're safe
-        assertEq(reentrancyBot.reentryCalls(), 1, "DEFENDED: Reentrancy blocked by nonReentrant");
+        // reentryCalls == 0 means nonReentrant blocked the callback entirely (best case)
+        // reentryCalls == 1 means callback entered but reverted (also safe)
+        assertLe(reentrancyBot.reentryCalls(), 1, "DEFENDED: Reentrancy blocked by nonReentrant");
     }
 
     /// @notice Verify lastClaimedEpoch prevents double-claiming same epochs

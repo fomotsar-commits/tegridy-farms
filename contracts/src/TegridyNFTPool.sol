@@ -432,8 +432,9 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     ) external override returns (bytes4) {
         // Only accept NFTs from the configured collection
         require(msg.sender == address(nftCollection), "WRONG_COLLECTION");
-        // SECURITY FIX: Only allow deposits from owner (addLiquidity) or self (during swapNFTsForETH)
-        require(operator == owner || operator == address(this), "UNAUTHORIZED_DEPOSIT");
+        // SECURITY FIX: Only allow deposits from owner (addLiquidity), self (during swapNFTsForETH),
+        // or factory (during createPool initial NFT deposit)
+        require(operator == owner || operator == address(this) || operator == factory, "UNAUTHORIZED_DEPOSIT");
         // Track the token if not already tracked (direct safeTransferFrom)
         if (_idToIndex[tokenId] == 0) {
             _addHeldId(tokenId);

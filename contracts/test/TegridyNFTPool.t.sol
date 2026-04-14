@@ -360,12 +360,11 @@ contract TegridyNFTPoolTest is Test {
         // Fees accumulated in pool
         assertEq(p.accumulatedProtocolFees(), expectedProtocol);
 
-        // Fee recipient claims protocol fees (pool.factory = protocolFeeRecipient)
-        uint256 recipientBefore = feeRecipient.balance;
-        vm.prank(feeRecipient);
-        p.claimProtocolFees();
+        // Factory claims protocol fees from pool (only factory can call claimProtocolFees)
+        uint256 factoryBefore = address(factory).balance;
+        factory.claimPoolFees(pool);
 
-        assertEq(feeRecipient.balance - recipientBefore, expectedProtocol);
+        assertEq(address(factory).balance - factoryBefore, expectedProtocol);
         assertEq(p.accumulatedProtocolFees(), 0);
     }
 

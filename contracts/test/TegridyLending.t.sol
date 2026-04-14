@@ -667,8 +667,8 @@ contract TegridyLendingTest is Test {
         vm.prank(alice);
         uint256 loanId = lending.acceptOffer(offerId, aliceTokenId);
 
-        // Warp 1 second — should no longer be "too recent"
-        vm.warp(block.timestamp + 1);
+        // Warp past staking NFT TRANSFER_RATE_LIMIT (1 hour)
+        vm.warp(block.timestamp + 1 hours + 1);
 
         uint256 repaymentAmount = lending.getRepaymentAmount(loanId);
         vm.deal(alice, repaymentAmount);

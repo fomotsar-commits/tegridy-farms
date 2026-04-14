@@ -447,8 +447,9 @@ contract Audit195Grants is Test {
     function test_fee_noRefundOnApproval() public {
         uint256 id = _createAndApprove(alice, artist, 1 ether);
 
-        // Refundable deposits decremented on approval (deposit handled at execution/lapse)
-        assertEq(grants.totalRefundableDeposits(), 0, "decremented on approval");
+        // SECURITY FIX: totalRefundableDeposits is NOT decremented at approval time.
+        // Deposit stays reserved until execution or lapse to prevent sweep() draining it.
+        assertGt(grants.totalRefundableDeposits(), 0, "deposit still reserved after approval");
     }
 
     function test_fee_refundOnCancel() public {
