@@ -316,9 +316,8 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         // Transfer NFT from borrower to this contract (collateral escrow)
         IERC721(collateralContract).transferFrom(msg.sender, address(this), _tokenId);
 
-        // Send principal ETH to borrower
-        (bool success,) = msg.sender.call{value: principal}("");
-        if (!success) revert ETHTransferFailed();
+        // Send principal ETH to borrower (WETH fallback for contract borrowers)
+        WETHFallbackLib.safeTransferETHOrWrap(weth, msg.sender, principal);
 
         emit LoanAccepted(
             loanId,
@@ -391,7 +390,7 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         // Refund overpayment to borrower
         uint256 overpayment = msg.value - totalRepayment;
         if (overpayment > 0) {
-            WETHFallbackLib.safeTransferETH(msg.sender, overpayment);
+            WETHFallbackLib.safeTransferETHOrWrap(weth, msg.sender, overpayment);
         }
 
         emit LoanRepaid(_loanId, borrower, principal, interest, fee);
