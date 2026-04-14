@@ -11,28 +11,16 @@ interface ITegridyPair {
 }
 
 /// @title TegridyTWAP — Time-Weighted Average Price Oracle
-/// @notice On-chain TWAP oracle for TegridyPair AMM pools. Provides manipulation-resistant
-///         price feeds by averaging spot prices over a configurable time window.
+/// @notice On-chain TWAP oracle for TegridyPair AMM pools.
 ///
-///         Design:
-///         - Stores periodic price observations in a fixed-size circular buffer (gas-efficient)
-///         - Anyone can call update() to record a new price snapshot (permissionless)
-///         - consult() returns the TWAP-adjusted output amount for a given input
-///         - Resistant to flash loan manipulation since TWAP spans multiple blocks
-///
-///         Integration:
-///         - POLAccumulator can query this oracle for safe slippage bounds
-///         - Replaces dependency on Flashbots Protect for sandwich protection
-///
-/// @dev Since TegridyPair does NOT have Uniswap V2-style cumulative price accumulators
-///      (removed per AUDIT NOTE #64 / L-03), this oracle computes its own cumulative
-///      prices from reserve snapshots taken at update() time. The TWAP between two
-///      observations is: (cumulativePrice_new - cumulativePrice_old) / (time_new - time_old).
-///
-/// @dev SECURITY: This oracle requires at least 2 observations spanning the requested
-///      period before returning a price. A single stale observation cannot be used.
-///      The MIN_PERIOD between updates prevents an attacker from filling the buffer
-///      in a single block to manipulate the TWAP.
+/// @dev SECURITY NOTES:
+///   - Uses unchecked math for cumulative price accumulation (intentional overflow wrapping,
+///     matching Uniswap V2 design). Subtraction in consult() is also unchecked so that
+///     wrapped values produce correct differences.
+///   - MIN_PERIOD of 15 minutes between observations prevents rapid buffer filling.
+///   - MAX_STALENESS of 2 hours ensures consult() rejects stale data.
+///   - Price deviation check rejects observations that deviate >50% from the previous,
+///     mitigating flash-loan manipulation of reserves.
 contract TegridyTWAP {
     // ─── Types ───────────────────────────────────────────────────────
 
@@ -44,24 +32,18 @@ contract TegridyTWAP {
 
     // ─── Constants ───────────────────────────────────────────────────
 
-    /// @notice Minimum time between observations for a given pair
-    uint256 public constant MIN_PERIOD = 5 minutes;
-
-    /// @notice Maximum number of observations stored per pair (circular buffer)
+    uint256 public constant MIN_PERIOD = 15 minutes;
     uint8 public constant MAX_OBSERVATIONS = 48;
-
-    /// @dev UQ112x112 fixed-point resolution (2^112)
+    uint256 public constant MAX_STALENESS = 2 hours;
+    /// @dev Maximum allowed price deviation from previous observation (50% = 5000 bps)
+    uint256 public constant MAX_DEVIATION_BPS = 5000;
     uint256 private constant Q112 = 2 ** 112;
+    uint256 private constant BPS = 10000;
 
     // ─── Storage ─────────────────────────────────────────────────────
 
-    /// @notice Circular buffer of observations per pair
     mapping(address => Observation[MAX_OBSERVATIONS]) public observations;
-
-    /// @notice Index of the next write position in the circular buffer
     mapping(address => uint8) public observationIndex;
-
-    /// @notice Total number of observations recorded (capped display at MAX_OBSERVATIONS)
     mapping(address => uint256) public observationCount;
 
     // ─── Events ──────────────────────────────────────────────────────
@@ -76,13 +58,12 @@ contract TegridyTWAP {
     error InvalidToken();
     error InvalidAmount();
     error PeriodTooLong();
+    error StaleOracle();
+    error PriceDeviationTooLarge();
 
     // ─── External ────────────────────────────────────────────────────
 
     /// @notice Record a new price observation for a pair.
-    ///         Permissionless — anyone can call. Reverts if MIN_PERIOD has not elapsed
-    ///         since the last observation.
-    /// @param pair Address of the TegridyPair contract
     function update(address pair) external {
         if (!canUpdate(pair)) revert PeriodNotElapsed();
 
@@ -90,30 +71,51 @@ contract TegridyTWAP {
         if (reserve0 == 0 || reserve1 == 0) revert NoReserves();
 
         uint32 blockTs = uint32(block.timestamp % 2 ** 32);
+        uint256 spotPrice0 = (uint256(reserve1) * Q112) / reserve0;
+        uint256 spotPrice1 = (uint256(reserve0) * Q112) / reserve1;
 
-        // Compute cumulative prices extending from the last observation
+        // Compute cumulative prices with unchecked math (intentional overflow wrapping)
         uint224 price0Cumulative;
         uint224 price1Cumulative;
 
         uint256 count = observationCount[pair];
         if (count > 0) {
-            // Get the most recent observation
             uint8 lastIdx = observationIndex[pair] == 0 ? MAX_OBSERVATIONS - 1 : observationIndex[pair] - 1;
             Observation memory last = observations[pair][lastIdx];
 
+            // AUDIT FIX: Price deviation check — reject observations that deviate >50% from
+            // the previous spot price. Mitigates flash-loan reserve manipulation.
+            if (count >= 2) {
+                uint8 prevIdx = lastIdx == 0 ? MAX_OBSERVATIONS - 1 : lastIdx - 1;
+                Observation memory prev = observations[pair][prevIdx];
+                if (prev.timestamp > 0 && last.timestamp > prev.timestamp) {
+                    uint32 prevElapsed = last.timestamp - prev.timestamp;
+                    // Reconstruct previous spot price from cumulative difference
+                    uint256 prevSpot0;
+                    unchecked {
+                        prevSpot0 = uint256(last.price0Cumulative - prev.price0Cumulative) / prevElapsed;
+                    }
+                    if (prevSpot0 > 0) {
+                        uint256 deviation = spotPrice0 > prevSpot0
+                            ? ((spotPrice0 - prevSpot0) * BPS) / prevSpot0
+                            : ((prevSpot0 - spotPrice0) * BPS) / prevSpot0;
+                        if (deviation > MAX_DEVIATION_BPS) revert PriceDeviationTooLarge();
+                    }
+                }
+            }
+
             uint32 elapsed = blockTs - last.timestamp;
 
-            // Accumulate: lastCumulative + (currentSpotPrice * timeElapsed)
-            // Spot price in UQ112x112: (reserve1 * Q112) / reserve0 for price0
-            price0Cumulative = last.price0Cumulative + uint224((uint256(reserve1) * Q112 / reserve0) * elapsed);
-            price1Cumulative = last.price1Cumulative + uint224((uint256(reserve0) * Q112 / reserve1) * elapsed);
+            // AUDIT FIX: unchecked accumulation — intentional overflow wrapping (Uniswap V2 pattern)
+            unchecked {
+                price0Cumulative = last.price0Cumulative + uint224(spotPrice0 * elapsed);
+                price1Cumulative = last.price1Cumulative + uint224(spotPrice1 * elapsed);
+            }
         } else {
-            // First observation — cumulative starts at 0
             price0Cumulative = 0;
             price1Cumulative = 0;
         }
 
-        // Write to circular buffer
         uint8 idx = observationIndex[pair];
         observations[pair][idx] = Observation({
             timestamp: blockTs,
@@ -128,17 +130,14 @@ contract TegridyTWAP {
     }
 
     /// @notice Query the TWAP-adjusted output amount for a given input over a time period.
-    /// @param pair Address of the TegridyPair
-    /// @param tokenIn Address of the input token (must be token0 or token1 of the pair)
-    /// @param amountIn Amount of input token
-    /// @param period Time window in seconds to compute TWAP over (e.g., 1800 for 30 min)
-    /// @return amountOut The TWAP-adjusted output amount
     function consult(address pair, address tokenIn, uint256 amountIn, uint256 period)
         external
         view
         returns (uint256 amountOut)
     {
         if (amountIn == 0) revert InvalidAmount();
+        if (period == 0) revert InvalidAmount();
+        if (period > uint256(MAX_OBSERVATIONS) * MIN_PERIOD) revert PeriodTooLong();
 
         address token0 = ITegridyPair(pair).token0();
         address token1 = ITegridyPair(pair).token1();
@@ -149,15 +148,15 @@ contract TegridyTWAP {
         (uint224 priceCumStart, uint224 priceCumEnd, uint32 elapsed) =
             _getCumulativePricesOverPeriod(pair, isToken0, period);
 
-        // TWAP = (cumulativeEnd - cumulativeStart) / elapsed
-        // amountOut = amountIn * TWAP / Q112
-        uint256 priceDiff = uint256(priceCumEnd) - uint256(priceCumStart);
+        // AUDIT FIX: unchecked subtraction for correct modular arithmetic on wrapped cumulatives
+        uint256 priceDiff;
+        unchecked {
+            priceDiff = uint256(uint224(priceCumEnd - priceCumStart));
+        }
         amountOut = (amountIn * priceDiff) / (uint256(elapsed) * Q112);
     }
 
     /// @notice Check whether enough time has passed to record a new observation.
-    /// @param pair Address of the TegridyPair
-    /// @return True if update() can be called
     function canUpdate(address pair) public view returns (bool) {
         uint256 count = observationCount[pair];
         if (count == 0) return true;
@@ -169,8 +168,6 @@ contract TegridyTWAP {
     }
 
     /// @notice Get the latest observation for a pair.
-    /// @param pair Address of the TegridyPair
-    /// @return obs The most recent Observation
     function getLatestObservation(address pair) external view returns (Observation memory obs) {
         uint256 count = observationCount[pair];
         if (count == 0) revert InsufficientObservations();
@@ -179,8 +176,6 @@ contract TegridyTWAP {
     }
 
     /// @notice Get the number of usable observations stored for a pair.
-    /// @param pair Address of the TegridyPair
-    /// @return The number of observations (capped at MAX_OBSERVATIONS)
     function getObservationCount(address pair) external view returns (uint256) {
         uint256 count = observationCount[pair];
         return count > MAX_OBSERVATIONS ? MAX_OBSERVATIONS : count;
@@ -188,8 +183,6 @@ contract TegridyTWAP {
 
     // ─── Internal ────────────────────────────────────────────────────
 
-    /// @dev Find two observations spanning the requested period and return their
-    ///      cumulative prices and the time elapsed between them.
     function _getCumulativePricesOverPeriod(address pair, bool isToken0, uint256 period)
         internal
         view
@@ -200,12 +193,12 @@ contract TegridyTWAP {
 
         uint256 effectiveCount = count > MAX_OBSERVATIONS ? MAX_OBSERVATIONS : count;
 
-        // Latest observation
         uint8 latestIdx = observationIndex[pair] == 0 ? MAX_OBSERVATIONS - 1 : observationIndex[pair] - 1;
         Observation memory latest = observations[pair][latestIdx];
 
-        // Search backwards for the oldest observation that is at least `period` seconds old
-        // relative to the latest observation
+        // AUDIT FIX: staleness check — reject if oracle data is too old
+        if (block.timestamp - latest.timestamp > MAX_STALENESS) revert StaleOracle();
+
         uint32 targetTimestamp = latest.timestamp - uint32(period);
         Observation memory best;
         bool found = false;
@@ -217,9 +210,8 @@ contract TegridyTWAP {
                 : MAX_OBSERVATIONS - uint8(i - latestIdx);
 
             Observation memory obs = observations[pair][checkIdx];
-            if (obs.timestamp == 0) continue; // Uninitialized slot
+            if (obs.timestamp == 0) continue;
 
-            // We want the observation closest to (but not after) targetTimestamp
             if (obs.timestamp <= targetTimestamp) {
                 uint32 diff = targetTimestamp - obs.timestamp;
                 if (diff < bestDiff) {
@@ -230,14 +222,12 @@ contract TegridyTWAP {
             }
         }
 
-        // If no observation old enough, use the oldest available observation
         if (!found) {
-            // Find the oldest observation in the buffer
             uint8 oldestIdx;
             if (count >= MAX_OBSERVATIONS) {
-                oldestIdx = observationIndex[pair]; // Oldest is at current write position (about to be overwritten)
+                oldestIdx = observationIndex[pair];
             } else {
-                oldestIdx = 0; // Buffer hasn't wrapped yet
+                oldestIdx = 0;
             }
             best = observations[pair][oldestIdx];
             if (best.timestamp == 0 || best.timestamp == latest.timestamp) revert InsufficientObservations();

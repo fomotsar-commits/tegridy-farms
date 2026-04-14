@@ -87,14 +87,11 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const CHAT_ENABLED = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
 
-// The SIWE JWT is now stored in an httpOnly cookie (inaccessible to client JS).
-// The Supabase client uses the anon key for all requests. RLS policies that need
-// wallet-verified writes should go through a server-side API proxy that reads
-// the httpOnly cookie and forwards the JWT to Supabase.
-//
-// NOTE: The current RLS policies use open INSERT (see TODO at top of file).
-// Once those are tightened to check jwt.wallet, write operations should be
-// routed through /api/ endpoints that attach the JWT from the cookie.
+// The SIWE JWT is stored in an httpOnly cookie (inaccessible to client JS).
+// The Supabase client uses the anon key for READ operations only.
+// All WRITE operations (insert/update/delete) should go through the
+// /api/supabase-proxy endpoint which reads the httpOnly cookie and forwards
+// the JWT to Supabase, satisfying the RLS wallet verification policies.
 export const supabase = CHAT_ENABLED
   ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;

@@ -447,18 +447,19 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
     /// @notice Add more TOWELI to an existing staking position without withdrawing.
     /// @param tokenId The NFT token ID of the staking position
-    /// @param _additionalAmount Amount of TOWELI to add (must be > 0)
+    /// @param _additionalAmount Amount of TOWELI to add (must be >= MIN_STAKE)
     function increaseAmount(uint256 tokenId, uint256 _additionalAmount) external nonReentrant whenNotPaused updateReward {
         if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
         Position storage p = positions[tokenId];
         if (p.amount == 0) revert NoPosition();
         if (_additionalAmount == 0) revert ZeroAmount();
+        if (_additionalAmount < MIN_STAKE) revert StakeTooSmall(); // AUDIT FIX: prevent dust spam
+        // AUDIT FIX: reject increase on expired positions — would create zombie boosted stake
+        // that dilutes all active stakers' rewards without earning anything
+        if (p.lockEnd > 0 && block.timestamp >= p.lockEnd) revert LockNotExpired();
 
-        // Claim pending rewards before changing position
+        // Claim pending rewards before changing position (_getReward handles decay internally)
         _getReward(tokenId, p);
-
-        // Decay expired boost before recalculating
-        _decayIfExpired(tokenId, p);
 
         // Update amounts
         totalBoostedStake -= p.boostedAmount;
@@ -469,6 +470,11 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
         // Reset reward debt to prevent retroactive rewards
         p.rewardDebt = _safeInt256((p.boostedAmount * rewardPerTokenStored) / ACC_PRECISION);
+
+        // Auto-extend lock if autoMaxLock is enabled (consistency with getReward behavior)
+        if (p.autoMaxLock) {
+            p.lockEnd = uint64(block.timestamp + MAX_LOCK_DURATION);
+        }
 
         // Transfer tokens
         rewardToken.safeTransferFrom(msg.sender, address(this), _additionalAmount);

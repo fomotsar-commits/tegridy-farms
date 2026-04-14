@@ -1,0 +1,117 @@
+/**
+ * Supabase Write Proxy — forwards SIWE JWT from httpOnly cookie to Supabase
+ *
+ * The SIWE JWT is stored in an httpOnly cookie (inaccessible to client JS).
+ * This proxy reads the cookie, sets it as Supabase's Authorization header,
+ * and forwards the request to Supabase's PostgREST API.
+ *
+ * POST /api/supabase-proxy
+ * Body: { table, method, body, match }
+ *   - table: "messages" | "user_profiles" | "user_favorites" | "user_watchlist" | "votes"
+ *   - method: "INSERT" | "UPDATE" | "DELETE" | "UPSERT"
+ *   - body: the row data
+ *   - match: (optional) filter for UPDATE/DELETE, e.g. { wallet: "0x..." }
+ */
+
+const ALLOWED_TABLES = ["messages", "user_profiles", "user_favorites", "user_watchlist", "votes"];
+
+function parseCookie(cookieHeader, name) {
+  if (!cookieHeader) return null;
+  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
+  return match ? match[1] : null;
+}
+
+export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  // Extract SIWE JWT from httpOnly cookie
+  const jwt = parseCookie(req.headers.cookie, "siwe_jwt");
+  if (!jwt) {
+    return res.status(401).json({ error: "Not authenticated" });
+  }
+
+  const { table, method, body, match } = req.body || {};
+
+  // Validate table name (prevent injection)
+  if (!table || !ALLOWED_TABLES.includes(table)) {
+    return res.status(400).json({ error: "Invalid table" });
+  }
+
+  if (!method || !["INSERT", "UPDATE", "DELETE", "UPSERT"].includes(method)) {
+    return res.status(400).json({ error: "Invalid method" });
+  }
+
+  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+  const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return res.status(500).json({ error: "Supabase not configured" });
+  }
+
+  // Build PostgREST request
+  let url = `${supabaseUrl}/rest/v1/${table}`;
+  const headers = {
+    "apikey": supabaseAnonKey,
+    "Authorization": `Bearer ${jwt}`,
+    "Content-Type": "application/json",
+    "Prefer": method === "UPSERT" ? "resolution=merge-duplicates" : "return=representation",
+  };
+
+  let fetchMethod;
+  let fetchBody;
+
+  switch (method) {
+    case "INSERT":
+    case "UPSERT":
+      fetchMethod = "POST";
+      fetchBody = JSON.stringify(body);
+      break;
+    case "UPDATE":
+      fetchMethod = "PATCH";
+      fetchBody = JSON.stringify(body);
+      // Add filter params for UPDATE
+      if (match) {
+        const params = new URLSearchParams();
+        for (const [key, value] of Object.entries(match)) {
+          params.set(key, `eq.${value}`);
+        }
+        url += `?${params.toString()}`;
+      }
+      break;
+    case "DELETE":
+      fetchMethod = "DELETE";
+      if (match) {
+        const params = new URLSearchParams();
+        for (const [key, value] of Object.entries(match)) {
+          params.set(key, `eq.${value}`);
+        }
+        url += `?${params.toString()}`;
+      }
+      break;
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: fetchMethod,
+      headers,
+      body: fetchBody,
+    });
+
+    const text = await response.text();
+    const status = response.status;
+
+    if (status >= 400) {
+      return res.status(status).json({ error: text });
+    }
+
+    try {
+      return res.status(status).json(JSON.parse(text));
+    } catch {
+      return res.status(status).json({ ok: true });
+    }
+  } catch (err) {
+    return res.status(500).json({ error: "Supabase request failed" });
+  }
+}
