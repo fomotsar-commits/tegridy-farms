@@ -659,9 +659,9 @@ contract TegridyNFTPoolFactoryFuzzTest is Test {
         vm.stopPrank();
     }
 
-    // ─── Fuzz: changeDelta on existing pool enforces cap ────────────────
+    // ─── Fuzz: proposeDelta on existing pool enforces cap ────────────────
 
-    function testFuzz_changeDeltaEnforcesCap(uint256 delta) public {
+    function testFuzz_proposeDeltaEnforcesCap(uint256 delta) public {
         // Create a pool first
         uint256 id = nft.mint(alice);
         uint256[] memory ids = new uint256[](1);
@@ -680,15 +680,17 @@ contract TegridyNFTPoolFactoryFuzzTest is Test {
 
         TegridyNFTPool p = TegridyNFTPool(payable(pool));
 
-        // Valid delta change
+        // Valid delta proposal + execute through timelock
         uint256 validDelta = bound(delta, 0, 100 ether);
-        p.changeDelta(validDelta);
-        assertEq(p.delta(), validDelta, "changeDelta did not update correctly");
+        p.proposeDelta(validDelta);
+        vm.warp(block.timestamp + 24 hours);
+        p.executeDeltaChange();
+        assertEq(p.delta(), validDelta, "proposeDelta did not update correctly after timelock");
 
-        // Invalid delta change should revert
+        // Invalid delta proposal should revert
         uint256 invalidDelta = bound(delta, 100 ether + 1, 200 ether);
         vm.expectRevert(TegridyNFTPool.DeltaTooHigh.selector);
-        p.changeDelta(invalidDelta);
+        p.proposeDelta(invalidDelta);
 
         vm.stopPrank();
     }

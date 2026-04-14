@@ -82,6 +82,7 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
 
     Epoch[] public epochs;
     mapping(address => uint256) public lastClaimedEpoch; // Next epoch index to claim from
+    mapping(uint256 => uint256) public epochClaimed; // AUDIT FIX C-03: Total ETH claimed per epoch
     uint256 public totalDistributed;
     uint256 public totalClaimed;
     uint256 public totalEarmarked; // ETH allocated to epochs but not yet claimed
@@ -164,6 +165,7 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     error EmergencyWithdrawNotReady();
     error EmergencyWithdrawExpired();
     error StakingPaused(); // AUDIT FIX M-10: Block claims when staking is paused
+    error EpochExhausted(); // AUDIT FIX C-03: Epoch funds fully claimed
 
     // ─── Constructor ──────────────────────────────────────────────────
 
@@ -481,6 +483,8 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     }
 
     /// @dev Shared claim calculation logic. Queries votingPowerAtTimestamp per epoch.
+    ///      AUDIT FIX C-03: Tracks per-epoch cumulative claims to prevent over-claim when
+    ///      totalBoostedStake decreases between distribution and claim (users unstake).
     /// @return totalOwed The total ETH owed to the user across the epoch range.
     /// @return actualEndEpoch The actual end epoch (may be earlier than endEpoch due to grace period cutoff).
     function _calculateClaim(
@@ -489,7 +493,7 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         uint256 endEpoch,
         bool inGracePeriod,
         uint256 lockEnd
-    ) internal view returns (uint256 totalOwed, uint256 actualEndEpoch) {
+    ) internal returns (uint256 totalOwed, uint256 actualEndEpoch) {
         actualEndEpoch = endEpoch;
 
         for (uint256 i = startEpoch; i < endEpoch; i++) {
@@ -507,7 +511,18 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
                     // Cap userPower to epoch.totalLocked to prevent over-payment
                     uint256 effectivePower = userPower > epoch.totalLocked ? epoch.totalLocked : userPower;
                     uint256 share = (epoch.totalETH * effectivePower) / epoch.totalLocked;
-                    totalOwed += share;
+
+                    // AUDIT FIX C-03: Prevent total claims from exceeding deposited ETH per epoch.
+                    // If totalBoostedStake decreased between distribution and claim, multiple users
+                    // could each claim based on the snapshot denominator with sum(claims) > epoch.totalETH.
+                    uint256 remaining = epoch.totalETH > epochClaimed[i] ? epoch.totalETH - epochClaimed[i] : 0;
+                    if (share > remaining) {
+                        share = remaining;
+                    }
+                    if (share > 0) {
+                        epochClaimed[i] += share;
+                        totalOwed += share;
+                    }
                 }
             }
         }

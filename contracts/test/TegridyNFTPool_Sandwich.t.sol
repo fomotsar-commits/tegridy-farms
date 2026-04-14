@@ -309,41 +309,47 @@ contract TegridyNFTPool_SandwichTest is Test {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // TEST: changeDelta upper bound enforcement (MAX_DELTA cap)
+    // TEST: proposeDelta upper bound enforcement (MAX_DELTA cap)
     // ═══════════════════════════════════════════════════════════════════
 
-    /// @notice Verify that changeDelta rejects values above MAX_DELTA (100 ether).
-    function test_changeDelta_rejectsAboveMax() public {
+    /// @notice Verify that proposeDelta rejects values above MAX_DELTA (100 ether).
+    function test_proposeDelta_rejectsAboveMax() public {
         uint256[] memory ids = _tokenIdArray(1, 3);
         address pool = _createSellPool(SPOT_PRICE, DELTA, ids);
         TegridyNFTPool p = TegridyNFTPool(payable(pool));
 
-        // Try to set delta above MAX_DELTA
+        // Try to propose delta above MAX_DELTA
         vm.prank(alice); // alice is the pool owner
         vm.expectRevert(TegridyNFTPool.DeltaTooHigh.selector);
-        p.changeDelta(101 ether);
+        p.proposeDelta(101 ether);
     }
 
-    /// @notice Verify that changeDelta accepts MAX_DELTA exactly.
-    function test_changeDelta_acceptsExactMax() public {
+    /// @notice Verify that proposeDelta accepts MAX_DELTA exactly (after timelock).
+    function test_proposeDelta_acceptsExactMax() public {
         uint256[] memory ids = _tokenIdArray(1, 3);
         address pool = _createSellPool(SPOT_PRICE, DELTA, ids);
         TegridyNFTPool p = TegridyNFTPool(payable(pool));
 
         vm.prank(alice);
-        p.changeDelta(100 ether);
+        p.proposeDelta(100 ether);
+        vm.warp(block.timestamp + 24 hours);
+        vm.prank(alice);
+        p.executeDeltaChange();
 
         assertEq(p.delta(), 100 ether);
     }
 
-    /// @notice Verify that changeDelta accepts zero.
-    function test_changeDelta_acceptsZero() public {
+    /// @notice Verify that proposeDelta accepts zero (after timelock).
+    function test_proposeDelta_acceptsZero() public {
         uint256[] memory ids = _tokenIdArray(1, 3);
         address pool = _createSellPool(SPOT_PRICE, DELTA, ids);
         TegridyNFTPool p = TegridyNFTPool(payable(pool));
 
         vm.prank(alice);
-        p.changeDelta(0);
+        p.proposeDelta(0);
+        vm.warp(block.timestamp + 24 hours);
+        vm.prank(alice);
+        p.executeDeltaChange();
 
         assertEq(p.delta(), 0);
     }

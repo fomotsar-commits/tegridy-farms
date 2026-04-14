@@ -42,11 +42,18 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     /// @dev Accumulated protocol fees (pull pattern — factory claims via claimProtocolFees)
     uint256 public accumulatedProtocolFees;
 
+    // ─── AUDIT FIX M-04: Timelock for spotPrice and delta changes ───────
+    uint256 public pendingSpotPrice;
+    uint256 public pendingSpotPriceExecuteAfter;
+    uint256 public pendingDelta;
+    uint256 public pendingDeltaExecuteAfter;
+
     // ─── Constants ──────────────────────────────────────────────────────
     uint256 public constant MAX_FEE_BPS = 9000;       // 90% max LP fee
     uint256 public constant MAX_PROTOCOL_FEE_BPS = 1000; // 10% max protocol fee
     uint256 public constant BPS = 10_000;
     uint256 public constant MAX_DELTA = 100 ether;   // SECURITY FIX: Upper bound on delta (matches initialize cap)
+    uint256 public constant PARAMETER_TIMELOCK = 24 hours; // AUDIT FIX M-04: 24h delay for price/delta changes
 
     // ─── Errors (additional) ────────────────────────────────────────────
     error Expired();
@@ -54,6 +61,8 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     error TooManyItems();
     error DeltaTooHigh();
     error NotFactory();
+    error TimelockNotElapsed();
+    error NoPendingChange();
 
     // ─── Events ─────────────────────────────────────────────────────────
     event PoolInitialized(
@@ -68,8 +77,12 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     event SwapNFTsForETH(address indexed seller, uint256[] tokenIds, uint256 totalPayout);
     event LiquidityAdded(address indexed provider, uint256[] tokenIds, uint256 ethAmount);
     event LiquidityRemoved(address indexed provider, uint256[] tokenIds, uint256 ethAmount);
+    event SpotPriceChangeProposed(uint256 currentPrice, uint256 proposedPrice, uint256 executeAfter);
     event SpotPriceChanged(uint256 oldPrice, uint256 newPrice);
+    event SpotPriceChangeCancelled(uint256 cancelledPrice);
+    event DeltaChangeProposed(uint256 currentDelta, uint256 proposedDelta, uint256 executeAfter);
     event DeltaChanged(uint256 oldDelta, uint256 newDelta);
+    event DeltaChangeCancelled(uint256 cancelledDelta);
     event FeeChanged(uint256 oldFee, uint256 newFee);
     event ETHWithdrawn(address indexed to, uint256 amount);
     event NFTsWithdrawn(address indexed to, uint256[] tokenIds);
@@ -280,21 +293,65 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
     // ─── Owner Parameter Changes ────────────────────────────────────────
 
-    /// @notice Change the spot price (owner only)
-    function changeSpotPrice(uint256 newPrice) external onlyOwner {
+    // ─── AUDIT FIX M-04: Timelocked Spot Price Changes (24h) ──────────
+
+    /// @notice Propose a new spot price. Takes effect after 24-hour timelock.
+    function proposeSpotPrice(uint256 newPrice) external onlyOwner {
         if (newPrice == 0) revert InvalidPrice();
-        uint256 oldPrice = spotPrice;
-        spotPrice = newPrice;
-        emit SpotPriceChanged(oldPrice, newPrice);
+        pendingSpotPrice = newPrice;
+        pendingSpotPriceExecuteAfter = block.timestamp + PARAMETER_TIMELOCK;
+        emit SpotPriceChangeProposed(spotPrice, newPrice, pendingSpotPriceExecuteAfter);
     }
 
-    /// @notice Change the delta (price step) (owner only)
-    /// SECURITY FIX: Added upper bound check matching initialize cap (Sudoswap V2 pattern)
-    function changeDelta(uint256 newDelta) external onlyOwner {
+    /// @notice Execute the pending spot price change after timelock has elapsed.
+    function executeSpotPriceChange() external onlyOwner {
+        if (pendingSpotPriceExecuteAfter == 0) revert NoPendingChange();
+        if (block.timestamp < pendingSpotPriceExecuteAfter) revert TimelockNotElapsed();
+        uint256 oldPrice = spotPrice;
+        spotPrice = pendingSpotPrice;
+        pendingSpotPrice = 0;
+        pendingSpotPriceExecuteAfter = 0;
+        emit SpotPriceChanged(oldPrice, spotPrice);
+    }
+
+    /// @notice Cancel a pending spot price change.
+    function cancelSpotPriceChange() external onlyOwner {
+        if (pendingSpotPriceExecuteAfter == 0) revert NoPendingChange();
+        uint256 cancelled = pendingSpotPrice;
+        pendingSpotPrice = 0;
+        pendingSpotPriceExecuteAfter = 0;
+        emit SpotPriceChangeCancelled(cancelled);
+    }
+
+    // ─── AUDIT FIX M-04: Timelocked Delta Changes (24h) ────────────
+
+    /// @notice Propose a new delta. Takes effect after 24-hour timelock.
+    /// SECURITY FIX: Upper bound check matching initialize cap (Sudoswap V2 pattern)
+    function proposeDelta(uint256 newDelta) external onlyOwner {
         if (newDelta > MAX_DELTA) revert DeltaTooHigh();
+        pendingDelta = newDelta;
+        pendingDeltaExecuteAfter = block.timestamp + PARAMETER_TIMELOCK;
+        emit DeltaChangeProposed(delta, newDelta, pendingDeltaExecuteAfter);
+    }
+
+    /// @notice Execute the pending delta change after timelock has elapsed.
+    function executeDeltaChange() external onlyOwner {
+        if (pendingDeltaExecuteAfter == 0) revert NoPendingChange();
+        if (block.timestamp < pendingDeltaExecuteAfter) revert TimelockNotElapsed();
         uint256 oldDelta = delta;
-        delta = newDelta;
-        emit DeltaChanged(oldDelta, newDelta);
+        delta = pendingDelta;
+        pendingDelta = 0;
+        pendingDeltaExecuteAfter = 0;
+        emit DeltaChanged(oldDelta, delta);
+    }
+
+    /// @notice Cancel a pending delta change.
+    function cancelDeltaChange() external onlyOwner {
+        if (pendingDeltaExecuteAfter == 0) revert NoPendingChange();
+        uint256 cancelled = pendingDelta;
+        pendingDelta = 0;
+        pendingDeltaExecuteAfter = 0;
+        emit DeltaChangeCancelled(cancelled);
     }
 
     /// @notice Change the LP fee (owner only, TRADE pools only)

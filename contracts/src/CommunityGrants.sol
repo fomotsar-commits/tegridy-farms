@@ -94,6 +94,7 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     uint256 public totalRefundableDeposits; // TOWELI held for active proposal refunds
     uint256 public totalApprovedPending; // AUDIT FIX H-02: ETH committed to approved-but-unexecuted proposals
     uint256 public activeProposalCount;
+    mapping(uint256 => bool) public depositRefunded; // AUDIT FIX H-01: Tracks whether deposit was consumed/refunded
 
     uint256 public constant ROLLING_WINDOW = 30 days;
     uint256 public constant MAX_ROLLING_DISBURSEMENT_BPS = 3000; // 30% of treasury per rolling window
@@ -148,6 +149,8 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error ExecutionDeadlineNotExpired(); // H-03: for lapseProposal
     error FeeReceiverProposalExpired();
     error RollingDisbursementExceeded();
+
+    error AlreadyRefunded(); // AUDIT FIX H-01: Deposit already consumed or refunded
 
     // Legacy error aliases (kept for test compatibility)
     error NoFeeReceiverChangePending();
@@ -298,6 +301,7 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             // Decrementing here allowed sweepFees() to sweep tokens still owed for lapse refunds.
         } else {
             totalRefundableDeposits -= refundable;
+            depositRefunded[_proposalId] = true; // AUDIT FIX H-01: Mark deposit as consumed
             proposal.status = ProposalStatus.Rejected;
             activeProposalCount--;
             // M-07: Refund 50% of proposal fee on rejection; if proposer is blacklisted, send to feeReceiver
@@ -359,6 +363,7 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // SECURITY FIX: Decrement totalRefundableDeposits here when deposit is actually consumed
         uint256 refundable = PROPOSAL_FEE - PROPOSAL_FEE / 2;
         totalRefundableDeposits -= refundable;
+        depositRefunded[_proposalId] = true; // AUDIT FIX H-01: Mark deposit as consumed
         proposal.status = ProposalStatus.Executed;
         activeProposalCount--;
 
@@ -403,6 +408,7 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // SECURITY FIX: Decrement totalRefundableDeposits here when deposit is actually consumed
         uint256 refundable = PROPOSAL_FEE - PROPOSAL_FEE / 2;
         totalRefundableDeposits -= refundable;
+        depositRefunded[_proposalId] = true; // AUDIT FIX H-01: Mark deposit as consumed (retryExecution)
         proposal.status = ProposalStatus.Executed;
         activeProposalCount--;
 
@@ -417,6 +423,9 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     function cancelProposal(uint256 _proposalId) external nonReentrant {
         if (_proposalId >= proposals.length) revert InvalidProposal();
         Proposal storage proposal = proposals[_proposalId];
+
+        // AUDIT FIX H-01: Prevent double-refund if deposit was already consumed
+        if (depositRefunded[_proposalId]) revert AlreadyRefunded();
 
         // AUDIT FIX C-02: Owner can cancel both Active and Approved proposals.
         // Proposer can only cancel their own Active proposals.
@@ -435,6 +444,7 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
         uint256 refundable = PROPOSAL_FEE - PROPOSAL_FEE / 2;
         totalRefundableDeposits -= refundable;
+        depositRefunded[_proposalId] = true; // AUDIT FIX H-01: Mark deposit as consumed
         proposal.status = ProposalStatus.Cancelled;
         activeProposalCount--;
         // AUDIT FIX: Handle blacklisted proposer with try/catch pattern (consistent with finalizeProposal/lapseProposal)
@@ -459,6 +469,9 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (_proposalId >= proposals.length) revert InvalidProposal();
         Proposal storage proposal = proposals[_proposalId];
 
+        // AUDIT FIX H-01: Prevent double-refund if deposit was already consumed
+        if (depositRefunded[_proposalId]) revert AlreadyRefunded();
+
         // AUDIT FIX C-01: Accept both Approved and FailedExecution for lapsing
         if (proposal.status != ProposalStatus.Approved && proposal.status != ProposalStatus.FailedExecution) {
             revert NotApproved();
@@ -474,6 +487,7 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         uint256 refundable = PROPOSAL_FEE - PROPOSAL_FEE / 2;
         // SECURITY FIX: Decrement totalRefundableDeposits here when deposit is actually refunded
         totalRefundableDeposits -= refundable;
+        depositRefunded[_proposalId] = true; // AUDIT FIX H-01: Mark deposit as consumed
         // M-07: handle blacklisted proposer
         try toweli.transfer(proposal.proposer, refundable) returns (bool success) {
             if (success) {

@@ -426,21 +426,12 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
                     emit PendingETHCredited(msg.sender, share);
                 }
             } else {
-                // SECURITY FIX C-3: Wrap ERC20 transfer in try/catch (Aave pull pattern).
-                // If transfer fails (blacklisted user, paused token), credit to pending
-                // instead of blocking ALL claims for this epoch/pair.
-                // SECURITY FIX: Use safeTransfer instead of raw transfer for USDT compatibility.
-                // USDT's transfer() returns void (no bool), causing the try/returns(bool) to
-                // always enter catch. safeTransfer handles non-standard ERC20s correctly.
-                try IERC20(token).transfer(msg.sender, share) returns (bool success) {
-                    // Note: For tokens like USDT that return void, this will go to catch block
-                    // which still correctly credits to pending. safeTransfer in withdrawPending
-                    // handles the actual payout.
-                    if (!success) {
-                        pendingTokenWithdrawals[msg.sender][token] += share;
-                        totalPendingTokens[token] += share;
-                        emit PendingTokenCredited(msg.sender, token, share);
-                    }
+                // AUDIT FIX H-03: Use safeTransfer inside try/catch for USDT compatibility.
+                // USDT's transfer() returns void, so try/returns(bool) always reverts into catch.
+                // safeTransfer handles non-standard ERC20s (no return value) correctly.
+                // Wrapped in try/catch so blacklisted/paused tokens fall back to pending.
+                try this._safeTransferExternal(token, msg.sender, share) {
+                    // Transfer succeeded
                 } catch {
                     pendingTokenWithdrawals[msg.sender][token] += share;
                     totalPendingTokens[token] += share;
@@ -515,13 +506,9 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
                         emit PendingETHCredited(msg.sender, share);
                     }
                 } else {
-                    // SECURITY FIX C-3: Wrap ERC20 transfer in try/catch (Aave pull pattern)
-                    try IERC20(token).transfer(msg.sender, share) returns (bool success) {
-                        if (!success) {
-                            pendingTokenWithdrawals[msg.sender][token] += share;
-                            totalPendingTokens[token] += share;
-                            emit PendingTokenCredited(msg.sender, token, share);
-                        }
+                    // AUDIT FIX H-03: Use safeTransfer for USDT compatibility (same as claimBribes)
+                    try this._safeTransferExternal(token, msg.sender, share) {
+                        // Transfer succeeded
                     } catch {
                         pendingTokenWithdrawals[msg.sender][token] += share;
                         totalPendingTokens[token] += share;
@@ -759,6 +746,15 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 sweepable = balance > reserved ? balance - reserved : 0;
         if (sweepable == 0) revert ZeroAmount();
         IERC20(token).safeTransfer(treasury, sweepable);
+    }
+
+    // ─── AUDIT FIX H-03: External helper for try/catch safeTransfer ──
+
+    /// @dev External wrapper around SafeERC20.safeTransfer so it can be used with try/catch.
+    ///      Solidity's try only works on external calls. Only callable by this contract itself.
+    function _safeTransferExternal(address token, address to, uint256 amount) external {
+        require(msg.sender == address(this), "ONLY_SELF");
+        IERC20(token).safeTransfer(to, amount);
     }
 
     // ─── Internal ────────────────────────────────────────────────────

@@ -159,7 +159,7 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     error NotBorrower();
     error NotLoanLender();
     error DeadlineNotReached();
-    error LoanNotDefaulted();
+    error DeadlineExpired(); // AUDIT FIX C-04: Renamed from LoanNotDefaulted — borrower missed the deadline
     error InsufficientRepayment();
     error ETHTransferFailed();
     error InvalidLoanId();
@@ -373,7 +373,7 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // SECURITY FIX: Enforce deadline — borrower cannot repay after deadline.
         // Without this check, a borrower could front-run a lender's claimDefaultedCollateral()
         // after deadline, stealing their rightful default claim. This makes default deterministic.
-        if (block.timestamp > loan.deadline) revert LoanNotDefaulted();
+        if (block.timestamp > loan.deadline) revert DeadlineExpired();
 
         // Calculate protocol fee on interest
         uint256 fee = (interest * protocolFeeBps) / BPS;
@@ -422,7 +422,7 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 offerId = loan.offerId;
 
         if (msg.sender != lender) revert NotLoanLender();
-        if (block.timestamp <= loan.deadline) revert LoanNotDefaulted();
+        if (block.timestamp <= loan.deadline) revert DeadlineNotReached();
 
         // CEI: state change before external call
         loan.defaultClaimed = true;

@@ -783,36 +783,60 @@ contract TegridyNFTPoolTest is Test {
 
     // ===== OWNER PARAMETER CHANGES =====
 
-    function test_changeSpotPrice() public {
+    function test_changeSpotPrice_timelock() public {
         uint256[] memory ids = _tokenIdArray(1, 3);
         address pool = _createSellPool(SPOT_PRICE, DELTA, ids);
         TegridyNFTPool p = TegridyNFTPool(payable(pool));
 
-        // Owner changes spotPrice
+        // Owner proposes spotPrice change
         vm.prank(alice);
-        p.changeSpotPrice(2 ether);
+        p.proposeSpotPrice(2 ether);
+        // Price should NOT change yet
+        assertEq(p.spotPrice(), SPOT_PRICE);
+
+        // Cannot execute before timelock
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTPool.TimelockNotElapsed.selector);
+        p.executeSpotPriceChange();
+
+        // Warp past timelock
+        vm.warp(block.timestamp + 24 hours);
+        vm.prank(alice);
+        p.executeSpotPriceChange();
         assertEq(p.spotPrice(), 2 ether);
 
         // Non-owner reverts
         vm.prank(bob);
         vm.expectRevert(TegridyNFTPool.NotOwner.selector);
-        p.changeSpotPrice(3 ether);
+        p.proposeSpotPrice(3 ether);
     }
 
-    function test_changeDelta() public {
+    function test_changeDelta_timelock() public {
         uint256[] memory ids = _tokenIdArray(1, 3);
         address pool = _createSellPool(SPOT_PRICE, DELTA, ids);
         TegridyNFTPool p = TegridyNFTPool(payable(pool));
 
-        // Owner changes delta
+        // Owner proposes delta change
         vm.prank(alice);
-        p.changeDelta(0.5 ether);
+        p.proposeDelta(0.5 ether);
+        // Delta should NOT change yet
+        assertEq(p.delta(), DELTA);
+
+        // Cannot execute before timelock
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTPool.TimelockNotElapsed.selector);
+        p.executeDeltaChange();
+
+        // Warp past timelock
+        vm.warp(block.timestamp + 24 hours);
+        vm.prank(alice);
+        p.executeDeltaChange();
         assertEq(p.delta(), 0.5 ether);
 
         // Non-owner reverts
         vm.prank(bob);
         vm.expectRevert(TegridyNFTPool.NotOwner.selector);
-        p.changeDelta(1 ether);
+        p.proposeDelta(1 ether);
     }
 
     function test_changeFee_tradePool() public {

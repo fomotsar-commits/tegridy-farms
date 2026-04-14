@@ -477,7 +477,7 @@ contract TegridyLendingTest is Test {
         vm.warp(block.timestamp + 15 days);
 
         vm.prank(bob);
-        vm.expectRevert(TegridyLending.LoanNotDefaulted.selector);
+        vm.expectRevert(TegridyLending.DeadlineNotReached.selector);
         lending.claimDefaultedCollateral(loanId);
     }
 
@@ -1200,14 +1200,14 @@ contract TegridyLendingTest is Test {
 
         // Attempt to claim default — should revert (deadline not yet passed)
         vm.prank(bob);
-        vm.expectRevert(TegridyLending.LoanNotDefaulted.selector);
+        vm.expectRevert(TegridyLending.DeadlineNotReached.selector);
         lending.claimDefaultedCollateral(loanId);
 
         // Warp to exactly the deadline — still should revert (requires > deadline)
         vm.warp(deadline);
 
         vm.prank(bob);
-        vm.expectRevert(TegridyLending.LoanNotDefaulted.selector);
+        vm.expectRevert(TegridyLending.DeadlineNotReached.selector);
         lending.claimDefaultedCollateral(loanId);
 
         // Warp 1 second past the deadline — should succeed

@@ -64,6 +64,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     bytes32 public constant REWARD_RATE_CHANGE = keccak256("REWARD_RATE_CHANGE");
     bytes32 public constant TREASURY_CHANGE = keccak256("TREASURY_CHANGE");
     bytes32 public constant RESTAKING_CHANGE = keccak256("RESTAKING_CHANGE");
+    bytes32 public constant UNSETTLED_CAP_CHANGE = keccak256("UNSETTLED_CAP_CHANGE"); // AUDIT FIX C-02
 
     // ─── State ────────────────────────────────────────────────────────
 
@@ -108,7 +109,8 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     uint256 public totalUnsettledRewards;
     // AUDIT FIX L-06: Cap unbounded totalUnsettledRewards growth.
     // If cap is hit, excess rewards are forfeited (sent to treasury on next reconcile).
-    uint256 public constant MAX_UNSETTLED_REWARDS = 100_000e18;
+    // AUDIT FIX C-02: Made admin-adjustable via timelocked setter (was constant 100_000e18).
+    uint256 public maxUnsettledRewards = 100_000e18;
 
     // AUDIT FIX C-05: Emergency exit delay mapping (tokenId => request timestamp)
     uint256 public constant EMERGENCY_EXIT_DELAY = 7 days;
@@ -156,6 +158,8 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     event EmergencyExitCancelled(address indexed user, uint256 indexed tokenId); // AUDIT FIX C-05
     // V2: PenaltyDustReconciled event removed (dead code)
     event AmountIncreased(uint256 indexed tokenId, uint256 addedAmount, uint256 newTotal);
+    event RewardsForfeited(address indexed user, uint256 amount); // AUDIT FIX C-02: Emitted when cap blocks settlement
+    event MaxUnsettledRewardsUpdated(uint256 oldCap, uint256 newCap); // AUDIT FIX C-02
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -276,8 +280,11 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     /// @return Claimable reward tokens for this position
     function earned(uint256 tokenId) public view returns (uint256) {
         Position memory p = positions[tokenId];
-        // V2: Expired locks earn nothing — prevents free-riding on boosted rewards
-        if (p.boostedAmount == 0 || (p.lockEnd > 0 && block.timestamp >= p.lockEnd)) return 0;
+        if (p.boostedAmount == 0) return 0;
+        // AUDIT FIX M-01: Expired positions still have claimable rewards accrued before expiry.
+        // _getReward() computes rewards BEFORE _decayIfExpired zeros boostedAmount, so earned()
+        // must mirror that by including expired positions. Removes the early return that was
+        // causing the frontend to show 0 pending rewards for expired locks.
         uint256 currentAcc = rewardPerTokenStored;
         if (block.timestamp > lastUpdateTime && totalBoostedStake > 0) {
             currentAcc += ((block.timestamp - lastUpdateTime) * rewardRate * ACC_PRECISION) / totalBoostedStake;
@@ -688,13 +695,18 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
     // AUDIT FIX C-03: Safe int256 cast — only transfer if accumulated > rewardDebt
     function _getReward(uint256 tokenId, Position storage p) internal returns (uint256) {
-        // V2: Decay expired positions before calculating rewards
-        _decayIfExpired(tokenId, p);
         if (p.boostedAmount == 0) return 0;
+        // AUDIT FIX M-01: Compute rewards BEFORE decay zeroes boostedAmount.
+        // Previously, _decayIfExpired was called first, setting boostedAmount=0 and
+        // causing all pending rewards for expired positions to be permanently lost.
         address recipient = ownerOf(tokenId);
         int256 accumulated = _safeInt256((p.boostedAmount * rewardPerTokenStored) / ACC_PRECISION);
         int256 diff = accumulated - p.rewardDebt;
         p.rewardDebt = accumulated;
+
+        // Now decay the expired position (zeroes boostedAmount, updates totalBoostedStake)
+        _decayIfExpired(tokenId, p);
+
         if (diff > 0) {
             uint256 pending = uint256(diff);
             // AUDIT FIX M-03: Cap reward to available balance excluding reserved tokens
@@ -750,24 +762,34 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             if (pending > rewardPool) {
                 uint256 cappedPending = rewardPool;
                 // AUDIT FIX L-06: Cap totalUnsettledRewards to prevent unbounded growth
-                uint256 unsettledRoom = totalUnsettledRewards < MAX_UNSETTLED_REWARDS
-                    ? MAX_UNSETTLED_REWARDS - totalUnsettledRewards : 0;
+                uint256 unsettledRoom = totalUnsettledRewards < maxUnsettledRewards
+                    ? maxUnsettledRewards - totalUnsettledRewards : 0;
                 cappedPending = cappedPending > unsettledRoom ? unsettledRoom : cappedPending;
                 if (cappedPending > 0) {
                     unsettledRewards[from] += cappedPending;
                     totalUnsettledRewards += cappedPending;
                     actualSettled = cappedPending; // AUDIT FIX C-04
                 }
+                // AUDIT FIX C-02: Emit forfeiture event when cap blocks settlement
+                uint256 forfeitedA = rewardPool - cappedPending;
+                if (forfeitedA > 0) {
+                    emit RewardsForfeited(from, forfeitedA);
+                }
             } else if (pending > 0) {
                 // V2: Penalty drain removed (dead code — totalPenaltyAccumulated was always 0)
                 // AUDIT FIX L-06: Cap totalUnsettledRewards to prevent unbounded growth
-                uint256 unsettledRoom = totalUnsettledRewards < MAX_UNSETTLED_REWARDS
-                    ? MAX_UNSETTLED_REWARDS - totalUnsettledRewards : 0;
+                uint256 unsettledRoom = totalUnsettledRewards < maxUnsettledRewards
+                    ? maxUnsettledRewards - totalUnsettledRewards : 0;
                 uint256 settleAmount = pending > unsettledRoom ? unsettledRoom : pending;
                 if (settleAmount > 0) {
                     unsettledRewards[from] += settleAmount;
                     totalUnsettledRewards += settleAmount;
                     actualSettled = settleAmount; // AUDIT FIX C-04
+                }
+                // AUDIT FIX C-02: Emit forfeiture event when cap blocks settlement
+                uint256 forfeitedB = pending - settleAmount;
+                if (forfeitedB > 0) {
+                    emit RewardsForfeited(from, forfeitedB);
                 }
             }
             // AUDIT FIX C-04: Only emit actual settled amount, not the full pending
@@ -1062,6 +1084,34 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         address cancelled = pendingRestakingContract;
         pendingRestakingContract = address(0);
         emit RestakingContractChangeCancelled(cancelled);
+    }
+
+    // ─── AUDIT FIX C-02: Timelocked unsettled rewards cap adjustment ──
+
+    uint256 public constant UNSETTLED_CAP_TIMELOCK = 48 hours;
+    uint256 public pendingMaxUnsettledRewards;
+
+    /// @notice Propose a new maxUnsettledRewards cap (48h timelock).
+    /// @param _newCap The proposed new cap value (must be >= 10_000e18 to prevent griefing)
+    function proposeMaxUnsettledRewards(uint256 _newCap) external onlyOwner {
+        require(_newCap >= 10_000e18, "CAP_TOO_LOW");
+        pendingMaxUnsettledRewards = _newCap;
+        _propose(UNSETTLED_CAP_CHANGE, UNSETTLED_CAP_TIMELOCK);
+    }
+
+    /// @notice Execute the pending maxUnsettledRewards change after the timelock.
+    function executeMaxUnsettledRewards() external onlyOwner {
+        _execute(UNSETTLED_CAP_CHANGE);
+        uint256 oldCap = maxUnsettledRewards;
+        maxUnsettledRewards = pendingMaxUnsettledRewards;
+        pendingMaxUnsettledRewards = 0;
+        emit MaxUnsettledRewardsUpdated(oldCap, maxUnsettledRewards);
+    }
+
+    /// @notice Cancel a pending maxUnsettledRewards change.
+    function cancelMaxUnsettledRewards() external onlyOwner {
+        _cancel(UNSETTLED_CAP_CHANGE);
+        pendingMaxUnsettledRewards = 0;
     }
 
     /// @dev AUDIT FIX: Safe uint256 -> int256 cast. Reverts if value exceeds int256 max,
