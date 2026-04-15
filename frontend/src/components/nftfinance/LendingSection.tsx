@@ -168,7 +168,7 @@ export function SkeletonLayout() {
   return (
     <div className="space-y-6">
       <style>{`@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
         {[...Array(4)].map((_, i) => (
           <div
             key={i}
@@ -312,7 +312,7 @@ export function ComingSoonState() {
   return (
     <div className="relative">
       <div className="filter blur-[2px] opacity-40 pointer-events-none select-none" aria-hidden="true">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           {['12', '3', '1.50', '24.5000'].map((val, i) => (
             <ArtPanel key={i} artSrc={ART.forestScene.src} opacity={1}>
               <div className="p-4">
@@ -465,7 +465,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
       {stats.map((s, idx) => (
         <motion.div
           key={s.label}
@@ -997,7 +997,7 @@ function OfferRow({
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
             </svg>
           </div>
-          <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
             <div>
               <span className="text-[10px] uppercase tracking-wider label-pill text-white">Principal</span>
               <div className="font-mono text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>

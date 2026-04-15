@@ -58,7 +58,7 @@ export function ILCalculator() {
             </div>
 
             {/* Results */}
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <div className="rounded-lg p-3 text-center" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
                 <p className="text-white text-[10px] mb-1">IL</p>
                 <p className="stat-value text-[15px] text-danger">{ilPercent.toFixed(2)}%</p>

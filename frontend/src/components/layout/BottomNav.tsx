@@ -97,7 +97,7 @@ export const BottomNav = React.memo(function BottomNav() {
                 backdropFilter: 'blur(20px)',
                 boxShadow: '0 -8px 30px rgba(0,0,0,0.5)',
               }}>
-              <div className="grid grid-cols-3 gap-0.5 p-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-0.5 p-2">
                 {MORE_PAGES.map(page => (
                   <NavLink
                     key={page.to}
