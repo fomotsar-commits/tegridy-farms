@@ -22,7 +22,7 @@ export function useNFTDrop(dropAddress: string) {
       { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'owner' },
       { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'maxPerWallet' },
     ],
-    query: { enabled, refetchInterval: 15_000, refetchOnWindowFocus: true },
+    query: { enabled, refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
 
   const currentPhase = data?.[0]?.status === 'success' ? Number(data[0].result as number) : 0;

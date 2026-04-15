@@ -30,7 +30,7 @@ export function useLPFarming() {
       { address: TEGRIDY_LP_ADDRESS, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, LP_FARMING_ADDRESS] },
       { address: TEGRIDY_LP_ADDRESS, abi: ERC20_ABI, functionName: 'totalSupply' },
     ],
-    query: { enabled: isDeployed, refetchInterval: 15_000, refetchOnWindowFocus: true },
+    query: { enabled: isDeployed, refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
 
   const totalStaked = data?.[0]?.status === 'success' ? data[0].result as bigint : 0n;

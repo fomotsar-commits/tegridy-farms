@@ -7,7 +7,7 @@
   "background_color": "#060c1a",
   "theme_color": "#060c1a",
   "icons": [
-    { "src": "/splash/skeleton.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/splash/skeleton.png", "sizes": "512x512", "type": "image/png" }
+    { "src": "/splash/skeleton.jpg", "sizes": "192x192", "type": "image/jpeg" },
+    { "src": "/splash/skeleton.jpg", "sizes": "512x512", "type": "image/jpeg" }
   ]
 }

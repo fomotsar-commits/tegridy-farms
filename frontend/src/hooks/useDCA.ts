@@ -217,7 +217,7 @@ export function useDCA() {
     } catch (err) {
       executingRef.current.delete(scheduleId);
       toast.error('DCA swap failed: could not confirm transaction.');
-      console.error('DCA waitForTransactionReceipt error:', err);
+      if (import.meta.env.DEV) console.error('DCA waitForTransactionReceipt error:', err);
     }
   }, [publicClient, markComplete]);
 

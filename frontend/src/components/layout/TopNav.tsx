@@ -15,6 +15,9 @@ const MORE_NAV = [
   { to: '/gallery', label: 'Gallery' },
   { to: '/nakamigos', label: 'Marketplace' },
   { to: '/tokenomics', label: 'Tokenomics' },
+  { to: '/security', label: 'Security' },
+  { to: '/faq', label: 'FAQ' },
+  { to: '/changelog', label: 'Changelog' },
   { to: '/lore', label: 'Lore' },
   { to: '/history', label: 'History' },
 ];

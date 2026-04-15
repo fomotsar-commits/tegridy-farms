@@ -29,6 +29,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { useNetworkCheck } from '../hooks/useNetworkCheck';
 import { useRevenueStats } from '../hooks/useRevenueStats';
 import { ReferralWidget } from '../components/ReferralWidget';
+import { PriceAlertWidget } from '../components/PriceAlertWidget';
 
 export default function DashboardPage() {
   usePageTitle('Dashboard');
@@ -119,6 +120,7 @@ export default function DashboardPage() {
         <img src={ART.towelieWindow.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 85%' }} />
       </div>
 
+      <ErrorBoundary>
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         {isWrongNetwork && (
           <div className="mb-4 px-4 py-3 rounded-xl bg-warning/10 border border-warning/30 text-warning text-[13px] text-center">
@@ -355,6 +357,11 @@ export default function DashboardPage() {
           </motion.div>
         )}
 
+        {/* Price Alerts */}
+        <motion.div className="mb-6" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+          <PriceAlertWidget />
+        </motion.div>
+
         {/* Chart */}
         <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <h3 className="heading-luxury text-[16px] text-white mb-3">Price Chart</h3>
@@ -363,6 +370,7 @@ export default function DashboardPage() {
           </div>
         </motion.div>
       </div>
+      </ErrorBoundary>
     </div>
   );
 }

@@ -26,6 +26,12 @@ const PremiumPage = lazy(() => import('./pages/PremiumPage'));
 const NakamigosApp = lazy(() => import('./nakamigos/App'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const LendingPage = lazy(() => import('./pages/LendingPage'));
+const SecurityPage = lazy(() => import('./pages/SecurityPage'));
+const TermsPage = lazy(() => import('./pages/TermsPage'));
+const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
+const RisksPage = lazy(() => import('./pages/RisksPage'));
+const FAQPage = lazy(() => import('./pages/FAQPage'));
+const ChangelogPage = lazy(() => import('./pages/ChangelogPage'));
 // LaunchpadPage lazy import removed — loaded inside LendingPage
 // NFTAMMPage merged into LendingPage (NFT Finance)
 
@@ -86,6 +92,12 @@ function AnimatedRoutes() {
         <Route path="launchpad" element={<Navigate to="/lending" replace />} />
         <Route path="nft-amm" element={<Navigate to="/lending" replace />} />
         <Route path="governance" element={<Navigate to="/community" replace />} />
+        <Route path="security" element={<SecurityPage />} />
+        <Route path="terms" element={<TermsPage />} />
+        <Route path="privacy" element={<PrivacyPage />} />
+        <Route path="risks" element={<RisksPage />} />
+        <Route path="faq" element={<FAQPage />} />
+        <Route path="changelog" element={<ChangelogPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

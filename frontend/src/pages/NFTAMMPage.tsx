@@ -294,7 +294,7 @@ export default function NFTAMMPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.poolParty.src} alt="" className="w-full h-full object-cover" />
+        <img src={ART.poolParty.src} alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
 
       <div className="relative z-10 max-w-[1100px] mx-auto px-4 md:px-6 pt-24 pb-16">

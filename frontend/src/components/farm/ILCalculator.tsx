@@ -46,6 +46,7 @@ export function ILCalculator() {
                 </span>
               </div>
               <input type="range" min="-90" max="500" value={priceChange}
+                aria-label="TOWELI price change percentage"
                 onChange={e => setPriceChange(parseInt(e.target.value))}
                 className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
                 style={{ background: `linear-gradient(90deg, var(--color-danger) 0%, var(--color-primary) 50%, var(--color-success) 100%)` }} />

@@ -194,7 +194,7 @@ export default function HistoryPage() {
     return (
       <div className="-mt-14 relative min-h-screen">
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-          <img src={ART.jungleDark.src} alt="" className="w-full h-full object-cover" />
+          <img src={ART.jungleDark.src} alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
           <motion.div className="text-center max-w-sm" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}>
@@ -216,7 +216,7 @@ export default function HistoryPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.jungleDark.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%' }} />
+        <img src={ART.jungleDark.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%' }} />
       </div>
 
       <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
@@ -243,9 +243,9 @@ export default function HistoryPage() {
               <button onClick={handleRetry} className="btn-primary px-5 py-1.5 text-[12px]">Retry</button>
             </div>
           ) : categorized.length === 0 ? (
-            <div className="p-8 text-center">
-              <p className="text-white text-[14px] mb-1">No transactions found</p>
-              <p className="text-white text-[12px]">Swap, stake, or claim to see your history here.</p>
+            <div className="rounded-xl p-8 text-center" style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid rgba(139, 92, 246, 0.12)' }}>
+              <p className="text-white/40 text-[13px]">No transactions found. Start trading or staking to see your history here.</p>
+              <p className="text-white/25 text-[11px] mt-1">Swaps, stakes, claims, and governance actions will appear automatically.</p>
             </div>
           ) : (
             <table className="w-full">

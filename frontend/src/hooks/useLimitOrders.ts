@@ -199,7 +199,7 @@ export function useLimitOrders() {
     } catch (err) {
       revertOrderStatus(orderId);
       toast.error('Limit order failed: could not confirm transaction.');
-      console.error('Limit order waitForTransactionReceipt error:', err);
+      if (import.meta.env.DEV) console.error('Limit order waitForTransactionReceipt error:', err);
     }
   }, [publicClient, markFilled, revertOrderStatus]);
 

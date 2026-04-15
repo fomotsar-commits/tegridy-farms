@@ -26,9 +26,11 @@ function buildConfig() {
     });
   }
 
-  console.warn(
-    'VITE_WALLETCONNECT_PROJECT_ID is not set. WalletConnect is disabled; only injected wallets (MetaMask, etc.) are available.',
-  );
+  if (import.meta.env.DEV) {
+    console.warn(
+      'VITE_WALLETCONNECT_PROJECT_ID is not set. WalletConnect is disabled; only injected wallets (MetaMask, etc.) are available.',
+    );
+  }
 
   const connectors = connectorsForWallets(
     [

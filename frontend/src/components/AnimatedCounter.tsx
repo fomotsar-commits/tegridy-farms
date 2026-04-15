@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 
 interface AnimatedCounterProps {
   value: number;
@@ -34,7 +34,7 @@ function formatAnimatedNumber(num: number, decimals: number): string {
   return decPart !== undefined ? `${withCommas}.${decPart}` : withCommas;
 }
 
-export function AnimatedCounter({
+export const AnimatedCounter = React.memo(function AnimatedCounter({
   value,
   prefix = '',
   suffix = '',
@@ -91,4 +91,4 @@ export function AnimatedCounter({
       {prefix}{formatAnimatedNumber(displayValue, decimals)}{suffix}
     </span>
   );
-}
+});

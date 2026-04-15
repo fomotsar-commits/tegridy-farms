@@ -17,6 +17,8 @@ import { ParticleBackground } from '../ParticleBackground';
 import { LiveActivity } from '../LiveActivity';
 import { GlitchTransition, type GlitchConfig } from '../GlitchTransition';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
+import { OnboardingModal } from '../ui/OnboardingModal';
+import { SeasonalEventBanner } from '../SeasonalEvent';
 
 const NAV_ORDER = [
   '/', '/dashboard', '/farm', '/swap', '/lending', '/gallery', '/tokenomics',
@@ -86,6 +88,7 @@ export function AppLayout() {
       <Background />
       <ParticleBackground />
       <TopNav />
+      <SeasonalEventBanner />
       <RouteGlitch />
 
       {/* #82 audit: wrong-network banner */}
@@ -119,6 +122,7 @@ export function AppLayout() {
 
       <BottomNav />
       <LiveActivity />
+      <OnboardingModal />
 
       <Toaster
         position="top-right"

@@ -138,6 +138,7 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error CancelTooEarly(); // FIX 3: cannot cancel before MIN_CANCEL_DELAY after creation
     error ForceCancelTooEarly(); // FIX 2: force cancel grace period not yet passed
     error NoPendingPayout(); // FIX 1: no pending payout to withdraw
+    error EmptyDescription(); // FIX 4: bounty description cannot be empty
 
     // Legacy error aliases (kept for test compatibility)
     error NoPendingMinRewardChange();
@@ -192,6 +193,8 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     /// @param _deadline Unix timestamp after which submissions close (must be >= 1 day from now)
     function createBounty(string calldata _description, uint256 _deadline) external payable whenNotPaused {
         if (msg.value < minBountyReward) revert InsufficientReward();
+        // FIX 4: Reject empty descriptions
+        if (bytes(_description).length == 0) revert EmptyDescription();
         // SECURITY FIX: Cap description length to prevent storage bloat griefing
         require(bytes(_description).length <= 2000, "DESC_TOO_LONG");
         if (_deadline < block.timestamp + MIN_DEADLINE_DURATION) revert DeadlineTooSoon();

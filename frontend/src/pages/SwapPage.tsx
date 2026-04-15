@@ -11,9 +11,11 @@ import { LimitOrderTab } from '../components/swap/LimitOrderTab';
 import { DCATab } from '../components/swap/DCATab';
 import { DEFAULT_TOKENS, type TokenInfo } from '../lib/tokenList';
 import { ART } from '../lib/artConfig';
+import { InfoTooltip, StepIndicator } from '../components/ui/InfoTooltip';
 import { trackSwap, trackPageView } from '../lib/analytics';
 import { formatUnits } from 'viem';
 import { AGGREGATOR_NAMES } from '../lib/aggregator';
+import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 
 import { usePoints } from '../hooks/usePoints';
 import { useNFTBoost } from '../hooks/useNFTBoost';
@@ -189,10 +191,11 @@ export default function SwapPage({ embedded }: { embedded?: boolean }) {
       {/* Art background */}
       {!embedded && (
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-          <img src={ART.apeHug.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
+          <img src={ART.apeHug.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
         </div>
       )}
 
+      <ErrorBoundary>
       <div className={`relative z-10 ${embedded ? '' : 'max-w-[1100px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12'}`}>
         {/* Page header */}
         {!embedded && (
@@ -295,7 +298,7 @@ export default function SwapPage({ embedded }: { embedded?: boolean }) {
           }}
         >
           <div className="absolute inset-0">
-            <img src={ART.chaosScene.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
+            <img src={ART.chaosScene.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
           </div>
           {/* Card Header with Tabs */}
           <div className="relative z-10">
@@ -538,6 +541,11 @@ export default function SwapPage({ embedded }: { embedded?: boolean }) {
                 <DetailRow label="Min. Received" value={`${formatTokenAmount(swap.minimumReceived ?? '0')} ${swap.toToken?.symbol ?? ''}`} />
                 <DetailRow label="Slippage" value={`${swap.slippage}%`} />
                 <DetailRow label="Deadline" value={`${swap.deadline} min`} />
+                <div className="flex items-center gap-1 pt-1">
+                  <span className="text-[11px] text-white/50">Swap Fee: 0.3% &rarr; 100% distributed to TOWELI stakers</span>
+                  <InfoTooltip text="The 0.3% swap fee on Uniswap V2 is collected by liquidity providers. 100% of Tegridy protocol revenue is distributed to TOWELI stakers." position="top" />
+                </div>
+                <p className="text-[11px] text-white/50">Gas fees apply. Check your wallet for estimates before confirming.</p>
               </div>
             </motion.div>
           )}
@@ -576,6 +584,12 @@ export default function SwapPage({ embedded }: { embedded?: boolean }) {
 
           {/* ACTION BUTTON */}
           <div className="p-5 pt-4">
+            {isConnected && swap.fromToken && !swap.fromToken.isNative && parseFloat(swap.inputAmount || '0') > 0 && (
+              <StepIndicator
+                steps={[`Approve ${swap.fromToken.symbol}`, 'Swap']}
+                currentStep={swap.needsApproval ? 0 : 1}
+              />
+            )}
             {isConnected ? (
               <button onClick={handleAction}
                 disabled={!canSwap && !swap.needsApproval}
@@ -616,6 +630,7 @@ export default function SwapPage({ embedded }: { embedded?: boolean }) {
         customTokens={swap.customTokens}
         onAddCustomToken={swap.addCustomToken}
       />
+      </ErrorBoundary>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { formatEther, parseEther, type Address } from 'viem';
 import { toast } from 'sonner';
 import { TEGRIDY_NFT_LENDING_ADDRESS } from '../../lib/constants';
 import { TEGRIDY_NFT_LENDING_ABI, ERC721_ABI } from '../../lib/contracts';
+import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '../ui/InfoTooltip';
 // ART import available for future card backgrounds
 // import { ART } from '../../lib/artConfig';
 
@@ -117,6 +118,18 @@ export function NFTLendingSection() {
         </p>
       </motion.div>
 
+      {/* How It Works */}
+      <HowItWorks
+        storageKey="tegridy-nft-lending-how"
+        title="How does NFT Lending work?"
+        steps={[
+          { label: 'Set Terms', description: 'Lender picks a collection and sets loan terms — ETH amount, APR, and duration.' },
+          { label: 'Lock NFT', description: 'Borrower locks their NFT as collateral and receives the ETH instantly.' },
+          { label: 'Repay Loan', description: 'Borrower repays principal + pro-rata interest before the deadline to reclaim their NFT.' },
+          { label: 'Default', description: 'If the deadline passes without repayment, the lender claims the NFT. No oracles, no liquidations.' },
+        ]}
+      />
+
       {/* Stats Bar */}
       <motion.div
         className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3"
@@ -125,17 +138,20 @@ export function NFTLendingSection() {
         transition={{ ease: EASE, delay: 0.03 }}
       >
         {[
-          { label: 'Total Offers', value: offerCount.toString() },
-          { label: 'Active Loans', value: loanCount.toString() },
-          { label: 'Protocol Fee', value: `${bpsToPercent(protocolFeeBps)}%` },
-          { label: 'Collections', value: COLLECTIONS.length.toString() },
+          { label: 'Total Offers', value: offerCount.toString(), tooltip: 'Number of active loan offers available for borrowers' },
+          { label: 'Active Loans', value: loanCount.toString(), tooltip: 'Loans currently outstanding with locked NFT collateral' },
+          { label: 'Protocol Fee', value: `${bpsToPercent(protocolFeeBps)}%`, tooltip: 'Fee taken from interest earned by lenders, paid to the protocol treasury' },
+          { label: 'Collections', value: COLLECTIONS.length.toString(), tooltip: `Supported collections: ${COLLECTIONS.map(c => c.symbol).join(', ')}` },
         ].map((s) => (
           <div
             key={s.label}
             className="rounded-xl p-3 md:p-5"
             style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
           >
-            <p className="text-white/50 text-[11px] uppercase tracking-wider mb-1">{s.label}</p>
+            <p className="text-white/50 text-[11px] uppercase tracking-wider mb-1 flex items-center gap-1">
+              {s.label}
+              <InfoTooltip text={s.tooltip} />
+            </p>
             <p className="text-white text-xl font-semibold">{s.value}</p>
           </div>
         ))}
@@ -284,11 +300,12 @@ function LendTab() {
           />
         </div>
         <div>
-          <label className="text-white/50 text-[11px] uppercase tracking-wider mb-2 block">
+          <label className="text-white/50 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5">
             APR (bps){' '}
             {aprBps && parseInt(aprBps) > 0 && (
               <span className="text-emerald-400 normal-case">({bpsToPercent(parseInt(aprBps))}%)</span>
             )}
+            <InfoTooltip text="Annual Percentage Rate in basis points. 100 bps = 1%. Example: 1000 bps = 10% APR. Interest is pro-rata — borrowers pay less if they repay early." />
           </label>
           <input
             type="number"
@@ -338,6 +355,13 @@ function LendTab() {
             {principal} ETH at {bpsToPercent(parseInt(aprBps))}% APR for {formatDuration(duration)}
           </p>
         </motion.div>
+      )}
+
+      {/* Transaction Summary */}
+      {principal && parseFloat(principal) > 0 && aprBps && parseInt(aprBps) > 0 && (
+        <TxSummary>
+          You'll deposit <span className="font-mono text-white font-semibold">{principal} ETH</span>. If a borrower accepts and repays, you earn ~<span className="font-mono text-emerald-400 font-semibold">{interestPreview} ETH</span> interest over {formatDuration(duration)}.
+        </TxSummary>
       )}
 
       {/* Create Offer Button */}
@@ -415,6 +439,22 @@ function BorrowTab({ offerCount }: { offerCount: number }) {
     return offers.filter((o) => o.collateralContract.toLowerCase() === col.address.toLowerCase());
   }, [offers, filter]);
 
+  // Best rate highlights
+  const bestApr = useMemo(() => {
+    if (filteredOffers.length === 0) return null;
+    return Math.min(...filteredOffers.map(o => Number(o.aprBps)));
+  }, [filteredOffers]);
+
+  const quickestDuration = useMemo(() => {
+    if (filteredOffers.length === 0) return null;
+    return Math.min(...filteredOffers.map(o => Number(o.duration)));
+  }, [filteredOffers]);
+
+  const largestPrincipal = useMemo(() => {
+    if (filteredOffers.length === 0) return null;
+    return filteredOffers.reduce((max, o) => o.principal > max ? o.principal : max, 0n);
+  }, [filteredOffers]);
+
   return (
     <div className="space-y-5">
       {/* Filter Pills */}
@@ -435,6 +475,23 @@ function BorrowTab({ offerCount }: { offerCount: number }) {
         ))}
       </div>
 
+      {/* Best Rate Highlights */}
+      {filteredOffers.length > 0 && bestApr !== null && (
+        <div
+          className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl px-4 py-2.5"
+          style={{ background: 'rgba(16, 185, 129, 0.06)', border: '1px solid rgba(16, 185, 129, 0.12)' }}
+        >
+          <span className="text-[11px] text-white/50 uppercase tracking-wider">Highlights:</span>
+          <span className="text-[12px] text-emerald-400 font-medium">Best APR: {bpsToPercent(bestApr)}%</span>
+          {quickestDuration !== null && (
+            <span className="text-[12px] text-purple-400 font-medium">Quickest: {formatDuration(quickestDuration)}</span>
+          )}
+          {largestPrincipal !== null && (
+            <span className="text-[12px] text-blue-400 font-medium">Largest: {parseFloat(formatEther(largestPrincipal)).toFixed(2)} ETH</span>
+          )}
+        </div>
+      )}
+
       {/* Offers */}
       {offersLoading ? (
         <div className="text-center py-12 text-white/40 text-[13px]">Loading offers...</div>
@@ -443,8 +500,8 @@ function BorrowTab({ offerCount }: { offerCount: number }) {
           className="rounded-xl p-8 text-center"
           style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
         >
-          <p className="text-white/40 text-[13px]">No active offers found{filter !== 'all' ? ` for ${filter}` : ''}.</p>
-          <p className="text-white/25 text-[11px] mt-1">Check back later or switch to the Lend tab to create one.</p>
+          <p className="text-white/40 text-[13px]">No offers {filter !== 'all' ? `for ${filter} ` : ''}yet.</p>
+          <p className="text-white/25 text-[11px] mt-1">Be the first! Switch to the Lend tab to create an offer.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -585,14 +642,46 @@ function OfferCard({
                   style={{ background: 'rgba(13,21,48,0.8)', border: `1px solid ${CARD_BORDER}` }}
                 />
               </div>
+
+              {/* Repayment Preview */}
+              {tokenId && (
+                <TxSummary>
+                  {(() => {
+                    const principalEth = parseFloat(formatEther(offer.principal));
+                    const maxInterest = principalEth * (Number(offer.aprBps) / 10000) * (Number(offer.duration) / 31536000);
+                    const totalRepay = principalEth + maxInterest;
+                    return (
+                      <>
+                        You'll lock <span className="font-mono text-white font-semibold">{collectionName(offer.collateralContract)} #{tokenId}</span> and receive <span className="font-mono text-white font-semibold">{principalEth.toFixed(4)} ETH</span>.
+                        Total repayment: <span className="font-mono text-emerald-400 font-semibold">{totalRepay.toFixed(6)} ETH</span> ({principalEth.toFixed(4)} + {maxInterest.toFixed(6)} interest over {formatDuration(Number(offer.duration))}).
+                        <span className="block text-[11px] text-white/50 mt-1">Repay early to save — interest is pro-rata.</span>
+                      </>
+                    );
+                  })()}
+                </TxSummary>
+              )}
+
+              {/* Risk Warning */}
+              {tokenId && (
+                <RiskBanner variant="warning">
+                  Your {collectionName(offer.collateralContract)} NFT #{tokenId} will be locked as collateral. If you miss the repayment deadline, the lender keeps it permanently.
+                </RiskBanner>
+              )}
+
+              {/* Step Indicator */}
+              <StepIndicator
+                steps={['Approve NFT', 'Accept Offer']}
+                currentStep={approveSuccess ? 1 : 0}
+              />
+
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={handleApprove}
-                  disabled={!isConnected || approving || approveConfirming || !tokenId}
+                  disabled={!isConnected || approving || approveConfirming || !tokenId || approveSuccess}
                   className="min-h-[44px] rounded-xl text-[13px] font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed text-white"
-                  style={{ background: 'rgba(139,92,246,0.2)', border: '1px solid rgba(139,92,246,0.3)' }}
+                  style={{ background: approveSuccess ? 'rgba(16,185,129,0.15)' : 'rgba(139,92,246,0.2)', border: `1px solid ${approveSuccess ? 'rgba(16,185,129,0.3)' : 'rgba(139,92,246,0.3)'}` }}
                 >
-                  {approving ? 'Confirm...' : approveConfirming ? 'Approving...' : 'Approve NFT'}
+                  {approveSuccess ? 'Approved' : approving ? 'Confirm...' : approveConfirming ? 'Approving...' : 'Approve NFT'}
                 </button>
                 <button
                   onClick={handleAccept}
@@ -687,8 +776,8 @@ function MyLoansTab({ loanCount }: { loanCount: number }) {
         className="rounded-xl p-8 text-center"
         style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
       >
-        <p className="text-white/40 text-[13px]">You have no active or past loans.</p>
-        <p className="text-white/25 text-[11px] mt-1">Accept an offer in the Borrow tab or create one in the Lend tab.</p>
+        <p className="text-white/40 text-[13px]">No loans yet.</p>
+        <p className="text-white/25 text-[11px] mt-1">Browse available offers in the Borrow tab to get started, or create your own in the Lend tab!</p>
       </div>
     );
   }

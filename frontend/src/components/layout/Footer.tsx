@@ -33,12 +33,12 @@ export function Footer() {
                 { to: '/farm', label: 'Farm' },
                 { to: '/swap', label: 'Swap' },
                 { to: '/dashboard', label: 'Dashboard' },
+                { to: '/lending', label: 'NFT Finance' },
+                { to: '/community', label: 'Community' },
                 { to: '/gallery', label: 'Gallery' },
                 { to: '/tokenomics', label: 'Tokenomics' },
-                { to: '/bounties', label: 'Bounties' },
-                { to: '/restake', label: 'Restake' },
-                { to: '/liquidity', label: 'Liquidity' },
                 { to: '/premium', label: 'Gold Card' },
+                { to: '/leaderboard', label: 'Points' },
               ].map((l) => (
                 <Link key={l.to} to={l.to} className="block text-white/60 text-[13px] hover:text-white transition-colors">
                   {l.label}
@@ -70,7 +70,7 @@ export function Footer() {
             </div>
           </div>
 
-          {/* Social */}
+          {/* Social & Legal */}
           <div>
             <h4 className="text-white text-[11px] uppercase tracking-wider label-pill font-semibold mb-3">Social</h4>
             <div className="space-y-2">
@@ -79,6 +79,30 @@ export function Footer() {
                 className="block text-white/60 text-[13px] hover:text-white transition-colors">
                 Twitter / X <span className="text-white/15">↗</span>
               </a>
+              <a href="https://discord.gg/junglebay" target="_blank" rel="noopener noreferrer"
+                aria-label="Discord (opens in new tab)"
+                className="block text-white/60 text-[13px] hover:text-white transition-colors">
+                Discord <span className="text-white/15">↗</span>
+              </a>
+              <a href="https://t.me/tegridyfarms" target="_blank" rel="noopener noreferrer"
+                aria-label="Telegram (opens in new tab)"
+                className="block text-white/60 text-[13px] hover:text-white transition-colors">
+                Telegram <span className="text-white/15">↗</span>
+              </a>
+            </div>
+            <div className="mt-4 space-y-1.5">
+              {[
+                { to: '/security', label: 'Security' },
+                { to: '/faq', label: 'FAQ' },
+                { to: '/changelog', label: 'Changelog' },
+                { to: '/terms', label: 'Terms' },
+                { to: '/privacy', label: 'Privacy' },
+                { to: '/risks', label: 'Risks' },
+              ].map((l) => (
+                <Link key={l.to} to={l.to} className="block text-white/40 text-[11px] hover:text-white/60 transition-colors">
+                  {l.label}
+                </Link>
+              ))}
             </div>
           </div>
         </div>
@@ -87,7 +111,7 @@ export function Footer() {
         <div className="accent-divider" />
         <div className="py-5 flex flex-col md:flex-row items-center justify-between gap-3">
           <span className="text-white text-[11px]">
-            Unaudited experimental protocol. Use at your own risk. Not financial advice.
+            Experimental protocol. Use at your own risk. Not financial advice. <Link to="/risks" className="text-white/40 hover:text-white/60 underline">Risk Disclosure</Link> · <Link to="/security" className="text-white/40 hover:text-white/60 underline">Security</Link>
           </span>
           <span className="text-white/15 text-[11px]">
             © 2026 Tegridy Farms

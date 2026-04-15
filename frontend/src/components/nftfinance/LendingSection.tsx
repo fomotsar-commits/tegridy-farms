@@ -12,6 +12,7 @@ import { TEGRIDY_LENDING_ABI, TEGRIDY_STAKING_ABI } from '../../lib/contracts';
 import { formatTokenAmount, shortenAddress } from '../../lib/formatting';
 import { ART } from '../../lib/artConfig';
 import { useTOWELIPrice } from '../../contexts/PriceContext';
+import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '../ui/InfoTooltip';
 
 // ─── Design tokens ──────────────────────────────────────────────
 const CARD_BG = 'rgba(13, 21, 48, 0.6)';
@@ -138,7 +139,7 @@ function ArtPanel({
       style={{ border: `1px solid ${CARD_BORDER}`, ...style }}
     >
       <div className="absolute inset-0">
-        <img src={artSrc} alt="" className="w-full h-full object-cover" style={{ opacity }} />
+        <img src={artSrc} alt="" loading="lazy" className="w-full h-full object-cover" style={{ opacity }} />
         <div className="absolute inset-0" style={{ background: overlay }} />
       </div>
       <div className="relative z-10">
@@ -423,6 +424,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
     {
       label: 'Total Offers',
       value: offerCountNum.toString(),
+      tooltip: 'Number of active loan offers available for borrowers to accept',
       icon: (
         <svg className="w-4 h-4 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
@@ -432,6 +434,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
     {
       label: 'Active Loans',
       value: activeLoansCount.toString(),
+      tooltip: 'Loans currently outstanding — borrowers have received ETH and must repay before their deadline',
       icon: (
         <svg className="w-4 h-4 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
@@ -441,6 +444,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
     {
       label: 'Protocol Fee',
       value: protocolFeeBps !== undefined ? `${bpsToPercent(protocolFeeBps as bigint)}%` : '--%',
+      tooltip: 'Percentage fee taken from interest earned by lenders. Paid to the protocol treasury.',
       icon: (
         <svg className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
@@ -451,6 +455,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
     {
       label: 'TVL (ETH)',
       value: formatTokenAmount(formatEther(tvl)),
+      tooltip: 'Total Value Locked — sum of ETH in active offers plus outstanding loan principal',
       icon: (
         <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -473,6 +478,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
               <div className="flex items-center gap-2 mb-2">
                 {s.icon}
                 <span className="text-[11px] uppercase tracking-wider label-pill text-white">{s.label}</span>
+                <InfoTooltip text={s.tooltip} />
               </div>
               <div
                 className="font-mono text-xl text-white group-hover:text-black transition-colors duration-300"
@@ -722,8 +728,9 @@ function LendTab({ deployed }: { deployed: boolean }) {
 
         {/* APR */}
         <div>
-          <label className="text-[11px] uppercase tracking-wider label-pill text-white block mb-1.5">
+          <label className="text-[11px] uppercase tracking-wider label-pill text-white mb-1.5 flex items-center gap-1.5">
             APR (basis points)
+            <InfoTooltip text="Annual Percentage Rate in basis points. 100 bps = 1%. Example: 850 bps = 8.50% APR. The borrower pays this rate pro-rata — if they repay early, they pay less." />
           </label>
           <div className="flex items-center gap-3">
             <input
@@ -775,8 +782,9 @@ function LendTab({ deployed }: { deployed: boolean }) {
 
         {/* Min Collateral */}
         <div>
-          <label className="text-[11px] uppercase tracking-wider label-pill text-white block mb-1.5">
+          <label className="text-[11px] uppercase tracking-wider label-pill text-white mb-1.5 flex items-center gap-1.5">
             Min Collateral Value (ETH)
+            <InfoTooltip text="Minimum ETH value of the staking position you'll accept as collateral. Higher values mean safer loans with lower LTV ratios." />
           </label>
           <input
             type="number"
@@ -801,6 +809,13 @@ function LendTab({ deployed }: { deployed: boolean }) {
             <span className="text-white text-sm ml-2">over {durationDays} days</span>
           </div>
         </div>
+
+        {/* Transaction Summary */}
+        {principal && parseFloat(principal) > 0 && aprBps && (
+          <TxSummary>
+            You'll deposit <span className="font-mono text-white font-semibold">{principal} ETH</span>. If a borrower accepts and repays on time, you earn ~<span className="font-mono text-emerald-400 font-semibold">{estimatedEarnings} ETH</span> interest over {durationDays} days.
+          </TxSummary>
+        )}
 
         {/* Submit */}
         {!address ? (
@@ -1058,7 +1073,7 @@ function OfferRow({
                           </div>
                         </div>
                         <div>
-                          <span className="text-[11px] uppercase tracking-wider label-pill text-white">LTV Ratio</span>
+                          <span className="text-[11px] uppercase tracking-wider label-pill text-white flex items-center gap-1">LTV Ratio <InfoTooltip text="Loan-to-Value ratio — your loan amount divided by your collateral value. Lower LTV is safer. Above 75% is high risk." /></span>
                           <div className={`font-mono ${ltv.color}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                             {ltv.ratio.toFixed(1)}%
                             {ltv.ratio >= 75 && (
@@ -1080,6 +1095,31 @@ function OfferRow({
                         />
                       </div>
 
+                      {/* Total Repayment Preview */}
+                      {(() => {
+                        const principalEth = parseFloat(formatEther(offer.principal));
+                        const maxInterest = principalEth * (Number(offer.aprBps) / 10000) * (Number(offer.duration) / (365 * 86400));
+                        const totalRepay = principalEth + maxInterest;
+                        return (
+                          <TxSummary>
+                            You'll lock NFT <span className="font-mono text-white font-semibold">#{tokenId}</span> and receive <span className="font-mono text-white font-semibold">{formatTokenAmount(principalEth)} ETH</span>.
+                            Total repayment: <span className="font-mono text-emerald-400 font-semibold">{formatTokenAmount(totalRepay)} ETH</span> ({formatTokenAmount(principalEth)} principal + {formatTokenAmount(maxInterest)} interest over {daysFromSeconds(offer.duration)}d).
+                            <span className="block text-[11px] text-white/50 mt-1">Repay early to save — interest is calculated pro-rata.</span>
+                          </TxSummary>
+                        );
+                      })()}
+
+                      {/* Risk Warning */}
+                      <RiskBanner variant="warning">
+                        Your staking NFT (#{tokenId}) will be locked as collateral. If you don't repay by the deadline, the lender can claim it permanently.
+                      </RiskBanner>
+
+                      {/* Step Indicator */}
+                      <StepIndicator
+                        steps={['Approve NFT', 'Accept Offer']}
+                        currentStep={isApproved ? 1 : 0}
+                      />
+
                       <DisabledWrap deployed={deployed}>
                         <div className="flex flex-wrap gap-2">
                           {!isApproved ? (
@@ -1088,7 +1128,7 @@ function OfferRow({
                               disabled={approvePending || approveConfirming || !deployed}
                               className="px-4 py-2 rounded-lg text-sm font-medium bg-purple-500/50 text-black border border-purple-500/30 hover:bg-purple-500/30 transition-colors duration-200 disabled:opacity-70"
                             >
-                              {approvePending || approveConfirming ? 'Approving...' : '1. Approve NFT'}
+                              {approvePending || approveConfirming ? 'Approving...' : 'Approve NFT'}
                             </button>
                           ) : (
                             <span className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-500/30 text-black border border-emerald-500/40">
@@ -1100,7 +1140,7 @@ function OfferRow({
                             disabled={!isApproved || acceptPending || acceptConfirming || !deployed}
                             className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-500 text-black hover:bg-emerald-400 transition-colors duration-200 disabled:opacity-70 disabled:cursor-not-allowed"
                           >
-                            {acceptPending || acceptConfirming ? 'Accepting...' : '2. Accept Offer'}
+                            {acceptPending || acceptConfirming ? 'Accepting...' : 'Accept Offer'}
                           </button>
                         </div>
                       </DisabledWrap>
@@ -1557,8 +1597,10 @@ function MyLoansTab({ deployed, allLoans, loansLoading }: { deployed: boolean; a
       {displayed.length === 0 ? (
         <EmptyState
           artSrc={ART.porchChill.src}
-          title={subTab === 'borrower' ? 'No active borrows' : 'No active loans as lender'}
-          subtitle="No active loans. Start lending or borrowing!"
+          title={subTab === 'borrower' ? 'No borrows yet' : 'No loans as lender yet'}
+          subtitle={subTab === 'borrower'
+            ? "You haven't borrowed yet. Browse offers in the Borrow tab to get started!"
+            : "You haven't lent yet. Switch to the Lend tab to create your first offer!"}
         />
       ) : (
         <ArtPanel artSrc={ART.swordOfLove.src} opacity={1} overlay={DARK_OVERLAY_HEAVY}>
@@ -1691,11 +1733,23 @@ export function LendingSection({ address: _propAddress }: { address?: string }) 
       {!deployed && (
         <ArtPanel artSrc={ART.smokingDuo.src} opacity={1} overlay="none">
           <div className="px-4 py-3 text-center text-[13px] text-amber-400/80">
-            Lending contracts are being audited and will be deployed soon. Explore the interface below.
+            Lending contracts are being audited and will be deployed soon. Explore the interface below. <a href="/security" className="underline hover:text-amber-300 transition-colors">View security details</a>
           </div>
         </ArtPanel>
       )}
       <StatsBar allOffers={allOffers} allLoans={allLoans} />
+
+      <HowItWorks
+        storageKey="tegridy-token-lending-how"
+        title="How does Token Lending work?"
+        steps={[
+          { label: 'Create an Offer', description: 'Lenders deposit ETH and set their terms — APR, duration, and minimum collateral value.' },
+          { label: 'Lock Collateral', description: 'Borrowers lock their staking position NFT as collateral and receive the ETH.' },
+          { label: 'Repay on Time', description: 'Borrowers repay principal + pro-rata interest before the deadline to reclaim their NFT.' },
+          { label: 'Default Protection', description: 'If the borrower misses the deadline, the lender can claim the staking NFT.' },
+        ]}
+      />
+
       <TabNav tab={tab} setTab={setTab} />
       <AnimatePresence mode="wait">
         <motion.div

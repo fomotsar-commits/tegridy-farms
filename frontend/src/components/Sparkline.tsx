@@ -1,3 +1,5 @@
+import React from 'react';
+
 interface SparklineProps {
   data: number[];
   width?: number;
@@ -6,7 +8,7 @@ interface SparklineProps {
   className?: string;
 }
 
-export function Sparkline({
+export const Sparkline = React.memo(function Sparkline({
   data,
   width = 60,
   height = 20,
@@ -52,4 +54,4 @@ export function Sparkline({
       />
     </svg>
   );
-}
+});

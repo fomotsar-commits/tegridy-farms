@@ -19,6 +19,7 @@ import {
 } from '../../lib/contracts';
 import { formatTokenAmount, shortenAddress } from '../../lib/formatting';
 import { ART } from '../../lib/artConfig';
+import { InfoTooltip, HowItWorks, RiskBanner } from '../ui/InfoTooltip';
 
 // ─── Constants ────────────────────────────────────────────────────
 
@@ -119,7 +120,7 @@ function ArtCard({
       style={{ border: `1px solid ${border}` }}
     >
       <div className="absolute inset-0">
-        <img src={art.src} alt="" className="w-full h-full object-cover" style={{ opacity }} />
+        <img src={art.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ opacity }} />
         <div className="absolute inset-0" style={{ background: overlay }} />
       </div>
       <div className="relative z-10">
@@ -391,11 +392,11 @@ function PriceImpactBadge({ impact }: { impact: number | null }) {
 
 // ─── Stats Bar ────────────────────────────────────────────────────
 
-function StatsBar({ poolCount }: { poolCount: bigint | undefined }) {
+function AMMStatsBar({ poolCount }: { poolCount: bigint | undefined }) {
   const stats = [
-    { label: 'Total Pools', value: poolCount?.toString() ?? '0' },
-    { label: 'Total Volume', value: '\u2014' },
-    { label: 'Protocol Fee', value: '0.5%' },
+    { label: 'Total Pools', value: poolCount?.toString() ?? '0', tooltip: 'Number of bonding curve pools deployed for NFT trading' },
+    { label: 'Total Volume', value: '\u2014', tooltip: 'Cumulative ETH volume traded through all pools' },
+    { label: 'Protocol Fee', value: '0.5%', tooltip: 'Fee taken by the protocol on each trade, separate from LP fees' },
   ];
 
   return (
@@ -409,7 +410,10 @@ function StatsBar({ poolCount }: { poolCount: bigint | undefined }) {
         >
           <ArtCard art={ART.boxingRing} opacity={1} overlay="none">
             <div className="p-4 text-center">
-              <p className={labelClass}>{s.label}</p>
+              <p className={`${labelClass} inline-flex items-center gap-1`}>
+                {s.label}
+                <InfoTooltip text={s.tooltip} />
+              </p>
               <p className="text-xl sm:text-2xl font-mono tabular-nums text-white mt-1 font-semibold">
                 {s.value}
               </p>
@@ -1089,13 +1093,13 @@ function PoolCard({
           {/* Stats Grid */}
           <div className="grid grid-cols-2 gap-x-4 gap-y-3 mb-4">
             <div>
-              <p className={labelClass}>Spot Price</p>
+              <p className={`${labelClass} inline-flex items-center gap-1`}>Spot Price <InfoTooltip text="Current price for the next NFT buy or sell in this pool" /></p>
               <p className="text-sm font-mono tabular-nums text-white mt-0.5">
                 {formatTokenAmount(formatEther(spotPrice), 4)} ETH
               </p>
             </div>
             <div>
-              <p className={labelClass}>Delta</p>
+              <p className={`${labelClass} inline-flex items-center gap-1`}>Delta <InfoTooltip text="Price change after each trade. The bonding curve shifts by this amount per NFT." /></p>
               <p className="text-sm font-mono tabular-nums text-white mt-0.5">
                 {formatTokenAmount(formatEther(delta), 4)} ETH
               </p>
@@ -1111,7 +1115,7 @@ function PoolCard({
               </p>
             </div>
             <div>
-              <p className={labelClass}>LP Fee</p>
+              <p className={`${labelClass} inline-flex items-center gap-1`}>LP Fee <InfoTooltip text="Fee earned by the pool owner on each swap. Only TRADE pools earn LP fees." /></p>
               <p className="text-sm font-mono tabular-nums text-white mt-0.5">
                 {(Number(feeBps) / 100).toFixed(2)}%
               </p>
@@ -1317,7 +1321,8 @@ function PoolExplorer({ deployed }: { deployed: boolean }) {
 
         {validSearch && !isFetchingPools && poolList.length === 0 && (
           <div className="text-center py-10">
-            <p className="text-sm text-white">No pools found</p>
+            <p className="text-sm text-white">No pools found for this collection.</p>
+            <p className="text-xs text-white/40 mt-1">Be the first! Create a pool in the Create Pool tab.</p>
           </div>
         )}
 
@@ -1545,7 +1550,10 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                   <div>
-                    <label className={`${labelClass} mb-2 block`}>Spot Price (ETH)</label>
+                    <label className={`${labelClass} mb-2 flex items-center gap-1.5`}>
+                      Spot Price (ETH)
+                      <InfoTooltip text="The current price for the next NFT buy or sell. This is the starting point of your bonding curve." />
+                    </label>
                     <input
                       type="number"
                       step="0.001"
@@ -1556,7 +1564,10 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                     <p className="text-[10px] text-white mt-1">Starting price for the first trade</p>
                   </div>
                   <div>
-                    <label className={`${labelClass} mb-2 block`}>Delta (ETH)</label>
+                    <label className={`${labelClass} mb-2 flex items-center gap-1.5`}>
+                      Delta (ETH)
+                      <InfoTooltip text="How much the price changes after each trade. Higher delta = more price movement per trade. Set to 0 for a flat price." />
+                    </label>
                     <input
                       type="number"
                       step="0.001"
@@ -1639,7 +1650,10 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
 
                   {poolType === 2 && (
                     <div>
-                      <label className={`${labelClass} mb-2 block`}>LP Fee (basis points)</label>
+                      <label className={`${labelClass} mb-2 flex items-center gap-1.5`}>
+                        LP Fee (basis points)
+                        <InfoTooltip text="Fee earned by the pool owner on each trade. Only applies to TRADE pools. 200 bps = 2% fee." />
+                      </label>
                       <input
                         type="number"
                         value={feeBps}
@@ -1651,6 +1665,12 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                         {(Number(feeBps) / 100).toFixed(2)}% fee on each trade (TRADE pools only)
                       </p>
                     </div>
+                  )}
+
+                  {poolType === 2 && (
+                    <RiskBanner variant="info">
+                      TRADE pools are exposed to inventory risk. If the NFT floor price drops, your pool may accumulate NFTs worth less than the ETH you deposited. This is similar to impermanent loss in token AMMs.
+                    </RiskBanner>
                   )}
                 </div>
 
@@ -1837,7 +1857,7 @@ function MyPoolsTab({ deployed: _deployed }: { deployed: boolean }) {
               </svg>
             </div>
             <p className="text-sm text-white mb-1">No pools tracked yet</p>
-            <p className="text-xs text-white">Track your first pool by entering its address above</p>
+            <p className="text-xs text-white">You haven't created any pools yet. Go to Create Pool to get started, or enter a pool address above to track an existing one.</p>
           </div>
         </ArtCard>
       ) : (
@@ -1943,7 +1963,7 @@ export function AMMSection() {
     address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
     abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
     functionName: 'getPoolCount',
-    query: { enabled: deployed, refetchInterval: 15000 },
+    query: { enabled: deployed, refetchInterval: 30_000 },
   });
 
   return (
@@ -1953,10 +1973,22 @@ export function AMMSection() {
           className="rounded-xl px-4 py-3 text-center text-[13px] text-amber-400/80 border border-amber-500/20 mb-6"
           style={{ background: 'rgba(245,158,11,0.06)' }}
         >
-          NFT AMM contracts are being finalized and will be deployed soon. Explore the interface below.
+          NFT AMM contracts are being finalized and will be deployed soon. Explore the interface below. <a href="/security" className="underline hover:text-amber-300 transition-colors">View security details</a>
         </div>
       )}
-      <StatsBar poolCount={poolCount as bigint | undefined} />
+      <AMMStatsBar poolCount={poolCount as bigint | undefined} />
+
+      <HowItWorks
+        storageKey="tegridy-amm-how"
+        title="How does NFT AMM work?"
+        steps={[
+          { label: 'Create a Pool', description: 'Liquidity providers deposit NFTs and/or ETH into a pool and set a bonding curve (spot price + delta).' },
+          { label: 'Traders Buy/Sell', description: 'Traders buy NFTs from the pool (price goes up by delta) or sell NFTs in (price goes down by delta).' },
+          { label: 'Earn LP Fees', description: 'TRADE pools earn LP fees on every swap. BUY/SELL pools are single-sided.' },
+          { label: 'Linear Pricing', description: 'Price changes by "delta" per trade. Predictable, transparent, no oracles needed.' },
+        ]}
+      />
+
       <TabNav active={activeTab} onChange={setActiveTab} />
 
       <AnimatePresence mode="wait">

@@ -79,11 +79,17 @@ export default function GalleryPage() {
           <p className="text-white text-[11px]">Votes are for fun only — stored locally in your browser, not on-chain.</p>
         </div>
 
+        {sortedPieces.length === 0 ? (
+          <div className="rounded-xl p-8 text-center" style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid rgba(139, 92, 246, 0.12)' }}>
+            <p className="text-white/40 text-[13px]">No gallery pieces available right now.</p>
+            <p className="text-white/25 text-[11px] mt-1">Check back soon — new artwork is added regularly.</p>
+          </div>
+        ) : (
         <div className="columns-1 sm:columns-2 md:columns-3 gap-3 space-y-3">
           {sortedPieces.map((piece, i) => (
             // Fix #3: outer element is a div (not button) to avoid nested buttons
             <motion.div key={piece.id} onClick={() => setSelectedIndex(i)}
-              role="button" tabIndex={0}
+              role="button" tabIndex={0} aria-label={`View artwork: ${piece.title}`}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedIndex(i); } }}
               className="w-full block relative group cursor-pointer break-inside-avoid rounded-xl overflow-hidden glass-card-animated card-hover"
               style={{ border: '1px solid rgba(139,92,246,0.75)' }}
@@ -122,6 +128,7 @@ export default function GalleryPage() {
             </motion.div>
           ))}
         </div>
+        )}
       </div>
 
       {/* Fix #1: pass sortedPieces so lightbox index matches the grid */}

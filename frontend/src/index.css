@@ -29,7 +29,7 @@
   /* ─── Text ─── */
   --color-text-primary: #ede9fe;
   --color-text-secondary: #a599c9;
-  --color-text-muted: #5b4f7a;
+  --color-text-muted: #9990b3;
 
   /* ─── Typography ─── */
   --font-family-heading: 'Playfair Display', 'Georgia', serif;
@@ -90,13 +90,6 @@ body {
 }
 .card:hover {
   border-color: var(--color-border-hover);
-}
-
-.card-inner {
-  background: rgba(139, 92, 246, 0.75);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  animation: border-glow 4s ease-in-out infinite;
 }
 
 /* ─── Glass Card (art overlay) ─── */
@@ -201,8 +194,6 @@ body {
 .badge-primary { background: rgba(139, 92, 246, 0.75); color: #000; border: 1px solid rgba(139, 92, 246, 0.50); }
 .badge-success { background: rgba(49, 208, 170, 0.75); color: #000; }
 .badge-warning { background: rgba(255, 178, 55, 0.75); color: #000; }
-.badge-danger { background: rgba(255, 78, 163, 0.75); color: #000; }
-
 /* ─── Small Label Pill (uppercase labels on art) ─── */
 .label-pill {
   background: rgba(0, 0, 0, 0.55);
@@ -223,32 +214,6 @@ body {
   border-radius: 4px;
   display: inline-block;
 }
-
-/* ─── Data Table ─── */
-.data-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-}
-.data-table th {
-  font-family: var(--font-family-body);
-  font-size: 11px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--color-text-muted);
-  text-align: left;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--color-border);
-}
-.data-table td {
-  padding: 14px 16px;
-  font-size: 13px;
-  color: var(--color-text-secondary);
-  border-bottom: 1px solid var(--color-border);
-}
-.data-table tbody tr { transition: background 150ms; }
-.data-table tbody tr:hover { background: rgba(139, 92, 246, 0.02); }
 
 /* ─── Nav ─── */
 .nav-link {
@@ -280,33 +245,6 @@ body {
   color: var(--color-primary);
 }
 .nav-link.active {
-  color: var(--color-primary);
-}
-
-/* ─── Tab Group ─── */
-.tab-group {
-  display: inline-flex;
-  background: rgba(139, 92, 246, 0.03);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  padding: 3px;
-  gap: 2px;
-}
-.tab-item {
-  padding: 6px 14px;
-  border-radius: 6px;
-  font-family: var(--font-family-body);
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: all 150ms;
-  border: none;
-  background: transparent;
-}
-.tab-item:hover { color: var(--color-text-secondary); }
-.tab-item.active {
-  background: var(--color-bg-elevated);
   color: var(--color-primary);
 }
 
@@ -361,41 +299,6 @@ body {
 
 /* ─── Glitch Transition v2 ─── */
 
-/* Glitch slice appearance — aggressive VHS steps */
-@keyframes glitch-slice-in {
-  0% { opacity: 0; transform: translateX(var(--glitch-dir, 30px)) skewX(var(--glitch-skew, 0deg)); }
-  15% { opacity: 1; transform: translateX(var(--glitch-dir, 30px)) skewX(var(--glitch-skew, 0deg)); }
-  30% { opacity: 0.95; transform: translateX(calc(var(--glitch-dir, 30px) * -0.7)) skewX(calc(var(--glitch-skew, 0deg) * -0.8)); }
-  45% { opacity: 1; transform: translateX(calc(var(--glitch-dir, 30px) * 0.5)) skewX(calc(var(--glitch-skew, 0deg) * 0.5)); }
-  60% { opacity: 0.9; transform: translateX(calc(var(--glitch-dir, 30px) * -0.3)) skewX(calc(var(--glitch-skew, 0deg) * -0.3)); }
-  75% { opacity: 0.6; transform: translateX(calc(var(--glitch-dir, 30px) * 0.15)) skewX(0deg); }
-  100% { opacity: 0; transform: translateX(0) skewX(0); }
-}
-
-/* Noise canvas flicker — much more visible */
-@keyframes noise-flicker {
-  0%, 100% { opacity: 0.35; }
-  10% { opacity: 0.55; }
-  20% { opacity: 0.2; }
-  35% { opacity: 0.6; }
-  45% { opacity: 0.25; }
-  55% { opacity: 0.5; }
-  65% { opacity: 0.15; }
-  75% { opacity: 0.55; }
-  85% { opacity: 0.3; }
-  95% { opacity: 0.5; }
-}
-
-/* Subliminal text flash — bolder */
-@keyframes subliminal-flash {
-  0% { opacity: 0; transform: translate(var(--sub-x, 0), var(--sub-y, 0)) rotate(var(--sub-rot, 0deg)) scale(1); }
-  10% { opacity: 1; transform: translate(var(--sub-x, 0), var(--sub-y, 0)) rotate(var(--sub-rot, 0deg)) scale(1.08); }
-  30% { opacity: 0.95; transform: translate(calc(var(--sub-x, 0px) * 1.5), calc(var(--sub-y, 0px) * 0.8)) rotate(calc(var(--sub-rot, 0deg) * -1)) scale(1.15); }
-  60% { opacity: 0.7; }
-  85% { opacity: 0.2; }
-  100% { opacity: 0; }
-}
-
 /* Horizontal glitch line sweep — bolder, full-width, longer life */
 @keyframes glitch-hline-sweep {
   0% { opacity: 0; transform: scaleX(0); }
@@ -430,24 +333,6 @@ body {
   100% { background-position: 0 4px; }
 }
 
-/* Screen tear on page exit */
-@keyframes screen-tear {
-  0% { clip-path: inset(0); transform: none; }
-  20% { clip-path: inset(0 0 60% 0); transform: translateX(8px); }
-  40% { clip-path: inset(30% 0 30% 0); transform: translateX(-12px); }
-  60% { clip-path: inset(50% 0 0 0); transform: translateX(6px); }
-  80% { clip-path: inset(0); transform: translateX(-4px) skewX(2deg); }
-  100% { clip-path: inset(0); transform: none; opacity: 0; }
-}
-
-/* Chromatic aberration on page exit */
-@keyframes chromatic-aberration {
-  0% { filter: none; }
-  30% { filter: drop-shadow(3px 0 0 rgba(255,0,0,0.5)) drop-shadow(-3px 0 0 rgba(0,0,255,0.5)); }
-  60% { filter: drop-shadow(6px 0 0 rgba(255,0,0,0.6)) drop-shadow(-6px 0 0 rgba(0,0,255,0.6)); transform: translateX(2px); }
-  100% { filter: none; opacity: 0; }
-}
-
 /* ─── Deep Purple Glow Pulse (all cards) ─── */
 .glass-card-animated {
   position: relative;
@@ -479,6 +364,11 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(139, 92, 246, 0.10); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(139, 92, 246, 0.20); }
+* { scrollbar-width: thin; scrollbar-color: rgba(139, 92, 246, 0.10) transparent; }
+
+/* ─── Hide scrollbar utility ─── */
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
 
 /* ─── Art Frame ─── */
 .art-frame {
@@ -495,14 +385,14 @@ body {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  .card, .card-inner, .glass-card, .glass-card-strong, .glass-card-subtle, .glass-card-animated {
+  .card, .glass-card, .glass-card-strong, .glass-card-subtle, .glass-card-animated {
     animation: none !important;
   }
 }
 
 /* ─── Disable border-glow on mobile for performance ─── */
 @media (max-width: 767px) {
-  .card, .card-inner, .glass-card, .glass-card-strong, .glass-card-subtle, .glass-card-animated {
+  .card, .glass-card, .glass-card-strong, .glass-card-subtle, .glass-card-animated {
     animation: none !important;
   }
 }

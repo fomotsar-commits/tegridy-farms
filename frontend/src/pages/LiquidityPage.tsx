@@ -200,7 +200,7 @@ export default function LiquidityPage({ embedded }: { embedded?: boolean }) {
     <div className={embedded ? '' : 'min-h-screen relative'}>
       {/* Background removed — handled by AppLayout */}
 
-      <div className={`relative z-10 ${embedded ? 'space-y-6' : 'w-full md:max-w-lg mx-auto px-4 py-8 space-y-6'}`}>
+      <div className={`relative z-10 ${embedded ? 'space-y-6' : 'w-full md:max-w-lg mx-auto px-4 md:px-6 py-8 space-y-6'}`}>
         {/* Header */}
         {!embedded && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center">
@@ -228,7 +228,7 @@ export default function LiquidityPage({ embedded }: { embedded?: boolean }) {
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
             className="relative rounded-2xl overflow-hidden border border-white/20"
           >
-            <img src={ART.poolParty.src} alt="" className="absolute inset-0 w-full h-full object-cover" />
+            <img src={ART.poolParty.src} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
             <div className="relative p-5">
               <h2 className="text-white text-xs font-semibold tracking-widest uppercase mb-4">{symbolA}/{symbolB} Pool</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -321,7 +321,7 @@ export default function LiquidityPage({ embedded }: { embedded?: boolean }) {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
             className="relative rounded-2xl overflow-hidden border border-white/20"
           >
-            <img src={ART.beachVibes.src} alt="" className="absolute inset-0 w-full h-full object-cover" />
+            <img src={ART.beachVibes.src} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
             <div className="relative p-5 space-y-4">
 
               {/* New pool notice */}
@@ -457,7 +457,7 @@ export default function LiquidityPage({ embedded }: { embedded?: boolean }) {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
             className="relative rounded-2xl overflow-hidden border border-white/20"
           >
-            <img src={ART.chaosScene.src} alt="" className="absolute inset-0 w-full h-full object-cover" />
+            <img src={ART.chaosScene.src} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
             <div className="relative p-5 space-y-4">
               <div>
                 <div className="flex justify-between mb-1.5">

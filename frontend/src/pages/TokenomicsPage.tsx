@@ -51,7 +51,7 @@ export default function TokenomicsPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0">
-        <img src={ART.swordOfLove.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 25%' }} />
+        <img src={ART.swordOfLove.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 25%' }} />
       </div>
 
       <div className="relative z-10 max-w-[1000px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
@@ -70,7 +70,7 @@ export default function TokenomicsPage() {
           ].map((i) => (
             <div key={i.l} className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
               <div className="absolute inset-0">
-                <img src={i.art} alt="" className="w-full h-full object-cover" style={{ objectPosition: i.pos }} />
+                <img src={i.art} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: i.pos }} />
               </div>
               <div className="relative z-10 p-3 md:p-5 pt-8 pb-6">
               <p className="text-white text-[11px] uppercase tracking-wider label-pill mb-2">{i.l}</p>

@@ -19,7 +19,7 @@ export default function TradePage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.apeHug.src} alt="" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
+        <img src={ART.apeHug.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
       </div>
 
       <div className="relative z-10 max-w-[1100px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">

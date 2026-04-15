@@ -351,6 +351,7 @@ function BountyRow({ id, expanded, onToggle }: { id: number; expanded: boolean; 
     <div style={{ borderBottom: '1px solid rgba(139,92,246,0.75)' }}>
       {/* Header row - clickable */}
       <div className="px-5 py-4 cursor-pointer hover:bg-black/60 transition-colors" role="button" tabIndex={0}
+        aria-expanded={expanded} aria-label={`Bounty: ${description}`}
         onClick={onToggle} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}>
         <div className="flex items-start justify-between mb-1">
           <p className="text-white text-[13px] font-medium flex-1 mr-3">{description}</p>

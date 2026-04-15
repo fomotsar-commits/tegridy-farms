@@ -65,7 +65,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
       { address: addrB, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr] },
       { address: addrB, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, TEGRIDY_ROUTER_ADDRESS] },
     ],
-    query: { enabled: !!address, refetchInterval: 15_000, refetchOnWindowFocus: true },
+    query: { enabled: !!address, refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
 
   const reserves = data?.[0]?.status === 'success' ? data[0].result as readonly [bigint, bigint, number] : undefined;
@@ -98,7 +98,10 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
       const amt = parseUnits(amountA, decimalsA);
       const bNeeded = (amt * reserveB) / reserveA;
       return formatUnits(bNeeded, decimalsB);
-    } catch { return ''; }
+    } catch {
+      // Pair contract may not exist yet — return empty to show "enter amount" state
+      return '';
+    }
   }
 
   function getAmountA(amountB: string): string {
@@ -107,7 +110,10 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
       const amt = parseUnits(amountB, decimalsB);
       const aNeeded = (amt * reserveA) / reserveB;
       return formatUnits(aNeeded, decimalsA);
-    } catch { return ''; }
+    } catch {
+      // Pair contract may not exist yet — return empty to show "enter amount" state
+      return '';
+    }
   }
 
   // Calculate pool share

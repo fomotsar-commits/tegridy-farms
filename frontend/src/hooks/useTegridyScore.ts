@@ -212,7 +212,7 @@ export function useTegridyScore(): TegridyScoreResult {
               abi: COMMUNITY_GRANTS_ABI,
               functionName: 'hasVotedOnProposal',
               args: [BigInt(id), address],
-            }).catch((err) => { console.error('Failed to check vote status:', err); return false; })
+            }).catch((err) => { if (import.meta.env.DEV) console.error('Failed to check vote status:', err); return false; })
           )
         );
         const proposals = await Promise.all(
@@ -222,13 +222,13 @@ export function useTegridyScore(): TegridyScoreResult {
               abi: COMMUNITY_GRANTS_ABI,
               functionName: 'getProposal',
               args: [BigInt(id)],
-            }).catch((err) => { console.error('Failed to fetch proposal:', err); return null; })
+            }).catch((err) => { if (import.meta.env.DEV) console.error('Failed to fetch proposal:', err); return null; })
           )
         );
         if (cancelled) return;
         for (const r of results) if (r) voted++;
         for (const p of proposals) {
-          if (p && (p as any)[0]?.toLowerCase() === address.toLowerCase()) proposed++;
+          if (p && typeof p === 'object' && Array.isArray(p) && typeof p[0] === 'string' && p[0].toLowerCase() === address.toLowerCase()) proposed++;
         }
       }
       if (!cancelled) {
@@ -268,12 +268,12 @@ export function useTegridyScore(): TegridyScoreResult {
               abi: MEME_BOUNTY_BOARD_ABI,
               functionName: 'getBounty',
               args: [BigInt(id)],
-            }).catch((err) => { console.error('Failed to fetch bounty:', err); return null; })
+            }).catch((err) => { if (import.meta.env.DEV) console.error('Failed to fetch bounty:', err); return null; })
           )
         );
         if (cancelled) return;
         for (const r of results) {
-          if (r && (r as any)[0]?.toLowerCase() === address.toLowerCase()) created++;
+          if (r && typeof r === 'object' && Array.isArray(r) && typeof r[0] === 'string' && r[0].toLowerCase() === address.toLowerCase()) created++;
         }
       }
       if (!cancelled) setBountiesCreated(created);
@@ -305,7 +305,7 @@ export function useTegridyScore(): TegridyScoreResult {
         if (!cancelled) setFirstInteractionTs(Number(block.timestamp));
       }
     }).catch((err) => {
-      console.error('Failed to fetch first interaction timestamp:', err);
+      if (import.meta.env.DEV) console.error('Failed to fetch first interaction timestamp:', err);
       if (!cancelled) setFirstInteractionTs(0);
     });
     return () => { cancelled = true; };

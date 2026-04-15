@@ -1,4 +1,6 @@
-export function PageSkeleton() {
+import React from 'react';
+
+export const PageSkeleton = React.memo(function PageSkeleton() {
   return (
     <div
       role="status"
@@ -12,4 +14,4 @@ export function PageSkeleton() {
       </span>
     </div>
   );
-}
+});

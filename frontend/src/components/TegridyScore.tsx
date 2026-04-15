@@ -57,7 +57,7 @@ export function TegridyScore() {
       transition={{ duration: 0.5 }}
     >
       <div className="absolute inset-0">
-        <img src={ART.jungleDark.src} alt="" className="w-full h-full object-cover" />
+        <img src={ART.jungleDark.src} alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
       <div className="relative z-10 p-6">
       {/* Circle + Score */}

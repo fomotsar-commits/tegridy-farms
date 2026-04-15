@@ -46,7 +46,7 @@ export function usePremiumAccess() {
       { address: TOWELI_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr] },
       { address: TOWELI_ADDRESS, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, PREMIUM_ACCESS_ADDRESS] },
     ],
-    query: { enabled: !!address, refetchInterval: 15_000, refetchOnWindowFocus: true },
+    query: { enabled: !!address, refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
 
   // Parse results

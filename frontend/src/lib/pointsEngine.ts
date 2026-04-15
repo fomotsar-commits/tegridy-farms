@@ -76,16 +76,7 @@ function getSessionNonce(): string {
   return sessionNonce;
 }
 
-// @ts-ignore reserved for future async hash path
-async function _computeHashAsync(data: string): Promise<string> { // eslint-disable-line @typescript-eslint/no-unused-vars
-  const encoder = new TextEncoder();
-  const combined = encoder.encode(getSessionNonce() + data);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', combined);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-// Synchronous fallback for reads (uses cached hash from the write path)
+// Synchronous hash for reads (used for same-session verification)
 function computeHashSync(data: string): string {
   // djb2 with session nonce — only used for same-session verification
   let hash = 5381;

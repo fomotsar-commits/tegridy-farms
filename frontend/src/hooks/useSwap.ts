@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useAccount, useBalance } from 'wagmi';
 import { parseUnits, formatUnits, maxUint256 } from 'viem';
 import { toast } from 'sonner';
@@ -70,6 +70,9 @@ export function useSwap() {
   }, [customTokens]);
 
   const [unlimitedApproval, setUnlimitedApproval] = useState(false);
+
+  // Track which inputAmount generated each aggregator quote to discard stale results
+  const quoteRequestIdRef = useRef(0);
 
   const { data: ethBalance } = useBalance({ address, chainId: CHAIN_ID, query: { refetchInterval: 30_000 } });
 
@@ -161,7 +164,7 @@ export function useSwap() {
     address: primaryPairAddr as `0x${string}`,
     abi: UNISWAP_V2_PAIR_ABI,
     functionName: 'getReserves',
-    query: { enabled: !!primaryPairAddr && primaryPairAddr !== ZERO_ADDR && parsedAmount > 0n, refetchInterval: 15_000 },
+    query: { enabled: !!primaryPairAddr && primaryPairAddr !== ZERO_ADDR && parsedAmount > 0n, refetchInterval: 30_000 },
   });
 
   const { data: token0 } = useReadContract({
@@ -175,7 +178,7 @@ export function useSwap() {
     address: leg1Pair as `0x${string}`,
     abi: UNISWAP_V2_PAIR_ABI,
     functionName: 'getReserves',
-    query: { enabled: !!validLeg1 && parsedAmount > 0n, refetchInterval: 15_000 },
+    query: { enabled: !!validLeg1 && parsedAmount > 0n, refetchInterval: 30_000 },
   });
 
   const { data: leg1Token0 } = useReadContract({
@@ -189,7 +192,7 @@ export function useSwap() {
     address: leg2Pair as `0x${string}`,
     abi: UNISWAP_V2_PAIR_ABI,
     functionName: 'getReserves',
-    query: { enabled: !!validLeg2 && parsedAmount > 0n, refetchInterval: 15_000 },
+    query: { enabled: !!validLeg2 && parsedAmount > 0n, refetchInterval: 30_000 },
   });
 
   const { data: leg2Token0 } = useReadContract({
@@ -268,13 +271,24 @@ export function useSwap() {
       setAggQuoteResult(null);
       return;
     }
+    // Increment request ID so stale responses from prior inputs are discarded
+    const currentRequestId = ++quoteRequestIdRef.current;
     const abortController = new AbortController();
     const sellToken = fromToken.isNative ? 'ETH' : fromToken.address;
     const buyToken = toToken.isNative ? 'ETH' : toToken.address;
     const timer = setTimeout(() => {
       getAggregatorPrice(sellToken, buyToken, parsedAmount.toString(), address, fromDecimals, abortController.signal)
-        .then(q => { if (!abortController.signal.aborted) setAggQuoteResult(q); })
-        .catch(() => { if (!abortController.signal.aborted) setAggQuoteResult(null); });
+        .then(q => {
+          // Only apply if this is still the latest request
+          if (!abortController.signal.aborted && quoteRequestIdRef.current === currentRequestId) {
+            setAggQuoteResult(q);
+          }
+        })
+        .catch(() => {
+          if (!abortController.signal.aborted && quoteRequestIdRef.current === currentRequestId) {
+            setAggQuoteResult(null);
+          }
+        });
     }, 800);
     return () => { abortController.abort(); clearTimeout(timer); };
   }, [fromToken, toToken, parsedAmount, address, fromDecimals]);
