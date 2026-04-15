@@ -187,7 +187,11 @@ export default function SecurityPage() {
         <motion.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.25 }} className="mb-14">
           <h2 className="text-2xl font-bold mb-6">Bug Bounty</h2>
           <div className="rounded-2xl p-6 md:p-8" style={glass}>
-            <p className="text-gray-300 mb-5">We welcome responsible security disclosures. Report via email or Twitter DM <a href="https://twitter.com/junglebayac" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300">@junglebayac</a>.</p>
+            <p className="text-gray-300 mb-5">We partner with Immunefi, the leading Web3 bug bounty platform, for responsible disclosure. Report vulnerabilities via Immunefi or contact us directly via Twitter DM <a href="https://twitter.com/junglebayac" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300">@junglebayac</a>.</p>
+            <a href="https://immunefi.com/bug-bounty/tegridyfarms/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-purple-600 hover:bg-purple-500 transition-colors mb-5">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              Submit on Immunefi
+            </a>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
               {BOUNTY_TIERS.map((t) => (
                 <div key={t.severity} className="rounded-xl p-4 text-center" style={glass}>

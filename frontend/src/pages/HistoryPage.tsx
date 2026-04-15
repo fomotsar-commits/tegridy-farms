@@ -190,6 +190,28 @@ export default function HistoryPage() {
     ...categorizeTx(tx),
   })), [txs]);
 
+  const exportCSV = useCallback(() => {
+    if (categorized.length === 0) return;
+    const headers = ['Date', 'Type', 'Function', 'Tx Hash', 'To', 'Value (Wei)', 'Status'];
+    const rows = categorized.map(tx => [
+      new Date(parseInt(tx.timeStamp, 10) * 1000).toISOString(),
+      tx.type,
+      tx.functionName?.split('(')[0] || '',
+      tx.hash,
+      tx.to,
+      tx.value || '0',
+      tx.isError === '0' ? 'OK' : 'Failed',
+    ]);
+    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tegridy-transactions-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [categorized]);
+
   if (!isConnected) {
     return (
       <div className="-mt-14 relative min-h-screen">
@@ -221,8 +243,18 @@ export default function HistoryPage() {
 
       <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         <motion.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">History</h1>
-          <p className="text-white text-[14px]">Your recent transactions on Tegridy Farms</p>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">History</h1>
+              <p className="text-white text-[14px]">Your recent transactions on Tegridy Farms</p>
+            </div>
+            {categorized.length > 0 && (
+              <button onClick={exportCSV} className="btn-primary flex items-center gap-2 px-4 py-2 text-[12px] shrink-0" title="Export transactions as CSV">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Export CSV
+              </button>
+            )}
+          </div>
         </motion.div>
 
         <motion.div className="glass-card rounded-xl overflow-hidden" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>

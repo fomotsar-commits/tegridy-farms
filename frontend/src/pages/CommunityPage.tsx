@@ -10,12 +10,15 @@ const GrantsPage = lazy(() => import('./GrantsPage'));
 const BountyPage = lazy(() => import('./BountyPage'));
 const BribesPage = lazy(() => import('./BribesPage'));
 
-type Section = 'grants' | 'bounties' | 'bribes';
+import { GaugeVoting } from '../components/GaugeVoting';
+
+type Section = 'grants' | 'bounties' | 'bribes' | 'gauges';
 
 const SECTIONS: { key: Section; label: string }[] = [
   { key: 'grants', label: 'Governance' },
   { key: 'bounties', label: 'Bounties' },
   { key: 'bribes', label: 'Vote Incentives' },
+  { key: 'gauges', label: 'Gauge Voting' },
 ];
 
 export default function CommunityPage() {
@@ -115,6 +118,7 @@ export default function CommunityPage() {
                 {section === 'grants' && <GrantsPage embedded />}
                 {section === 'bounties' && <BountyPage embedded />}
                 {section === 'bribes' && <BribesPage embedded />}
+                {section === 'gauges' && <GaugeVoting />}
               </Suspense>
             </ErrorBoundary>
           </motion.div>
