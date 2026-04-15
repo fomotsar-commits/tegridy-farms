@@ -124,7 +124,7 @@ export default function FAQPage() {
               placeholder="Search questions..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="bg-transparent w-full text-white placeholder-gray-500 outline-none text-sm"
+              className="bg-transparent w-full text-white placeholder-gray-500 outline-none text-[16px]"
             />
             {search && (
               <button onClick={() => setSearch('')} className="text-gray-500 hover:text-white text-lg leading-none">

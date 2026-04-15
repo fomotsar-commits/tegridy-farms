@@ -143,7 +143,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                       placeholder="0.0"
                       value={lpStakeAmount}
                       onChange={e => setLpStakeAmount(e.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))}
-                      className="flex-1 bg-black/60 border border-white/25 rounded-lg px-3 py-2 min-h-[44px] text-white text-sm font-mono"
+                      className="flex-1 bg-black/60 border border-white/25 rounded-lg px-3 py-2 min-h-[44px] text-white text-[16px] font-mono"
                     />
                     <button
                       className="text-[10px] text-white/60 hover:text-white"
@@ -184,7 +184,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                       placeholder="0.0"
                       value={lpWithdrawAmount}
                       onChange={e => setLpWithdrawAmount(e.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))}
-                      className="flex-1 bg-black/60 border border-white/25 rounded-lg px-3 py-2 min-h-[44px] text-white text-sm font-mono"
+                      className="flex-1 bg-black/60 border border-white/25 rounded-lg px-3 py-2 min-h-[44px] text-white text-[16px] font-mono"
                     />
                     <button
                       className="text-[10px] text-white/60 hover:text-white"

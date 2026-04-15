@@ -7,6 +7,7 @@ import { Background } from './Background';
 import { Footer } from './Footer';
 import { Toaster } from 'sonner';
 import { useState, useEffect, useRef } from 'react';
+import { useTheme } from '../../contexts/ThemeContext';
 
 import { CHAIN_ID } from '../../lib/constants';
 import { AppLoader } from '../loader';
@@ -78,6 +79,7 @@ export function AppLayout() {
   const location = useLocation();
   const { chain, isConnected } = useAccount();
   const { switchChain } = useSwitchChain();
+  const { isDark } = useTheme();
   const wrongNetwork = isConnected && chain && chain.id !== CHAIN_ID;
 
   return (
@@ -126,7 +128,7 @@ export function AppLayout() {
 
       <Toaster
         position="top-right"
-        theme="dark"
+        theme={isDark ? 'dark' : 'light'}
         toastOptions={{
           style: {
             background: 'var(--color-bg-elevated)',

@@ -115,7 +115,7 @@ export default function GalleryPage() {
                         <button onClick={(e) => { e.stopPropagation(); vote(piece.id); }}
                           disabled={voteCooldown}
                           aria-label={`Vote for ${piece.title}`}
-                          className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all disabled:opacity-70 ${userVotes[piece.id] ? 'text-purple-400' : 'text-white'}`}
+                          className={`flex items-center gap-1 px-3 py-2 min-h-[44px] rounded-md text-[11px] font-medium transition-all disabled:opacity-70 ${userVotes[piece.id] ? 'text-purple-400' : 'text-white'}`}
                           style={{ background: 'rgba(0,0,0,0.65)' }}>
                           ▲ {votes[piece.id] || 0}
                         </button>

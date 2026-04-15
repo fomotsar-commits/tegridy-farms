@@ -377,6 +377,105 @@ body {
   border: 1px solid rgba(139, 92, 246, 0.12);
 }
 
+/* ─── Light Mode Overrides ─── */
+[data-theme="light"] {
+  --color-bg-base: #f5f3ff;
+  --color-bg-surface: #ffffff;
+  --color-bg-elevated: #ede9fe;
+  --color-bg-hover: #e4ddf7;
+  --color-bg-input: #f0ebff;
+  --color-primary: #7c3aed;
+  --color-primary-dim: rgba(124, 58, 237, 0.75);
+  --color-primary-glow: rgba(124, 58, 237, 0.30);
+  --color-border: rgba(124, 58, 237, 0.20);
+  --color-border-hover: rgba(124, 58, 237, 0.35);
+  --color-border-active: rgba(124, 58, 237, 0.50);
+  --color-text-primary: #1e1b4b;
+  --color-text-secondary: #4c1d95;
+  --color-text-muted: #6b7280;
+  --color-success: #059669;
+  --color-success-dim: rgba(5, 150, 105, 0.75);
+  --color-danger: #dc2626;
+  --color-danger-dim: rgba(220, 38, 38, 0.75);
+  --color-warning: #d97706;
+  --color-warning-dim: rgba(217, 119, 6, 0.75);
+}
+
+[data-theme="light"] body {
+  background: #f5f3ff;
+  color: #1e1b4b;
+  text-shadow: none;
+}
+
+[data-theme="light"] .glass-card,
+[data-theme="light"] .glass-card-strong,
+[data-theme="light"] .glass-card-subtle {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(124, 58, 237, 0.12);
+}
+[data-theme="light"] .glass-card-animated {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+[data-theme="light"] .heading-luxury {
+  color: #1e1b4b;
+  text-shadow: none;
+}
+
+[data-theme="light"] .label-pill {
+  background: rgba(124, 58, 237, 0.08);
+  color: #4c1d95;
+}
+
+[data-theme="light"] .stat-value {
+  background: rgba(124, 58, 237, 0.06);
+  text-shadow: none;
+}
+
+[data-theme="light"] .btn-secondary {
+  background: rgba(255, 255, 255, 0.90);
+  color: #1e1b4b;
+}
+[data-theme="light"] .btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.95);
+}
+
+[data-theme="light"] .card {
+  background: var(--color-bg-surface);
+}
+
+[data-theme="light"] .skeleton {
+  background: linear-gradient(90deg, rgba(124,58,237,0.04) 25%, rgba(124,58,237,0.08) 50%, rgba(124,58,237,0.04) 75%);
+  background-size: 200% 100%;
+}
+
+[data-theme="light"] .shimmer {
+  background: linear-gradient(90deg, rgba(0,0,0,0.03) 25%, rgba(0,0,0,0.08) 50%, rgba(0,0,0,0.03) 75%);
+  background-size: 200% 100%;
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(124, 58, 237, 0.15);
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(124, 58, 237, 0.30);
+}
+
+/* ─── Theme transition ─── */
+body,
+.card,
+.glass-card,
+.glass-card-strong,
+.glass-card-subtle,
+.glass-card-animated,
+.heading-luxury,
+.label-pill,
+.stat-value,
+.btn-secondary,
+.nav-link {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+}
+
 /* ─── Accessibility: disable animations for users who prefer reduced motion (#97) ─── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

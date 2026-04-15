@@ -1,13 +1,14 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { Routes, Route, Navigate, Link } from 'react-router-dom';
 import { WagmiProvider } from 'wagmi';
-import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
+import { RainbowKitProvider, darkTheme, lightTheme } from '@rainbow-me/rainbowkit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import '@rainbow-me/rainbowkit/styles.css';
 import { config } from './lib/wagmi';
 import { AppLayout } from './components/layout/AppLayout';
 import { PageSkeleton } from './components/PageSkeleton';
 import { safeSetItem } from './lib/storage';
+import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const FarmPage = lazy(() => import('./pages/FarmPage'));
@@ -104,6 +105,32 @@ function AnimatedRoutes() {
   );
 }
 
+const rainbowDark = darkTheme({
+  accentColor: '#2D8B4E',
+  accentColorForeground: 'white',
+  borderRadius: 'large',
+  overlayBlur: 'small',
+});
+
+const rainbowLight = lightTheme({
+  accentColor: '#2D8B4E',
+  accentColorForeground: 'white',
+  borderRadius: 'large',
+  overlayBlur: 'small',
+});
+
+function AppInner() {
+  const { isDark } = useTheme();
+
+  return (
+    <RainbowKitProvider theme={isDark ? rainbowDark : rainbowLight}>
+      <Suspense fallback={<PageSkeleton />}>
+        <AnimatedRoutes />
+      </Suspense>
+    </RainbowKitProvider>
+  );
+}
+
 function App() {
   useEffect(() => {
     if (!localStorage.getItem('tegridy_first_visit')) {
@@ -114,18 +141,9 @@ function App() {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider
-          theme={darkTheme({
-            accentColor: '#2D8B4E',
-            accentColorForeground: 'white',
-            borderRadius: 'large',
-            overlayBlur: 'small',
-          })}
-        >
-          <Suspense fallback={<PageSkeleton />}>
-            <AnimatedRoutes />
-          </Suspense>
-        </RainbowKitProvider>
+        <ThemeProvider>
+          <AppInner />
+        </ThemeProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );

@@ -157,7 +157,7 @@ export default function SecurityPage() {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <a href={`https://etherscan.io/address/${c.address}`} target="_blank" rel="noopener noreferrer" className="text-xs text-purple-400 hover:text-purple-300 transition-colors">View on Etherscan</a>
-                  <button onClick={() => copyAddr(c.address)} className="text-gray-400 hover:text-white transition-colors p-1" title="Copy address">
+                  <button onClick={() => copyAddr(c.address)} className="text-gray-400 hover:text-white transition-colors p-2 min-w-[44px] min-h-[44px] flex items-center justify-center" title="Copy address" aria-label="Copy address">
                     {copied === c.address ? <span className="text-green-400 text-xs">Copied</span> : <CopyIcon />}
                   </button>
                 </div>
