@@ -10,11 +10,8 @@ contract DeployGaugeControllerScript is Script {
 
     function run() external {
         require(block.chainid == 1, "MAINNET_ONLY");
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(deployerPrivateKey);
         console.log("=== Deploying GaugeController ===");
-        console.log("Deployer:", deployer);
-        vm.startBroadcast(deployerPrivateKey);
+        vm.startBroadcast();
         GaugeController gauge = new GaugeController(TEGRIDY_STAKING, EMISSION_BUDGET);
         console.log("GaugeController deployed:", address(gauge));
         // Transfer ownership
