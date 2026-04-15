@@ -1,7 +1,7 @@
 // ═══ MULTI-COLLECTION CONFIG ═══
 export const COLLECTIONS = {
   nakamigos: {
-    name: "Nakamigos",
+    name: "Tradermigos",
     contract: "0xd774557b647330C91Bf44cfEAB205095f7E6c367",
     slug: "nakamigos",
     openseaSlug: "nakamigos",
