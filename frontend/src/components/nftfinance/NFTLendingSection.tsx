@@ -544,7 +544,7 @@ function OfferCard({
           <p className="text-white text-xl font-semibold">{parseFloat(formatEther(offer.principal)).toFixed(4)} ETH</p>
           <p className="text-white/40 text-[11px]">Principal</p>
         </div>
-        <div className="flex gap-4">
+        <div className="grid grid-cols-3 gap-2">
           <div>
             <p className="text-emerald-400 text-[13px] font-medium">{bpsToPercent(Number(offer.aprBps))}%</p>
             <p className="text-white/40 text-[11px]">APR</p>
@@ -553,8 +553,8 @@ function OfferCard({
             <p className="text-purple-400 text-[13px] font-medium">{formatDuration(Number(offer.duration))}</p>
             <p className="text-white/40 text-[11px]">Duration</p>
           </div>
-          <div>
-            <p className="text-white/60 text-[13px] font-mono">{shortenAddress(offer.lender)}</p>
+          <div className="truncate">
+            <p className="text-white/60 text-[13px] font-mono truncate">{shortenAddress(offer.lender)}</p>
             <p className="text-white/40 text-[11px]">Lender</p>
           </div>
         </div>
@@ -798,7 +798,7 @@ function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; user
         <p className="text-white text-xl font-semibold">{parseFloat(formatEther(loan.principal)).toFixed(4)} ETH</p>
         <p className="text-white/40 text-[11px]">Principal</p>
       </div>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <div>
           <p className="text-emerald-400 text-[13px] font-medium">{bpsToPercent(Number(loan.aprBps))}%</p>
           <p className="text-white/40 text-[11px]">APR</p>
