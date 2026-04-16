@@ -14,6 +14,8 @@ const MAX_BODY_SIZE = 10 * 1024; // 10 KB
 function isValidAddress(addr) { return typeof addr === "string" && ETH_ADDRESS_RE.test(addr); }
 function isValidTokenId(id) { return typeof id === "string" && NUMERIC_ID_RE.test(id); }
 
+// NOTE: These rate limit headers are cosmetic (static values, not enforced per-IP).
+// TODO: Implement real rate limiting via Vercel Edge Middleware or Upstash Redis.
 function setRateLimitHeaders(res, { limit = 60, remaining = 59, reset = 60 } = {}) {
   res.setHeader("X-RateLimit-Limit", String(limit));
   res.setHeader("X-RateLimit-Remaining", String(remaining));
@@ -64,6 +66,7 @@ export default async function handler(req, res) {
   const ALLOWED_ORIGINS = new Set([
     "https://nakamigos.gallery",
     "https://www.nakamigos.gallery",
+    "https://tegridyfarms.vercel.app",
   ]);
   // Only allow localhost origins in non-production environments
   if (process.env.NODE_ENV !== "production") {

@@ -22,7 +22,7 @@ const SECTIONS: { key: Section; label: string }[] = [
 ];
 
 export default function CommunityPage() {
-  usePageTitle('Community');
+  usePageTitle('Community', 'Governance, grants, bounties, and community initiatives.');
   const { isConnected } = useAccount();
   const [section, setSection] = useState<Section>('grants');
 

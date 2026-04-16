@@ -130,14 +130,18 @@ export class AudioEngine {
     }
   }
 
+  private fadeTimer: ReturnType<typeof setTimeout> | null = null;
+
   fadeOutAmbient(duration = 0.8) {
     if (!this.ctx || !this.ambientGain) return;
     const now = this.ctx.currentTime;
     this.ambientGain.gain.setValueAtTime(this.ambientGain.gain.value, now);
     this.ambientGain.gain.linearRampToValueAtTime(0, now + duration);
-    setTimeout(() => {
+    if (this.fadeTimer) clearTimeout(this.fadeTimer);
+    this.fadeTimer = setTimeout(() => {
       this.ambientSource?.stop();
       this.ambientSource = null;
+      this.fadeTimer = null;
     }, duration * 1000 + 100);
   }
 
@@ -151,6 +155,7 @@ export class AudioEngine {
   get isMuted() { return this.muted; }
 
   dispose() {
+    if (this.fadeTimer) { clearTimeout(this.fadeTimer); this.fadeTimer = null; }
     this.ambientSource?.stop();
     this.ctx?.close();
     this.ctx = null;

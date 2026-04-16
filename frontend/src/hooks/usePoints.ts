@@ -149,5 +149,8 @@ export function usePoints() {
     refresh,
     referralLink,
     onChainMetrics,
+    // Points are computed client-side with localStorage — not cryptographically verified.
+    // Display a disclaimer if points are used for any material purpose (leaderboards, eligibility).
+    disclaimer: 'Community score — not verified on-chain. Points, streaks, and badges are stored locally in your browser.',
   };
 }

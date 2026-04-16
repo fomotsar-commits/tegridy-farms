@@ -34,7 +34,7 @@ export function InfoTooltip({
           }`}
           style={{
             background: 'rgba(10, 16, 40, 0.95)',
-            border: '1px solid rgba(139, 92, 246, 0.25)',
+            border: '1px solid var(--color-purple-25)',
             backdropFilter: 'blur(12px)',
             boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
           }}
@@ -46,10 +46,10 @@ export function InfoTooltip({
             }`}
             style={{
               background: 'rgba(10, 16, 40, 0.95)',
-              borderRight: position === 'top' ? '1px solid rgba(139, 92, 246, 0.25)' : 'none',
-              borderBottom: position === 'top' ? '1px solid rgba(139, 92, 246, 0.25)' : 'none',
-              borderLeft: position === 'bottom' ? '1px solid rgba(139, 92, 246, 0.25)' : 'none',
-              borderTop: position === 'bottom' ? '1px solid rgba(139, 92, 246, 0.25)' : 'none',
+              borderRight: position === 'top' ? '1px solid var(--color-purple-25)' : 'none',
+              borderBottom: position === 'top' ? '1px solid var(--color-purple-25)' : 'none',
+              borderLeft: position === 'bottom' ? '1px solid var(--color-purple-25)' : 'none',
+              borderTop: position === 'bottom' ? '1px solid var(--color-purple-25)' : 'none',
             }}
           />
         </span>
@@ -92,7 +92,7 @@ export function HowItWorks({
       className="rounded-xl overflow-hidden transition-all duration-300"
       style={{
         background: 'rgba(13, 21, 48, 0.4)',
-        border: '1px solid rgba(139, 92, 246, 0.12)',
+        border: '1px solid var(--color-purple-12)',
       }}
     >
       <button
@@ -135,7 +135,7 @@ export function HowItWorks({
               <div
                 key={i}
                 className="flex gap-3 p-3 rounded-lg"
-                style={{ background: 'rgba(139, 92, 246, 0.06)' }}
+                style={{ background: 'var(--color-purple-06)' }}
               >
                 <span className="flex-shrink-0 w-6 h-6 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-[11px] font-bold text-purple-400">
                   {i + 1}

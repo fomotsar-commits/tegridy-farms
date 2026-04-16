@@ -9,6 +9,7 @@ const JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
 const ALLOWED_ORIGINS = new Set([
   "https://nakamigos.gallery",
   "https://www.nakamigos.gallery",
+  "https://tegridyfarms.vercel.app",
 ]);
 if (process.env.NODE_ENV !== "production") {
   ALLOWED_ORIGINS.add("http://localhost:8742");

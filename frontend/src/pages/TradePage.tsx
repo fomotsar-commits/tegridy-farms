@@ -10,7 +10,7 @@ const LiquidityPage = lazy(() => import('./LiquidityPage'));
 type Section = 'swap' | 'liquidity';
 
 export default function TradePage() {
-  usePageTitle('Trade');
+  usePageTitle('Trade', 'Swap tokens with smart routing across Tegridy DEX, Uniswap, and aggregator sources.');
   const [section, setSection] = useState<Section>('swap');
 
   // Track page view on mount

@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect } from 'react';
-import { Routes, Route, Navigate, Link } from 'react-router-dom';
+import { lazy, Suspense, useEffect, Component, type ReactNode, type ErrorInfo } from 'react';
+import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { WagmiProvider } from 'wagmi';
 import { RainbowKitProvider, darkTheme, lightTheme } from '@rainbow-me/rainbowkit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -7,6 +7,7 @@ import '@rainbow-me/rainbowkit/styles.css';
 import { config } from './lib/wagmi';
 import { AppLayout } from './components/layout/AppLayout';
 import { PageSkeleton } from './components/PageSkeleton';
+import { SwapSkeleton, FarmSkeleton, DashboardSkeleton } from './components/PageSkeletons';
 import { safeSetItem } from './lib/storage';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 
@@ -35,6 +36,39 @@ const FAQPage = lazy(() => import('./pages/FAQPage'));
 const ChangelogPage = lazy(() => import('./pages/ChangelogPage'));
 // LaunchpadPage lazy import removed — loaded inside LendingPage
 // NFTAMMPage merged into LendingPage (NFT Finance)
+
+// Error boundary catches render errors in lazy-loaded pages and prevents white-screen crashes
+class RouteErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Route render error:', error, info.componentStack);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-[60vh] flex items-center justify-center px-6">
+          <div className="text-center max-w-sm">
+            <h1 className="heading-luxury text-3xl text-white mb-3">Something went wrong</h1>
+            <p className="text-white/70 text-[13px] mb-6">
+              An unexpected error occurred while rendering this page.
+            </p>
+            <button
+              onClick={() => { this.setState({ hasError: false }); window.location.reload(); }}
+              className="btn-primary inline-block px-7 py-2.5 text-[14px]"
+            >
+              Reload Page
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -66,16 +100,25 @@ function NotFoundPage() {
   );
 }
 
+// Scroll to top on route change (no built-in scroll restoration in React Router v7)
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
+  return null;
+}
+
 function AnimatedRoutes() {
   return (
+    <>
+    <ScrollToTop />
     <Routes>
       {/* Nakamigos marketplace — renders outside AppLayout (has its own header/footer/background) */}
       <Route path="nakamigos/*" element={<NakamigosApp />} />
       <Route element={<AppLayout />}>
         <Route index element={<HomePage />} />
-        <Route path="farm" element={<FarmPage />} />
-        <Route path="swap" element={<TradePage />} />
-        <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><FarmPage /></Suspense>} />
+        <Route path="swap" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
+        <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />
         <Route path="gallery" element={<GalleryPage />} />
         <Route path="tokenomics" element={<TokenomicsPage />} />
         <Route path="history" element={<HistoryPage />} />
@@ -102,6 +145,7 @@ function AnimatedRoutes() {
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
+    </>
   );
 }
 
@@ -124,9 +168,11 @@ function AppInner() {
 
   return (
     <RainbowKitProvider theme={isDark ? rainbowDark : rainbowLight}>
-      <Suspense fallback={<PageSkeleton />}>
-        <AnimatedRoutes />
-      </Suspense>
+      <RouteErrorBoundary>
+        <Suspense fallback={<PageSkeleton />}>
+          <AnimatedRoutes />
+        </Suspense>
+      </RouteErrorBoundary>
     </RainbowKitProvider>
   );
 }

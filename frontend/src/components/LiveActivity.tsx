@@ -29,6 +29,8 @@ export function LiveActivity() {
       transition={{ duration: 0.5, ease: 'easeOut' }}
       className="fixed bottom-4 right-4 z-40 hidden md:block"
       style={{ pointerEvents: 'none' }}
+      aria-live="polite"
+      aria-label="Live protocol status"
     >
       <div
         className="flex items-center gap-2.5 px-3 py-2 rounded-lg"
@@ -36,8 +38,8 @@ export function LiveActivity() {
           background: 'rgba(6, 12, 26, 0.85)',
           backdropFilter: 'blur(12px)',
           WebkitBackdropFilter: 'blur(12px)',
-          border: '1px solid rgba(139, 92, 246, 0.15)',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.65), 0 0 10px rgba(139,92,246,0.1)',
+          border: '1px solid var(--color-purple-15)',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.65), 0 0 10px var(--color-purple-10)',
           maxWidth: 200,
         }}
       >

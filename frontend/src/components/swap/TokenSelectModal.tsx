@@ -1,5 +1,6 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useReadContract } from 'wagmi';
 import { toast } from 'sonner';
 import { ERC20_ABI } from '../../lib/contracts';
@@ -53,6 +54,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
   const [importError, setImportError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [recentAddresses, setRecentAddresses] = useState<string[]>(getRecentTokens);
 
   useEffect(() => {
@@ -131,6 +133,14 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
       t.name.toLowerCase().includes(q)
     );
   }, [search, allTokens]);
+
+  const getScrollElement = useCallback(() => scrollContainerRef.current, []);
+  const virtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement,
+    estimateSize: () => 52,
+    overscan: 5,
+  });
 
   // Detect when search is a valid address not in the list — trigger import
   // Uses EIP-55 checksum validation via viem's getAddress
@@ -235,8 +245,8 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
           style={{
             maxHeight: 'calc(100vh - 160px)',
             background: 'linear-gradient(180deg, #0f1a2e 0%, #0a1020 100%)',
-            border: '1px solid rgba(139,92,246,0.2)',
-            boxShadow: '0 24px 80px rgba(0,0,0,0.6), 0 0 1px rgba(139,92,246,0.3)',
+            border: '1px solid var(--color-purple-20)',
+            boxShadow: '0 24px 80px rgba(0,0,0,0.6), 0 0 1px var(--color-purple-30)',
           }}
           initial={{ scale: 0.95, opacity: 0 }}
           animate={{ scale: 1 }}
@@ -264,8 +274,8 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
               placeholder="Search name, symbol, or paste address"
               className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl text-[13px] text-white placeholder-white/25 outline-none"
               style={{
-                background: 'rgba(139,92,246,0.75)',
-                border: '1px solid rgba(139,92,246,0.75)',
+                background: 'var(--color-purple-75)',
+                border: '1px solid var(--color-purple-75)',
               }}
             />
           </div>
@@ -283,15 +293,15 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
                   disabled={isDisabled}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] font-medium transition-all cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed"
                   style={{
-                    background: 'rgba(139,92,246,0.75)',
-                    border: '1px solid rgba(139,92,246,0.75)',
+                    background: 'var(--color-purple-75)',
+                    border: '1px solid var(--color-purple-75)',
                     color: isDisabled ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.8)',
                   }}
                 >
                   {token.logoURI ? (
-                    <SafeTokenImg src={token.logoURI} symbol={token.symbol} size="w-4 h-4" fallbackBg="rgba(139,92,246,0.75)" />
+                    <SafeTokenImg src={token.logoURI} symbol={token.symbol} size="w-4 h-4" fallbackBg="var(--color-purple-75)" />
                   ) : (
-                    <FallbackIcon symbol={token.symbol} size="w-4 h-4" bg="rgba(139,92,246,0.75)" />
+                    <FallbackIcon symbol={token.symbol} size="w-4 h-4" bg="var(--color-purple-75)" />
                   )}
                   {sym}
                 </button>
@@ -336,40 +346,58 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
             </div>
           )}
 
-          <div className="mx-4 h-px" style={{ background: 'rgba(139,92,246,0.1)' }} />
+          <div className="mx-4 h-px" style={{ background: 'var(--color-purple-10)' }} />
 
           {/* Token list */}
-          <div className="flex-1 overflow-y-auto px-2 py-1 max-md:max-h-none" style={{ maxHeight: '340px' }}>
-            {filtered.map(token => {
-              const isDisabled = token.address.toLowerCase() === disabledAddress?.toLowerCase();
-              return (
-                <button
-                  key={token.address}
-                  onClick={() => !isDisabled && handleSelect(token)}
-                  disabled={isDisabled}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 min-h-[44px] rounded-xl transition-all cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed hover:bg-black/60"
-                >
-                  <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center"
-                    style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
-                    {token.logoURI ? (
-                      <SafeTokenImg src={token.logoURI} symbol={token.symbol} size="w-full h-full" fallbackBg="transparent" />
-                    ) : (
-                      <span className="text-[11px] font-bold text-white">{token.symbol.charAt(0)}</span>
+          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-2 py-1 max-md:max-h-none" style={{ maxHeight: '340px' }}>
+            <div
+              style={{
+                height: `${virtualizer.getTotalSize()}px`,
+                width: '100%',
+                position: 'relative',
+              }}
+            >
+              {virtualizer.getVirtualItems().map(virtualRow => {
+                const token = filtered[virtualRow.index]!;
+                const isDisabled = token.address.toLowerCase() === disabledAddress?.toLowerCase();
+                return (
+                  <button
+                    key={token.address}
+                    data-index={virtualRow.index}
+                    ref={virtualizer.measureElement}
+                    onClick={() => !isDisabled && handleSelect(token)}
+                    disabled={isDisabled}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 min-h-[44px] rounded-xl transition-all cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed hover:bg-black/60"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center"
+                      style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
+                      {token.logoURI ? (
+                        <SafeTokenImg src={token.logoURI} symbol={token.symbol} size="w-full h-full" fallbackBg="transparent" />
+                      ) : (
+                        <span className="text-[11px] font-bold text-white">{token.symbol.charAt(0)}</span>
+                      )}
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className="text-white text-[13px] font-semibold leading-tight">{token.symbol}</p>
+                      <p className="text-white text-[11px] leading-tight">{token.name}</p>
+                    </div>
+                    {!DEFAULT_TOKENS.some(t => t.address.toLowerCase() === token.address.toLowerCase()) && (
+                      <span className="text-[9px] text-warning/70 font-semibold px-1.5 py-0.5 rounded" style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.20)' }}>Unverified</span>
                     )}
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className="text-white text-[13px] font-semibold leading-tight">{token.symbol}</p>
-                    <p className="text-white text-[11px] leading-tight">{token.name}</p>
-                  </div>
-                  {!DEFAULT_TOKENS.some(t => t.address.toLowerCase() === token.address.toLowerCase()) && (
-                    <span className="text-[9px] text-warning/70 font-semibold px-1.5 py-0.5 rounded" style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.20)' }}>Unverified</span>
-                  )}
-                  {token.isNative && (
-                    <span className="text-[10px] text-white font-mono">Native</span>
-                  )}
-                </button>
-              );
-            })}
+                    {token.isNative && (
+                      <span className="text-[10px] text-white font-mono">Native</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
 
             {filtered.length === 0 && !isImporting && !importError && (
               <div className="text-center py-8 text-white text-[13px]">
@@ -388,8 +416,8 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
               <div className="mx-2 my-2 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,178,55,0.25)' }}>
                 {importSymbol ? (
                   <div>
-                    <div className="p-3 flex items-center gap-3" style={{ background: 'rgba(139,92,246,0.75)' }}>
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                    <div className="p-3 flex items-center gap-3" style={{ background: 'var(--color-purple-75)' }}>
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                         <span className="text-[11px] font-bold text-white">{(importSymbol as string).slice(0, 2)}</span>
                       </div>
                       <div>
@@ -423,7 +451,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
                             disabled={!importRiskAccepted}
                             aria-disabled={!importRiskAccepted}
                             className="w-full py-2 rounded-lg text-[12px] font-semibold cursor-pointer transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                            style={{ background: 'rgba(139,92,246,0.75)', color: 'var(--color-primary)', border: '1px solid rgba(139,92,246,0.25)' }}
+                            style={{ background: 'var(--color-purple-75)', color: 'var(--color-primary)', border: '1px solid var(--color-purple-25)' }}
                           >
                             Import Token
                           </button>
@@ -432,7 +460,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
                     </div>
                   </div>
                 ) : (
-                  <div className="p-3 flex items-center gap-2" style={{ background: 'rgba(139,92,246,0.75)' }}>
+                  <div className="p-3 flex items-center gap-2" style={{ background: 'var(--color-purple-75)' }}>
                     <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
                     <span className="text-white text-[12px]">Looking up token...</span>
                   </div>

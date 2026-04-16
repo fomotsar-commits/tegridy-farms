@@ -58,7 +58,7 @@ export function TegridyScoreMini() {
             cy={RING_SIZE / 2}
             r={RADIUS}
             fill="none"
-            stroke="rgba(139,92,246,0.75)"
+            stroke="var(--color-purple-75)"
             strokeWidth={STROKE_WIDTH}
           />
           <circle

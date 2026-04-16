@@ -30,7 +30,7 @@ export function ArtCard({
   return (
     <div
       className={`relative overflow-hidden rounded-xl glass-card-animated ${className}`}
-      style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+      style={{ border: '1px solid var(--color-purple-75)' }}
     >
       <div className="absolute inset-0">
         <img src={art.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ opacity }} />

@@ -1,6 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { MORE_NAV, MORE_PATHS } from '../../lib/navConfig';
 
 const TABS = [
   { to: '/swap', label: 'Trade', icon: (
@@ -28,21 +29,6 @@ const TABS = [
   )},
 ];
 
-const MORE_PAGES = [
-  { to: '/lending', label: 'NFT Finance' },
-  { to: '/premium', label: 'Gold Card' },
-  { to: '/leaderboard', label: 'Points' },
-  { to: '/gallery', label: 'Gallery' },
-  { to: '/nakamigos', label: 'Marketplace' },
-  { to: '/tokenomics', label: 'Tokenomics' },
-  { to: '/security', label: 'Security' },
-  { to: '/faq', label: 'FAQ' },
-  { to: '/changelog', label: 'Changelog' },
-  { to: '/lore', label: 'Lore' },
-  { to: '/history', label: 'History' },
-];
-
-const MORE_PATHS = MORE_PAGES.map(p => p.to);
 
 export const BottomNav = React.memo(function BottomNav() {
   const [open, setOpen] = useState(false);
@@ -76,7 +62,7 @@ export const BottomNav = React.memo(function BottomNav() {
         background: 'rgba(6,12,26,0.95)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
-        borderTop: '1px solid rgba(139,92,246,0.75)',
+        borderTop: '1px solid var(--color-purple-75)',
       }}>
 
       {/* More menu popup */}
@@ -93,12 +79,12 @@ export const BottomNav = React.memo(function BottomNav() {
             <div className="rounded-xl overflow-hidden py-1"
               style={{
                 background: 'rgba(10,16,32,0.97)',
-                border: '1px solid rgba(139,92,246,0.2)',
+                border: '1px solid var(--color-purple-20)',
                 backdropFilter: 'blur(20px)',
                 boxShadow: '0 -8px 30px rgba(0,0,0,0.5)',
               }}>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-0.5 p-2">
-                {MORE_PAGES.map(page => (
+                {MORE_NAV.map(page => (
                   <NavLink
                     key={page.to}
                     to={page.to}

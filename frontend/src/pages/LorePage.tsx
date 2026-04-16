@@ -48,7 +48,7 @@ const TIMELINE = [
 ];
 
 export default function LorePage() {
-  usePageTitle('Lore');
+  usePageTitle('Lore', 'The origin story of Tegridy Farms and the TOWELI token.');
   return (
     <div className="-mt-14 relative min-h-screen">
       {/* Fixed background covering entire page */}
@@ -75,7 +75,7 @@ export default function LorePage() {
           <motion.li key={item.phase} className="mb-10"
             initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }} transition={{ delay: i * 0.05 }}>
-            <div className="relative rounded-2xl overflow-hidden glass-card-animated" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
+            <div className="relative rounded-2xl overflow-hidden glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
                 <img src={item.art} alt={`Phase ${item.phase}: ${item.title}`} loading="lazy" className="w-full h-full object-cover" />
               </div>
@@ -83,7 +83,7 @@ export default function LorePage() {
                 <div className="flex items-start gap-4 md:gap-8">
                   <span className="stat-value text-[32px] md:text-[52px] text-white/20 leading-none flex-shrink-0">{item.phase}</span>
                   <div>
-                    <h3 className="heading-luxury text-xl md:text-2xl text-white mb-3">{item.title}</h3>
+                    <h2 className="heading-luxury text-xl md:text-2xl text-white mb-3">{item.title}</h2>
                     <div className="accent-divider mb-4" />
                     <p className="text-white text-[14px] md:text-[15px] leading-relaxed max-w-xl">{item.description}</p>
                   </div>

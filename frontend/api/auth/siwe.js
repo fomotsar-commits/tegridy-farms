@@ -27,6 +27,7 @@ const TOKEN_EXPIRY_HOURS = 24;
 const ALLOWED_ORIGINS = new Set([
   "https://nakamigos.gallery",
   "https://www.nakamigos.gallery",
+  "https://tegridyfarms.vercel.app",
 ]);
 if (process.env.NODE_ENV !== "production") {
   ALLOWED_ORIGINS.add("http://localhost:8742");
@@ -49,10 +50,12 @@ function setCors(req, res) {
  * same-site navigations to send the cookie automatically.
  */
 function buildAuthCookie(token, maxAgeSeconds) {
-  // SECURITY FIX: Default to Secure=true, only disable for explicit localhost development.
-  // Previously relied on NODE_ENV=production which could be misconfigured on the deployment
-  // platform, causing the JWT cookie to be sent over plain HTTP (MITM risk).
-  const isLocalDev = process.env.DISABLE_SECURE_COOKIE === "true";
+  // SECURITY FIX: Default to Secure=true, only disable for localhost development.
+  // Use NODE_ENV check as primary guard; DISABLE_SECURE_COOKIE as explicit override.
+  const isLocalDev = process.env.NODE_ENV !== "production" && process.env.DISABLE_SECURE_COOKIE === "true";
+  if (process.env.NODE_ENV === "production" && process.env.DISABLE_SECURE_COOKIE === "true") {
+    console.error("SECURITY WARNING: DISABLE_SECURE_COOKIE=true in production — ignoring. Cookie will use Secure flag.");
+  }
   const parts = [
     `siwe_jwt=${token}`,
     `HttpOnly`,

@@ -5,7 +5,7 @@ import { CopyButton } from '../ui/CopyButton';
 
 export function Footer() {
   return (
-    <footer className="relative mt-8">
+    <footer className="relative mt-8" role="contentinfo">
       <div className="max-w-[1200px] mx-auto px-4 md:px-6">
         {/* Gold divider */}
         <div className="accent-divider" />
@@ -63,7 +63,7 @@ export function Footer() {
                 </a>
               ))}
             </div>
-            <div className="mt-4 rounded-lg p-3 inline-block" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+            <div className="mt-4 rounded-lg p-3 inline-block" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
               <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-1">Contract</p>
               <CopyButton text={TOWELI_ADDRESS} display={shortenAddress(TOWELI_ADDRESS, 6)}
                 className="font-mono text-[12px] text-white" />

@@ -47,7 +47,7 @@ export function ReferralWidget({ address, referredCount, referralEarned, referra
   return (
     <motion.div
       className="relative overflow-hidden rounded-xl glass-card-animated mb-6"
-      style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+      style={{ border: '1px solid var(--color-purple-75)' }}
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
     >

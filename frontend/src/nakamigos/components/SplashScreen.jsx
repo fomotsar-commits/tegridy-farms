@@ -1285,7 +1285,7 @@ export default function SplashScreen({ onComplete }) {
         {/* Collection title */}
         <div style={{ marginBottom: 8, overflow: "hidden", position: "relative" }}>
           <div style={{ display: "flex", justifyContent: "center", gap: 5, position: "relative" }}>
-            {(COLLECTIONS[DEFAULT_COLLECTION]?.name || "TRADERMIGOS").toUpperCase().split("").map((letter, i) => {
+            {(COLLECTIONS[DEFAULT_COLLECTION]?.name || "NAKAMIGOS").toUpperCase().split("").map((letter, i) => {
               const palette = ["#c8a850", "#e8c080", "#ff8fa0", "#c8a850", "#7eb8e0", "#a088d0", "#e0a0c0", "#c8a850", "#7eb8e0"];
               const colors = palette;
               return (

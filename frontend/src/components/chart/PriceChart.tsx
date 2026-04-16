@@ -264,7 +264,7 @@ function PriceChartInner() {
             className={`px-2.5 py-1 min-h-[44px] rounded text-[11px] font-medium transition-all ${
               tf === key ? 'text-white' : 'text-white hover:text-white'
             }`}
-            style={tf === key ? { background: 'rgba(139,92,246,0.25)', border: '1px solid rgba(139,92,246,0.4)' } : { border: '1px solid transparent' }}
+            style={tf === key ? { background: 'var(--color-purple-25)', border: '1px solid var(--color-purple-40)' } : { border: '1px solid transparent' }}
           >
             {TF_CONFIG[key].label}
           </button>
@@ -295,7 +295,7 @@ function PriceChartInner() {
             <button
               onClick={() => loadData(tf)}
               className="px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all cursor-pointer"
-              style={{ background: 'rgba(139,92,246,0.2)', color: '#ffffff', border: '1px solid rgba(139,92,246,0.3)' }}
+              style={{ background: 'var(--color-purple-20)', color: '#ffffff', border: '1px solid var(--color-purple-30)' }}
             >
               Retry
             </button>

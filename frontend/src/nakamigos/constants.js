@@ -1,14 +1,14 @@
 // ═══ MULTI-COLLECTION CONFIG ═══
 export const COLLECTIONS = {
   nakamigos: {
-    name: "Tradermigos",
+    name: "Nakamigos",
     contract: "0xd774557b647330C91Bf44cfEAB205095f7E6c367",
     slug: "nakamigos",
     openseaSlug: "nakamigos",
     supply: 20000,
     mintBlock: 16893743, // March 2023 — post-merge
     metadataBase: "https://alchemy.mypinata.cloud/ipfs/QmaN1jRPtmzeqhp6s3mR1SRK4q1xWPvFvwqW1jyN6trir9",
-    image: "/splash/skeleton.png",
+    image: "/splash/skeleton.jpg",
     description: "20,000 unique crypto investors on the blockchain",
     tags: ["ERC-721", "ETHEREUM", "HIFO LABS"],
     pixelated: true,

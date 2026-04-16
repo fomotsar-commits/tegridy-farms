@@ -51,7 +51,7 @@ export function TegridyScore() {
   return (
     <motion.div
       className="relative overflow-hidden rounded-xl glass-card-animated"
-      style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+      style={{ border: '1px solid var(--color-purple-75)' }}
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
@@ -67,7 +67,7 @@ export function TegridyScore() {
           <div
             className="absolute inset-0 rounded-full"
             style={{
-              background: 'radial-gradient(circle, rgba(139,92,246,0.25) 0%, rgba(139,92,246,0.75) 50%, transparent 70%)',
+              background: 'radial-gradient(circle, var(--color-purple-25) 0%, var(--color-purple-75) 50%, transparent 70%)',
               animation: 'scoreGlow 3s ease-in-out infinite',
             }}
           />
@@ -85,7 +85,7 @@ export function TegridyScore() {
               cy={RING_SIZE / 2}
               r={RADIUS}
               fill="none"
-              stroke="rgba(139,92,246,0.75)"
+              stroke="var(--color-purple-75)"
               strokeWidth={STROKE_WIDTH}
             />
             {/* Progress ring */}
@@ -123,7 +123,7 @@ export function TegridyScore() {
                 <span className="text-[11px] text-white">{label}</span>
                 <span className="stat-value text-[11px] text-white">{value}</span>
               </div>
-              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(139,92,246,0.75)' }}>
+              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--color-purple-75)' }}>
                 <motion.div
                   className="h-full rounded-full"
                   style={{ background: color }}
@@ -139,13 +139,13 @@ export function TegridyScore() {
 
       {/* Tips */}
       {tips.length > 0 && (
-        <div className="pt-4" style={{ borderTop: '1px solid rgba(139,92,246,0.75)' }}>
+        <div className="pt-4" style={{ borderTop: '1px solid var(--color-purple-75)' }}>
           <div className="space-y-2">
             {tips.map((tip) => (
               <div
                 key={tip}
                 className="flex items-start gap-2 px-3 py-2 rounded-lg"
-                style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}
+                style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}
               >
                 <span className="text-[12px] text-warning mt-px">*</span>
                 <span className="text-[12px] text-white">{tip}</span>

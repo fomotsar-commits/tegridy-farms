@@ -68,8 +68,8 @@ async function flush(useBeacon = false) {
       keepalive: true,
     });
   } catch {
-    // Re-queue on failure so events aren't lost
-    queue = batch.concat(queue);
+    // Re-queue on failure so events aren't lost (batch first, then pending queue)
+    queue = [...batch, ...queue];
   }
 }
 

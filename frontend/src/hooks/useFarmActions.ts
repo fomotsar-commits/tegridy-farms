@@ -1,11 +1,12 @@
 import { useEffect } from 'react';
-import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { parseEther } from 'viem';
 import { toast } from 'sonner';
 import { TEGRIDY_STAKING_ABI, ERC20_ABI } from '../lib/contracts';
-import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS } from '../lib/constants';
+import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, CHAIN_ID } from '../lib/constants';
 
 export function useFarmActions() {
+  const chainId = useChainId();
   // Audit #51: wagmi's useWriteContract internally runs simulateContract before
   // sending the transaction, providing automatic pre-flight revert detection.
   // No separate useSimulateContract call is needed.
@@ -44,6 +45,7 @@ export function useFarmActions() {
   }, [writeError]);
 
   const approve = (amount: string) => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) return;
     // TOWELI uses 18 decimals; if token decimals change, use parseUnits(amount, decimals) instead
     const approveAmount = parseEther(amount);
@@ -56,6 +58,7 @@ export function useFarmActions() {
   };
 
   const stake = (amount: string, lockDurationSeconds: bigint) => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     const parsed = parseFloat(amount);
     if (isNaN(parsed) || parsed <= 0) throw new Error('Invalid amount');
     // TOWELI uses 18 decimals; if token decimals change, use parseUnits(amount, decimals) instead
@@ -68,6 +71,7 @@ export function useFarmActions() {
   };
 
   const withdraw = (tokenId: bigint) => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
@@ -77,6 +81,7 @@ export function useFarmActions() {
   };
 
   const earlyWithdraw = (tokenId: bigint) => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
@@ -86,6 +91,7 @@ export function useFarmActions() {
   };
 
   const claim = (tokenId: bigint) => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
@@ -95,6 +101,7 @@ export function useFarmActions() {
   };
 
   const toggleAutoMaxLock = (tokenId: bigint) => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
@@ -104,6 +111,7 @@ export function useFarmActions() {
   };
 
   const extendLock = (tokenId: bigint, newDuration: bigint) => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
@@ -113,6 +121,7 @@ export function useFarmActions() {
   };
 
   const emergencyExit = (tokenId: bigint) => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
@@ -122,6 +131,7 @@ export function useFarmActions() {
   };
 
   const claimUnsettled = () => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
@@ -130,6 +140,7 @@ export function useFarmActions() {
   };
 
   const revalidateBoost = (tokenId: bigint) => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,

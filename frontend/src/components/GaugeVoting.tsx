@@ -9,7 +9,7 @@ import { formatTokenAmount, shortenAddress } from '../lib/formatting';
 import { InfoTooltip } from './ui/InfoTooltip';
 
 const CARD_BG = 'rgba(13, 21, 48, 0.6)';
-const CARD_BORDER = 'rgba(139, 92, 246, 0.12)';
+const CARD_BORDER = 'var(--color-purple-12)';
 const BPS = 10000;
 
 function useCountdown(targetTimestamp: number) {

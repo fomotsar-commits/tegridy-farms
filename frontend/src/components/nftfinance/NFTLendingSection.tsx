@@ -11,7 +11,7 @@ import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '.
 
 /* ─── Constants ─────────────────────────────────────────────────── */
 const CARD_BG = 'rgba(13, 21, 48, 0.6)';
-const CARD_BORDER = 'rgba(139, 92, 246, 0.12)';
+const CARD_BORDER = 'var(--color-purple-12)';
 const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
 
 const COLLECTIONS = [
@@ -73,7 +73,7 @@ function getLoanStatus(loan: LoanData): 'active' | 'overdue' | 'repaid' | 'defau
 const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   active: { bg: 'rgba(16,185,129,0.12)', text: 'text-emerald-400', border: 'border-emerald-500/30' },
   overdue: { bg: 'rgba(234,179,8,0.12)', text: 'text-yellow-400', border: 'border-yellow-500/30' },
-  repaid: { bg: 'rgba(139,92,246,0.12)', text: 'text-purple-400', border: 'border-purple-500/30' },
+  repaid: { bg: 'var(--color-purple-12)', text: 'text-purple-400', border: 'border-purple-500/30' },
   defaulted: { bg: 'rgba(239,68,68,0.12)', text: 'text-red-400', border: 'border-red-500/30' },
 };
 
@@ -177,7 +177,7 @@ export function NFTLendingSection() {
               <motion.div
                 layoutId="lending-tab-indicator"
                 className="absolute inset-0 rounded-lg"
-                style={{ background: 'rgba(139, 92, 246, 0.2)', border: '1px solid rgba(139, 92, 246, 0.3)' }}
+                style={{ background: 'var(--color-purple-20)', border: '1px solid var(--color-purple-30)' }}
                 transition={{ type: 'spring', stiffness: 400, damping: 30 }}
               />
             )}
@@ -370,8 +370,8 @@ function LendTab() {
         disabled={!isConnected || isPending || isConfirming}
         className="w-full min-h-[44px] rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         style={{
-          background: isPending || isConfirming ? 'rgba(139,92,246,0.15)' : 'linear-gradient(135deg, rgba(16,185,129,0.3), rgba(139,92,246,0.3))',
-          border: '1px solid rgba(139, 92, 246, 0.3)',
+          background: isPending || isConfirming ? 'var(--color-purple-15)' : 'linear-gradient(135deg, rgba(16,185,129,0.3), var(--color-purple-30))',
+          border: '1px solid var(--color-purple-30)',
           color: 'white',
         }}
       >
@@ -679,7 +679,7 @@ function OfferCard({
                   onClick={handleApprove}
                   disabled={!isConnected || approving || approveConfirming || !tokenId || approveSuccess}
                   className="min-h-[44px] rounded-xl text-[13px] font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed text-white"
-                  style={{ background: approveSuccess ? 'rgba(16,185,129,0.15)' : 'rgba(139,92,246,0.2)', border: `1px solid ${approveSuccess ? 'rgba(16,185,129,0.3)' : 'rgba(139,92,246,0.3)'}` }}
+                  style={{ background: approveSuccess ? 'rgba(16,185,129,0.15)' : 'var(--color-purple-20)', border: `1px solid ${approveSuccess ? 'rgba(16,185,129,0.3)' : 'var(--color-purple-30)'}` }}
                 >
                   {approveSuccess ? 'Approved' : approving ? 'Confirm...' : approveConfirming ? 'Approving...' : 'Approve NFT'}
                 </button>
@@ -688,7 +688,7 @@ function OfferCard({
                   disabled={!isConnected || accepting || acceptConfirming || !tokenId}
                   className="min-h-[44px] rounded-xl text-[13px] font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed text-white"
                   style={{
-                    background: 'linear-gradient(135deg, rgba(16,185,129,0.25), rgba(139,92,246,0.25))',
+                    background: 'linear-gradient(135deg, rgba(16,185,129,0.25), var(--color-purple-25))',
                     border: '1px solid rgba(16,185,129,0.3)',
                   }}
                 >
@@ -907,8 +907,8 @@ function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; user
         <div
           className="rounded-lg p-2 text-center"
           style={{
-            background: status === 'overdue' ? 'rgba(234,179,8,0.08)' : 'rgba(139,92,246,0.08)',
-            border: `1px solid ${status === 'overdue' ? 'rgba(234,179,8,0.2)' : 'rgba(139,92,246,0.15)'}`,
+            background: status === 'overdue' ? 'rgba(234,179,8,0.08)' : 'var(--color-purple-08)',
+            border: `1px solid ${status === 'overdue' ? 'rgba(234,179,8,0.2)' : 'var(--color-purple-15)'}`,
           }}
         >
           <p className={`text-[11px] ${status === 'overdue' ? 'text-yellow-400' : 'text-white/50'}`}>
@@ -937,7 +937,7 @@ function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; user
           disabled={repaying || repayConfirming}
           className="w-full min-h-[44px] rounded-xl text-[13px] font-semibold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
           style={{
-            background: 'linear-gradient(135deg, rgba(16,185,129,0.25), rgba(139,92,246,0.25))',
+            background: 'linear-gradient(135deg, rgba(16,185,129,0.25), var(--color-purple-25))',
             border: '1px solid rgba(16,185,129,0.3)',
           }}
         >

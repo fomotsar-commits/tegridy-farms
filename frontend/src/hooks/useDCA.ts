@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useAccount, useWriteContract, usePublicClient } from 'wagmi';
+import { useAccount, useWriteContract, usePublicClient, useChainId } from 'wagmi';
 import { parseUnits } from 'viem';
 import { toast } from 'sonner';
 import { SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI, ERC20_ABI } from '../lib/contracts';
-import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, WETH_ADDRESS } from '../lib/constants';
+import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
 
 export interface DCASchedule {
   id: string;
@@ -30,6 +30,32 @@ const MAX_FEE_BPS = 100n; // 1% max fee tolerance for SwapFeeRouter
 const MAX_SCHEDULES = 20;
 const MAX_AMOUNT_ETH = 100; // sanity cap per-swap
 const MAX_TOTAL_SWAPS = 365;
+
+// Multi-tab mutex: prevent duplicate DCA execution across browser tabs.
+// Uses BroadcastChannel to claim a lock before executing — if another tab
+// already claimed it, this tab skips the execution.
+const DCA_CHANNEL_NAME = 'tegridy_dca_mutex';
+
+function claimTabLock(scheduleId: string): boolean {
+  try {
+    const key = `tegridy_dca_lock_${scheduleId}`;
+    const now = Date.now();
+    const existing = localStorage.getItem(key);
+    if (existing) {
+      const lockTime = parseInt(existing, 10);
+      // Lock is still valid (held for < 60s)
+      if (now - lockTime < 60_000) return false;
+    }
+    localStorage.setItem(key, String(now));
+    return true;
+  } catch {
+    return true; // If localStorage fails, allow execution
+  }
+}
+
+function releaseTabLock(scheduleId: string) {
+  try { localStorage.removeItem(`tegridy_dca_lock_${scheduleId}`); } catch {}
+}
 
 const INTERVAL_MS: Record<string, number> = {
   daily: 86400000,
@@ -117,6 +143,7 @@ function requestNotificationPermission() {
 }
 
 export function useDCA() {
+  const chainId = useChainId();
   const { address } = useAccount();
   const publicClient = usePublicClient();
   const [schedules, setSchedules] = useState<DCASchedule[]>([]);
@@ -187,6 +214,7 @@ export function useDCA() {
 
   const markComplete = useCallback((id: string) => {
     executingRef.current.delete(id);
+    releaseTabLock(id);
     setSchedules(prev => {
       const updated = prev.map(s => {
         if (s.id !== id) return s;
@@ -211,11 +239,11 @@ export function useDCA() {
       if (receipt.status === 'success') {
         markComplete(scheduleId);
       } else {
-        executingRef.current.delete(scheduleId);
+        executingRef.current.delete(scheduleId); releaseTabLock(scheduleId);
         toast.error('DCA swap transaction reverted on-chain.');
       }
     } catch (err) {
-      executingRef.current.delete(scheduleId);
+      executingRef.current.delete(scheduleId); releaseTabLock(scheduleId);
       toast.error('DCA swap failed: could not confirm transaction.');
       if (import.meta.env.DEV) console.error('DCA waitForTransactionReceipt error:', err);
     }
@@ -223,12 +251,15 @@ export function useDCA() {
 
   const executeDCASwap = useCallback(async (schedule: DCASchedule) => {
     if (!address || !writeContract || !publicClient) return;
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (executingRef.current.has(schedule.id)) return;
+    // Multi-tab mutex: skip if another tab already claimed this schedule
+    if (!claimTabLock(schedule.id)) return;
     executingRef.current.add(schedule.id);
 
     const path = buildPath(schedule.fromToken, schedule.toToken);
     const parsedAmount = parseUnits(schedule.amountPerSwap, schedule.fromToken.decimals);
-    if (parsedAmount === 0n) { executingRef.current.delete(schedule.id); return; }
+    if (parsedAmount === 0n) { executingRef.current.delete(schedule.id); releaseTabLock(schedule.id); return; }
     const deadlineTs = BigInt(Math.floor(Date.now() / 1000) + 300);
 
     // Fetch on-chain quote and apply slippage tolerance
@@ -245,7 +276,7 @@ export function useDCA() {
       minOut = expectedOut - (expectedOut * SLIPPAGE_BPS / 10000n);
     } catch {
       // If quote fails, do not proceed with 0 slippage -- abort
-      executingRef.current.delete(schedule.id);
+      executingRef.current.delete(schedule.id); releaseTabLock(schedule.id);
       toast.error(`DCA: Could not fetch price quote for ${schedule.fromToken.symbol} → ${schedule.toToken.symbol}. Swap skipped.`);
       return;
     }
@@ -270,12 +301,12 @@ export function useDCA() {
           args: [address, SWAP_FEE_ROUTER_ADDRESS],
         }) as bigint;
         if (allowance < parsedAmount) {
-          executingRef.current.delete(schedule.id);
+          executingRef.current.delete(schedule.id); releaseTabLock(schedule.id);
           toast.error(`DCA: Insufficient ${schedule.fromToken.symbol} approval for SwapFeeRouter. Please approve the token first.`);
           return;
         }
       } catch {
-        executingRef.current.delete(schedule.id);
+        executingRef.current.delete(schedule.id); releaseTabLock(schedule.id);
         toast.error(`DCA: Could not check ${schedule.fromToken.symbol} allowance. Swap skipped.`);
         return;
       }
@@ -286,7 +317,7 @@ export function useDCA() {
       waitForReceipt(hash, schedule.id);
     };
     const onTxError = (err: Error) => {
-      executingRef.current.delete(schedule.id);
+      executingRef.current.delete(schedule.id); releaseTabLock(schedule.id);
       const msg = (err as Error & { shortMessage?: string }).shortMessage || err.message || 'Transaction rejected';
       toast.error(`DCA swap failed: ${msg}`);
     };
@@ -325,9 +356,9 @@ export function useDCA() {
         });
       }
     } catch {
-      executingRef.current.delete(schedule.id);
+      executingRef.current.delete(schedule.id); releaseTabLock(schedule.id);
     }
-  }, [address, writeContract, publicClient, markComplete, waitForReceipt]);
+  }, [address, chainId, writeContract, publicClient, markComplete, waitForReceipt]);
 
   // Polling: check for due schedules and auto-execute
   useEffect(() => {

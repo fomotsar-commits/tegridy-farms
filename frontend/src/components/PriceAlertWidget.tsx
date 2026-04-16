@@ -21,7 +21,7 @@ export function PriceAlertWidget() {
   };
 
   return (
-    <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
+    <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
       <div className="relative z-10 p-4">
         {/* Header */}
         <button
@@ -33,7 +33,7 @@ export function PriceAlertWidget() {
             <span className="text-white text-[13px] font-medium">Price Alerts</span>
             {untriggeredCount > 0 && (
               <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-bold"
-                style={{ background: 'rgba(139,92,246,0.8)', color: '#fff' }}>
+                style={{ background: 'var(--color-purple-80)', color: '#fff' }}>
                 {untriggeredCount}
               </span>
             )}

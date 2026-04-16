@@ -245,8 +245,8 @@ function TransactionReceiptOverlay({
         className="relative w-full max-w-[400px] mx-4 rounded-2xl overflow-hidden"
         style={{
           background: 'linear-gradient(145deg, rgba(6,12,26,0.95) 0%, rgba(16,30,54,0.95) 100%)',
-          border: '1px solid rgba(139,92,246,0.25)',
-          boxShadow: '0 0 0 1px rgba(139,92,246,0.75), 0 24px 64px rgba(0,0,0,0.6), 0 0 48px rgba(139,92,246,0.75)',
+          border: '1px solid var(--color-purple-25)',
+          boxShadow: '0 0 0 1px var(--color-purple-75), 0 24px 64px rgba(0,0,0,0.6), 0 0 48px var(--color-purple-75)',
         }}
         initial={{ opacity: 0, y: 40, scale: 0.95 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -257,7 +257,7 @@ function TransactionReceiptOverlay({
         <div
           className="absolute top-0 left-0 right-0 h-[2px]"
           style={{
-            background: 'linear-gradient(90deg, transparent 0%, rgba(139,92,246,0.6) 30%, rgba(139,92,246,0.8) 50%, rgba(139,92,246,0.6) 70%, transparent 100%)',
+            background: 'linear-gradient(90deg, transparent 0%, var(--color-purple-60) 30%, var(--color-purple-80) 50%, var(--color-purple-60) 70%, transparent 100%)',
           }}
         />
 
@@ -295,7 +295,7 @@ function TransactionReceiptOverlay({
 
           {/* Swap hero line */}
           {receipt.type === 'swap' && receipt.data.fromAmount && receipt.data.toAmount && (
-            <div className="mb-5 px-4 py-3 rounded-xl" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+            <div className="mb-5 px-4 py-3 rounded-xl" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
               <div className="flex items-center justify-center gap-2 md:gap-3 flex-wrap">
                 <span className="stat-value text-[14px] md:text-[16px] text-white">
                   {formatTokenAmount(receipt.data.fromAmount, 6)} {sanitize(receipt.data.fromToken)}
@@ -347,8 +347,8 @@ function TransactionReceiptOverlay({
               onClick={handleShareX}
               className="flex-1 py-2.5 rounded-lg text-[13px] font-semibold cursor-pointer transition-all"
               style={{
-                background: 'rgba(139,92,246,0.75)',
-                border: '1px solid rgba(139,92,246,0.25)',
+                background: 'var(--color-purple-75)',
+                border: '1px solid var(--color-purple-25)',
                 color: '#ffffff',
               }}
             >

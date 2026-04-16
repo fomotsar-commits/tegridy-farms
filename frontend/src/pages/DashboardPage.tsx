@@ -32,7 +32,7 @@ import { ReferralWidget } from '../components/ReferralWidget';
 import { PriceAlertWidget } from '../components/PriceAlertWidget';
 
 export default function DashboardPage() {
-  usePageTitle('Dashboard');
+  usePageTitle('Dashboard', 'Real-time protocol analytics, TVL, and TOWELI token metrics.');
   const { isConnected, address } = useAccount();
   const { isWrongNetwork } = useNetworkCheck();
   const { data: ethBalance, isLoading: isEthLoading, error: ethError } = useBalance({ address });
@@ -85,9 +85,6 @@ export default function DashboardPage() {
   const priceChangeStr = price.priceChange !== 0
     ? `${price.priceChange > 0 ? '+' : ''}${(price.priceChange ?? 0).toFixed(2)}%`
     : '';
-
-  // Determine loading states for stat cards
-  void (!price.isLoaded || isToweliLoading || isEthLoading);
 
   if (!isConnected) {
     return (
@@ -156,14 +153,14 @@ export default function DashboardPage() {
         </motion.div>
 
         {/* Summary Stats */}
-        <motion.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+        <motion.div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           {[
             { l: 'TOWELI Balance', numVal: walletToweli, decimals: 0, sub: price.isLoaded ? formatCurrency(walletToweli * price.priceInUsd) : '–', art: ART.mumuBull.src, loading: isToweliLoading, error: toweliError },
             { l: 'ETH Balance', numVal: ethBal, decimals: 4, sub: ethBalance && price.ethUsd > 0 ? formatCurrency(ethBal * price.ethUsd) : '–', art: ART.jungleBus.src, loading: isEthLoading, error: ethError },
             { l: 'Claimable', numVal: pendingTotal, decimals: 2, sub: price.isLoaded ? formatCurrency(pendingTotal * price.priceInUsd) : '–', accent: true, art: ART.swordOfLove.src, loading: !price.isLoaded },
             { l: 'TOWELI Price', numVal: price.priceInUsd, decimals: price.priceInUsd < 0.01 ? 8 : 6, prefix: '$', sub: priceChangeStr || (price.priceInUsd > 0 ? 'Live' : (price.oracleStale ? 'Stale' : '–')), priceUp: price.priceChange > 0, priceDown: price.priceChange < 0, stale: price.oracleStale, art: ART.bobowelie.src, showSparkline: true, isPrice: true, loading: !price.isLoaded },
           ].map((s) => (
-            <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
+            <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
                 <img src={s.art} alt="" loading="lazy" className="w-full h-full object-cover" />
               </div>
@@ -203,7 +200,7 @@ export default function DashboardPage() {
         </motion.div>
 
         {/* Tegridy Score */}
-        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
           <div className="absolute inset-0">
             <img src={ART.danceNight.src} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -234,7 +231,7 @@ export default function DashboardPage() {
 
         {/* POL Accumulator */}
         {!isDeployed(POL_ACCUMULATOR_ADDRESS) && (
-          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
               <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -242,7 +239,7 @@ export default function DashboardPage() {
             <div className="relative z-10 p-5">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-white text-[15px] font-medium">POL Accumulator</span>
-                <span className="px-2 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase" style={{ background: 'rgba(139,92,246,0.75)', color: '#000000', border: '1px solid rgba(139,92,246,0.2)' }}>Coming Soon</span>
+                <span className="px-2 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase" style={{ background: 'var(--color-purple-75)', color: '#000000', border: '1px solid var(--color-purple-20)' }}>Coming Soon</span>
               </div>
               <p className="text-white text-[12px] leading-relaxed max-w-lg">
                 Protocol-Owned Liquidity will automatically accumulate LP positions from a share of swap fees, deepening TOWELI liquidity permanently and reducing reliance on external LPs.
@@ -253,7 +250,7 @@ export default function DashboardPage() {
 
         {/* DCA Due Alerts */}
         {dca.dueSchedules.length > 0 && (
-          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
               <img src={ART.porchChill.src} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -270,7 +267,7 @@ export default function DashboardPage() {
 
         {/* Active Limit Orders */}
         {limitOrders.activeOrders.length > 0 && (
-          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
               <img src={ART.roseApe.src} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -285,7 +282,7 @@ export default function DashboardPage() {
         {/* Position */}
         <h2 className="heading-luxury text-[16px] text-white mb-4">Your Position</h2>
         {pos.hasPosition ? (
-          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10 card-hover" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10 card-hover" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
             <div className="absolute inset-0">
               <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -327,7 +324,7 @@ export default function DashboardPage() {
             </div>
           </motion.div>
         ) : (
-          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
               <img src={ART.jbChristmas.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 20%' }} />
@@ -365,7 +362,7 @@ export default function DashboardPage() {
         {/* Chart */}
         <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <h3 className="heading-luxury text-[16px] text-white mb-3">Price Chart</h3>
-          <div className="relative rounded-xl overflow-hidden glass-card-animated h-[280px] md:h-[400px]" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
+          <div className="relative rounded-xl overflow-hidden glass-card-animated h-[280px] md:h-[400px]" style={{ border: '1px solid var(--color-purple-75)' }}>
             <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}><PriceChart /></ErrorBoundary>
           </div>
         </motion.div>
@@ -398,7 +395,7 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
 
   if (pending > 0) {
     return (
-      <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+      <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
         initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
         <div className="absolute inset-0">
           <img src={ART.smokingDuo.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 55%' }} />

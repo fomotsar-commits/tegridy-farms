@@ -42,7 +42,7 @@ function setRateLimitHeaders(res, { limit = 60, remaining = 59, reset = 60 } = {
 
 function setCors(req, res) {
   const origin = req.headers.origin || "";
-  const prodOrigins = ["https://nakamigos.gallery", "https://www.nakamigos.gallery"];
+  const prodOrigins = ["https://nakamigos.gallery", "https://www.nakamigos.gallery", "https://tegridyfarms.vercel.app"];
   const devOrigins = process.env.NODE_ENV !== "production"
     ? ["http://localhost:8742", "http://localhost:3000", "http://localhost:5173"]
     : [];

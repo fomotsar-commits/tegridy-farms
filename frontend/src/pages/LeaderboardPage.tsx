@@ -14,7 +14,7 @@ import { PageSkeleton } from '../components/PageSkeleton';
 const JB_CHRISTMAS_SRC = ART.jbChristmas.src;
 
 export default function LeaderboardPage() {
-  usePageTitle('Leaderboard');
+  usePageTitle('Leaderboard', 'Top TOWELI stakers ranked by points, boost multipliers, and protocol participation.');
   const { isConnected } = useAccount();
   const points = usePoints();
   const nft = useNFTBoost();
@@ -45,33 +45,33 @@ export default function LeaderboardPage() {
 
         {/* Your Stats */}
         {isConnected && points.data && (
-          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
             <div className="absolute inset-0">
               <img src={ART.roseApe.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%' }} />
             </div>
             <div className="relative z-10 p-5">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-white text-[15px] font-semibold">Your Stats</h3>
+              <h2 className="text-white text-[15px] font-semibold">Your Stats</h2>
               {nft.boostLabel && (
                 <span className="badge badge-warning text-[10px]">{nft.boostLabel} Boost</span>
               )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-              <div className="rounded-lg p-3 text-center" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+              <div className="rounded-lg p-3 text-center" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-1">Points</p>
                 <AnimatedCounter value={points.data?.points ?? 0} decimals={0} className="stat-value text-xl text-white" />
               </div>
-              <div className="rounded-lg p-3 text-center" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+              <div className="rounded-lg p-3 text-center" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-1">Tier</p>
                 <p className="stat-value text-lg" style={{ color: points.tier?.color }}>{points.tier?.name}</p>
               </div>
-              <div className="rounded-lg p-3 text-center" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+              <div className="rounded-lg p-3 text-center" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-1">Streak</p>
                 <p className="stat-value text-lg text-white">{points.data?.streak?.current ?? 0}d 🔥</p>
               </div>
-              <div className="rounded-lg p-3 text-center" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+              <div className="rounded-lg p-3 text-center" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-1">Multiplier</p>
                 <p className="stat-value text-lg text-success">{points.streakMultiplier}x</p>
               </div>
@@ -86,7 +86,7 @@ export default function LeaderboardPage() {
                 </div>
                 <div
                   className="h-1.5 rounded-full overflow-hidden"
-                  style={{ background: 'rgba(139,92,246,0.75)' }}
+                  style={{ background: 'var(--color-purple-75)' }}
                   role="progressbar"
                   aria-valuemin={0}
                   aria-valuemax={100}
@@ -106,7 +106,7 @@ export default function LeaderboardPage() {
                 <div className="flex flex-wrap gap-2">
                   {(points.badges ?? []).map(b => (
                     <div key={b.id} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg"
-                      style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}
+                      style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}
                       title={b.description}>
                       <span className="text-[14px]">{b.icon}</span>
                       <span className="text-[11px] text-white font-medium">{b.name}</span>
@@ -117,7 +117,7 @@ export default function LeaderboardPage() {
             )}
 
             {/* Referral link */}
-            <div className="mt-4 pt-3" style={{ borderTop: '1px solid rgba(139,92,246,0.75)' }}>
+            <div className="mt-4 pt-3" style={{ borderTop: '1px solid var(--color-purple-75)' }}>
               <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-1.5">Your Referral Link</p>
               <div className="flex items-center gap-2">
                 <span className="text-[11px] text-white font-mono truncate flex-1">{points.referralLink}</span>
@@ -132,7 +132,7 @@ export default function LeaderboardPage() {
         {/* Empty state for non-connected users */}
         {!isConnected && (
           <motion.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-            <div className="rounded-xl p-8 text-center" style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid rgba(139, 92, 246, 0.12)' }}>
+            <div className="rounded-xl p-8 text-center" style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' }}>
               <p className="text-white/40 text-[13px]">No participants yet. Stake TOWELI to earn your first points!</p>
               <p className="text-white/25 text-[11px] mt-1">Connect your wallet to start earning points, badges, and tier rewards.</p>
             </div>
@@ -140,13 +140,13 @@ export default function LeaderboardPage() {
         )}
 
         {/* How Points Work */}
-        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
           <div className="absolute inset-0">
             <img src={JB_CHRISTMAS_SRC} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%' }} />
           </div>
           <div className="relative z-10 p-5">
-            <h3 className="text-white text-[15px] font-semibold mb-3">How Points Work</h3>
+            <h2 className="text-white text-[15px] font-semibold mb-3">How Points Work</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               {[
                 { action: 'Swap', pts: 10 },
@@ -157,7 +157,7 @@ export default function LeaderboardPage() {
                 { action: 'Referral Swap', pts: 5 },
               ].map(r => (
                 <div key={r.action} className="flex items-center justify-between px-3 py-2 rounded-lg"
-                  style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                  style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                   <span className="text-white text-[12px]">{r.action}</span>
                   <span className="stat-value text-[12px] text-white">+{r.pts}</span>
                 </div>
@@ -168,17 +168,17 @@ export default function LeaderboardPage() {
         </motion.div>
 
         {/* Tier Breakdown */}
-        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
           <div className="absolute inset-0">
             <img src={ART.beachSunset.src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 p-5">
-            <h3 className="text-white text-[15px] font-semibold mb-3">Tiers</h3>
+            <h2 className="text-white text-[15px] font-semibold mb-3">Tiers</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
               {TIER_THRESHOLDS.map(t => (
                 <div key={t.name} className="rounded-lg p-3 text-center"
-                  style={{ background: 'rgba(139,92,246,0.75)', border: `1px solid ${t.color}20` }}>
+                  style={{ background: 'var(--color-purple-75)', border: `1px solid ${t.color}20` }}>
                   <p className="stat-value text-[16px] mb-0.5" style={{ color: t.color }}>{t.name}</p>
                   <p className="text-white text-[11px]">{t.min.toLocaleString()}+ pts</p>
                 </div>
@@ -188,19 +188,19 @@ export default function LeaderboardPage() {
         </motion.div>
 
         {/* All Badges */}
-        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mt-6" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mt-6" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
           <div className="absolute inset-0">
             <img src={ART.jbacSkeleton.src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 p-5">
-            <h3 className="text-white text-[15px] font-semibold mb-3">All Badges</h3>
+            <h2 className="text-white text-[15px] font-semibold mb-3">All Badges</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               {BADGES.map(b => {
                 const earned = (points.badges ?? []).some(eb => eb.id === b.id);
                 return (
                   <div key={b.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg ${earned ? '' : 'opacity-30'}`}
-                    style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                    style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                     <span className="text-[18px]">{b.icon}</span>
                     <div>
                       <p className="text-white text-[12px] font-medium">{b.name}</p>

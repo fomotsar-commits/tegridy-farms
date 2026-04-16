@@ -102,12 +102,12 @@ export default function ChangelogPage() {
                 className="relative pl-12 md:pl-14"
               >
                 {/* Timeline dot */}
-                <div className="absolute left-[14px] md:left-[18px] top-[22px] w-[11px] h-[11px] rounded-full bg-purple-500 border-2 border-purple-400 shadow-[0_0_8px_rgba(139,92,246,0.5)]" />
+                <div className="absolute left-[14px] md:left-[18px] top-[22px] w-[11px] h-[11px] rounded-full bg-purple-500 border-2 border-purple-400 shadow-[0_0_8px_var(--color-purple-50)]" />
 
                 {/* Card */}
                 <div
                   className="rounded-xl p-5 md:p-6"
-                  style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid rgba(139, 92, 246, 0.12)' }}
+                  style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' }}
                 >
                   {/* Date badge */}
                   <span className="inline-block text-xs font-semibold text-purple-400 bg-purple-500/10 px-3 py-1 rounded-full mb-3">

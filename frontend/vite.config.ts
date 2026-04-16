@@ -95,7 +95,7 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       target: 'es2023',
-      sourcemap: false,
+      sourcemap: 'hidden',
       rollupOptions: {
         output: {
           manualChunks(id) {
@@ -116,6 +116,12 @@ export default defineConfig(({ mode }) => {
             }
             if (id.includes('node_modules/@noble/') || id.includes('node_modules/@scure/')) {
               return 'vendor-crypto';
+            }
+            if (id.includes('node_modules/html2canvas')) {
+              return 'vendor-html2canvas';
+            }
+            if (id.includes('node_modules/recharts')) {
+              return 'vendor-recharts';
             }
           },
         },

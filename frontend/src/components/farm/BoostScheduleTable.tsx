@@ -30,7 +30,7 @@ interface BoostScheduleTableProps {
 export function BoostScheduleTable({ selectedLockLabel }: BoostScheduleTableProps) {
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-      <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
+      <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
         <div className="absolute inset-0">
           <img src={ART.swordOfLove.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
         </div>
@@ -45,8 +45,8 @@ export function BoostScheduleTable({ selectedLockLabel }: BoostScheduleTableProp
             return (
               <div key={opt.label} className="flex items-center justify-between rounded-lg px-4 py-2.5"
                 style={{
-                  background: selectedLockLabel === opt.label ? 'rgba(139,92,246,0.75)' : 'rgba(0,0,0,0.50)',
-                  border: selectedLockLabel === opt.label ? '1px solid rgba(139,92,246,0.2)' : '1px solid transparent',
+                  background: selectedLockLabel === opt.label ? 'var(--color-purple-75)' : 'rgba(0,0,0,0.50)',
+                  border: selectedLockLabel === opt.label ? '1px solid var(--color-purple-20)' : '1px solid transparent',
                 }}>
                 <span className="text-white text-[13px]">{opt.label}</span>
                 <div className="flex items-center gap-3">
@@ -70,7 +70,7 @@ export function BoostScheduleTable({ selectedLockLabel }: BoostScheduleTableProp
           </div>
         </div>
 
-        <div className="mt-4 relative overflow-hidden rounded-lg" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
+        <div className="mt-4 relative overflow-hidden rounded-lg" style={{ border: '1px solid var(--color-purple-75)' }}>
           <div className="absolute inset-0">
             <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>

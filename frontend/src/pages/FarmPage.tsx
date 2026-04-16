@@ -19,196 +19,18 @@ import { usePoolTVL } from '../hooks/usePoolTVL';
 import { useLPFarming } from '../hooks/useLPFarming';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { usePoints } from '../hooks/usePoints';
+import { useAutoReset } from '../hooks/useAutoReset';
 import { parseEther } from 'viem';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 
 import { FarmStatsRow } from '../components/farm/FarmStatsRow';
 import { LPFarmingSection } from '../components/farm/LPFarmingSection';
 import { StakingCard } from '../components/farm/StakingCard';
+import type { ConfirmState } from '../components/farm/StakingCard';
 import { BoostScheduleTable } from '../components/farm/BoostScheduleTable';
-
-/* ── Native LP Pools ─────────────────────────────────────────────────── */
-interface LPPool {
-  id: string;
-  name: string;
-  tokenA: { symbol: string; logo: string; };
-  tokenB: { symbol: string; logo: string; };
-  fee: string;
-  tvl: string;
-  apr: string;
-  volume24h: string;
-  status: 'live' | 'new' | 'hot' | 'soon';
-  art: string;
-  artPos: string;
-}
-
-// Token logo URLs from CoinGecko
-const TOKEN_LOGOS: Record<string, string> = {
-  TOWELI: '/art/bobowelie.jpg',
-  ETH: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
-  WETH: 'https://assets.coingecko.com/coins/images/2518/small/weth.png',
-  USDT: 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
-  USDC: 'https://assets.coingecko.com/coins/images/6319/small/usdc.png',
-  WBTC: 'https://assets.coingecko.com/coins/images/7598/small/wrapped_bitcoin_wbtc.png',
-  DOT: 'https://assets.coingecko.com/coins/images/12171/small/polkadot.png',
-  MANA: 'https://assets.coingecko.com/coins/images/878/small/decentraland-mana.png',
-};
-
-const UPCOMING_POOLS: Omit<LPPool, 'tvl' | 'apr' | 'volume24h'>[] = [
-  {
-    id: 'usdt-usdc',
-    name: 'USDT / USDC',
-    tokenA: { symbol: 'USDT', logo: TOKEN_LOGOS.USDT! },
-    tokenB: { symbol: 'USDC', logo: TOKEN_LOGOS.USDC! },
-    fee: '0.05%',
-    status: 'soon',
-    art: ART.beachSunset.src,
-    artPos: 'center 40%',
-  },
-  {
-    id: 'eth-wbtc',
-    name: 'ETH / WBTC',
-    tokenA: { symbol: 'ETH', logo: TOKEN_LOGOS.ETH! },
-    tokenB: { symbol: 'WBTC', logo: TOKEN_LOGOS.WBTC! },
-    fee: '0.3%',
-    status: 'soon',
-    art: ART.boxingRing.src,
-    artPos: 'center 20%',
-  },
-  {
-    id: 'dot-eth',
-    name: 'DOT / ETH',
-    tokenA: { symbol: 'DOT', logo: TOKEN_LOGOS.DOT! },
-    tokenB: { symbol: 'ETH', logo: TOKEN_LOGOS.ETH! },
-    fee: '0.3%',
-    status: 'soon',
-    art: ART.forestScene.src,
-    artPos: 'center 30%',
-  },
-  {
-    id: 'mana-eth',
-    name: 'MANA / ETH',
-    tokenA: { symbol: 'MANA', logo: TOKEN_LOGOS.MANA! },
-    tokenB: { symbol: 'ETH', logo: TOKEN_LOGOS.ETH! },
-    fee: '0.3%',
-    status: 'soon',
-    art: ART.jungleDark.src,
-    artPos: 'center 20%',
-  },
-];
-
-function PoolStatusBadge({ status }: { status: LPPool['status'] }) {
-  const styles = {
-    live: { bg: 'rgba(45,139,78,0.15)', border: 'rgba(45,139,78,0.35)', color: '#2D8B4E', label: 'LIVE' },
-    new: { bg: 'rgba(139,92,246,0.75)', border: 'rgba(139,92,246,0.75)', color: '#000000', label: 'NEW' },
-    hot: { bg: 'rgba(239,68,68,0.15)', border: 'rgba(239,68,68,0.35)', color: '#ef4444', label: '🔥 HOT' },
-    soon: { bg: 'rgba(139,92,246,0.75)', border: 'rgba(139,92,246,0.75)', color: '#000000', label: 'PROPOSED · NOT GUARANTEED' },
-  };
-  const s = styles[status];
-  return (
-    <span className="text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-full"
-      style={{ background: s.bg, border: `1px solid ${s.border}`, color: s.color }}>
-      {s.label}
-    </span>
-  );
-}
-
-/** Live TOWELI/ETH pool card with on-chain data */
-function LivePoolCard({ poolData }: { poolData: ReturnType<typeof usePoolTVL> }) {
-  return (
-    <div className="relative overflow-hidden rounded-xl card-hover group" style={{ border: '1px solid rgba(239,68,68,0.15)' }}>
-      <div className="absolute inset-0">
-        <img src={ART.poolParty.src} alt="" loading="lazy" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" style={{ objectPosition: 'center 30%' }} />
-      </div>
-      <div className="relative z-10 p-5">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="flex -space-x-2">
-              <img src={TOKEN_LOGOS.TOWELI} alt="TOWELI" className="w-9 h-9 rounded-full object-cover"
-                style={{ border: '2px solid rgba(139,92,246,0.3)' }} />
-              <img src={TOKEN_LOGOS.ETH} alt="ETH" className="w-9 h-9 rounded-full object-cover bg-[#627eea]/20"
-                style={{ border: '2px solid rgba(45,139,78,0.3)' }} />
-            </div>
-            <div>
-              <p className="text-white font-semibold text-[15px]">TOWELI / ETH</p>
-              <p className="text-white text-[11px]">Fee: 0.3%</p>
-            </div>
-          </div>
-          <PoolStatusBadge status="hot" />
-        </div>
-
-        {/* Stats Grid — live data */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
-          <div className="rounded-lg p-2.5" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
-            <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">TVL</p>
-            <p className="stat-value text-[14px] text-white">{poolData.tvlFormatted}</p>
-          </div>
-          <div className="rounded-lg p-2.5" style={{ background: 'rgba(45,139,78,0.04)', border: '1px solid rgba(45,139,78,0.08)' }}>
-            <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">Est. APR</p>
-            <p className="stat-value text-[14px] text-white">{poolData.apr}</p>
-          </div>
-          <div className="rounded-lg p-2.5" style={{ background: 'rgba(212,160,23,0.04)', border: '1px solid rgba(212,160,23,0.08)' }}>
-            <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">Est. 24h Vol</p>
-            <p className="stat-value text-[14px] text-white">{poolData.vol24hFormatted}</p>
-          </div>
-        </div>
-
-        <p className="text-white text-[10px] mb-3 text-center">APR &amp; volume estimated from on-chain reserves</p>
-
-        {/* Action */}
-        <Link to="/liquidity" className="btn-primary w-full py-2.5 text-[13px] text-center block">
-          Provide Liquidity
-        </Link>
-      </div>
-    </div>
-  );
-}
-
-/** Coming soon pool card */
-function UpcomingPoolCard({ pool }: { pool: typeof UPCOMING_POOLS[number] }) {
-  return (
-    <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover group" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
-      <div className="absolute inset-0">
-        <img src={pool.art} alt="" loading="lazy" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" style={{ objectPosition: pool.artPos }} />
-      </div>
-      <div className="relative z-10 p-5">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="flex -space-x-2">
-              <img src={pool.tokenA.logo} alt={pool.tokenA.symbol} className="w-9 h-9 rounded-full object-cover bg-black/60"
-                style={{ border: '2px solid rgba(255,255,255,0.12)' }} />
-              <img src={pool.tokenB.logo} alt={pool.tokenB.symbol} className="w-9 h-9 rounded-full object-cover bg-black/60"
-                style={{ border: '2px solid rgba(255,255,255,0.12)' }} />
-            </div>
-            <div>
-              <p className="text-white font-semibold text-[15px]">{pool.name}</p>
-              <p className="text-white text-[11px]">Fee: {pool.fee}</p>
-            </div>
-          </div>
-          <PoolStatusBadge status="soon" />
-        </div>
-
-        {/* Placeholder Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
-          {['TVL', 'APR', '24h Vol'].map((label) => (
-            <div key={label} className="rounded-lg p-2.5" style={{ background: 'rgba(0,0,0,0.50)', border: '1px solid rgba(255,255,255,0.20)' }}>
-              <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">{label}</p>
-              <p className="stat-value text-[14px] text-white">–</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Action — link to liquidity page */}
-        <Link to="/liquidity" className="w-full py-2.5 text-[13px] text-center rounded-lg font-semibold block transition-colors"
-          style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.25)', color: '#000000' }}>
-          Add Liquidity
-        </Link>
-      </div>
-    </div>
-  );
-}
+import { UPCOMING_POOLS } from '../components/farm/poolConfig';
+import { LivePoolCard } from '../components/farm/LivePoolCard';
+import { UpcomingPoolCard } from '../components/farm/UpcomingPoolCard';
 
 /* ── Staking Lock Options ────────────────────────────────────────────── */
 const LOCK_OPTIONS = [
@@ -253,33 +75,23 @@ export default function FarmPage() {
 
   const [stakeAmount, setStakeAmount] = useState('');
   const [selectedLock, setSelectedLock] = useState(LOCK_OPTIONS[2]!); // Default 90 days
-  const [confirmWithdraw, setConfirmWithdraw] = useState(false);
-  const [confirmEarlyWithdraw, setConfirmEarlyWithdraw] = useState(false);
-  const [showExtendLock, setShowExtendLock] = useState(false);
   const [extendLockDuration, setExtendLockDuration] = useState(LOCK_OPTIONS[2]!);
-  const [confirmEmergencyExit, setConfirmEmergencyExit] = useState(false);
+  const [confirms, setConfirms] = useState<ConfirmState>({
+    withdraw: false,
+    earlyWithdraw: false,
+    emergencyExit: false,
+    extendLock: false,
+  });
+  const setConfirm = (key: keyof ConfirmState, val: boolean) =>
+    setConfirms((prev) => ({ ...prev, [key]: val }));
 
   const poolTVL = usePoolTVL();
   const lpFarm = useLPFarming();
 
-  // Auto-dismiss confirmation dialogs after 5 seconds
-  useEffect(() => {
-    if (!confirmWithdraw) return;
-    const t = setTimeout(() => setConfirmWithdraw(false), 5000);
-    return () => clearTimeout(t);
-  }, [confirmWithdraw]);
-
-  useEffect(() => {
-    if (!confirmEarlyWithdraw) return;
-    const t = setTimeout(() => setConfirmEarlyWithdraw(false), 5000);
-    return () => clearTimeout(t);
-  }, [confirmEarlyWithdraw]);
-
-  useEffect(() => {
-    if (!confirmEmergencyExit) return;
-    const t = setTimeout(() => setConfirmEmergencyExit(false), 5000);
-    return () => clearTimeout(t);
-  }, [confirmEmergencyExit]);
+  // Auto-dismiss confirmation dialogs after 5 seconds (regular withdrawals only).
+  // Emergency exit is a dangerous financial action — never auto-dismiss.
+  useAutoReset(confirms.withdraw, (v: boolean) => setConfirm('withdraw', v), 5000);
+  useAutoReset(confirms.earlyWithdraw, (v: boolean) => setConfirm('earlyWithdraw', v), 5000);
 
   const boostBps = calculateBoost(selectedLock.seconds);
   const nftBonus = nft.holdsJBAC ? JBAC_BONUS_BPS : 0;
@@ -388,7 +200,7 @@ export default function FarmPage() {
         />
 
         {/* Season banner */}
-        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-8" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-8" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div className="absolute inset-0">
             <img src={ART.bobowelie.src} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -441,27 +253,25 @@ export default function FarmPage() {
             pos={pos}
             actions={actions}
             nft={nft}
-            stakeAmount={stakeAmount}
-            setStakeAmount={setStakeAmount}
-            selectedLock={selectedLock}
-            setSelectedLock={setSelectedLock}
-            boostDisplay={boostDisplay}
-            totalBoostBps={totalBoostBps}
-            amtNum={amtNum}
-            effectiveStake={effectiveStake}
-            stakeNeedsApproval={stakeNeedsApproval}
+            input={{
+              amount: stakeAmount,
+              setAmount: setStakeAmount,
+              lock: selectedLock,
+              setLock: setSelectedLock,
+              extendLockDuration,
+              setExtendLockDuration,
+            }}
+            confirms={confirms}
+            setConfirm={setConfirm}
+            computed={{
+              boostDisplay,
+              totalBoostBps,
+              amtNum,
+              effectiveStake,
+              stakeNeedsApproval,
+            }}
             handleStake={handleStake}
             lastActionRef={lastActionRef}
-            confirmWithdraw={confirmWithdraw}
-            setConfirmWithdraw={setConfirmWithdraw}
-            confirmEarlyWithdraw={confirmEarlyWithdraw}
-            setConfirmEarlyWithdraw={setConfirmEarlyWithdraw}
-            confirmEmergencyExit={confirmEmergencyExit}
-            setConfirmEmergencyExit={setConfirmEmergencyExit}
-            showExtendLock={showExtendLock}
-            setShowExtendLock={setShowExtendLock}
-            extendLockDuration={extendLockDuration}
-            setExtendLockDuration={setExtendLockDuration}
           />
 
           {/* Boost Table */}

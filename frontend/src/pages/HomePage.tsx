@@ -12,7 +12,7 @@ import { FlashValue } from '../components/FlashValue';
 import { usePageTitle } from '../hooks/usePageTitle';
 
 export default function HomePage() {
-  usePageTitle('Home');
+  usePageTitle('Home', 'Art-first yield farming on Ethereum. Stake TOWELI & earn rewards.');
   const stats = useFarmStats();
   const price = useTOWELIPrice();
   const priceHistory = usePriceHistory(price.priceInUsd);
@@ -36,11 +36,9 @@ export default function HomePage() {
               Yield with<br /><span className="text-white">Tegridy Farms</span>
             </h1>
 
-            <p className="text-white text-base md:text-lg mb-3 max-w-md leading-relaxed">
+            <p className="text-white text-base md:text-lg mb-6 max-w-md leading-relaxed">
               Stake TOWELI & LP tokens to earn rewards. 100% of protocol revenue goes to stakers.
             </p>
-            <p className="text-white text-[12px] font-mono mb-1">DM+T = Memetic Finance</p>
-            <p className="text-white text-[11px] mb-6">Dank Memes + Time = Real Value. The Jungle Bay formula.</p>
 
             <div className="flex flex-wrap gap-3">
               <ConnectButton.Custom>
@@ -61,11 +59,11 @@ export default function HomePage() {
                   );
                 }}
               </ConnectButton.Custom>
-              <a href="/swap"
-                className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all"
+              <Link to="/swap"
+                className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center"
                 style={{ background: 'linear-gradient(135deg, #d4a843 0%, #b8892e 100%)', color: '#0a0a0f' }}>
                 Buy TOWELI
-              </a>
+              </Link>
             </div>
           </motion.div>
 
@@ -110,14 +108,14 @@ export default function HomePage() {
             ].map((f, i) => (
               <motion.div key={f.title} initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }}
                 viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
-                <Link to={f.to} className="block group relative rounded-xl overflow-hidden glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
+                <Link to={f.to} className="block group relative rounded-xl overflow-hidden glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
                   <div className="absolute inset-0">
                     <img src={f.art} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
                   </div>
                   <div className="relative z-10 p-6 min-h-[220px] flex flex-col">
                     <h3 className="heading-luxury text-[17px] text-white mb-2 group-hover:text-white transition-colors">{f.title}</h3>
                     <p className="text-white text-[13px] leading-relaxed mb-auto">{f.desc}</p>
-                    <div className="pt-4 flex items-center justify-between mt-4" style={{ borderTop: '1px solid rgba(139,92,246,0.75)' }}>
+                    <div className="pt-4 flex items-center justify-between mt-4" style={{ borderTop: '1px solid var(--color-purple-75)' }}>
                       <span className="stat-value text-white text-[16px]">{f.stat}</span>
                       <span className="text-white text-[11px] uppercase tracking-wider label-pill">{f.label}</span>
                     </div>
@@ -145,7 +143,7 @@ export default function HomePage() {
               <motion.div key={piece.src} initial={{ opacity: 0, y: 25, scale: 0.85 }} whileInView={{ opacity: 1, y: 0, scale: 1 }}
                 viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
                 <Link to="/gallery" className="block group">
-                  <div className="rounded-xl aspect-square relative overflow-hidden glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
+                  <div className="rounded-xl aspect-square relative overflow-hidden glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
                     <img src={piece.src} alt={piece.title}
                       className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/35 transition-all flex items-end">
@@ -168,7 +166,7 @@ export default function HomePage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <motion.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0, type: 'spring', damping: 20, stiffness: 100 }}>
             <a href="https://opensea.io/collection/junglebay" target="_blank" rel="noopener noreferrer"
-              className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
+              className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
                 <img src={ART.apeHug.src} alt="" className="w-full h-full object-cover" loading="lazy" />
               </div>
@@ -180,7 +178,7 @@ export default function HomePage() {
             </motion.div>
             <motion.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
             <a href="https://app.uniswap.org/swap?chain=base" target="_blank" rel="noopener noreferrer"
-              className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
+              className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
                 <img src={ART.beachSunset.src} alt="" className="w-full h-full object-cover" loading="lazy" />
               </div>
@@ -191,7 +189,7 @@ export default function HomePage() {
             </a>
             </motion.div>
             <motion.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.3, type: 'spring', damping: 20, stiffness: 100 }}>
-            <Link to="/lore" className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
+            <Link to="/lore" className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
                 <img src={ART.jungleDark.src} alt="" className="w-full h-full object-cover" loading="lazy" />
               </div>

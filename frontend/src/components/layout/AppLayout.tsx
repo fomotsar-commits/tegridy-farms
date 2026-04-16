@@ -60,21 +60,6 @@ function RouteGlitch() {
   return glitchConfig ? <GlitchTransition config={glitchConfig} /> : null;
 }
 
-/* useIsMobile — kept for future responsive hooks
-function useIsMobile() {
-  const [mobile, setMobile] = useState(() =>
-    typeof window !== 'undefined' ? window.matchMedia('(max-width: 767px)').matches : false
-  );
-  useEffect(() => {
-    const mql = window.matchMedia('(max-width: 767px)');
-    const onChange = (e: MediaQueryListEvent) => setMobile(e.matches);
-    mql.addEventListener('change', onChange);
-    return () => mql.removeEventListener('change', onChange);
-  }, []);
-  return mobile;
-}
-*/
-
 export function AppLayout() {
   const location = useLocation();
   const { chain, isConnected } = useAccount();
@@ -87,6 +72,7 @@ export function AppLayout() {
     <PriceProvider>
     <ConfettiProvider>
     <TransactionReceiptProvider>
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       <Background />
       <ParticleBackground />
       <TopNav />
@@ -112,7 +98,7 @@ export function AppLayout() {
 
       {/* pb-20 for bottom nav height + safe-area-inset-bottom for notched devices */}
       <div className="min-h-screen relative z-10 pt-14 pb-20 md:pb-0 safe-area-content-bottom">
-        <main>
+        <main id="main-content">
           <div key={location.pathname}>
             <ErrorBoundary resetKeys={[location.pathname]}>
               <Outlet />

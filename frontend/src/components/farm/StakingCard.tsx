@@ -20,49 +20,51 @@ const LOCK_OPTIONS = [
   { label: '4 Years', seconds: 1460 * 86400 },
 ];
 
+export interface ConfirmState {
+  withdraw: boolean;
+  earlyWithdraw: boolean;
+  emergencyExit: boolean;
+  extendLock: boolean;
+}
+
+export interface StakeInputState {
+  amount: string;
+  setAmount: (v: string) => void;
+  lock: { label: string; seconds: number };
+  setLock: (v: { label: string; seconds: number }) => void;
+  extendLockDuration: { label: string; seconds: number };
+  setExtendLockDuration: (v: { label: string; seconds: number }) => void;
+}
+
 interface StakingCardProps {
   isConnected: boolean;
   pos: ReturnType<typeof useUserPosition>;
   actions: ReturnType<typeof useFarmActions>;
   nft: ReturnType<typeof useNFTBoost>;
-  stakeAmount: string;
-  setStakeAmount: (v: string) => void;
-  selectedLock: { label: string; seconds: number };
-  setSelectedLock: (v: { label: string; seconds: number }) => void;
-  boostDisplay: string;
-  totalBoostBps: number;
-  amtNum: number;
-  effectiveStake: number;
-  stakeNeedsApproval: boolean;
+  input: StakeInputState;
+  confirms: ConfirmState;
+  setConfirm: (key: keyof ConfirmState, val: boolean) => void;
+  computed: {
+    boostDisplay: string;
+    totalBoostBps: number;
+    amtNum: number;
+    effectiveStake: number;
+    stakeNeedsApproval: boolean;
+  };
   handleStake: () => void;
   lastActionRef: React.MutableRefObject<string | null>;
-  confirmWithdraw: boolean;
-  setConfirmWithdraw: (v: boolean) => void;
-  confirmEarlyWithdraw: boolean;
-  setConfirmEarlyWithdraw: (v: boolean) => void;
-  confirmEmergencyExit: boolean;
-  setConfirmEmergencyExit: (v: boolean) => void;
-  showExtendLock: boolean;
-  setShowExtendLock: (v: boolean) => void;
-  extendLockDuration: { label: string; seconds: number };
-  setExtendLockDuration: (v: { label: string; seconds: number }) => void;
 }
 
 export function StakingCard({
   isConnected, pos, actions, nft,
-  stakeAmount, setStakeAmount,
-  selectedLock, setSelectedLock,
-  boostDisplay, totalBoostBps: _totalBoostBps, amtNum, effectiveStake, stakeNeedsApproval,
+  input, confirms, setConfirm, computed,
   handleStake, lastActionRef,
-  confirmWithdraw, setConfirmWithdraw,
-  confirmEarlyWithdraw, setConfirmEarlyWithdraw,
-  confirmEmergencyExit, setConfirmEmergencyExit,
-  showExtendLock, setShowExtendLock,
-  extendLockDuration, setExtendLockDuration,
 }: StakingCardProps) {
+  const { amount: stakeAmount, setAmount: setStakeAmount, lock: selectedLock, setLock: setSelectedLock, extendLockDuration, setExtendLockDuration } = input;
+  const { boostDisplay, amtNum, effectiveStake, stakeNeedsApproval } = computed;
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-      <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
+      <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
         <div className="absolute inset-0">
           <img src={ART.beachVibes.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%' }} />
         </div>
@@ -75,11 +77,11 @@ export function StakingCard({
           /* Existing position display */
           <div>
             <div className="grid grid-cols-2 gap-3 mb-4">
-              <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+              <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-0.5">Staked</p>
                 <AnimatedCounter value={parseFloat(pos.stakedFormatted) || 0} decimals={2} className="stat-value text-[16px] text-white" />
               </div>
-              <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+              <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-0.5">Boost</p>
                 <AnimatedCounter value={pos.boostMultiplier} decimals={2} suffix="x" className="stat-value text-[16px] text-white" />
                 {pos.hasPosition && !pos.isLocked && pos.boostMultiplier > 1 && (
@@ -91,32 +93,32 @@ export function StakingCard({
                   </button>
                 )}
               </div>
-              <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+              <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-0.5">Claimable</p>
                 <AnimatedCounter value={parseFloat(pos.pendingFormatted) || 0} decimals={4} className="stat-value text-[16px] text-white" />
               </div>
-              <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+              <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-0.5">Lock Expires</p>
                 <p className="stat-value text-[14px] text-white">
                   {pos.autoMaxLock ? 'Auto-Max' : pos.isLocked ? new Date(pos.lockEnd * 1000).toLocaleDateString() : 'Unlocked'}
                 </p>
-                {pos.hasPosition && pos.isLocked && !showExtendLock && (
+                {pos.hasPosition && pos.isLocked && !confirms.extendLock && (
                   <button
-                    onClick={() => setShowExtendLock(true)}
+                    onClick={() => setConfirm('extendLock', true)}
                     disabled={actions.isPending || actions.isConfirming}
                     className="btn-secondary text-[11px] mt-1.5 w-full py-1.5 rounded-lg disabled:opacity-70 disabled:cursor-not-allowed">
                     Extend Lock
                   </button>
                 )}
-                {pos.hasPosition && pos.isLocked && showExtendLock && (
+                {pos.hasPosition && pos.isLocked && confirms.extendLock && (
                   <div className="mt-2">
                     <div className="grid grid-cols-2 gap-1.5 mb-2">
                       {LOCK_OPTIONS.map((opt) => (
                         <button key={opt.label} onClick={() => setExtendLockDuration(opt)}
                           className="rounded-lg px-2 py-1.5 text-center cursor-pointer transition-all text-[10px]"
                           style={{
-                            background: extendLockDuration.label === opt.label ? 'rgba(139,92,246,0.75)' : 'rgba(0,0,0,0.55)',
-                            border: extendLockDuration.label === opt.label ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(255,255,255,0.25)',
+                            background: extendLockDuration.label === opt.label ? 'var(--color-purple-75)' : 'rgba(0,0,0,0.55)',
+                            border: extendLockDuration.label === opt.label ? '1px solid var(--color-purple-30)' : '1px solid rgba(255,255,255,0.25)',
                             color: extendLockDuration.label === opt.label ? '#000000' : 'rgba(255,255,255,1)',
                           }}>
                           {opt.label}
@@ -125,13 +127,13 @@ export function StakingCard({
                     </div>
                     <div className="flex gap-1.5">
                       <button
-                        onClick={() => setShowExtendLock(false)}
+                        onClick={() => setConfirm('extendLock', false)}
                         className="flex-1 py-1.5 rounded-lg text-[10px] text-white cursor-pointer"
                         style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.20)' }}>
                         Cancel
                       </button>
                       <button
-                        onClick={() => { actions.extendLock(pos.tokenId, BigInt(extendLockDuration.seconds)); setShowExtendLock(false); }}
+                        onClick={() => { actions.extendLock(pos.tokenId, BigInt(extendLockDuration.seconds)); setConfirm('extendLock', false); }}
                         disabled={actions.isPending || actions.isConfirming}
                         className="btn-secondary flex-1 py-1.5 rounded-lg text-[10px] disabled:opacity-70 disabled:cursor-not-allowed">
                         Extend {extendLockDuration.label}
@@ -149,7 +151,7 @@ export function StakingCard({
                 {actions.isPending || actions.isConfirming ? 'Processing...' : 'Claim Rewards'}
               </button>
               {pos.unsettledFormatted && parseFloat(pos.unsettledFormatted) > 0 && (
-                <div className="rounded-lg p-3 mt-2" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                <div className="rounded-lg p-3 mt-2" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                   <p className="text-white text-[11px] mb-1.5">Unsettled: {pos.unsettledFormatted} TOWELI</p>
                   <button
                     onClick={() => actions.claimUnsettled()}
@@ -160,23 +162,23 @@ export function StakingCard({
                 </div>
               )}
               <div className="grid grid-cols-2 gap-2">
-                {pos.canWithdraw && !confirmWithdraw && (
-                  <button onClick={() => setConfirmWithdraw(true)}
+                {pos.canWithdraw && !confirms.withdraw && (
+                  <button onClick={() => setConfirm('withdraw', true)}
                     disabled={actions.isPending || actions.isConfirming}
                     className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-70">
                     Withdraw
                   </button>
                 )}
-                {pos.canWithdraw && confirmWithdraw && (
+                {pos.canWithdraw && confirms.withdraw && (
                   <div className="col-span-2 rounded-lg p-3" style={{ background: 'rgba(255,178,55,0.06)', border: '1px solid rgba(255,178,55,0.15)' }}>
                     <p className="text-warning/80 text-[11px] mb-2">Withdraw <span className="font-mono font-semibold">{pos.stakedFormatted} TOWELI</span>? This will unstake your full position.</p>
                     <div className="flex gap-2">
-                      <button onClick={() => setConfirmWithdraw(false)}
+                      <button onClick={() => setConfirm('withdraw', false)}
                         className="flex-1 py-2 rounded-lg text-[12px] text-white cursor-pointer"
                         style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.20)' }}>
                         Cancel
                       </button>
-                      <button onClick={() => { setConfirmWithdraw(false); lastActionRef.current = 'unstake'; actions.withdraw(pos.tokenId); }}
+                      <button onClick={() => { setConfirm('withdraw', false); lastActionRef.current = 'unstake'; actions.withdraw(pos.tokenId); }}
                         disabled={actions.isPending || actions.isConfirming}
                         className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-warning cursor-pointer disabled:opacity-70"
                         style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.25)' }}>
@@ -185,15 +187,15 @@ export function StakingCard({
                     </div>
                   </div>
                 )}
-                {pos.isLocked && !confirmEarlyWithdraw && (
-                  <button onClick={() => setConfirmEarlyWithdraw(true)}
+                {pos.isLocked && !confirms.earlyWithdraw && (
+                  <button onClick={() => setConfirm('earlyWithdraw', true)}
                     disabled={actions.isPending || actions.isConfirming}
                     className="w-full py-2.5 text-[13px] rounded-lg disabled:opacity-70"
                     style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: 'rgba(239,68,68,0.8)' }}>
                     Early Withdraw ({EARLY_WITHDRAWAL_PENALTY_PCT}% penalty)
                   </button>
                 )}
-                {pos.isLocked && confirmEarlyWithdraw && (() => {
+                {pos.isLocked && confirms.earlyWithdraw && (() => {
                   const stakedNum = parseFloat(pos.stakedFormatted) || 0;
                   const penaltyAmt = stakedNum * (EARLY_WITHDRAWAL_PENALTY_PCT / 100);
                   const receiveAmt = stakedNum - penaltyAmt;
@@ -205,12 +207,12 @@ export function StakingCard({
                       <p className="text-white/80 text-[11px]">You will receive: <span className="font-mono font-semibold">{receiveAmt.toFixed(2)} TOWELI</span></p>
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={() => setConfirmEarlyWithdraw(false)}
+                      <button onClick={() => setConfirm('earlyWithdraw', false)}
                         className="flex-1 py-2 rounded-lg text-[12px] text-white cursor-pointer"
                         style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.20)' }}>
                         Cancel
                       </button>
-                      <button onClick={() => { setConfirmEarlyWithdraw(false); lastActionRef.current = 'unstake'; actions.earlyWithdraw(pos.tokenId); }}
+                      <button onClick={() => { setConfirm('earlyWithdraw', false); lastActionRef.current = 'unstake'; actions.earlyWithdraw(pos.tokenId); }}
                         disabled={actions.isPending || actions.isConfirming}
                         className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-danger cursor-pointer disabled:opacity-70"
                         style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.25)' }}>
@@ -225,25 +227,25 @@ export function StakingCard({
                   className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-70">
                   {pos.autoMaxLock ? 'Disable Auto-Lock' : 'Enable Auto-Max Lock'}
                 </button>
-                {pos.isPaused && pos.hasPosition && !confirmEmergencyExit && (
+                {pos.isPaused && pos.hasPosition && !confirms.emergencyExit && (
                   <button
-                    onClick={() => setConfirmEmergencyExit(true)}
+                    onClick={() => setConfirm('emergencyExit', true)}
                     disabled={actions.isPending || actions.isConfirming}
                     className="col-span-2 w-full py-2.5 text-[13px] rounded-lg font-semibold disabled:opacity-70 disabled:cursor-not-allowed"
                     style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}>
                     Emergency Exit (Forfeit Rewards)
                   </button>
                 )}
-                {pos.isPaused && pos.hasPosition && confirmEmergencyExit && (
+                {pos.isPaused && pos.hasPosition && confirms.emergencyExit && (
                   <div className="col-span-2 rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
                     <p className="text-danger text-[11px] font-semibold mb-1">Emergency exit forfeits all pending rewards. This cannot be undone.</p>
                     <div className="flex gap-2 mt-2">
-                      <button onClick={() => setConfirmEmergencyExit(false)}
+                      <button onClick={() => setConfirm('emergencyExit', false)}
                         className="flex-1 py-2 rounded-lg text-[12px] text-white cursor-pointer"
                         style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.20)' }}>
                         Cancel
                       </button>
-                      <button onClick={() => { setConfirmEmergencyExit(false); actions.emergencyExit(pos.tokenId); }}
+                      <button onClick={() => { setConfirm('emergencyExit', false); actions.emergencyExit(pos.tokenId); }}
                         disabled={actions.isPending || actions.isConfirming}
                         className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-danger cursor-pointer disabled:opacity-70"
                         style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.25)' }}>
@@ -285,7 +287,7 @@ export function StakingCard({
               <input type="number" inputMode="decimal" value={stakeAmount} onChange={(e) => setStakeAmount(e.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))}
                 placeholder="0" min="0" step="any"
                 className="w-full rounded-lg p-4 min-h-[44px] font-mono text-xl text-white outline-none token-input"
-                style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }} />
+                style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }} />
             </div>
 
             <div className="mb-4">
@@ -295,8 +297,8 @@ export function StakingCard({
                   <button key={opt.label} onClick={() => setSelectedLock(opt)}
                     className="rounded-lg p-2.5 min-h-[44px] text-center cursor-pointer transition-all text-[12px]"
                     style={{
-                      background: selectedLock.label === opt.label ? 'rgba(139,92,246,0.75)' : 'rgba(0,0,0,0.55)',
-                      border: selectedLock.label === opt.label ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(255,255,255,0.25)',
+                      background: selectedLock.label === opt.label ? 'var(--color-purple-75)' : 'rgba(0,0,0,0.55)',
+                      border: selectedLock.label === opt.label ? '1px solid var(--color-purple-30)' : '1px solid rgba(255,255,255,0.25)',
                       color: selectedLock.label === opt.label ? '#000000' : 'rgba(255,255,255,1)',
                     }}>
                     {opt.label}
@@ -306,7 +308,7 @@ export function StakingCard({
             </div>
 
             {/* Boost preview */}
-            <div className="rounded-lg p-4 mb-4" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+            <div className="rounded-lg p-4 mb-4" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-white text-[11px]">Your Boost</span>
                 <span className="stat-value text-[16px] text-white">{boostDisplay}x</span>

@@ -58,7 +58,7 @@ const RISKS = [
 ];
 
 export default function RisksPage() {
-  usePageTitle('Risk Disclosure');
+  usePageTitle('Risk Disclosure', 'Important risk factors for using Tegridy Farms DeFi protocol.');
 
   return (
     <div className="-mt-14 relative min-h-screen">
@@ -116,7 +116,7 @@ export default function RisksPage() {
               className="rounded-2xl p-6 md:p-8 backdrop-blur-md"
               style={{
                 background: 'rgba(13, 21, 48, 0.6)',
-                border: '1px solid rgba(139, 92, 246, 0.12)',
+                border: '1px solid var(--color-purple-12)',
               }}
             >
               <div className="flex items-start gap-3">

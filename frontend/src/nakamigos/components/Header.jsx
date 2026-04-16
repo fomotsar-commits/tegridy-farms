@@ -336,13 +336,13 @@ export default memo(function Header({
             style={{
               display: "flex", alignItems: "center", gap: 6,
               padding: "6px 12px", borderRadius: 8,
-              background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.15)",
+              background: "var(--color-purple-08)", border: "1px solid var(--color-purple-15)",
               color: "#a599c9", fontSize: 10, fontFamily: "var(--mono)",
               textDecoration: "none", whiteSpace: "nowrap",
               transition: "all 0.2s",
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.15)"; e.currentTarget.style.color = "#ede9fe"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.08)"; e.currentTarget.style.color = "#a599c9"; }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--color-purple-15)"; e.currentTarget.style.color = "#ede9fe"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "var(--color-purple-08)"; e.currentTarget.style.color = "#a599c9"; }}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="15 18 9 12 15 6" />

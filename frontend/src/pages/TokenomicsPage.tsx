@@ -38,7 +38,7 @@ const CONTRACTS = [
 ];
 
 export default function TokenomicsPage() {
-  usePageTitle('Tokenomics');
+  usePageTitle('Tokenomics', 'TOWELI token distribution, supply mechanics, and vesting schedules.');
   const price = useTOWELIPrice();
   const pool = usePoolData();
   const priceHistory = usePriceHistory(price.priceInUsd);
@@ -68,7 +68,7 @@ export default function TokenomicsPage() {
             { l: 'Price', v: price.priceInUsd > 0 ? undefined : '–', numVal: price.priceInUsd, decimals: price.priceInUsd < 0.01 ? 8 : 6, prefix: '$', showSparkline: true, art: ART.mumuBull.src, pos: 'center 30%' },
             { l: 'FDV', v: price.priceInUsd > 0 ? undefined : '–', numVal: TOWELI_TOTAL_SUPPLY * price.priceInUsd, decimals: 2, prefix: '$', art: ART.bobowelie.src, pos: 'center 20%' },
           ].map((i) => (
-            <div key={i.l} className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
+            <div key={i.l} className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
                 <img src={i.art} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: i.pos }} />
               </div>
@@ -94,13 +94,13 @@ export default function TokenomicsPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
           {/* Chart */}
-          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}>
             <div className="absolute inset-0">
               <img src={ART.danceNight.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
             </div>
             <div className="relative z-10 p-5">
-            <h3 className="heading-luxury text-[15px] text-white mb-3">Supply Distribution</h3>
+            <h2 className="heading-luxury text-[15px] text-white mb-3">Supply Distribution</h2>
             <div className="h-48">
               <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}>
               <ResponsiveContainer width="100%" height="100%">
@@ -110,7 +110,7 @@ export default function TokenomicsPage() {
                   </Pie>
                   <Tooltip
                     contentStyle={{
-                      background: 'rgba(6,12,26,0.85)', border: '1px solid rgba(139,92,246,0.75)',
+                      background: 'rgba(6,12,26,0.85)', border: '1px solid var(--color-purple-75)',
                       borderRadius: '8px', fontFamily: 'var(--font-family-body)', color: '#f0ead6', fontSize: '12px',
                     }}
                     formatter={(v) => `${v}%`}
@@ -131,13 +131,13 @@ export default function TokenomicsPage() {
           </motion.div>
 
           {/* Emissions */}
-          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>
             <div className="absolute inset-0">
               <img src={ART.jbChristmas.src} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-5">
-            <h3 className="heading-luxury text-[15px] text-white mb-3">Emission Schedule</h3>
+            <h2 className="heading-luxury text-[15px] text-white mb-3">Emission Schedule</h2>
             <div className="space-y-3">
               {[
                 { l: 'Rewards / Day', v: pool.isDeployed ? `${formatNumber(rewardPerDay, 0)} TOWELI` : '–' },
@@ -160,14 +160,14 @@ export default function TokenomicsPage() {
         </div>
 
         {/* Community Treasury */}
-        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-8" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-8" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <div className="absolute inset-0">
             <img src={ART.beachVibes.src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 p-5">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="heading-luxury text-[15px] text-white">Community Treasury</h3>
+              <h2 className="heading-luxury text-[15px] text-white">Community Treasury</h2>
               <a href={`https://etherscan.io/address/${TEGRIDY_STAKING_ADDRESS}`} target="_blank" rel="noopener noreferrer"
                 className="text-[11px] text-white hover:text-white transition-colors">
                 View on Etherscan &#8599;
@@ -177,15 +177,15 @@ export default function TokenomicsPage() {
               100% of protocol revenue is distributed to stakers. The farm contract holds all staked tokens and manages reward distribution transparently on-chain.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+              <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">Rewards Remaining</p>
                 <p className="stat-value text-[13px] text-white">{pool.totalRewardsFunded || '0'} TOWELI</p>
               </div>
-              <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+              <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">Emission Rate</p>
                 <p className="stat-value text-[13px] text-white">{((parseFloat(pool.rewardRate) || 0) * 86400).toFixed(2)} / day</p>
               </div>
-              <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+              <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">Est. Duration</p>
                 <p className="stat-value text-[13px] text-white">{daysLeft > 0 ? `${daysLeft.toFixed(0)} days` : '–'}</p>
               </div>
@@ -194,25 +194,25 @@ export default function TokenomicsPage() {
         </motion.div>
 
         {/* Contracts */}
-        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-8" style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-8" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <div className="absolute inset-0">
             <img src={ART.jbacSkeleton.src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 p-5">
-            <h3 className="heading-luxury text-[15px] text-white mb-3">Contracts</h3>
+            <h2 className="heading-luxury text-[15px] text-white mb-3">Contracts</h2>
             <div className="space-y-1.5">
               {CONTRACTS.map((c) => {
                 const deployed = isDeployed(c.address);
                 return (
                   <div key={c.label} className="rounded-lg p-3 flex items-center justify-between flex-wrap gap-2"
-                    style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)', opacity: deployed ? 1 : 0.6 }}>
+                    style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)', opacity: deployed ? 1 : 0.6 }}>
                     <div className="flex items-center gap-2">
                       <span className="text-white text-[13px]">{c.label}</span>
                       {deployed && c.live ? (
                         <span className="badge badge-success text-[9px]">Live</span>
                       ) : !deployed ? (
-                        <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: 'rgba(139,92,246,0.75)', color: '#000000' }}>Pending</span>
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: 'var(--color-purple-75)', color: '#000000' }}>Pending</span>
                       ) : (
                         <span className="badge badge-warning text-[9px]">Deployed</span>
                       )}
@@ -239,7 +239,7 @@ export default function TokenomicsPage() {
           ].map((l) => (
             <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
               className="rounded-xl p-3.5 flex items-center justify-between group"
-              style={{ background: 'rgba(6,12,26,0.82)', border: '1px solid rgba(139,92,246,0.75)', backdropFilter: 'blur(8px)' }}>
+              style={{ background: 'rgba(6,12,26,0.82)', border: '1px solid var(--color-purple-75)', backdropFilter: 'blur(8px)' }}>
               <span className="text-white text-[13px] group-hover:text-white transition-colors">{l.label}</span>
               <span className="text-white text-[12px] group-hover:text-white transition-colors">→</span>
             </a>

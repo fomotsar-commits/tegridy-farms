@@ -28,10 +28,27 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
+    // Also set meta theme-color for mobile browser chrome
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) {
+      meta.setAttribute('content', theme === 'dark' ? '#060c1a' : '#f5f3ff');
+    }
     try {
       localStorage.setItem(STORAGE_KEY, theme);
     } catch {}
   }, [theme]);
+
+  // Listen for live OS theme changes (e.g. macOS/Windows auto dark mode)
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: light)');
+    const handler = (e: MediaQueryListEvent) => {
+      // Only follow system preference if user hasn't manually chosen a theme
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (!stored) setTheme(e.matches ? 'light' : 'dark');
+    };
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
 
   const toggleTheme = useCallback(() => {
     setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));

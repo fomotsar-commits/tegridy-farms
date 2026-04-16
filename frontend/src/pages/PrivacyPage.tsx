@@ -46,7 +46,7 @@ const SECTIONS = [
 ];
 
 export default function PrivacyPage() {
-  usePageTitle('Privacy Policy');
+  usePageTitle('Privacy Policy', 'How Tegridy Farms handles your data and privacy.');
 
   return (
     <div className="-mt-14 relative min-h-screen">
@@ -84,7 +84,7 @@ export default function PrivacyPage() {
               className="rounded-2xl p-6 md:p-8 backdrop-blur-md"
               style={{
                 background: 'rgba(13, 21, 48, 0.6)',
-                border: '1px solid rgba(139, 92, 246, 0.12)',
+                border: '1px solid var(--color-purple-12)',
               }}
             >
               <h2 className="text-lg font-semibold text-white mb-3">

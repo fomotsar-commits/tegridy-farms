@@ -6,9 +6,9 @@ import { usePageTitle } from '../hooks/usePageTitle';
 const fade = { hidden: { opacity: 0, y: 24 }, visible: { opacity: 1, y: 0 } };
 
 const CONTRACTS = [
-  { name: 'TegridyStaking', address: '0x7a7a7a0000000000000000000000000000000001' },
-  { name: 'TegridyFactory', address: '0x7a7a7a0000000000000000000000000000000002' },
-  { name: 'TegridyRouter', address: '0x7a7a7a0000000000000000000000000000000003' },
+  { name: 'TegridyStaking', address: '0x65D8b87917c59a0B33009493fB236bCccF1Ea421' },
+  { name: 'TegridyFactory', address: '0x8B786163aA3beb97822d480a0c306DfD6dEbdCB6' },
+  { name: 'TegridyRouter', address: '0xCBCF6AcC4697cA3a7D7658Cd2051606a09c9863F' },
   { name: 'TegridyLending', address: '0xd471e5675EaDbD8C192A5dA2fF44372D5713367f' },
   { name: 'TegridyNFTLending', address: '0x63baD13f89186E0769F636D4Cd736eB26E2968aD' },
   { name: 'TegridyNFTPoolFactory', address: '0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0' },
@@ -30,7 +30,7 @@ const BOUNTY_TIERS = [
   { severity: 'Low', reward: '$500', color: '#22c55e' },
 ];
 
-const glass = { background: 'rgba(13, 21, 48, 0.6)', border: '1px solid rgba(139, 92, 246, 0.12)' };
+const glass = { background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' };
 
 function ShieldIcon() {
   return (<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="1.5"><path d="M12 2l7 4v5c0 5.25-3.5 9.74-7 11-3.5-1.26-7-5.75-7-11V6l7-4z"/></svg>);
@@ -63,7 +63,7 @@ const iconMap: Record<string, () => React.ReactNode> = {
 };
 
 export default function SecurityPage() {
-  usePageTitle('Security');
+  usePageTitle('Security', 'Smart contract audits, bug bounty program, and security practices.');
   const [copied, setCopied] = useState<string | null>(null);
 
   const copyAddr = (addr: string) => {

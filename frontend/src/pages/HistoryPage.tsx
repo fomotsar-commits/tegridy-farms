@@ -111,7 +111,7 @@ function categorizeTx(tx: TxRecord): { type: string; color: string } {
 }
 
 export default function HistoryPage() {
-  usePageTitle('History');
+  usePageTitle('History', 'Your transaction history — swaps, stakes, claims, and on-chain activity.');
   const { isConnected, address } = useAccount();
   const [txs, setTxs] = useState<TxRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -275,7 +275,7 @@ export default function HistoryPage() {
               <button onClick={handleRetry} className="btn-primary px-5 py-1.5 text-[12px]">Retry</button>
             </div>
           ) : categorized.length === 0 ? (
-            <div className="rounded-xl p-8 text-center" style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid rgba(139, 92, 246, 0.12)' }}>
+            <div className="rounded-xl p-8 text-center" style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' }}>
               <p className="text-white/40 text-[13px]">No transactions found. Start trading or staking to see your history here.</p>
               <p className="text-white/25 text-[11px] mt-1">Swaps, stakes, claims, and governance actions will appear automatically.</p>
             </div>
@@ -283,7 +283,7 @@ export default function HistoryPage() {
             <table className="w-full">
               <thead className="hidden md:table-header-group">
                 <tr className="text-[11px] text-white uppercase tracking-wider label-pill"
-                  style={{ borderBottom: '1px solid rgba(139,92,246,0.75)' }}>
+                  style={{ borderBottom: '1px solid var(--color-purple-75)' }}>
                   <th className="px-4 md:px-5 py-3 text-left font-normal w-20">Type</th>
                   <th className="py-3 text-left font-normal w-24">Function</th>
                   <th className="py-3 text-left font-normal">Tx Hash</th>
@@ -294,7 +294,7 @@ export default function HistoryPage() {
               <tbody>
                 {categorized.map(tx => (
                   <tr key={tx.hash} className="hover:bg-black/60 transition-colors"
-                    style={{ borderBottom: '1px solid rgba(139,92,246,0.75)' }}>
+                    style={{ borderBottom: '1px solid var(--color-purple-75)' }}>
                     {/* Desktop cells */}
                     <td className="hidden md:table-cell px-4 md:px-5 py-3">
                       <a href={`https://etherscan.io/tx/${tx.hash}`} target="_blank" rel="noopener noreferrer"

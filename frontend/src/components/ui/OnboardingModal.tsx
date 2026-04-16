@@ -33,6 +33,16 @@ export function OnboardingModal() {
     if (localStorage.getItem(STORAGE_KEY) !== '1') setOpen(true);
   }, []);
 
+  // Close on Escape key
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const close = () => {
     localStorage.setItem(STORAGE_KEY, '1');
     setOpen(false);
@@ -45,13 +55,16 @@ export function OnboardingModal() {
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Welcome to Tegridy Farms"
       onClick={close}
     >
       <div
         className="relative w-full max-w-md rounded-2xl border p-6 shadow-2xl"
         style={{
           background: 'rgba(13, 21, 48, 0.95)',
-          borderColor: 'rgba(139, 92, 246, 0.2)',
+          borderColor: 'var(--color-purple-20)',
         }}
         onClick={(e) => e.stopPropagation()}
       >

@@ -67,9 +67,15 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
     onComplete?.();
   }, [onComplete]);
 
-  /* Skip for repeat visits */
+  /* Skip for repeat visits or reduced-motion preference */
   useEffect(() => {
     if (sessionStorage.getItem('tf_loaded')) {
+      finalize();
+      return;
+    }
+    // WCAG 2.1: Skip heavy animations for users who prefer reduced motion
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      sessionStorage.setItem('tf_loaded', '1');
       finalize();
     }
   }, [finalize]);

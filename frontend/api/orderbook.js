@@ -91,6 +91,7 @@ function setCors(req, res) {
   const origin = req.headers.origin || "";
   const ALLOWED_ORIGINS = new Set([
     "https://nakamigos.gallery", "https://www.nakamigos.gallery",
+    "https://tegridyfarms.vercel.app",
   ]);
   // Only allow localhost origins in non-production environments
   if (process.env.NODE_ENV !== "production") {

@@ -52,7 +52,7 @@ function TxLink({ hash }: { hash: string }) {
 }
 
 export default function PremiumPage() {
-  usePageTitle('Gold Card');
+  usePageTitle('Gold Card', 'Premium membership with enhanced yields and exclusive features.');
   const { address } = useAccount();
   const premium = usePremiumAccess();
   const revenue = useRevenueStats();
@@ -102,8 +102,8 @@ export default function PremiumPage() {
           <motion.div className="mb-8 rounded-xl p-6 text-center"
             initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
             style={{
-              background: 'linear-gradient(135deg, rgba(139,92,246,0.12) 0%, rgba(139,92,246,0.04) 100%)',
-              border: '1px solid rgba(139,92,246,0.25)',
+              background: 'linear-gradient(135deg, var(--color-purple-12) 0%, var(--color-purple-04) 100%)',
+              border: '1px solid var(--color-purple-25)',
             }}>
             <div className="text-white text-[14px] font-semibold mb-2">Connect your wallet to get started</div>
             <p className="text-white text-[12px] mb-4">View your subscription status, subscribe, and claim revenue.</p>
@@ -207,7 +207,7 @@ export default function PremiumPage() {
                 initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }} transition={{ delay: i * 0.08 }}>
                 <span className="absolute top-3 right-3 px-1.5 py-0.5 rounded text-[9px] font-semibold"
-                  style={{ background: 'rgba(139,92,246,0.75)', color: '#000000' }}>Soon</span>
+                  style={{ background: 'var(--color-purple-75)', color: '#000000' }}>Soon</span>
                 <div className="text-2xl mb-2">{b.icon}</div>
                 <h3 className="text-white text-[14px] font-semibold mb-1">{b.title}</h3>
                 <p className="text-white text-[12px] leading-relaxed">{b.desc}</p>
@@ -239,10 +239,10 @@ export default function PremiumPage() {
                     style={{
                       background: selectedPlan === i
                         ? 'linear-gradient(135deg, rgba(212,160,23,0.15) 0%, rgba(212,160,23,0.05) 100%)'
-                        : 'rgba(139,92,246,0.75)',
+                        : 'var(--color-purple-75)',
                       border: selectedPlan === i
                         ? '1px solid rgba(212,160,23,0.4)'
-                        : '1px solid rgba(139,92,246,0.75)',
+                        : '1px solid var(--color-purple-75)',
                     }}>
                     {p.discount > 0 && (
                       <div className="absolute -top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full"

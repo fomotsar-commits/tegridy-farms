@@ -99,9 +99,9 @@ export function LimitOrderTab() {
               aria-pressed={expiryIdx === i}
               className="flex-1 py-2 min-h-[44px] rounded-lg text-[11px] font-medium cursor-pointer transition-all"
               style={{
-                background: expiryIdx === i ? 'rgba(139,92,246,0.75)' : 'rgba(0,0,0,0.55)',
+                background: expiryIdx === i ? 'var(--color-purple-75)' : 'rgba(0,0,0,0.55)',
                 color: expiryIdx === i ? 'var(--color-primary)' : 'rgba(255,255,255,0.4)',
-                border: expiryIdx === i ? '1px solid rgba(139,92,246,0.75)' : '1px solid rgba(255,255,255,0.25)',
+                border: expiryIdx === i ? '1px solid var(--color-purple-75)' : '1px solid rgba(255,255,255,0.25)',
               }}>
               {opt.label}
             </button>
@@ -128,7 +128,7 @@ export function LimitOrderTab() {
 
       {/* Active Orders */}
       {activeOrders.length > 0 && (
-        <div className="mt-4 pt-3" style={{ borderTop: '1px solid rgba(139,92,246,0.75)' }}>
+        <div className="mt-4 pt-3" style={{ borderTop: '1px solid var(--color-purple-75)' }}>
           <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-2">Active Orders</p>
           {activeOrders.map(order => (
             <OrderRow key={order.id} order={order} onCancel={() => cancelOrder(order.id)} />
@@ -179,7 +179,7 @@ function OrderRow({ order, onCancel }: { order: LimitOrder; onCancel?: () => voi
 
   return (
     <div className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-black/60"
-      style={{ borderBottom: '1px solid rgba(139,92,246,0.75)' }}>
+      style={{ borderBottom: '1px solid var(--color-purple-75)' }}>
       <div>
         <span className="text-white text-[12px] font-medium">{order.amount} {order.fromToken.symbol}</span>
         <span className="text-white text-[11px] mx-1.5">→</span>

@@ -477,7 +477,7 @@ function AnimatedSubliminal({ data }: { data: SubliminalData }) {
       <span ref={ref} style={{
         fontFamily: "'JetBrains Mono', 'Courier Prime', monospace",
         fontSize: `${data.fontSize}px`, fontWeight: 900, color: 'white',
-        textShadow: '6px 0 rgba(255,0,0,0.9), -6px 0 rgba(0,100,255,0.9), 0 3px rgba(0,255,100,0.4), 0 0 30px rgba(139,92,246,0.7), 0 0 60px rgba(45,139,78,0.4)',
+        textShadow: '6px 0 rgba(255,0,0,0.9), -6px 0 rgba(0,100,255,0.9), 0 3px rgba(0,255,100,0.4), 0 0 30px var(--color-purple-70), 0 0 60px rgba(45,139,78,0.4)',
         opacity: 0, whiteSpace: 'nowrap', letterSpacing: '0.08em', willChange: 'transform, opacity',
       }}>
         {data.text}
@@ -692,7 +692,7 @@ function DesktopGlitchTransition({ config }: { config: GlitchConfig }) {
 
         {/* Secondary purple-tinted flash */}
         {secondFlash && <div className="absolute inset-0" style={{
-          zIndex: 4, background: 'radial-gradient(ellipse at center, rgba(139,92,246,0.3) 0%, rgba(45,139,78,0.15) 60%, transparent 100%)',
+          zIndex: 4, background: 'radial-gradient(ellipse at center, var(--color-purple-30) 0%, rgba(45,139,78,0.15) 60%, transparent 100%)',
           animation: 'glitch-screen-flash 80ms steps(1) forwards', opacity: 0,
         }} />}
 

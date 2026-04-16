@@ -13,7 +13,7 @@ function useVotes() {
       const parsed = JSON.parse(localStorage.getItem('tegridy_gallery_votes') || '{}');
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
       return {};
-    } catch (e) { console.error('Failed to parse gallery votes', e); return {}; }
+    } catch (e) { if (import.meta.env.DEV) console.error('Failed to parse gallery votes', e); return {}; }
   });
   const [userVotes, setUserVotes] = useState<Record<string, boolean>>({});
   const [voteCooldown, setVoteCooldown] = useState(false);
@@ -28,7 +28,7 @@ function useVotes() {
       } else {
         setUserVotes({});
       }
-    } catch (e) { console.error('Failed to parse user votes', e); setUserVotes({}); }
+    } catch (e) { if (import.meta.env.DEV) console.error('Failed to parse user votes', e); setUserVotes({}); }
   }, [address]);
 
   const vote = useCallback((id: string) => {
@@ -45,14 +45,14 @@ function useVotes() {
     try {
       safeSetItem('tegridy_gallery_votes', JSON.stringify(newVotes));
       safeSetItem(`tegridy_gallery_uv_${address}`, JSON.stringify(newUserVotes));
-    } catch (e) { console.error('Failed to persist vote', e); }
+    } catch (e) { if (import.meta.env.DEV) console.error('Failed to persist vote', e); }
   }, [address, votes, userVotes, voteCooldown]);
 
   return { votes, userVotes, vote, voteCooldown };
 }
 
 export default function GalleryPage() {
-  usePageTitle('Gallery');
+  usePageTitle('Gallery', 'Explore the Tegridy Farms art collection.');
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const { isConnected } = useAccount();
   const { votes, userVotes, vote, voteCooldown } = useVotes();
@@ -75,12 +75,12 @@ export default function GalleryPage() {
           <p className="text-white text-[14px]">{GALLERY_ORDER.length} original hand-drawn pieces from the Tegridy universe</p>
         </motion.div>
 
-        <div className="rounded-lg px-3 py-2 mb-4 inline-block" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+        <div className="rounded-lg px-3 py-2 mb-4 inline-block" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
           <p className="text-white text-[11px]">Votes are for fun only — stored locally in your browser, not on-chain.</p>
         </div>
 
         {sortedPieces.length === 0 ? (
-          <div className="rounded-xl p-8 text-center" style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid rgba(139, 92, 246, 0.12)' }}>
+          <div className="rounded-xl p-8 text-center" style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' }}>
             <p className="text-white/40 text-[13px]">No gallery pieces available right now.</p>
             <p className="text-white/25 text-[11px] mt-1">Check back soon — new artwork is added regularly.</p>
           </div>
@@ -92,7 +92,7 @@ export default function GalleryPage() {
               role="button" tabIndex={0} aria-label={`View artwork: ${piece.title}`}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedIndex(i); } }}
               className="w-full block relative group cursor-pointer break-inside-avoid rounded-xl overflow-hidden glass-card-animated card-hover"
-              style={{ border: '1px solid rgba(139,92,246,0.75)' }}
+              style={{ border: '1px solid var(--color-purple-75)' }}
               initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }} transition={{ duration: 0.35, delay: (i % 3) * 0.06 }}>
               {/* Fix #7: loading="lazy" on gallery images */}

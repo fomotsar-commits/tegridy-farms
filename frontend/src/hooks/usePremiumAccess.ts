@@ -1,11 +1,12 @@
 import { useEffect } from 'react';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContracts, useReadContract } from 'wagmi';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContracts, useReadContract, useChainId } from 'wagmi';
 import { formatEther } from 'viem';
 import { toast } from 'sonner';
 import { PREMIUM_ACCESS_ABI, ERC20_ABI } from '../lib/contracts';
-import { PREMIUM_ACCESS_ADDRESS, TOWELI_ADDRESS, JBAC_NFT_ADDRESS } from '../lib/constants';
+import { PREMIUM_ACCESS_ADDRESS, TOWELI_ADDRESS, JBAC_NFT_ADDRESS, CHAIN_ID } from '../lib/constants';
 
 export function usePremiumAccess() {
+  const chainId = useChainId();
   const { address } = useAccount();
   const userAddr = address ?? '0x0000000000000000000000000000000000000000';
 
@@ -79,6 +80,7 @@ export function usePremiumAccess() {
   }
 
   function approveToweli(months: number) {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     const totalCost = monthlyFee * BigInt(months);
     writeApprove({
       address: TOWELI_ADDRESS,
@@ -89,6 +91,7 @@ export function usePremiumAccess() {
   }
 
   function subscribe(months: number) {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     // AUDIT FIX H-02: Include maxCost to protect against fee frontrunning
     const maxCost = monthlyFee * BigInt(months);
     writeAction({
@@ -100,6 +103,7 @@ export function usePremiumAccess() {
   }
 
   function activateNFTPremium() {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     writeAction({
       address: PREMIUM_ACCESS_ADDRESS,
       abi: PREMIUM_ACCESS_ABI,

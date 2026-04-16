@@ -119,7 +119,7 @@ export async function getProfile(wallet, slug) {
       .maybeSingle();
 
     if (error) {
-      console.error("[userdata] getProfile error:", error.message);
+      if (import.meta.env.DEV) console.error("[userdata] getProfile error:", error.message);
       const cache = loadProfileCache(slug);
       return cache[lower] || null;
     }
@@ -168,7 +168,7 @@ export async function saveProfile(wallet, { displayName, bio, twitter }, slug) {
         updated_at: new Date().toISOString(),
       });
 
-    if (error) console.error("[userdata] saveProfile error:", error.message);
+    if (error) if (import.meta.env.DEV) console.error("[userdata] saveProfile error:", error.message);
     return !error;
   } catch {
     return false;
@@ -385,7 +385,7 @@ export async function getUserVote(wallet, week, slug) {
       .eq("week", week)
       .maybeSingle();
     if (error) {
-      console.error("[userdata] getUserVote error:", error.message);
+      if (import.meta.env.DEV) console.error("[userdata] getUserVote error:", error.message);
       return null;
     }
     return data?.token_id || null;

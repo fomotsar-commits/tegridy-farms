@@ -24,7 +24,7 @@ export function FarmStatsRow({ stats, pool, price, priceData, priceError, daysLe
   return (
     <motion.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
       {items.map((s) => (
-        <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
+        <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
           <div className="absolute inset-0">
             <img src={s.art} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: s.pos }} />
           </div>

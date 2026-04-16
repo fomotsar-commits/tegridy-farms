@@ -96,7 +96,7 @@ export async function getAcquisitionCost(wallet, tokenId, contract) {
     writeCache(key, result);
     return result;
   } catch (err) {
-    console.warn("getAcquisitionCost failed:", err.message);
+    if (import.meta.env.DEV) console.warn("getAcquisitionCost failed:", err.message);
     return null;
   }
 }
@@ -137,7 +137,7 @@ export async function calculatePnL(wallet, collection, heldTokens) {
     });
     allSales = data.nftSales || [];
   } catch (err) {
-    console.warn("calculatePnL: could not fetch buy sales:", err.message);
+    if (import.meta.env.DEV) console.warn("calculatePnL: could not fetch buy sales:", err.message);
   }
 
   let sellSales = [];
@@ -150,7 +150,7 @@ export async function calculatePnL(wallet, collection, heldTokens) {
     });
     sellSales = data.nftSales || [];
   } catch (err) {
-    console.warn("calculatePnL: could not fetch sell sales:", err.message);
+    if (import.meta.env.DEV) console.warn("calculatePnL: could not fetch sell sales:", err.message);
   }
 
   // Build a map of token purchases (latest buy per token)

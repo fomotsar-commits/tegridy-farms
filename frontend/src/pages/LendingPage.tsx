@@ -44,7 +44,7 @@ const INTRO_CARDS = [
 const INTRO_DISMISSED_KEY = 'tegridy-nft-finance-intro-dismissed';
 
 export default function LendingPage() {
-  usePageTitle('NFT Finance');
+  usePageTitle('NFT Finance', 'NFT-backed lending, fractional AMM, and launchpad.');
   const { isConnected, address } = useAccount();
   const [section, setSection] = useState<Section>('lending');
   const [introDismissed, setIntroDismissed] = useState(() => {
@@ -96,7 +96,7 @@ export default function LendingPage() {
                     }`}
                     style={{
                       background: section === card.key ? 'rgba(16, 185, 129, 0.08)' : 'rgba(13, 21, 48, 0.5)',
-                      border: `1px solid ${section === card.key ? 'rgba(16, 185, 129, 0.2)' : 'rgba(139, 92, 246, 0.12)'}`,
+                      border: `1px solid ${section === card.key ? 'rgba(16, 185, 129, 0.2)' : 'var(--color-purple-12)'}`,
                     }}
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}

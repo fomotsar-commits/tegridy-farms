@@ -148,7 +148,7 @@ function generateLocalId() {
  */
 export async function fetchMessages({ tokenId = null, limit = 100, offset = 0, slug } = {}) {
   if (!slug) {
-    console.error("[supabase] fetchMessages requires a collection slug");
+    if (import.meta.env.DEV) console.error("[supabase] fetchMessages requires a collection slug");
     return [];
   }
   if (!CHAT_ENABLED) {
@@ -172,7 +172,7 @@ export async function fetchMessages({ tokenId = null, limit = 100, offset = 0, s
 
   const { data, error } = await query;
   if (error) {
-    console.error("[supabase] fetchMessages error:", error);
+    if (import.meta.env.DEV) console.error("[supabase] fetchMessages error:", error);
     return [];
   }
   return (data || []).map(rowToMsg);
@@ -185,11 +185,11 @@ export async function fetchMessages({ tokenId = null, limit = 100, offset = 0, s
  */
 export async function sendMessage({ author, text, tokenId = null, slug }) {
   if (!slug) {
-    console.error("[supabase] sendMessage requires a collection slug");
+    if (import.meta.env.DEV) console.error("[supabase] sendMessage requires a collection slug");
     return null;
   }
   if (!author) {
-    console.error("[supabase] sendMessage requires an author");
+    if (import.meta.env.DEV) console.error("[supabase] sendMessage requires an author");
     return null;
   }
   author = author.toLowerCase();
@@ -216,7 +216,7 @@ export async function sendMessage({ author, text, tokenId = null, slug }) {
     .single();
 
   if (error) {
-    console.error("[supabase] sendMessage error:", error);
+    if (import.meta.env.DEV) console.error("[supabase] sendMessage error:", error);
     return null;
   }
   return rowToMsg(data);
@@ -256,7 +256,7 @@ export async function toggleLike({ messageId, wallet, slug }) {
     // The RPC function is the only safe way to toggle likes atomically.
     // A read-then-write fallback would have a TOCTOU race condition where
     // concurrent likes could overwrite each other. Fail gracefully instead.
-    console.error("[supabase] toggleLike RPC unavailable:", error.message);
+    if (import.meta.env.DEV) console.error("[supabase] toggleLike RPC unavailable:", error.message);
     return null;
   }
   return rowToMsg(data);
@@ -269,7 +269,7 @@ export async function toggleLike({ messageId, wallet, slug }) {
  */
 export function subscribeToMessages(callback, { slug } = {}) {
   if (!slug) {
-    console.error("[supabase] subscribeToMessages requires a collection slug");
+    if (import.meta.env.DEV) console.error("[supabase] subscribeToMessages requires a collection slug");
     return { unsubscribe: () => {} };
   }
   if (!CHAT_ENABLED) {

@@ -59,15 +59,15 @@ export function ILCalculator() {
 
             {/* Results */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <div className="rounded-lg p-3 text-center" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+              <div className="rounded-lg p-3 text-center" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-1">IL</p>
                 <p className="stat-value text-[15px] text-danger">{ilPercent.toFixed(2)}%</p>
               </div>
-              <div className="rounded-lg p-3 text-center" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+              <div className="rounded-lg p-3 text-center" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-1">LP Value</p>
                 <p className="stat-value text-[13px] text-white">{formatCurrency(Math.max(lpValue, 0))}</p>
               </div>
-              <div className="rounded-lg p-3 text-center" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+              <div className="rounded-lg p-3 text-center" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-1">HODL Value</p>
                 <p className="stat-value text-[13px] text-white">{formatCurrency(Math.max(holdValue, 0))}</p>
               </div>

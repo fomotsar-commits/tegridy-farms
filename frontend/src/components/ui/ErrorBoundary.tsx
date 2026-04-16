@@ -58,7 +58,7 @@ export class ErrorBoundary extends Component<Props, State> {
         <div className="min-h-[200px] flex items-center justify-center px-6">
           <div className="text-center max-w-sm">
             <h2 className="heading-luxury text-2xl text-white mb-2">Something went wrong</h2>
-            <p className="text-white text-[13px] mb-6">Something went wrong. Please refresh.</p>
+            <p className="text-white text-[13px] mb-6">An unexpected error occurred. Please refresh the page to continue.</p>
             <button
               type="button"
               onClick={() => window.location.reload()}

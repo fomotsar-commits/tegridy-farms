@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useAccount, useWriteContract, usePublicClient } from 'wagmi';
+import { useAccount, useWriteContract, usePublicClient, useChainId } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { toast } from 'sonner';
 import { SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI, ERC20_ABI } from '../lib/contracts';
-import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, WETH_ADDRESS } from '../lib/constants';
+import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
 
 export interface LimitOrder {
   id: string;
@@ -28,6 +28,27 @@ const SLIPPAGE_BPS = 500n; // 5% slippage tolerance (500 / 10000)
 const MAX_FEE_BPS = 100n; // 1% max fee tolerance for SwapFeeRouter
 const MAX_ORDERS = 50;
 const MAX_AMOUNT = 1e15; // sanity cap for amount string parsing
+
+// Multi-tab mutex: prevent duplicate limit order execution across browser tabs.
+function claimTabLock(orderId: string): boolean {
+  try {
+    const key = `tegridy_limit_lock_${orderId}`;
+    const now = Date.now();
+    const existing = localStorage.getItem(key);
+    if (existing) {
+      const lockTime = parseInt(existing, 10);
+      if (now - lockTime < 60_000) return false;
+    }
+    localStorage.setItem(key, String(now));
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+function releaseTabLock(orderId: string) {
+  try { localStorage.removeItem(`tegridy_limit_lock_${orderId}`); } catch {}
+}
 
 function getStorageKey(address: string) {
   return `tegridy_limit_v${STORAGE_VERSION}_${address.toLowerCase()}`;
@@ -76,7 +97,7 @@ function loadOrders(address: string): LimitOrder[] {
     const now = Date.now();
     return parsed.orders.filter(isValidOrder).map(o => ({
       ...o,
-      status: o.status === 'active' && o.expiresAt < now ? 'expired' as const : o.status,
+      status: o.status === 'active' && o.expiresAt <= now ? 'expired' as const : o.status,
     }));
   } catch {
     return [];
@@ -111,6 +132,7 @@ function requestNotificationPermission() {
 }
 
 export function useLimitOrders() {
+  const chainId = useChainId();
   const { address } = useAccount();
   const publicClient = usePublicClient();
   const [orders, setOrders] = useState<LimitOrder[]>([]);
@@ -169,6 +191,7 @@ export function useLimitOrders() {
 
   const markFilled = useCallback((id: string) => {
     executingRef.current.delete(id);
+    releaseTabLock(id);
     setOrders(prev => {
       const updated = prev.map(o => o.id === id ? { ...o, status: 'filled' as const } : o);
       if (address) saveOrders(address, updated);
@@ -179,6 +202,7 @@ export function useLimitOrders() {
 
   const revertOrderStatus = useCallback((orderId: string) => {
     executingRef.current.delete(orderId);
+    releaseTabLock(orderId);
     setOrders(prev => {
       const updated = prev.map(o => o.id === orderId ? { ...o, status: 'active' as const } : o);
       if (address) saveOrders(address, updated);
@@ -205,7 +229,9 @@ export function useLimitOrders() {
 
   const executeOrder = useCallback(async (order: LimitOrder) => {
     if (!address || !writeContract || !publicClient) return;
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (executingRef.current.has(order.id)) return;
+    if (!claimTabLock(order.id)) return;
     executingRef.current.add(order.id);
 
     setOrders(prev => {
@@ -228,10 +254,10 @@ export function useLimitOrders() {
       return;
     }
     // Use BigInt math to avoid floating-point precision loss on large values.
-    // Scale both values by 1e8, multiply together with token decimals, then divide by 1e16 once.
-    const PRECISION = 100000000n; // 1e8
-    const targetPriceScaled = BigInt(Math.round(targetPriceNum * 1e8));
-    const amountScaled = BigInt(Math.round(amountNum * 1e8));
+    // Scale both values by 1e12, multiply together with token decimals, then divide by 1e24 once.
+    const PRECISION = 1000000000000n; // 1e12
+    const targetPriceScaled = BigInt(Math.round(targetPriceNum * 1e12));
+    const amountScaled = BigInt(Math.round(amountNum * 1e12));
     const expectedOut = (targetPriceScaled * amountScaled * (10n ** BigInt(order.toToken.decimals))) / (PRECISION * PRECISION);
     const minOut = expectedOut - (expectedOut * SLIPPAGE_BPS / 10000n);
 
@@ -312,7 +338,7 @@ export function useLimitOrders() {
     } catch {
       revertOrderStatus(order.id);
     }
-  }, [address, writeContract, publicClient, markFilled, revertOrderStatus, waitForReceipt]);
+  }, [address, chainId, writeContract, publicClient, markFilled, revertOrderStatus, waitForReceipt]);
 
   // Price polling: check active orders against on-chain price
   useEffect(() => {
@@ -331,7 +357,7 @@ export function useLimitOrders() {
         // Expire stale orders
         let hasExpired = false;
         const updated = currentOrders.map(o => {
-          if (o.status === 'active' && o.expiresAt <= now) {
+          if (o.status === 'active' && o.expiresAt < now) {
             hasExpired = true;
             return { ...o, status: 'expired' as const };
           }

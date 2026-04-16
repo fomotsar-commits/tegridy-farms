@@ -35,10 +35,10 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
             <div className="h-4 w-64 rounded bg-white/10 animate-pulse mt-1.5" />
           </div>
         </div>
-        <div className="rounded-xl p-6" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(139,92,246,0.15)' }}>
+        <div className="rounded-xl p-6" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid var(--color-purple-15)' }}>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.15)' }}>
+              <div key={i} className="rounded-lg p-3" style={{ background: 'var(--color-purple-15)', border: '1px solid var(--color-purple-15)' }}>
                 <div className="h-3 w-20 rounded bg-white/10 animate-pulse mb-2" />
                 <div className="h-5 w-24 rounded bg-white/10 animate-pulse" />
               </div>
@@ -62,26 +62,26 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
         {lpFarm.isActive && <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-500/20 text-green-400 border border-green-500/30">LIVE</span>}
       </div>
 
-      <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(139,92,246,0.75)' }}>
+      <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
         <div className="absolute inset-0">
           <img src={ART.smokingDuo.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
         </div>
         <div className="relative z-10 p-6">
           {/* Stats row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-            <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+            <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
               <p className="text-white text-[10px] mb-0.5">Total LP Staked</p>
               <p className="stat-value text-[14px] text-white font-mono">{formatTokenAmount(lpFarm.totalStakedFormatted)}</p>
             </div>
-            <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+            <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
               <p className="text-white text-[10px] mb-0.5">Reward Rate</p>
               <p className="stat-value text-[14px] text-white font-mono">{formatTokenAmount(String(lpFarm.rewardRatePerDay))} / day</p>
             </div>
-            <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+            <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
               <p className="text-white text-[10px] mb-0.5">Total Funded</p>
               <p className="stat-value text-[14px] text-white font-mono">{formatTokenAmount(lpFarm.totalRewardsFundedFormatted)} TOWELI</p>
             </div>
-            <div className="rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+            <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
               <p className="text-white text-[10px] mb-0.5">Period Ends</p>
               <p className="stat-value text-[14px] text-white font-mono">
                 {lpFarm.periodFinish > 0 ? new Date(lpFarm.periodFinish * 1000).toLocaleDateString() : '–'}
@@ -135,7 +135,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
               {/* Stake / Withdraw inputs */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Stake */}
-                <div className="rounded-lg p-4" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                <div className="rounded-lg p-4" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                   <p className="text-white text-[11px] mb-2 font-semibold uppercase tracking-wider label-pill">Stake LP</p>
                   <div className="flex gap-2 mb-2">
                     <input
@@ -176,7 +176,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                 </div>
 
                 {/* Withdraw */}
-                <div className="rounded-lg p-4" style={{ background: 'rgba(139,92,246,0.75)', border: '1px solid rgba(139,92,246,0.75)' }}>
+                <div className="rounded-lg p-4" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                   <p className="text-white text-[11px] mb-2 font-semibold uppercase tracking-wider label-pill">Withdraw LP</p>
                   <div className="flex gap-2 mb-2">
                     <input

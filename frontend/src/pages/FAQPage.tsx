@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ART } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -73,6 +73,25 @@ export default function FAQPage() {
   const [openIndex, setOpenIndex] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
+  // Inject FAQPage structured data for SEO rich results
+  useEffect(() => {
+    const allItems = FAQ_DATA.flatMap(s => s.items);
+    const jsonLd = {
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: allItems.map(item => ({
+        '@type': 'Question',
+        name: item.q,
+        acceptedAnswer: { '@type': 'Answer', text: item.a },
+      })),
+    };
+    const script = document.createElement('script');
+    script.type = 'application/ld+json';
+    script.textContent = JSON.stringify(jsonLd);
+    document.head.appendChild(script);
+    return () => { document.head.removeChild(script); };
+  }, []);
+
   const toggle = (key: string) => setOpenIndex(openIndex === key ? null : key);
 
   const filtered = FAQ_DATA.map((section) => ({
@@ -114,7 +133,7 @@ export default function FAQPage() {
         >
           <div
             className="rounded-xl px-4 py-3 flex items-center gap-3"
-            style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid rgba(139, 92, 246, 0.12)' }}
+            style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' }}
           >
             <svg className="w-5 h-5 text-gray-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -127,7 +146,7 @@ export default function FAQPage() {
               className="bg-transparent w-full text-white placeholder-gray-500 outline-none text-[16px]"
             />
             {search && (
-              <button onClick={() => setSearch('')} className="text-gray-500 hover:text-white text-lg leading-none">
+              <button onClick={() => setSearch('')} aria-label="Clear search" className="text-gray-500 hover:text-white text-lg leading-none">
                 &times;
               </button>
             )}
@@ -154,7 +173,7 @@ export default function FAQPage() {
             </h2>
             <div
               className="rounded-xl overflow-hidden divide-y divide-white/5"
-              style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid rgba(139, 92, 246, 0.12)' }}
+              style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' }}
             >
               {section.items.map((item, qIdx) => {
                 const key = `${sIdx}-${qIdx}`;

@@ -330,46 +330,36 @@ export function isAggregatorEnabled(): boolean {
   return true;
 }
 
-// ─── Aggregator Revenue Capture ──────────────────────────────────────
-// Pattern: 1inch/Paraswap positive slippage capture.
-// When aggregator finds a better rate than direct on-chain, capture a portion
-// of the improvement as protocol revenue. User ALWAYS gets more than direct.
+// ─── Aggregator Route Comparison ──────────────────────────────────────
+// Compares aggregator output vs direct on-chain output to decide routing.
+// The user always receives the full aggregator output — no protocol capture.
+// (Spread capture was removed: it was computed client-side only and never
+// enforced on-chain, so the UI was displaying fictional revenue numbers.)
 
-// Minimum improvement required before capturing any spread (0.5% = 50 bps)
-export const AGGREGATOR_IMPROVEMENT_THRESHOLD_BPS = 50;
-// Portion of improvement captured by protocol (50% = 5000 of 10000)
-export const AGGREGATOR_CAPTURE_BPS = 5000;
 const BPS = 10000;
 
 export interface AggregatorSpread {
   /** The improvement from aggregator vs direct (in output token units) */
   improvement: bigint;
-  /** Amount captured as protocol revenue */
-  protocolCapture: bigint;
-  /** Amount the user actually receives (always > onChainOutput) */
+  /** Amount the user actually receives (full aggregator output) */
   userReceives: bigint;
   /** User's savings vs direct swap in basis points */
   userSavingsBps: number;
-  /** Whether the aggregator route is worth using (above threshold) */
+  /** Whether the aggregator route is worth using */
   shouldUseAggregator: boolean;
 }
 
 /**
- * Calculate the aggregator spread between direct on-chain output and aggregator output.
- *
- * Hard invariant: userReceives > onChainOutput — ALWAYS.
- * If violated, returns shouldUseAggregator = false.
+ * Compare aggregator output vs direct on-chain output.
+ * User always receives the full aggregator output when it's better.
  */
 export function calculateAggregatorSpread(
   onChainOutput: bigint,
   aggregatorOutput: bigint,
-  captureBps: number = AGGREGATOR_CAPTURE_BPS,
 ): AggregatorSpread {
-  // No improvement or aggregator worse
   if (aggregatorOutput <= onChainOutput || onChainOutput === 0n) {
     return {
       improvement: 0n,
-      protocolCapture: 0n,
       userReceives: onChainOutput,
       userSavingsBps: 0,
       shouldUseAggregator: false,
@@ -377,41 +367,11 @@ export function calculateAggregatorSpread(
   }
 
   const improvement = aggregatorOutput - onChainOutput;
-  const improvementBps = Number((improvement * BigInt(BPS)) / onChainOutput);
-
-  // Below threshold — don't capture, pass full aggregator output to user
-  if (improvementBps < AGGREGATOR_IMPROVEMENT_THRESHOLD_BPS) {
-    return {
-      improvement,
-      protocolCapture: 0n,
-      userReceives: aggregatorOutput,
-      userSavingsBps: improvementBps,
-      shouldUseAggregator: true, // Still use aggregator, just don't capture
-    };
-  }
-
-  // Above threshold — capture a portion of the improvement
-  const protocolCapture = (improvement * BigInt(captureBps)) / BigInt(BPS);
-  const userReceives = aggregatorOutput - protocolCapture;
-
-  // Hard invariant: user must ALWAYS get more than direct on-chain
-  if (userReceives <= onChainOutput) {
-    // Safety fallback — give user full aggregator output, no capture
-    return {
-      improvement,
-      protocolCapture: 0n,
-      userReceives: aggregatorOutput,
-      userSavingsBps: improvementBps,
-      shouldUseAggregator: true,
-    };
-  }
-
-  const userSavingsBps = Number(((userReceives - onChainOutput) * BigInt(BPS)) / onChainOutput);
+  const userSavingsBps = Number((improvement * BigInt(BPS)) / onChainOutput);
 
   return {
     improvement,
-    protocolCapture,
-    userReceives,
+    userReceives: aggregatorOutput,
     userSavingsBps,
     shouldUseAggregator: true,
   };

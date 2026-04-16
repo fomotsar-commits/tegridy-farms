@@ -8,3 +8,16 @@ Thumbs.db
 standard-json-farm.json
 .claude/worktrees/
 .vercel/
+
+# Repo root clutter — images, audit artifacts, personal files
+# (allow frontend/public/ and frontend/src/assets/ images)
+/*.jpg
+/*.jpeg
+/*.png
+/*.gif
+/*.bmp
+/*.docx
+/*.xlsx
+CODEBASE_FULL.txt
+SECURITY_AUDIT_*.md
+findings_*.txt
