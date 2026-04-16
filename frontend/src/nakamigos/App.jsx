@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import "./App.css";
+// CSS imported eagerly in main.tsx to avoid Vite CSS preload errors on lazy chunks
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { TradingModeProvider, useTradingMode, LITE_HIDDEN_ALL } from "./contexts/TradingModeContext";
 import { WalletProvider, useWallet } from "./contexts/WalletContext";
