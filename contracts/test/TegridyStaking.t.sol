@@ -1034,14 +1034,15 @@ contract TegridyStakingTest is Test {
 
     // ===== E-09: FLASH LOAN JBAC BOOST =====
 
-    function test_jbac_boost_notGrantedAtStakeTime() public {
+    function test_jbac_boost_grantedAtStakeTime() public {
+        // M-01 FIX: JBAC boost is now applied at stake time
         vm.prank(alice);
         staking.stake(500_000 ether, 365 days);
 
         uint256 aliceId = staking.userTokenId(alice);
         (,uint256 boostBps,,,,) = staking.getPosition(aliceId);
         uint256 baseBoost = staking.calculateBoost(365 days);
-        assertEq(boostBps, baseBoost, "JBAC boost should NOT be granted at stake time");
+        assertEq(boostBps, baseBoost + 5000, "JBAC boost should be granted at stake time");
     }
 
     function test_jbac_boost_grantedAfterRevalidation() public {
@@ -1057,16 +1058,17 @@ contract TegridyStakingTest is Test {
         assertEq(boostBps, baseBoost + 5000, "JBAC boost should be granted after revalidation");
     }
 
-    function test_jbac_flashLoan_cannotGetBoost() public {
-        // Simulate flash-loan: alice has JBAC, stakes, then "returns" JBAC in same tx
+    function test_jbac_flashLoan_boostAppliedThenRemoved() public {
+        // M-01 FIX: JBAC boost IS now applied at stake time.
+        // Flash-loan protection: after returning NFT, revalidateBoost removes the boost.
         vm.prank(alice);
         staking.stake(500_000 ether, 365 days);
         uint256 aliceId = staking.userTokenId(alice);
 
-        // Even though alice holds JBAC at stake time, boost is NOT cached
+        // JBAC boost applied at stake time
         (,uint256 boostBps,,,,) = staking.getPosition(aliceId);
         uint256 baseBoost = staking.calculateBoost(365 days);
-        assertEq(boostBps, baseBoost, "Flash-loan JBAC should not yield a boost");
+        assertEq(boostBps, baseBoost + 5000, "JBAC boost should be applied at stake time");
 
         // Transfer JBAC away (simulating return of flash-borrowed NFT)
         vm.prank(alice);

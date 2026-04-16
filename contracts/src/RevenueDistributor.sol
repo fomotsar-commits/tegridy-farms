@@ -16,10 +16,11 @@ interface IVotingEscrow {
     function totalLocked() external view returns (uint256);
     function totalBoostedStake() external view returns (uint256);
     function userTokenId(address user) external view returns (uint256);
+    // H-01 FIX: Aligned to actual TegridyStaking.Position struct ABI order
     function positions(uint256 tokenId) external view returns (
-        uint256 amount, uint256 boostedAmount, uint256 boostBps, uint256 lockEnd,
-        uint256 lockDuration, bool autoMaxLock, int256 rewardDebt, uint256 lastStakeTime,
-        bool jbacBoosted
+        uint256 amount, uint256 boostedAmount, int256 rewardDebt, uint256 lockEnd,
+        uint256 boostBps, uint256 lockDuration, bool autoMaxLock, bool hasJbacBoost,
+        uint256 stakeTimestamp
     );
     function paused() external view returns (bool); // AUDIT FIX M-10: Check staking pause state
 }
@@ -543,9 +544,10 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     function _getUserLockState(address user) internal view returns (uint256 currentLocked, uint256 lockEnd) {
         try votingEscrow.userTokenId(user) returns (uint256 tokenId) {
             if (tokenId == 0) return (0, 0);
+            // H-01 FIX: Updated destructuring to match corrected ABI order
             try votingEscrow.positions(tokenId) returns (
-                uint256 amount, uint256, uint256, uint256 _lockEnd,
-                uint256, bool, int256, uint256, bool
+                uint256 amount, uint256, int256, uint256 _lockEnd,
+                uint256, uint256, bool, bool, uint256
             ) {
                 currentLocked = amount;
                 lockEnd = _lockEnd;
@@ -731,7 +733,12 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
                 uint256 userPower = votingEscrow.votingPowerAtTimestamp(user, epoch.timestamp);
                 if (userPower > 0) {
                     uint256 effectivePower = userPower > epoch.totalLocked ? epoch.totalLocked : userPower;
-                    total += (epoch.totalETH * effectivePower) / epoch.totalLocked;
+                    uint256 share = (epoch.totalETH * effectivePower) / epoch.totalLocked;
+                    // H-02 FIX: Apply per-epoch claimed cap (matches _calculateClaim write path)
+                    uint256 remaining = epoch.totalETH > epochClaimed[i]
+                        ? epoch.totalETH - epochClaimed[i] : 0;
+                    if (share > remaining) share = remaining;
+                    total += share;
                 }
             }
         }

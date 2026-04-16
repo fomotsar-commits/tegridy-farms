@@ -17,10 +17,11 @@ interface IVotingEscrow {
     function totalLocked() external view returns (uint256);
     function totalBoostedStake() external view returns (uint256);
     function userTokenId(address user) external view returns (uint256);
+    // H-01 FIX: Aligned to actual TegridyStaking.Position struct ABI order
     function positions(uint256 tokenId) external view returns (
-        uint256 amount, uint256 boostedAmount, uint256 boostBps, uint256 lockEnd,
-        uint256 lockDuration, bool autoMaxLock, int256 rewardDebt, uint256 lastStakeTime,
-        bool jbacBoosted
+        uint256 amount, uint256 boostedAmount, int256 rewardDebt, uint256 lockEnd,
+        uint256 boostBps, uint256 lockDuration, bool autoMaxLock, bool hasJbacBoost,
+        uint256 stakeTimestamp
     );
     function paused() external view returns (bool);
 }

@@ -604,9 +604,9 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///      AUDIT FIX H-04: If WETH transfer fails after wrapping, unwrap back to ETH to prevent
     ///      WETH from being permanently stuck in the contract (no WETH sweep function).
     function _transferETHOrWETH(address recipient, uint256 amount) internal returns (bool) {
-        // SECURITY FIX H-9: Use 10000 gas stipend to prevent cross-contract reentrancy.
-        // Matches WETHFallbackLib.safeTransferETHOrWrap() pattern (Solmate/Seaport lineage).
-        (bool success,) = recipient.call{value: amount, gas: 10000}("");
+        // M-02 FIX: Increased from 10k to 100k gas to support Gnosis Safe and smart contract
+        // treasury recipients. Reentrancy is already prevented by nonReentrant on executeProposal.
+        (bool success,) = recipient.call{value: amount, gas: 100_000}("");
         if (success) return true;
         // ETH transfer failed — try WETH fallback
         try IWETH(weth).deposit{value: amount}() {

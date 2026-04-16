@@ -640,6 +640,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         uint256 originalAmount = info.positionAmount;
         uint256 payout = recoverable > originalAmount ? originalAmount : recoverable;
 
+        // C-01 FIX: Require non-zero payout. Without this, calling when balance is fully reserved
+        // sets hasRecoveredPrincipal=true and deletes state, permanently locking out the user.
+        require(payout > 0, "NO_RECOVERABLE_BALANCE");
+
         // H-01 FIX: Mark as recovered before transfer (CEI pattern)
         hasRecoveredPrincipal[msg.sender] = true;
 

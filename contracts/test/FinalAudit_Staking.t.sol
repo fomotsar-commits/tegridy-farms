@@ -657,25 +657,25 @@ contract FinalAuditStaking is Test {
     // Not a vulnerability, but unnecessary storage reads/writes (gas waste).
     // ═══════════════════════════════════════════════════════════════════
 
-    function test_FA18_totalLockedAlwaysEqualsTotalStaked() public {
-        // V2: totalLocked tracking removed, always returns 0
+    function test_FA18_totalLockedTracksWithTotalStaked() public {
+        // M-03 FIX: totalLocked now tracks alongside totalStaked
         _stakeAs(alice, STAKE_AMOUNT, 365 days);
-        assertEq(staking.totalLocked(), 0, "V2: totalLocked always 0 after stake");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked should equal totalStaked after stake");
 
         _stakeAs(bob, STAKE_AMOUNT * 2, 30 days);
-        assertEq(staking.totalLocked(), 0, "V2: totalLocked always 0 after second stake");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked should equal totalStaked after second stake");
 
         uint256 bobTokenId = staking.userTokenId(bob);
         vm.prank(bob);
         staking.earlyWithdraw(bobTokenId);
-        assertEq(staking.totalLocked(), 0, "V2: totalLocked always 0 after early withdraw");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked should equal totalStaked after early withdraw");
 
         vm.warp(block.timestamp + 366 days);
         uint256 aliceTokenId = staking.userTokenId(alice);
         vm.prank(alice);
         staking.withdraw(aliceTokenId);
         assertEq(staking.totalStaked(), 0, "Both zero after all withdrawals");
-        assertEq(staking.totalLocked(), 0, "V2: totalLocked remains 0");
+        assertEq(staking.totalLocked(), 0, "totalLocked zero after all withdrawals");
     }
 
     // ═══════════════════════════════════════════════════════════════════

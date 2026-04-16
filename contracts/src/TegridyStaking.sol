@@ -170,6 +170,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     error NoPosition();
     error NotPositionOwner();
     error LockNotExpired();
+    error LockExpired(); // L-01 FIX: Semantically correct error for expired lock rejection
     error RateTooHigh(); // SECURITY FIX #13
     error AlreadyHasPosition(); // AUDIT FIX #2: Prevent _update() from overwriting userTokenId
     error StakeTooSmall(); // AUDIT FIX #33: Minimum stake enforcement
@@ -351,6 +352,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         if (userTokenId[msg.sender] != 0) revert AlreadyStaked();
 
         uint256 boost = calculateBoost(_lockDuration);
+        // M-01 FIX: Apply JBAC boost at stake time so holders don't need a separate revalidateBoost() call
+        bool holdsJbac = jbacNFT.balanceOf(msg.sender) > 0;
+        if (holdsJbac) boost += JBAC_BONUS_BPS;
         uint256 boosted = (_amount * boost) / BOOST_PRECISION;
 
         uint256 tokenId = _nextTokenId++;
@@ -362,13 +366,14 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             boostBps: uint16(boost),
             lockDuration: uint32(_lockDuration),
             autoMaxLock: false,
-            hasJbacBoost: false,
+            hasJbacBoost: holdsJbac,
             stakeTimestamp: uint64(block.timestamp)
         });
 
         totalStaked += _amount;
         totalBoostedStake += boosted;
-        // totalLocked removed (redundant with totalStaked per audit L-22)
+        // M-03 FIX: Keep totalLocked in sync with totalStaked
+        totalLocked += _amount;
 
         _mint(msg.sender, tokenId); // _update() sets userTokenId[msg.sender] = tokenId
         rewardToken.safeTransferFrom(msg.sender, address(this), _amount);
@@ -438,7 +443,8 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         if (_additionalAmount < MIN_STAKE) revert StakeTooSmall(); // AUDIT FIX: prevent dust spam
         // AUDIT FIX: reject increase on expired positions — would create zombie boosted stake
         // that dilutes all active stakers' rewards without earning anything
-        if (p.lockEnd > 0 && block.timestamp >= p.lockEnd) revert LockNotExpired();
+        // L-01 FIX: Error name was semantically inverted — lock HAS expired, not "not expired"
+        if (p.lockEnd > 0 && block.timestamp >= p.lockEnd) revert LockExpired();
 
         // Claim pending rewards before changing position (_getReward handles decay internally)
         _getReward(tokenId, p);
@@ -958,6 +964,8 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         amount = p.amount;
         totalStaked -= amount;
         totalBoostedStake -= p.boostedAmount;
+        // M-03 FIX: Keep totalLocked in sync
+        if (totalLocked >= amount) totalLocked -= amount;
         delete positions[tokenId];
         delete emergencyExitRequests[tokenId];
         userTokenId[msg.sender] = 0;
@@ -976,6 +984,12 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         if (settled > 0) {
             unsettledRewards[user] += settled;
             totalUnsettledRewards += settled;
+        }
+        // M-04 FIX: Redirect forfeited rewards to treasury instead of destroying them
+        uint256 forfeited = amount - settled;
+        if (forfeited > 0) {
+            unsettledRewards[treasury] += forfeited;
+            totalUnsettledRewards += forfeited;
         }
     }
 

@@ -9,10 +9,11 @@ import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 
 /// @dev Minimal interface for TegridyStaking voting power queries.
 interface ITegridyStakingGauge {
+    // H-01 FIX: Aligned to actual TegridyStaking.Position struct ABI order
     function positions(uint256 tokenId) external view returns (
-        uint256 amount, uint256 boostedAmount, uint256 boostBps, uint256 lockEnd,
-        uint256 lockDuration, bool autoMaxLock, int256 rewardDebt, uint256 lastStakeTime,
-        bool jbacBoosted
+        uint256 amount, uint256 boostedAmount, int256 rewardDebt, uint256 lockEnd,
+        uint256 boostBps, uint256 lockDuration, bool autoMaxLock, bool hasJbacBoost,
+        uint256 stakeTimestamp
     );
     function ownerOf(uint256 tokenId) external view returns (address);
 }
@@ -152,7 +153,8 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (lastVotedEpoch[tokenId] == epoch) revert AlreadyVotedThisEpoch();
 
         // Compute voting power from staking position
-        (uint256 amount,, uint256 boostBps, uint256 lockEnd,,,,,) = tegridyStaking.positions(tokenId);
+        // H-01 FIX: Updated destructuring to match corrected ABI order
+        (uint256 amount,,, uint256 lockEnd, uint256 boostBps,,,,) = tegridyStaking.positions(tokenId);
         if (amount == 0 || block.timestamp >= lockEnd) revert LockExpired();
         uint256 votingPower = (amount * boostBps) / BOOST_PRECISION;
         if (votingPower == 0) revert ZeroVotingPower();

@@ -435,13 +435,13 @@ contract Audit195StakingRewards is Test {
 
     /// @notice revalidateBoost should claim rewards, recalculate boost, reset debt
     function test_revalidateBoost_claimsAndResetsDebt() public {
-        // Alice has JBAC, stake without JBAC boost initially (hasJbacBoost=false on stake)
+        // M-01 FIX: Alice has JBAC — boost is now applied at stake time
         vm.prank(alice); staking.stake(10000 ether, 365 days);
         uint256 tokenId = staking.userTokenId(alice);
 
-        // Position starts WITHOUT jbac boost — revalidateBoost should add it
+        // Position starts WITH jbac boost (M-01 fix)
         (,,,,,,, bool hasJbac,) = staking.positions(tokenId);
-        assertFalse(hasJbac, "Initially no JBAC boost");
+        assertTrue(hasJbac, "JBAC boost applied at stake time");
 
         // Advance time so there are pending rewards to claim
         vm.warp(block.timestamp + 100);
