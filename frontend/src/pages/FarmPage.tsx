@@ -20,7 +20,8 @@ import { useLPFarming } from '../hooks/useLPFarming';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { usePoints } from '../hooks/usePoints';
 import { useAutoReset } from '../hooks/useAutoReset';
-import { parseEther } from 'viem';
+import { useRestaking } from '../hooks/useRestaking';
+import { parseEther, formatEther } from 'viem';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 
 import { FarmStatsRow } from '../components/farm/FarmStatsRow';
@@ -87,6 +88,7 @@ export default function FarmPage() {
 
   const poolTVL = usePoolTVL();
   const lpFarm = useLPFarming();
+  const restaking = useRestaking();
 
   // Auto-dismiss confirmation dialogs after 5 seconds (regular withdrawals only).
   // Emergency exit is a dangerous financial action — never auto-dismiss.
@@ -245,6 +247,78 @@ export default function FarmPage() {
 
         {/* ── LP Farming ── */}
         <LPFarmingSection lpFarm={lpFarm} isConnected={isConnected} />
+
+        {/* ── Restaking (Bonus Yield Layer) ── */}
+        {isConnected && pos.hasPosition && (
+          <motion.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="heading-luxury text-white text-[22px] tracking-tight">Restaking</h2>
+                <p className="text-white text-[13px] mt-0.5">Earn bonus TOWELI rewards on top of your staking position</p>
+              </div>
+              {restaking.bonusAPR > 0 && (
+                <span className="stat-value text-[15px] text-green-400">+{restaking.bonusAPR.toFixed(1)}% Bonus APR</span>
+              )}
+            </div>
+            <div className="glass-card p-5 rounded-xl" style={{ border: '1px solid var(--color-purple-12)' }}>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+                <div>
+                  <p className="text-white/50 text-[10px] uppercase tracking-wider mb-0.5">Status</p>
+                  <p className="stat-value text-[14px]" style={{ color: restaking.isRestaked ? '#22c55e' : 'var(--color-purple-75)' }}>
+                    {restaking.isRestaked ? 'Active' : 'Not Restaked'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-white/50 text-[10px] uppercase tracking-wider mb-0.5">Restaked</p>
+                  <p className="stat-value text-[14px] text-white">{restaking.restakedFormatted.toLocaleString()} TOWELI</p>
+                </div>
+                <div>
+                  <p className="text-white/50 text-[10px] uppercase tracking-wider mb-0.5">Pending Rewards</p>
+                  <p className="stat-value text-[14px] text-green-400">{restaking.pendingTotalFormatted.toFixed(4)} TOWELI</p>
+                </div>
+                <div>
+                  <p className="text-white/50 text-[10px] uppercase tracking-wider mb-0.5">Total Restaked (Protocol)</p>
+                  <p className="stat-value text-[14px] text-white">{restaking.totalRestakedFormatted.toLocaleString()}</p>
+                </div>
+              </div>
+              {restaking.pendingTotalFormatted > 0 && (
+                <div className="flex items-center gap-3 mb-4 px-3 py-2 rounded-lg" style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)' }}>
+                  <span className="text-white/60 text-[11px]">Base: {restaking.pendingBaseFormatted.toFixed(4)}</span>
+                  <span className="text-white/30">+</span>
+                  <span className="text-green-400 text-[11px]">Bonus: {restaking.pendingBonusFormatted.toFixed(4)}</span>
+                </div>
+              )}
+              <div className="flex gap-3">
+                {!restaking.isRestaked ? (
+                  <button
+                    onClick={restaking.restake}
+                    disabled={restaking.isPending || restaking.isConfirming}
+                    className="btn-primary px-6 py-2.5 min-h-[44px] text-[13px] flex-1"
+                  >
+                    {restaking.isPending ? 'Confirm in wallet...' : restaking.isConfirming ? 'Confirming...' : 'Restake Position'}
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={restaking.claimAll}
+                      disabled={restaking.isPending || restaking.isConfirming || restaking.pendingTotal === 0n}
+                      className="btn-primary px-6 py-2.5 min-h-[44px] text-[13px] flex-1"
+                    >
+                      {restaking.isPending ? 'Confirm...' : restaking.isConfirming ? 'Confirming...' : `Claim ${restaking.pendingTotalFormatted.toFixed(4)} TOWELI`}
+                    </button>
+                    <button
+                      onClick={restaking.unrestake}
+                      disabled={restaking.isPending || restaking.isConfirming}
+                      className="btn-outline px-4 py-2.5 min-h-[44px] text-[13px]"
+                    >
+                      Unrestake
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12">
           {/* Staking Card */}
