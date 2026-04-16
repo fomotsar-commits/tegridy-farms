@@ -101,6 +101,10 @@ export default defineConfig(({ mode }) => {
     build: {
       target: 'es2023',
       sourcemap: 'hidden',
+      // Fix: CSS preload errors on lazy-loaded chunks (Nakamigos App.css)
+      // Vite's modulePreload inserts <link rel="modulepreload"> that can fail on some CDNs
+      cssCodeSplit: true,
+      modulePreload: { polyfill: false },
       rollupOptions: {
         output: {
           manualChunks(id) {
