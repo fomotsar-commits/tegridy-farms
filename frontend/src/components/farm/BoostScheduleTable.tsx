@@ -25,9 +25,11 @@ function calculateBoost(durationSec: number): number {
 
 interface BoostScheduleTableProps {
   selectedLockLabel: string;
+  apr?: string;
 }
 
-export function BoostScheduleTable({ selectedLockLabel }: BoostScheduleTableProps) {
+export function BoostScheduleTable({ selectedLockLabel, apr }: BoostScheduleTableProps) {
+  const baseApr = parseFloat(apr || '0');
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
       <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
@@ -51,7 +53,8 @@ export function BoostScheduleTable({ selectedLockLabel }: BoostScheduleTableProp
                 <span className="text-white text-[13px]">{opt.label}</span>
                 <div className="flex items-center gap-3">
                   <span className="stat-value text-[14px] text-white">{(b / 10000).toFixed(2)}x</span>
-                  <span className="text-white text-[11px]">({(withNft / 10000).toFixed(2)}x w/NFT)</span>
+                  {baseApr > 0 && <span className="text-emerald-400 text-[11px] font-mono">{(baseApr * b / 10000).toFixed(1)}% APY</span>}
+                  {baseApr === 0 && <span className="text-white text-[11px]">({(withNft / 10000).toFixed(2)}x w/NFT)</span>}
                 </div>
               </div>
             );

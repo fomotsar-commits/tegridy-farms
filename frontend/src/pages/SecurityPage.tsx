@@ -102,6 +102,10 @@ export default function SecurityPage() {
                 <div key={item} className="flex items-start gap-2 text-gray-300 text-sm"><span className="mt-0.5"><CheckIcon /></span>{item}</div>
               ))}
             </div>
+            <a href="/audit-report.pdf" target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 mt-5 px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-purple-600 hover:bg-purple-500 transition-colors">
+              Download Full Audit Report (PDF)
+            </a>
           </div>
         </motion.section>
 
@@ -156,7 +160,8 @@ export default function SecurityPage() {
                   <div className="text-xs text-gray-400 font-mono break-all">{c.address}</div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <a href={`https://etherscan.io/address/${c.address}`} target="_blank" rel="noopener noreferrer" className="text-xs text-purple-400 hover:text-purple-300 transition-colors">View on Etherscan</a>
+                  <span className="text-[10px] text-emerald-400 flex items-center gap-1">&#10003; Verified</span>
+                  <a href={`https://etherscan.io/address/${c.address}`} target="_blank" rel="noopener noreferrer" className="text-xs text-purple-400 hover:text-purple-300 transition-colors">Etherscan</a>
                   <button onClick={() => copyAddr(c.address)} className="text-gray-400 hover:text-white transition-colors p-2 min-w-[44px] min-h-[44px] flex items-center justify-center" title="Copy address" aria-label="Copy address">
                     {copied === c.address ? <span className="text-green-400 text-xs">Copied</span> : <CopyIcon />}
                   </button>

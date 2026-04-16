@@ -44,6 +44,7 @@ interface StakingCardProps {
   input: StakeInputState;
   confirms: ConfirmState;
   setConfirm: (key: keyof ConfirmState, val: boolean) => void;
+  pool?: { apr: string; isDeployed: boolean };
   computed: {
     boostDisplay: string;
     totalBoostBps: number;
@@ -57,7 +58,7 @@ interface StakingCardProps {
 
 export function StakingCard({
   isConnected, pos, actions, nft,
-  input, confirms, setConfirm, computed,
+  input, confirms, setConfirm, pool, computed,
   handleStake, lastActionRef,
 }: StakingCardProps) {
   const { amount: stakeAmount, setAmount: setStakeAmount, lock: selectedLock, setLock: setSelectedLock, extendLockDuration, setExtendLockDuration } = input;
@@ -332,6 +333,33 @@ export function StakingCard({
                 </>
               )}
             </div>
+
+            {/* Yield Projections — shows estimated earnings based on current APR and selected boost */}
+            {amtNum > 0 && pool?.isDeployed && parseFloat(pool.apr) > 0 && (
+              <div className="rounded-lg p-4 mb-4" style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)' }}>
+                <p className="text-emerald-400 text-[11px] font-semibold mb-2 uppercase tracking-wider">Projected Earnings</p>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label: '30 Days', days: 30 },
+                    { label: '90 Days', days: 90 },
+                    { label: '1 Year', days: 365 },
+                  ].map(({ label, days }) => {
+                    const boostedApr = parseFloat(pool.apr) * (totalBoostBps / 10000);
+                    const projected = amtNum * (boostedApr / 100) * (days / 365);
+                    return (
+                      <div key={label} className="text-center">
+                        <p className="text-white/40 text-[9px] uppercase mb-0.5">{label}</p>
+                        <p className="stat-value text-white text-[13px]">{projected < 0.01 ? '<0.01' : projected.toFixed(2)}</p>
+                        <p className="text-white/30 text-[9px]">TOWELI</p>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-white/30 text-[9px] mt-2 text-center">
+                  Based on {pool.apr}% base APR × {boostDisplay}x boost. Rates change with total staked.
+                </p>
+              </div>
+            )}
 
             <button onClick={handleStake}
               disabled={actions.isPending || actions.isConfirming || amtNum <= 0}

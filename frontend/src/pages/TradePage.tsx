@@ -18,6 +18,7 @@ export default function TradePage() {
   const { isConnected } = useAccount();
   const [tab, setTab] = useState<Tab>('swap');
   const [showTokenSelect, setShowTokenSelect] = useState<'from' | 'to' | null>(null);
+  const [showRouteDetails, setShowRouteDetails] = useState(false);
 
   useEffect(() => { trackPageView('trade'); }, []);
 
@@ -125,6 +126,42 @@ export default function TradePage() {
                       <div className="flex justify-between text-white/50 mt-1">
                         <span>Min. Received</span>
                         <span className="text-white/70">{formatTokenAmount(swap.minimumReceived)} {swap.toToken?.symbol}</span>
+                      </div>
+                    )}
+                    {swap.priceImpact > 5 && (
+                      <div className="mt-2 px-2 py-1.5 rounded text-[10px] text-red-400 font-medium" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                        High price impact! Consider reducing your trade size.
+                      </div>
+                    )}
+                    {swap.allAggQuotes && swap.allAggQuotes.length > 0 && (
+                      <div className="mt-2">
+                        <button onClick={() => setShowRouteDetails(!showRouteDetails)}
+                          className="text-[10px] text-white/40 hover:text-white/70 transition-colors">
+                          {showRouteDetails ? 'Hide route details' : `Compare all ${swap.allAggQuotes.length + 2} routes`}
+                        </button>
+                        {showRouteDetails && (
+                          <div className="mt-2 space-y-1">
+                            {swap.hasTegridyPair && swap.tegridyOutputFormatted && (
+                              <div className="flex justify-between text-[10px] px-2 py-1 rounded" style={{ background: swap.selectedRoute === 'tegridy' ? 'rgba(16,185,129,0.1)' : 'transparent' }}>
+                                <span className="text-white/60">Tegridy DEX {swap.selectedRoute === 'tegridy' && <span className="text-emerald-400 ml-1">Best</span>}</span>
+                                <span className="text-white/70 font-mono">{formatTokenAmount(swap.tegridyOutputFormatted)}</span>
+                              </div>
+                            )}
+                            {swap.uniOutputFormatted && (
+                              <div className="flex justify-between text-[10px] px-2 py-1 rounded" style={{ background: swap.selectedRoute === 'uniswap' ? 'rgba(16,185,129,0.1)' : 'transparent' }}>
+                                <span className="text-white/60">Uniswap V2 {swap.selectedRoute === 'uniswap' && <span className="text-emerald-400 ml-1">Best</span>}</span>
+                                <span className="text-white/70 font-mono">{formatTokenAmount(swap.uniOutputFormatted)}</span>
+                              </div>
+                            )}
+                            {swap.allAggQuotes.map((q: { source: string; amountOut: string }) => (
+                              <div key={q.source} className="flex justify-between text-[10px] px-2 py-1 rounded"
+                                style={{ background: swap.selectedRoute === 'aggregator' && swap.bestAggregatorName === q.source ? 'rgba(16,185,129,0.1)' : 'transparent' }}>
+                                <span className="text-white/60">{q.source} {swap.selectedRoute === 'aggregator' && swap.bestAggregatorName === q.source && <span className="text-emerald-400 ml-1">Best</span>}</span>
+                                <span className="text-white/70 font-mono">{formatTokenAmount(q.amountOut)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

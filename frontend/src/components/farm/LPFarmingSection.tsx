@@ -5,6 +5,7 @@ import { ART } from '../../lib/artConfig';
 import { formatTokenAmount } from '../../lib/formatting';
 import { parseEther } from 'viem';
 import type { useLPFarming } from '../../hooks/useLPFarming';
+import { ILCalculator } from './ILCalculator';
 
 type LPFarmHook = ReturnType<typeof useLPFarming>;
 
@@ -200,6 +201,19 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                     {lpFarm.isPending || lpFarm.isConfirming ? 'Withdrawing...' : 'Withdraw'}
                   </button>
                 </div>
+              </div>
+
+              {/* IL Warning for first-time LP stakers */}
+              {lpFarm.stakedBalance === 0n && (
+                <div className="rounded-lg p-3 mt-4 text-[11px]" style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)' }}>
+                  <p className="text-amber-400 font-medium mb-1">Impermanent loss risk</p>
+                  <p className="text-white/60">When TOWELI price changes relative to ETH, your LP position may be worth less than holding the tokens separately. Farm rewards can offset this over time.</p>
+                </div>
+              )}
+
+              {/* IL Calculator */}
+              <div className="mt-4">
+                <ILCalculator />
               </div>
             </>
           )}
