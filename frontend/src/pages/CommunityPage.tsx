@@ -125,6 +125,7 @@ export default function CommunityPage() {
                 {section === 'bounties' && <SectionPlaceholder title="Meme Bounties" />}
                 {section === 'bribes' && <SectionPlaceholder title="Vote Incentives" />}
                 {section === 'gauges' && <GaugeVoting />}
+              </Suspense>
             </ErrorBoundary>
           </motion.div>
         )}

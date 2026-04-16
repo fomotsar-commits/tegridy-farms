@@ -30,7 +30,7 @@ const BOUNTY_TIERS = [
   { severity: 'Low', reward: '$500', color: '#22c55e' },
 ];
 
-const glass = { background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' };
+const glass = { background: 'rgba(13, 21, 48, 0.88)', border: '1px solid var(--color-purple-12)' };
 
 function ShieldIcon() {
   return (<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="1.5"><path d="M12 2l7 4v5c0 5.25-3.5 9.74-7 11-3.5-1.26-7-5.75-7-11V6l7-4z"/></svg>);

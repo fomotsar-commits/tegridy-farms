@@ -284,6 +284,14 @@ export function buildExitDOM(
 
   const cleanup = () => {
     style.remove();
+    // Remove all exit DOM elements from the overlay to prevent visual artifacts
+    shakeWrap.remove();
+    flash.remove();
+    ring.remove();
+    // Remove any remaining children appended to the overlay (sparks, etc.)
+    while (overlay.lastChild && overlay.lastChild !== overlay.firstChild) {
+      overlay.removeChild(overlay.lastChild);
+    }
   };
 
   return { shards: ragdollShards, cleanup };
