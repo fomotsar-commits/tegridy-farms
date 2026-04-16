@@ -113,7 +113,7 @@ function AnimatedRoutes() {
     <ScrollToTop />
     <Routes>
       {/* Nakamigos marketplace — renders outside AppLayout (has its own header/footer/background) */}
-      <Route path="nakamigos/*" element={<Suspense fallback={<PageSkeleton />}><NakamigosApp /></Suspense>} />
+      <Route path="nakamigos/*" element={<NakamigosApp />} />
       <Route element={<AppLayout />}>
         <Route index element={<Suspense fallback={<PageSkeleton />}><HomePage /></Suspense>} />
         <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><FarmPage /></Suspense>} />
