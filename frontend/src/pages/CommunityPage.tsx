@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -6,11 +6,17 @@ import { ART } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 
-const GrantsPage = lazy(() => import('./GrantsPage'));
-const BountyPage = lazy(() => import('./BountyPage'));
-const BribesPage = lazy(() => import('./BribesPage'));
-
 import { GaugeVoting } from '../components/GaugeVoting';
+
+// Placeholder for consolidated pages (originals deleted in audit cleanup)
+function SectionPlaceholder({ title }: { title: string }) {
+  return (
+    <div className="glass-card rounded-xl p-8 text-center">
+      <h3 className="heading-luxury text-white text-lg mb-2">{title}</h3>
+      <p className="text-white/60 text-[13px]">This section is being rebuilt as part of the V2 consolidation. Use Gauge Voting for active governance.</p>
+    </div>
+  );
+}
 
 type Section = 'grants' | 'bounties' | 'bribes' | 'gauges';
 
@@ -115,11 +121,10 @@ export default function CommunityPage() {
                   </div>
                 </div>
               }>
-                {section === 'grants' && <GrantsPage embedded />}
-                {section === 'bounties' && <BountyPage embedded />}
-                {section === 'bribes' && <BribesPage embedded />}
+                {section === 'grants' && <SectionPlaceholder title="Governance Grants" />}
+                {section === 'bounties' && <SectionPlaceholder title="Meme Bounties" />}
+                {section === 'bribes' && <SectionPlaceholder title="Vote Incentives" />}
                 {section === 'gauges' && <GaugeVoting />}
-              </Suspense>
             </ErrorBoundary>
           </motion.div>
         )}

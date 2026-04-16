@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -8,8 +8,15 @@ import { LendingSection } from '../components/nftfinance/LendingSection';
 import { AMMSection } from '../components/nftfinance/AMMSection';
 import { NFTLendingSection } from '../components/nftfinance/NFTLendingSection';
 
-const LaunchpadPage = lazy(() => import('./LaunchpadPage'));
-const RestakePage = lazy(() => import('./RestakePage'));
+// Launchpad and Restake pages consolidated — originals deleted in audit cleanup
+function ConsolidatedPlaceholder({ title }: { title: string }) {
+  return (
+    <div className="glass-card rounded-xl p-8 text-center">
+      <h3 className="heading-luxury text-white text-lg mb-2">{title}</h3>
+      <p className="text-white/60 text-[13px]">This section is being rebuilt as part of the V2 consolidation.</p>
+    </div>
+  );
+}
 
 type Section = 'lending' | 'nftlending' | 'amm' | 'launchpad';
 
@@ -184,23 +191,10 @@ export default function LendingPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
           >
-            {section === 'lending' && (
-              <>
-                <LendingSection address={address} />
-                <div className="mt-8">
-                  <Suspense fallback={<SectionLoader />}>
-                    <RestakePage embedded />
-                  </Suspense>
-                </div>
-              </>
-            )}
+            {section === 'lending' && <LendingSection address={address} />}
             {section === 'nftlending' && <NFTLendingSection />}
             {section === 'amm' && <AMMSection />}
-            {section === 'launchpad' && (
-              <Suspense fallback={<SectionLoader />}>
-                <LaunchpadPage embedded />
-              </Suspense>
-            )}
+            {section === 'launchpad' && <ConsolidatedPlaceholder title="Launchpad" />}
           </motion.div>
         )}
       </div>
