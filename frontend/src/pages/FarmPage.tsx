@@ -3,7 +3,8 @@ import { motion } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { Link } from 'react-router-dom';
 import { ART } from '../lib/artConfig';
-import { MIN_LOCK_DURATION, MAX_LOCK_DURATION, MIN_BOOST_BPS, MAX_BOOST_BPS, JBAC_BONUS_BPS, CURRENT_SEASON } from '../lib/constants';
+import { JBAC_BONUS_BPS, CURRENT_SEASON } from '../lib/constants';
+import { calculateBoost } from '../lib/boostCalculations';
 import { useFarmStats } from '../hooks/useFarmStats';
 import { usePoolData } from '../hooks/usePoolData';
 import { useUserPosition } from '../hooks/useUserPosition';
@@ -21,7 +22,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { usePoints } from '../hooks/usePoints';
 import { useAutoReset } from '../hooks/useAutoReset';
 import { useRestaking } from '../hooks/useRestaking';
-import { parseEther, formatEther } from 'viem';
+import { parseEther } from 'viem';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 
 import { FarmStatsRow } from '../components/farm/FarmStatsRow';
@@ -43,15 +44,6 @@ const LOCK_OPTIONS = [
   { label: '2 Years', seconds: 730 * 86400 },
   { label: '4 Years', seconds: 1460 * 86400 },
 ];
-
-function calculateBoost(durationSec: number): number {
-  if (durationSec <= MIN_LOCK_DURATION) return MIN_BOOST_BPS;
-  if (durationSec >= MAX_LOCK_DURATION) return MAX_BOOST_BPS;
-  const range = MAX_LOCK_DURATION - MIN_LOCK_DURATION;
-  const boostRange = MAX_BOOST_BPS - MIN_BOOST_BPS;
-  const elapsed = durationSec - MIN_LOCK_DURATION;
-  return MIN_BOOST_BPS + (elapsed * boostRange) / range;
-}
 
 export default function FarmPage() {
   usePageTitle('Farm');

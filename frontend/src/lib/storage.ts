@@ -4,6 +4,7 @@
 
 /** Rough estimate of remaining localStorage space (returns bytes). */
 function estimateRemainingQuota(): number {
+  if (typeof localStorage === 'undefined') return 5_242_880;
   try {
     let used = 0;
     for (let i = 0; i < localStorage.length; i++) {
@@ -11,8 +12,8 @@ function estimateRemainingQuota(): number {
       if (k) used += k.length + (localStorage.getItem(k)?.length ?? 0);
     }
     // Most browsers give 5 MB (~5_242_880 chars in UTF-16 = ~10 MB bytes).
-    // We use a conservative 5 MB char budget.
-    const BUDGET = 5_242_880;
+    // Halved for UTF-16 safety — each JS char can be 2 bytes.
+    const BUDGET = 2_621_440;
     return Math.max(0, BUDGET - used);
   } catch {
     return 0;
@@ -24,6 +25,7 @@ function estimateRemainingQuota(): number {
  * Entries with a JSON `ts` field are sorted oldest-first; others are evicted first.
  */
 function evictOldEntries(bytesNeeded: number): boolean {
+  if (typeof localStorage === 'undefined') return false;
   try {
     const entries: { key: string; ts: number }[] = [];
     for (let i = 0; i < localStorage.length; i++) {

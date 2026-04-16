@@ -7,16 +7,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { LendingSection } from '../components/nftfinance/LendingSection';
 import { AMMSection } from '../components/nftfinance/AMMSection';
 import { NFTLendingSection } from '../components/nftfinance/NFTLendingSection';
-
-// Launchpad and Restake pages consolidated — originals deleted in audit cleanup
-function ConsolidatedPlaceholder({ title }: { title: string }) {
-  return (
-    <div className="glass-card rounded-xl p-8 text-center">
-      <h3 className="heading-luxury text-white text-lg mb-2">{title}</h3>
-      <p className="text-white/60 text-[13px]">This section is being rebuilt as part of the V2 consolidation.</p>
-    </div>
-  );
-}
+import { LaunchpadSection } from '../components/nftfinance/LaunchpadSection';
 
 type Section = 'lending' | 'nftlending' | 'amm' | 'launchpad';
 
@@ -146,6 +137,8 @@ export default function LendingPage() {
         <motion.div
           className="flex overflow-x-auto gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit no-scrollbar snap-x snap-mandatory"
           style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
+          role="tablist"
+          aria-label="NFT Finance sections"
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
@@ -153,6 +146,9 @@ export default function LendingPage() {
           {SECTIONS.map(({ key, label }) => (
             <button
               key={key}
+              role="tab"
+              aria-selected={section === key}
+              aria-controls={`nft-finance-panel-${key}`}
               className={`relative px-3 py-2 md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 whitespace-nowrap snap-start flex-shrink-0 ${
                 section === key
                   ? 'text-white'
@@ -194,6 +190,9 @@ export default function LendingPage() {
         ) : (
           <motion.div
             key={section}
+            role="tabpanel"
+            id={`nft-finance-panel-${section}`}
+            aria-label={`${SECTIONS.find(s => s.key === section)?.label} panel`}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
@@ -201,7 +200,7 @@ export default function LendingPage() {
             {section === 'lending' && <LendingSection address={address} />}
             {section === 'nftlending' && <NFTLendingSection />}
             {section === 'amm' && <AMMSection />}
-            {section === 'launchpad' && <ConsolidatedPlaceholder title="Launchpad" />}
+            {section === 'launchpad' && <LaunchpadSection />}
           </motion.div>
         )}
       </div>
@@ -209,28 +208,3 @@ export default function LendingPage() {
   );
 }
 
-function SectionLoader() {
-  return (
-    <div className="space-y-4 animate-pulse">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {[1, 2, 3].map(i => (
-          <div key={i} className="rounded-xl p-5" style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}>
-            <div className="h-3 rounded w-16 mx-auto mb-2" style={{ background: 'rgba(255,255,255,0.25)' }} />
-            <div className="h-7 rounded w-14 mx-auto" style={{ background: 'rgba(255,255,255,0.08)' }} />
-          </div>
-        ))}
-      </div>
-      <div className="rounded-2xl p-6" style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}>
-        <div className="h-5 rounded w-40 mb-6" style={{ background: 'rgba(255,255,255,0.08)' }} />
-        <div className="space-y-4">
-          <div className="h-12 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }} />
-          <div className="grid grid-cols-2 gap-4">
-            <div className="h-12 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }} />
-            <div className="h-12 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }} />
-          </div>
-          <div className="h-14 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)' }} />
-        </div>
-      </div>
-    </div>
-  );
-}

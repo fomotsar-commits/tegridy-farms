@@ -6,6 +6,7 @@ import { ERC20_ABI, SWAP_FEE_ROUTER_ABI, TEGRIDY_ROUTER_ABI } from '../lib/contr
 import { WETH_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, TEGRIDY_ROUTER_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { type TokenInfo, DEFAULT_TOKENS } from '../lib/tokenList';
 import { decodeRevertReason } from '../lib/revertDecoder';
+import { trackSwap } from '../lib/analytics';
 import { useSwapQuote } from './useSwapQuote';
 import { useSwapAllowance } from './useSwapAllowance';
 
@@ -115,6 +116,7 @@ export function useSwap() {
           onClick: () => window.open(`https://etherscan.io/tx/${hash}`, '_blank'),
         },
       });
+      trackSwap(fromToken?.symbol ?? '', toToken?.symbol ?? '', inputAmount, quote.selectedRoute);
       const t = setTimeout(() => { reset(); setInputAmount(''); }, 4000);
       return () => clearTimeout(t);
     }

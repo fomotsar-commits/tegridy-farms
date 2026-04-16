@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
 import { useAccount, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { formatEther } from 'viem';
 import { toast } from 'sonner';
 import { TEGRIDY_DROP_ABI } from '../lib/contracts';
+import { formatWei } from '../lib/formatting';
 
 export function useNFTDrop(dropAddress: string) {
   const { address } = useAccount();
@@ -32,7 +32,7 @@ export function useNFTDrop(dropAddress: string) {
   const owner = data?.[4]?.status === 'success' ? (data[4].result as string) : '';
   const maxPerWallet = data?.[5]?.status === 'success' ? Number(data[5].result as bigint) : 0;
 
-  const mintPriceFormatted = Number(formatEther(mintPrice));
+  const mintPriceFormatted = Number(formatWei(mintPrice, 18, 8));
   const isSoldOut = maxSupply > 0 && totalMinted >= maxSupply;
   const isOwner = !!address && owner.toLowerCase() === address.toLowerCase();
 

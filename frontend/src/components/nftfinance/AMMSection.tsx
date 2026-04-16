@@ -20,6 +20,7 @@ import {
 import { formatTokenAmount, shortenAddress } from '../../lib/formatting';
 import { ART } from '../../lib/artConfig';
 import { InfoTooltip, HowItWorks, RiskBanner } from '../ui/InfoTooltip';
+import { isValidAddress as _isValidAddress } from '../../lib/tokenList';
 
 // ─── Constants ────────────────────────────────────────────────────
 
@@ -30,13 +31,6 @@ const POOL_TYPE_COLORS: Record<number, string> = {
   0: 'text-blue-400 border-blue-400/30 bg-blue-400/10',
   1: 'text-orange-400 border-orange-400/30 bg-orange-400/10',
   2: 'text-emerald-400 border-emerald-400/30 bg-emerald-400/10',
-};
-
-/** @internal Reserved for future styling */
-export const POOL_TYPE_ACCENT: Record<number, string> = {
-  0: 'border-blue-400/20 hover:border-blue-400/40',
-  1: 'border-orange-400/20 hover:border-orange-400/40',
-  2: 'border-emerald-400/20 hover:border-emerald-400/40',
 };
 
 const POOL_TYPE_BG_SELECTED: Record<number, string> = {
@@ -87,7 +81,7 @@ type Tab = 'trade' | 'create' | 'pools';
 const LOCAL_STORAGE_KEY = 'tegridy-amm-tracked-pools';
 
 const isValidAddress = (addr: string): addr is `0x${string}` =>
-  /^0x[a-fA-F0-9]{40}$/.test(addr);
+  _isValidAddress(addr);
 
 const labelClass = 'text-[11px] uppercase tracking-wider label-pill text-white font-medium';
 const inputClass =
@@ -607,6 +601,12 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
   const spotNum = currentSpotPrice ? Number(formatEther(currentSpotPrice)) : 0;
   const deltaNum = currentDelta ? Number(formatEther(currentDelta)) : 0;
 
+  // Verify bonding curve type matches visualization
+  // poolType 0 = linear (delta added), poolType 1 = exponential (delta multiplied)
+  // The BondingCurveChart component assumes linear pricing (spot + delta*i).
+  // If the pool ever uses exponential curves, the chart is only approximate.
+  const isLinearCurve = true; // All current pools use linear curves; update if exponential pools are added
+
   const handleApprove = () => {
     if (!hasPool || !validCollection || !address) return;
     setApprovalStep('approving');
@@ -840,6 +840,11 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
             <ArtCard art={ART.beachSunset} opacity={1} overlay="none" border="rgba(16,185,129,0.08)">
               <div className="p-4">
                 <p className={`${labelClass} mb-2`}>Bonding Curve</p>
+                {!isLinearCurve && (
+                  <div className="mb-2 px-3 py-1.5 rounded-lg bg-yellow-400/10 border border-yellow-400/20 text-yellow-400 text-[11px] font-medium">
+                    This pool uses an exponential bonding curve. Chart visualization is approximate.
+                  </div>
+                )}
                 <BondingCurveChart
                   spotPrice={spotNum}
                   delta={deltaNum}

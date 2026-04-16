@@ -219,59 +219,14 @@ export function getNextTier(points: number) {
   return null; // already at max
 }
 
-export function recordAction(address: string, actionType: string, goldCardBoost: boolean = false): PointsData {
-  const data = getPointsData(address);
-  const basePoints = POINTS_MAP[actionType];
-  if (!basePoints) return data;
-
-  const pts = goldCardBoost ? basePoints * 3 : basePoints;
-  data.actions.push({ type: actionType, pts, ts: Date.now() });
-  if (data.actions.length > 100) data.actions = data.actions.slice(-100);
-
-  savePointsData(address, data);
-  return data;
+/** @deprecated Client-side action recording removed for security. Points derived from on-chain data only. */
+export function recordAction(address: string, _actionType: string, _goldCardBoost: boolean = false): PointsData {
+  return getPointsData(address);
 }
 
+/** @deprecated Daily visit streaks removed -- not verifiable on-chain. */
 export function recordDailyVisit(address: string): PointsData {
-  const data = getPointsData(address);
-  // NOTE: Using client-side Date means a user can manipulate their system clock
-  // to manufacture streaks. For any reward distribution, streaks should be
-  // validated server-side or derived from on-chain block timestamps.
-  const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
-
-  if (data.streak.lastVisit === today) return data; // Already visited today
-
-  const yesterday = new Date(Date.now() - 86400000).toLocaleDateString('en-CA');
-
-  // Sanity check: if lastVisit is in the future, reset streak (clock tampering)
-  if (data.streak.lastVisit > today) {
-    data.streak.current = 1;
-  } else if (data.streak.lastVisit === yesterday) {
-    // Continue streak
-    data.streak.current += 1;
-  } else if (data.streak.lastVisit && data.streak.lastVisit !== today) {
-    // Broken streak
-    data.streak.current = 1;
-  } else {
-    // First visit ever
-    data.streak.current = 1;
-  }
-
-  // Clamp streak to prevent abuse
-  data.streak.current = Math.min(data.streak.current, MAX_STREAK);
-  data.streak.lastVisit = today;
-  if (data.streak.current > data.streak.longest) {
-    data.streak.longest = Math.min(data.streak.current, MAX_STREAK);
-  }
-
-  const basePoints = POINTS_MAP.daily_visit ?? 0;
-  const streakMult = getStreakMultiplier(data.streak.current);
-  const totalPts = Math.round(basePoints * streakMult);
-  data.actions.push({ type: 'daily_visit', pts: totalPts, ts: Date.now() });
-  if (data.actions.length > MAX_ACTIONS) data.actions = data.actions.slice(-MAX_ACTIONS);
-
-  savePointsData(address, data);
-  return data;
+  return getPointsData(address);
 }
 
 export function setReferrer(address: string, referrer: string) {

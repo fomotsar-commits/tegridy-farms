@@ -1,9 +1,9 @@
 import { useEffect } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContracts, useReadContract, useChainId } from 'wagmi';
-import { formatEther } from 'viem';
 import { toast } from 'sonner';
 import { PREMIUM_ACCESS_ABI, ERC20_ABI } from '../lib/contracts';
 import { PREMIUM_ACCESS_ADDRESS, TOWELI_ADDRESS, JBAC_NFT_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { formatWei } from '../lib/formatting';
 
 export function usePremiumAccess() {
   const chainId = useChainId();
@@ -66,9 +66,9 @@ export function usePremiumAccess() {
   const userBalance = data?.[5]?.status === 'success' ? (data[5].result as bigint) : 0n;
   const allowance = data?.[6]?.status === 'success' ? (data[6].result as bigint) : 0n;
 
-  const monthlyFeeFormatted = Number(formatEther(monthlyFee));
-  const totalRevenueFormatted = Number(formatEther(totalRevenue));
-  const userBalanceFormatted = Number(formatEther(userBalance));
+  const monthlyFeeFormatted = Number(formatWei(monthlyFee, 18, 8));
+  const totalRevenueFormatted = Number(formatWei(totalRevenue, 18, 4));
+  const userBalanceFormatted = Number(formatWei(userBalance, 18, 4));
 
   // Days remaining
   const now = Math.floor(Date.now() / 1000);

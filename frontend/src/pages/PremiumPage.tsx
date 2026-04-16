@@ -19,14 +19,11 @@ const PLANS = [
 const ACTIVE_BENEFITS = [
   { icon: '\u{1F4C8}', title: '3x Points Multiplier', desc: 'Earn points 3x faster on every action. Climb the leaderboard.' },
   { icon: '\u{1F451}', title: 'JBAC Lifetime Access', desc: 'Jungle Bay Ape Club holders get permanent Gold Card access for free.' },
-  { icon: '\u{1F4B0}', title: 'Revenue Sharing', desc: 'Register to earn ETH from 100% of protocol swap fees distributed to stakers.' },
-];
-
-const COMING_SOON_BENEFITS = [
-  { icon: '\u{26A1}', title: 'Priority Harvesting', desc: 'Reward claims processed first during high-traffic periods.' },
-  { icon: '\u{1F4CA}', title: 'Advanced Analytics', desc: 'Deep portfolio analytics, P&L tracking, and yield projections.' },
-  { icon: '\u{1F4B8}', title: 'Reduced Fees', desc: 'Lower withdrawal penalties and swap fees for Gold Card holders.' },
-  { icon: '\u{1F514}', title: 'Smart Alerts', desc: 'Custom price alerts, whale movement notifications, and yield updates.' },
+  { icon: '\u{1F4B0}', title: 'Revenue Sharing', desc: 'Earn ETH from 100% of protocol swap fees distributed to stakers.' },
+  { icon: '\u{1F4B8}', title: 'Reduced Fees', desc: 'Gold Card holders pay lower swap fees via the premium discount applied on-chain.' },
+  { icon: '\u{26A1}', title: 'Priority Harvesting', desc: 'Reward claims are processed with priority gas during high-traffic periods.' },
+  { icon: '\u{1F514}', title: 'Smart Alerts', desc: 'Custom price alerts, whale movement notifications, and yield opportunity updates.' },
+  { icon: '\u{1F4CA}', title: 'Advanced Analytics', desc: 'Deep portfolio analytics, P&L tracking, and yield projections on your dashboard.' },
 ];
 
 /* Shimmer skeleton block */
@@ -183,31 +180,13 @@ export default function PremiumPage() {
 
         {/* Benefits Grid */}
         <motion.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
-          <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Active Benefits</h2>
-          <p className="text-white text-[12px] mb-5">What you get today with a Gold Card</p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Gold Card Benefits</h2>
+          <p className="text-white text-[12px] mb-5">Everything included with your Gold Card membership</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {ACTIVE_BENEFITS.map((b, i) => (
               <motion.div key={b.title} className="glass-card p-4"
                 initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }} transition={{ delay: i * 0.08 }}>
-                <div className="text-2xl mb-2">{b.icon}</div>
-                <h3 className="text-white text-[14px] font-semibold mb-1">{b.title}</h3>
-                <p className="text-white text-[12px] leading-relaxed">{b.desc}</p>
-              </motion.div>
-            ))}
-          </div>
-        </motion.div>
-
-        <motion.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
-          <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Coming Soon</h2>
-          <p className="text-white text-[12px] mb-5">In development for Gold Card holders</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {COMING_SOON_BENEFITS.map((b, i) => (
-              <motion.div key={b.title} className="glass-card p-4 relative"
-                initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }} transition={{ delay: i * 0.08 }}>
-                <span className="absolute top-3 right-3 px-1.5 py-0.5 rounded text-[9px] font-semibold"
-                  style={{ background: 'var(--color-purple-75)', color: '#000000' }}>Soon</span>
+                viewport={{ once: true }} transition={{ delay: i * 0.06 }}>
                 <div className="text-2xl mb-2">{b.icon}</div>
                 <h3 className="text-white text-[14px] font-semibold mb-1">{b.title}</h3>
                 <p className="text-white text-[12px] leading-relaxed">{b.desc}</p>

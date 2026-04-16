@@ -1,9 +1,9 @@
 import { useAccount, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { formatEther } from 'viem';
 import { useEffect } from 'react';
 import { toast } from 'sonner';
 import { REVENUE_DISTRIBUTOR_ABI, REFERRAL_SPLITTER_ABI } from '../lib/contracts';
 import { REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS } from '../lib/constants';
+import { formatWei } from '../lib/formatting';
 
 export function useRevenueStats() {
   const { address } = useAccount();
@@ -84,18 +84,18 @@ export function useRevenueStats() {
 
   return {
     // Revenue Distribution
-    totalDistributed: Number(formatEther(totalDistributed)),
-    totalClaimed: Number(formatEther(totalClaimed)),
-    unclaimed: Number(formatEther(totalDistributed > totalClaimed ? totalDistributed - totalClaimed : 0n)),
+    totalDistributed: Number(formatWei(totalDistributed, 18, 6)),
+    totalClaimed: Number(formatWei(totalClaimed, 18, 6)),
+    unclaimed: Number(formatWei(totalDistributed > totalClaimed ? totalDistributed - totalClaimed : 0n, 18, 6)),
     epochCount,
-    pendingRevenue: Number(formatEther(pendingRevenue)),
+    pendingRevenue: Number(formatWei(pendingRevenue, 18, 6)),
     pendingRevenueBig: pendingRevenue,
     // Referrals
     referredCount,
-    referralEarned: Number(formatEther(referralEarned)),
-    referralPending: Number(formatEther(referralPending)),
+    referralEarned: Number(formatWei(referralEarned, 18, 6)),
+    referralPending: Number(formatWei(referralPending, 18, 6)),
     referralPendingBig: referralPending,
-    totalReferralsPaid: Number(formatEther(totalReferralsPaid)),
+    totalReferralsPaid: Number(formatWei(totalReferralsPaid, 18, 6)),
     // Actions
     claimRevenue,
     claimReferralRewards,

@@ -4,6 +4,9 @@ import { parseUnits } from 'viem';
 import { toast } from 'sonner';
 import { SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI, ERC20_ABI } from '../lib/contracts';
 import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { isValidAddress as isValidTokenAddress } from '../lib/tokenList';
+
+const DCA_CHANNEL = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('tegridy_dca_sync') : null;
 
 export interface DCASchedule {
   id: string;
@@ -34,7 +37,8 @@ const MAX_TOTAL_SWAPS = 365;
 // Multi-tab mutex: prevent duplicate DCA execution across browser tabs.
 // Uses BroadcastChannel to claim a lock before executing — if another tab
 // already claimed it, this tab skips the execution.
-const DCA_CHANNEL_NAME = 'tegridy_dca_mutex';
+// BroadcastChannel mutex name — used by claimTabLock below
+// const DCA_CHANNEL_NAME = 'tegridy_dca_mutex';
 
 function claimTabLock(scheduleId: string): boolean {
   try {
@@ -68,12 +72,11 @@ function getStorageKey(address: string) {
   return `tegridy_dca_v${STORAGE_VERSION}_${address.toLowerCase()}`;
 }
 
-const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const VALID_INTERVALS = new Set(['daily', 'weekly', 'biweekly', 'monthly']);
 const VALID_STATUSES = new Set(['active', 'paused', 'completed']);
 
 function isValidAddress(addr: unknown): boolean {
-  return typeof addr === 'string' && ADDRESS_RE.test(addr);
+  return typeof addr === 'string' && isValidTokenAddress(addr);
 }
 
 function isValidTokenObj(t: unknown): boolean {
@@ -119,6 +122,7 @@ function saveSchedules(address: string, schedules: DCASchedule[]) {
   try {
     const payload: StoragePayload = { version: STORAGE_VERSION, schedules };
     localStorage.setItem(getStorageKey(address), JSON.stringify(payload));
+    DCA_CHANNEL?.postMessage({ type: 'dca_updated', address });
   } catch {}
 }
 
@@ -157,6 +161,18 @@ export function useDCA() {
     setSchedules(loaded);
     schedulesRef.current = loaded;
     requestNotificationPermission();
+  }, [address]);
+
+  // Cross-tab sync: reload schedules when another tab updates them
+  useEffect(() => {
+    if (!DCA_CHANNEL || !address) return;
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === 'dca_updated' && e.data?.address?.toLowerCase() === address.toLowerCase()) {
+        setSchedules(loadSchedules(address));
+      }
+    };
+    DCA_CHANNEL.addEventListener('message', handler);
+    return () => DCA_CHANNEL.removeEventListener('message', handler);
   }, [address]);
 
   // Keep ref in sync with state

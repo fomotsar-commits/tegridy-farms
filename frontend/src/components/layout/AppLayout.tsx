@@ -1,5 +1,6 @@
 import { Outlet, useLocation } from 'react-router-dom';
 import { useAccount, useSwitchChain } from 'wagmi';
+import { trackWalletConnect } from '../../lib/analytics';
 import { mainnet } from 'wagmi/chains';
 import { TopNav } from './TopNav';
 import { BottomNav } from './BottomNav';
@@ -62,10 +63,14 @@ function RouteGlitch() {
 
 export function AppLayout() {
   const location = useLocation();
-  const { chain, isConnected } = useAccount();
+  const { chain, isConnected, connector } = useAccount();
   const { switchChain } = useSwitchChain();
   const { isDark } = useTheme();
   const wrongNetwork = isConnected && chain && chain.id !== CHAIN_ID;
+
+  useEffect(() => {
+    if (isConnected && connector?.name) trackWalletConnect(connector.name);
+  }, [isConnected, connector?.name]);
 
   return (
     <AppLoader>

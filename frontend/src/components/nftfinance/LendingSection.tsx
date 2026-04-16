@@ -17,8 +17,6 @@ import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '.
 // ─── Design tokens ──────────────────────────────────────────────
 const CARD_BG = 'rgba(13, 21, 48, 0.6)';
 const CARD_BORDER = 'var(--color-purple-12)';
-/** @internal Reserved for future styling */
-export const CARD_BORDER_HOVER = 'var(--color-purple-25)';
 const ROW_BORDER = 'rgba(255, 255, 255, 0.04)';
 const DARK_OVERLAY = 'none';
 const DARK_OVERLAY_HEAVY = 'none';

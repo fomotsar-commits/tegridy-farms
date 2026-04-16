@@ -1,9 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { parseEther } from 'viem';
 import { toast } from 'sonner';
 import { TEGRIDY_STAKING_ABI, ERC20_ABI } from '../lib/contracts';
 import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { trackStake } from '../lib/analytics';
 
 export function useFarmActions() {
   const chainId = useChainId();
@@ -11,6 +12,7 @@ export function useFarmActions() {
   // sending the transaction, providing automatic pre-flight revert detection.
   // No separate useSimulateContract call is needed.
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
+  const pendingStakeRef = useRef<{ amount: string; lockDuration: string } | null>(null);
 
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({
     hash,
@@ -26,6 +28,10 @@ export function useFarmActions() {
           onClick: () => window.open(`https://etherscan.io/tx/${hash}`, '_blank'),
         },
       });
+      if (pendingStakeRef.current) {
+        trackStake(pendingStakeRef.current.amount, Number(pendingStakeRef.current.lockDuration));
+        pendingStakeRef.current = null;
+      }
     }
   }, [isSuccess, hash]);
 
@@ -61,6 +67,7 @@ export function useFarmActions() {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     const parsed = parseFloat(amount);
     if (isNaN(parsed) || parsed <= 0) throw new Error('Invalid amount');
+    pendingStakeRef.current = { amount, lockDuration: lockDurationSeconds.toString() };
     // TOWELI uses 18 decimals; if token decimals change, use parseUnits(amount, decimals) instead
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,

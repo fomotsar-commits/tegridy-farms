@@ -4,6 +4,7 @@ import { parseUnits, formatUnits } from 'viem';
 import { toast } from 'sonner';
 import { SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI, ERC20_ABI } from '../lib/contracts';
 import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { isValidAddress as isValidTokenAddress } from '../lib/tokenList';
 
 export interface LimitOrder {
   id: string;
@@ -54,11 +55,10 @@ function getStorageKey(address: string) {
   return `tegridy_limit_v${STORAGE_VERSION}_${address.toLowerCase()}`;
 }
 
-const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const VALID_ORDER_STATUSES = new Set(['active', 'expired', 'filled', 'executing']);
 
 function isValidAddress(addr: unknown): boolean {
-  return typeof addr === 'string' && ADDRESS_RE.test(addr);
+  return typeof addr === 'string' && isValidTokenAddress(addr);
 }
 
 function isValidTokenObj(t: unknown): boolean {

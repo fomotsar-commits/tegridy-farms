@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { ART } from '../../lib/artConfig';
-import { MIN_LOCK_DURATION, MAX_LOCK_DURATION, MIN_BOOST_BPS, MAX_BOOST_BPS, JBAC_BONUS_BPS } from '../../lib/constants';
+import { JBAC_BONUS_BPS } from '../../lib/constants';
+import { calculateBoost } from '../../lib/boostCalculations';
 
 const EARLY_WITHDRAWAL_PENALTY_PCT = 25;
 
@@ -13,15 +14,6 @@ const LOCK_OPTIONS = [
   { label: '2 Years', seconds: 730 * 86400 },
   { label: '4 Years', seconds: 1460 * 86400 },
 ];
-
-function calculateBoost(durationSec: number): number {
-  if (durationSec <= MIN_LOCK_DURATION) return MIN_BOOST_BPS;
-  if (durationSec >= MAX_LOCK_DURATION) return MAX_BOOST_BPS;
-  const range = MAX_LOCK_DURATION - MIN_LOCK_DURATION;
-  const boostRange = MAX_BOOST_BPS - MIN_BOOST_BPS;
-  const elapsed = durationSec - MIN_LOCK_DURATION;
-  return MIN_BOOST_BPS + (elapsed * boostRange) / range;
-}
 
 interface BoostScheduleTableProps {
   selectedLockLabel: string;
@@ -36,29 +28,33 @@ export function BoostScheduleTable({ selectedLockLabel, apr }: BoostScheduleTabl
         <div className="absolute inset-0">
           <img src={ART.swordOfLove.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
         </div>
-        <div className="relative z-10 p-6">
-        <h3 className="heading-luxury text-white text-[20px] mb-5">Boost Schedule</h3>
+        <div className="relative z-10 p-4 sm:p-6">
+        <h3 className="heading-luxury text-white text-[20px] mb-5" id="boost-schedule-heading">Boost Schedule</h3>
         <p className="text-white text-[12px] mb-4">Lock longer = higher boost + more voting power. JBAC NFT holders get +0.5x bonus.</p>
 
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0" role="table" aria-labelledby="boost-schedule-heading">
+          <div className="min-w-[320px]">
           {LOCK_OPTIONS.map((opt) => {
             const b = calculateBoost(opt.seconds);
             const withNft = b + JBAC_BONUS_BPS;
+            const isSelected = selectedLockLabel === opt.label;
             return (
-              <div key={opt.label} className="flex items-center justify-between rounded-lg px-4 py-2.5"
+              <div key={opt.label} role="row" aria-selected={isSelected}
+                className="flex items-center justify-between rounded-lg px-3 sm:px-4 py-2 sm:py-2.5 mb-1.5"
                 style={{
-                  background: selectedLockLabel === opt.label ? 'var(--color-purple-75)' : 'rgba(0,0,0,0.50)',
-                  border: selectedLockLabel === opt.label ? '1px solid var(--color-purple-20)' : '1px solid transparent',
+                  background: isSelected ? 'var(--color-purple-75)' : 'rgba(0,0,0,0.50)',
+                  border: isSelected ? '1px solid var(--color-purple-20)' : '1px solid transparent',
                 }}>
-                <span className="text-white text-[13px]">{opt.label}</span>
-                <div className="flex items-center gap-3">
-                  <span className="stat-value text-[14px] text-white">{(b / 10000).toFixed(2)}x</span>
-                  {baseApr > 0 && <span className="text-emerald-400 text-[11px] font-mono">{(baseApr * b / 10000).toFixed(1)}% APY</span>}
-                  {baseApr === 0 && <span className="text-white text-[11px]">({(withNft / 10000).toFixed(2)}x w/NFT)</span>}
+                <span className="text-white text-[12px] sm:text-[13px] flex-shrink-0">{opt.label}</span>
+                <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+                  <span className="stat-value text-[13px] sm:text-[14px] text-white">{(b / 10000).toFixed(2)}x</span>
+                  {baseApr > 0 && <span className="text-emerald-400 text-[10px] sm:text-[11px] font-mono">{(baseApr * b / 10000).toFixed(1)}% APY</span>}
+                  {baseApr === 0 && <span className="text-white text-[10px] sm:text-[11px]">({(withNft / 10000).toFixed(2)}x w/NFT)</span>}
                 </div>
               </div>
             );
           })}
+          </div>
         </div>
 
         <div className="mt-6 relative overflow-hidden rounded-lg" style={{ border: '1px solid rgba(255,178,55,0.12)' }}>

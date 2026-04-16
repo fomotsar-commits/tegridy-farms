@@ -30,10 +30,10 @@ export function usePoolData() {
   let apr = '0';
   let aprCapped = false;
   if (rewardRate > 0n && totalBoostedStake > 0n) {
-    const secondsPerYear = 365n * 24n * 60n * 60n;
-    const rewardsPerYear = rewardRate * secondsPerYear;
-    const aprBps = (rewardsPerYear * 10000n) / totalBoostedStake;
-    const aprNum = Number(aprBps);
+    // Scale up before dividing to preserve precision for low APRs
+    const aprScaled = rewardRate * 31536000n * 10000n * 10n ** 18n;
+    const aprBps = aprScaled / totalBoostedStake;
+    const aprNum = Number(aprBps) / 1e18;
     if (aprNum > 999999) {
       apr = '>9999';
       aprCapped = true;

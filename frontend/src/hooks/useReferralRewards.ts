@@ -1,9 +1,9 @@
 import { useEffect, useCallback } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContracts, useChainId } from 'wagmi';
-import { formatEther } from 'viem';
 import { toast } from 'sonner';
 import { REFERRAL_SPLITTER_ABI } from '../lib/contracts';
 import { REFERRAL_SPLITTER_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { formatWei } from '../lib/formatting';
 
 export function useReferralRewards() {
   const chainId = useChainId();
@@ -43,9 +43,9 @@ export function useReferralRewards() {
   const totalReferralsPaid = data?.[3]?.status === 'success' ? (data[3].result as bigint) : 0n;
 
   // Formatted values
-  const totalEarnedFormatted = Number(formatEther(totalEarned));
-  const pendingETHFormatted = Number(formatEther(pendingETH));
-  const totalReferralsPaidFormatted = Number(formatEther(totalReferralsPaid));
+  const totalEarnedFormatted = Number(formatWei(totalEarned, 18, 6));
+  const pendingETHFormatted = Number(formatWei(pendingETH, 18, 6));
+  const totalReferralsPaidFormatted = Number(formatWei(totalReferralsPaid, 18, 6));
 
   // Actions
   const claimReferralRewards = useCallback(() => {

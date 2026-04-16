@@ -72,7 +72,7 @@ export default function TradePage() {
                   </div>
                   <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.08)' }}>
                     <button onClick={() => setShowTokenSelect('from')} className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors">
-                      {swap.fromToken?.logo && <img src={swap.fromToken.logo} alt="" className="w-5 h-5 rounded-full" />}
+                      {swap.fromToken?.logoURI && <img src={swap.fromToken.logoURI} alt="" className="w-5 h-5 rounded-full" />}
                       <span className="text-white font-medium text-[14px]">{swap.fromToken?.symbol ?? 'Select'}</span>
                       <span className="text-white/40">▾</span>
                     </button>
@@ -99,7 +99,7 @@ export default function TradePage() {
                   </div>
                   <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.08)' }}>
                     <button onClick={() => setShowTokenSelect('to')} className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors">
-                      {swap.toToken?.logo && <img src={swap.toToken.logo} alt="" className="w-5 h-5 rounded-full" />}
+                      {swap.toToken?.logoURI && <img src={swap.toToken.logoURI} alt="" className="w-5 h-5 rounded-full" />}
                       <span className="text-white font-medium text-[14px]">{swap.toToken?.symbol ?? 'Select'}</span>
                       <span className="text-white/40">▾</span>
                     </button>
@@ -211,9 +211,10 @@ export default function TradePage() {
       {/* Token Select Modal */}
       {showTokenSelect && (
         <TokenSelectModal
+          open={true}
           onSelect={handleTokenSelect}
           onClose={() => setShowTokenSelect(null)}
-          selectedAddress={showTokenSelect === 'from' ? swap.fromToken?.address : swap.toToken?.address}
+          disabledAddress={showTokenSelect === 'from' ? swap.toToken?.address : swap.fromToken?.address}
           customTokens={swap.customTokens}
           onAddCustomToken={swap.addCustomToken}
         />

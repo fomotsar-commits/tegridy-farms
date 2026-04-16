@@ -4,8 +4,8 @@ import { UNISWAP_V2_PAIR_ABI, CHAINLINK_FEED_ABI } from '../lib/contracts';
 import { TOWELI_WETH_LP_ADDRESS, ETH_USD_FEED, TOWELI_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
 import { safeSetItem } from '../lib/storage';
 
-// Maximum staleness for Chainlink data (1 hour)
-const MAX_STALENESS_SECONDS = 3600;
+// Maximum staleness for Chainlink data (5 minutes)
+const MAX_STALENESS_SECONDS = 300;
 
 export function useToweliPrice() {
   const pairAddr = TOWELI_WETH_LP_ADDRESS;
@@ -86,6 +86,9 @@ export function useToweliPrice() {
     const updatedAtNum = Number(updatedAt);
     const now = Math.floor(Date.now() / 1000);
 
+    const ETH_USD_MIN = 100_00000000; // $100 with 8 decimals
+    const ETH_USD_MAX = 100000_00000000; // $100,000 with 8 decimals
+
     if (
       answerNum > 0 &&
       updatedAtNum > 0 &&
@@ -94,6 +97,10 @@ export function useToweliPrice() {
     ) {
       ethUsd = answerNum / 1e8;
     } else {
+      oracleStale = true;
+    }
+
+    if (answerNum < ETH_USD_MIN || answerNum > ETH_USD_MAX) {
       oracleStale = true;
     }
   }
@@ -171,5 +178,6 @@ export function useToweliPrice() {
     displayPriceStale,
     apiPriceDiscrepant,
     priceDiscrepancy,
+    priceSafeForSwaps: priceInUsd > 0 && !displayPriceStale && !oracleStale,
   };
 }

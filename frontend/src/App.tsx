@@ -113,35 +113,35 @@ function AnimatedRoutes() {
     <ScrollToTop />
     <Routes>
       {/* Nakamigos marketplace — renders outside AppLayout (has its own header/footer/background) */}
-      <Route path="nakamigos/*" element={<NakamigosApp />} />
+      <Route path="nakamigos/*" element={<Suspense fallback={<PageSkeleton />}><NakamigosApp /></Suspense>} />
       <Route element={<AppLayout />}>
-        <Route index element={<HomePage />} />
+        <Route index element={<Suspense fallback={<PageSkeleton />}><HomePage /></Suspense>} />
         <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><FarmPage /></Suspense>} />
         <Route path="swap" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
         <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />
-        <Route path="gallery" element={<GalleryPage />} />
-        <Route path="tokenomics" element={<TokenomicsPage />} />
-        <Route path="history" element={<HistoryPage />} />
-        <Route path="lore" element={<LorePage />} />
-        <Route path="leaderboard" element={<LeaderboardPage />} />
-        <Route path="community" element={<CommunityPage />} />
+        <Route path="gallery" element={<Suspense fallback={<PageSkeleton />}><GalleryPage /></Suspense>} />
+        <Route path="tokenomics" element={<Suspense fallback={<PageSkeleton />}><TokenomicsPage /></Suspense>} />
+        <Route path="history" element={<Suspense fallback={<PageSkeleton />}><HistoryPage /></Suspense>} />
+        <Route path="lore" element={<Suspense fallback={<PageSkeleton />}><LorePage /></Suspense>} />
+        <Route path="leaderboard" element={<Suspense fallback={<PageSkeleton />}><LeaderboardPage /></Suspense>} />
+        <Route path="community" element={<Suspense fallback={<PageSkeleton />}><CommunityPage /></Suspense>} />
         <Route path="grants" element={<Navigate to="/community" replace />} />
         <Route path="bounties" element={<Navigate to="/community" replace />} />
         <Route path="restake" element={<Navigate to="/lending" replace />} />
         <Route path="liquidity" element={<Navigate to="/swap" replace />} />
-        <Route path="premium" element={<PremiumPage />} />
+        <Route path="premium" element={<Suspense fallback={<PageSkeleton />}><PremiumPage /></Suspense>} />
         <Route path="bribes" element={<Navigate to="/community" replace />} />
-        <Route path="admin" element={<AdminPage />} />
-        <Route path="lending" element={<LendingPage />} />
+        <Route path="admin" element={<Suspense fallback={<PageSkeleton />}><AdminPage /></Suspense>} />
+        <Route path="lending" element={<Suspense fallback={<PageSkeleton />}><LendingPage /></Suspense>} />
         <Route path="launchpad" element={<Navigate to="/lending" replace />} />
         <Route path="nft-amm" element={<Navigate to="/lending" replace />} />
         <Route path="governance" element={<Navigate to="/community" replace />} />
-        <Route path="security" element={<SecurityPage />} />
-        <Route path="terms" element={<TermsPage />} />
-        <Route path="privacy" element={<PrivacyPage />} />
-        <Route path="risks" element={<RisksPage />} />
-        <Route path="faq" element={<FAQPage />} />
-        <Route path="changelog" element={<ChangelogPage />} />
+        <Route path="security" element={<Suspense fallback={<PageSkeleton />}><SecurityPage /></Suspense>} />
+        <Route path="terms" element={<Suspense fallback={<PageSkeleton />}><TermsPage /></Suspense>} />
+        <Route path="privacy" element={<Suspense fallback={<PageSkeleton />}><PrivacyPage /></Suspense>} />
+        <Route path="risks" element={<Suspense fallback={<PageSkeleton />}><RisksPage /></Suspense>} />
+        <Route path="faq" element={<Suspense fallback={<PageSkeleton />}><FAQPage /></Suspense>} />
+        <Route path="changelog" element={<Suspense fallback={<PageSkeleton />}><ChangelogPage /></Suspense>} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

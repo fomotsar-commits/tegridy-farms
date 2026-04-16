@@ -30,6 +30,11 @@ export default function LeaderboardPage() {
       </div>
 
       <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
+        <div className="rounded-xl p-4 mb-6" style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.2)' }}>
+          <p className="text-yellow-400 text-[13px] font-semibold mb-1">On-Chain Verified Points</p>
+          <p className="text-white/60 text-[12px]">All points are now derived exclusively from on-chain activity (swaps, staking, LP, referrals). Client-side streaks have been removed for integrity.</p>
+        </div>
+
         <motion.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Leaderboard</h1>
           <p className="text-white text-[14px]">{CURRENT_SEASON.name} — Earn points by using the protocol</p>

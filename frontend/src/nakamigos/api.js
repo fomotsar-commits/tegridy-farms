@@ -71,9 +71,15 @@ function openseaPost(path, body, { signal } = {}) {
 }
 
 // Convert ipfs:// URLs to an HTTP gateway
+const IPFS_GATEWAYS = [
+  "https://ipfs.io/ipfs/",
+  "https://gateway.pinata.cloud/ipfs/",
+  "https://cloudflare-ipfs.com/ipfs/",
+];
+
 function resolveIpfs(url) {
   if (!url) return url;
-  if (url.startsWith("ipfs://")) return url.replace("ipfs://", "https://ipfs.io/ipfs/");
+  if (url.startsWith("ipfs://")) return url.replace("ipfs://", IPFS_GATEWAYS[0]);
   return url;
 }
 

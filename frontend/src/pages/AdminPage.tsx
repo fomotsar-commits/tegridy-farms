@@ -1,6 +1,7 @@
-import { useMemo } from 'react';
-import { useAccount, useChains, useReadContract, useReadContracts } from 'wagmi';
+import { useMemo, useEffect } from 'react';
+import { useAccount, useChains, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
+import { toast } from 'sonner';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ART } from '../lib/artConfig';
 import { formatTokenAmount, formatNumber } from '../lib/formatting';
@@ -20,6 +21,11 @@ const OWNER_ABI = [
 const PENDING_FEE_ABI = [
   { type: 'function', name: 'pendingFeeBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'pendingTreasury', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
+] as const;
+
+const PAUSE_ABI = [
+  { type: 'function', name: 'pause', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'unpause', inputs: [], outputs: [], stateMutability: 'nonpayable' },
 ] as const;
 
 function shortenAddress(addr: string) {
@@ -58,6 +64,53 @@ function ContractCard({ name, address, explorerBaseUrl, items }: ContractCardPro
       <p className="text-xs text-white italic">
         Pending timelock operations are managed via direct contract interaction.
       </p>
+    </div>
+  );
+}
+
+function PauseControls({ isPaused }: { isPaused: boolean }) {
+  const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+
+  useEffect(() => {
+    if (isSuccess) toast.success(isPaused ? 'Contract unpaused' : 'Contract paused');
+  }, [isSuccess, isPaused]);
+
+  const handleToggle = () => {
+    writeContract({
+      address: TEGRIDY_STAKING_ADDRESS,
+      abi: PAUSE_ABI,
+      functionName: isPaused ? 'unpause' : 'pause',
+    });
+  };
+
+  return (
+    <div className="glass-card p-6 rounded-2xl">
+      <h2 className="heading-luxury text-white text-[20px] tracking-tight mb-2">Emergency Controls</h2>
+      <p className="text-white/60 text-sm mb-4">
+        Pause or unpause the TegridyStaking contract. When paused, staking, withdrawals, and claims are disabled.
+      </p>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className={`w-3 h-3 rounded-full ${isPaused ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`} />
+          <span className={`text-sm font-semibold ${isPaused ? 'text-red-400' : 'text-emerald-400'}`}>
+            {isPaused ? 'PAUSED' : 'ACTIVE'}
+          </span>
+        </div>
+        <button
+          onClick={handleToggle}
+          disabled={isSigning || isConfirming}
+          className="px-5 py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-40"
+          style={{
+            background: isPaused
+              ? 'linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105))'
+              : 'linear-gradient(135deg, rgb(239 68 68), rgb(185 28 28))',
+            color: 'white',
+          }}
+        >
+          {isSigning ? 'Confirm in Wallet...' : isConfirming ? 'Confirming...' : isPaused ? 'Unpause Contract' : 'Pause Contract'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -269,6 +322,9 @@ export default function AdminPage() {
             items={lpFarmItems}
           />
         </div>
+
+        {/* Pause Controls */}
+        <PauseControls isPaused={safe(10) === true} />
 
         <div className="glass-card p-4 rounded-xl">
           <p className="text-xs text-white text-center">

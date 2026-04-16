@@ -7,31 +7,9 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 
 import { GaugeVoting } from '../components/GaugeVoting';
-import { COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, VOTE_INCENTIVES_ADDRESS } from '../lib/constants';
-
-function ContractInfoSection({ title, description, contractName, contractAddress }: {
-  title: string; description: string; contractName: string; contractAddress: string;
-}) {
-  const truncated = `${contractAddress.slice(0, 6)}...${contractAddress.slice(-4)}`;
-  return (
-    <div className="glass-card rounded-xl p-6" style={{ border: '1px solid var(--color-purple-12)' }}>
-      <h3 className="heading-luxury text-white text-lg mb-3">{title}</h3>
-      <p className="text-white/60 text-[13px] leading-relaxed mb-4">{description}</p>
-      <div className="flex items-center justify-between rounded-lg px-4 py-3" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.08)' }}>
-        <div>
-          <p className="text-white/40 text-[10px] uppercase tracking-wider mb-0.5">{contractName}</p>
-          <p className="text-white/70 text-[12px] font-mono">{truncated}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-emerald-400 text-[10px]">&#10003; Deployed</span>
-          <a href={`https://etherscan.io/address/${contractAddress}`} target="_blank" rel="noopener noreferrer"
-            className="text-purple-400 hover:text-purple-300 text-[11px] transition-colors">Etherscan</a>
-        </div>
-      </div>
-      <p className="text-white/30 text-[10px] mt-3">Full UI coming soon. Contract is live and audited on mainnet.</p>
-    </div>
-  );
-}
+import { GrantsSection } from '../components/community/GrantsSection';
+import { BountiesSection } from '../components/community/BountiesSection';
+import { VoteIncentivesSection } from '../components/community/VoteIncentivesSection';
 
 type Section = 'grants' | 'bounties' | 'bribes' | 'gauges';
 
@@ -123,6 +101,8 @@ export default function CommunityPage() {
         ) : (
           <motion.div
             key={section}
+            role="tabpanel"
+            aria-label={`${SECTIONS.find(s => s.key === section)?.label} panel`}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
@@ -136,9 +116,9 @@ export default function CommunityPage() {
                   </div>
                 </div>
               }>
-                {section === 'grants' && <ContractInfoSection title="Governance Grants" description="Community-funded grants for developers, artists, and contributors. veTOWELI holders vote on proposals. Grants are paid from protocol revenue with quorum-based approval and 24-hour execution delay." contractName="CommunityGrants" contractAddress={COMMUNITY_GRANTS_ADDRESS} />}
-                {section === 'bounties' && <ContractInfoSection title="Meme Bounties" description="Create and fund meme bounties for the community. Submissions are voted on by TOWELI stakers with minimum quorum requirements. Winners receive ETH rewards from the bounty pool." contractName="MemeBountyBoard" contractAddress={MEME_BOUNTY_BOARD_ADDRESS} />}
-                {section === 'bribes' && <ContractInfoSection title="Vote Incentives" description="Deposit bribes to incentivize gauge votes for specific LP pools. Voters earn a share of deposited incentives proportional to their voting power. Epochs advance weekly." contractName="VoteIncentives" contractAddress={VOTE_INCENTIVES_ADDRESS} />}
+                {section === 'grants' && <GrantsSection />}
+                {section === 'bounties' && <BountiesSection />}
+                {section === 'bribes' && <VoteIncentivesSection />}
                 {section === 'gauges' && <GaugeVoting />}
               </Suspense>
             </ErrorBoundary>

@@ -1,3 +1,5 @@
+import { formatUnits } from 'viem';
+
 export function formatCurrency(value: number, decimals = 2): string {
   if (!isFinite(value) || isNaN(value)) return '–';
   if (value >= 1_000_000_000_000) return `$${(value / 1_000_000_000_000).toFixed(decimals)}T`;
@@ -50,4 +52,17 @@ export function formatTimeAgo(timestamp: number): string {
 export function formatWholeNumber(value: number): string {
   if (!isFinite(value) || isNaN(value)) return '–';
   return Math.round(value).toLocaleString('en-US');
+}
+
+/**
+ * Format a BigInt wei value to a display string without unnecessary Number() conversion.
+ * Avoids the Number(formatEther(x)).toFixed(d) anti-pattern that loses precision for large values.
+ */
+export function formatWei(value: bigint, decimals: number = 18, displayDecimals: number = 4): string {
+  const formatted = formatUnits(value, decimals);
+  const dot = formatted.indexOf('.');
+  if (dot === -1) return formatted + '.' + '0'.repeat(displayDecimals);
+  const whole = formatted.slice(0, dot);
+  const frac = formatted.slice(dot + 1).slice(0, displayDecimals).padEnd(displayDecimals, '0');
+  return whole + '.' + frac;
 }

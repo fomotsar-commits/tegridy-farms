@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAccount, useReadContracts, usePublicClient } from 'wagmi';
 import { getAddress, parseAbiItem } from 'viem';
 import {
-  getPointsData, recordAction, recordDailyVisit, setReferrer,
+  getPointsData, recordAction, setReferrer,
   getTier, getNextTier, getStreakMultiplier, getEarnedBadges,
   computeOnChainPoints, reconcilePoints,
   type PointsData, type OnChainMetrics,
@@ -97,10 +97,9 @@ export function usePoints() {
     setOnChainMetrics(metrics);
 
     const onChainPts = computeOnChainPoints(metrics);
-    const d = recordDailyVisit(address);
     const reconciled = reconcilePoints(address, onChainPts);
-    reconciled.streak = d.streak;
-    reconciled.actions = d.actions;
+    // Points derived ONLY from on-chain metrics — no localStorage bonus
+    reconciled.points = onChainPts;
     setData(reconciled);
   }, [address, swapCount, stakedAmount, lockDuration, lpBalance, onChainReferralCount]);
 
