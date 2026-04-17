@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { GALLERY_ORDER, ART } from '../lib/artConfig';
 import { ArtLightbox } from '../components/ui/ArtLightbox';
@@ -70,10 +70,10 @@ export default function GalleryPage() {
       </div>
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
-        <motion.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+        <m.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">The Collection</h1>
           <p className="text-white text-[14px]">{GALLERY_ORDER.length} original hand-drawn pieces from the Tegridy universe</p>
-        </motion.div>
+        </m.div>
 
         <div className="rounded-lg px-3 py-2 mb-4 inline-block" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
           <p className="text-white text-[11px]">Votes are for fun only — stored locally in your browser, not on-chain.</p>
@@ -88,7 +88,7 @@ export default function GalleryPage() {
         <div className="columns-1 sm:columns-2 md:columns-3 gap-3 space-y-3">
           {sortedPieces.map((piece, i) => (
             // Fix #3: outer element is a div (not button) to avoid nested buttons
-            <motion.div key={piece.id} onClick={() => setSelectedIndex(i)}
+            <m.div key={piece.id} onClick={() => setSelectedIndex(i)}
               role="button" tabIndex={0} aria-label={`View artwork: ${piece.title}`}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedIndex(i); } }}
               className="w-full block relative group cursor-pointer break-inside-avoid rounded-xl overflow-hidden glass-card-animated card-hover"
@@ -125,7 +125,7 @@ export default function GalleryPage() {
                   </div>
                 </div>
               </div>
-            </motion.div>
+            </m.div>
           ))}
         </div>
         )}

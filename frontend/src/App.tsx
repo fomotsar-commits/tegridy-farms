@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { WagmiProvider } from 'wagmi';
 import { RainbowKitProvider, darkTheme, lightTheme } from '@rainbow-me/rainbowkit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { LazyMotion, domAnimation } from 'framer-motion';
 import '@rainbow-me/rainbowkit/styles.css';
 import { config } from './lib/wagmi';
 import { AppLayout } from './components/layout/AppLayout';
@@ -188,7 +189,16 @@ function App() {
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
-          <AppInner />
+          {/* AUDIT Batch 19: LazyMotion with domAnimation features. Every
+              'motion.X' was refactored to 'm.X' in a scripted pass across 45
+              files. LazyMotion defers the heavy motion engine until after
+              first paint and only ships DOM-animation features (not SVG
+              motion, not layout, not drag) — chosen because the app only
+              uses basic opacity/y/scale/transition. strict mode on the
+              wrapper throws loudly if a bare 'motion.X' slips through. */}
+          <LazyMotion features={domAnimation} strict>
+            <AppInner />
+          </LazyMotion>
         </ThemeProvider>
       </QueryClientProvider>
     </WagmiProvider>

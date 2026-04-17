@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from 'react-router-dom';
 import { ART } from '../../lib/artConfig';
@@ -64,7 +64,7 @@ export function StakingCard({
   const { amount: stakeAmount, setAmount: setStakeAmount, lock: selectedLock, setLock: setSelectedLock, extendLockDuration, setExtendLockDuration } = input;
   const { boostDisplay, amtNum, effectiveStake, stakeNeedsApproval, totalBoostBps } = computed;
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+    <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
       <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
         <div className="absolute inset-0">
           <img src={ART.beachVibes.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%' }} />
@@ -376,6 +376,6 @@ export function StakingCard({
         )}
         </div>
       </div>
-    </motion.div>
+    </m.div>
   );
 }

@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { usePoolData } from '../hooks/usePoolData';
 import { useTOWELIPrice } from '../contexts/PriceContext';
@@ -55,13 +55,13 @@ export default function TokenomicsPage() {
       </div>
 
       <div className="relative z-10 max-w-[1000px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
-        <motion.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+        <m.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Tokenomics</h1>
           <p className="text-white text-[14px]">TOWELI token economics and protocol transparency</p>
-        </motion.div>
+        </m.div>
 
         {/* Token info */}
-        <motion.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+        <m.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           {[
             { l: 'Token', v: 'TOWELI', art: ART.smokingDuo.src, pos: 'center 40%' },
             { l: 'Total Supply', v: '1B', art: ART.poolParty.src, pos: 'center 30%' },
@@ -90,11 +90,11 @@ export default function TokenomicsPage() {
               </div>
             </div>
           ))}
-        </motion.div>
+        </m.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
           {/* Chart */}
-          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}
+          <m.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}>
             <div className="absolute inset-0">
               <img src={ART.danceNight.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
@@ -128,10 +128,10 @@ export default function TokenomicsPage() {
               ))}
             </div>
             </div>
-          </motion.div>
+          </m.div>
 
           {/* Emissions */}
-          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}
+          <m.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>
             <div className="absolute inset-0">
               <img src={ART.jbChristmas.src} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -156,11 +156,11 @@ export default function TokenomicsPage() {
               </p>
             </div>
             </div>
-          </motion.div>
+          </m.div>
         </div>
 
         {/* Community Treasury */}
-        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-8" style={{ border: '1px solid var(--color-purple-75)' }}
+        <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-8" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <div className="absolute inset-0">
             <img src={ART.beachVibes.src} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -191,10 +191,10 @@ export default function TokenomicsPage() {
               </div>
             </div>
           </div>
-        </motion.div>
+        </m.div>
 
         {/* Contracts */}
-        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-8" style={{ border: '1px solid var(--color-purple-75)' }}
+        <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-8" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <div className="absolute inset-0">
             <img src={ART.jbacSkeleton.src} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -228,7 +228,7 @@ export default function TokenomicsPage() {
               })}
             </div>
           </div>
-        </motion.div>
+        </m.div>
 
         {/* Links */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">

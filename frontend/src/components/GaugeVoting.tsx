@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther, type Address } from 'viem';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { toast } from 'sonner';
 import { GAUGE_CONTROLLER_ADDRESS, TEGRIDY_STAKING_ADDRESS, isDeployed } from '../lib/constants';
 import { GAUGE_CONTROLLER_ABI, TEGRIDY_STAKING_ABI } from '../lib/contracts';
@@ -35,10 +35,10 @@ export function GaugeVoting() {
   // ─── Not Deployed Guard ──────────────────────────────────────
   if (!isDeployed(GAUGE_CONTROLLER_ADDRESS)) {
     return (
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
+      <m.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
         className="rounded-2xl p-6 text-center" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
         <p className="text-white/70 text-sm">Gauge controller not deployed yet</p>
-      </motion.div>
+      </m.div>
     );
   }
 
@@ -118,15 +118,15 @@ export function GaugeVoting() {
   // ─── Not Connected ──────────────────────────────────────────
   if (!isConnected) {
     return (
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
+      <m.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
         className="rounded-2xl p-6 text-center" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
         <p className="text-white/70 text-sm">Connect wallet to vote on gauge emissions</p>
-      </motion.div>
+      </m.div>
     );
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
+    <m.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
       className="space-y-4">
       {/* ── Header Stats ──────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -160,12 +160,12 @@ export function GaugeVoting() {
               const pct = relWeight !== undefined ? Number(relWeight) / 100 : 0;
 
               return (
-                <motion.div key={gauge} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.05 }}
+                <m.div key={gauge} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.05 }}
                   className="px-5 py-3.5 flex flex-col sm:flex-row sm:items-center gap-3">
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-mono text-purple-300">{shortenAddress(gauge, 6)}</p>
                     <div className="mt-1.5 h-1.5 rounded-full bg-white/5 overflow-hidden">
-                      <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(pct, 100)}%` }}
+                      <m.div initial={{ width: 0 }} animate={{ width: `${Math.min(pct, 100)}%` }}
                         transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
                         className="h-full rounded-full bg-gradient-to-r from-purple-500 to-violet-400" />
                     </div>
@@ -184,7 +184,7 @@ export function GaugeVoting() {
                       <p className="text-sm font-medium text-emerald-400">{emission !== undefined ? formatTokenAmount(formatEther(emission), 0) : '--'}</p>
                     </div>
                   </div>
-                </motion.div>
+                </m.div>
               );
             })}
           </div>
@@ -255,6 +255,6 @@ export function GaugeVoting() {
           )}
         </div>
       </div>
-    </motion.div>
+    </m.div>
   );
 }

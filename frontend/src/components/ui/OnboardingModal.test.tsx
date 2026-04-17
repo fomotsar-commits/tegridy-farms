@@ -3,13 +3,23 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { OnboardingModal } from './OnboardingModal';
 
-// Mock framer-motion to avoid animation issues in tests
-vi.mock('framer-motion', () => ({
-  motion: {
+// Mock framer-motion to avoid animation issues in tests.
+// Batch 19: consumers now import `m` (LazyMotion alias) instead of `motion`.
+// Both names are exported here so the mock remains back-compat with either
+// import shape, and the post-batch code that uses `m.div` picks up the div
+// passthrough without hitting the real framer animation engine.
+vi.mock('framer-motion', () => {
+  const passthrough = {
     div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
-  },
-  AnimatePresence: ({ children }: any) => <>{children}</>,
-}));
+  };
+  return {
+    motion: passthrough,
+    m: passthrough,
+    AnimatePresence: ({ children }: any) => <>{children}</>,
+    LazyMotion: ({ children }: any) => <>{children}</>,
+    domAnimation: {},
+  };
+});
 
 // Wrap in router since OnboardingModal uses Link
 function renderWithRouter() {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { formatEther } from 'viem';
@@ -79,7 +79,7 @@ export default function PremiumPage() {
 
       <div className="relative z-10 max-w-[1000px] mx-auto px-4 md:px-6 pt-24 pb-28 md:pb-16">
         {/* Hero */}
-        <motion.div className="text-center mb-12" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+        <m.div className="text-center mb-12" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <div className="inline-block mb-4">
             <div className="w-20 h-20 mx-auto rounded-2xl overflow-hidden" style={{
               border: '2px solid #d4a017',
@@ -94,11 +94,11 @@ export default function PremiumPage() {
           <p className="text-white text-base md:text-lg max-w-lg mx-auto">
             Unlock premium features and earn 3x points across the protocol.
           </p>
-        </motion.div>
+        </m.div>
 
         {/* Fix #2: Wallet-disconnected prompt */}
         {!address && (
-          <motion.div className="mb-8 rounded-xl p-6 text-center"
+          <m.div className="mb-8 rounded-xl p-6 text-center"
             initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
             style={{
               background: 'linear-gradient(135deg, var(--color-purple-12) 0%, var(--color-purple-04) 100%)',
@@ -109,12 +109,12 @@ export default function PremiumPage() {
             <div className="flex justify-center">
               <ConnectButton />
             </div>
-          </motion.div>
+          </m.div>
         )}
 
         {/* Fix #4: Error state */}
         {hasError && address && (
-          <motion.div className="mb-8 rounded-xl p-4 text-center"
+          <m.div className="mb-8 rounded-xl p-4 text-center"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}
             style={{
               background: 'rgba(239,68,68,0.1)',
@@ -127,12 +127,12 @@ export default function PremiumPage() {
               style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }}>
               Retry
             </button>
-          </motion.div>
+          </m.div>
         )}
 
         {/* Status Banner */}
         {premium.hasPremium && (
-          <motion.div className="mb-8 rounded-xl p-4 text-center"
+          <m.div className="mb-8 rounded-xl p-4 text-center"
             initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
             style={{
               background: 'linear-gradient(135deg, rgba(212,160,23,0.15) 0%, rgba(212,160,23,0.05) 100%)',
@@ -149,11 +149,11 @@ export default function PremiumPage() {
             {premium.isLifetime && (
               <div className="text-white text-[12px] mt-1">JBAC NFT holder — permanent access</div>
             )}
-          </motion.div>
+          </m.div>
         )}
 
         {/* Stats Row */}
-        <motion.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-10"
+        <m.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-10"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15 }}>
           {/* Fix #3: Loading skeletons for stats */}
           {isLoading ? (
@@ -178,28 +178,28 @@ export default function PremiumPage() {
               </div>
             ))
           )}
-        </motion.div>
+        </m.div>
 
         {/* Benefits Grid */}
-        <motion.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+        <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Gold Card Benefits</h2>
           <p className="text-white text-[12px] mb-5">Everything included with your Gold Card membership</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {ACTIVE_BENEFITS.map((b, i) => (
-              <motion.div key={b.title} className="glass-card p-4"
+              <m.div key={b.title} className="glass-card p-4"
                 initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }} transition={{ delay: i * 0.06 }}>
                 <div className="text-2xl mb-2">{b.icon}</div>
                 <h3 className="text-white text-[14px] font-semibold mb-1">{b.title}</h3>
                 <p className="text-white text-[12px] leading-relaxed">{b.desc}</p>
-              </motion.div>
+              </m.div>
             ))}
           </div>
-        </motion.div>
+        </m.div>
 
         {/* Subscribe Section */}
         {!premium.hasPremium && (
-          <motion.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+          <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Choose Your Plan</h2>
             <p className="text-white text-[12px] mb-5">Pay in TOWELI. Longer plans save more.</p>
 
@@ -334,11 +334,11 @@ export default function PremiumPage() {
                 </button>
               )}
             </div>
-          </motion.div>
+          </m.div>
         )}
 
         {/* Revenue Sharing Section */}
-        <motion.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+        <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Revenue Sharing</h2>
           <p className="text-white text-[12px] mb-5">100% of protocol fees distributed to stakers</p>
 
@@ -407,10 +407,10 @@ export default function PremiumPage() {
               </div>
             </div>
           )}
-        </motion.div>
+        </m.div>
 
         {/* JBAC NFT Section */}
-        <motion.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+        <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <div className="glass-card p-5 flex flex-col md:flex-row items-center gap-5" style={{ border: '1px solid rgba(212,160,23,0.15)' }}>
             <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0" style={{ border: '1px solid rgba(212,160,23,0.3)' }}>
               <img src={ART.apeHug.src} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -434,7 +434,7 @@ export default function PremiumPage() {
               </button>
             )}
           </div>
-        </motion.div>
+        </m.div>
 
         {/* Contract Link */}
         <div className="text-center">

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useTegridyScore } from '../hooks/useTegridyScore';
 
 const RING_SIZE = 88;
@@ -38,7 +38,7 @@ export function TegridyScoreMini() {
   const dashOffset = CIRCUMFERENCE - (progress / 100) * CIRCUMFERENCE;
 
   return (
-    <motion.div
+    <m.div
       className="flex items-center gap-4"
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
@@ -84,6 +84,6 @@ export function TegridyScoreMini() {
         <p className="text-[10px] text-white mt-0.5">Tegridy Score</p>
         <p className="text-[9px] text-white/15 mt-0.5 italic">On-chain verified</p>
       </div>
-    </motion.div>
+    </m.div>
   );
 }

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useReadContract } from 'wagmi';
 import { toast } from 'sonner';
@@ -229,7 +229,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
   return (
     <AnimatePresence>
       {open && (
-      <motion.div
+      <m.div
         ref={modalRef}
         key="token-select-modal"
         className="fixed inset-0 z-[100] flex items-center justify-center p-4"
@@ -240,7 +240,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
         {/* Modal */}
-        <motion.div
+        <m.div
           className="relative w-full max-w-[420px] max-md:max-w-none max-md:max-h-none max-md:h-full max-md:rounded-none flex flex-col rounded-2xl overflow-hidden"
           style={{
             maxHeight: 'calc(100vh - 160px)',
@@ -468,8 +468,8 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
               </div>
             )}
           </div>
-        </motion.div>
-      </motion.div>
+        </m.div>
+      </m.div>
       )}
     </AnimatePresence>
   );

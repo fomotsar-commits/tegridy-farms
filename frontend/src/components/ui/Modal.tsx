@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 
 interface ModalProps {
   open: boolean;
@@ -51,7 +51,7 @@ export function Modal({ open, onClose, children, title, maxWidth = 'max-w-md' }:
       {open && (
         <>
           {/* Backdrop */}
-          <motion.div
+          <m.div
             className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -60,7 +60,7 @@ export function Modal({ open, onClose, children, title, maxWidth = 'max-w-md' }:
           />
           {/* Dialog */}
           <div className="fixed inset-0 z-[101] flex items-center justify-center px-4 pointer-events-none">
-            <motion.div
+            <m.div
               ref={dialogRef}
               role="dialog"
               aria-modal="true"
@@ -92,7 +92,7 @@ export function Modal({ open, onClose, children, title, maxWidth = 'max-w-md' }:
               )}
 
               {children}
-            </motion.div>
+            </m.div>
           </div>
         </>
       )}

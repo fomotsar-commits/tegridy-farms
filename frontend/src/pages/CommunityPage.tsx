@@ -1,5 +1,5 @@
 import { useState, Suspense } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { ART } from '../lib/artConfig';
@@ -33,7 +33,7 @@ export default function CommunityPage() {
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-24 pb-16">
         {/* Header */}
-        <motion.div
+        <m.div
           className="text-center mb-10"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -43,10 +43,10 @@ export default function CommunityPage() {
           <p className="text-white max-w-md mx-auto text-[14px]">
             Governance, bounties, and vote incentives — powered by the community.
           </p>
-        </motion.div>
+        </m.div>
 
         {/* Section Toggle — always visible so users can see what's available */}
-        <motion.div
+        <m.div
           className="grid grid-cols-3 md:flex justify-center gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit"
           style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
           role="tablist"
@@ -65,7 +65,7 @@ export default function CommunityPage() {
               onClick={() => setSection(key)}
             >
               {section === key && (
-                <motion.div
+                <m.div
                   layoutId="community-tab"
                   className="absolute inset-0 rounded-xl bg-emerald-600 shadow-lg shadow-emerald-600/20"
                   transition={{ type: 'spring', stiffness: 400, damping: 30 }}
@@ -74,10 +74,10 @@ export default function CommunityPage() {
               <span className="relative z-10">{label}</span>
             </button>
           ))}
-        </motion.div>
+        </m.div>
 
         {!isConnected ? (
-          <motion.div
+          <m.div
             className="max-w-md mx-auto rounded-2xl p-8 text-center relative overflow-hidden"
             style={{ border: '1px solid rgba(16,185,129,0.08)' }}
             initial={{ opacity: 0, y: 20 }}
@@ -97,9 +97,9 @@ export default function CommunityPage() {
               <p className="text-white mb-5 text-[14px]">Connect your wallet to participate</p>
               <ConnectButton />
             </div>
-          </motion.div>
+          </m.div>
         ) : (
-          <motion.div
+          <m.div
             key={section}
             role="tabpanel"
             aria-label={`${SECTIONS.find(s => s.key === section)?.label} panel`}
@@ -122,7 +122,7 @@ export default function CommunityPage() {
                 {section === 'gauges' && <GaugeVoting />}
               </Suspense>
             </ErrorBoundary>
-          </motion.div>
+          </m.div>
         )}
       </div>
     </div>

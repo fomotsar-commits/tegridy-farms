@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther } from 'viem';
 import { ART } from '../../lib/artConfig';
@@ -56,7 +56,7 @@ export function CreateCollectionForm({ onCreated, deployed }: { onCreated: () =>
   };
 
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, y: -12 }}
       animate={{ opacity: 1, y: 0 }}
       className="mb-8"
@@ -207,6 +207,6 @@ export function CreateCollectionForm({ onCreated, deployed }: { onCreated: () =>
           </div>
         </div>
       </ArtCard>
-    </motion.div>
+    </m.div>
   );
 }

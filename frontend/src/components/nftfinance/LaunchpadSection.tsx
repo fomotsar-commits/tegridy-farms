@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useReadContract, useReadContracts } from 'wagmi';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { type Address } from 'viem';
 import { TEGRIDY_LAUNCHPAD_ADDRESS, isDeployed } from '../../lib/constants';
 import { TEGRIDY_LAUNCHPAD_ABI } from '../../lib/contracts';
@@ -129,7 +129,7 @@ export function LaunchpadSection() {
                 result.result as [bigint, Address, Address, string, string];
 
               return (
-                <motion.button key={i} onClick={() => setSelectedCollection(collectionAddr)}
+                <m.button key={i} onClick={() => setSelectedCollection(collectionAddr)}
                   initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.05 }}
                   className="w-full px-5 py-4 flex items-center justify-between hover:bg-white/[0.02] transition-colors text-left">
                   <div className="flex items-center gap-3">
@@ -144,7 +144,7 @@ export function LaunchpadSection() {
                   <div className="text-right">
                     <p className="text-[11px] text-white/30 font-mono">{shortenAddress(collectionAddr)}</p>
                   </div>
-                </motion.button>
+                </m.button>
               );
             })}
           </div>

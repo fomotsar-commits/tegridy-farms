@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { getTxUrl } from '../lib/explorer';
@@ -221,7 +221,7 @@ export default function HistoryPage() {
           <img src={ART.jungleDark.src} alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
-          <motion.div className="text-center max-w-sm" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}>
+          <m.div className="text-center max-w-sm" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}>
             <h2 className="heading-luxury text-2xl text-white mb-2">Transaction History</h2>
             <p className="text-white text-[13px] mb-6">Connect your wallet to view your history.</p>
             <ConnectButton.Custom>
@@ -231,7 +231,7 @@ export default function HistoryPage() {
                 </div>
               )}
             </ConnectButton.Custom>
-          </motion.div>
+          </m.div>
         </div>
       </div>
     );
@@ -244,7 +244,7 @@ export default function HistoryPage() {
       </div>
 
       <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
-        <motion.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+        <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div className="flex items-center justify-between gap-4">
             <div>
               <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">History</h1>
@@ -257,9 +257,9 @@ export default function HistoryPage() {
               </button>
             )}
           </div>
-        </motion.div>
+        </m.div>
 
-        <motion.div className="glass-card rounded-xl overflow-hidden" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+        <m.div className="glass-card rounded-xl overflow-hidden" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           {loading ? (
             <div className="p-6 space-y-3">
               {[1,2,3,4,5].map(i => (
@@ -342,7 +342,7 @@ export default function HistoryPage() {
               </tbody>
             </table>
           )}
-        </motion.div>
+        </m.div>
 
         <p className="text-white/15 text-[10px] text-center mt-4">
           Showing interactions with all Tegridy Farms protocol contracts.

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 import { formatCurrency } from '../../lib/formatting';
 
 export function ILCalculator() {
@@ -30,7 +30,7 @@ export function ILCalculator() {
 
       <AnimatePresence>
         {open && (
-          <motion.div className="glass-card rounded-xl p-5 mt-3"
+          <m.div className="glass-card rounded-xl p-5 mt-3"
             initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
             <h4 className="text-white text-[14px] font-semibold mb-1">Impermanent Loss Calculator</h4>
             <p className="text-white text-[11px] mb-4">
@@ -89,7 +89,7 @@ export function ILCalculator() {
                 Farm rewards and trading fees can offset IL over time.
               </p>
             </details>
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </div>

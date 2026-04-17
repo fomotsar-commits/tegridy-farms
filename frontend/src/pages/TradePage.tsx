@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { getTxUrl } from '../lib/explorer';
@@ -40,10 +40,10 @@ export default function TradePage() {
       </div>
 
       <div className="relative z-10 max-w-[600px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
-        <motion.div className="mb-5" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+        <m.div className="mb-5" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-2xl md:text-3xl text-white tracking-tight mb-1">Trade</h1>
           <p className="text-white text-[13px]">Swap tokens with smart routing across Tegridy DEX, Uniswap, and 7 aggregators</p>
-        </motion.div>
+        </m.div>
 
         {/* Tab Toggle */}
         <div className="flex gap-1.5 mb-6 p-1 rounded-2xl" style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}>
@@ -58,7 +58,7 @@ export default function TradePage() {
 
         {/* Swap Tab */}
         {tab === 'swap' && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-2xl p-5" style={{ border: '1px solid var(--color-purple-12)' }}>
+          <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-2xl p-5" style={{ border: '1px solid var(--color-purple-12)' }}>
             {!isConnected ? (
               <div className="text-center py-8">
                 <p className="text-white/70 text-[13px] mb-4">Connect your wallet to swap</p>
@@ -192,21 +192,21 @@ export default function TradePage() {
                 )}
               </>
             )}
-          </motion.div>
+          </m.div>
         )}
 
         {/* DCA Tab */}
         {tab === 'dca' && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-2xl" style={{ border: '1px solid var(--color-purple-12)' }}>
+          <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-2xl" style={{ border: '1px solid var(--color-purple-12)' }}>
             <DCATab />
-          </motion.div>
+          </m.div>
         )}
 
         {/* Limit Order Tab */}
         {tab === 'limit' && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-2xl" style={{ border: '1px solid var(--color-purple-12)' }}>
+          <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-2xl" style={{ border: '1px solid var(--color-purple-12)' }}>
             <LimitOrderTab />
-          </motion.div>
+          </m.div>
         )}
       </div>
 

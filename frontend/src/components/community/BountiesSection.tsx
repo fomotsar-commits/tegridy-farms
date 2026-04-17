@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, type Address } from 'viem';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { toast } from 'sonner';
 import { MEME_BOUNTY_BOARD_ADDRESS } from '../../lib/constants';
 import { MEME_BOUNTY_BOARD_ABI } from '../../lib/contracts';
@@ -131,7 +131,7 @@ export function BountiesSection() {
       </button>
 
       {showCreate && (
-        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+        <m.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
           className="rounded-2xl p-5 space-y-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
           <h3 className="text-sm font-semibold text-white">New Meme Bounty</h3>
           <p className="text-[11px] text-white/70">Fund a bounty with ETH. Community votes on submissions. Winner takes the reward.</p>
@@ -158,7 +158,7 @@ export function BountiesSection() {
             style={{ background: 'linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105))', color: 'white' }}>
             {isSigning ? 'Confirm in Wallet...' : isConfirming ? 'Creating...' : `Post Bounty (${newReward || '0'} ETH)`}
           </button>
-        </motion.div>
+        </m.div>
       )}
 
       {/* Bounty List */}
@@ -182,7 +182,7 @@ export function BountiesSection() {
               const isExpanded = expandedBounty === bountyId;
 
               return (
-                <motion.div key={bountyId} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.05 }}
+                <m.div key={bountyId} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.05 }}
                   className="px-5 py-4">
                   <button onClick={() => setExpandedBounty(isExpanded ? null : bountyId)} className="w-full text-left">
                     <div className="flex items-start justify-between gap-3">
@@ -207,7 +207,7 @@ export function BountiesSection() {
 
                   {/* Expanded: Submit Work */}
                   {isExpanded && isOpen && !isPastDeadline && (
-                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+                    <m.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
                       className="mt-3 pt-3 border-t border-white/5 space-y-2">
                       <label className="text-[11px] text-white/40 uppercase tracking-wider block">Submit Your Work</label>
                       <div className="flex gap-2">
@@ -219,9 +219,9 @@ export function BountiesSection() {
                           Submit
                         </button>
                       </div>
-                    </motion.div>
+                    </m.div>
                   )}
-                </motion.div>
+                </m.div>
               );
             })}
           </div>

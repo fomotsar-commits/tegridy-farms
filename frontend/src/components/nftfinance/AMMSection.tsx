@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 import {
   useAccount,
   useWriteContract,
@@ -396,7 +396,7 @@ function AMMStatsBar({ poolCount }: { poolCount: bigint | undefined }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-8">
       {stats.map((s, i) => (
-        <motion.div
+        <m.div
           key={s.label}
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -413,7 +413,7 @@ function AMMStatsBar({ poolCount }: { poolCount: bigint | undefined }) {
               </p>
             </div>
           </ArtCard>
-        </motion.div>
+        </m.div>
       ))}
     </div>
   );
@@ -440,7 +440,7 @@ function TabNav({ active, onChange }: { active: Tab; onChange: (t: Tab) => void 
         >
           {t.label}
           {active === t.id && (
-            <motion.div
+            <m.div
               layoutId="amm-tab-underline"
               className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-emerald-400 to-emerald-500"
               transition={{ type: 'spring', stiffness: 400, damping: 30 }}
@@ -795,7 +795,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
 
         {/* Quote Card */}
         {validCollection && bestAmount && hasPool && (
-          <motion.div
+          <m.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             className="rounded-xl border border-white/20 bg-black/60 p-4 mb-5"
@@ -826,12 +826,12 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
                 </div>
               )}
             </div>
-          </motion.div>
+          </m.div>
         )}
 
         {/* Bonding Curve in Trade Tab (when pool found) */}
         {validCollection && hasPool && spotNum > 0 && (
-          <motion.div
+          <m.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
@@ -854,7 +854,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
                 />
               </div>
             </ArtCard>
-          </motion.div>
+          </m.div>
         )}
 
         {/* Empty quote state */}
@@ -866,7 +866,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
 
         {/* Price Impact Warning Banner */}
         {priceImpact !== null && Math.abs(priceImpact) > 5 && (
-          <motion.div
+          <m.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             className={`rounded-xl border p-3 mb-4 text-xs font-medium flex items-center gap-2 ${
@@ -881,7 +881,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
             {Math.abs(priceImpact) > 15
               ? `High price impact (${Math.abs(priceImpact).toFixed(1)}%). Consider reducing quantity.`
               : `Moderate price impact (${Math.abs(priceImpact).toFixed(1)}%). Proceed with caution.`}
-          </motion.div>
+          </m.div>
         )}
 
         {/* Execute Buttons */}
@@ -1070,7 +1070,7 @@ function PoolCard({
   };
 
   return (
-    <motion.div
+    <m.div
       layout
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
@@ -1170,7 +1170,7 @@ function PoolCard({
               </button>
               <AnimatePresence>
                 {expanded && (
-                  <motion.div
+                  <m.div
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: 'auto' }}
                     exit={{ height: 0, opacity: 0 }}
@@ -1258,14 +1258,14 @@ function PoolCard({
                         </div>
                       )}
                     </div>
-                  </motion.div>
+                  </m.div>
                 )}
               </AnimatePresence>
             </>
           )}
         </div>
       </ArtCard>
-    </motion.div>
+    </m.div>
   );
 }
 
@@ -1470,7 +1470,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
       {/* Step 1: Collection & Type */}
       <AnimatePresence mode="wait">
         {step === 1 && (
-          <motion.div
+          <m.div
             key="step1"
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
@@ -1538,12 +1538,12 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                 )}
               </div>
             </ArtCard>
-          </motion.div>
+          </m.div>
         )}
 
         {/* Step 2: Pricing */}
         {step === 2 && (
-          <motion.div
+          <m.div
             key="step2"
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
@@ -1611,12 +1611,12 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                 </div>
               </div>
             </ArtCard>
-          </motion.div>
+          </m.div>
         )}
 
         {/* Step 3: Liquidity & Deploy */}
         {step === 3 && (
-          <motion.div
+          <m.div
             key="step3"
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
@@ -1723,7 +1723,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                 </div>
               </div>
             </ArtCard>
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </div>
@@ -1997,7 +1997,7 @@ export function AMMSection() {
       <TabNav active={activeTab} onChange={setActiveTab} />
 
       <AnimatePresence mode="wait">
-        <motion.div
+        <m.div
           key={activeTab}
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -2007,7 +2007,7 @@ export function AMMSection() {
           {activeTab === 'trade' && <TradeTab deployed={deployed} />}
           {activeTab === 'create' && <CreatePoolTab deployed={deployed} />}
           {activeTab === 'pools' && <MyPoolsTab deployed={deployed} />}
-        </motion.div>
+        </m.div>
       </AnimatePresence>
     </div>
   );

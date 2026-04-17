@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { formatEther } from 'viem';
 import { ART } from '../../lib/artConfig';
@@ -59,7 +59,7 @@ export function CollectionDetail({
   }, [drop, mintQty, proofInput, deployed]);
 
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, y: -12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
@@ -121,7 +121,7 @@ export function CollectionDetail({
                 <span className="font-mono tabular-nums">{progressPct.toFixed(1)}%</span>
               </div>
               <div className="w-full h-2 rounded-full bg-black/60 overflow-hidden" role="progressbar" aria-valuenow={Math.round(progressPct)} aria-valuemin={0} aria-valuemax={100}>
-                <motion.div
+                <m.div
                   className="h-full rounded-full bg-gradient-to-r from-emerald-600 to-emerald-400"
                   initial={{ width: 0 }}
                   animate={{ width: `${progressPct}%` }}
@@ -150,7 +150,7 @@ export function CollectionDetail({
               {/* Allowlist proof input */}
               <AnimatePresence>
                 {drop.currentPhase === 1 && (
-                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                  <m.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
                     <label className={LABEL} htmlFor="mint-merkleProof">Merkle Proof</label>
                     <input
                       id="mint-merkleProof"
@@ -163,7 +163,7 @@ export function CollectionDetail({
                     <span className="text-[10px] text-white mt-1 block">
                       Comma-separated hex strings. Get your proof from the project.
                     </span>
-                  </motion.div>
+                  </m.div>
                 )}
               </AnimatePresence>
 
@@ -227,6 +227,6 @@ export function CollectionDetail({
 
       {/* Owner Admin */}
       {drop.isOwner && <OwnerAdminPanel dropAddress={dropAddress} deployed={deployed} />}
-    </motion.div>
+    </m.div>
   );
 }

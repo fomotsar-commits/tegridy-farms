@@ -1,5 +1,5 @@
 import { useMemo, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useAccount, useBalance, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -95,7 +95,7 @@ export default function DashboardPage() {
           <img src={ART.busCrew.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 5%' }} />
         </div>
         <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
-          <motion.div className="text-center max-w-sm" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}>
+          <m.div className="text-center max-w-sm" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}>
             <h2 className="heading-luxury text-2xl text-white mb-2">Connect Wallet</h2>
             <p className="text-white text-[13px] mb-6">View your portfolio, positions, and earnings.</p>
             <ConnectButton.Custom>
@@ -107,7 +107,7 @@ export default function DashboardPage() {
                 </div>
               )}
             </ConnectButton.Custom>
-          </motion.div>
+          </m.div>
         </div>
       </div>
     );
@@ -127,7 +127,7 @@ export default function DashboardPage() {
           </div>
         )}
         {/* Header with Portfolio Value */}
-        <motion.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+        <m.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-3">
               <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Dashboard</h1>
@@ -152,10 +152,10 @@ export default function DashboardPage() {
             )}
             <span className="text-white text-[13px]">Portfolio Value</span>
           </div>
-        </motion.div>
+        </m.div>
 
         {/* Summary Stats */}
-        <motion.div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+        <m.div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           {[
             { l: 'TOWELI Balance', numVal: walletToweli, decimals: 0, sub: price.isLoaded ? formatCurrency(walletToweli * price.priceInUsd) : '–', art: ART.mumuBull.src, loading: isToweliLoading, error: toweliError },
             { l: 'ETH Balance', numVal: ethBal, decimals: 4, sub: ethBalance && price.ethUsd > 0 ? formatCurrency(ethBal * price.ethUsd) : '–', art: ART.jungleBus.src, loading: isEthLoading, error: ethError },
@@ -199,10 +199,10 @@ export default function DashboardPage() {
               </div>
             </div>
           ))}
-        </motion.div>
+        </m.div>
 
         {/* Tegridy Score */}
-        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
+        <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
           <div className="absolute inset-0">
             <img src={ART.danceNight.src} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -213,11 +213,11 @@ export default function DashboardPage() {
               View Breakdown &#8594;
             </Link>
           </div>
-        </motion.div>
+        </m.div>
 
         {/* Claim Button */}
         {pendingTotal >= 0.01 && pos.hasPosition && (
-          <motion.div className="mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          <m.div className="mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <button onClick={handleClaim}
               disabled={farmActions.isPending || farmActions.isConfirming}
               className="btn-primary px-6 py-2.5 text-[13px] disabled:opacity-70 disabled:cursor-not-allowed">
@@ -225,7 +225,7 @@ export default function DashboardPage() {
                 ? 'Claiming...'
                 : `Claim Rewards (${formatTokenAmount(pendingTotal.toString(), 2)} TOWELI)`}
             </button>
-          </motion.div>
+          </m.div>
         )}
 
         {/* ETH Revenue Sharing */}
@@ -233,7 +233,7 @@ export default function DashboardPage() {
 
         {/* POL Accumulator */}
         {!isDeployed(POL_ACCUMULATOR_ADDRESS) && (
-          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
+          <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
               <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -247,12 +247,12 @@ export default function DashboardPage() {
                 Protocol-Owned Liquidity will automatically accumulate LP positions from a share of swap fees, deepening TOWELI liquidity permanently and reducing reliance on external LPs.
               </p>
             </div>
-          </motion.div>
+          </m.div>
         )}
 
         {/* DCA Due Alerts */}
         {dca.dueSchedules.length > 0 && (
-          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
+          <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
               <img src={ART.porchChill.src} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -264,12 +264,12 @@ export default function DashboardPage() {
               </div>
               <Link to="/swap" className="btn-secondary px-4 py-2 text-[12px]">Execute &#8594;</Link>
             </div>
-          </motion.div>
+          </m.div>
         )}
 
         {/* Active Limit Orders */}
         {limitOrders.activeOrders.length > 0 && (
-          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
+          <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
               <img src={ART.roseApe.src} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -278,7 +278,7 @@ export default function DashboardPage() {
               <p className="text-white text-[13px] font-medium mb-1">{limitOrders.activeOrders.length} active price alert{limitOrders.activeOrders.length > 1 ? 's' : ''}</p>
               <p className="text-white text-[11px]">Check Swap for details</p>
             </div>
-          </motion.div>
+          </m.div>
         )}
 
         {/* Outstanding Loans */}
@@ -289,7 +289,7 @@ export default function DashboardPage() {
         {/* Position */}
         <h2 className="heading-luxury text-[16px] text-white mb-4">Your Position</h2>
         {pos.hasPosition ? (
-          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10 card-hover" style={{ border: '1px solid var(--color-purple-75)' }}
+          <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10 card-hover" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
             <div className="absolute inset-0">
               <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -329,9 +329,9 @@ export default function DashboardPage() {
                 </Link>
               </div>
             </div>
-          </motion.div>
+          </m.div>
         ) : (
-          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
+          <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
               <img src={ART.jbChristmas.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 20%' }} />
@@ -340,7 +340,7 @@ export default function DashboardPage() {
               <p className="text-white text-[15px] mb-4">No staking position yet</p>
               <Link to="/farm" className="btn-primary px-8 py-3 text-[14px]">Start Staking &#8594;</Link>
             </div>
-          </motion.div>
+          </m.div>
         )}
 
         {/* Referral Widget */}
@@ -355,24 +355,24 @@ export default function DashboardPage() {
 
         {/* Projections */}
         {pos.hasPosition && (
-          <motion.div className="mb-10" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+          <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h3 className="heading-luxury text-[16px] text-white mb-4">Earnings Projection</h3>
             <Projections staked={stakedTotal} apr={parseFloat(pool.apr) || 0} price={price.priceInUsd} boost={pos.boostMultiplier} />
-          </motion.div>
+          </m.div>
         )}
 
         {/* Price Alerts */}
-        <motion.div className="mb-6" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+        <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <PriceAlertWidget />
-        </motion.div>
+        </m.div>
 
         {/* Chart */}
-        <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+        <m.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <h3 className="heading-luxury text-[16px] text-white mb-3">Price Chart</h3>
           <div className="relative rounded-xl overflow-hidden glass-card-animated h-[280px] md:h-[400px]" style={{ border: '1px solid var(--color-purple-75)' }}>
             <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}><PriceChart /></ErrorBoundary>
           </div>
-        </motion.div>
+        </m.div>
       </div>
       </ErrorBoundary>
     </div>
@@ -402,7 +402,7 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
 
   if (pending > 0) {
     return (
-      <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
+      <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
         initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
         <div className="absolute inset-0">
           <img src={ART.smokingDuo.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 55%' }} />
@@ -423,7 +423,7 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
             {isPending || isConfirming ? 'Claiming...' : 'Claim ETH'}
           </button>
         </div>
-      </motion.div>
+      </m.div>
     );
   }
 
@@ -435,7 +435,7 @@ function OutstandingLoans({ loans }: { loans: import('../hooks/useMyLoans').MyLo
   const overdue = loans.filter(l => l.status === 'overdue').length;
   const totalPrincipal = loans.reduce((acc, l) => acc + l.principal, 0n);
   return (
-    <motion.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+    <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <h2 className="heading-luxury text-[16px] text-white">
           Outstanding Loans
@@ -486,7 +486,7 @@ function OutstandingLoans({ loans }: { loans: import('../hooks/useMyLoans').MyLo
           </div>
         </div>
       </div>
-    </motion.div>
+    </m.div>
   );
 }
 

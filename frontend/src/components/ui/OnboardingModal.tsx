@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 
 const STORAGE_KEY = 'tegridy-onboarding-seen';
@@ -86,7 +86,7 @@ export function OnboardingModal() {
         {/* Step content */}
         <div className="overflow-hidden min-h-[160px] flex items-center">
           <AnimatePresence mode="wait" custom={dir}>
-            <motion.div
+            <m.div
               key={step}
               custom={dir}
               variants={variants}
@@ -100,7 +100,7 @@ export function OnboardingModal() {
               <p className="text-sm text-gray-300 whitespace-pre-line leading-relaxed">
                 {steps[step]!.body}
               </p>
-            </motion.div>
+            </m.div>
           </AnimatePresence>
         </div>
 

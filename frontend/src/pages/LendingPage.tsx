@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { ART } from '../lib/artConfig';
@@ -65,7 +65,7 @@ export default function LendingPage() {
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-24 pb-16">
         {/* Header */}
-        <motion.div
+        <m.div
           className="text-center mb-6"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -75,12 +75,12 @@ export default function LendingPage() {
           <p className="text-white max-w-md mx-auto text-[14px]">
             Lend, borrow, and trade NFTs — institutional-grade tools, all in one place.
           </p>
-        </motion.div>
+        </m.div>
 
         {/* Intro Overview Cards — dismissible */}
         <AnimatePresence>
           {!introDismissed && (
-            <motion.div
+            <m.div
               className="mb-6"
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
@@ -89,7 +89,7 @@ export default function LendingPage() {
             >
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-2">
                 {INTRO_CARDS.map((card, i) => (
-                  <motion.button
+                  <m.button
                     key={card.key}
                     onClick={() => setSection(card.key)}
                     className={`relative text-left rounded-xl transition-all duration-300 group overflow-hidden ${
@@ -118,7 +118,7 @@ export default function LendingPage() {
                       </div>
                     </div>
                     </div>
-                  </motion.button>
+                  </m.button>
                 ))}
               </div>
               <div className="flex justify-center">
@@ -129,12 +129,12 @@ export default function LendingPage() {
                   Dismiss overview
                 </button>
               </div>
-            </motion.div>
+            </m.div>
           )}
         </AnimatePresence>
 
         {/* Section Toggle — horizontal scroll on mobile */}
-        <motion.div
+        <m.div
           className="flex overflow-x-auto gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit no-scrollbar snap-x snap-mandatory"
           style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
           role="tablist"
@@ -157,7 +157,7 @@ export default function LendingPage() {
               onClick={() => setSection(key)}
             >
               {section === key && (
-                <motion.div
+                <m.div
                   layoutId="nft-finance-tab"
                   className="absolute inset-0 rounded-xl bg-emerald-600 shadow-lg shadow-emerald-600/20"
                   transition={{ type: 'spring', stiffness: 400, damping: 30 }}
@@ -166,10 +166,10 @@ export default function LendingPage() {
               <span className="relative z-10">{label}</span>
             </button>
           ))}
-        </motion.div>
+        </m.div>
 
         {!isConnected ? (
-          <motion.div
+          <m.div
             className="max-w-md mx-auto rounded-2xl p-8 text-center"
             style={{
               border: '1px solid rgba(16,185,129,0.08)',
@@ -186,9 +186,9 @@ export default function LendingPage() {
             </div>
             <p className="text-white mb-5 text-[14px]">Connect your wallet to access NFT Finance</p>
             <ConnectButton />
-          </motion.div>
+          </m.div>
         ) : (
-          <motion.div
+          <m.div
             key={section}
             role="tabpanel"
             id={`nft-finance-panel-${section}`}
@@ -201,7 +201,7 @@ export default function LendingPage() {
             {section === 'nftlending' && <NFTLendingSection />}
             {section === 'amm' && <AMMSection />}
             {section === 'launchpad' && <LaunchpadSection />}
-          </motion.div>
+          </m.div>
         )}
       </div>
     </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useTegridyScore, type TegridyScoreBreakdown } from '../hooks/useTegridyScore';
 import { ART } from '../lib/artConfig';
 
@@ -49,7 +49,7 @@ export function TegridyScore() {
   const dashOffset = CIRCUMFERENCE - (progress / 100) * CIRCUMFERENCE;
 
   return (
-    <motion.div
+    <m.div
       className="relative overflow-hidden rounded-xl glass-card-animated"
       style={{ border: '1px solid var(--color-purple-75)' }}
       initial={{ opacity: 0, y: 15 }}
@@ -124,7 +124,7 @@ export function TegridyScore() {
                 <span className="stat-value text-[11px] text-white">{value}</span>
               </div>
               <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--color-purple-75)' }}>
-                <motion.div
+                <m.div
                   className="h-full rounded-full"
                   style={{ background: color }}
                   initial={{ width: 0 }}
@@ -155,6 +155,6 @@ export function TegridyScore() {
         </div>
       )}
       </div>
-    </motion.div>
+    </m.div>
   );
 }

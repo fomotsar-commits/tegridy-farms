@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther, parseEther, type Address } from 'viem';
 import { toast } from 'sonner';
@@ -111,12 +111,12 @@ export function NFTLendingSection() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ ease: EASE }}>
+      <m.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ ease: EASE }}>
         <h2 className="heading-luxury text-xl md:text-2xl text-white mb-2">NFT Lending</h2>
         <p className="text-white/70 text-[13px]">
           Borrow ETH against your NFTs or lend ETH and earn interest. P2P — no oracles, no liquidations.
         </p>
-      </motion.div>
+      </m.div>
 
       {/* How It Works */}
       <HowItWorks
@@ -131,7 +131,7 @@ export function NFTLendingSection() {
       />
 
       {/* Stats Bar */}
-      <motion.div
+      <m.div
         className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3"
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -155,10 +155,10 @@ export function NFTLendingSection() {
             <p className="text-white text-xl font-semibold">{s.value}</p>
           </div>
         ))}
-      </motion.div>
+      </m.div>
 
       {/* Tab Navigation */}
-      <motion.div
+      <m.div
         className="flex gap-1 rounded-xl p-1"
         style={{ background: 'rgba(13, 21, 48, 0.4)', border: `1px solid ${CARD_BORDER}` }}
         initial={{ opacity: 0, y: 8 }}
@@ -174,7 +174,7 @@ export function NFTLendingSection() {
             }`}
           >
             {activeTab === tab && (
-              <motion.div
+              <m.div
                 layoutId="lending-tab-indicator"
                 className="absolute inset-0 rounded-lg"
                 style={{ background: 'var(--color-purple-20)', border: '1px solid var(--color-purple-30)' }}
@@ -184,24 +184,24 @@ export function NFTLendingSection() {
             <span className="relative z-10">{tab}</span>
           </button>
         ))}
-      </motion.div>
+      </m.div>
 
       {/* Tab Content */}
       <AnimatePresence mode="wait">
         {activeTab === 'Lend' && (
-          <motion.div key="lend" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ ease: EASE }}>
+          <m.div key="lend" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ ease: EASE }}>
             <LendTab />
-          </motion.div>
+          </m.div>
         )}
         {activeTab === 'Borrow' && (
-          <motion.div key="borrow" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ ease: EASE }}>
+          <m.div key="borrow" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ ease: EASE }}>
             <BorrowTab offerCount={offerCount} />
-          </motion.div>
+          </m.div>
         )}
         {activeTab === 'My Loans' && (
-          <motion.div key="myloans" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ ease: EASE }}>
+          <m.div key="myloans" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ ease: EASE }}>
             <MyLoansTab loanCount={loanCount} />
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </div>
@@ -343,7 +343,7 @@ function LendTab() {
 
       {/* Interest Preview */}
       {principal && aprBps && parseFloat(principal) > 0 && parseInt(aprBps) > 0 && (
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
           className="rounded-xl p-3 md:p-5"
@@ -354,7 +354,7 @@ function LendTab() {
           <p className="text-white/70 text-[11px] mt-1">
             {principal} ETH at {bpsToPercent(parseInt(aprBps))}% APR for {formatDuration(duration)}
           </p>
-        </motion.div>
+        </m.div>
       )}
 
       {/* Transaction Summary */}
@@ -620,7 +620,7 @@ function OfferCard({
       {/* Expanded: Accept UI */}
       <AnimatePresence>
         {isExpanded && (
-          <motion.div
+          <m.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
@@ -696,7 +696,7 @@ function OfferCard({
                 </button>
               </div>
             </div>
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </div>

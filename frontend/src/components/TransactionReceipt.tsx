@@ -1,5 +1,5 @@
 import { useRef, useCallback, useMemo, type ReactNode } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 import { useChainId } from 'wagmi';
 import {
   TransactionReceiptContext,
@@ -223,7 +223,7 @@ function TransactionReceiptOverlay({
   }, [receipt, config, rows, timestamp]);
 
   return (
-    <motion.div
+    <m.div
       className="fixed inset-0 z-[9999] flex items-center justify-center px-4"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -231,7 +231,7 @@ function TransactionReceiptOverlay({
       transition={{ duration: 0.2 }}
     >
       {/* Backdrop */}
-      <motion.div
+      <m.div
         className="absolute inset-0"
         style={{ background: 'rgba(0, 0, 0, 0.7)', backdropFilter: 'blur(8px)' }}
         onClick={onClose}
@@ -241,7 +241,7 @@ function TransactionReceiptOverlay({
       />
 
       {/* Card */}
-      <motion.div
+      <m.div
         ref={cardRef}
         className="relative w-full max-w-[400px] mx-4 rounded-2xl overflow-hidden"
         style={{
@@ -379,8 +379,8 @@ function TransactionReceiptOverlay({
             </button>
           </div>
         </div>
-      </motion.div>
-    </motion.div>
+      </m.div>
+    </m.div>
   );
 }
 

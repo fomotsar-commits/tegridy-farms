@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { ART } from '../../lib/artConfig';
 import { JBAC_BONUS_BPS } from '../../lib/constants';
 import { calculateBoost } from '../../lib/boostCalculations';
@@ -23,7 +23,7 @@ interface BoostScheduleTableProps {
 export function BoostScheduleTable({ selectedLockLabel, apr }: BoostScheduleTableProps) {
   const baseApr = parseFloat(apr || '0');
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+    <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
       <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
         <div className="absolute inset-0">
           <img src={ART.swordOfLove.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
@@ -82,6 +82,6 @@ export function BoostScheduleTable({ selectedLockLabel, apr }: BoostScheduleTabl
         </div>
         </div>
       </div>
-    </motion.div>
+    </m.div>
   );
 }

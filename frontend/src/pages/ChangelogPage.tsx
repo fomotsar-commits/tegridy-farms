@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { ART } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 
@@ -76,7 +76,7 @@ export default function ChangelogPage() {
 
       <div className="relative z-10 max-w-[800px] mx-auto px-4 md:px-6 pt-28 pb-20">
         {/* Header */}
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="text-center mb-12"
@@ -85,7 +85,7 @@ export default function ChangelogPage() {
           <p className="text-gray-400 text-sm md:text-base">
             Protocol updates and development history
           </p>
-        </motion.div>
+        </m.div>
 
         {/* Timeline */}
         <div className="relative">
@@ -94,7 +94,7 @@ export default function ChangelogPage() {
 
           <div className="space-y-8">
             {CHANGELOG.map((entry, idx) => (
-              <motion.div
+              <m.div
                 key={idx}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -134,7 +134,7 @@ export default function ChangelogPage() {
                     ))}
                   </ul>
                 </div>
-              </motion.div>
+              </m.div>
             ))}
           </div>
         </div>

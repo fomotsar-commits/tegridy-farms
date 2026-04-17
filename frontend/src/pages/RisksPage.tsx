@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { ART } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 
@@ -72,7 +72,7 @@ export default function RisksPage() {
       </div>
 
       <div className="relative z-10 max-w-[800px] mx-auto px-4 md:px-6 pt-28 pb-20">
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
@@ -84,9 +84,9 @@ export default function RisksPage() {
           <p className="text-white/70 text-sm">
             DeFi carries significant risks. Read this page carefully before using the Protocol.
           </p>
-        </motion.div>
+        </m.div>
 
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.1 }}
@@ -104,11 +104,11 @@ export default function RisksPage() {
               invest more than you can afford to lose.
             </p>
           </div>
-        </motion.div>
+        </m.div>
 
         <div className="space-y-6">
           {RISKS.map((risk, i) => (
-            <motion.div
+            <m.div
               key={risk.title}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -130,11 +130,11 @@ export default function RisksPage() {
                   </p>
                 </div>
               </div>
-            </motion.div>
+            </m.div>
           ))}
         </div>
 
-        <motion.div
+        <m.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.5, delay: 0.9 }}
@@ -143,7 +143,7 @@ export default function RisksPage() {
           <p className="text-white/70 text-xs">
             Last updated: April 2026
           </p>
-        </motion.div>
+        </m.div>
       </div>
     </div>
   );

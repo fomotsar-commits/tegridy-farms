@@ -1,7 +1,7 @@
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import React, { useState, useRef, useEffect } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
 import { PRIMARY_NAV, MORE_NAV, ALL_NAV, MORE_PATHS } from '../../lib/navConfig';
 
@@ -144,7 +144,7 @@ export const TopNav = React.memo(function TopNav() {
               </button>
               <AnimatePresence>
                 {moreOpen && (
-                  <motion.div
+                  <m.div
                     className="absolute top-full right-0 mt-1 py-1 rounded-lg min-w-[160px]"
                     style={{
                       background: isDark ? 'rgba(10,10,20,0.95)' : 'rgba(255,255,255,0.97)',
@@ -161,7 +161,7 @@ export const TopNav = React.memo(function TopNav() {
                         {n.label}
                       </NavLink>
                     ))}
-                  </motion.div>
+                  </m.div>
                 )}
               </AnimatePresence>
             </div>
@@ -235,10 +235,10 @@ export const TopNav = React.memo(function TopNav() {
       <AnimatePresence>
         {open && (
           <>
-            <motion.div className="fixed inset-0 z-50 bg-black/50 md:hidden"
+            <m.div className="fixed inset-0 z-50 bg-black/50 md:hidden"
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               onClick={() => setOpen(false)} />
-            <motion.div
+            <m.div
               ref={drawerRef}
               role="dialog"
               aria-modal="true"
@@ -263,7 +263,7 @@ export const TopNav = React.memo(function TopNav() {
                   </NavLink>
                 ))}
               </nav>
-            </motion.div>
+            </m.div>
           </>
         )}
       </AnimatePresence>

@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { ART } from '../lib/artConfig';
 import { usePoints } from '../hooks/usePoints';
@@ -35,22 +35,22 @@ export default function LeaderboardPage() {
           <p className="text-white/60 text-[12px]">All points are now derived exclusively from on-chain activity (swaps, staking, LP, referrals). Client-side streaks have been removed for integrity.</p>
         </div>
 
-        <motion.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+        <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Leaderboard</h1>
           <p className="text-white text-[14px]">{CURRENT_SEASON.name} — Earn points by using the protocol</p>
           <p className="text-amber-400/50 text-[11px] mt-1">Points are tracked locally for fun. Any future rewards will be based on on-chain activity only.</p>
-        </motion.div>
+        </m.div>
 
         {/* Tegridy Score */}
         {isConnected && (
-          <motion.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+          <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
             <TegridyScore />
-          </motion.div>
+          </m.div>
         )}
 
         {/* Your Stats */}
         {isConnected && points.data && (
-          <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
+          <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
             <div className="absolute inset-0">
               <img src={ART.roseApe.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%' }} />
@@ -131,21 +131,21 @@ export default function LeaderboardPage() {
               <p className="text-white text-[10px] mt-1">Referrals: {points.data?.referralCount ?? 0} users</p>
             </div>
             </div>
-          </motion.div>
+          </m.div>
         )}
 
         {/* Empty state for non-connected users */}
         {!isConnected && (
-          <motion.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+          <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
             <div className="rounded-xl p-8 text-center" style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' }}>
               <p className="text-white/70 text-[13px]">No participants yet. Stake TOWELI to earn your first points!</p>
               <p className="text-white/25 text-[11px] mt-1">Connect your wallet to start earning points, badges, and tier rewards.</p>
             </div>
-          </motion.div>
+          </m.div>
         )}
 
         {/* How Points Work */}
-        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
+        <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
           <div className="absolute inset-0">
             <img src={JB_CHRISTMAS_SRC} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%' }} />
@@ -170,10 +170,10 @@ export default function LeaderboardPage() {
             </div>
             <p className="text-white text-[10px] mt-3">Streak multipliers: 7d = 1.5x, 14d = 2x, 30d = 3x. Points are local and unverified.</p>
           </div>
-        </motion.div>
+        </m.div>
 
         {/* Tier Breakdown */}
-        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}
+        <m.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
           <div className="absolute inset-0">
             <img src={ART.beachSunset.src} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -190,10 +190,10 @@ export default function LeaderboardPage() {
               ))}
             </div>
           </div>
-        </motion.div>
+        </m.div>
 
         {/* All Badges */}
-        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mt-6" style={{ border: '1px solid var(--color-purple-75)' }}
+        <m.div className="relative overflow-hidden rounded-xl glass-card-animated mt-6" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
           <div className="absolute inset-0">
             <img src={ART.jbacSkeleton.src} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -217,7 +217,7 @@ export default function LeaderboardPage() {
               })}
             </div>
           </div>
-        </motion.div>
+        </m.div>
       </div>
     </div>
   );

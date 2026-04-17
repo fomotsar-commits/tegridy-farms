@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import React, { useState, useRef, useEffect } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, m } from 'framer-motion';
 import { MORE_NAV_MOBILE, MORE_PATHS_MOBILE } from '../../lib/navConfig';
 
 const TABS = [
@@ -82,7 +82,7 @@ export const BottomNav = React.memo(function BottomNav() {
       {/* More menu popup */}
       <AnimatePresence>
         {open && (
-          <motion.div
+          <m.div
             ref={menuRef}
             className="absolute bottom-full left-0 right-0 px-3 pb-2"
             initial={{ opacity: 0, y: 10 }}
@@ -113,7 +113,7 @@ export const BottomNav = React.memo(function BottomNav() {
                 ))}
               </div>
             </div>
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
 

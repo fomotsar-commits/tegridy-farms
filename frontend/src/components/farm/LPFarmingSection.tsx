@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { ART } from '../../lib/artConfig';
 import { formatTokenAmount } from '../../lib/formatting';
@@ -29,7 +29,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
   // Loading skeleton
   if (lpFarm.isDeployed && lpFarm.isReadLoading) {
     return (
-      <motion.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+      <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
         <div className="flex items-center justify-between mb-5">
           <div>
             <div className="h-6 w-40 rounded bg-white/10 animate-pulse" />
@@ -47,14 +47,14 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
           </div>
           <div className="h-10 w-full rounded-lg bg-white/10 animate-pulse" />
         </div>
-      </motion.div>
+      </m.div>
     );
   }
 
   if (!lpFarm.isDeployed || lpFarm.isReadLoading) return null;
 
   return (
-    <motion.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+    <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="heading-luxury text-white text-[22px] tracking-tight">LP Farming</h2>
@@ -219,6 +219,6 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
           )}
         </div>
       </div>
-    </motion.div>
+    </m.div>
   );
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { Link } from 'react-router-dom';
 import { ART } from '../lib/artConfig';
@@ -178,10 +178,10 @@ export default function FarmPage() {
             Wrong network detected &mdash; please switch to Ethereum Mainnet to use this app.
           </div>
         )}
-        <motion.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+        <m.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Farm</h1>
           <p className="text-white text-[14px]">Stake TOWELI and earn rewards &middot; <span className="text-white">FAFO</span></p>
-        </motion.div>
+        </m.div>
 
         {/* Stats */}
         <FarmStatsRow
@@ -194,7 +194,7 @@ export default function FarmPage() {
         />
 
         {/* Season banner */}
-        <motion.div className="relative overflow-hidden rounded-xl glass-card-animated mb-8" style={{ border: '1px solid var(--color-purple-75)' }}
+        <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-8" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div className="absolute inset-0">
             <img src={ART.bobowelie.src} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -216,10 +216,10 @@ export default function FarmPage() {
               </div>
             )}
           </div>
-        </motion.div>
+        </m.div>
 
         {/* ── Native LP Pools ── */}
-        <motion.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+        <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
           <div className="flex items-center justify-between mb-5">
             <div>
               <h2 className="heading-luxury text-white text-[22px] tracking-tight">Liquidity Pools</h2>
@@ -235,14 +235,14 @@ export default function FarmPage() {
               <UpcomingPoolCard key={pool.id} pool={pool} />
             ))}
           </div>
-        </motion.div>
+        </m.div>
 
         {/* ── LP Farming ── */}
         <LPFarmingSection lpFarm={lpFarm} isConnected={isConnected} />
 
         {/* ── Restaking (Bonus Yield Layer) ── */}
         {isConnected && pos.hasPosition && (
-          <motion.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+          <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="heading-luxury text-white text-[22px] tracking-tight">Restaking</h2>
@@ -309,7 +309,7 @@ export default function FarmPage() {
                 )}
               </div>
             </div>
-          </motion.div>
+          </m.div>
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12">

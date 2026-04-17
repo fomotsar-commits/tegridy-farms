@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { TEGRIDY_DROP_ABI } from '../../lib/contracts';
 import { ART } from '../../lib/artConfig';
@@ -44,17 +44,17 @@ export function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string
         <span className="text-black font-semibold tracking-wide uppercase text-[11px]">
           Owner Admin
         </span>
-        <motion.span
+        <m.span
           animate={{ rotate: open ? 180 : 0 }}
           className="text-black/50 text-xs"
         >
           {'\u25BC'}
-        </motion.span>
+        </m.span>
       </button>
 
       <AnimatePresence>
         {open && (
-          <motion.div
+          <m.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto' }}
             exit={{ height: 0, opacity: 0 }}
@@ -149,7 +149,7 @@ export function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string
                 {isPending || isConfirming ? 'Withdrawing...' : !deployed ? 'Contract Not Deployed' : 'Withdraw Mint Revenue'}
               </button>
             </div>
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </ArtCard>

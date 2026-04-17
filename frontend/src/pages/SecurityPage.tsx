@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useState } from 'react';
 import { ART } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -80,13 +80,13 @@ export default function SecurityPage() {
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-28 pb-20">
 
         {/* Hero */}
-        <motion.div initial="hidden" animate="visible" variants={fade} transition={{ duration: 0.6 }} className="text-center mb-16">
+        <m.div initial="hidden" animate="visible" variants={fade} transition={{ duration: 0.6 }} className="text-center mb-16">
           <h1 className="text-4xl md:text-5xl font-bold mb-4" style={{ fontFamily: 'Playfair Display, serif' }}>Security &amp; Transparency</h1>
           <p className="text-gray-400 max-w-2xl mx-auto text-lg">Our commitment to protecting your assets through rigorous testing, transparent practices, and battle-tested smart contract design.</p>
-        </motion.div>
+        </m.div>
 
         {/* Audit Methodology */}
-        <motion.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5 }} className="mb-14">
+        <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5 }} className="mb-14">
           <h2 className="text-2xl font-bold mb-6 flex items-center gap-3"><ShieldIcon /> Audit Methodology</h2>
           <div className="rounded-2xl p-6 md:p-8" style={glass}>
             <p className="text-gray-300 mb-5">Our internal security audit employed red team testing across the full protocol surface. The final audit round included comprehensive re-testing of every previously identified finding.</p>
@@ -117,10 +117,10 @@ export default function SecurityPage() {
               </a>
             </div>
           </div>
-        </motion.section>
+        </m.section>
 
         {/* Security Fixes Tracked */}
-        <motion.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.05 }} className="mb-14">
+        <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.05 }} className="mb-14">
           <h2 className="text-2xl font-bold mb-6">Security Fixes Tracked</h2>
           <div className="rounded-2xl p-6 md:p-8" style={glass}>
             <p className="text-xl font-semibold text-white mb-5">5 Critical, 13 High, 26 Medium, 38 Low — <span className="text-green-400">all resolved</span></p>
@@ -140,10 +140,10 @@ export default function SecurityPage() {
               ))}
             </div>
           </div>
-        </motion.section>
+        </m.section>
 
         {/* Smart Contract Design */}
-        <motion.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.1 }} className="mb-14">
+        <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.1 }} className="mb-14">
           <h2 className="text-2xl font-bold mb-6">Smart Contract Design</h2>
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
             {PROTECTIONS.map((p) => {
@@ -157,10 +157,10 @@ export default function SecurityPage() {
               );
             })}
           </div>
-        </motion.section>
+        </m.section>
 
         {/* Contract Addresses */}
-        <motion.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.15 }} className="mb-14">
+        <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.15 }} className="mb-14">
           <h2 className="text-2xl font-bold mb-6">Contract Addresses</h2>
           <div className="space-y-3">
             {CONTRACTS.map((c) => (
@@ -179,10 +179,10 @@ export default function SecurityPage() {
               </div>
             ))}
           </div>
-        </motion.section>
+        </m.section>
 
         {/* Transparency */}
-        <motion.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.2 }} className="mb-14">
+        <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.2 }} className="mb-14">
           <h2 className="text-2xl font-bold mb-6">Transparency</h2>
           <div className="rounded-2xl p-6 md:p-8" style={glass}>
             <div className="space-y-3">
@@ -196,10 +196,10 @@ export default function SecurityPage() {
               ))}
             </div>
           </div>
-        </motion.section>
+        </m.section>
 
         {/* Bug Bounty */}
-        <motion.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.25 }} className="mb-14">
+        <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.25 }} className="mb-14">
           <h2 className="text-2xl font-bold mb-6">Bug Bounty</h2>
           <div className="rounded-2xl p-6 md:p-8" style={glass}>
             <p className="text-gray-300 mb-5">We partner with Immunefi, the leading Web3 bug bounty platform, for responsible disclosure. Report vulnerabilities via Immunefi or contact us directly via Twitter DM <a href="https://twitter.com/junglebayac" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300">@junglebayac</a>.</p>
@@ -217,10 +217,10 @@ export default function SecurityPage() {
             </div>
             <p className="text-sm text-gray-400">Contact: <a href="mailto:security@tegridyfarms.xyz" className="text-purple-400 hover:text-purple-300">security@tegridyfarms.xyz</a></p>
           </div>
-        </motion.section>
+        </m.section>
 
         {/* Multisig & Governance */}
-        <motion.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.3 }}>
+        <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.3 }}>
           <h2 className="text-2xl font-bold mb-6 flex items-center gap-3"><LockIcon /> Multisig &amp; Governance</h2>
           <div className="rounded-2xl p-6 md:p-8" style={glass}>
             <div className="space-y-3">
@@ -234,7 +234,7 @@ export default function SecurityPage() {
               ))}
             </div>
           </div>
-        </motion.section>
+        </m.section>
 
       </div>
     </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, formatEther, type Address } from 'viem';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import {
   TEGRIDY_LENDING_ADDRESS,
@@ -465,7 +465,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
       {stats.map((s, idx) => (
-        <motion.div
+        <m.div
           key={s.label}
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -486,7 +486,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
               </div>
             </div>
           </ArtPanel>
-        </motion.div>
+        </m.div>
       ))}
     </div>
   );
@@ -515,7 +515,7 @@ function TabNav({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
         >
           {t.label}
           {tab === t.key && (
-            <motion.div
+            <m.div
               layoutId="lending-tab-indicator"
               className="absolute bottom-0 left-0 right-0 h-[2px] bg-emerald-400"
               transition={{ type: 'spring', stiffness: 500, damping: 35 }}
@@ -979,7 +979,7 @@ function OfferRow({
   const mobileCard = (
     <tr className="sm:hidden" style={{ borderTop: `1px solid ${ROW_BORDER}` }}>
       <td colSpan={7} className="p-0">
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, delay: idx * 0.05, ease: EASE as [number, number, number, number] }}
@@ -1020,7 +1020,7 @@ function OfferRow({
             </div>
           </div>
           <div className="mt-1 font-mono text-[10px] text-white">{shortenAddress(offer.lender)}</div>
-        </motion.div>
+        </m.div>
       </td>
     </tr>
   );
@@ -1031,7 +1031,7 @@ function OfferRow({
       {expanded && (
         <tr>
           <td colSpan={7} className="p-0">
-            <motion.div
+            <m.div
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto' }}
               exit={{ height: 0, opacity: 0 }}
@@ -1146,7 +1146,7 @@ function OfferRow({
                   )}
                 </div>
               </ArtPanel>
-            </motion.div>
+            </m.div>
           </td>
         </tr>
       )}
@@ -1462,7 +1462,7 @@ function LoanRow({
   const claimLoading = claimPending || claimConfirming;
 
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, x: -8 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.35, delay: idx * 0.06, ease: EASE as [number, number, number, number] }}
@@ -1527,7 +1527,7 @@ function LoanRow({
           </DisabledWrap>
         )}
       </div>
-    </motion.div>
+    </m.div>
   );
 }
 
@@ -1750,7 +1750,7 @@ export function LendingSection({ address: _propAddress }: { address?: string }) 
 
       <TabNav tab={tab} setTab={setTab} />
       <AnimatePresence mode="wait">
-        <motion.div
+        <m.div
           key={tab}
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1760,7 +1760,7 @@ export function LendingSection({ address: _propAddress }: { address?: string }) 
           {tab === 'lend' && <LendTab deployed={deployed} />}
           {tab === 'borrow' && <BorrowTab deployed={deployed} allOffers={allOffers} offersLoading={offersLoading} />}
           {tab === 'myloans' && <MyLoansTab deployed={deployed} allLoans={allLoans} loansLoading={loansLoading} />}
-        </motion.div>
+        </m.div>
       </AnimatePresence>
     </section>
   );

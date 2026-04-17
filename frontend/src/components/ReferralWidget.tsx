@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { ART } from '../lib/artConfig';
 
 interface ReferralWidgetProps {
@@ -45,7 +45,7 @@ export function ReferralWidget({ address, referredCount, referralEarned, referra
   const truncatedLink = `tegridy.farm/?ref=${address.slice(0, 6)}...${address.slice(-4)}`;
 
   return (
-    <motion.div
+    <m.div
       className="relative overflow-hidden rounded-xl glass-card-animated mb-6"
       style={{ border: '1px solid var(--color-purple-75)' }}
       initial={{ opacity: 0, y: 10 }}
@@ -122,6 +122,6 @@ export function ReferralWidget({ address, referredCount, referralEarned, referra
           </div>
         </div>
       </div>
-    </motion.div>
+    </m.div>
   );
 }

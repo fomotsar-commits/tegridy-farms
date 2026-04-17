@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 import { ART } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 
@@ -111,7 +111,7 @@ export default function FAQPage() {
 
       <div className="relative z-10 max-w-[800px] mx-auto px-4 md:px-6 pt-28 pb-20">
         {/* Header */}
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="text-center mb-10"
@@ -122,10 +122,10 @@ export default function FAQPage() {
           <p className="text-gray-400 text-sm md:text-base">
             Everything you need to know about Tegridy Farms
           </p>
-        </motion.div>
+        </m.div>
 
         {/* Search */}
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
@@ -151,7 +151,7 @@ export default function FAQPage() {
               </button>
             )}
           </div>
-        </motion.div>
+        </m.div>
 
         {/* FAQ Sections */}
         {filtered.length === 0 && (
@@ -161,7 +161,7 @@ export default function FAQPage() {
         )}
 
         {filtered.map((section, sIdx) => (
-          <motion.div
+          <m.div
             key={section.category}
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
@@ -185,7 +185,7 @@ export default function FAQPage() {
                       className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left hover:bg-white/[0.03] transition-colors"
                     >
                       <span className="text-white text-sm font-medium leading-snug">{item.q}</span>
-                      <motion.svg
+                      <m.svg
                         animate={{ rotate: isOpen ? 180 : 0 }}
                         transition={{ duration: 0.25 }}
                         className="w-4 h-4 text-purple-400 shrink-0"
@@ -194,11 +194,11 @@ export default function FAQPage() {
                         stroke="currentColor"
                       >
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </motion.svg>
+                      </m.svg>
                     </button>
                     <AnimatePresence initial={false}>
                       {isOpen && (
-                        <motion.div
+                        <m.div
                           initial={{ height: 0, opacity: 0 }}
                           animate={{ height: 'auto', opacity: 1 }}
                           exit={{ height: 0, opacity: 0 }}
@@ -208,14 +208,14 @@ export default function FAQPage() {
                           <div className="px-5 pb-4 text-gray-400 text-sm leading-relaxed">
                             {item.a}
                           </div>
-                        </motion.div>
+                        </m.div>
                       )}
                     </AnimatePresence>
                   </div>
                 );
               })}
             </div>
-          </motion.div>
+          </m.div>
         ))}
       </div>
     </div>

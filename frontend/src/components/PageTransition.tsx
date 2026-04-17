@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 
 const prefersReducedMotion =
   typeof window !== 'undefined' &&
@@ -10,7 +10,7 @@ export function PageTransition({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, y: 20, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{
@@ -19,6 +19,6 @@ export function PageTransition({ children }: { children: React.ReactNode }) {
       }}
     >
       {children}
-    </motion.div>
+    </m.div>
   );
 }

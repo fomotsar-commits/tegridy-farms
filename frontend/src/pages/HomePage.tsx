@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
@@ -36,7 +36,7 @@ export default function HomePage() {
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6">
         <div className="pt-28 pb-20">
-          <motion.div className="max-w-xl" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+          <m.div className="max-w-xl" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
             <div className="badge badge-primary mb-5 text-[10px]">LIVE ON ETHEREUM</div>
 
             <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
@@ -72,9 +72,9 @@ export default function HomePage() {
                 Buy TOWELI
               </Link>
             </div>
-          </motion.div>
+          </m.div>
 
-          <motion.div className="mt-14 flex flex-wrap gap-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
+          <m.div className="mt-14 flex flex-wrap gap-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
             {[
               { l: 'TVL', v: stats.tvl },
               { l: 'TOWELI Price', v: effectiveToweliPrice || '–', showSparkline: true },
@@ -98,15 +98,15 @@ export default function HomePage() {
                 )}
               </div>
             ))}
-          </motion.div>
+          </m.div>
         </div>
 
         {/* Protocol Overview */}
         <div className="pb-16">
-          <motion.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+          <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1">Protocol Overview</h2>
             <p className="text-white text-[13px]">Farm, swap, and track your positions.</p>
-          </motion.div>
+          </m.div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
@@ -114,7 +114,7 @@ export default function HomePage() {
               { to: '/farm', title: 'Farm', desc: 'Stake TOWELI or LP tokens across two active pools to earn yield.', stat: '2', label: 'Active Pools', art: ART.poolParty.src },
               { to: '/dashboard', title: 'Dashboard', desc: 'Track your portfolio, positions, claimable rewards, and projections.', stat: 'Real-time', label: 'On-chain Data', art: ART.towelieWindow.src },
             ].map((f, i) => (
-              <motion.div key={f.title} initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }}
+              <m.div key={f.title} initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }}
                 viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
                 <Link to={f.to} className="block group relative rounded-xl overflow-hidden glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
                   <div className="absolute inset-0">
@@ -129,29 +129,29 @@ export default function HomePage() {
                     </div>
                   </div>
                 </Link>
-              </motion.div>
+              </m.div>
             ))}
           </div>
         </div>
 
         {/* How It Works */}
         <div className="pb-16">
-          <motion.div initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+          <m.div initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h2 className="heading-luxury text-xl text-white tracking-tight mb-6 text-center">How It Works</h2>
-          </motion.div>
+          </m.div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
               { step: '1', title: 'Buy TOWELI', desc: 'Swap ETH for TOWELI on our DEX with smart routing across 9 sources.', to: '/swap' },
               { step: '2', title: 'Stake & Lock', desc: 'Lock 7 days to 4 years. Longer lock = higher boost (up to 4.5x with NFT).', to: '/farm' },
               { step: '3', title: 'Earn ETH Revenue', desc: '100% of protocol fees distributed to stakers as ETH. Claim anytime.', to: '/dashboard' },
             ].map((s, i) => (
-              <motion.div key={s.step} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.1 }}>
+              <m.div key={s.step} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.1 }}>
                 <Link to={s.to} className="block glass-card rounded-xl p-5 hover:border-emerald-600/30 transition-colors" style={{ border: '1px solid var(--color-purple-12)' }}>
                   <span className="inline-flex w-8 h-8 shrink-0 rounded-full bg-emerald-600/20 border border-emerald-600/40 text-emerald-400 text-[14px] font-bold leading-none items-center justify-center mb-3">{s.step}</span>
                   <h3 className="text-white text-[15px] font-semibold mb-1">{s.title}</h3>
                   <p className="text-white/60 text-[12px] leading-relaxed">{s.desc}</p>
                 </Link>
-              </motion.div>
+              </m.div>
             ))}
           </div>
         </div>
@@ -185,7 +185,7 @@ export default function HomePage() {
           <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Ecosystem</h2>
           <p className="text-white text-[12px] mb-5">The Jungle Bay universe</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <motion.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0, type: 'spring', damping: 20, stiffness: 100 }}>
+            <m.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0, type: 'spring', damping: 20, stiffness: 100 }}>
             <a href="https://opensea.io/collection/junglebay" target="_blank" rel="noopener noreferrer"
               className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
@@ -196,8 +196,8 @@ export default function HomePage() {
                 <p className="text-white text-[12px]">5,555 customizable apes. The genesis collection that started it all.</p>
               </div>
             </a>
-            </motion.div>
-            <motion.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
+            </m.div>
+            <m.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
             <a href="https://app.uniswap.org/swap?chain=base" target="_blank" rel="noopener noreferrer"
               className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
@@ -208,8 +208,8 @@ export default function HomePage() {
                 <p className="text-white text-[12px]">The accidental community token. Born from a bot glitch, adopted by the degens.</p>
               </div>
             </a>
-            </motion.div>
-            <motion.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.3, type: 'spring', damping: 20, stiffness: 100 }}>
+            </m.div>
+            <m.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.3, type: 'spring', damping: 20, stiffness: 100 }}>
             <Link to="/lore" className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
                 <img src={ART.jungleDark.src} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -219,7 +219,7 @@ export default function HomePage() {
                 <p className="text-white text-[12px]">From rug to riches. How we became the blueprint for community-built DeFi.</p>
               </div>
             </Link>
-            </motion.div>
+            </m.div>
           </div>
         </div>
 
@@ -236,7 +236,7 @@ export default function HomePage() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {GALLERY_ORDER.slice(0, 4).map((piece, i) => (
-              <motion.div key={piece.src} initial={{ opacity: 0, y: 25, scale: 0.85 }} whileInView={{ opacity: 1, y: 0, scale: 1 }}
+              <m.div key={piece.src} initial={{ opacity: 0, y: 25, scale: 0.85 }} whileInView={{ opacity: 1, y: 0, scale: 1 }}
                 viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
                 <Link to="/gallery" className="block group">
                   <div className="rounded-xl aspect-square relative overflow-hidden glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
@@ -250,7 +250,7 @@ export default function HomePage() {
                     </div>
                   </div>
                 </Link>
-              </motion.div>
+              </m.div>
             ))}
           </div>
         </div>

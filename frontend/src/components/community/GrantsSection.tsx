@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther, parseEther, isAddress, type Address } from 'viem';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { toast } from 'sonner';
 import { COMMUNITY_GRANTS_ADDRESS } from '../../lib/constants';
 import { COMMUNITY_GRANTS_ABI } from '../../lib/contracts';
@@ -154,7 +154,7 @@ export function GrantsSection() {
 
       {/* Create Form */}
       {showCreate && (
-        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+        <m.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
           className="rounded-2xl p-5 space-y-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
           <h3 className="text-sm font-semibold text-white">New Grant Proposal</h3>
           <p className="text-[11px] text-white/70">Requires veTOWELI voting power. Quorum-based approval with 24h execution delay.</p>
@@ -189,7 +189,7 @@ export function GrantsSection() {
             style={{ background: 'linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105))', color: 'white' }}>
             {isSigning ? 'Confirm in Wallet...' : isConfirming ? 'Creating...' : 'Submit Proposal'}
           </button>
-        </motion.div>
+        </m.div>
       )}
 
       {/* Proposal List */}
@@ -213,7 +213,7 @@ export function GrantsSection() {
               const statusInfo = STATUS_LABELS[status] ?? { label: 'Unknown', color: 'text-white/70' };
 
               return (
-                <motion.div key={proposalId} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.05 }}
+                <m.div key={proposalId} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.05 }}
                   className="px-5 py-4 space-y-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
@@ -266,7 +266,7 @@ export function GrantsSection() {
                       Finalize Proposal
                     </button>
                   )}
-                </motion.div>
+                </m.div>
               );
             })}
           </div>

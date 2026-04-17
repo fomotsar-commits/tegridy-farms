@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { ART } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 
@@ -60,7 +60,7 @@ export default function PrivacyPage() {
       </div>
 
       <div className="relative z-10 max-w-[800px] mx-auto px-4 md:px-6 pt-28 pb-20">
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
@@ -72,11 +72,11 @@ export default function PrivacyPage() {
           <p className="text-white/70 text-sm">
             How Tegridy Farms handles your data — plain English, no dark patterns.
           </p>
-        </motion.div>
+        </m.div>
 
         <div className="space-y-6">
           {SECTIONS.map((section, i) => (
-            <motion.div
+            <m.div
               key={section.title}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -93,11 +93,11 @@ export default function PrivacyPage() {
               <p className="text-white/70 text-sm leading-relaxed">
                 {section.body}
               </p>
-            </motion.div>
+            </m.div>
           ))}
         </div>
 
-        <motion.div
+        <m.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.5, delay: 0.8 }}
@@ -106,7 +106,7 @@ export default function PrivacyPage() {
           <p className="text-white/70 text-xs">
             Last updated: April 16, 2026
           </p>
-        </motion.div>
+        </m.div>
       </div>
     </div>
   );

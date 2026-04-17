@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { ART } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 
@@ -58,7 +58,7 @@ export default function LorePage() {
 
       {/* Hero */}
       <div className="relative z-10 h-[60vh] min-h-[400px] flex items-center justify-center">
-        <motion.div className="text-center px-6" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+        <m.div className="text-center px-6" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <p className="text-white text-[12px] uppercase tracking-[0.2em] mb-3">The Origin Story</p>
           <h1 className="heading-luxury text-3xl md:text-4xl lg:text-6xl text-white tracking-tight mb-4">
             From Rug to Riches
@@ -66,13 +66,13 @@ export default function LorePage() {
           <p className="text-white text-base max-w-lg mx-auto">
             How a community of degens rose from the ashes of a failed project to build something with real TEGRIDY.
           </p>
-        </motion.div>
+        </m.div>
       </div>
 
       {/* Timeline */}
       <ol className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pb-16 list-none m-0 p-0" style={{ paddingLeft: 0 }}>
         {TIMELINE.map((item, i) => (
-          <motion.li key={item.phase} className="mb-10"
+          <m.li key={item.phase} className="mb-10"
             initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }} transition={{ delay: i * 0.05 }}>
             <div className="relative rounded-2xl overflow-hidden glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
@@ -90,15 +90,15 @@ export default function LorePage() {
                 </div>
               </div>
             </div>
-          </motion.li>
+          </m.li>
         ))}
 
         {/* Call to action */}
-        <motion.div className="text-center mt-12" initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }}>
+        <m.div className="text-center mt-12" initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }}>
           <p className="text-white text-[13px] uppercase tracking-wider label-pill mb-2">DM+T = Memetic Finance</p>
           <p className="text-white text-[14px] mb-1">We came for the art. We stayed to FAFO.</p>
           <p className="heading-luxury text-2xl text-white">This is Jungle Bay.</p>
-        </motion.div>
+        </m.div>
       </ol>
     </div>
   );

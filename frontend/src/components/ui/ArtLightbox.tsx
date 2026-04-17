@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 import type { ArtPiece } from '../../lib/artConfig';
 
 interface ArtLightboxProps {
@@ -71,7 +71,7 @@ export function ArtLightbox({ pieces, selectedIndex, onClose, onNavigate }: ArtL
   return (
     <AnimatePresence>
       {isOpen && piece && (
-        <motion.div
+        <m.div
           role="dialog"
           aria-modal="true"
           aria-label={piece.title}
@@ -81,7 +81,7 @@ export function ArtLightbox({ pieces, selectedIndex, onClose, onNavigate }: ArtL
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
           <div className="absolute inset-0 bg-black/85 backdrop-blur-sm" />
 
-          <motion.div className="relative z-10 max-w-4xl w-full"
+          <m.div className="relative z-10 max-w-4xl w-full"
             initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1 }} exit={{ scale: 0.95, opacity: 0 }}
             transition={{ type: 'spring', damping: 25 }} onClick={(e) => e.stopPropagation()}>
 
@@ -106,8 +106,8 @@ export function ArtLightbox({ pieces, selectedIndex, onClose, onNavigate }: ArtL
                   style={{ background: 'rgba(0,0,0,0.50)' }}>Next →</button>
               </div>
             </div>
-          </motion.div>
-        </motion.div>
+          </m.div>
+        </m.div>
       )}
     </AnimatePresence>
   );

@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { ART } from '../../lib/artConfig';
 import { CURRENT_SEASON } from '../../lib/constants';
 import { PulseDot } from '../PulseDot';
@@ -22,7 +22,7 @@ export function FarmStatsRow({ stats, pool, price, priceData, priceError, daysLe
   ];
 
   return (
-    <motion.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+    <m.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
       {items.map((s) => (
         <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
           <div className="absolute inset-0">
@@ -43,6 +43,6 @@ export function FarmStatsRow({ stats, pool, price, priceData, priceError, daysLe
           </div>
         </div>
       ))}
-    </motion.div>
+    </m.div>
   );
 }
