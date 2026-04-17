@@ -3,15 +3,18 @@ import {
   stakingPosition,
   stakingAction,
   restakingPosition,
+  restakingClaim,
   revenueEpoch,
   revenueClaim,
   gaugeVote,
   bribeDeposit,
+  bribeClaim,
   swap,
   lpFarmAction,
   loanOffer,
   loan,
   proposal,
+  proposalVote,
   bounty,
 } from "ponder:schema";
 
@@ -122,23 +125,21 @@ ponder.on("TegridyStaking:RewardPaid", async ({ event, context }) => {
   });
 });
 
+// AUDIT INDEXER-H1: LockExtended / AmountIncreased only fire on positions
+// that already exist (you can't extend a lock on a position that isn't there),
+// so the prior "upsert with user=0x0" path was dead-insert code that would
+// have polluted user-scoped queries if it ever actually ran. Use .update()
+// directly on the existing row, and look up `user` from it for the action log.
 ponder.on("TegridyStaking:LockExtended", async ({ event, context }) => {
   const { tokenId, newLockDuration, newLockEnd } = event.args;
   const ts = event.block.timestamp;
 
+  const pos = await context.db.find(stakingPosition, { tokenId });
+  if (!pos) return; // position must exist — otherwise the chain is inconsistent
+
   await context.db
-    .insert(stakingPosition)
-    .values({
-      tokenId,
-      user: "0x0000000000000000000000000000000000000000",
-      amount: 0n,
-      lockDuration: newLockDuration,
-      lockEnd: newLockEnd,
-      boostBps: 0n,
-      createdAt: ts,
-      updatedAt: ts,
-    })
-    .onConflictDoUpdate({
+    .update(stakingPosition, { tokenId })
+    .set({
       lockDuration: newLockDuration,
       lockEnd: newLockEnd,
       updatedAt: ts,
@@ -146,7 +147,7 @@ ponder.on("TegridyStaking:LockExtended", async ({ event, context }) => {
 
   await context.db.insert(stakingAction).values({
     id: event.log.id,
-    user: "0x0000000000000000000000000000000000000000",
+    user: pos.user,
     tokenId,
     type: "extend",
     amount: 0n,
@@ -159,26 +160,19 @@ ponder.on("TegridyStaking:AmountIncreased", async ({ event, context }) => {
   const { tokenId, addedAmount, newTotal } = event.args;
   const ts = event.block.timestamp;
 
+  const pos = await context.db.find(stakingPosition, { tokenId });
+  if (!pos) return;
+
   await context.db
-    .insert(stakingPosition)
-    .values({
-      tokenId,
-      user: "0x0000000000000000000000000000000000000000",
-      amount: newTotal,
-      lockDuration: 0n,
-      lockEnd: 0n,
-      boostBps: 0n,
-      createdAt: ts,
-      updatedAt: ts,
-    })
-    .onConflictDoUpdate({
+    .update(stakingPosition, { tokenId })
+    .set({
       amount: newTotal,
       updatedAt: ts,
     });
 
   await context.db.insert(stakingAction).values({
     id: event.log.id,
-    user: "0x0000000000000000000000000000000000000000",
+    user: pos.user,
     tokenId,
     type: "increase",
     amount: addedAmount,
@@ -221,8 +215,28 @@ ponder.on("TegridyRestaking:Unrestaked", async ({ event, context }) => {
     });
 });
 
-// BonusClaimed and BaseClaimed are claim-only events (no position mutation needed).
-// We skip them since there's no dedicated claims table for restaking.
+// AUDIT INDEXER-M2: track base + bonus restaking claims in restakingClaim.
+ponder.on("TegridyRestaking:BonusClaimed", async ({ event, context }) => {
+  const { user, bonusAmount } = event.args;
+  await context.db.insert(restakingClaim).values({
+    id: event.log.id,
+    user,
+    type: "bonus",
+    amount: bonusAmount,
+    timestamp: event.block.timestamp,
+  });
+});
+
+ponder.on("TegridyRestaking:BaseClaimed", async ({ event, context }) => {
+  const { user, baseAmount } = event.args;
+  await context.db.insert(restakingClaim).values({
+    id: event.log.id,
+    user,
+    type: "base",
+    amount: baseAmount,
+    timestamp: event.block.timestamp,
+  });
+});
 
 // ─── RevenueDistributor ──────────────────────────────────────────────────────
 
@@ -283,7 +297,20 @@ ponder.on("VoteIncentives:BribeDeposited", async ({ event, context }) => {
   });
 });
 
-// BribeClaimed -- skip for now (no dedicated claims table; could be added later)
+// AUDIT INDEXER-M2: track bribe claims in bribeClaim so per-user claim history
+// is reconstructible alongside the existing bribeDeposit deposit flow.
+ponder.on("VoteIncentives:BribeClaimed", async ({ event, context }) => {
+  const { user, epoch, pair, token, amount } = event.args;
+  await context.db.insert(bribeClaim).values({
+    id: event.log.id,
+    user,
+    epoch,
+    pair,
+    token,
+    amount,
+    timestamp: event.block.timestamp,
+  });
+});
 
 // ─── SwapFeeRouter ───────────────────────────────────────────────────────────
 
@@ -375,46 +402,20 @@ ponder.on("TegridyLending:LoanAccepted", async ({ event, context }) => {
   });
 });
 
+// AUDIT INDEXER-H1: LoanRepaid / DefaultClaimed fire on existing loans; use
+// update() and bail if the loan row is missing (chain inconsistency).
 ponder.on("TegridyLending:LoanRepaid", async ({ event, context }) => {
   const { loanId } = event.args;
-
-  await context.db
-    .insert(loan)
-    .values({
-      loanId,
-      offerId: 0n,
-      borrower: "0x0000000000000000000000000000000000000000",
-      lender: "0x0000000000000000000000000000000000000000",
-      tokenId: 0n,
-      principal: 0n,
-      deadline: 0n,
-      repaid: true,
-      defaulted: false,
-    })
-    .onConflictDoUpdate({
-      repaid: true,
-    });
+  const existing = await context.db.find(loan, { loanId });
+  if (!existing) return;
+  await context.db.update(loan, { loanId }).set({ repaid: true });
 });
 
 ponder.on("TegridyLending:DefaultClaimed", async ({ event, context }) => {
   const { loanId } = event.args;
-
-  await context.db
-    .insert(loan)
-    .values({
-      loanId,
-      offerId: 0n,
-      borrower: "0x0000000000000000000000000000000000000000",
-      lender: "0x0000000000000000000000000000000000000000",
-      tokenId: 0n,
-      principal: 0n,
-      deadline: 0n,
-      repaid: false,
-      defaulted: true,
-    })
-    .onConflictDoUpdate({
-      defaulted: true,
-    });
+  const existing = await context.db.find(loan, { loanId });
+  if (!existing) return;
+  await context.db.update(loan, { loanId }).set({ defaulted: true });
 });
 
 // ─── CommunityGrants ─────────────────────────────────────────────────────────
@@ -432,25 +433,27 @@ ponder.on("CommunityGrants:ProposalCreated", async ({ event, context }) => {
   });
 });
 
+// AUDIT INDEXER-H1: ProposalExecuted fires on an existing proposal; use update().
 ponder.on("CommunityGrants:ProposalExecuted", async ({ event, context }) => {
   const { id } = event.args;
-
-  await context.db
-    .insert(proposal)
-    .values({
-      id,
-      proposer: "0x0000000000000000000000000000000000000000",
-      recipient: "0x0000000000000000000000000000000000000000",
-      amount: 0n,
-      description: "",
-      executed: true,
-    })
-    .onConflictDoUpdate({
-      executed: true,
-    });
+  const existing = await context.db.find(proposal, { id });
+  if (!existing) return;
+  await context.db.update(proposal, { id }).set({ executed: true });
 });
 
-// ProposalVoted -- skip (would need a separate votes table; can add later)
+// AUDIT INDEXER-M2: track per-user proposal votes so governance UI can show
+// who voted which way and by how much power.
+ponder.on("CommunityGrants:ProposalVoted", async ({ event, context }) => {
+  const { id, voter, support, power } = event.args;
+  await context.db.insert(proposalVote).values({
+    id: event.log.id,
+    proposalId: id,
+    voter,
+    support,
+    power,
+    timestamp: event.block.timestamp,
+  });
+});
 
 // ─── MemeBountyBoard ─────────────────────────────────────────────────────────
 
@@ -467,21 +470,10 @@ ponder.on("MemeBountyBoard:BountyCreated", async ({ event, context }) => {
   });
 });
 
+// AUDIT INDEXER-H1: BountyCompleted fires on an existing bounty; use update().
 ponder.on("MemeBountyBoard:BountyCompleted", async ({ event, context }) => {
   const { bountyId, winner } = event.args;
-
-  await context.db
-    .insert(bounty)
-    .values({
-      id: bountyId,
-      creator: "0x0000000000000000000000000000000000000000",
-      reward: 0n,
-      description: "",
-      completed: true,
-      winner,
-    })
-    .onConflictDoUpdate({
-      completed: true,
-      winner,
-    });
+  const existing = await context.db.find(bounty, { id: bountyId });
+  if (!existing) return;
+  await context.db.update(bounty, { id: bountyId }).set({ completed: true, winner });
 });

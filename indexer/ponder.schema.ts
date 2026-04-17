@@ -109,6 +109,59 @@ export const bribeDeposit = onchainTable(
   }),
 );
 
+// AUDIT INDEXER-M2: bribe claim tracking so frontend can reconcile per-user
+// claim history, not just deposit flow.
+export const bribeClaim = onchainTable(
+  "bribe_claim",
+  (t) => ({
+    id: t.text().primaryKey(),
+    user: t.hex().notNull(),
+    epoch: t.bigint().notNull(),
+    pair: t.hex().notNull(),
+    token: t.hex().notNull(),
+    amount: t.bigint().notNull(),
+    timestamp: t.bigint().notNull(),
+  }),
+  (table) => ({
+    userIdx: index().on(table.user),
+    epochIdx: index().on(table.epoch),
+  }),
+);
+
+// AUDIT INDEXER-M2: proposal vote tracking so governance UI can show per-user
+// voting patterns, not just final proposal outcomes.
+export const proposalVote = onchainTable(
+  "proposal_vote",
+  (t) => ({
+    id: t.text().primaryKey(),
+    proposalId: t.bigint().notNull(),
+    voter: t.hex().notNull(),
+    support: t.boolean().notNull(),
+    power: t.bigint().notNull(),
+    timestamp: t.bigint().notNull(),
+  }),
+  (table) => ({
+    proposalIdx: index().on(table.proposalId),
+    voterIdx: index().on(table.voter),
+  }),
+);
+
+// AUDIT INDEXER-M2: restaking claim tracking — base + bonus reward streams
+// need per-user records for the dashboard to show total claimed.
+export const restakingClaim = onchainTable(
+  "restaking_claim",
+  (t) => ({
+    id: t.text().primaryKey(),
+    user: t.hex().notNull(),
+    type: t.text().notNull(), // "base" | "bonus"
+    amount: t.bigint().notNull(),
+    timestamp: t.bigint().notNull(),
+  }),
+  (table) => ({
+    userIdx: index().on(table.user),
+  }),
+);
+
 // ─── Swaps ───────────────────────────────────────────────────────────────────
 
 export const swap = onchainTable(

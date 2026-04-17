@@ -313,13 +313,18 @@ const MemeBountyBoardAbi = [
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
+// AUDIT INDEXER-M1: explicit RPC timeout + retry so a hung upstream doesn't
+// stall indexer sync indefinitely. 30s is generous for mainnet eth_getLogs
+// responses over a slow connection; 3 retries handles transient flakes.
+const RPC_TRANSPORT_OPTS = { timeout: 30_000, retryCount: 3 } as const;
+
 export default createConfig({
   chains: {
     mainnet: {
       id: 1,
       rpc: process.env.PONDER_RPC_URL_1
-        ? http(process.env.PONDER_RPC_URL_1)
-        : http(),
+        ? http(process.env.PONDER_RPC_URL_1, RPC_TRANSPORT_OPTS)
+        : http(undefined, RPC_TRANSPORT_OPTS),
     },
   },
   contracts: {
