@@ -48,9 +48,13 @@ export default async function handler(req, res) {
 
   try {
     const secret = new TextEncoder().encode(JWT_SECRET);
+    // AUDIT API-H2: pin algorithm list. jose v5 defaults reject "none" but
+    // explicit pinning defends against future algorithm-confusion attacks if
+    // the same JWT_SECRET is ever reused across HS256/RS256 boundaries.
     const { payload } = await jwtVerify(token, secret, {
       issuer: "supabase",
       audience: "authenticated",
+      algorithms: ["HS256"],
     });
 
     return res.json({

@@ -31,8 +31,17 @@ const ALLOWED_PATH_PREFIXES = ["orders/", "listings/", "offers/", "collection/",
 
 // Build allowed paths dynamically from allowed slugs
 function isAllowedPath(path) {
-  // Block path traversal attempts
-  if (path.includes("..") || path.includes("//") || path.includes("%2e") || path.includes("%2E")) return false;
+  // AUDIT API-M5: decode-then-check. The prior guard relied on spotting
+  // "%2e" / "%2E" in the raw input, but missed single-encoded segments like
+  // "%2F..%2Fadmin" that OpenSea's router could decode server-side.
+  // Reject if the decoded path differs (any URL-encoding is now suspect) or
+  // if decoded content contains traversal / doubled-slashes.
+  let decoded;
+  try { decoded = decodeURIComponent(path); } catch { return false; }
+  if (decoded !== path) return false;
+  if (decoded.includes("..") || decoded.includes("//")) return false;
+  // (removed superseded %2e/%2E guard — the decoded-equality check above
+  //  catches every encoding of every character)
   // Exact-match paths that don't follow the prefix pattern
   if (path === "criteria_offers") return true;
   // Reject paths that don't start with an allowed prefix
@@ -165,11 +174,13 @@ export default async function handler(req, res) {
     }
 
     if (!response.ok) {
-      return res.status(response.status).json({ error: "OpenSea API error", status: response.status });
+      // AUDIT API-M4: collapse upstream errors to opaque 502, log real status.
+      console.error("OpenSea upstream error:", response.status, text.slice(0, 500));
+      return res.status(502).json({ error: "Upstream service error" });
     }
 
     res.setHeader("Cache-Control", "s-maxage=15, stale-while-revalidate=30");
-    return res.status(response.status).json(data);
+    return res.status(200).json(data);
   } catch (err) {
     return res.status(500).json({ error: "Proxy fetch failed" });
   }

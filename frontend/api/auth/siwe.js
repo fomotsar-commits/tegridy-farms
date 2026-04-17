@@ -157,10 +157,20 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Nonce expired" });
     }
 
-    // Verify the SIWE signature
+    // Verify the SIWE signature.
+    // AUDIT API-H1: pass explicit time + domain + nonce into verify() so that
+    // siwe-library enforces freshness against the server's clock (not just the
+    // message's own optional expirationTime), and rebinds the message to the
+    // origin domain + the server-issued nonce as part of signature verification.
+    const originHost = (() => { try { return new URL(origin).host; } catch { return undefined; } })();
     let verifyResult;
     try {
-      verifyResult = await siweMessage.verify({ signature });
+      verifyResult = await siweMessage.verify({
+        signature,
+        time: new Date().toISOString(),
+        domain: originHost,
+        nonce: siweMessage.nonce,
+      });
     } catch (err) {
       return res.status(400).json({ error: "Signature verification failed" });
     }

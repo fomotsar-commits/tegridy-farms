@@ -428,9 +428,14 @@ export default async function handler(req, res) {
           // Verify that the tx contains a Seaport OrderFulfilled event for this order hash
           // OrderFulfilled topic0 = keccak256("OrderFulfilled(bytes32,address,address,tuple[])")
           const ORDER_FULFILLED_TOPIC = "0x9d9af8e38d66c62e2c12f0225249fd9d721c54b83f48d9352c97c6cacdcb6f31";
+          // AUDIT API-M7: pin the event origin to the canonical Seaport 1.6
+          // contract so a malicious contract emitting the same topic signature
+          // from its own address cannot forge a fill record.
+          const SEAPORT_ADDRESS = "0x0000000000000068f116a894984e2db1123eb395";
           const hasMatchingLog = receipt.logs.some(log =>
             log.topics?.[0] === ORDER_FULFILLED_TOPIC &&
-            log.topics?.[1]?.toLowerCase() === orderHash.toLowerCase()
+            log.topics?.[1]?.toLowerCase() === orderHash.toLowerCase() &&
+            log.address?.toLowerCase() === SEAPORT_ADDRESS
           );
           if (!hasMatchingLog) {
             return res.status(400).json({ error: "Transaction does not contain a matching Seaport OrderFulfilled event" });

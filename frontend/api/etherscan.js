@@ -62,6 +62,16 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Invalid address" });
   }
 
+  // AUDIT API-M6: cap block range at 10k to avoid burning our Etherscan
+  // quota on full-chain scans. A client asking for 100k+ blocks is either
+  // a bug or abuse; legitimate indexers use paginated requests.
+  if (startblock != null && endblock != null) {
+    const s = Number(startblock), e = Number(endblock);
+    if (Number.isFinite(s) && Number.isFinite(e) && e - s > 10_000) {
+      return res.status(400).json({ error: "Block range too large (max 10000)" });
+    }
+  }
+
   // Build Etherscan URL with server-side API key
   const params = new URLSearchParams({
     module,

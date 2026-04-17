@@ -103,7 +103,17 @@ export default async function handler(req, res) {
     const status = response.status;
 
     if (status >= 400) {
-      return res.status(status).json({ error: text });
+      // AUDIT API-M4: don't leak Supabase error bodies (schema info,
+      // constraint names, PostgREST internals). Map 5xx to opaque 502 and
+      // collapse 4xx into tight categories. Real details logged server-side.
+      if (status >= 500) {
+        console.error("Supabase upstream 5xx:", status, text.slice(0, 500));
+        return res.status(502).json({ error: "Upstream service error" });
+      }
+      if (status === 401 || status === 403) {
+        return res.status(status).json({ error: "Unauthorized" });
+      }
+      return res.status(status).json({ error: "Request rejected" });
     }
 
     try {

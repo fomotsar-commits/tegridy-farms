@@ -239,11 +239,14 @@ export default async function handler(req, res) {
     }
 
     if (!response.ok) {
-      return res.status(response.status).json({ error: "Alchemy API error", status: response.status });
+      // AUDIT API-M4: don't leak upstream HTTP status or body to clients; map
+      // everything to a single opaque 502. Real status logged server-side for ops.
+      console.error("Alchemy upstream error:", response.status, text.slice(0, 500));
+      return res.status(502).json({ error: "Upstream service error" });
     }
 
     res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60");
-    return res.status(response.status).json(data);
+    return res.status(200).json(data);
   } catch (err) {
     return res.status(500).json({ error: "Proxy fetch failed" });
   }
