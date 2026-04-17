@@ -147,7 +147,7 @@ export default function HomePage() {
             ].map((s, i) => (
               <motion.div key={s.step} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.1 }}>
                 <Link to={s.to} className="block glass-card rounded-xl p-5 hover:border-emerald-600/30 transition-colors" style={{ border: '1px solid var(--color-purple-12)' }}>
-                  <span className="inline-block w-8 h-8 rounded-full bg-emerald-600/20 border border-emerald-600/40 text-emerald-400 text-[14px] font-bold flex items-center justify-center mb-3">{s.step}</span>
+                  <span className="inline-flex w-8 h-8 shrink-0 rounded-full bg-emerald-600/20 border border-emerald-600/40 text-emerald-400 text-[14px] font-bold leading-none items-center justify-center mb-3">{s.step}</span>
                   <h3 className="text-white text-[15px] font-semibold mb-1">{s.title}</h3>
                   <p className="text-white/60 text-[12px] leading-relaxed">{s.desc}</p>
                 </Link>

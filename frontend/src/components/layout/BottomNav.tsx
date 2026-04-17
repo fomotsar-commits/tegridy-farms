@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { MORE_NAV, MORE_PATHS } from '../../lib/navConfig';
+import { MORE_NAV_MOBILE, MORE_PATHS_MOBILE } from '../../lib/navConfig';
 
 const TABS = [
   { to: '/swap', label: 'Trade', icon: (
@@ -22,9 +22,10 @@ const TABS = [
       <rect x="14" y="14" width="7" height="7" rx="1" />
     </svg>
   )},
-  { to: '/community', label: 'Community', icon: (
+  { to: '/lending', label: 'NFT Finance', icon: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
+      <rect x="3" y="6" width="18" height="13" rx="2" />
+      <path d="M3 10h18M7 15h3" />
     </svg>
   )},
 ];
@@ -35,7 +36,7 @@ export const BottomNav = React.memo(function BottomNav() {
   const menuRef = useRef<HTMLDivElement>(null);
   const moreBtnRef = useRef<HTMLButtonElement>(null);
   const location = useLocation();
-  const isMoreActive = MORE_PATHS.some(p => location.pathname === p || location.pathname.startsWith(p + '/'));
+  const isMoreActive = MORE_PATHS_MOBILE.some(p => location.pathname === p || location.pathname.startsWith(p + '/'));
 
   // Close on route change
   useEffect(() => { setOpen(false); }, [location.pathname]);
@@ -54,6 +55,19 @@ export const BottomNav = React.memo(function BottomNav() {
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  // Audit H-F12: match TopNav behavior — Escape closes the popup on mobile too
+  useEffect(() => {
+    if (!open) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setOpen(false);
+        moreBtnRef.current?.focus();
+      }
+    }
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
   }, [open]);
 
   return (
@@ -84,7 +98,7 @@ export const BottomNav = React.memo(function BottomNav() {
                 boxShadow: '0 -8px 30px rgba(0,0,0,0.5)',
               }}>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-0.5 p-2">
-                {MORE_NAV.map(page => (
+                {MORE_NAV_MOBILE.map(page => (
                   <NavLink
                     key={page.to}
                     to={page.to}

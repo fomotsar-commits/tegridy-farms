@@ -11,10 +11,10 @@ export const PRIMARY_NAV: NavItem[] = [
   { to: '/lending', label: 'NFT Finance' },
 ];
 
-/** Community link shown separately */
+/** Community link shown separately (desktop top-level nav; on mobile it lives in the More dropdown) */
 export const COMMUNITY_NAV: NavItem = { to: '/community', label: 'Community' };
 
-/** Items in the "More" dropdown / overflow menu */
+/** Items in the desktop "More" dropdown / overflow menu */
 export const MORE_NAV: NavItem[] = [
   { to: '/premium', label: 'Gold Card' },
   { to: '/gallery', label: 'Gallery' },
@@ -24,6 +24,24 @@ export const MORE_NAV: NavItem[] = [
   { to: '/faq', label: 'FAQ' },
   { to: '/changelog', label: 'Changelog' },
   { to: '/lore', label: 'Lore' },
+  { to: '/history', label: 'History' },
+];
+
+/**
+ * Mobile "More" dropdown items — identical to desktop MORE_NAV but with Community
+ * inserted under Lore (mobile bottom nav tab row doesn't include Community, so it
+ * lives in the overflow menu on small viewports).
+ */
+export const MORE_NAV_MOBILE: NavItem[] = [
+  { to: '/premium', label: 'Gold Card' },
+  { to: '/gallery', label: 'Gallery' },
+  { to: '/nakamigos', label: 'Marketplace' },
+  { to: '/tokenomics', label: 'Tokenomics' },
+  { to: '/security', label: 'Security' },
+  { to: '/faq', label: 'FAQ' },
+  { to: '/changelog', label: 'Changelog' },
+  { to: '/lore', label: 'Lore' },
+  { to: '/community', label: 'Community' },
   { to: '/history', label: 'History' },
 ];
 
@@ -38,5 +56,8 @@ export const ALL_NAV: NavItem[] = [
   POINTS_NAV,
 ];
 
-/** Paths that belong to the "More" section (for active state detection) */
+/** Paths that belong to the desktop "More" section (for active state detection) */
 export const MORE_PATHS: string[] = MORE_NAV.map(n => n.to);
+
+/** Paths that belong to the mobile "More" section (includes /community) */
+export const MORE_PATHS_MOBILE: string[] = MORE_NAV_MOBILE.map(n => n.to);

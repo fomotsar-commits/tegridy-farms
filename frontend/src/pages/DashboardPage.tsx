@@ -14,6 +14,7 @@ import { useFarmActions } from '../hooks/useFarmActions';
 import { useNFTBoost } from '../hooks/useNFTBoost';
 import { useDCA } from '../hooks/useDCA';
 import { useLimitOrders } from '../hooks/useLimitOrders';
+import { useMyLoans } from '../hooks/useMyLoans';
 import { ART } from '../lib/artConfig';
 import { formatTokenAmount, formatCurrency } from '../lib/formatting';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -42,6 +43,7 @@ export default function DashboardPage() {
   const nft = useNFTBoost();
   const dca = useDCA();
   const limitOrders = useLimitOrders();
+  const myLoans = useMyLoans();
   const pos = useUserPosition();
   const pool = usePoolData();
   const { history: priceHistory } = usePriceHistory(price.priceInUsd);
@@ -120,7 +122,7 @@ export default function DashboardPage() {
       <ErrorBoundary>
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         {isWrongNetwork && (
-          <div className="mb-4 px-4 py-3 rounded-xl bg-warning/10 border border-warning/30 text-warning text-[13px] text-center">
+          <div role="alert" aria-live="assertive" className="mb-4 px-4 py-3 rounded-xl bg-warning/10 border border-warning/30 text-warning text-[13px] text-center">
             Wrong network detected. Please switch to Ethereum Mainnet.
           </div>
         )}
@@ -153,7 +155,7 @@ export default function DashboardPage() {
         </motion.div>
 
         {/* Summary Stats */}
-        <motion.div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+        <motion.div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           {[
             { l: 'TOWELI Balance', numVal: walletToweli, decimals: 0, sub: price.isLoaded ? formatCurrency(walletToweli * price.priceInUsd) : '–', art: ART.mumuBull.src, loading: isToweliLoading, error: toweliError },
             { l: 'ETH Balance', numVal: ethBal, decimals: 4, sub: ethBalance && price.ethUsd > 0 ? formatCurrency(ethBal * price.ethUsd) : '–', art: ART.jungleBus.src, loading: isEthLoading, error: ethError },
@@ -277,6 +279,11 @@ export default function DashboardPage() {
               <p className="text-white text-[11px]">Check Swap for details</p>
             </div>
           </motion.div>
+        )}
+
+        {/* Outstanding Loans */}
+        {myLoans.loans.length > 0 && (
+          <OutstandingLoans loans={myLoans.loans} />
         )}
 
         {/* Position */}
@@ -421,6 +428,96 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
   }
 
   return null;
+}
+
+function OutstandingLoans({ loans }: { loans: import('../hooks/useMyLoans').MyLoan[] }) {
+  const active = loans.filter(l => l.status === 'active').length;
+  const overdue = loans.filter(l => l.status === 'overdue').length;
+  const totalPrincipal = loans.reduce((acc, l) => acc + l.principal, 0n);
+  return (
+    <motion.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2 className="heading-luxury text-[16px] text-white">
+          Outstanding Loans
+          {overdue > 0 && (
+            <span className="ml-2 align-middle badge badge-warning text-[10px]">
+              {overdue} overdue
+            </span>
+          )}
+        </h2>
+        <Link to="/lending" className="text-[12px] text-white/70 hover:text-white transition-colors">
+          Manage in NFT Finance &#8594;
+        </Link>
+      </div>
+      <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+        <div className="absolute inset-0">
+          <img src={ART.smokingDuo.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 45%' }} />
+        </div>
+        <div className="relative z-10 p-5">
+          <div className="grid grid-cols-3 gap-4 mb-4 pb-4" style={{ borderBottom: '1px solid var(--color-purple-20)' }}>
+            <div>
+              <p className="text-white/60 text-[10px] uppercase tracking-wider mb-1">Open</p>
+              <p className="stat-value text-[18px] text-white">{loans.length}</p>
+            </div>
+            <div>
+              <p className="text-white/60 text-[10px] uppercase tracking-wider mb-1">Active</p>
+              <p className="stat-value text-[18px] text-success">{active}</p>
+            </div>
+            <div>
+              <p className="text-white/60 text-[10px] uppercase tracking-wider mb-1">Overdue</p>
+              <p className={`stat-value text-[18px] ${overdue > 0 ? 'text-warning' : 'text-white'}`}>{overdue}</p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {loans.slice(0, 5).map(loan => (
+              <LoanRow key={loan.id} loan={loan} />
+            ))}
+            {loans.length > 5 && (
+              <Link to="/lending"
+                className="block text-center text-[12px] text-white/70 hover:text-white py-2 rounded-lg transition-colors"
+                style={{ background: 'rgba(255,255,255,0.03)' }}>
+                View {loans.length - 5} more &#8594;
+              </Link>
+            )}
+          </div>
+          <div className="mt-4 pt-3 flex items-center justify-between text-[12px]" style={{ borderTop: '1px solid var(--color-purple-20)' }}>
+            <span className="text-white/60">Total principal outstanding</span>
+            <span className="stat-value text-white">{formatEther(totalPrincipal)} ETH</span>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function LoanRow({ loan }: { loan: import('../hooks/useMyLoans').MyLoan }) {
+  const remaining = Number(loan.deadline) - Math.floor(Date.now() / 1000);
+  const days = Math.max(0, Math.floor(remaining / 86400));
+  const hours = Math.max(0, Math.floor((remaining % 86400) / 3600));
+  const countdown = loan.status === 'overdue'
+    ? 'Overdue'
+    : days > 0 ? `${days}d ${hours}h` : `${hours}h`;
+  const isUrgent = loan.status === 'active' && remaining < 86400;
+  return (
+    <Link to="/lending" className="flex items-center justify-between gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors"
+      style={{ background: 'rgba(255,255,255,0.02)' }}>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 mb-0.5">
+          <span className="text-white text-[13px] font-semibold">#{loan.id}</span>
+          <span className="text-white/60 text-[11px]">·</span>
+          <span className="stat-value text-[13px] text-white">{formatEther(loan.principal)} ETH</span>
+          <span className="text-white/60 text-[11px]">@ {(Number(loan.aprBps) / 100).toFixed(2)}% APR</span>
+        </div>
+        <p className="text-white/50 text-[11px]">Token #{loan.tokenId.toString()}</p>
+      </div>
+      <div className={`text-right shrink-0 ${loan.status === 'overdue' ? 'text-warning' : isUrgent ? 'text-warning' : 'text-white'}`}>
+        <p className="text-[10px] uppercase tracking-wider opacity-60">
+          {loan.status === 'overdue' ? 'Overdue' : 'Due in'}
+        </p>
+        <p className="stat-value text-[13px]">{countdown}</p>
+      </div>
+    </Link>
+  );
 }
 
 function Projections({ staked, apr, price, boost = 1 }: {
