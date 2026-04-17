@@ -611,10 +611,10 @@ contract TegridyNFTPoolFactoryFuzzTest is Test {
         assertEq(factory.pendingProtocolFeeBps(), validFee, "Pending fee not set");
     }
 
-    // ─── Fuzz: Delta cap at 100 ether ───────────────────────────────────
+    // ─── Fuzz: Delta cap at 10 ether (AUDIT TF-15 — was 100 ether) ─────
 
     function testFuzz_deltaRange(uint256 delta) public {
-        uint256 validDelta = bound(delta, 0, 100 ether);
+        uint256 validDelta = bound(delta, 0, 10 ether);
 
         // Creating a pool with valid delta should succeed
         uint256 id = nft.mint(alice);
@@ -680,8 +680,8 @@ contract TegridyNFTPoolFactoryFuzzTest is Test {
 
         TegridyNFTPool p = TegridyNFTPool(payable(pool));
 
-        // Valid delta proposal + execute through timelock
-        uint256 validDelta = bound(delta, 0, 100 ether);
+        // Valid delta proposal + execute through timelock — AUDIT TF-15: was 100 ether
+        uint256 validDelta = bound(delta, 0, 10 ether);
         p.proposeDelta(validDelta);
         vm.warp(block.timestamp + 24 hours);
         p.executeDeltaChange();

@@ -330,13 +330,14 @@ contract TegridyNFTPool_SandwichTest is Test {
         address pool = _createSellPool(SPOT_PRICE, DELTA, ids);
         TegridyNFTPool p = TegridyNFTPool(payable(pool));
 
+        // AUDIT TF-15: MAX_DELTA tightened 100 ETH → 10 ETH
         vm.prank(alice);
-        p.proposeDelta(100 ether);
+        p.proposeDelta(10 ether);
         vm.warp(block.timestamp + 24 hours);
         vm.prank(alice);
         p.executeDeltaChange();
 
-        assertEq(p.delta(), 100 ether);
+        assertEq(p.delta(), 10 ether);
     }
 
     /// @notice Verify that proposeDelta accepts zero (after timelock).

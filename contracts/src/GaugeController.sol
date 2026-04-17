@@ -16,6 +16,8 @@ interface ITegridyStakingGauge {
         uint256 stakeTimestamp
     );
     function ownerOf(uint256 tokenId) external view returns (address);
+    // AUDIT TF-04: historical voting-power lookup used for epoch-start snapshot votes.
+    function votingPowerAtTimestamp(address user, uint256 ts) external view returns (uint256);
 }
 
 /// @title GaugeController — Curve-style emission voting for Tegridy LP pools
@@ -161,11 +163,21 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         uint256 epoch = currentEpoch();
         if (hasVotedInEpoch[tokenId][epoch]) revert AlreadyVotedThisEpoch();
 
-        // Compute voting power from staking position
+        // Compute voting power from staking position.
+        // AUDIT TF-04 (Spartan MEDIUM): voting power is now pinned to the EPOCH-START
+        // snapshot via TegridyStaking's existing checkpoint infrastructure, rather than
+        // read live at vote time. Previous live read let an attacker stake at the start
+        // of an epoch, vote (gaining full gauge weight for the epoch's emissions), and
+        // then early-withdraw (25% penalty) before epoch end — profitable when emission
+        // value on their chosen gauge exceeded the penalty. Snapshot lookup makes that
+        // arbitrage impossible because the voter's power at epoch-start is what gets
+        // recorded, and any subsequent unstake doesn't retro-reduce it. The lock
+        // validity is still checked against live state so expired-lock votes are
+        // rejected regardless.
         // H-01 FIX: Updated destructuring to match corrected ABI order
-        (uint256 amount,,, uint256 lockEnd, uint256 boostBps,,,,) = tegridyStaking.positions(tokenId);
+        (uint256 amount,,, uint256 lockEnd,,,,,) = tegridyStaking.positions(tokenId);
         if (amount == 0 || block.timestamp >= lockEnd) revert LockExpired();
-        uint256 votingPower = (amount * boostBps) / BOOST_PRECISION;
+        uint256 votingPower = tegridyStaking.votingPowerAtTimestamp(msg.sender, epochStartTime(epoch));
         if (votingPower == 0) revert ZeroVotingPower();
 
         // Validate weights sum to BPS and all gauges are whitelisted

@@ -53,6 +53,13 @@ contract TegridyLaunchpad is OwnableNoRenounce, Pausable, TimelockAdmin {
     /// @notice Pending protocol fee for timelocked change
     uint16 public pendingProtocolFeeBps;
 
+    /// @notice AUDIT TF-14 (Spartan LOW): hard cap on protocolFeeBps.
+    ///         The prior 10000 (100%) limit allowed a future governance capture to
+    ///         drain all collection revenue into protocol fees. 1000 (10%) is well
+    ///         above any realistic marketplace fee and leaves headroom; anything
+    ///         higher is a footgun.
+    uint16 public constant MAX_PROTOCOL_FEE_BPS = 1000; // 10%
+
     /// @notice Pending fee recipient for timelocked change
     address public pendingProtocolFeeRecipient;
 
@@ -87,7 +94,7 @@ contract TegridyLaunchpad is OwnableNoRenounce, Pausable, TimelockAdmin {
     ) OwnableNoRenounce(_owner) {
         if (_protocolFeeRecipient == address(0)) revert ZeroAddress();
         if (_weth == address(0)) revert ZeroAddress();
-        if (_protocolFeeBps > 10000) revert InvalidFeeBps();
+        if (_protocolFeeBps > MAX_PROTOCOL_FEE_BPS) revert InvalidFeeBps();
 
         protocolFeeBps = _protocolFeeBps;
         protocolFeeRecipient = _protocolFeeRecipient;
@@ -178,7 +185,7 @@ contract TegridyLaunchpad is OwnableNoRenounce, Pausable, TimelockAdmin {
     /// @notice Propose a protocol fee change (48h timelock)
     /// @param newFeeBps New fee in basis points
     function proposeProtocolFee(uint16 newFeeBps) external onlyOwner {
-        if (newFeeBps > 10000) revert InvalidFeeBps();
+        if (newFeeBps > MAX_PROTOCOL_FEE_BPS) revert InvalidFeeBps();
         if (newFeeBps == protocolFeeBps) revert FeeUnchanged();
         pendingProtocolFeeBps = newFeeBps;
         _propose(FEE_CHANGE, FEE_CHANGE_DELAY);

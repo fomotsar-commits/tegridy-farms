@@ -210,12 +210,20 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         emit ReferrerUpdated(msg.sender, oldReferrer, _newReferrer);
     }
 
-    /// @dev AUDIT FIX v3: Walk the referral chain to detect multi-level circular references
-    /// A4-M-09: Reduced depth from 50 to 10 — deeper chains are extremely unlikely in practice,
-    /// and 50 SLOADs creates a gas griefing vector. 10 levels is sufficient for real referral trees.
+    /// @dev Walk the referral chain to detect multi-level circular references.
+    /// Audit history:
+    ///   A4-M-09: reduced depth 50 → 10 (50 SLOADs was a gas-griefing vector).
+    ///   TF-17 (Spartan LOW): depth 10 allowed sybil rings of 11+ addresses to
+    ///     construct A→B→…→K→A cycles that evaded detection. 25 hits the
+    ///     balance between attacker cost (25 sybil addresses + coordination)
+    ///     and caller gas (25 SLOADs ≈ 52k gas; still well under any per-tx
+    ///     budget). Additionally, referral payouts are stake-gated by
+    ///     MIN_REFERRAL_STAKE_POWER so the economic benefit of ring-gaming is
+    ///     already bounded; this just closes the last cheap loophole.
+    uint256 public constant CIRCULAR_DEPTH = 25;
     function _checkCircularReferral(address _referrer, address _user) internal view {
         address current = _referrer;
-        for (uint256 i = 0; i < 10; i++) {
+        for (uint256 i = 0; i < CIRCULAR_DEPTH; i++) {
             current = referrerOf[current];
             if (current == address(0)) break;
             if (current == _user) revert CircularReferral();

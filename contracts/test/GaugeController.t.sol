@@ -59,6 +59,13 @@ contract GaugeControllerTest is Test {
         _addGauge(gauge1);
         _addGauge(gauge2);
         _addGauge(gauge3);
+
+        // AUDIT TF-04: GaugeController.vote() reads voting power at the current epoch's
+        // start timestamp, not live. Stakes written during epoch 0 have checkpoints at
+        // T=1 (or whenever they were made), so they're visible at epoch 1's start but
+        // not at epoch 0's start (which == genesisEpoch == 0). Advancing one epoch
+        // past setUp lets the staker checkpoints be in-range for epochStartTime(1).
+        vm.warp(block.timestamp + 7 days);
     }
 
     /// @dev Helper: propose + warp + execute gauge addition

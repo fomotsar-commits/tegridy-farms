@@ -52,7 +52,12 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     uint256 public constant MAX_FEE_BPS = 9000;       // 90% max LP fee
     uint256 public constant MAX_PROTOCOL_FEE_BPS = 1000; // 10% max protocol fee
     uint256 public constant BPS = 10_000;
-    uint256 public constant MAX_DELTA = 100 ether;   // SECURITY FIX: Upper bound on delta (matches initialize cap)
+    // AUDIT TF-15 (Spartan LOW): delta cap tightened 100 ETH → 10 ETH. A linear curve
+    // with delta=100 ETH and spotPrice=1 wei would make the 2nd purchase cost 100 ETH
+    // more than the first — economically nonsensical, creator-footgun territory. 10 ETH
+    // is more than enough headroom for any realistic NFT bonding curve (even rare
+    // collections rarely move >10 ETH per unit on a single curve tick).
+    uint256 public constant MAX_DELTA = 10 ether;
     uint256 public constant PARAMETER_TIMELOCK = 24 hours; // AUDIT FIX M-04: 24h delay for price/delta changes
 
     // ─── Errors (additional) ────────────────────────────────────────────

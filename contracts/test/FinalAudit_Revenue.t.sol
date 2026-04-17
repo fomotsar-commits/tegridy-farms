@@ -647,33 +647,33 @@ contract FinalAuditRevenue is Test {
     //  13. REFERRAL SPLITTER — 11-level circular chain bypass
     // ================================================================
 
-    /// @notice The circular referral detection walks only 10 levels deep.
-    ///         An 11-level chain can create a cycle that bypasses detection.
-    ///         FINDING: Low severity — 11-hop circular chain evades detection.
-    function test_ReferralSplitter_CircularChainBypass11Levels() public {
-        // Create 11 unique addresses to form a chain
-        address[12] memory chain;
-        for (uint256 i = 0; i < 12; i++) {
+    /// @notice Circular-referral detection walks CIRCULAR_DEPTH levels. Any cycle
+    ///         strictly deeper than that still evades detection. After AUDIT TF-17
+    ///         CIRCULAR_DEPTH was raised 10 → 25 — a sybil ring of 27+ addresses is
+    ///         still cheap enough to acknowledge but much harder than the prior
+    ///         11-address bypass. FINDING: accepted residual risk.
+    function test_ReferralSplitter_CircularChainBypassBeyondDepth() public {
+        // Chain of 27 addresses: cycle at tail evades CIRCULAR_DEPTH=25 walk.
+        uint256 chainLen = 27;
+        address[] memory chain = new address[](chainLen);
+        for (uint256 i = 0; i < chainLen; i++) {
             chain[i] = makeAddr(string(abi.encodePacked("chain", vm.toString(i))));
         }
 
-        // Build a chain: chain[0] -> chain[1] -> ... -> chain[10]
-        for (uint256 i = 0; i < 11; i++) {
+        // Build chain[0] -> chain[1] -> ... -> chain[chainLen-2]
+        for (uint256 i = 0; i < chainLen - 1; i++) {
             vm.prank(chain[i]);
             splitter.setReferrer(chain[i + 1]);
         }
 
-        // Now try to set chain[11]'s referrer to chain[0], creating an 11-level cycle
-        // The check walks 10 levels from chain[0] and reaches chain[10], never seeing chain[11]
-        // So this should succeed (bypassing circular detection)
-        vm.prank(chain[11]);
+        // chain[chainLen-1] -> chain[0] closes the cycle; walk from chain[0] only
+        // reaches chain[25] (25 hops), so the cycle at chain[chainLen-1] isn't seen.
+        vm.prank(chain[chainLen - 1]);
         splitter.setReferrer(chain[0]);
 
-        // Verify the cycle exists: chain[11] -> chain[0] -> chain[1] -> ... -> chain[10] -> chain[11]
-        assertEq(splitter.referrerOf(chain[11]), chain[0]);
+        assertEq(splitter.referrerOf(chain[chainLen - 1]), chain[0]);
         assertEq(splitter.referrerOf(chain[0]), chain[1]);
-        assertEq(splitter.referrerOf(chain[10]), chain[11]);
-        // This forms a complete cycle of length 12
+        assertEq(splitter.referrerOf(chain[chainLen - 2]), chain[chainLen - 1]);
     }
 
     // ================================================================

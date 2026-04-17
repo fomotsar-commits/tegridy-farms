@@ -306,25 +306,30 @@ contract Audit195Referral is Test {
         ref.setReferrer(addrs[0]);
     }
 
-    function test_circularReferral_beyondDepth11_notDetected() public {
-        // Build a chain of 12 addresses: a0->a1->...->a11
-        // a11 tries to set a0 as referrer. The walk only checks 10 hops
-        // from a0, reaching a10 (not a11), so the cycle is NOT detected.
-        // This is by design — 10 levels is the practical limit.
-        address[12] memory addrs;
-        for (uint256 i = 0; i < 12; i++) {
+    function test_circularReferral_beyondDepth_notDetected() public {
+        // Build a chain longer than CIRCULAR_DEPTH (25 after AUDIT TF-17).
+        // A cycle strictly deeper than the depth constant is still NOT detected —
+        // that's the accepted cost of keeping the walk gas-bounded.
+        // Old depth was 10; Spartan flagged that as trivially bypassable by a sybil
+        // ring of 11 addresses, so depth was raised to 25. We prove here that a
+        // legitimate 27-deep chain (with a cycle at the tail) still evades detection,
+        // which is acceptable because sybil rings of 27+ addresses are economically
+        // and coordinationally costly, and referral payouts are stake-gated anyway.
+        uint256 chainLen = 27;
+        address[] memory addrs = new address[](chainLen);
+        for (uint256 i = 0; i < chainLen; i++) {
             addrs[i] = makeAddr(string(abi.encodePacked("d", vm.toString(i))));
         }
 
-        for (uint256 i = 0; i < 11; i++) {
+        for (uint256 i = 0; i < chainLen - 1; i++) {
             vm.prank(addrs[i]);
             ref.setReferrer(addrs[i + 1]);
         }
 
-        // 11-level cycle — beyond detection depth, succeeds
-        vm.prank(addrs[11]);
+        // (chainLen)-level cycle — beyond CIRCULAR_DEPTH=25, succeeds
+        vm.prank(addrs[chainLen - 1]);
         ref.setReferrer(addrs[0]); // No revert: by design
-        assertEq(ref.referrerOf(addrs[11]), addrs[0]);
+        assertEq(ref.referrerOf(addrs[chainLen - 1]), addrs[0]);
     }
 
     function test_circularReferral_updateReferrer_detectsCycle() public {

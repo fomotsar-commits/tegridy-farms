@@ -627,9 +627,20 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         // own internal tracking (as TegridyRestaking does via restakers/tokenIdToRestaker).
         if (to != address(0) && userTokenId[to] != 0 && to.code.length == 0) revert AlreadyHasPosition();
 
-        // Reset autoMaxLock, clear emergency exit, update ownership, write checkpoint
+        // Reset autoMaxLock, clear emergency exit, update ownership, write checkpoint.
+        // AUDIT TF-07 (Spartan MEDIUM): only reset autoMaxLock on a genuine ownership
+        // change. When an NFT round-trips through a whitelisted lending contract or the
+        // restaking contract (temporary escrow, not a sale), the user's autoMaxLock
+        // preference must survive the hop. The reset still applies when the NFT
+        // actually changes hands between EOAs (e.g., OTC sale) because the new owner
+        // should not be silently auto-max-locked without their consent.
+        bool escrowHop =
+            isLendingContract[from] || isLendingContract[to] ||
+            from == restakingContract || to == restakingContract;
         if (from != address(0)) {
-            positions[tokenId].autoMaxLock = false;
+            if (!escrowHop) {
+                positions[tokenId].autoMaxLock = false;
+            }
             delete emergencyExitRequests[tokenId];
             userTokenId[from] = 0;
             _writeCheckpoint(from);
