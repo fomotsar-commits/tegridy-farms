@@ -216,7 +216,7 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         uint256 _aprBps,
         uint256 _duration,
         address _collateralContract
-    ) external payable whenNotPaused returns (uint256 offerId) {
+    ) external payable nonReentrant whenNotPaused returns (uint256 offerId) {
         if (msg.value == 0) revert ZeroPrincipal();
         if (msg.value != _principal) revert MsgValueMismatch();
         if (_principal > MAX_PRINCIPAL) revert PrincipalTooLarge();

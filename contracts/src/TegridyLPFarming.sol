@@ -9,12 +9,32 @@ import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 
 /// @dev Minimal interface for TegridyStaking boost queries.
+/// @dev Audit C-01 (Spartan TF-01): struct field order MUST match TegridyStaking.Position
+///      exactly. Solidity ABI-decodes return tuples by position, not by name — a mismatch
+///      silently reads the wrong slot and was historically exploitable (rewardDebt was
+///      being decoded into boostBps, giving unbounded boost). The canonical order in
+///      TegridyStaking.sol:86-95 is:
+///        uint256 amount
+///        uint256 boostedAmount
+///        int256  rewardDebt
+///        uint64  lockEnd
+///        uint16  boostBps
+///        uint32  lockDuration
+///        bool    autoMaxLock
+///        bool    hasJbacBoost
+///        uint64  stakeTimestamp
 interface ITegridyStakingBoost {
     function userTokenId(address user) external view returns (uint256);
     function positions(uint256 tokenId) external view returns (
-        uint256 amount, uint256 boostedAmount, uint256 boostBps, uint256 lockEnd,
-        uint256 lockDuration, bool autoMaxLock, int256 rewardDebt, uint256 lastStakeTime,
-        bool jbacBoosted
+        uint256 amount,
+        uint256 boostedAmount,
+        int256 rewardDebt,
+        uint64 lockEnd,
+        uint16 boostBps,
+        uint32 lockDuration,
+        bool autoMaxLock,
+        bool hasJbacBoost,
+        uint64 stakeTimestamp
     );
 }
 
@@ -38,6 +58,10 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     uint256 public constant MIN_NOTIFY_AMOUNT = 1000e18;
     uint256 public constant BOOST_PRECISION = 10000;        // Matches TegridyStaking BPS
     uint256 public constant BASE_BOOST_BPS = 10000;         // 1.0x — no boost baseline
+    /// @dev Audit C-01 defence-in-depth: cap boost at 4.5x (MAX_BOOST 40000 + JBAC bonus
+    /// ceiling). Even if the interface is ever re-mis-aligned against TegridyStaking's
+    /// Position struct in a future upgrade, this cap prevents unbounded reward capture.
+    uint256 public constant MAX_BOOST_BPS_CEILING = 45000;
 
     bytes32 public constant REWARDS_DURATION_CHANGE = keccak256("BOOSTED_LP_REWARDS_DURATION");
     bytes32 public constant TREASURY_CHANGE = keccak256("BOOSTED_LP_TREASURY");
@@ -160,10 +184,13 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
         uint256 boostBps = BASE_BOOST_BPS;
         uint256 tokenId = tegridyStaking.userTokenId(user);
         if (tokenId != 0) {
-            (uint256 amt,, uint256 bps, uint256 lockEnd,,,,,) = tegridyStaking.positions(tokenId);
+            // Audit C-01: destructure matches TegridyStaking.Position struct order exactly.
+            // We only need `amount`, `lockEnd`, and `boostBps` — ignore the rest.
+            (uint256 amt,, , uint64 lockEnd, uint16 bps,,,,) = tegridyStaking.positions(tokenId);
             // Only apply boost if the staking position is active (has amount and lock not expired)
             if (amt > 0 && block.timestamp < lockEnd && bps > BASE_BOOST_BPS) {
-                boostBps = bps;
+                // Defence-in-depth: clamp to the ceiling before applying.
+                boostBps = bps > MAX_BOOST_BPS_CEILING ? MAX_BOOST_BPS_CEILING : bps;
             }
         }
         return (rawAmount * boostBps) / BOOST_PRECISION;
