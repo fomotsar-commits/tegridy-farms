@@ -53,6 +53,17 @@ type Fixtures = { walletMock: WalletMock };
 
 export const test = base.extend<Fixtures>({
   walletMock: async ({ page }, use) => {
+    // Suppress full-viewport overlays that block clicks in test runs:
+    //   - AppLoader splash canvas (zIndex 9999)
+    //   - OnboardingModal welcome dialog (zIndex 100)
+    // Both self-dismiss on repeat visits by checking storage flags; pre-seed
+    // the flags before nav so they short-circuit on mount.
+    await page.addInitScript(() => {
+      try {
+        sessionStorage.setItem('tf_loaded', '1');
+        localStorage.setItem('tegridy-onboarding-seen', '1');
+      } catch { /* ignore */ }
+    });
     await installWalletMock(page);
     const mock: WalletMock = {
       connect: async (account = DEFAULT_ACCOUNT) => {
