@@ -7,7 +7,7 @@ import { BottomNav } from './BottomNav';
 import { Background } from './Background';
 import { Footer } from './Footer';
 import { Toaster } from 'sonner';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { useTheme } from '../../contexts/ThemeContext';
 
 import { CHAIN_ID } from '../../lib/constants';
@@ -15,9 +15,18 @@ import { AppLoader } from '../loader';
 import { PriceProvider } from '../../contexts/PriceContext';
 import { ConfettiProvider } from '../Confetti';
 import { TransactionReceiptProvider } from '../TransactionReceipt';
-import { ParticleBackground } from '../ParticleBackground';
+// AUDIT Batch 15: ParticleBackground + GlitchTransition + LiveActivity are
+// decorative — they don't need to block first paint. Lazy-load so the main
+// App chunk ships without the framer-motion-heavy animation code, which
+// previously added significant bytes to the critical path.
+const ParticleBackground = lazy(() =>
+  import('../ParticleBackground').then(m => ({ default: m.ParticleBackground })),
+);
+const GlitchTransition = lazy(() =>
+  import('../GlitchTransition').then(m => ({ default: m.GlitchTransition })),
+);
+import type { GlitchConfig } from '../GlitchTransition';
 import { LiveActivity } from '../LiveActivity';
-import { GlitchTransition, type GlitchConfig } from '../GlitchTransition';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { OnboardingModal } from '../ui/OnboardingModal';
 import { SeasonalEventBanner } from '../SeasonalEvent';
@@ -58,7 +67,11 @@ function RouteGlitch() {
     }
   }, [location.pathname]);
 
-  return glitchConfig ? <GlitchTransition config={glitchConfig} /> : null;
+  return glitchConfig ? (
+    <Suspense fallback={null}>
+      <GlitchTransition config={glitchConfig} />
+    </Suspense>
+  ) : null;
 }
 
 export function AppLayout() {
@@ -79,7 +92,9 @@ export function AppLayout() {
     <TransactionReceiptProvider>
       <a href="#main-content" className="skip-link">Skip to main content</a>
       <Background />
-      <ParticleBackground />
+      <Suspense fallback={null}>
+        <ParticleBackground />
+      </Suspense>
       <TopNav />
       <SeasonalEventBanner />
       <RouteGlitch />
