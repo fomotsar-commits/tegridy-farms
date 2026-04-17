@@ -94,10 +94,10 @@ contract MockRestaking {
     }
 
     function restakers(address user) external view returns (
-        uint256 tokenId, uint256 positionAmount, uint256 boostedAmount, int256 bonusDebt, uint256 depositTime
+        uint256 tokenId, uint256 positionAmount, uint256 boostedAmount, int256 bonusDebt, uint256 depositTime, uint256 unsettledSnapshot
     ) {
         RestakeInfo memory info = _restakers[user];
-        return (info.tokenId, info.positionAmount, info.boostedAmount, info.bonusDebt, info.depositTime);
+        return (info.tokenId, info.positionAmount, info.boostedAmount, info.bonusDebt, info.depositTime, 0);
     }
 }
 

@@ -499,7 +499,7 @@ contract RedTeamCrossContract is Test {
         vm.warp(block.timestamp + 7 days);
 
         // Verify restaking position has cached amount
-        (,uint256 cachedAmount,,,) = restaking.restakers(alice);
+        (,uint256 cachedAmount,,,,) = restaking.restakers(alice);
         assertEq(cachedAmount, 1_000_000 ether, "Cached amount should match stake");
 
         // claimAll auto-refreshes position data from staking contract
@@ -831,7 +831,7 @@ contract RedTeamCrossContract is Test {
         restaking.restake(aliceTokenId);
 
         // Verify initial cached state
-        (,uint256 cachedAmount, uint256 cachedBoosted,,) = restaking.restakers(alice);
+        (,uint256 cachedAmount, uint256 cachedBoosted,,,) = restaking.restakers(alice);
         assertEq(cachedAmount, 1_000_000 ether);
         assertGt(cachedBoosted, 0);
 

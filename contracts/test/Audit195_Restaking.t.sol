@@ -1103,7 +1103,7 @@ contract Audit195Restaking is Test {
         uint256 depositTime,
         uint256 _unused
     ) {
-        (tokenId, positionAmount, boostedAmount, bonusDebt, depositTime) = restaking.restakers(user);
+        (tokenId, positionAmount, boostedAmount, bonusDebt, depositTime,) = restaking.restakers(user);
         _unused = 0;
     }
 }

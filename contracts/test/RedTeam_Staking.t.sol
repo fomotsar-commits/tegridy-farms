@@ -531,7 +531,7 @@ contract RedTeamStaking is Test {
         vm.warp(block.timestamp + 7 days);
 
         // Verify position is accurate via the restakers mapping
-        (, uint256 cachedAmount,,,) = restaking.restakers(alice);
+        (, uint256 cachedAmount,,,,) = restaking.restakers(alice);
         assertEq(cachedAmount, STAKE_AMOUNT, "Cached amount should match initial stake");
 
         // claimAll auto-refreshes if staking position changed
@@ -539,7 +539,7 @@ contract RedTeamStaking is Test {
         restaking.claimAll();
 
         // After claimAll, cached amount should still match (no change to underlying position)
-        (, uint256 cachedAmountAfter,,,) = restaking.restakers(alice);
+        (, uint256 cachedAmountAfter,,,,) = restaking.restakers(alice);
         assertEq(cachedAmountAfter, STAKE_AMOUNT, "Cached amount should still match after claimAll");
     }
 

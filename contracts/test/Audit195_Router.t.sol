@@ -359,7 +359,7 @@ contract Audit195RouterTest is Test {
 
     // ═══════════════════════════════════════════════════════════════
     // FINDING 7 (INFO): Deadline enforcement — ensure modifier
-    //   rejects deadlines more than 30 minutes in the future.
+    //   rejects deadlines more than 2 hours in the future.
     //   This is a DoS/griefing protection. Verify it works.
     // ═══════════════════════════════════════════════════════════════
 
@@ -373,13 +373,13 @@ contract Audit195RouterTest is Test {
         vm.startPrank(alice);
         tokenA.approve(address(router), 1 ether);
 
-        // Deadline 31 minutes from now should revert
-        uint256 tooFarDeadline = block.timestamp + 31 minutes;
+        // Deadline > 2 hours from now should revert
+        uint256 tooFarDeadline = block.timestamp + 3 hours;
         vm.expectRevert("DEADLINE_TOO_FAR");
         router.swapExactTokensForTokens(1 ether, 0, path, alice, tooFarDeadline);
 
-        // Deadline exactly 30 minutes should succeed
-        uint256 exactDeadline = block.timestamp + 30 minutes;
+        // Deadline exactly 2 hours should succeed
+        uint256 exactDeadline = block.timestamp + 2 hours;
         router.swapExactTokensForTokens(1 ether, 0, path, alice, exactDeadline);
         vm.stopPrank();
     }

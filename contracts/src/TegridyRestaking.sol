@@ -74,6 +74,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         uint256 boostedAmount;    // Boosted amount (cached for reward calc)
         int256 bonusDebt;         // Bonus reward debt
         uint256 depositTime;      // When NFT was deposited
+        uint256 unsettledSnapshot;// AUDIT H-06: TegridyStaking.unsettledRewards(this) at deposit time.
+                                  // Used for unrestake/emergencyWithdrawNFT delta attribution,
+                                  // replacing the race-prone before/after read pattern.
     }
 
     mapping(address => RestakeInfo) public restakers;
@@ -85,6 +88,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     uint256 public totalUnforwardedBase; // SECURITY FIX: Track total unforwarded to cap attribution
     mapping(address => uint256) public pendingUnsettledRewards;
     uint256 public totalPendingUnsettled; // SECURITY FIX: Track total pending unsettled for recoverStuckPrincipal
+    /// @notice AUDIT H-1: running sum of active restakers' original principal amounts.
+    ///         Reserved from recoverStuckPrincipal's recoverable pool so late callers
+    ///         can't get shortchanged by earlier callers who already drained it.
+    uint256 public totalActivePrincipal;
 
     // SECURITY FIX #13: Timelock for reward rate changes
     uint256 public constant BONUS_RATE_TIMELOCK = 48 hours;
@@ -256,16 +263,23 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // Record restaking info
         // M-27: Safe int256 cast via _safeInt256 helper
         uint256 debtUint = (boostedAmount * accBonusPerShare) / ACC_PRECISION;
+        // AUDIT H-06: snapshot unsettledRewards[this] at deposit time so the per-user
+        // delta on unrestake is computed against a stable baseline rather than a racy
+        // before/after read pair that a concurrent claimUnsettled() can corrupt.
+        uint256 unsettledAtDeposit = staking.unsettledRewards(address(this));
         restakers[msg.sender] = RestakeInfo({
             tokenId: _tokenId,
             positionAmount: amount,
             boostedAmount: boostedAmount,
             bonusDebt: _safeInt256(debtUint),
-            depositTime: block.timestamp
+            depositTime: block.timestamp,
+            unsettledSnapshot: unsettledAtDeposit
         });
 
         tokenIdToRestaker[_tokenId] = msg.sender;
         totalRestaked += boostedAmount;
+        // AUDIT H-1: track active principal so recoverStuckPrincipal can reserve it.
+        totalActivePrincipal += amount;
 
         emit Restaked(msg.sender, _tokenId, amount);
     }
@@ -484,16 +498,22 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         }
 
         // Update state
+        // AUDIT H-1: release this user's principal reservation before transferring the NFT.
+        totalActivePrincipal -= info.positionAmount;
         totalRestaked -= info.boostedAmount;
+        // AUDIT H-06: cache the deposit-time snapshot before deleting RestakeInfo.
+        uint256 depositSnapshot = info.unsettledSnapshot;
         delete tokenIdToRestaker[tokenId];
         delete restakers[msg.sender];
 
-        // Return NFT to user
-        uint256 unsettledBefore = staking.unsettledRewards(address(this));
+        // Return NFT to user.
+        // AUDIT H-06: compute user's unsettled delta against the deposit-time snapshot
+        // instead of a racy before/after read pair. A concurrent staking.claimUnsettled()
+        // firing between the two reads used to silently undercount this user's share.
         stakingNFT.safeTransferFrom(address(this), msg.sender, tokenId); // M-16: safeTransferFrom for NFT returns
         uint256 unsettledAfter = staking.unsettledRewards(address(this));
 
-        uint256 userUnsettledDelta = unsettledAfter > unsettledBefore ? unsettledAfter - unsettledBefore : 0;
+        uint256 userUnsettledDelta = unsettledAfter > depositSnapshot ? unsettledAfter - depositSnapshot : 0;
 
         // Include any previously unrecovered unsettled from a prior concurrent unrestake
         uint256 priorPending = pendingUnsettledRewards[msg.sender];
@@ -630,14 +650,25 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         (uint256 currentAmount,,,,,,,,) = staking.positions(info.tokenId);
         require(currentAmount == 0, "POSITION_STILL_ACTIVE");
 
-        // Calculate how much rewardToken (TOWELI) this contract has beyond tracked obligations
-        // SECURITY FIX: Include totalPendingUnsettled in reserved amount to protect other users' unclaimed rewards
+        // Calculate how much rewardToken (TOWELI) this contract has beyond tracked obligations.
+        // SECURITY FIX: Include totalPendingUnsettled in reserved amount to protect other
+        // users' unclaimed rewards.
+        // AUDIT H-1: also reserve the principal of all still-active restakers so a burst
+        // of force-closed users competing for the recoverable pool can't let the first
+        // callers drain everything and leave later callers with zero. We subtract the
+        // caller's own positionAmount from the reservation because they're about to be
+        // paid out of that very amount; if we didn't subtract, a solo recoverer would
+        // see payout=0. The subtraction is safe because info.positionAmount <=
+        // totalActivePrincipal (invariant maintained by restake/unrestake/emergencyWithdrawNFT).
+        uint256 originalAmount = info.positionAmount;
         uint256 balance = rewardToken.balanceOf(address(this));
-        uint256 reserved = totalUnforwardedBase + totalPendingUnsettled;
+        uint256 othersPrincipal = totalActivePrincipal >= originalAmount
+            ? totalActivePrincipal - originalAmount
+            : 0;
+        uint256 reserved = totalUnforwardedBase + totalPendingUnsettled + othersPrincipal;
         uint256 recoverable = balance > reserved ? balance - reserved : 0;
 
         // Cap to the user's original position amount (they shouldn't get more than they staked)
-        uint256 originalAmount = info.positionAmount;
         uint256 payout = recoverable > originalAmount ? originalAmount : recoverable;
 
         // C-01 FIX: Require non-zero payout. Without this, calling when balance is fully reserved
@@ -652,6 +683,13 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         uint256 boosted = info.boostedAmount;
         if (boosted <= totalRestaked) {
             totalRestaked -= boosted;
+        }
+        // AUDIT H-1: release this user's principal reservation (guarded against underflow
+        // in the exotic case where totalActivePrincipal got out of sync).
+        if (originalAmount <= totalActivePrincipal) {
+            totalActivePrincipal -= originalAmount;
+        } else {
+            totalActivePrincipal = 0;
         }
         delete tokenIdToRestaker[info.tokenId];
         delete restakers[msg.sender];
@@ -714,16 +752,20 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         if (info.tokenId == 0) revert NotRestaked();
 
         uint256 tokenId = info.tokenId;
+        // AUDIT H-1: release this user's principal reservation.
+        totalActivePrincipal -= info.positionAmount;
         totalRestaked -= info.boostedAmount;
+        // AUDIT H-06: cache deposit-time snapshot before deleting RestakeInfo.
+        uint256 depositSnapshot = info.unsettledSnapshot;
         delete tokenIdToRestaker[tokenId];
         delete restakers[msg.sender];
 
-        // Return NFT without attempting any reward claims
-        uint256 unsettledBefore = staking.unsettledRewards(address(this));
+        // Return NFT without attempting any reward claims.
+        // AUDIT H-06: use deposit-time snapshot instead of racy before/after reads.
         stakingNFT.safeTransferFrom(address(this), msg.sender, tokenId); // M-16: safeTransferFrom for NFT returns
         uint256 unsettledAfter = staking.unsettledRewards(address(this));
 
-        uint256 userUnsettledDelta = unsettledAfter > unsettledBefore ? unsettledAfter - unsettledBefore : 0;
+        uint256 userUnsettledDelta = unsettledAfter > depositSnapshot ? unsettledAfter - depositSnapshot : 0;
         uint256 priorPending = pendingUnsettledRewards[msg.sender];
         uint256 totalOwed = userUnsettledDelta + priorPending;
         pendingUnsettledRewards[msg.sender] = 0;

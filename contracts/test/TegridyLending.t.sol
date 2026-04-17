@@ -1210,8 +1210,16 @@ contract TegridyLendingTest is Test {
         vm.expectRevert(TegridyLending.DeadlineNotReached.selector);
         lending.claimDefaultedCollateral(loanId);
 
-        // Warp 1 second past the deadline — should succeed
-        vm.warp(deadline + 1);
+        // AUDIT M-1: after M-1 grace window, lender must wait deadline + GRACE_PERIOD (1h)
+        // before claiming default. Inside the grace window the claim still reverts.
+        vm.warp(deadline + lending.GRACE_PERIOD());
+
+        vm.prank(bob);
+        vm.expectRevert(TegridyLending.DeadlineNotReached.selector);
+        lending.claimDefaultedCollateral(loanId);
+
+        // One second past the grace window — should succeed
+        vm.warp(deadline + lending.GRACE_PERIOD() + 1);
 
         vm.prank(bob);
         lending.claimDefaultedCollateral(loanId);

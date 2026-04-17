@@ -132,11 +132,11 @@ contract FinalAuditRestaking is Test {
         assertTrue(hasJbac, "JBAC boost should be added");
 
         // Now the restaking contract has cached the new boostedAmount
-        (, , uint256 aliceBoostedWithJbac, ,) = restaking.restakers(alice);
+        (, , uint256 aliceBoostedWithJbac, ,,) = restaking.restakers(alice);
         uint256 totalRestakedAfterAdd = restaking.totalRestaked();
 
         // FIX VERIFIED: totalRestaked IS now updated after adding JBAC boost
-        (, , uint256 bobBoosted, ,) = restaking.restakers(bob);
+        (, , uint256 bobBoosted, ,,) = restaking.restakers(bob);
         uint256 expectedTotal = aliceBoostedWithJbac + bobBoosted;
 
         emit log_named_uint("Expected totalRestaked after JBAC add", expectedTotal);
@@ -161,7 +161,7 @@ contract FinalAuditRestaking is Test {
         vm.warp(block.timestamp + 30 days);
 
         // Record state before removing JBAC
-        (, , uint256 aliceBoostedBefore, int256 debtBefore,) = restaking.restakers(alice);
+        (, , uint256 aliceBoostedBefore, int256 debtBefore,,) = restaking.restakers(alice);
         uint256 pendingBonusBefore = restaking.pendingBonus(alice);
 
         // Alice loses JBAC → revalidate to REMOVE boost
@@ -170,7 +170,7 @@ contract FinalAuditRestaking is Test {
 
         restaking.revalidateBoostForRestaked(aliceToken);
 
-        (, , uint256 aliceBoostedAfter, int256 debtAfter,) = restaking.restakers(alice);
+        (, , uint256 aliceBoostedAfter, int256 debtAfter,,) = restaking.restakers(alice);
 
         // Boost should have changed (JBAC removed)
         assertTrue(aliceBoostedBefore > aliceBoostedAfter, "Boost should have decreased");
@@ -195,7 +195,7 @@ contract FinalAuditRestaking is Test {
         vm.warp(block.timestamp + 7 days);
 
         uint256 totalRestakedBefore = restaking.totalRestaked();
-        (, , uint256 aliceBoostedBefore, int256 debtBefore,) = restaking.restakers(alice);
+        (, , uint256 aliceBoostedBefore, int256 debtBefore,,) = restaking.restakers(alice);
 
         // Alice loses JBAC
         vm.prank(alice);
@@ -205,7 +205,7 @@ contract FinalAuditRestaking is Test {
         restaking.revalidateBoostForRestaker(alice);
 
         uint256 totalRestakedAfter = restaking.totalRestaked();
-        (, , uint256 aliceBoostedAfter, int256 debtAfter,) = restaking.restakers(alice);
+        (, , uint256 aliceBoostedAfter, int256 debtAfter,,) = restaking.restakers(alice);
 
         assertTrue(aliceBoostedBefore > aliceBoostedAfter, "Boost should have decreased");
 
@@ -310,8 +310,8 @@ contract FinalAuditRestaking is Test {
         restaking.refreshPosition();
 
         // Verify totalRestaked equals sum of individual boostedAmounts
-        (, , uint256 aliceBoosted, ,) = restaking.restakers(alice);
-        (, , uint256 bobBoosted, ,) = restaking.restakers(bob);
+        (, , uint256 aliceBoosted, ,,) = restaking.restakers(alice);
+        (, , uint256 bobBoosted, ,,) = restaking.restakers(bob);
         uint256 totalRestaked = restaking.totalRestaked();
 
         assertEq(totalRestaked, aliceBoosted + bobBoosted, "totalRestaked should match sum of boostedAmounts");
@@ -342,7 +342,7 @@ contract FinalAuditRestaking is Test {
         restaking.emergencyForceReturn(aliceToken);
 
         // Alice's restaking info is deleted
-        (uint256 tokenId, , , ,) = restaking.restakers(alice);
+        (uint256 tokenId, , , ,,) = restaking.restakers(alice);
         assertEq(tokenId, 0, "Position should be deleted");
 
         // pendingUnsettledRewards mapping still exists but user has no position
@@ -433,8 +433,8 @@ contract FinalAuditRestaking is Test {
         // First add JBAC boost to Alice
         restaking.revalidateBoostForRestaked(aliceToken);
 
-        (, , uint256 aliceBoostedWithJbac, ,) = restaking.restakers(alice);
-        (, , uint256 bobBoosted, ,) = restaking.restakers(bob);
+        (, , uint256 aliceBoostedWithJbac, ,,) = restaking.restakers(alice);
+        (, , uint256 bobBoosted, ,,) = restaking.restakers(bob);
 
         // Alice loses JBAC -> revalidate drops her boost
         vm.prank(alice);
@@ -443,7 +443,7 @@ contract FinalAuditRestaking is Test {
         uint256 totalRestakedBefore = restaking.totalRestaked();
         restaking.revalidateBoostForRestaked(aliceToken);
 
-        (, , uint256 aliceBoostedAfter, ,) = restaking.restakers(alice);
+        (, , uint256 aliceBoostedAfter, ,,) = restaking.restakers(alice);
         uint256 totalRestakedAfterRevalidate = restaking.totalRestaked();
 
         assertTrue(aliceBoostedWithJbac > aliceBoostedAfter, "Boost should have decreased");

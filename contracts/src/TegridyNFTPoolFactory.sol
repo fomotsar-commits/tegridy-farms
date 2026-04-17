@@ -124,8 +124,21 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
         require(nftCollection.code.length > 0, "NOT_CONTRACT");
         require(msg.value >= 0.01 ether || initialTokenIds.length > 0, "MIN_DEPOSIT");
 
-        // Deploy minimal proxy clone
-        pool = poolImplementation.clone();
+        // AUDIT H-08: deploy via CREATE2 with a deterministic salt that includes the
+        // caller, the pool counter, and the target collection. The prior Clones.clone()
+        // path made the pool address nonce-dependent, which let a front-runner observing
+        // a pending createPool() deploy their own pool at a predictable-to-them address
+        // ahead of the victim and siphon router discovery / first-liquidity advantage.
+        // Salt components:
+        //   msg.sender      — binds the address to the creator (no cross-user collision)
+        //   _allPools.length — makes repeated calls by the same user produce distinct addresses
+        //   nftCollection   — ties the pool address to the specific collection
+        //   _poolType       — ties the address to the chosen pool type
+        // initialize() runs in the same transaction so there's no separable hijack window.
+        bytes32 salt = keccak256(
+            abi.encodePacked(msg.sender, _allPools.length, nftCollection, uint8(_poolType))
+        );
+        pool = poolImplementation.cloneDeterministic(salt);
 
         // SECURITY FIX: Pass address(this) as factory so claimProtocolFees() works correctly.
         // Previously passed protocolFeeRecipient, which broke the fee claim mechanism if

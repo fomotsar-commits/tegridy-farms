@@ -1370,7 +1370,7 @@ contract RedTeamAMM is Test {
         // Try with deadline far in the future (> 30 minutes from now)
         bool reverted = false;
         try router.swapExactTokensForTokens(
-            1 ether, 0, path, attacker, block.timestamp + 31 minutes
+            1 ether, 0, path, attacker, block.timestamp + 3 hours
         ) {
             emit log("FINDING: Deadline > MAX_DEADLINE accepted!");
         } catch Error(string memory reason) {

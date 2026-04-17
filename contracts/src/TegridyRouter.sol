@@ -35,7 +35,9 @@ contract TegridyRouter is ReentrancyGuard {
     address public immutable factory;
     address public immutable WETH;
 
-    uint256 public constant MAX_DEADLINE = 30 minutes;
+    // AUDIT L-1: raised from 30 minutes to 2 hours to avoid bricking swaps during
+    // sustained congestion periods when base-fee exceeds the user's set priority fee.
+    uint256 public constant MAX_DEADLINE = 2 hours;
 
     // H-15: Events for all user-facing operations
     event Swap(address indexed sender, address[] path, uint256 amountIn, uint256 amountOut, address indexed to);
@@ -212,6 +214,17 @@ contract TegridyRouter is ReentrancyGuard {
     }
 
     // ─── Exact-Output Swaps (M-03) ────────────────────────────────────
+    //
+    // AUDIT H-07: exact-output swaps (swapTokensForExactTokens / swapTokensForExactETH /
+    // swapETHForExactTokens) are NOT supported for fee-on-transfer tokens as path[0].
+    // The functions compute an exact amountIn from getAmountsIn() using nominal pair
+    // reserves, but FoT tokens deduct a fee in-flight so the actual amount arriving at
+    // the pair is less than amounts[0]. The swap then reverts on the pair's K-invariant
+    // check. This is a semantic conflict — exact-output is incompatible with FoT by
+    // construction. Callers (frontend / aggregators) MUST route FoT trades through the
+    // SupportingFeeOnTransferTokens variants, which use exact-INPUT semantics. No
+    // on-chain FoT detection is added here because it's either expensive (probe
+    // transfer) or unreliable (optional interface flags).
 
     function swapTokensForExactTokens(
         uint256 amountOut, uint256 amountInMax,

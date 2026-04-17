@@ -874,7 +874,7 @@ contract Audit195SwapFeeRouter is Test {
         address[] memory path = _ethToTokenA();
         vm.prank(alice);
         vm.expectRevert(SwapFeeRouter.DeadlineTooFar.selector);
-        sfr.swapExactETHForTokens{value: 1 ether}(0, path, alice, block.timestamp + 31 minutes, 100);
+        sfr.swapExactETHForTokens{value: 1 ether}(0, path, alice, block.timestamp + 3 hours, 100);
     }
 
     function test_deadline_withinLimit_succeeds() public {
@@ -887,7 +887,7 @@ contract Audit195SwapFeeRouter is Test {
         address[] memory path = _tokenAToETH();
         vm.prank(alice);
         vm.expectRevert(SwapFeeRouter.DeadlineTooFar.selector);
-        sfr.swapExactTokensForETH(1 ether, 0, path, alice, block.timestamp + 31 minutes, 100);
+        sfr.swapExactTokensForETH(1 ether, 0, path, alice, block.timestamp + 3 hours, 100);
     }
 
     function test_deadline_tooFar_tokensForTokens() public {
@@ -896,7 +896,7 @@ contract Audit195SwapFeeRouter is Test {
         path[1] = address(tokenB);
         vm.prank(alice);
         vm.expectRevert(SwapFeeRouter.DeadlineTooFar.selector);
-        sfr.swapExactTokensForTokens(1 ether, 0, path, alice, block.timestamp + 31 minutes, 100);
+        sfr.swapExactTokensForTokens(1 ether, 0, path, alice, block.timestamp + 3 hours, 100);
     }
 
     // ═══════════════════════════════════════════════════════════════

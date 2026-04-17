@@ -204,7 +204,7 @@ contract TegridyRestakingTest is Test {
         uint256 tokenId = _stakeAndRestake(alice);
 
         assertEq(staking.ownerOf(tokenId), address(restaking));
-        (uint256 rTokenId, uint256 posAmount,,, uint256 depositTime) = restaking.restakers(alice);
+        (uint256 rTokenId, uint256 posAmount,,, uint256 depositTime,) = restaking.restakers(alice);
         assertEq(rTokenId, tokenId);
         assertEq(posAmount, STAKE_AMOUNT);
         assertGt(depositTime, 0);
@@ -531,8 +531,8 @@ contract TegridyRestakingTest is Test {
         vm.stopPrank();
 
         // Both staked the same raw amount, but Bob has higher boosted amount
-        (, uint256 alicePos, uint256 aliceBoosted,,) = restaking.restakers(alice);
-        (, uint256 bobPos, uint256 bobBoosted,,) = restaking.restakers(bob);
+        (, uint256 alicePos, uint256 aliceBoosted,,,) = restaking.restakers(alice);
+        (, uint256 bobPos, uint256 bobBoosted,,,) = restaking.restakers(bob);
         assertEq(alicePos, bobPos, "Same raw amount staked");
         assertGt(bobBoosted, aliceBoosted, "Bob should have higher boost");
 

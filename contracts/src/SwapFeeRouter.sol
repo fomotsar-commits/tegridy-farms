@@ -69,7 +69,11 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     uint256 public constant PREMIUM_DISCOUNT_CHANGE_DELAY = 24 hours;
     uint256 public constant PREMIUM_ACCESS_CHANGE_DELAY = 48 hours;
     uint256 public constant REV_DIST_CHANGE_DELAY = 48 hours;
-    uint256 public constant MAX_DEADLINE = 30 minutes;
+    // AUDIT L-1: raised from 30 minutes to 2 hours. 30m bricks swaps during normal
+    // Ethereum congestion (post-merge average 12s blocks, but fees can spike base-fee
+    // beyond the user's maxPriorityFee for far longer than 30m on busy days).
+    // 2h is a standard Uniswap UI default and still defends against very stale intents.
+    uint256 public constant MAX_DEADLINE = 2 hours;
     uint256 public constant MAX_PREMIUM_DISCOUNT_BPS = 7500; // Max 75% discount
 
     uint256 public totalETHFees;
@@ -203,7 +207,12 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
             baseFee = feeBps;
         }
 
-        // Step 2: Apply premium discount if user has active premium subscription
+        // Step 2: Apply premium discount if user has active premium subscription.
+        // AUDIT M-2: this is a deliberate fail-open — if premiumAccess reverts (paused,
+        // broken, upgraded mid-swap) the swap MUST still complete rather than brick the
+        // DEX. Off-chain monitoring should poll isPremiumAccessHealthy() below so a
+        // silent premium outage raises an alert even though we can't emit from here
+        // (this function is view — events aren't allowed).
         if (baseFee > 0 && address(premiumAccess) != address(0)) {
             try premiumAccess.hasPremiumSecure(user) returns (bool isPremium) {
                 if (isPremium && premiumDiscountBps > 0) {
@@ -211,11 +220,24 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
                     baseFee = baseFee > discount ? baseFee - discount : 0;
                 }
             } catch {
-                // If premiumAccess call fails, use base fee without discount
+                // Fail-open: user pays base fee without the discount. No revert.
             }
         }
 
         return baseFee;
+    }
+
+    /// @notice AUDIT M-2: off-chain health probe for the premiumAccess integration.
+    /// @return healthy true if premiumAccess is unset (discount feature disabled) OR
+    ///         the call to hasPremiumSecure completed without reverting. false signals a
+    ///         silent outage — premium users are currently paying full fees.
+    function isPremiumAccessHealthy() external view returns (bool healthy) {
+        if (address(premiumAccess) == address(0)) return true;
+        try premiumAccess.hasPremiumSecure(address(0)) returns (bool) {
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     /// @notice View function for frontend: get effective fee for a pair/token and user.

@@ -54,6 +54,11 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     uint256 public constant MAX_PROTOCOL_FEE_BPS = 1000; // 10%
     uint256 public constant BPS = 10000;
     uint256 public constant SECONDS_PER_YEAR = 365 days;
+    /// @notice AUDIT M-1: post-deadline grace window during which a borrower can still
+    ///         repay before the lender is allowed to claim default. Buffer against
+    ///         transient failures (gas spikes, provider outages, wallet delays). Interest
+    ///         still accrues through the grace period so the lender isn't penalised.
+    uint256 public constant GRACE_PERIOD = 1 hours;
 
     // ─── WETH Fallback ──────────────────────────────────────────────
     address public immutable weth; // WETH for fallback payout to revert-on-receive lenders
@@ -370,10 +375,11 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // CEI: state change before external calls
         loan.repaid = true;
 
-        // SECURITY FIX: Enforce deadline — borrower cannot repay after deadline.
-        // Without this check, a borrower could front-run a lender's claimDefaultedCollateral()
-        // after deadline, stealing their rightful default claim. This makes default deterministic.
-        if (block.timestamp > loan.deadline) revert DeadlineExpired();
+        // SECURITY FIX: Enforce deadline + 1h grace period (AUDIT M-1). Borrower can
+        // repay up to and including deadline + GRACE_PERIOD. Past that window, the
+        // lender's claimDefaultedCollateral path opens. Interest continues to accrue
+        // through the grace window so the lender isn't penalised by the cushion.
+        if (block.timestamp > loan.deadline + GRACE_PERIOD) revert DeadlineExpired();
 
         // Calculate protocol fee on interest
         uint256 fee = (interest * protocolFeeBps) / BPS;
@@ -422,7 +428,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 offerId = loan.offerId;
 
         if (msg.sender != lender) revert NotLoanLender();
-        if (block.timestamp <= loan.deadline) revert DeadlineNotReached();
+        // AUDIT M-1: lender must wait for the post-deadline grace period to expire
+        // before claiming the collateral, giving the borrower a 1h cushion to repay.
+        if (block.timestamp <= loan.deadline + GRACE_PERIOD) revert DeadlineNotReached();
 
         // CEI: state change before external call
         loan.defaultClaimed = true;

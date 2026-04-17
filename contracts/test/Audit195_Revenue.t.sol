@@ -115,9 +115,9 @@ contract MockRestaking195 {
     function setRestaker(address u, uint256 tid, uint256 amt) external {
         _r[u] = Info(tid, amt, amt, 0, block.timestamp);
     }
-    function restakers(address u) external view returns (uint256, uint256, uint256, int256, uint256) {
+    function restakers(address u) external view returns (uint256, uint256, uint256, int256, uint256, uint256) {
         Info memory i = _r[u];
-        return (i.tokenId, i.posAmt, i.boosted, i.debt, i.depTime);
+        return (i.tokenId, i.posAmt, i.boosted, i.debt, i.depTime, 0);
     }
 }
 
