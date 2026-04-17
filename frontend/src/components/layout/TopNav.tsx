@@ -115,7 +115,7 @@ export const TopNav = React.memo(function TopNav() {
             </Link>
           </div>
 
-          <nav className="hidden md:flex items-center gap-0.5">
+          <nav aria-label="Main navigation" className="hidden md:flex items-center gap-0.5">
             {PRIMARY_NAV.map((n) => (
               <NavLink key={n.to} to={n.to}
                 className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>

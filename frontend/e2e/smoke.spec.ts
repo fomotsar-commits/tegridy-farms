@@ -9,9 +9,12 @@ test.describe('Smoke Tests', () => {
 
   test('navigation links render', async ({ page }) => {
     await page.goto('/');
-    // Main nav items should be present
-    const nav = page.locator('nav');
-    await expect(nav).toBeVisible();
+    // Both desktop top nav and mobile bottom nav mount as <nav aria-label="Main
+    // navigation">, one hidden at each breakpoint via tailwind md:hidden/hidden.
+    // Assert that at least one is visible (the visible-filter picks the one not
+    // suppressed by media queries).
+    const visibleNav = page.locator('nav[aria-label="Main navigation"]:visible').first();
+    await expect(visibleNav).toBeVisible();
   });
 
   test('farm page loads', async ({ page }) => {
@@ -52,7 +55,9 @@ test.describe('Smoke Tests', () => {
 
   test('faq page loads and has search', async ({ page }) => {
     await page.goto('/faq');
-    await expect(page.locator('h1')).toContainText(/FAQ/i);
+    // FAQ page h1 is the full "Frequently Asked Questions". Accept either the
+    // abbreviation (future redesign) or the full title (current).
+    await expect(page.locator('h1')).toContainText(/FAQ|Frequently Asked Questions/i);
   });
 
   test('404 page shows for unknown routes', async ({ page }) => {
