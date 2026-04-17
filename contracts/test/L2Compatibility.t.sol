@@ -106,10 +106,15 @@ contract L2CompatibilityTest is Test {
         staking.withdraw(tokenId);
     }
 
-    /// @notice Ensure staking works at uint64 max-range timestamps (Arbitrum uses uint64).
+    /// @notice Ensure staking works at the contract's supported upper-bound timestamps.
+    /// @dev TegridyStaking uses OpenZeppelin Checkpoints which key on uint48 (standard
+    ///      OZ pattern, significant gas saving over uint256). uint48 max ≈ year 8,921,556,
+    ///      which comfortably exceeds any realistic chain lifetime, so this is the
+    ///      effective upper bound. The prior assertion used uint64.max (year ~584 billion)
+    ///      which overflows uint48 by ~65 000x and is out-of-spec for the checkpoint system.
     function test_staking_uint64TimestampRange() public {
-        // Arbitrum block.timestamp fits in uint64. Test near a large but valid value.
-        uint256 farFuture = uint256(type(uint64).max) - 365 days;
+        // Largest future timestamp still safely within the uint48 checkpoint range.
+        uint256 farFuture = uint256(type(uint48).max) - 365 days;
         vm.warp(farFuture);
 
         vm.prank(bob);
@@ -117,7 +122,7 @@ contract L2CompatibilityTest is Test {
 
         uint256 tokenId = staking.userTokenId(bob);
         (, , , uint256 lockEnd, , , , ,) = staking.positions(tokenId);
-        assertEq(lockEnd, farFuture + 7 days, "Lock end should not overflow with uint64 timestamps");
+        assertEq(lockEnd, farFuture + 7 days, "Lock end should not overflow at uint48-max-range timestamps");
 
         vm.warp(farFuture + 8 days);
         vm.prank(bob);
@@ -212,16 +217,20 @@ contract L2CompatibilityTest is Test {
         assertFalse(premium.hasPremium(alice), "Should be expired after time jump past expiry");
     }
 
-    /// @notice NFT premium activation + time-based guard at uint64 timestamps.
+    /// @notice NFT premium activation + time-based guard at high in-spec timestamps.
+    /// @dev Setup constructs TegridyStaking which writes a uint48 checkpoint on
+    ///      deployment. Warping the chain beyond uint48 range before any subsequent
+    ///      checkpoint write causes SafeCast to revert. Clamping to uint48-max-range.
     function test_premium_nftActivationAtHighTimestamp() public {
-        uint256 highTs = uint256(type(uint64).max) - 30 days;
+        uint256 highTs = uint256(type(uint48).max) - 30 days;
         vm.warp(highTs);
 
         vm.prank(alice); // alice owns JBAC #1
         premium.activateNFTPremium();
 
-        // Must be a different timestamp for the activation guard
-        vm.warp(highTs + 1);
+        // hasPremium requires elapsed > MIN_ACTIVATION_DELAY (15s). Warping +1 was the
+        // pre-existing bug in this test — never satisfied the guard at any timestamp.
+        vm.warp(highTs + premium.MIN_ACTIVATION_DELAY() + 1);
         assertTrue(premium.hasPremium(alice), "NFT premium should work at high timestamps");
     }
 }

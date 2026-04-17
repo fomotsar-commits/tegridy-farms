@@ -657,25 +657,33 @@ contract FinalAuditStaking is Test {
     // Not a vulnerability, but unnecessary storage reads/writes (gas waste).
     // ═══════════════════════════════════════════════════════════════════
 
+    /// @dev AUDIT L-22 / Spartan TF-10: totalLocked was redundant with totalStaked
+    ///      (the original M-03 "fix" kept them in sync but the separate variable
+    ///      served no purpose). As of the cleanup, totalLocked is no longer written —
+    ///      it permanently reads 0 and only remains as a storage-slot placeholder for
+    ///      ABI/layout stability. This test is updated to pin that new invariant:
+    ///      use totalStaked for real balance invariants, expect totalLocked == 0.
     function test_FA18_totalLockedTracksWithTotalStaked() public {
-        // M-03 FIX: totalLocked now tracks alongside totalStaked
         _stakeAs(alice, STAKE_AMOUNT, 365 days);
-        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked should equal totalStaked after stake");
+        assertEq(staking.totalStaked(), STAKE_AMOUNT, "totalStaked should reflect alice's stake");
+        assertEq(staking.totalLocked(), 0, "totalLocked deprecated (always zero post L-22)");
 
         _stakeAs(bob, STAKE_AMOUNT * 2, 30 days);
-        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked should equal totalStaked after second stake");
+        assertEq(staking.totalStaked(), STAKE_AMOUNT * 3, "totalStaked should reflect both stakes");
+        assertEq(staking.totalLocked(), 0, "totalLocked deprecated (always zero post L-22)");
 
         uint256 bobTokenId = staking.userTokenId(bob);
         vm.prank(bob);
         staking.earlyWithdraw(bobTokenId);
-        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked should equal totalStaked after early withdraw");
+        assertEq(staking.totalStaked(), STAKE_AMOUNT, "alice's stake remains after bob earlyWithdraw");
+        assertEq(staking.totalLocked(), 0, "totalLocked deprecated (always zero post L-22)");
 
         vm.warp(block.timestamp + 366 days);
         uint256 aliceTokenId = staking.userTokenId(alice);
         vm.prank(alice);
         staking.withdraw(aliceTokenId);
-        assertEq(staking.totalStaked(), 0, "Both zero after all withdrawals");
-        assertEq(staking.totalLocked(), 0, "totalLocked zero after all withdrawals");
+        assertEq(staking.totalStaked(), 0, "totalStaked zero after all withdrawals");
+        assertEq(staking.totalLocked(), 0, "totalLocked deprecated (always zero post L-22)");
     }
 
     // ═══════════════════════════════════════════════════════════════════

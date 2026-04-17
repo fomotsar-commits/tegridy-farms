@@ -78,8 +78,10 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     uint256 public rewardPerTokenStored;
     uint256 public totalBoostedStake;
     uint256 public totalStaked;
-    /// @dev AUDIT FIX L-22: totalLocked is redundant with totalStaked (always equal).
-    ///      Kept for ABI compatibility with deployed contract. Do NOT use in new code — use totalStaked.
+    /// @dev AUDIT L-22 / Spartan TF-10: totalLocked is redundant with totalStaked (was always
+    ///      equal). No longer written on stake/withdraw as of this commit — reads now return
+    ///      0 permanently. Slot retained only for storage-layout backward compatibility on
+    ///      redeploy/upgrade paths. Use totalStaked instead.
     uint256 public totalLocked;
 
     uint256 private _nextTokenId = 1;
@@ -386,8 +388,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
         totalStaked += _amount;
         totalBoostedStake += boosted;
-        // M-03 FIX: Keep totalLocked in sync with totalStaked
-        totalLocked += _amount;
+        // AUDIT L-22 / Spartan TF-10: totalLocked tracking removed — was redundant with totalStaked.
 
         _mint(msg.sender, tokenId); // _update() sets userTokenId[msg.sender] = tokenId
         rewardToken.safeTransferFrom(msg.sender, address(this), _amount);
@@ -1027,8 +1028,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         amount = p.amount;
         totalStaked -= amount;
         totalBoostedStake -= p.boostedAmount;
-        // M-03 FIX: Keep totalLocked in sync
-        if (totalLocked >= amount) totalLocked -= amount;
+        // AUDIT L-22 / Spartan TF-10: totalLocked tracking removed — was redundant with totalStaked.
         delete positions[tokenId];
         delete emergencyExitRequests[tokenId];
         userTokenId[msg.sender] = 0;

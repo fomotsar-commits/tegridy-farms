@@ -302,8 +302,19 @@ contract Audit195StakingRewards is Test {
     // 5. CLAIM SYMMETRY: claimUnsettled vs claimUnsettledFor
     // =========================================================================
 
-    /// @notice Both claim paths should yield identical results for same user state
+    /// @notice Both claim paths should yield identical results for same user state.
+    /// @dev The original form of this test asserted alice's unsettled == bob's unsettled
+    ///      with the same stake amount and lock, but alice holds the JBAC NFT (minted in
+    ///      setUp) and bob does not — so alice's boostedAmount is ~2.25x bob's, and
+    ///      accrued rewards are proportionately asymmetric. This test's intent is to
+    ///      verify that claimUnsettled() and claimUnsettledFor() yield IDENTICAL amounts
+    ///      for the SAME user given the same state, not to assert cross-user equality.
+    ///      Moving alice's JBAC to a burn address before either stake removes the boost
+    ///      difference so both users have equal boosted amounts and the symmetry holds.
     function test_claimSymmetry_unsettled_vs_unsettledFor() public {
+        // Neutralize JBAC boost asymmetry: move alice's JBAC out so both stake at base boost.
+        vm.prank(alice); nft.transferFrom(alice, address(0xdEaD), 1);
+
         // Setup: two users, both get unsettled rewards via transfer
         vm.prank(alice); staking.stake(10000 ether, MIN_LOCK);
         vm.prank(bob);   staking.stake(10000 ether, MIN_LOCK);
@@ -433,29 +444,37 @@ contract Audit195StakingRewards is Test {
     // 7. revalidateBoost DEBT RESET
     // =========================================================================
 
-    /// @notice revalidateBoost should claim rewards, recalculate boost, reset debt
+    /// @notice revalidateBoost should claim rewards, recalculate boost, reset debt when
+    ///         the user's JBAC status actually changed since stake.
+    /// @dev Post audit-fix M-01 the JBAC boost is applied at stake time, so calling
+    ///      revalidateBoost on a user whose JBAC status hasn't changed is correctly a
+    ///      no-op (gas-optimal) — see test_revalidateBoost_noopWhenUnchanged for that
+    ///      path. This test exercises the real state-change branch: alice stakes with
+    ///      JBAC, then transfers her JBAC away, so revalidate observes the delta, emits
+    ///      the claim, and resets the debt.
     function test_revalidateBoost_claimsAndResetsDebt() public {
-        // M-01 FIX: Alice has JBAC — boost is now applied at stake time
+        // Alice starts with JBAC (minted in setUp) — boost applied at stake time.
         vm.prank(alice); staking.stake(10000 ether, 365 days);
         uint256 tokenId = staking.userTokenId(alice);
-
-        // Position starts WITH jbac boost (M-01 fix)
         (,,,,,,, bool hasJbac,) = staking.positions(tokenId);
         assertTrue(hasJbac, "JBAC boost applied at stake time");
 
-        // Advance time so there are pending rewards to claim
+        // Alice transfers her JBAC away — now the real revalidate path has work to do.
+        vm.prank(alice); nft.transferFrom(alice, bob, 1);
+
+        // Advance time so there are pending rewards to claim on revalidate.
         vm.warp(block.timestamp + 100);
 
         uint256 aliceBefore = token.balanceOf(alice);
         vm.prank(alice); staking.revalidateBoost(tokenId);
         uint256 aliceClaimed = token.balanceOf(alice) - aliceBefore;
 
-        // Should have claimed pending rewards (alice is sole staker for 100s at 1 TOWELI/s)
-        assertGt(aliceClaimed, 0, "Should claim on revalidate");
+        // Should have claimed pending rewards (alice is sole staker for 100s at 1 TOWELI/s).
+        assertGt(aliceClaimed, 0, "Should claim on revalidate when JBAC status changed");
 
-        // Now has JBAC boost
+        // JBAC boost should now be cleared (alice no longer holds).
         (,,,,,,, bool hasJbacAfter,) = staking.positions(tokenId);
-        assertTrue(hasJbacAfter, "Should now have JBAC boost");
+        assertFalse(hasJbacAfter, "Should no longer have JBAC boost after transfer");
 
         // Debt should be reset to new boostedAmount * acc
         (,uint256 boostedAmt, int256 debt,,,,,,) = staking.positions(tokenId);

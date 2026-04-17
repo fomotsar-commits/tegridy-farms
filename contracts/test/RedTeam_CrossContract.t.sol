@@ -379,16 +379,22 @@ contract RedTeamCrossContract is Test {
         vm.deal(address(revDistributor), address(revDistributor).balance + 10 ether);
         revDistributor.distribute();
 
-        // Alice claims normally - reentrancy from callback would be caught
-        // The nonReentrant modifier on claim() prevents re-entry
-        // Note: claim() reverts due to positions() interface ABI mismatch;
-        // the revert itself proves no reentrancy path is reachable.
+        // Post-C-01 ABI fix: claim() no longer reverts on the ABI path — alice has an
+        // active lock and can legitimately claim. The reentrancy defence is provided by
+        // the nonReentrant modifier on RevenueDistributor.claim(); direct evidence of
+        // that guard is asserted in the dedicated reentrancy-guard unit tests. Here we
+        // just confirm the happy path still completes without revert (i.e., we haven't
+        // introduced a new revert path in the ETH-push callback), and that alice's
+        // pending balance moves to zero after claim.
+        uint256 aliceEthBefore = alice.balance;
         vm.prank(alice);
-        vm.expectRevert();
         revDistributor.claim();
+        assertGt(alice.balance, aliceEthBefore, "alice should receive ETH from claim");
+        assertEq(revDistributor.pendingETH(alice), 0, "pending should drain to zero after claim");
 
         emit log_string("[ATTACK #4] Reentrancy via RevenueDistributor claim: DEFENDED");
         emit log_string("  - nonReentrant modifier prevents re-entry from ETH receive callback");
+        emit log_string("  - happy-path claim succeeds after C-01 ABI fix; guard integrity asserted elsewhere");
     }
 
     // ========================================================================

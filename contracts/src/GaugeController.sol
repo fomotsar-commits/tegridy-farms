@@ -59,8 +59,15 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     /// @notice Total voting power cast across all gauges in a given epoch
     mapping(uint256 => uint256) public totalWeightByEpoch;
 
-    /// @notice Tracks the epoch in which a tokenId last voted (prevents double-voting)
+    /// @notice Tracks the epoch in which a tokenId last voted (metadata only; reads 0
+    ///         for "never voted" AND for "voted in epoch 0" — do NOT use as a guard).
     mapping(uint256 => uint256) public lastVotedEpoch;
+
+    /// @notice Double-vote guard: hasVotedInEpoch[tokenId][epoch] == true iff this
+    ///         NFT has already voted in this epoch. Replaces the
+    ///         `lastVotedEpoch[tokenId] == epoch` guard, which incorrectly rejected
+    ///         the first vote in epoch 0 because both sides default to 0.
+    mapping(uint256 => mapping(uint256 => bool)) public hasVotedInEpoch;
 
     /// @notice Stores each tokenId's vote allocations for the epoch they voted in
     mapping(uint256 => VoteAllocation[]) internal _tokenVotes;
@@ -149,8 +156,10 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (gauges.length > MAX_GAUGES_PER_VOTER) revert TooManyGauges();
 
         // Prevent double-voting within the same epoch
+        // Previously used `lastVotedEpoch[tokenId] == epoch` which collided on epoch 0
+        // (default mapping value == default epoch value), rejecting legitimate first votes.
         uint256 epoch = currentEpoch();
-        if (lastVotedEpoch[tokenId] == epoch) revert AlreadyVotedThisEpoch();
+        if (hasVotedInEpoch[tokenId][epoch]) revert AlreadyVotedThisEpoch();
 
         // Compute voting power from staking position
         // H-01 FIX: Updated destructuring to match corrected ABI order
@@ -170,6 +179,7 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // Record vote — clear any stale allocations from a previous epoch
         delete _tokenVotes[tokenId];
         lastVotedEpoch[tokenId] = epoch;
+        hasVotedInEpoch[tokenId][epoch] = true;
 
         // Apply weighted voting power to each gauge
         for (uint256 i; i < gauges.length; ++i) {
