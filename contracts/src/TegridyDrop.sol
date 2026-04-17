@@ -231,8 +231,14 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
         if (msg.value < totalCost) revert InsufficientPayment();
 
         // Allowlist verification
+        // Audit H-11: domain-separate the Merkle leaf with address(this). The prior
+        // `keccak256(abi.encodePacked(msg.sender))` produced a leaf that was identical
+        // across every drop that used the same pattern, so a valid proof for wallet W
+        // on drop A was also a valid proof for wallet W on drop B. Binding the leaf to
+        // this contract's address makes each drop's allowlist cryptographically unique.
+        // Off-chain generators must include address(this) when building the tree.
         if (mintPhase == MintPhase.ALLOWLIST) {
-            bytes32 leaf = keccak256(abi.encodePacked(msg.sender));
+            bytes32 leaf = keccak256(abi.encodePacked(address(this), msg.sender));
             if (!MerkleProof.verify(proof, merkleRoot, leaf)) revert InvalidProof();
         }
 
@@ -335,6 +341,12 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
         if (startPrice <= endPrice) revert InvalidDutchAuctionConfig();
         if (duration == 0) revert InvalidDutchAuctionConfig();
         if (startTime == 0) revert InvalidDutchAuctionConfig();
+        // Audit H-10: decay = (priceDrop * elapsed) / duration. If priceDrop < duration,
+        // integer division in _dutchAuctionPrice truncates early decay to 0, so the
+        // price stays pinned at startPrice for a significant fraction of the auction.
+        // Enforcing priceDrop >= duration guarantees at least 1 wei of decay per
+        // elapsed second and monotone price decrease across every second.
+        if (startPrice - endPrice < duration) revert InvalidDutchAuctionConfig();
 
         dutchStartPrice = startPrice;
         dutchEndPrice = endPrice;

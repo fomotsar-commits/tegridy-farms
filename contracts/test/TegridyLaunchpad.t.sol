@@ -53,7 +53,9 @@ contract TegridyLaunchpadTest is Test {
         drop.setMintPhase(TegridyDrop.MintPhase.PUBLIC);
     }
 
-    function _buildMerkleTree(address[] memory addrs)
+    // Audit H-11: Merkle leaves are now domain-separated by the drop contract address,
+    // so the tree must be built per-drop.
+    function _buildMerkleTree(address drop, address[] memory addrs)
         internal
         pure
         returns (bytes32 root, bytes32[][] memory proofs)
@@ -61,7 +63,7 @@ contract TegridyLaunchpadTest is Test {
         // Simple 2-leaf Merkle tree
         bytes32[] memory leaves = new bytes32[](addrs.length);
         for (uint256 i = 0; i < addrs.length; i++) {
-            leaves[i] = keccak256(abi.encodePacked(addrs[i]));
+            leaves[i] = keccak256(abi.encodePacked(drop, addrs[i]));
         }
 
         // For a 2-element tree: root = hash(sort(leaf0, leaf1))
@@ -198,7 +200,7 @@ contract TegridyLaunchpadTest is Test {
         address[] memory allowlisted = new address[](2);
         allowlisted[0] = alice;
         allowlisted[1] = bob;
-        (bytes32 root, bytes32[][] memory proofs) = _buildMerkleTree(allowlisted);
+        (bytes32 root, bytes32[][] memory proofs) = _buildMerkleTree(collection, allowlisted);
 
         vm.startPrank(creator);
         drop.setMerkleRoot(root);
@@ -217,7 +219,7 @@ contract TegridyLaunchpadTest is Test {
         address[] memory allowlisted = new address[](2);
         allowlisted[0] = alice;
         allowlisted[1] = bob;
-        (bytes32 root,) = _buildMerkleTree(allowlisted);
+        (bytes32 root,) = _buildMerkleTree(collection, allowlisted);
 
         vm.startPrank(creator);
         drop.setMerkleRoot(root);

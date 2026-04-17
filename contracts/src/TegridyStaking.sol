@@ -65,6 +65,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     bytes32 public constant TREASURY_CHANGE = keccak256("TREASURY_CHANGE");
     bytes32 public constant RESTAKING_CHANGE = keccak256("RESTAKING_CHANGE");
     bytes32 public constant UNSETTLED_CAP_CHANGE = keccak256("UNSETTLED_CAP_CHANGE"); // AUDIT FIX C-02
+    bytes32 public constant LENDING_CONTRACT_CHANGE = keccak256("LENDING_CONTRACT_CHANGE"); // AUDIT H-01 / Spartan TF-02
 
     // ─── State ────────────────────────────────────────────────────────
 
@@ -131,6 +132,17 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     // AUDIT FIX C-02: Restaking contract change timelock (48h delay)
     address public pendingRestakingContract;
 
+    // AUDIT H-01 / Spartan TF-02: whitelisted lending contracts are exempt from the
+    // NFT transfer COOLDOWN and RATE_LIMIT gates. Without this, a user who stakes
+    // cannot deposit the staking NFT as collateral on TegridyLending for 24 hours,
+    // and the NFT's round-trip on repayment/default is only saved from the rate
+    // limit by the implicit dependence on MIN_DURATION >= TRANSFER_RATE_LIMIT.
+    // Adds/removes go through the 48h TimelockAdmin path.
+    uint256 public constant LENDING_CONTRACT_CHANGE_TIMELOCK = 48 hours;
+    mapping(address => bool) public isLendingContract;
+    address public pendingLendingContract;
+    bool public pendingLendingContractApproval;
+
 
     // ─── Events ───────────────────────────────────────────────────────
 
@@ -152,6 +164,8 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     event TreasuryChangeExecuted(address oldTreasury, address newTreasury); // AUDIT FIX #66
     event RestakingContractChangeProposed(address newRestaking, uint256 executeAfter); // AUDIT FIX C-02
     event RestakingContractChanged(address oldRestaking, address newRestaking); // AUDIT FIX C-02
+    event LendingContractChangeProposed(address indexed lending, bool approved, uint256 executeAfter); // AUDIT H-01
+    event LendingContractUpdated(address indexed lending, bool approved); // AUDIT H-01
     event EmergencyExitPosition(address indexed user, uint256 indexed tokenId, uint256 amount); // AUDIT FIX C-05
     event EmergencyExitRequested(address indexed user, uint256 indexed tokenId, uint256 executeAfter); // AUDIT FIX C-05
     event EmergencyExitCancelled(address indexed user, uint256 indexed tokenId); // AUDIT FIX C-05
@@ -582,9 +596,19 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
         // Prevent NFT transfers within 24h of staking; rate-limit; settle rewards before transfer
         if (from != address(0) && to != address(0)) {
-            if (block.timestamp < positions[tokenId].stakeTimestamp + TRANSFER_COOLDOWN) revert TransferCooldownActive();
-            if (from != restakingContract && to != restakingContract) {
-                if (block.timestamp < lastTransferTime[tokenId] + TRANSFER_RATE_LIMIT) revert TransferRateLimited();
+            // AUDIT H-01 / Spartan TF-02: whitelisted lending contracts are exempt from
+            // BOTH the 24h cooldown and the 1h rate-limit so users can deposit a fresh
+            // staking NFT as collateral without waiting, and repayment/default returns
+            // aren't blocked by rate-limit when MIN_DURATION tightens. The restaking
+            // contract keeps its existing rate-limit exemption but remains subject to
+            // cooldown (unchanged behavior).
+            bool lendingExempt = isLendingContract[from] || isLendingContract[to];
+            bool restakingHop = from == restakingContract || to == restakingContract;
+            if (!lendingExempt) {
+                if (block.timestamp < positions[tokenId].stakeTimestamp + TRANSFER_COOLDOWN) revert TransferCooldownActive();
+                if (!restakingHop) {
+                    if (block.timestamp < lastTransferTime[tokenId] + TRANSFER_RATE_LIMIT) revert TransferRateLimited();
+                }
             }
             lastTransferTime[tokenId] = block.timestamp;
             // AUDIT FIX C-04: Settle pending rewards to `from` BEFORE transfer
@@ -918,6 +942,45 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     function cancelRestakingContract() external onlyOwner {
         _cancel(RESTAKING_CHANGE);
         pendingRestakingContract = address(0);
+    }
+
+    // ─── AUDIT H-01 / Spartan TF-02: Lending-contract whitelist timelock ──
+
+    /// @notice Propose adding or removing a lending contract from the transfer-gate whitelist.
+    /// @param _lending    The lending contract address to toggle
+    /// @param _approved   true to whitelist (exempt from cooldown + rate-limit), false to revoke
+    /// @dev 48h timelock. One pending proposal at a time per key — cancel the pending
+    ///      one before proposing a replacement.
+    function proposeLendingContract(address _lending, bool _approved) external onlyOwner {
+        if (_lending == address(0)) revert ZeroAddress();
+        pendingLendingContract = _lending;
+        pendingLendingContractApproval = _approved;
+        _propose(LENDING_CONTRACT_CHANGE, LENDING_CONTRACT_CHANGE_TIMELOCK);
+        emit LendingContractChangeProposed(_lending, _approved, _executeAfter[LENDING_CONTRACT_CHANGE]);
+    }
+
+    /// @notice Execute the pending lending-contract whitelist change after the timelock.
+    function executeLendingContract() external onlyOwner {
+        _execute(LENDING_CONTRACT_CHANGE);
+        address lending = pendingLendingContract;
+        bool approved = pendingLendingContractApproval;
+        isLendingContract[lending] = approved;
+        emit LendingContractUpdated(lending, approved);
+        pendingLendingContract = address(0);
+        pendingLendingContractApproval = false;
+    }
+
+    /// @notice Cancel a pending lending-contract change.
+    /// @dev TimelockAdmin emits ProposalCancelled(LENDING_CONTRACT_CHANGE) for off-chain monitoring.
+    function cancelLendingContract() external onlyOwner {
+        _cancel(LENDING_CONTRACT_CHANGE);
+        pendingLendingContract = address(0);
+        pendingLendingContractApproval = false;
+    }
+
+    /// @notice Legacy view helper — timestamp after which the pending lending change can be executed.
+    function lendingContractChangeReadyAt() external view returns (uint256) {
+        return _executeAfter[LENDING_CONTRACT_CHANGE];
     }
 
     // ─── AUDIT FIX C-02: Timelocked unsettled rewards cap adjustment ──
