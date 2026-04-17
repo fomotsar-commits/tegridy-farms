@@ -1,4 +1,6 @@
 // Vercel Serverless Function — proxies OpenSea requests to hide API key
+import { checkRateLimit } from "./_lib/ratelimit.js";
+
 const OPENSEA_KEY = process.env.OPENSEA_API_KEY || "";
 if (!process.env.OPENSEA_API_KEY) {
   console.warn("WARNING: OPENSEA_API_KEY is not set — requests will be unauthenticated");
@@ -10,11 +12,7 @@ const MAX_BODY_SIZE = 10 * 1024; // 10 KB
 
 function isValidAddress(addr) { return typeof addr === "string" && ETH_ADDRESS_RE.test(addr); }
 
-function setRateLimitHeaders(res, { limit = 60, remaining = 59, reset = 60 } = {}) {
-  res.setHeader("X-RateLimit-Limit", String(limit));
-  res.setHeader("X-RateLimit-Remaining", String(remaining));
-  res.setHeader("X-RateLimit-Reset", String(Math.floor(Date.now() / 1000) + reset));
-}
+// AUDIT API-M1: real rate limiting now lives in _lib/ratelimit.js.
 
 // Whitelist allowed OpenSea collection slugs (must match openseaSlug values in constants.js)
 const ALLOWED_SLUGS = new Set(["nakamigos", "gnssart", "junglebay"]);
@@ -84,8 +82,15 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Vary", "Origin");
-  setRateLimitHeaders(res);
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  // AUDIT API-M1: 30 req/min per IP. Lower than Alchemy because OpenSea has
+  // tighter paid-tier quotas and we want to reserve headroom for buy/sell
+  // flows that burst several requests at checkout time.
+  const allowed = await checkRateLimit(req, res, {
+    limit: 30, windowSec: 60, identifier: "opensea",
+  });
+  if (!allowed) return;
 
   // Body size guard (POST only)
   if (req.method === "POST") {

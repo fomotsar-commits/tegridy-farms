@@ -12,6 +12,7 @@ import { createClient } from "@supabase/supabase-js";
 import { SiweMessage } from "siwe";
 import { SignJWT } from "jose";
 import { randomUUID } from "crypto";
+import { checkRateLimit } from "../_lib/ratelimit.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -107,6 +108,14 @@ export default async function handler(req, res) {
 
   // ── GET: Generate nonce ──
   if (req.method === "GET" && req.query.action === "nonce") {
+    // AUDIT API-M1: nonce generation writes to the DB; rate-limit to 10/min
+    // per IP. A legitimate user calls this at most once per login attempt;
+    // higher rates are either retry-bombs or abuse.
+    const allowed = await checkRateLimit(req, res, {
+      limit: 10, windowSec: 60, identifier: "siwe-nonce",
+    });
+    if (!allowed) return;
+
     const nonce = randomUUID().replace(/-/g, "");
     const expiresAt = new Date(Date.now() + NONCE_TTL_MS).toISOString();
 
@@ -125,6 +134,15 @@ export default async function handler(req, res) {
 
   // ── POST: Verify signature + issue JWT ──
   if (req.method === "POST") {
+    // AUDIT API-M1: signature verification + JWT issuance is the most
+    // expensive auth op. 10 attempts/min/IP is more than enough for a
+    // real user who might typo-fail once or twice; blocks online
+    // brute-force against stolen nonces.
+    const allowed = await checkRateLimit(req, res, {
+      limit: 10, windowSec: 60, identifier: "siwe-verify",
+    });
+    if (!allowed) return;
+
     const { message, signature } = req.body || {};
     if (!message || !signature) {
       return res.status(400).json({ error: "Missing message or signature" });

@@ -12,6 +12,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "crypto";
 import { recoverMessageAddress } from "viem";
+import { checkRateLimit } from "./_lib/ratelimit.js";
 
 // Whitelist allowed contract addresses (lowercase)
 const ALLOWED_CONTRACTS = new Set([
@@ -105,16 +106,20 @@ function setCors(req, res) {
   res.setHeader("Vary", "Origin");
 }
 
-function setRateLimitHeaders(res, { limit = 60, remaining = 59, reset = 60 } = {}) {
-  res.setHeader("X-RateLimit-Limit", String(limit));
-  res.setHeader("X-RateLimit-Remaining", String(remaining));
-  res.setHeader("X-RateLimit-Reset", String(Math.floor(Date.now() / 1000) + reset));
-}
+// AUDIT API-M1: real rate limiting lives in _lib/ratelimit.js.
 
 export default async function handler(req, res) {
   setCors(req, res);
-  setRateLimitHeaders(res);
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  // AUDIT API-M1: orderbook is the most write-heavy proxy (orders, cancels,
+  // fills) and also the most abuse-attractive (spam-listing griefing). We
+  // apply 40 req/min per IP — generous for humans browsing, restrictive
+  // enough to slow an attacker spamming fake orders.
+  const allowed = await checkRateLimit(req, res, {
+    limit: 40, windowSec: 60, identifier: "orderbook",
+  });
+  if (!allowed) return;
 
   if (!supabase) {
     return res.status(503).json({ error: "Orderbook database not configured" });

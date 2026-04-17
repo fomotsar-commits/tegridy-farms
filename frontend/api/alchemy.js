@@ -1,4 +1,6 @@
 // Vercel Serverless Function — proxies Alchemy requests to hide API key
+import { checkRateLimit } from "./_lib/ratelimit.js";
+
 const ALCHEMY_KEY = process.env.ALCHEMY_API_KEY || "demo";
 if (!process.env.ALCHEMY_API_KEY && process.env.NODE_ENV === "production") {
   console.warn("WARNING: ALCHEMY_API_KEY is not set — using demo key in production");
@@ -14,13 +16,9 @@ const MAX_BODY_SIZE = 10 * 1024; // 10 KB
 function isValidAddress(addr) { return typeof addr === "string" && ETH_ADDRESS_RE.test(addr); }
 function isValidTokenId(id) { return typeof id === "string" && NUMERIC_ID_RE.test(id); }
 
-// NOTE: These rate limit headers are cosmetic (static values, not enforced per-IP).
-// TODO: Implement real rate limiting via Vercel Edge Middleware or Upstash Redis.
-function setRateLimitHeaders(res, { limit = 60, remaining = 59, reset = 60 } = {}) {
-  res.setHeader("X-RateLimit-Limit", String(limit));
-  res.setHeader("X-RateLimit-Remaining", String(remaining));
-  res.setHeader("X-RateLimit-Reset", String(Math.floor(Date.now() / 1000) + reset));
-}
+// AUDIT API-M1: real rate limiting now lives in _lib/ratelimit.js (Upstash
+// Redis sliding window). The cosmetic-header helper is removed; the limiter
+// sets proper X-RateLimit-* + Retry-After headers itself.
 
 // Whitelist allowed JSON-RPC methods (for raw RPC calls via endpoint=rpc)
 const ALLOWED_RPC_METHODS = new Set(["eth_blockNumber", "eth_getLogs"]);
@@ -80,8 +78,16 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Vary", "Origin");
-  setRateLimitHeaders(res);
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  // AUDIT API-M1: 60 requests / minute per IP. Alchemy's own plan limit is
+  // much higher but we clamp here to bound cost-per-IP and block obvious
+  // abuse. Returns 429 + Retry-After on exceeded; fails open if Upstash
+  // env vars aren't configured.
+  const allowed = await checkRateLimit(req, res, {
+    limit: 60, windowSec: 60, identifier: "alchemy",
+  });
+  if (!allowed) return;
 
   // Body size guard (POST only)
   if (req.method === "POST") {

@@ -2,6 +2,8 @@
 // SECURITY FIX: Previously the Etherscan API key was exposed client-side via VITE_ env var.
 // This proxy keeps the key server-side while allowing the frontend to fetch tx history.
 
+import { checkRateLimit } from "./_lib/ratelimit.js";
+
 const ETHERSCAN_KEY = process.env.ETHERSCAN_API_KEY || "";
 const ETHERSCAN_BASE = "https://api.etherscan.io/api";
 
@@ -38,7 +40,16 @@ const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
 export default async function handler(req, res) {
   setCors(req, res);
+
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  // AUDIT API-M1: 30 req/min per IP. Etherscan's free tier is 5 req/sec
+  // (= 300/min) shared across all callers; throttling to 30/IP/min leaves
+  // headroom for ~10 concurrent users before we hit the upstream ceiling.
+  const allowed = await checkRateLimit(req, res, {
+    limit: 30, windowSec: 60, identifier: "etherscan",
+  });
+  if (!allowed) return;
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
 
   const { module, action, address, startblock, endblock, sort } = req.query;

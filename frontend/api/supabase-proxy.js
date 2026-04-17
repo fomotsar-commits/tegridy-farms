@@ -13,6 +13,8 @@
  *   - match: (optional) filter for UPDATE/DELETE, e.g. { wallet: "0x..." }
  */
 
+import { checkRateLimit } from "./_lib/ratelimit.js";
+
 const ALLOWED_TABLES = ["messages", "user_profiles", "user_favorites", "user_watchlist", "votes"];
 
 function parseCookie(cookieHeader, name) {
@@ -25,6 +27,14 @@ export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
+
+  // AUDIT API-M1: 20 writes / min per IP. Write-through proxy; conservative
+  // limit both to bound Supabase costs and to throttle spam-listing /
+  // rapid-message abuse on the user-generated-content tables.
+  const allowed = await checkRateLimit(req, res, {
+    limit: 20, windowSec: 60, identifier: "supabase-proxy",
+  });
+  if (!allowed) return;
 
   // Extract SIWE JWT from httpOnly cookie
   const jwt = parseCookie(req.headers.cookie, "siwe_jwt");
