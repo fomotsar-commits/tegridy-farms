@@ -53,18 +53,11 @@ address TEGRIDY_STAKING = vm.envOr("TEGRIDY_STAKING", address(0x65D8b87917c59a0B
 
 Either approach is fine; A1 is 1 line of ops, A2 is a reusable refactor.
 
-### Gap B — audit-fixed `TegridyLPFarming` has no deploy script
+### Gap B — ship audit-fixed `TegridyLPFarming` (SELECTED: B2)
 
-The repo has two LP-farming contracts:
-- `src/LPFarming.sol` (old, no boost) ← what `script/DeployLPFarming.s.sol` deploys
-- `src/TegridyLPFarming.sol` (C-01-fixed, boost via TegridyStaking) ← runbook specifies this
+User selected B2. A dedicated deploy script `script/DeployTegridyLPFarming.s.sol` ships the C-01-fixed boosted contract. It reads `TEGRIDY_LP` and `TEGRIDY_STAKING` from env vars (no stale-address problem). Use this in Step 8, not the old `DeployLPFarming.s.sol`.
 
-The existing `DeployLPFarming.s.sol` deploys the wrong contract. **Decide before Step 8:**
-
-| Choice | Impact |
-|---|---|
-| **B1: Ship without TegridyLPFarming** | C-01 remediation not live; the old non-boosted `LPFarming` deploys as-is. Re-run `DeployLPFarming.s.sol` unchanged. |
-| **B2: Ship TegridyLPFarming** | Write `contracts/script/DeployTegridyLPFarming.s.sol` mirroring the existing one but calling `new TegridyLPFarming(TOWELI, tegridyLP, NEW_STAKING, TREASURY, DURATION)`. The exact constructor signature is shown in `test/TegridyLPFarming.t.sol:47` — `(address rewardToken, address stakingToken, address tegridyStaking, address treasury, uint256 rewardsDuration)`. Then `forge script script/DeployTegridyLPFarming.s.sol --rpc-url $ETH_RPC_URL --broadcast --verify`. |
+The old `script/DeployLPFarming.s.sol` is left in the repo for archival reference but is not part of this deploy.
 
 ### Gap C — `TEGRIDY_LP` env var not set
 
@@ -144,23 +137,21 @@ forge script script/DeployTokenURIReader.s.sol \
   --etherscan-api-key "$ETHERSCAN_API_KEY" --slow
 ```
 
-### Step 8 — LP Farming
-Requires `TEGRIDY_LP` env var set from Step 2. Resolve **Gap B** first.
+### Step 8 — LP Farming (C-01 fixed)
+Requires both `TEGRIDY_LP` and `TEGRIDY_STAKING` env vars from Step 2.
 
-**If Gap B = B1 (old LPFarming):**
 ```bash
-export TEGRIDY_LP=0x...   # from Step 2
-forge script script/DeployLPFarming.s.sol \
+export TEGRIDY_LP=0x...        # TOWELI/WETH pair from Step 2
+export TEGRIDY_STAKING=0x...   # NEW staking from Step 2 (same $NEW_STAKING used for Gap A sed)
+forge script script/DeployTegridyLPFarming.s.sol \
   --rpc-url "$ETH_RPC_URL" --broadcast --verify \
   --etherscan-api-key "$ETHERSCAN_API_KEY" --slow
 ```
 
-**If Gap B = B2 (TegridyLPFarming):**
+**Verify C-01 fix post-deploy:**
 ```bash
-export TEGRIDY_LP=0x...
-forge script script/DeployTegridyLPFarming.s.sol \
-  --rpc-url "$ETH_RPC_URL" --broadcast --verify \
-  --etherscan-api-key "$ETHERSCAN_API_KEY" --slow
+cast call $NEW_LP_FARMING "MAX_BOOST_BPS_CEILING()(uint256)" --rpc-url "$ETH_RPC_URL"
+# Expected: 45000
 ```
 
 ### Step 9 — TWAP (if needed)
@@ -309,9 +300,9 @@ resolve Gap A (sed or env refactor)
 ─── Step 5 ─── DeployGaugeController
 ─── Step 6 ─── DeployVoteIncentives
 ─── Step 7 ─── DeployTokenURIReader     (optional)
-resolve Gap B (B1 or B2)
-export TEGRIDY_LP=<from Step 2>
-─── Step 8 ─── DeployLPFarming OR DeployTegridyLPFarming
+export TEGRIDY_LP=<pair from Step 2>
+export TEGRIDY_STAKING=<staking from Step 2>
+─── Step 8 ─── DeployTegridyLPFarming (C-01 fixed)
 ─── Step 9 ─── DeployTWAP               (optional)
 update frontend/src/lib/constants.ts (22 lines)
 npm run wagmi:generate
