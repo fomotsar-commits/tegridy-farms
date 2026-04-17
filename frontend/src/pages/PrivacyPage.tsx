@@ -5,19 +5,19 @@ import { usePageTitle } from '../hooks/usePageTitle';
 const SECTIONS = [
   {
     title: '1. Information We Collect',
-    body: 'The Tegridy Farms protocol interacts with publicly available blockchain data. This includes your public wallet address when you connect to the Protocol, transaction data that is permanently recorded on the Ethereum blockchain, and user preferences stored locally in your browser via localStorage (such as theme settings, slippage tolerance, and dismissed notifications). All blockchain data is inherently public and accessible to anyone. We do not associate wallet addresses with personal identities.',
+    body: 'The Tegridy Farms protocol interacts with publicly available blockchain data. This includes your public wallet address when you connect to the Protocol and transaction data that is permanently recorded on the Ethereum blockchain. User preferences are stored locally in your browser via localStorage (such as theme settings, slippage tolerance, and dismissed notifications); the Protocol also stores a random per-tab session identifier in sessionStorage to de-duplicate analytics events within a session. All blockchain data is inherently public and accessible to anyone. We do not associate wallet addresses with personal identities. See Section 3 for the specific first-party analytics events we emit.',
   },
   {
     title: '2. Information We Don\'t Collect',
-    body: 'Tegridy Farms does not collect any personally identifiable information. We do not collect or store: email addresses, names, phone numbers, or physical addresses; IP addresses or geolocation data; browser fingerprints or device identifiers; tracking cookies or cross-site tracking mechanisms; social media profiles or linked accounts. The Protocol is designed to operate without requiring any personal data from its users.',
+    body: 'Tegridy Farms does not collect any personally identifiable information. We do not collect or store: email addresses, names, phone numbers, or physical addresses; browser fingerprints or device identifiers; tracking cookies or cross-site tracking mechanisms; social media profiles or linked accounts; or geolocation data. We do not deliberately transmit your IP address in any event payload. Note that when your browser makes a request to any web endpoint — ours or a third party\'s — the receiving server necessarily sees the connecting IP as part of standard HTTP; that information may appear in transient access logs, but it is not retained in our analytics records or linked to your wallet or session.',
   },
   {
     title: '3. Analytics',
-    body: 'We may use minimal, privacy-preserving analytics to monitor Protocol health and performance. This includes aggregate metrics such as total value locked (TVL), transaction volume, and active wallet counts. These analytics are derived from publicly available on-chain data and do not involve tracking individual users. No third-party analytics scripts are injected into the Protocol\'s frontend that would track user behavior.',
+    body: 'We operate a first-party, privacy-preserving analytics pipeline to monitor Protocol health. No third-party analytics or tracking scripts are loaded. When enabled (controlled by the VITE_ANALYTICS_ENDPOINT build-time environment variable), the frontend batches and sends a small set of event records to our own analytics endpoint. The events we emit are: page views, swaps (token symbols, amount, route), stakes and unstakes (amount, lock duration), NFT purchases (collection, token ID, price), wallet-connect events (the name of the wallet provider such as "MetaMask" or "Rainbow" — not your wallet address), and client-side errors (error message and the feature context it occurred in). Every event record additionally carries a random session identifier regenerated per browser-tab session and a timestamp. The event records do NOT include your wallet address, your IP address, your name, your email, browser fingerprints, or any personally identifiable information, and the session identifier is not linked to any identity. If no analytics endpoint is configured, or in development, events are logged to the browser console only.',
   },
   {
     title: '4. Third-Party Services',
-    body: 'The Protocol interfaces with the following third-party services to function: Alchemy, which serves as our RPC provider to relay transactions to the Ethereum network; Etherscan, used for linking to transaction details and contract verification; and Uniswap, which provides DEX liquidity and pricing data. Each of these services has its own privacy policy. We encourage you to review their respective policies. The Protocol does not share user data with these services beyond what is inherent in standard Ethereum RPC calls.',
+    body: 'The Protocol interfaces with the following third-party services to function: Alchemy and other public Ethereum RPC providers, which relay transactions to the Ethereum network; block explorers such as Etherscan and Basescan, used for linking to transaction details and contract verification; WalletConnect, for wallet-to-dapp connectivity; GeckoTerminal and other price oracles, for displaying token prices; and DEX aggregators (Odos, 0x, 1inch, CoW Swap, LiFi, KyberSwap, OpenOcean, Paraswap) when you request a swap quote. When you make a request to any of these services from your browser, they necessarily see your IP address as part of standard HTTP, and some will see your wallet address if it is included in the request payload (for example, an aggregator quote asks for the "taker" address in order to simulate the swap). This is inherent to how the web and Ethereum work; we do not deliberately transmit additional data. Each of these services has its own privacy policy — we encourage you to review them.',
   },
   {
     title: '5. Data Storage',
@@ -69,8 +69,8 @@ export default function PrivacyPage() {
           <h1 className="text-3xl md:text-4xl font-bold text-white mb-3">
             Privacy Policy
           </h1>
-          <p className="text-white/50 text-sm">
-            How Tegridy Farms handles your data — spoiler: we don't collect any.
+          <p className="text-white/70 text-sm">
+            How Tegridy Farms handles your data — plain English, no dark patterns.
           </p>
         </motion.div>
 
@@ -103,8 +103,8 @@ export default function PrivacyPage() {
           transition={{ duration: 0.5, delay: 0.8 }}
           className="text-center mt-12"
         >
-          <p className="text-white/40 text-xs">
-            Last updated: April 2026
+          <p className="text-white/70 text-xs">
+            Last updated: April 16, 2026
           </p>
         </motion.div>
       </div>

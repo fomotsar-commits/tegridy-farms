@@ -102,10 +102,20 @@ export default function SecurityPage() {
                 <div key={item} className="flex items-start gap-2 text-gray-300 text-sm"><span className="mt-0.5"><CheckIcon /></span>{item}</div>
               ))}
             </div>
-            <a href="/audit-report.pdf" target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 mt-5 px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-purple-600 hover:bg-purple-500 transition-colors">
-              Download Full Audit Report (PDF)
-            </a>
+            {/* Audit C-03: the prior "/audit-report.pdf" link was a 404; audit artifacts
+                live in the repo as markdown so they version with the code. */}
+            <div className="flex flex-wrap gap-3 mt-5">
+              <a href="https://github.com/fomotsar-commits/tegridy-farms/blob/main/SECURITY_AUDIT_300_AGENT.md"
+                target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-purple-600 hover:bg-purple-500 transition-colors">
+                View Full Audit (GitHub)
+              </a>
+              <a href="https://github.com/fomotsar-commits/tegridy-farms/tree/main#security"
+                target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white/90 border border-white/15 hover:border-white/30 transition-colors">
+                All Audit Artifacts
+              </a>
+            </div>
           </div>
         </motion.section>
 
