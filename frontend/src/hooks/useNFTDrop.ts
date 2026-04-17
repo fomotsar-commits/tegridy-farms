@@ -39,7 +39,17 @@ export function useNFTDrop(dropAddress: string) {
   // Phase labels: 0 = Paused, 1 = Allowlist, 2 = Public
   const phaseLabel = currentPhase === 2 ? 'Public' : currentPhase === 1 ? 'Allowlist' : 'Paused';
 
+  // Audit H-F8: wagmi's isPending is only true once wallet signs — between
+  // clicking mint and MetaMask popping, it's false, so a second click races
+  // in and both txns land in the mempool. Defence: reject re-entry while a
+  // tx hash is already in flight AND no terminal receipt has settled.
+  const inFlight = !!hash && !isSuccess && !isTxError;
+
   function mint(quantity: number, proof: `0x${string}`[] = []) {
+    if (isPending || isConfirming || inFlight) {
+      toast.error('A mint is already pending');
+      return;
+    }
     const totalCost = mintPrice * BigInt(quantity);
     writeContract({
       address: contractAddr,

@@ -134,7 +134,7 @@ export function BountiesSection() {
         <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
           className="rounded-2xl p-5 space-y-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
           <h3 className="text-sm font-semibold text-white">New Meme Bounty</h3>
-          <p className="text-[11px] text-white/40">Fund a bounty with ETH. Community votes on submissions. Winner takes the reward.</p>
+          <p className="text-[11px] text-white/70">Fund a bounty with ETH. Community votes on submissions. Winner takes the reward.</p>
           <div>
             <label className="text-[11px] text-white/40 uppercase tracking-wider block mb-1">Description</label>
             <textarea value={newDescription} onChange={(e) => setNewDescription(e.target.value)}

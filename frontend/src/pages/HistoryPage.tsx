@@ -278,8 +278,8 @@ export default function HistoryPage() {
             </div>
           ) : categorized.length === 0 ? (
             <div className="rounded-xl p-8 text-center" style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' }}>
-              <p className="text-white/40 text-[13px]">No transactions found. Start trading or staking to see your history here.</p>
-              <p className="text-white/25 text-[11px] mt-1">Swaps, stakes, claims, and governance actions will appear automatically.</p>
+              <p className="text-white/70 text-[13px]">No transactions found. Start trading or staking to see your history here.</p>
+              <p className="text-white/50 text-[11px] mt-1">Swaps, stakes, claims, and governance actions will appear automatically.</p>
             </div>
           ) : (
             <table className="w-full">

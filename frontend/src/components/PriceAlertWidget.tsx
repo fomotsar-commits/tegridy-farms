@@ -70,7 +70,7 @@ export function PriceAlertWidget() {
 
             {/* Alert list */}
             {alerts.length === 0 ? (
-              <p className="text-white/40 text-[11px] text-center py-2">No alerts set</p>
+              <p className="text-white/70 text-[11px] text-center py-2">No alerts set</p>
             ) : (
               <ul className="space-y-1.5 max-h-[160px] overflow-y-auto">
                 {alerts.map((a) => (

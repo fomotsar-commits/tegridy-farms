@@ -157,7 +157,7 @@ export function GrantsSection() {
         <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
           className="rounded-2xl p-5 space-y-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
           <h3 className="text-sm font-semibold text-white">New Grant Proposal</h3>
-          <p className="text-[11px] text-white/40">Requires veTOWELI voting power. Quorum-based approval with 24h execution delay.</p>
+          <p className="text-[11px] text-white/70">Requires veTOWELI voting power. Quorum-based approval with 24h execution delay.</p>
           <div>
             <label className="text-[11px] text-white/40 uppercase tracking-wider block mb-1">Recipient Address</label>
             <input type="text" value={newRecipient} onChange={(e) => setNewRecipient(e.target.value)}

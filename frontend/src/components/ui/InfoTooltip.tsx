@@ -1,8 +1,14 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 
 /**
  * Lightweight hover tooltip with a "?" icon for explaining DeFi terms.
  * Pure CSS positioning — no external dependencies.
+ *
+ * Audit H-F14: keyboard + SR accessible. The "?" icon is a real button with
+ * aria-describedby → tooltip id, and focus/blur toggle the popup so keyboard
+ * users can reveal it without a pointing device. The tooltip itself has
+ * role="tooltip" so AT can announce it rather than silently reading the
+ * containing span.
  */
 export function InfoTooltip({
   text,
@@ -14,20 +20,35 @@ export function InfoTooltip({
   position?: 'top' | 'bottom';
 }) {
   const [show, setShow] = useState(false);
+  const tipId = useId();
 
   return (
     <span
       className={`relative inline-flex items-center ${className}`}
       onMouseEnter={() => setShow(true)}
       onMouseLeave={() => setShow(false)}
-      onTouchStart={() => setShow((p) => !p)}
     >
-      <span className="w-[15px] h-[15px] rounded-full border border-white/25 bg-white/5 flex items-center justify-center cursor-help text-[9px] font-semibold text-white/50 hover:text-white/80 hover:border-white/40 transition-all duration-200 select-none">
+      <button
+        type="button"
+        aria-label="More info"
+        aria-describedby={tipId}
+        aria-expanded={show}
+        onFocus={() => setShow(true)}
+        onBlur={() => setShow(false)}
+        onClick={(e) => {
+          // Click/tap toggle so touch users can also dismiss.
+          e.preventDefault();
+          setShow((p) => !p);
+        }}
+        className="w-[15px] h-[15px] rounded-full border border-white/25 bg-white/5 flex items-center justify-center cursor-help text-[9px] font-semibold text-white/70 hover:text-white hover:border-white/40 focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:outline-none transition-all duration-200 select-none"
+      >
         ?
-      </span>
+      </button>
       {show && (
         <span
-          className={`absolute z-50 w-56 px-3 py-2.5 rounded-lg text-[11px] leading-relaxed text-white/90 font-normal pointer-events-none ${
+          id={tipId}
+          role="tooltip"
+          className={`absolute z-50 w-56 px-3 py-2.5 rounded-lg text-[11px] leading-relaxed text-white font-normal pointer-events-none ${
             position === 'top'
               ? 'bottom-full mb-2 left-1/2 -translate-x-1/2'
               : 'top-full mt-2 left-1/2 -translate-x-1/2'

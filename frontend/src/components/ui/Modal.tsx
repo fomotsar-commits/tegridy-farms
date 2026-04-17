@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface ModalProps {
@@ -16,6 +16,10 @@ interface ModalProps {
  */
 export function Modal({ open, onClose, children, title, maxWidth = 'max-w-md' }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  // Audit H-F13: associate the title element with aria-labelledby rather than
+  // using aria-label so screen readers announce the real heading (including
+  // any inline styling/content like badges) and not a flattened string.
+  const titleId = useId();
 
   // Lock body scroll when open
   useEffect(() => {
@@ -60,7 +64,7 @@ export function Modal({ open, onClose, children, title, maxWidth = 'max-w-md' }:
               ref={dialogRef}
               role="dialog"
               aria-modal="true"
-              aria-label={title}
+              {...(title ? { 'aria-labelledby': titleId } : { 'aria-label': 'Dialog' })}
               tabIndex={-1}
               className={`relative w-full ${maxWidth} rounded-2xl border p-6 shadow-2xl pointer-events-auto outline-none`}
               style={{
@@ -84,7 +88,7 @@ export function Modal({ open, onClose, children, title, maxWidth = 'max-w-md' }:
 
               {/* Title */}
               {title && (
-                <h2 className="heading-luxury text-xl text-white mb-4 pr-8">{title}</h2>
+                <h2 id={titleId} className="heading-luxury text-xl text-white mb-4 pr-8">{title}</h2>
               )}
 
               {children}

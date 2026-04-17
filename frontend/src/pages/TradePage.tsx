@@ -70,7 +70,7 @@ export default function TradePage() {
                 <div className="mb-2">
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-white/50 text-[11px]">You Pay</span>
-                    <span className="text-white/40 text-[10px] font-mono">Balance: {Number(swap.fromBalance).toFixed(4)}</span>
+                    <span className="text-white/70 text-[10px] font-mono">Balance: {Number(swap.fromBalance).toFixed(4)}</span>
                   </div>
                   <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.08)' }}>
                     <button onClick={() => setShowTokenSelect('from')} className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors">
@@ -97,7 +97,7 @@ export default function TradePage() {
                 <div className="mb-4">
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-white/50 text-[11px]">You Receive</span>
-                    <span className="text-white/40 text-[10px] font-mono">Balance: {Number(swap.toBalance).toFixed(4)}</span>
+                    <span className="text-white/70 text-[10px] font-mono">Balance: {Number(swap.toBalance).toFixed(4)}</span>
                   </div>
                   <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.08)' }}>
                     <button onClick={() => setShowTokenSelect('to')} className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors">
