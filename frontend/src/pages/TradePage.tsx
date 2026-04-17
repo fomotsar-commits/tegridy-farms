@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { useAccount } from 'wagmi';
+import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { getTxUrl } from '../lib/explorer';
 import { ART } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
@@ -16,6 +17,7 @@ type Tab = 'swap' | 'dca' | 'limit';
 export default function TradePage() {
   usePageTitle('Trade', 'Swap tokens with smart routing across Tegridy DEX, Uniswap, and aggregator sources.');
   const { isConnected } = useAccount();
+  const chainId = useChainId();
   const [tab, setTab] = useState<Tab>('swap');
   const [showTokenSelect, setShowTokenSelect] = useState<'from' | 'to' | null>(null);
   const [showRouteDetails, setShowRouteDetails] = useState(false);
@@ -183,9 +185,9 @@ export default function TradePage() {
                   </button>
                 )}
 
-                {swap.isSuccess && (
+                {swap.isSuccess && swap.txHash && (
                   <div className="mt-3 text-center text-emerald-400 text-[12px]">
-                    Swap confirmed! <a href={`https://etherscan.io/tx/${swap.txHash}`} target="_blank" rel="noopener noreferrer" className="underline">View on Etherscan</a>
+                    Swap confirmed! <a href={getTxUrl(chainId, swap.txHash)} target="_blank" rel="noopener noreferrer" className="underline">View on Explorer</a>
                   </div>
                 )}
               </>

@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { useAccount } from 'wagmi';
+import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { getTxUrl } from '../lib/explorer';
 import { ART } from '../lib/artConfig';
 import {
   TEGRIDY_STAKING_ADDRESS, TEGRIDY_RESTAKING_ADDRESS, UNISWAP_V2_ROUTER,
@@ -113,6 +114,7 @@ function categorizeTx(tx: TxRecord): { type: string; color: string } {
 export default function HistoryPage() {
   usePageTitle('History', 'Your transaction history — swaps, stakes, claims, and on-chain activity.');
   const { isConnected, address } = useAccount();
+  const chainId = useChainId();
   const [txs, setTxs] = useState<TxRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -297,14 +299,14 @@ export default function HistoryPage() {
                     style={{ borderBottom: '1px solid var(--color-purple-75)' }}>
                     {/* Desktop cells */}
                     <td className="hidden md:table-cell px-4 md:px-5 py-3">
-                      <a href={`https://etherscan.io/tx/${tx.hash}`} target="_blank" rel="noopener noreferrer"
+                      <a href={getTxUrl(chainId, tx.hash)} target="_blank" rel="noopener noreferrer"
                         className={`text-[12px] font-semibold ${tx.color}`}>{tx.type}</a>
                     </td>
                     <td className="hidden md:table-cell py-3">
                       <span className="text-[11px] text-white font-mono truncate block w-24">{tx.functionName?.split('(')[0] || '–'}</span>
                     </td>
                     <td className="hidden md:table-cell py-3">
-                      <a href={`https://etherscan.io/tx/${tx.hash}`} target="_blank" rel="noopener noreferrer"
+                      <a href={getTxUrl(chainId, tx.hash)} target="_blank" rel="noopener noreferrer"
                         className="text-[11px] font-mono text-white truncate block">
                         {shortenAddress(tx.hash, 8)}
                       </a>
@@ -319,7 +321,7 @@ export default function HistoryPage() {
                     </td>
                     {/* Mobile cell — single cell spanning full width */}
                     <td className="md:hidden px-4 py-3" colSpan={5}>
-                      <a href={`https://etherscan.io/tx/${tx.hash}`} target="_blank" rel="noopener noreferrer"
+                      <a href={getTxUrl(chainId, tx.hash)} target="_blank" rel="noopener noreferrer"
                         className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
                           <span className={`text-[12px] font-semibold flex-shrink-0 ${tx.color}`}>{tx.type}</span>

@@ -9,6 +9,8 @@ export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const location = useLocation();
   const { isDark, toggleTheme } = useTheme();
   const isMoreActive = MORE_PATHS.some(p => location.pathname === p || location.pathname.startsWith(p + '/'));
@@ -27,13 +29,50 @@ export const TopNav = React.memo(function TopNav() {
   // Close dropdown on route change
   useEffect(() => { setMoreOpen(false); }, [location.pathname]);
 
-  // Close mobile drawer on Escape key
+  // Audit H-F10: close on Escape + trap focus inside the drawer while open.
+  // Without the trap, keyboard Tab escapes to the page content behind the overlay.
   useEffect(() => {
+    if (!open) return;
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') {
+        setOpen(false);
+        return;
+      }
+      if (e.key !== 'Tab' || !drawerRef.current) return;
+      const focusables = drawerRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
+      );
+      if (focusables.length === 0) return;
+      const first = focusables[0]!;
+      const last = focusables[focusables.length - 1]!;
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey) {
+        if (active === first || !drawerRef.current.contains(active)) {
+          last.focus();
+          e.preventDefault();
+        }
+      } else {
+        if (active === last || !drawerRef.current.contains(active)) {
+          first.focus();
+          e.preventDefault();
+        }
+      }
     }
-    if (open) document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [open]);
+
+  // Audit H-F10: body scroll lock while drawer open so the page behind the overlay
+  // doesn't scroll when the user drags. Also restore focus to the menu button on close.
+  useEffect(() => {
+    if (open) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => { document.body.style.overflow = prev; };
+    } else {
+      // Return focus to the menu-open button on close (if it was the opener)
+      menuButtonRef.current?.focus();
+    }
   }, [open]);
 
   return (
@@ -183,7 +222,7 @@ export const TopNav = React.memo(function TopNav() {
               }}
             </ConnectButton.Custom>
 
-            <button onClick={() => setOpen(true)} aria-label="Open navigation menu" aria-expanded={open} className="md:hidden p-2.5 -mr-2 text-text-muted min-w-[48px] min-h-[48px] flex items-center justify-center">
+            <button ref={menuButtonRef} onClick={() => setOpen(true)} aria-label="Open navigation menu" aria-expanded={open} className="md:hidden p-2.5 -mr-2 text-text-muted min-w-[48px] min-h-[48px] flex items-center justify-center">
               <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
                 <path d="M3 5h14M3 10h14M3 15h14" />
               </svg>
@@ -200,6 +239,10 @@ export const TopNav = React.memo(function TopNav() {
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               onClick={() => setOpen(false)} />
             <motion.div
+              ref={drawerRef}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Navigation menu"
               className="fixed right-0 top-0 bottom-0 z-50 w-56 md:hidden flex flex-col"
               style={{ background: 'var(--color-bg-surface)', borderLeft: '1px solid var(--color-purple-75)' }}
               initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}

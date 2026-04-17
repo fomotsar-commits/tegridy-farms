@@ -1,4 +1,4 @@
-import { useMemo, useEffect } from 'react';
+import { useMemo, useEffect, useState } from 'react';
 import { useAccount, useChains, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
 import { toast } from 'sonner';
@@ -71,12 +71,23 @@ function ContractCard({ name, address, explorerBaseUrl, items }: ContractCardPro
 function PauseControls({ isPaused }: { isPaused: boolean }) {
   const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+  // Audit H-F7: typed-input confirmation before destructive toggle. A single misclick
+  // on this button pauses staking / withdrawals / claims for every user — that must
+  // require explicit intent, not a pointer landing in the wrong place.
+  const [confirming, setConfirming] = useState(false);
+  const [typed, setTyped] = useState('');
+  const expected = isPaused ? 'UNPAUSE' : 'PAUSE';
 
   useEffect(() => {
-    if (isSuccess) toast.success(isPaused ? 'Contract unpaused' : 'Contract paused');
+    if (isSuccess) {
+      toast.success(isPaused ? 'Contract unpaused' : 'Contract paused');
+      setConfirming(false);
+      setTyped('');
+    }
   }, [isSuccess, isPaused]);
 
-  const handleToggle = () => {
+  const handleConfirm = () => {
+    if (typed.trim().toUpperCase() !== expected) return;
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: PAUSE_ABI,
@@ -90,27 +101,70 @@ function PauseControls({ isPaused }: { isPaused: boolean }) {
       <p className="text-white/60 text-sm mb-4">
         Pause or unpause the TegridyStaking contract. When paused, staking, withdrawals, and claims are disabled.
       </p>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           <div className={`w-3 h-3 rounded-full ${isPaused ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`} />
           <span className={`text-sm font-semibold ${isPaused ? 'text-red-400' : 'text-emerald-400'}`}>
             {isPaused ? 'PAUSED' : 'ACTIVE'}
           </span>
         </div>
-        <button
-          onClick={handleToggle}
-          disabled={isSigning || isConfirming}
-          className="px-5 py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-40"
-          style={{
-            background: isPaused
-              ? 'linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105))'
-              : 'linear-gradient(135deg, rgb(239 68 68), rgb(185 28 28))',
-            color: 'white',
-          }}
-        >
-          {isSigning ? 'Confirm in Wallet...' : isConfirming ? 'Confirming...' : isPaused ? 'Unpause Contract' : 'Pause Contract'}
-        </button>
+        {!confirming ? (
+          <button
+            onClick={() => { setConfirming(true); setTyped(''); }}
+            className="px-5 py-2.5 rounded-xl text-sm font-semibold transition-all"
+            style={{
+              background: isPaused
+                ? 'linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105))'
+                : 'linear-gradient(135deg, rgb(239 68 68), rgb(185 28 28))',
+              color: 'white',
+            }}
+          >
+            {isPaused ? 'Unpause Contract' : 'Pause Contract'}
+          </button>
+        ) : (
+          <button
+            onClick={() => { setConfirming(false); setTyped(''); }}
+            className="text-[12px] text-white/60 hover:text-white transition-colors"
+          >
+            Cancel
+          </button>
+        )}
       </div>
+      {confirming && (
+        <div className="mt-4 p-4 rounded-xl" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)' }}>
+          <p className="text-[13px] text-red-400 font-semibold mb-2">
+            {isPaused ? 'Unpause the contract?' : 'Pause the contract?'}
+          </p>
+          <p className="text-[12px] text-white/70 mb-3">
+            {isPaused
+              ? 'Resuming the contract will immediately allow staking, withdrawals, and claims again.'
+              : 'Pausing will immediately halt staking, withdrawals, and claims for every user. Do not do this without coordinating with the team.'}
+            {' '}Type <span className="font-mono text-white">{expected}</span> to confirm.
+          </p>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              placeholder={expected}
+              autoFocus
+              aria-label={`Type ${expected} to confirm`}
+              className="flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono focus:border-red-500 outline-none transition-colors"
+            />
+            <button
+              onClick={handleConfirm}
+              disabled={typed.trim().toUpperCase() !== expected || isSigning || isConfirming}
+              className="px-4 py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-40"
+              style={{
+                background: 'linear-gradient(135deg, rgb(239 68 68), rgb(185 28 28))',
+                color: 'white',
+              }}
+            >
+              {isSigning ? 'Confirm in Wallet...' : isConfirming ? 'Confirming...' : 'Execute'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

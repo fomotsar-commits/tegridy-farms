@@ -173,7 +173,7 @@ export default function FarmPage() {
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         {/* Wrong network banner (#82 audit) */}
         {isWrongNetwork && (
-          <div className="mb-4 px-5 py-4 rounded-xl text-[14px] font-semibold text-yellow-200 flex items-center gap-3" style={{ background: 'rgba(234,179,8,0.18)', border: '2px solid rgba(234,179,8,0.4)' }}>
+          <div role="alert" aria-live="assertive" className="mb-4 px-5 py-4 rounded-xl text-[14px] font-semibold text-yellow-200 flex items-center gap-3" style={{ background: 'rgba(234,179,8,0.18)', border: '2px solid rgba(234,179,8,0.4)' }}>
             <span className="text-[20px]" aria-hidden="true">&#9888;</span>
             Wrong network detected &mdash; please switch to Ethereum Mainnet to use this app.
           </div>

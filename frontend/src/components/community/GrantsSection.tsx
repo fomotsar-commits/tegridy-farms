@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { formatEther, parseEther, type Address } from 'viem';
+import { formatEther, parseEther, isAddress, type Address } from 'viem';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { COMMUNITY_GRANTS_ADDRESS } from '../../lib/constants';
@@ -78,11 +78,46 @@ export function GrantsSection() {
     });
   };
 
+  // Audit H-F6: validate recipient before coercing to Address and before any parseEther on amount.
+  // Without this, user typos ("0xabc", random text) reach the contract call where the only
+  // protection is on-chain revert — costing gas and surfacing a cryptic error.
+  const recipientInvalid =
+    newRecipient.length > 0 && !isAddress(newRecipient);
+  let amountInvalid = false;
+  if (newAmount.length > 0) {
+    try {
+      if (parseEther(newAmount) <= 0n) amountInvalid = true;
+    } catch {
+      amountInvalid = true;
+    }
+  }
+  const canCreate =
+    !!newRecipient &&
+    !!newAmount &&
+    !!newDescription &&
+    !recipientInvalid &&
+    !amountInvalid;
+
   const handleCreate = () => {
     if (!newRecipient || !newAmount || !newDescription) return;
+    if (!isAddress(newRecipient)) {
+      toast.error('Recipient is not a valid Ethereum address');
+      return;
+    }
+    let amt: bigint;
+    try {
+      amt = parseEther(newAmount);
+    } catch {
+      toast.error('Amount is not a valid number');
+      return;
+    }
+    if (amt <= 0n) {
+      toast.error('Amount must be greater than zero');
+      return;
+    }
     writeContract({
       address: gcAddr, abi: COMMUNITY_GRANTS_ABI, functionName: 'createProposal',
-      args: [newRecipient as Address, parseEther(newAmount), newDescription],
+      args: [newRecipient as Address, amt, newDescription],
     });
     toast.info('Creating proposal...');
   };
@@ -126,12 +161,22 @@ export function GrantsSection() {
           <div>
             <label className="text-[11px] text-white/40 uppercase tracking-wider block mb-1">Recipient Address</label>
             <input type="text" value={newRecipient} onChange={(e) => setNewRecipient(e.target.value)}
-              placeholder="0x..." className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm font-mono focus:border-emerald-500 outline-none transition-colors" />
+              placeholder="0x..."
+              aria-invalid={recipientInvalid}
+              className={`w-full bg-black/30 border rounded-lg px-3 py-2.5 text-white text-sm font-mono focus:border-emerald-500 outline-none transition-colors ${recipientInvalid ? 'border-red-500/60' : 'border-white/10'}`} />
+            {recipientInvalid && (
+              <p className="mt-1 text-[11px] text-red-400">Not a valid Ethereum address</p>
+            )}
           </div>
           <div>
             <label className="text-[11px] text-white/40 uppercase tracking-wider block mb-1">Amount (TOWELI)</label>
             <input type="number" value={newAmount} onChange={(e) => setNewAmount(e.target.value)}
-              placeholder="100000" className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm font-mono focus:border-emerald-500 outline-none transition-colors" />
+              placeholder="100000"
+              aria-invalid={amountInvalid}
+              className={`w-full bg-black/30 border rounded-lg px-3 py-2.5 text-white text-sm font-mono focus:border-emerald-500 outline-none transition-colors ${amountInvalid ? 'border-red-500/60' : 'border-white/10'}`} />
+            {amountInvalid && (
+              <p className="mt-1 text-[11px] text-red-400">Enter a positive number</p>
+            )}
           </div>
           <div>
             <label className="text-[11px] text-white/40 uppercase tracking-wider block mb-1">Description</label>
@@ -139,7 +184,7 @@ export function GrantsSection() {
               placeholder="Describe what this grant funds..." rows={3}
               className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:border-emerald-500 outline-none transition-colors resize-none" />
           </div>
-          <button onClick={handleCreate} disabled={!newRecipient || !newAmount || !newDescription || isSigning || isConfirming}
+          <button onClick={handleCreate} disabled={!canCreate || isSigning || isConfirming}
             className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-40"
             style={{ background: 'linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105))', color: 'white' }}>
             {isSigning ? 'Confirm in Wallet...' : isConfirming ? 'Creating...' : 'Submit Proposal'}

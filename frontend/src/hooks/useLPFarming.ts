@@ -1,14 +1,16 @@
 import { useEffect, useMemo } from 'react';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContracts } from 'wagmi';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContracts, useChainId } from 'wagmi';
 import { parseEther, formatEther } from 'viem';
 import { toast } from 'sonner';
 import { LP_FARMING_ABI, ERC20_ABI } from '../lib/contracts';
 import { LP_FARMING_ADDRESS, TEGRIDY_LP_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
+import { getTxUrl } from '../lib/explorer';
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
 
 export function useLPFarming() {
   const { address } = useAccount();
+  const chainId = useChainId();
   const userAddr = address ?? ZERO_ADDR;
   const isDeployed = checkDeployed(LP_FARMING_ADDRESS);
 
@@ -59,7 +61,7 @@ export function useLPFarming() {
     if (isSuccess && hash) {
       toast.success('Transaction confirmed!', {
         id: hash,
-        action: { label: 'Etherscan', onClick: () => window.open(`https://etherscan.io/tx/${hash}`, '_blank') },
+        action: { label: 'Explorer', onClick: () => window.open(getTxUrl(chainId, hash), '_blank') },
       });
       refetch();
       setTimeout(() => reset(), 4000);

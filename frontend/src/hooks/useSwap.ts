@@ -7,6 +7,7 @@ import { WETH_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, TEGRIDY_ROUTER_ADDRESS, CHAIN_ID
 import { type TokenInfo, DEFAULT_TOKENS } from '../lib/tokenList';
 import { decodeRevertReason } from '../lib/revertDecoder';
 import { trackSwap } from '../lib/analytics';
+import { getTxUrl } from '../lib/explorer';
 import { useSwapQuote } from './useSwapQuote';
 import { useSwapAllowance } from './useSwapAllowance';
 
@@ -112,8 +113,8 @@ export function useSwap() {
       toast.success('WAGMI! Swap confirmed', {
         description: `${fromToken?.symbol} → ${toToken?.symbol}`,
         action: {
-          label: 'View on Etherscan',
-          onClick: () => window.open(`https://etherscan.io/tx/${hash}`, '_blank'),
+          label: 'View on Explorer',
+          onClick: () => window.open(getTxUrl(chainId, hash), '_blank'),
         },
       });
       trackSwap(fromToken?.symbol ?? '', toToken?.symbol ?? '', inputAmount, quote.selectedRoute);

@@ -1,5 +1,6 @@
 import { useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useChainId } from 'wagmi';
 import {
   TransactionReceiptContext,
   useTransactionReceiptState,
@@ -7,6 +8,7 @@ import {
   type ReceiptType,
 } from '../hooks/useTransactionReceipt';
 import { formatTokenAmount } from '../lib/formatting';
+import { getTxUrl } from '../lib/explorer';
 
 /* ─── Sanitize text to prevent HTML/script injection in rendered receipts ─── */
 function sanitize(str: string | undefined): string {
@@ -156,6 +158,7 @@ function TransactionReceiptOverlay({
   onClose: () => void;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
+  const chainId = useChainId();
   const config = TYPE_CONFIG[receipt.type];
   const rows = useMemo(() => buildDetailRows(receipt), [receipt]);
 
@@ -178,9 +181,7 @@ function TransactionReceiptOverlay({
   const timestamp = initialTimestampRef.current;
 
   const safeTxHash = sanitizeTxHash(receipt.data.txHash);
-  const etherscanUrl = safeTxHash
-    ? `https://etherscan.io/tx/${safeTxHash}`
-    : null;
+  const etherscanUrl = safeTxHash ? getTxUrl(chainId, safeTxHash) : null;
 
   const handleShareX = useCallback(() => {
     const verb = config.verb;
@@ -210,13 +211,13 @@ function TransactionReceiptOverlay({
           ]);
         } catch {
           // Fallback: copy receipt as text
-          const text = buildReceiptText(receipt, config, rows, timestamp);
+          const text = buildReceiptText(receipt, config, rows, timestamp, chainId);
           await navigator.clipboard.writeText(text);
         }
       }, 'image/png');
     } catch {
       // Fallback: copy receipt as text
-      const text = buildReceiptText(receipt, config, rows, timestamp);
+      const text = buildReceiptText(receipt, config, rows, timestamp, chainId);
       await navigator.clipboard.writeText(text);
     }
   }, [receipt, config, rows, timestamp]);
@@ -390,6 +391,7 @@ function buildReceiptText(
   config: { label: string },
   rows: { label: string; value: string }[],
   timestamp: string,
+  chainId?: number,
 ): string {
   const lines = [
     '\u{1F33F} Tegridy Farms',
@@ -404,7 +406,7 @@ function buildReceiptText(
   const validHash = sanitizeTxHash(receipt.data.txHash);
   if (validHash) {
     lines.push('');
-    lines.push(`Tx: https://etherscan.io/tx/${validHash}`);
+    lines.push(`Tx: ${getTxUrl(chainId, validHash)}`);
   }
   lines.push('');
   lines.push(timestamp);

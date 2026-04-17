@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { TEGRIDY_STAKING_ABI, ERC20_ABI } from '../lib/contracts';
 import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { trackStake } from '../lib/analytics';
+import { getTxUrl } from '../lib/explorer';
 
 export function useFarmActions() {
   const chainId = useChainId();
@@ -24,8 +25,8 @@ export function useFarmActions() {
       toast.success('Transaction confirmed', {
         id: hash,
         action: {
-          label: 'Etherscan',
-          onClick: () => window.open(`https://etherscan.io/tx/${hash}`, '_blank'),
+          label: 'Explorer',
+          onClick: () => window.open(getTxUrl(chainId, hash), '_blank'),
         },
       });
       if (pendingStakeRef.current) {

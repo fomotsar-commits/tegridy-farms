@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { useAccount } from 'wagmi';
+import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { formatEther } from 'viem';
 import { ART } from '../lib/artConfig';
@@ -8,6 +8,7 @@ import { usePremiumAccess } from '../hooks/usePremiumAccess';
 import { useRevenueStats } from '../hooks/useRevenueStats';
 import { PREMIUM_ACCESS_ADDRESS } from '../lib/constants';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { getTxUrl } from '../lib/explorer';
 
 const PLANS = [
   { months: 1, label: '1 Month', discount: 0 },
@@ -33,11 +34,12 @@ function Skeleton({ className = '' }: { className?: string }) {
   );
 }
 
-/* Etherscan tx link */
+/* Block explorer tx link */
 function TxLink({ hash }: { hash: string }) {
+  const chainId = useChainId();
   return (
     <a
-      href={`https://etherscan.io/tx/${hash}`}
+      href={getTxUrl(chainId, hash)}
       target="_blank"
       rel="noopener noreferrer"
       className="inline-flex items-center gap-1 text-[12px] font-mono hover:underline"

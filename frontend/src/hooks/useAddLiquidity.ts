@@ -1,16 +1,18 @@
 import { useEffect, useMemo } from 'react';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract, useReadContracts } from 'wagmi';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract, useReadContracts, useChainId } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { toast } from 'sonner';
 import { TEGRIDY_ROUTER_ABI, TEGRIDY_FACTORY_ABI, ERC20_ABI, UNISWAP_V2_PAIR_ABI } from '../lib/contracts';
 import { TEGRIDY_ROUTER_ADDRESS, TEGRIDY_FACTORY_ADDRESS, WETH_ADDRESS } from '../lib/constants';
 import { type TokenInfo } from '../lib/tokenList';
+import { getTxUrl } from '../lib/explorer';
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
 const PLACEHOLDER_ADDR = '0x0000000000000000000000000000000000000001' as const;
 
 export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | null) {
   const { address } = useAccount();
+  const chainId = useChainId();
   const userAddr = address ?? PLACEHOLDER_ADDR;
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
@@ -138,7 +140,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
     if (isSuccess && hash) {
       toast.success('Liquidity operation confirmed!', {
         id: hash,
-        action: { label: 'Etherscan', onClick: () => window.open(`https://etherscan.io/tx/${hash}`, '_blank') },
+        action: { label: 'Explorer', onClick: () => window.open(getTxUrl(chainId, hash), '_blank') },
       });
       refetch();
       setTimeout(() => reset(), 4000);
