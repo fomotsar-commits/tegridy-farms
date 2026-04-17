@@ -32,15 +32,17 @@ Three scripts hardcode the pre-remediation `TegridyStaking` address. They must p
 
 **Two ways to handle this.** Pick one before you broadcast satellites (Steps 3–7):
 
-**Option A1 — one-liner sed after Step 2** (lower surface area):
+**Option A1 — one-liner sed after Step 2** (lower surface area, **SELECTED**):
 ```bash
 NEW_STAKING=0x...   # from Step 2 output
+# Sweep all four scripts in one pass (GaugeController, V3Features, TokenURIReader share 0x65D8…, VoteIncentives has a different old addr 0x6266…)
 sed -i "s/0x65D8b87917c59a0B33009493fB236bCccF1Ea421/$NEW_STAKING/g" \
   script/DeployGaugeController.s.sol \
-  script/DeployV3Features.s.sol
+  script/DeployV3Features.s.sol \
+  script/DeployTokenURIReader.s.sol
 sed -i "s/0x626644523d34B84818df602c991B4a06789C4819/$NEW_STAKING/g" \
   script/DeployVoteIncentives.s.sol
-forge build --skip test  # confirm still compiles
+forge build --skip test  # confirm still compiles (expect exit 0)
 ```
 
 **Option A2 — convert the three `address constant` lines to read env var.** Change each `address constant TEGRIDY_STAKING = 0x…;` into:
@@ -134,7 +136,7 @@ forge script script/DeployVoteIncentives.s.sol \
 ```
 
 ### Step 7 — Token URI Reader (optional; points at new staking for NFT metadata)
-Update the hardcoded `TEGRIDY_STAKING` constant in `script/DeployTokenURIReader.s.sol:8` via the same sed approach (or env refactor) before running.
+Already updated by the Step-2 sed sweep above (A1 bundles all four files).
 
 ```bash
 forge script script/DeployTokenURIReader.s.sol \
