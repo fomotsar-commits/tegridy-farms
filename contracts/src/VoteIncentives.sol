@@ -96,10 +96,49 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     struct EpochInfo {
         uint256 totalPower;      // totalBoostedStake snapshot
         uint256 timestamp;       // Snapshot timestamp (block.timestamp - 1)
+        // AUDIT H-2: commit-reveal flag. Set at advanceEpoch time from the
+        // contract-level commitRevealEnabled switch. Legacy epochs keep
+        // `usesCommitReveal == false` and continue to use the plain vote()
+        // path; new epochs after the flip use commitVote() + revealVote().
+        bool usesCommitReveal;
     }
 
     EpochInfo[] public epochs;
     uint256 public lastEpochTime;
+
+    // ─── AUDIT H-2: Commit-Reveal Voting State ───────────────────────
+    //
+    // Addresses the see-bribes-then-vote arbitrage in the plain vote() path.
+    // New epochs (flag flipped by admin) use a two-phase protocol:
+    //   Phase 1 (commit window, 40% of VOTE_DEADLINE = 4d):
+    //     voter submits keccak256(chainid, addr(this), user, epoch, pair,
+    //     power, salt) + a 10 TOWELI bond per commit. Multiple commits
+    //     per epoch allowed so voters can split power across pairs.
+    //   Phase 2 (reveal window, remaining 60% = 3d):
+    //     voter submits (pair, power, salt) matching their commit. Vote
+    //     is applied to gaugeVotes/totalGaugeVotes/userTotalVotes using
+    //     the existing accounting; bond is refunded.
+    //   Post-reveal: any bond not claimed back is forfeited to treasury
+    //     via sweepForfeitedBonds().
+    //
+    // Full design in DESIGN_H2_COMMIT_REVEAL_VOTING.md.
+    IERC20 public immutable toweli;
+    uint256 public constant COMMIT_RATIO_BPS = 4000;      // 40% of VOTE_DEADLINE
+    uint256 public constant COMMIT_BOND = 10e18;          // 10 TOWELI per commit
+
+    /// @notice Admin switch. Flip to true; next `advanceEpoch()` will flag
+    /// the new epoch `usesCommitReveal = true`. Epochs created before the
+    /// flip keep their legacy behaviour. Once flipped, leave it on.
+    bool public commitRevealEnabled;
+
+    struct CommitInfo {
+        bytes32 commitHash;  // keccak256(chainid, addr, user, epoch, pair, power, salt)
+        uint96 bond;         // TOWELI bond locked at commit time
+        bool revealed;       // true once revealVote matched
+    }
+
+    /// @notice voterCommits[user][epoch][commitIndex]
+    mapping(address => mapping(uint256 => CommitInfo[])) public voterCommits;
 
     // epochBribes[epoch][pair][token] = total bribe amount (after fee)
     mapping(uint256 => mapping(address => mapping(address => uint256))) public epochBribes;
@@ -169,6 +208,12 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     event WhitelistChangeProposed(address indexed token, bool add, uint256 executeAfter);
     event WhitelistChangeCancelled(address indexed token);
     event GaugeVoted(address indexed user, uint256 indexed epoch, address indexed pair, uint256 power);
+    // AUDIT H-2: commit-reveal events.
+    event VoteCommitted(address indexed user, uint256 indexed epoch, uint256 commitIndex, bytes32 commitHash);
+    event VoteRevealed(address indexed user, uint256 indexed epoch, uint256 commitIndex, address indexed pair, uint256 power);
+    event BondRefunded(address indexed user, uint256 indexed epoch, uint256 commitIndex, uint256 amount);
+    event BondForfeited(address indexed user, uint256 indexed epoch, uint256 commitIndex, uint256 amount);
+    event CommitRevealEnabled(bool enabled);
 
     // ─── Errors ──────────────────────────────────────────────────────
     error ZeroAddress();
@@ -186,6 +231,18 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     error StakingPaused();
     error TooManyUnclaimedEpochs();
     error VoteDeadlinePassed();  // SECURITY FIX: Cannot vote after deadline
+    // AUDIT H-2: commit-reveal errors.
+    error LegacyVoteOnCommitRevealEpoch();
+    error NotCommitRevealEpoch();
+    error CommitDeadlinePassed();
+    error CommitWindowNotOpen();
+    error RevealWindowNotOpen();
+    error RevealWindowClosed();
+    error CommitNotFound();
+    error AlreadyRevealed();
+    error CommitHashMismatch();
+    error BondStillLocked();
+    error BondAlreadyClaimed();
 
     // ─── Legacy View Helpers (for test/frontend compatibility) ───────
     function feeChangeTime() external view returns (uint256) { return _executeAfter[FEE_CHANGE]; }
@@ -199,13 +256,15 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         address _treasury,
         address _weth,
         address _factory,
+        address _toweli,
         uint256 _bribeFeeBps
     ) OwnableNoRenounce(msg.sender) {
-        if (_votingEscrow == address(0) || _treasury == address(0) || _weth == address(0) || _factory == address(0)) revert ZeroAddress();
+        if (_votingEscrow == address(0) || _treasury == address(0) || _weth == address(0) || _factory == address(0) || _toweli == address(0)) revert ZeroAddress();
         if (_bribeFeeBps > MAX_FEE_BPS) revert FeeTooHigh();
         votingEscrow = IVotingEscrow(_votingEscrow);
         weth = IWETH(_weth);
         factory = ITegridyFactory(_factory);
+        toweli = IERC20(_toweli);
         treasury = _treasury;
         bribeFeeBps = _bribeFeeBps;
     }
@@ -225,7 +284,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
         epochs.push(EpochInfo({
             totalPower: totalPower,
-            timestamp: snapshotTime
+            timestamp: snapshotTime,
+            usesCommitReveal: commitRevealEnabled
         }));
 
         lastEpochTime = block.timestamp;
@@ -257,6 +317,10 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (power == 0) revert ZeroAmount();
 
         EpochInfo memory ep = epochs[epoch];
+        // AUDIT H-2: epochs tagged with usesCommitReveal MUST use the
+        // commitVote() + revealVote() pair; plain vote() is disabled for
+        // them to prevent the bribery-arbitrage bypass.
+        if (ep.usesCommitReveal) revert LegacyVoteOnCommitRevealEpoch();
         // SECURITY FIX: Enforce voting deadline — prevents retroactive vote gaming after seeing bribes.
         // Pattern: Aerodrome/Velodrome — votes must be cast within VOTE_DEADLINE of epoch snapshot.
         if (block.timestamp > ep.timestamp + VOTE_DEADLINE) revert VoteDeadlinePassed();
@@ -788,4 +852,170 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     }
 
     receive() external payable {}
+
+    // ═══════════════════════════════════════════════════════════════════
+    // AUDIT H-2: Commit-Reveal Voting
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// @notice Timestamp after which no new commits are accepted for `epoch`.
+    ///         Equal to snapshot + 40% of VOTE_DEADLINE (= 2.8 days default).
+    function commitDeadline(uint256 epoch) public view returns (uint256) {
+        if (epoch >= epochs.length) revert InvalidEpoch();
+        return epochs[epoch].timestamp + (VOTE_DEADLINE * COMMIT_RATIO_BPS) / BPS;
+    }
+
+    /// @notice Timestamp after which no reveals are accepted. Equal to
+    ///         snapshot + VOTE_DEADLINE (= same total window as legacy vote).
+    function revealDeadline(uint256 epoch) public view returns (uint256) {
+        if (epoch >= epochs.length) revert InvalidEpoch();
+        return epochs[epoch].timestamp + VOTE_DEADLINE;
+    }
+
+    /// @notice Number of commits the user has placed on this epoch.
+    function voterCommitCount(address user, uint256 epoch) external view returns (uint256) {
+        return voterCommits[user][epoch].length;
+    }
+
+    /// @notice Compute the canonical commit hash off-chain in the same way the
+    ///         contract will validate on reveal. chainid + address(this) bind
+    ///         the commit to this deployment — no cross-chain or cross-contract
+    ///         replay is possible.
+    function computeCommitHash(
+        address user,
+        uint256 epoch,
+        address pair,
+        uint256 power,
+        bytes32 salt
+    ) public view returns (bytes32) {
+        return keccak256(abi.encode(block.chainid, address(this), user, epoch, pair, power, salt));
+    }
+
+    /// @notice Phase 1: commit a vote. Transfers COMMIT_BOND (10 TOWELI) in.
+    ///         Caller must approve the contract for COMMIT_BOND first.
+    ///         Multiple commits per epoch allowed — each reveals independently
+    ///         with its own bond.
+    /// @param epoch      The commit-reveal epoch to vote in.
+    /// @param commitHash computeCommitHash(msg.sender, epoch, pair, power, salt).
+    /// @return commitIndex The index of this commit in voterCommits[user][epoch].
+    function commitVote(uint256 epoch, bytes32 commitHash) external nonReentrant whenNotPaused returns (uint256 commitIndex) {
+        if (epoch >= epochs.length) revert InvalidEpoch();
+        EpochInfo memory ep = epochs[epoch];
+        if (!ep.usesCommitReveal) revert NotCommitRevealEpoch();
+        if (block.timestamp <= ep.timestamp) revert CommitWindowNotOpen();
+        if (block.timestamp > commitDeadline(epoch)) revert CommitDeadlinePassed();
+
+        // Voter needs at least the snapshot-time voting power to participate.
+        // (We don't know at commit time which pair — that's the point — but
+        // we do check that they had any power. Cap enforcement happens at reveal.)
+        if (votingEscrow.votingPowerAtTimestamp(msg.sender, ep.timestamp) == 0) revert NothingToClaim();
+
+        // Transfer bond. Balance-diff safe against FoT TOWELI (unlikely but
+        // defensive — matches the depositBribe() pattern elsewhere in this file).
+        uint256 balBefore = toweli.balanceOf(address(this));
+        toweli.safeTransferFrom(msg.sender, address(this), COMMIT_BOND);
+        uint256 received = toweli.balanceOf(address(this)) - balBefore;
+        if (received < COMMIT_BOND) revert ZeroAmount();
+
+        commitIndex = voterCommits[msg.sender][epoch].length;
+        voterCommits[msg.sender][epoch].push(CommitInfo({
+            commitHash: commitHash,
+            bond: uint96(COMMIT_BOND),
+            revealed: false
+        }));
+        emit VoteCommitted(msg.sender, epoch, commitIndex, commitHash);
+    }
+
+    /// @notice Phase 2: reveal a prior commit. Applies the vote to the gauge
+    ///         accounting and refunds the bond.
+    /// @param epoch       The epoch this commit was placed in.
+    /// @param commitIndex Index returned by commitVote.
+    /// @param pair        Pair chosen at commit time.
+    /// @param power       Voting power allocated to that pair at commit time.
+    /// @param salt        Random 32 bytes used at commit time.
+    function revealVote(
+        uint256 epoch,
+        uint256 commitIndex,
+        address pair,
+        uint256 power,
+        bytes32 salt
+    ) external nonReentrant whenNotPaused {
+        if (epoch >= epochs.length) revert InvalidEpoch();
+        EpochInfo memory ep = epochs[epoch];
+        if (!ep.usesCommitReveal) revert NotCommitRevealEpoch();
+
+        uint256 cd = commitDeadline(epoch);
+        uint256 rd = revealDeadline(epoch);
+        if (block.timestamp <= cd) revert RevealWindowNotOpen();
+        if (block.timestamp > rd) revert RevealWindowClosed();
+
+        CommitInfo[] storage commits = voterCommits[msg.sender][epoch];
+        if (commitIndex >= commits.length) revert CommitNotFound();
+        CommitInfo storage c = commits[commitIndex];
+        if (c.revealed) revert AlreadyRevealed();
+
+        bytes32 expected = computeCommitHash(msg.sender, epoch, pair, power, salt);
+        if (expected != c.commitHash) revert CommitHashMismatch();
+
+        if (pair == address(0)) revert InvalidPair();
+        if (power == 0) revert ZeroAmount();
+
+        // Same cap enforcement as legacy vote(): total across all commits +
+        // legacy votes in this epoch cannot exceed user's snapshot voting power.
+        uint256 userPower = votingEscrow.votingPowerAtTimestamp(msg.sender, ep.timestamp);
+        if (userPower == 0) revert NothingToClaim();
+        require(userTotalVotes[msg.sender][epoch] + power <= userPower, "EXCEEDS_POWER");
+
+        // Apply vote (same effect as legacy vote()).
+        gaugeVotes[msg.sender][epoch][pair] += power;
+        totalGaugeVotes[epoch][pair] += power;
+        userTotalVotes[msg.sender][epoch] += power;
+
+        // Mark revealed + refund bond (CEI: state first, transfer last).
+        c.revealed = true;
+        uint96 bond = c.bond;
+        c.bond = 0;
+
+        emit VoteRevealed(msg.sender, epoch, commitIndex, pair, power);
+        emit GaugeVoted(msg.sender, epoch, pair, power);
+
+        if (bond > 0) {
+            toweli.safeTransfer(msg.sender, bond);
+            emit BondRefunded(msg.sender, epoch, commitIndex, bond);
+        }
+    }
+
+    /// @notice Sweep un-revealed bonds past revealDeadline to treasury. Callable
+    ///         by anyone — permissionless clean-up, same pattern as advanceEpoch.
+    /// @param user        Voter whose commits to check.
+    /// @param epoch       Epoch index.
+    /// @param commitIndex Specific commit index (callers iterate off-chain to
+    ///                    keep per-call gas bounded).
+    function sweepForfeitedBond(address user, uint256 epoch, uint256 commitIndex) external nonReentrant whenNotPaused {
+        if (epoch >= epochs.length) revert InvalidEpoch();
+        EpochInfo memory ep = epochs[epoch];
+        if (!ep.usesCommitReveal) revert NotCommitRevealEpoch();
+        if (block.timestamp <= revealDeadline(epoch)) revert BondStillLocked();
+
+        CommitInfo[] storage commits = voterCommits[user][epoch];
+        if (commitIndex >= commits.length) revert CommitNotFound();
+        CommitInfo storage c = commits[commitIndex];
+        if (c.revealed) revert AlreadyRevealed();  // already refunded to user
+        uint96 bond = c.bond;
+        if (bond == 0) revert BondAlreadyClaimed();
+
+        c.bond = 0;
+        toweli.safeTransfer(treasury, bond);
+        emit BondForfeited(user, epoch, commitIndex, bond);
+    }
+
+    /// @notice Admin: flip the commit-reveal switch. New epochs after the flip
+    ///         will use commit-reveal; prior epochs keep legacy vote() behavior.
+    ///         Once enabled there is currently no path to disable — this is a
+    ///         forward-only migration by design (flipping back would let an
+    ///         attacker race the toggle).
+    function enableCommitReveal() external onlyOwner {
+        if (commitRevealEnabled) return; // idempotent; no-op if already on
+        commitRevealEnabled = true;
+        emit CommitRevealEnabled(true);
+    }
 }

@@ -130,7 +130,7 @@ contract VoteIncentivesTest is Test {
         pair = address(mockPair);
         factory.registerPair(t0, t1, pair);
 
-        vi = new VoteIncentives(address(ve), treasury, address(weth), address(factory), 300); // 3% fee
+        vi = new VoteIncentives(address(ve), treasury, address(weth), address(factory), address(bribeToken), 300); // 3% fee, bond in bribeToken for tests
 
         // Setup voting power
         ve.setVotingPower(alice, 7000e18);
@@ -156,12 +156,12 @@ contract VoteIncentivesTest is Test {
 
     function test_constructor_reverts_zero_address() public {
         vm.expectRevert(VoteIncentives.ZeroAddress.selector);
-        new VoteIncentives(address(0), treasury, address(weth), address(factory), 300);
+        new VoteIncentives(address(0), treasury, address(weth), address(factory), address(bribeToken), 300);
     }
 
     function test_constructor_reverts_fee_too_high() public {
         vm.expectRevert(VoteIncentives.FeeTooHigh.selector);
-        new VoteIncentives(address(ve), treasury, address(weth), address(factory), 600);
+        new VoteIncentives(address(ve), treasury, address(weth), address(factory), address(bribeToken), 600);
     }
 
     // ─── Epoch Management ────────────────────────────────────────────
@@ -186,7 +186,7 @@ contract VoteIncentivesTest is Test {
 
     function test_advanceEpoch_reverts_no_stakers() public {
         MockVE emptyVE = new MockVE();
-        VoteIncentives vi2 = new VoteIncentives(address(emptyVE), treasury, address(weth), address(factory), 300);
+        VoteIncentives vi2 = new VoteIncentives(address(emptyVE), treasury, address(weth), address(factory), address(bribeToken), 300);
         vm.expectRevert(VoteIncentives.NoStakers.selector);
         vi2.advanceEpoch();
     }
@@ -583,6 +583,204 @@ contract VoteIncentivesTest is Test {
         uint256 netBribe = uint256(amount) - (uint256(amount) * 300 / 10000);
         uint256 expected = (netBribe * 7000e18) / 10000e18;
         assertApproxEqAbs(claimed, expected, 1e18); // Allow rounding
+    }
+
+    // ─── AUDIT H-2: Commit-Reveal Voting ───────────────────────────────
+    //
+    // Walks the full commit→reveal→vote-applied→bond-refunded flow, plus
+    // the per-phase revert cases. Uses `bribeToken` as the bond token (set
+    // in setUp via constructor) so the existing setup transfers to alice+bob
+    // give them enough balance to cover bonds (10 TOWELI each).
+
+    function _enableCommitReveal() internal returns (uint256 epochId) {
+        vi.enableCommitReveal();
+        vi.advanceEpoch();
+        epochId = vi.epochCount() - 1;
+        // epochs[epochId].timestamp = block.timestamp - 1 (set in advanceEpoch).
+        // Move forward 1s so we're strictly after snapshot for commit window.
+        vm.warp(block.timestamp + 1);
+    }
+
+    function test_h2_commitReveal_happyPath() public {
+        uint256 epochId = _enableCommitReveal();
+
+        bytes32 salt = bytes32(uint256(0xdeadbeef));
+        uint256 power = 7000e18;
+        bytes32 commitHash = vi.computeCommitHash(alice, epochId, pair, power, salt);
+
+        uint256 aliceBalBefore = bribeToken.balanceOf(alice);
+        vm.startPrank(alice);
+        bribeToken.approve(address(vi), vi.COMMIT_BOND());
+        uint256 commitIndex = vi.commitVote(epochId, commitHash);
+        vm.stopPrank();
+        assertEq(commitIndex, 0);
+        assertEq(bribeToken.balanceOf(alice), aliceBalBefore - vi.COMMIT_BOND());
+
+        vm.warp(vi.commitDeadline(epochId) + 1);
+
+        vm.prank(alice);
+        vi.revealVote(epochId, commitIndex, pair, power, salt);
+
+        assertEq(vi.gaugeVotes(alice, epochId, pair), power);
+        assertEq(vi.totalGaugeVotes(epochId, pair), power);
+        assertEq(bribeToken.balanceOf(alice), aliceBalBefore);
+    }
+
+    function test_h2_commitReveal_multipleCommits_splitVote() public {
+        uint256 epochId = _enableCommitReveal();
+
+        address t0 = address(0x3333);
+        address t1 = address(0x4444);
+        MockPair pair2Contract = new MockPair(t0, t1);
+        factory.registerPair(t0, t1, address(pair2Contract));
+
+        bytes32 salt1 = bytes32(uint256(1));
+        bytes32 salt2 = bytes32(uint256(2));
+        bytes32 h1 = vi.computeCommitHash(alice, epochId, pair, 3000e18, salt1);
+        bytes32 h2 = vi.computeCommitHash(alice, epochId, address(pair2Contract), 4000e18, salt2);
+
+        vm.startPrank(alice);
+        bribeToken.approve(address(vi), vi.COMMIT_BOND() * 2);
+        uint256 c1 = vi.commitVote(epochId, h1);
+        uint256 c2 = vi.commitVote(epochId, h2);
+        vm.stopPrank();
+
+        vm.warp(vi.commitDeadline(epochId) + 1);
+
+        vm.startPrank(alice);
+        vi.revealVote(epochId, c1, pair, 3000e18, salt1);
+        vi.revealVote(epochId, c2, address(pair2Contract), 4000e18, salt2);
+        vm.stopPrank();
+
+        assertEq(vi.gaugeVotes(alice, epochId, pair), 3000e18);
+        assertEq(vi.gaugeVotes(alice, epochId, address(pair2Contract)), 4000e18);
+        assertEq(vi.userTotalVotes(alice, epochId), 7000e18);
+    }
+
+    function test_h2_legacyVoteRejectedOnCommitRevealEpoch() public {
+        uint256 epochId = _enableCommitReveal();
+        vm.prank(alice);
+        vm.expectRevert(VoteIncentives.LegacyVoteOnCommitRevealEpoch.selector);
+        vi.vote(epochId, pair, 7000e18);
+    }
+
+    function test_h2_commitRevertsAfterCommitDeadline() public {
+        uint256 epochId = _enableCommitReveal();
+        vm.warp(vi.commitDeadline(epochId) + 1);
+        bytes32 h = vi.computeCommitHash(alice, epochId, pair, 7000e18, bytes32(uint256(1)));
+        vm.startPrank(alice);
+        bribeToken.approve(address(vi), vi.COMMIT_BOND());
+        vm.expectRevert(VoteIncentives.CommitDeadlinePassed.selector);
+        vi.commitVote(epochId, h);
+        vm.stopPrank();
+    }
+
+    function test_h2_revealRevertsBeforeCommitDeadline() public {
+        uint256 epochId = _enableCommitReveal();
+        bytes32 salt = bytes32(uint256(1));
+        bytes32 h = vi.computeCommitHash(alice, epochId, pair, 7000e18, salt);
+        vm.startPrank(alice);
+        bribeToken.approve(address(vi), vi.COMMIT_BOND());
+        uint256 idx = vi.commitVote(epochId, h);
+        vm.expectRevert(VoteIncentives.RevealWindowNotOpen.selector);
+        vi.revealVote(epochId, idx, pair, 7000e18, salt);
+        vm.stopPrank();
+    }
+
+    function test_h2_revealRevertsAfterRevealDeadline() public {
+        uint256 epochId = _enableCommitReveal();
+        bytes32 salt = bytes32(uint256(1));
+        bytes32 h = vi.computeCommitHash(alice, epochId, pair, 7000e18, salt);
+        vm.startPrank(alice);
+        bribeToken.approve(address(vi), vi.COMMIT_BOND());
+        uint256 idx = vi.commitVote(epochId, h);
+        vm.stopPrank();
+        vm.warp(vi.revealDeadline(epochId) + 1);
+        vm.prank(alice);
+        vm.expectRevert(VoteIncentives.RevealWindowClosed.selector);
+        vi.revealVote(epochId, idx, pair, 7000e18, salt);
+    }
+
+    function test_h2_revealRevertsOnWrongSalt() public {
+        uint256 epochId = _enableCommitReveal();
+        bytes32 salt = bytes32(uint256(0xAA));
+        bytes32 h = vi.computeCommitHash(alice, epochId, pair, 7000e18, salt);
+        vm.startPrank(alice);
+        bribeToken.approve(address(vi), vi.COMMIT_BOND());
+        uint256 idx = vi.commitVote(epochId, h);
+        vm.stopPrank();
+        vm.warp(vi.commitDeadline(epochId) + 1);
+        vm.prank(alice);
+        vm.expectRevert(VoteIncentives.CommitHashMismatch.selector);
+        vi.revealVote(epochId, idx, pair, 7000e18, bytes32(uint256(0xBB)));
+    }
+
+    function test_h2_doubleReveal_reverts() public {
+        uint256 epochId = _enableCommitReveal();
+        bytes32 salt = bytes32(uint256(0xCC));
+        bytes32 h = vi.computeCommitHash(alice, epochId, pair, 7000e18, salt);
+        vm.startPrank(alice);
+        bribeToken.approve(address(vi), vi.COMMIT_BOND());
+        uint256 idx = vi.commitVote(epochId, h);
+        vm.stopPrank();
+        vm.warp(vi.commitDeadline(epochId) + 1);
+        vm.startPrank(alice);
+        vi.revealVote(epochId, idx, pair, 7000e18, salt);
+        vm.expectRevert(VoteIncentives.AlreadyRevealed.selector);
+        vi.revealVote(epochId, idx, pair, 7000e18, salt);
+        vm.stopPrank();
+    }
+
+    function test_h2_sweepForfeitedBond_transfersToTreasury() public {
+        uint256 epochId = _enableCommitReveal();
+        bytes32 h = vi.computeCommitHash(alice, epochId, pair, 7000e18, bytes32(uint256(0xDD)));
+        vm.startPrank(alice);
+        bribeToken.approve(address(vi), vi.COMMIT_BOND());
+        uint256 idx = vi.commitVote(epochId, h);
+        vm.stopPrank();
+
+        vm.warp(vi.revealDeadline(epochId) + 1);
+
+        uint256 treasuryBefore = bribeToken.balanceOf(treasury);
+        vi.sweepForfeitedBond(alice, epochId, idx);
+        assertEq(bribeToken.balanceOf(treasury), treasuryBefore + vi.COMMIT_BOND());
+    }
+
+    function test_h2_sweepForfeitedBond_revertsBeforeRevealDeadline() public {
+        uint256 epochId = _enableCommitReveal();
+        bytes32 h = vi.computeCommitHash(alice, epochId, pair, 7000e18, bytes32(uint256(0xEE)));
+        vm.startPrank(alice);
+        bribeToken.approve(address(vi), vi.COMMIT_BOND());
+        uint256 idx = vi.commitVote(epochId, h);
+        vm.stopPrank();
+
+        vm.expectRevert(VoteIncentives.BondStillLocked.selector);
+        vi.sweepForfeitedBond(alice, epochId, idx);
+    }
+
+    function test_h2_sweepForfeitedBond_revertsOnRevealedCommit() public {
+        uint256 epochId = _enableCommitReveal();
+        bytes32 salt = bytes32(uint256(0xFF));
+        bytes32 h = vi.computeCommitHash(alice, epochId, pair, 7000e18, salt);
+        vm.startPrank(alice);
+        bribeToken.approve(address(vi), vi.COMMIT_BOND());
+        uint256 idx = vi.commitVote(epochId, h);
+        vm.stopPrank();
+        vm.warp(vi.commitDeadline(epochId) + 1);
+        vm.prank(alice);
+        vi.revealVote(epochId, idx, pair, 7000e18, salt);
+        vm.warp(vi.revealDeadline(epochId) + 1);
+
+        vm.expectRevert(VoteIncentives.AlreadyRevealed.selector);
+        vi.sweepForfeitedBond(alice, epochId, idx);
+    }
+
+    function test_h2_commitHashIsChainBound() public {
+        uint256 epochId = _enableCommitReveal();
+        bytes32 salt = bytes32(uint256(0x1234));
+        bytes32 got = vi.computeCommitHash(alice, epochId, pair, 7000e18, salt);
+        bytes32 expected = keccak256(abi.encode(block.chainid, address(vi), alice, epochId, pair, 7000e18, salt));
+        assertEq(got, expected);
     }
 
     receive() external payable {}

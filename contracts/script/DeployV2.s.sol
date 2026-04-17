@@ -65,6 +65,7 @@ contract DeployV2Script is Script {
             TREASURY,
             WETH,
             TEGRIDY_FACTORY,
+            TOWELI,            // AUDIT H-2: commit-reveal bond token
             BRIBE_FEE_BPS
         );
         console.log("2. VoteIncentives V2:", address(voteIncentives));
