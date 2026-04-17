@@ -38,7 +38,7 @@ export function PriceAlertWidget() {
               </span>
             )}
           </div>
-          <span className="text-white/50 text-[12px]">{open ? '\u25B2' : '\u25BC'}</span>
+          <span className="text-white/70 text-[12px]">{open ? '\u25B2' : '\u25BC'}</span>
         </button>
 
         {open && (

@@ -739,7 +739,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
         {/* Buy: Quantity Selector */}
         {mode === 'buy' && (
           <div className="mb-5">
-            <label className={`${labelClass} mb-2 block`}>Quantity <span className="normal-case tracking-normal text-white/50">(max 10)</span></label>
+            <label className={`${labelClass} mb-2 block`}>Quantity <span className="normal-case tracking-normal text-white/70">(max 10)</span></label>
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setBuyQty(Math.max(1, buyQty - 1))}
@@ -1158,7 +1158,7 @@ function PoolCard({
             <>
               <button
                 onClick={() => setExpanded(!expanded)}
-                className="w-full text-left text-xs text-white/50 hover:text-white/80 transition-colors font-medium py-2 flex items-center gap-1.5"
+                className="w-full text-left text-xs text-white/70 hover:text-white/80 transition-colors font-medium py-2 flex items-center gap-1.5"
               >
                 <svg
                   className={`w-3 h-3 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
@@ -1327,7 +1327,7 @@ function PoolExplorer({ deployed }: { deployed: boolean }) {
         {validSearch && !isFetchingPools && poolList.length === 0 && (
           <div className="text-center py-10">
             <p className="text-sm text-white">No pools found for this collection.</p>
-            <p className="text-xs text-white/40 mt-1">Be the first! Create a pool in the Create Pool tab.</p>
+            <p className="text-xs text-white/70 mt-1">Be the first! Create a pool in the Create Pool tab.</p>
           </div>
         )}
 
@@ -1456,7 +1456,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                   num
                 )}
               </div>
-              <span className={`text-xs font-medium hidden sm:block ${isActive ? 'text-white' : 'text-white/50'}`}>
+              <span className={`text-xs font-medium hidden sm:block ${isActive ? 'text-white' : 'text-white/70'}`}>
                 {label}
               </span>
               {i < stepLabels.length - 1 && (

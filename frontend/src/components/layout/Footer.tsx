@@ -99,7 +99,7 @@ export function Footer() {
                 { to: '/privacy', label: 'Privacy' },
                 { to: '/risks', label: 'Risks' },
               ].map((l) => (
-                <Link key={l.to} to={l.to} className="block text-white/40 text-[11px] hover:text-white/60 transition-colors">
+                <Link key={l.to} to={l.to} className="block text-white/70 text-[11px] hover:text-white/60 transition-colors">
                   {l.label}
                 </Link>
               ))}
@@ -111,7 +111,7 @@ export function Footer() {
         <div className="accent-divider" />
         <div className="py-5 flex flex-col md:flex-row items-center justify-between gap-3">
           <span className="text-white text-[11px]">
-            Experimental protocol. Use at your own risk. Not financial advice. <Link to="/risks" className="text-white/40 hover:text-white/60 underline">Risk Disclosure</Link> · <Link to="/security" className="text-white/40 hover:text-white/60 underline">Security</Link>
+            Experimental protocol. Use at your own risk. Not financial advice. <Link to="/risks" className="text-white/70 hover:text-white/60 underline">Risk Disclosure</Link> · <Link to="/security" className="text-white/70 hover:text-white/60 underline">Security</Link>
           </span>
           <span className="text-white/15 text-[11px]">
             © 2026 Tegridy Farms

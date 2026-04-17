@@ -139,7 +139,7 @@ export function HowItWorks({
           </span>
         </span>
         <svg
-          className={`w-4 h-4 text-white/40 transition-transform duration-300 ${open ? 'rotate-180' : ''}`}
+          className={`w-4 h-4 text-white/70 transition-transform duration-300 ${open ? 'rotate-180' : ''}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -163,7 +163,7 @@ export function HowItWorks({
                 </span>
                 <div>
                   <p className="text-[12px] font-semibold text-white/90 mb-0.5">{step.label}</p>
-                  <p className="text-[11px] text-white/50 leading-relaxed">{step.description}</p>
+                  <p className="text-[11px] text-white/70 leading-relaxed">{step.description}</p>
                 </div>
               </div>
             ))}

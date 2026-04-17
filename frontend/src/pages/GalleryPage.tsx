@@ -81,7 +81,7 @@ export default function GalleryPage() {
 
         {sortedPieces.length === 0 ? (
           <div className="rounded-xl p-8 text-center" style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' }}>
-            <p className="text-white/40 text-[13px]">No gallery pieces available right now.</p>
+            <p className="text-white/70 text-[13px]">No gallery pieces available right now.</p>
             <p className="text-white/25 text-[11px] mt-1">Check back soon — new artwork is added regularly.</p>
           </div>
         ) : (

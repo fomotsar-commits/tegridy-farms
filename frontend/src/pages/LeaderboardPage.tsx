@@ -138,7 +138,7 @@ export default function LeaderboardPage() {
         {!isConnected && (
           <motion.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
             <div className="rounded-xl p-8 text-center" style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' }}>
-              <p className="text-white/40 text-[13px]">No participants yet. Stake TOWELI to earn your first points!</p>
+              <p className="text-white/70 text-[13px]">No participants yet. Stake TOWELI to earn your first points!</p>
               <p className="text-white/25 text-[11px] mt-1">Connect your wallet to start earning points, badges, and tier rewards.</p>
             </div>
           </motion.div>

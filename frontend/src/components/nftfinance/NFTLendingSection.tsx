@@ -170,7 +170,7 @@ export function NFTLendingSection() {
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`relative flex-1 min-h-[44px] rounded-lg text-[13px] font-medium transition-colors ${
-              activeTab === tab ? 'text-white' : 'text-white/50 hover:text-white/70'
+              activeTab === tab ? 'text-white' : 'text-white/70 hover:text-white/70'
             }`}
           >
             {activeTab === tab && (
@@ -331,7 +331,7 @@ function LendTab() {
               className={`min-h-[44px] px-4 py-2 rounded-xl text-[13px] font-medium transition-all ${
                 duration === d.seconds
                   ? 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-400'
-                  : 'border border-white/5 text-white/50 hover:text-white/70 hover:border-white/15'
+                  : 'border border-white/5 text-white/70 hover:text-white/70 hover:border-white/15'
               }`}
               style={duration !== d.seconds ? { background: CARD_BG } : undefined}
             >
@@ -351,7 +351,7 @@ function LendTab() {
         >
           <p className="text-white/50 text-[11px] uppercase tracking-wider mb-1">Estimated Interest Earned</p>
           <p className="text-emerald-400 text-xl font-semibold">{interestPreview} ETH</p>
-          <p className="text-white/40 text-[11px] mt-1">
+          <p className="text-white/70 text-[11px] mt-1">
             {principal} ETH at {bpsToPercent(parseInt(aprBps))}% APR for {formatDuration(duration)}
           </p>
         </motion.div>
@@ -466,7 +466,7 @@ function BorrowTab({ offerCount }: { offerCount: number }) {
             className={`min-h-[44px] px-4 py-2 rounded-xl text-[13px] font-medium transition-all ${
               filter === f
                 ? 'bg-purple-500/15 border border-purple-500/40 text-purple-400'
-                : 'border border-white/5 text-white/50 hover:text-white/70 hover:border-white/15'
+                : 'border border-white/5 text-white/70 hover:text-white/70 hover:border-white/15'
             }`}
             style={filter !== f ? { background: CARD_BG } : undefined}
           >
@@ -494,13 +494,13 @@ function BorrowTab({ offerCount }: { offerCount: number }) {
 
       {/* Offers */}
       {offersLoading ? (
-        <div className="text-center py-12 text-white/40 text-[13px]">Loading offers...</div>
+        <div className="text-center py-12 text-white/70 text-[13px]">Loading offers...</div>
       ) : filteredOffers.length === 0 ? (
         <div
           className="rounded-xl p-8 text-center"
           style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
         >
-          <p className="text-white/40 text-[13px]">No offers {filter !== 'all' ? `for ${filter} ` : ''}yet.</p>
+          <p className="text-white/70 text-[13px]">No offers {filter !== 'all' ? `for ${filter} ` : ''}yet.</p>
           <p className="text-white/25 text-[11px] mt-1">Be the first! Switch to the Lend tab to create an offer.</p>
         </div>
       ) : (
@@ -592,27 +592,27 @@ function OfferCard({
     >
       <div className="p-3 md:p-5 space-y-3">
         <div className="flex items-center justify-between">
-          <span className="text-white/40 text-[11px] font-mono">Offer #{offer.id}</span>
+          <span className="text-white/70 text-[11px] font-mono">Offer #{offer.id}</span>
           <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
             {collectionName(offer.collateralContract)}
           </span>
         </div>
         <div>
           <p className="text-white text-xl font-semibold">{parseFloat(formatEther(offer.principal)).toFixed(4)} ETH</p>
-          <p className="text-white/40 text-[11px]">Principal</p>
+          <p className="text-white/70 text-[11px]">Principal</p>
         </div>
         <div className="grid grid-cols-3 gap-2">
           <div>
             <p className="text-emerald-400 text-[13px] font-medium">{bpsToPercent(Number(offer.aprBps))}%</p>
-            <p className="text-white/40 text-[11px]">APR</p>
+            <p className="text-white/70 text-[11px]">APR</p>
           </div>
           <div>
             <p className="text-purple-400 text-[13px] font-medium">{formatDuration(Number(offer.duration))}</p>
-            <p className="text-white/40 text-[11px]">Duration</p>
+            <p className="text-white/70 text-[11px]">Duration</p>
           </div>
           <div className="truncate">
             <p className="text-white/60 text-[13px] font-mono truncate">{shortenAddress(offer.lender)}</p>
-            <p className="text-white/40 text-[11px]">Lender</p>
+            <p className="text-white/70 text-[11px]">Lender</p>
           </div>
         </div>
       </div>
@@ -654,7 +654,7 @@ function OfferCard({
                       <>
                         You'll lock <span className="font-mono text-white font-semibold">{collectionName(offer.collateralContract)} #{tokenId}</span> and receive <span className="font-mono text-white font-semibold">{principalEth.toFixed(4)} ETH</span>.
                         Total repayment: <span className="font-mono text-emerald-400 font-semibold">{totalRepay.toFixed(6)} ETH</span> ({principalEth.toFixed(4)} + {maxInterest.toFixed(6)} interest over {formatDuration(Number(offer.duration))}).
-                        <span className="block text-[11px] text-white/50 mt-1">Repay early to save — interest is pro-rata.</span>
+                        <span className="block text-[11px] text-white/70 mt-1">Repay early to save — interest is pro-rata.</span>
                       </>
                     );
                   })()}
@@ -761,13 +761,13 @@ function MyLoansTab({ loanCount }: { loanCount: number }) {
         className="rounded-xl p-8 text-center"
         style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
       >
-        <p className="text-white/40 text-[13px]">Connect your wallet to view your loans.</p>
+        <p className="text-white/70 text-[13px]">Connect your wallet to view your loans.</p>
       </div>
     );
   }
 
   if (loansLoading) {
-    return <div className="text-center py-12 text-white/40 text-[13px]">Loading loans...</div>;
+    return <div className="text-center py-12 text-white/70 text-[13px]">Loading loans...</div>;
   }
 
   if (myLoans.length === 0) {
@@ -776,7 +776,7 @@ function MyLoansTab({ loanCount }: { loanCount: number }) {
         className="rounded-xl p-8 text-center"
         style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
       >
-        <p className="text-white/40 text-[13px]">No loans yet.</p>
+        <p className="text-white/70 text-[13px]">No loans yet.</p>
         <p className="text-white/25 text-[11px] mt-1">Browse available offers in the Borrow tab to get started, or create your own in the Lend tab!</p>
       </div>
     );
@@ -864,7 +864,7 @@ function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; user
     >
       {/* Header */}
       <div className="flex items-center justify-between">
-        <span className="text-white/40 text-[11px] font-mono">Loan #{loan.id}</span>
+        <span className="text-white/70 text-[11px] font-mono">Loan #{loan.id}</span>
         <div className="flex items-center gap-2">
           <span
             className={`text-[11px] px-2 py-0.5 rounded-full border ${colors.text} ${colors.border}`}
@@ -885,20 +885,20 @@ function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; user
       {/* Info */}
       <div>
         <p className="text-white text-xl font-semibold">{parseFloat(formatEther(loan.principal)).toFixed(4)} ETH</p>
-        <p className="text-white/40 text-[11px]">Principal</p>
+        <p className="text-white/70 text-[11px]">Principal</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <div>
           <p className="text-emerald-400 text-[13px] font-medium">{bpsToPercent(Number(loan.aprBps))}%</p>
-          <p className="text-white/40 text-[11px]">APR</p>
+          <p className="text-white/70 text-[11px]">APR</p>
         </div>
         <div>
           <p className="text-purple-400 text-[13px] font-medium">{collectionName(loan.collateralContract)}</p>
-          <p className="text-white/40 text-[11px]">Collection</p>
+          <p className="text-white/70 text-[11px]">Collection</p>
         </div>
         <div>
           <p className="text-white/70 text-[13px] font-mono">#{loan.tokenId.toString()}</p>
-          <p className="text-white/40 text-[11px]">Token</p>
+          <p className="text-white/70 text-[11px]">Token</p>
         </div>
       </div>
 
@@ -911,7 +911,7 @@ function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; user
             border: `1px solid ${status === 'overdue' ? 'rgba(234,179,8,0.2)' : 'var(--color-purple-15)'}`,
           }}
         >
-          <p className={`text-[11px] ${status === 'overdue' ? 'text-yellow-400' : 'text-white/50'}`}>
+          <p className={`text-[11px] ${status === 'overdue' ? 'text-yellow-400' : 'text-white/70'}`}>
             {status === 'overdue' ? 'OVERDUE' : 'Time Remaining'}
           </p>
           <p className={`text-[13px] font-semibold ${status === 'overdue' ? 'text-yellow-400' : 'text-white'}`}>
@@ -923,7 +923,7 @@ function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; user
       {/* Repayment Amount */}
       {isBorrower && status === 'active' && repaymentData && (
         <div className="rounded-lg p-2 text-center" style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)' }}>
-          <p className="text-white/50 text-[11px]">Repayment Amount</p>
+          <p className="text-white/70 text-[11px]">Repayment Amount</p>
           <p className="text-emerald-400 text-[13px] font-semibold">
             {parseFloat(formatEther(repaymentData as bigint)).toFixed(6)} ETH
           </p>

@@ -37,7 +37,7 @@ export function GaugeVoting() {
     return (
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
         className="rounded-2xl p-6 text-center" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-        <p className="text-white/50 text-sm">Gauge controller not deployed yet</p>
+        <p className="text-white/70 text-sm">Gauge controller not deployed yet</p>
       </motion.div>
     );
   }
@@ -120,7 +120,7 @@ export function GaugeVoting() {
     return (
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
         className="rounded-2xl p-6 text-center" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-        <p className="text-white/50 text-sm">Connect wallet to vote on gauge emissions</p>
+        <p className="text-white/70 text-sm">Connect wallet to vote on gauge emissions</p>
       </motion.div>
     );
   }
@@ -200,7 +200,7 @@ export function GaugeVoting() {
               <InfoTooltip text="Allocate your voting power across gauges. Weights must sum to 100%. One vote per epoch per staking position." />
             </div>
             {votingPower > 0n && (
-              <span className="text-[11px] text-white/40">
+              <span className="text-[11px] text-white/70">
                 Voting Power: <span className="text-purple-300 font-medium">{formatTokenAmount(formatEther(votingPower), 2)}</span>
               </span>
             )}
@@ -208,7 +208,7 @@ export function GaugeVoting() {
         </div>
         <div className="p-5 space-y-4">
           {!tokenId || tokenId === 0n ? (
-            <p className="text-center text-white/40 text-sm py-4">Stake TOWELI first to gain voting power</p>
+            <p className="text-center text-white/70 text-sm py-4">Stake TOWELI first to gain voting power</p>
           ) : hasVotedThisEpoch ? (
             <div className="text-center py-4">
               <div className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
@@ -219,7 +219,7 @@ export function GaugeVoting() {
               </div>
             </div>
           ) : gauges.length === 0 ? (
-            <p className="text-center text-white/40 text-sm py-4">No gauges available to vote on</p>
+            <p className="text-center text-white/70 text-sm py-4">No gauges available to vote on</p>
           ) : (
             <>
               <div className="space-y-3">
@@ -238,7 +238,7 @@ export function GaugeVoting() {
                 })}
               </div>
               <div className="flex items-center justify-between pt-2 border-t border-white/5">
-                <span className={`text-[12px] font-medium ${remaining === 0 ? 'text-emerald-400' : remaining < 0 ? 'text-red-400' : 'text-white/40'}`}>
+                <span className={`text-[12px] font-medium ${remaining === 0 ? 'text-emerald-400' : remaining < 0 ? 'text-red-400' : 'text-white/70'}`}>
                   {remaining === 0 ? 'Fully allocated' : `${(remaining / 100).toFixed(0)}% remaining`}
                 </span>
                 <button onClick={handleVote} disabled={totalWeight !== BPS || isSigning || isConfirming}

@@ -1102,7 +1102,7 @@ function OfferRow({
                           <TxSummary>
                             You'll lock NFT <span className="font-mono text-white font-semibold">#{tokenId}</span> and receive <span className="font-mono text-white font-semibold">{formatTokenAmount(principalEth)} ETH</span>.
                             Total repayment: <span className="font-mono text-emerald-400 font-semibold">{formatTokenAmount(totalRepay)} ETH</span> ({formatTokenAmount(principalEth)} principal + {formatTokenAmount(maxInterest)} interest over {daysFromSeconds(offer.duration)}d).
-                            <span className="block text-[11px] text-white/50 mt-1">Repay early to save — interest is calculated pro-rata.</span>
+                            <span className="block text-[11px] text-white/70 mt-1">Repay early to save — interest is calculated pro-rata.</span>
                           </TxSummary>
                         );
                       })()}

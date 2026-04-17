@@ -69,14 +69,14 @@ export default function TradePage() {
                 {/* From Token */}
                 <div className="mb-2">
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-white/50 text-[11px]">You Pay</span>
+                    <span className="text-white/70 text-[11px]">You Pay</span>
                     <span className="text-white/70 text-[10px] font-mono">Balance: {Number(swap.fromBalance).toFixed(4)}</span>
                   </div>
                   <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.08)' }}>
                     <button onClick={() => setShowTokenSelect('from')} className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors">
                       {swap.fromToken?.logoURI && <img src={swap.fromToken.logoURI} alt="" className="w-5 h-5 rounded-full" />}
                       <span className="text-white font-medium text-[14px]">{swap.fromToken?.symbol ?? 'Select'}</span>
-                      <span className="text-white/40">▾</span>
+                      <span className="text-white/70">▾</span>
                     </button>
                     <input
                       type="number" inputMode="decimal" placeholder="0.0"
@@ -96,14 +96,14 @@ export default function TradePage() {
                 {/* To Token */}
                 <div className="mb-4">
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-white/50 text-[11px]">You Receive</span>
+                    <span className="text-white/70 text-[11px]">You Receive</span>
                     <span className="text-white/70 text-[10px] font-mono">Balance: {Number(swap.toBalance).toFixed(4)}</span>
                   </div>
                   <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.08)' }}>
                     <button onClick={() => setShowTokenSelect('to')} className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors">
                       {swap.toToken?.logoURI && <img src={swap.toToken.logoURI} alt="" className="w-5 h-5 rounded-full" />}
                       <span className="text-white font-medium text-[14px]">{swap.toToken?.symbol ?? 'Select'}</span>
-                      <span className="text-white/40">▾</span>
+                      <span className="text-white/70">▾</span>
                     </button>
                     <div className="flex-1 text-right text-white/70 text-[20px] font-mono">
                       {swap.isQuoteLoading ? '...' : swap.outputFormatted ? formatTokenAmount(swap.outputFormatted) : '0.0'}
@@ -114,18 +114,18 @@ export default function TradePage() {
                 {/* Route Info */}
                 {swap.routeLabel && swap.inputAmount && (
                   <div className="mb-4 px-3 py-2 rounded-lg text-[11px]" style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)' }}>
-                    <div className="flex justify-between text-white/50">
+                    <div className="flex justify-between text-white/70">
                       <span>Route</span>
                       <span className="text-emerald-400">{swap.routeLabel}</span>
                     </div>
                     {swap.priceImpact > 0 && (
-                      <div className="flex justify-between text-white/50 mt-1">
+                      <div className="flex justify-between text-white/70 mt-1">
                         <span>Price Impact</span>
                         <span className={swap.priceImpact > 3 ? 'text-red-400' : 'text-white/70'}>{swap.priceImpact.toFixed(2)}%</span>
                       </div>
                     )}
                     {swap.minimumReceived && (
-                      <div className="flex justify-between text-white/50 mt-1">
+                      <div className="flex justify-between text-white/70 mt-1">
                         <span>Min. Received</span>
                         <span className="text-white/70">{formatTokenAmount(swap.minimumReceived)} {swap.toToken?.symbol}</span>
                       </div>
@@ -138,7 +138,7 @@ export default function TradePage() {
                     {swap.allAggQuotes && swap.allAggQuotes.length > 0 && (
                       <div className="mt-2">
                         <button onClick={() => setShowRouteDetails(!showRouteDetails)}
-                          className="text-[10px] text-white/40 hover:text-white/70 transition-colors">
+                          className="text-[10px] text-white/70 hover:text-white/70 transition-colors">
                           {showRouteDetails ? 'Hide route details' : `Compare all ${swap.allAggQuotes.length + 2} routes`}
                         </button>
                         {showRouteDetails && (

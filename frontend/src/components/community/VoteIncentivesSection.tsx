@@ -131,7 +131,7 @@ export function VoteIncentivesSection() {
           <InfoTooltip text="Deposit ETH to incentivize gauge voters for the TOWELI/WETH LP pool. Voters earn a pro-rata share of deposited bribes." />
         </div>
         <div className="p-5 space-y-4">
-          <p className="text-[12px] text-white/50">
+          <p className="text-[12px] text-white/70">
             Incentivize gauge voters by depositing bribes. Voters who allocate weight to the TOWELI/WETH pool earn a share proportional to their voting power.
           </p>
           <div>
@@ -154,14 +154,14 @@ export function VoteIncentivesSection() {
 
       {/* Advance Epoch */}
       <button onClick={handleAdvanceEpoch} disabled={isSigning || isConfirming}
-        className="w-full py-2.5 rounded-xl text-[12px] font-semibold text-white/40 border border-white/10 hover:border-white/20 hover:text-white/60 transition-colors disabled:opacity-40">
+        className="w-full py-2.5 rounded-xl text-[12px] font-semibold text-white/70 border border-white/10 hover:border-white/20 hover:text-white/60 transition-colors disabled:opacity-40">
         Advance Epoch (permissionless)
       </button>
 
       {/* Contract Link */}
       <div className="text-center pt-2">
         <a href={`https://etherscan.io/address/${VOTE_INCENTIVES_ADDRESS}`} target="_blank" rel="noopener noreferrer"
-          className="text-white/30 text-[11px] hover:text-white/50 transition-colors font-mono">
+          className="text-white/30 text-[11px] hover:text-white/70 transition-colors font-mono">
           VoteIncentives: {shortenAddress(VOTE_INCENTIVES_ADDRESS)} &#8599;
         </a>
       </div>

@@ -81,7 +81,7 @@ export default function RisksPage() {
           <h1 className="text-3xl md:text-4xl font-bold text-white mb-3">
             Risk Disclosure
           </h1>
-          <p className="text-white/50 text-sm">
+          <p className="text-white/70 text-sm">
             DeFi carries significant risks. Read this page carefully before using the Protocol.
           </p>
         </motion.div>
@@ -140,7 +140,7 @@ export default function RisksPage() {
           transition={{ duration: 0.5, delay: 0.9 }}
           className="text-center mt-12"
         >
-          <p className="text-white/40 text-xs">
+          <p className="text-white/70 text-xs">
             Last updated: April 2026
           </p>
         </motion.div>

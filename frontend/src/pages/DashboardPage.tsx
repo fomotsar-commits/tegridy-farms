@@ -508,7 +508,7 @@ function LoanRow({ loan }: { loan: import('../hooks/useMyLoans').MyLoan }) {
           <span className="stat-value text-[13px] text-white">{formatEther(loan.principal)} ETH</span>
           <span className="text-white/60 text-[11px]">@ {(Number(loan.aprBps) / 100).toFixed(2)}% APR</span>
         </div>
-        <p className="text-white/50 text-[11px]">Token #{loan.tokenId.toString()}</p>
+        <p className="text-white/70 text-[11px]">Token #{loan.tokenId.toString()}</p>
       </div>
       <div className={`text-right shrink-0 ${loan.status === 'overdue' ? 'text-warning' : isUrgent ? 'text-warning' : 'text-white'}`}>
         <p className="text-[10px] uppercase tracking-wider opacity-60">

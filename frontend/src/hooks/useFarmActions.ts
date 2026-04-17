@@ -1,14 +1,29 @@
 import { useEffect, useRef } from 'react';
-import { useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
-import { parseEther } from 'viem';
+import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
+import { parseEther, formatEther } from 'viem';
 import { toast } from 'sonner';
-import { TEGRIDY_STAKING_ABI, ERC20_ABI } from '../lib/contracts';
-import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { TEGRIDY_STAKING_ABI, ERC20_ABI, REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
+import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { trackStake } from '../lib/analytics';
 import { getTxUrl } from '../lib/explorer';
 
 export function useFarmActions() {
   const chainId = useChainId();
+  const { address } = useAccount();
+  // AUDIT Spartan TF-03: read pendingETH so withdraw paths can block the
+  // user from burning their staking NFT with unclaimed revenue still on the
+  // distributor — withdrawal sets userTokenId = 0, which collapses
+  // _getUserLockState to (0, 0) and makes the grace-period claim check fail
+  // forever. The ETH isn't destroyed (sits in totalEarmarked for admin
+  // reclaim) but from the user's perspective it's gone.
+  const { data: pendingEthRaw } = useReadContract({
+    address: REVENUE_DISTRIBUTOR_ADDRESS,
+    abi: REVENUE_DISTRIBUTOR_ABI,
+    functionName: 'pendingETH',
+    args: address ? [address] : undefined,
+    query: { enabled: !!address, refetchInterval: 15_000 },
+  });
+  const pendingEth = (pendingEthRaw as bigint | undefined) ?? 0n;
   // Audit #51: wagmi's useWriteContract internally runs simulateContract before
   // sending the transaction, providing automatic pre-flight revert detection.
   // No separate useSimulateContract call is needed.
@@ -78,8 +93,27 @@ export function useFarmActions() {
     });
   };
 
-  const withdraw = (tokenId: bigint) => {
+  /**
+   * AUDIT Spartan TF-03: guard returns false and toasts if the user has pending
+   * ETH revenue that would be silently forfeited when the staking NFT burns.
+   * Callers can pass `force=true` to bypass after an explicit user confirmation.
+   */
+  const pendingEthGuard = (force: boolean): boolean => {
+    if (force) return true;
+    if (pendingEth > 0n) {
+      toast.error(
+        `You have ${Number(formatEther(pendingEth)).toFixed(6)} ETH unclaimed. ` +
+        `Claim ETH revenue first — withdrawing now forfeits it.`,
+        { duration: 8000 }
+      );
+      return false;
+    }
+    return true;
+  };
+
+  const withdraw = (tokenId: bigint, force: boolean = false) => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    if (!pendingEthGuard(force)) return;
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
@@ -88,8 +122,9 @@ export function useFarmActions() {
     });
   };
 
-  const earlyWithdraw = (tokenId: bigint) => {
+  const earlyWithdraw = (tokenId: bigint, force: boolean = false) => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    if (!pendingEthGuard(force)) return;
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
@@ -128,8 +163,9 @@ export function useFarmActions() {
     });
   };
 
-  const emergencyExit = (tokenId: bigint) => {
+  const emergencyExit = (tokenId: bigint, force: boolean = false) => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    if (!pendingEthGuard(force)) return;
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
@@ -168,6 +204,9 @@ export function useFarmActions() {
     emergencyExit,
     claimUnsettled,
     revalidateBoost,
+    // AUDIT Spartan TF-03: exposed so UI can render "claim ETH first" UX
+    // proactively rather than relying on the guard-toast on click.
+    pendingEth,
     isPending,
     isConfirming,
     isSuccess,

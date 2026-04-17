@@ -105,7 +105,7 @@ export function SeasonalEventBanner() {
           <span className="text-white/80 text-[11px] font-mono">{countdown}</span>
           <button
             onClick={dismiss}
-            className="text-white/50 hover:text-white text-[16px] leading-none transition-colors"
+            className="text-white/70 hover:text-white text-[16px] leading-none transition-colors"
             aria-label="Dismiss event banner"
           >
             x

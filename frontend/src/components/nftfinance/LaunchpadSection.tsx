@@ -45,7 +45,7 @@ export function LaunchpadSection() {
   if (!deployed) {
     return (
       <div className="rounded-2xl p-8 text-center" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-        <p className="text-white/50 text-sm">Launchpad contract not deployed yet.</p>
+        <p className="text-white/70 text-sm">Launchpad contract not deployed yet.</p>
       </div>
     );
   }
@@ -66,7 +66,7 @@ export function LaunchpadSection() {
       {/* Features Overview */}
       <div className="rounded-2xl p-5" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
         <h3 className="text-sm font-semibold text-white mb-3">NFT Launchpad</h3>
-        <p className="text-[12px] text-white/50 mb-4">
+        <p className="text-[12px] text-white/70 mb-4">
           Deploy ERC-721 collections with built-in allowlists, dutch auctions, delayed reveals, and on-chain royalties. No code required.
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -138,7 +138,7 @@ export function LaunchpadSection() {
                     </div>
                     <div>
                       <p className="text-[13px] font-semibold text-white">{name}</p>
-                      <p className="text-[11px] text-white/40">{symbol} &middot; by {shortenAddress(creator)}</p>
+                      <p className="text-[11px] text-white/70">{symbol} &middot; by {shortenAddress(creator)}</p>
                     </div>
                   </div>
                   <div className="text-right">

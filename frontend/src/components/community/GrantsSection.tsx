@@ -15,7 +15,7 @@ const STATUS_LABELS: Record<number, { label: string; color: string }> = {
   1: { label: 'Passed', color: 'text-blue-400' },
   2: { label: 'Rejected', color: 'text-red-400' },
   3: { label: 'Executed', color: 'text-purple-400' },
-  4: { label: 'Cancelled', color: 'text-white/40' },
+  4: { label: 'Cancelled', color: 'text-white/70' },
   5: { label: 'Lapsed', color: 'text-yellow-400' },
 };
 
@@ -210,7 +210,7 @@ export function GrantsSection() {
               const isActive = status === 0;
               const deadlineNum = Number(deadline);
               const isPastDeadline = deadlineNum > 0 && deadlineNum < Date.now() / 1000;
-              const statusInfo = STATUS_LABELS[status] ?? { label: 'Unknown', color: 'text-white/40' };
+              const statusInfo = STATUS_LABELS[status] ?? { label: 'Unknown', color: 'text-white/70' };
 
               return (
                 <motion.div key={proposalId} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.05 }}
@@ -228,7 +228,7 @@ export function GrantsSection() {
                       <p className="text-[10px] text-white/30">TOWELI</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4 text-[11px] text-white/40">
+                  <div className="flex items-center gap-4 text-[11px] text-white/70">
                     <span>By {shortenAddress(proposer)}</span>
                     <span>To {shortenAddress(recipient)}</span>
                     {deadlineNum > 0 && <span>{isPastDeadline ? 'Ended' : `Ends ${formatTimeAgo(deadlineNum).replace(' ago', ' left')}`}</span>}
@@ -276,7 +276,7 @@ export function GrantsSection() {
       {/* Contract Link */}
       <div className="text-center pt-2">
         <a href={`https://etherscan.io/address/${COMMUNITY_GRANTS_ADDRESS}`} target="_blank" rel="noopener noreferrer"
-          className="text-white/30 text-[11px] hover:text-white/50 transition-colors font-mono">
+          className="text-white/30 text-[11px] hover:text-white/70 transition-colors font-mono">
           CommunityGrants: {shortenAddress(COMMUNITY_GRANTS_ADDRESS)} &#8599;
         </a>
       </div>

@@ -13,7 +13,7 @@ const CARD_BORDER = 'var(--color-purple-12)';
 const STATUS_LABELS: Record<number, { label: string; color: string }> = {
   0: { label: 'Open', color: 'text-emerald-400' },
   1: { label: 'Completed', color: 'text-blue-400' },
-  2: { label: 'Cancelled', color: 'text-white/40' },
+  2: { label: 'Cancelled', color: 'text-white/70' },
 };
 
 export function BountiesSection() {
@@ -178,7 +178,7 @@ export function BountiesSection() {
               const isOpen = status === 0;
               const deadlineNum = Number(deadline);
               const isPastDeadline = deadlineNum > 0 && deadlineNum < Date.now() / 1000;
-              const statusInfo = STATUS_LABELS[status] ?? { label: 'Unknown', color: 'text-white/40' };
+              const statusInfo = STATUS_LABELS[status] ?? { label: 'Unknown', color: 'text-white/70' };
               const isExpanded = expandedBounty === bountyId;
 
               return (
@@ -199,7 +199,7 @@ export function BountiesSection() {
                         <p className="text-[10px] text-white/30">ETH</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4 text-[11px] text-white/40 mt-1">
+                    <div className="flex items-center gap-4 text-[11px] text-white/70 mt-1">
                       <span>By {shortenAddress(creator)}</span>
                       {deadlineNum > 0 && <span>{isPastDeadline ? 'Expired' : `${formatTimeAgo(deadlineNum).replace(' ago', ' left')}`}</span>}
                     </div>
@@ -231,7 +231,7 @@ export function BountiesSection() {
       {/* Contract Link */}
       <div className="text-center pt-2">
         <a href={`https://etherscan.io/address/${MEME_BOUNTY_BOARD_ADDRESS}`} target="_blank" rel="noopener noreferrer"
-          className="text-white/30 text-[11px] hover:text-white/50 transition-colors font-mono">
+          className="text-white/30 text-[11px] hover:text-white/70 transition-colors font-mono">
           MemeBountyBoard: {shortenAddress(MEME_BOUNTY_BOARD_ADDRESS)} &#8599;
         </a>
       </div>

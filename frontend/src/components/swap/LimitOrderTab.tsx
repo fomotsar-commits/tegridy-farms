@@ -71,7 +71,7 @@ export function LimitOrderTab() {
       <div className="mb-3">
         <div className="flex items-center justify-between mb-1.5">
           <label htmlFor="limit-amount" className="text-white text-[11px]">Amount (ETH)</label>
-          <span className="text-white/40 text-[10px] font-mono">Max: {MAX_AMOUNT_ETH} ETH</span>
+          <span className="text-white/70 text-[10px] font-mono">Max: {MAX_AMOUNT_ETH} ETH</span>
         </div>
         <input id="limit-amount" type="number" inputMode="decimal" value={amount} onChange={handleAmountChange}
           onKeyDown={blockNegativeKey}
