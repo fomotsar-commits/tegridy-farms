@@ -59,6 +59,30 @@ export default async function handler(req, res) {
     "Prefer": method === "UPSERT" ? "resolution=merge-duplicates" : "return=representation",
   };
 
+  // AUDIT API-M2: whitelist match-value characters. Raw interpolation at
+  // `eq.${value}` into a PostgREST filter was load-bearing on RLS for real
+  // security, but future PostgREST versions could treat combinations like
+  // `(`, `)`, `,`, `*`, `:` as operators. Reject anything that isn't a safe
+  // column-value literal up-front so the attack surface stays at the RLS
+  // layer, not the URL-builder layer.
+  const SAFE_MATCH_VALUE = /^[0-9a-zA-Z_.-]{1,256}$/;
+  function buildMatchParams(matchObj) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(matchObj)) {
+      const str = String(value);
+      if (!SAFE_MATCH_VALUE.test(str)) {
+        return { error: "Invalid match value" };
+      }
+      // Also reject column names with anything but [A-Za-z0-9_] — column
+      // names should never contain URL-encodable chars.
+      if (!/^[A-Za-z0-9_]{1,64}$/.test(key)) {
+        return { error: "Invalid match column" };
+      }
+      params.set(key, `eq.${str}`);
+    }
+    return { params };
+  }
+
   let fetchMethod;
   let fetchBody;
 
@@ -71,22 +95,17 @@ export default async function handler(req, res) {
     case "UPDATE":
       fetchMethod = "PATCH";
       fetchBody = JSON.stringify(body);
-      // Add filter params for UPDATE
       if (match) {
-        const params = new URLSearchParams();
-        for (const [key, value] of Object.entries(match)) {
-          params.set(key, `eq.${value}`);
-        }
+        const { params, error } = buildMatchParams(match);
+        if (error) return res.status(400).json({ error });
         url += `?${params.toString()}`;
       }
       break;
     case "DELETE":
       fetchMethod = "DELETE";
       if (match) {
-        const params = new URLSearchParams();
-        for (const [key, value] of Object.entries(match)) {
-          params.set(key, `eq.${value}`);
-        }
+        const { params, error } = buildMatchParams(match);
+        if (error) return res.status(400).json({ error });
         url += `?${params.toString()}`;
       }
       break;

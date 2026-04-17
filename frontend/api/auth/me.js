@@ -70,7 +70,7 @@ export default async function handler(req, res) {
       `HttpOnly`,
       `Path=/`,
       `Max-Age=0`,
-      `SameSite=Lax`,
+      `SameSite=Strict`, // AUDIT API-M8: match siwe.js tightening
     ];
     if (isProduction) clearParts.push("Secure");
     res.setHeader("Set-Cookie", clearParts.join("; "));

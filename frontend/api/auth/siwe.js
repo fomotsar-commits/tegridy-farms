@@ -61,7 +61,11 @@ function buildAuthCookie(token, maxAgeSeconds) {
     `HttpOnly`,
     `Path=/`,
     `Max-Age=${maxAgeSeconds}`,
-    `SameSite=Lax`,
+    // AUDIT API-M8: SameSite=Strict (was Lax) to eliminate top-level
+    // cross-site navigation cookie leakage. Users following a deep-link
+    // from an external origin will need to re-authenticate on first nav
+    // — acceptable for an app-level auth cookie.
+    `SameSite=Strict`,
   ];
   if (!isLocalDev) parts.push("Secure");
   return parts.join("; ");
@@ -74,7 +78,11 @@ function buildClearAuthCookie() {
     `HttpOnly`,
     `Path=/`,
     `Max-Age=0`,
-    `SameSite=Lax`,
+    // AUDIT API-M8: SameSite=Strict (was Lax) to eliminate top-level
+    // cross-site navigation cookie leakage. Users following a deep-link
+    // from an external origin will need to re-authenticate on first nav
+    // — acceptable for an app-level auth cookie.
+    `SameSite=Strict`,
   ];
   if (!isLocalDev) parts.push("Secure");
   return parts.join("; ");
