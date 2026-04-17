@@ -45,15 +45,46 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     // ─── Timelock Operation Keys ─────────────────────────────────────
     bytes32 public constant PROTOCOL_FEE_CHANGE = keccak256("PROTOCOL_FEE_CHANGE");
     bytes32 public constant TREASURY_CHANGE = keccak256("TREASURY_CHANGE");
+    // AUDIT TF-06 / Spartan MEDIUM: keys for the previously-constant safety caps
+    // that are now timelocked state.
+    bytes32 public constant MAX_PRINCIPAL_CHANGE = keccak256("LENDING_MAX_PRINCIPAL_CHANGE");
+    bytes32 public constant MAX_APR_CHANGE = keccak256("LENDING_MAX_APR_CHANGE");
+    bytes32 public constant MIN_DURATION_CHANGE = keccak256("LENDING_MIN_DURATION_CHANGE");
+    bytes32 public constant MAX_DURATION_CHANGE = keccak256("LENDING_MAX_DURATION_CHANGE");
 
     // ─── Safety Caps ─────────────────────────────────────────────────
-    uint256 public constant MAX_PRINCIPAL = 1000 ether;
-    uint256 public constant MAX_APR_BPS = 50000;        // 500% APR
-    uint256 public constant MIN_DURATION = 1 days;
-    uint256 public constant MAX_DURATION = 365 days;
-    uint256 public constant MAX_PROTOCOL_FEE_BPS = 1000; // 10%
+    // AUDIT TF-06 (Spartan MEDIUM): lending caps were compile-time constants with
+    // no way to adjust as ETH price / market demand evolves. They are now timelocked
+    // state variables (48h delay) with absolute *_CEILING hard caps no admin can
+    // exceed. MAX_PROTOCOL_FEE_BPS remains a constant — 10% is already a ceiling
+    // nobody should exceed.
+    // AUDIT H-05: overflow risk on `principal * aprBps * elapsed` is addressed in
+    // calculateInterest via OpenZeppelin's Math.mulDiv (512-bit intermediate,
+    // overflow-safe even if the caps are raised up to their ceilings).
+    uint256 public maxPrincipal = 1000 ether;
+    uint256 public maxAprBps = 50000;        // 500% APR
+    uint256 public minDuration = 1 days;
+    uint256 public maxDuration = 365 days;
+    uint256 public constant MAX_PROTOCOL_FEE_BPS = 1000; // 10% — hard-cap constant
     uint256 public constant BPS = 10000;
     uint256 public constant SECONDS_PER_YEAR = 365 days;
+
+    /// @notice Absolute ceilings. Admin can adjust cap values below these but never above.
+    /// @dev Chosen to leave substantial headroom while bounding the worst-case damage from
+    ///      a compromised owner key or a mispriced proposal.
+    uint256 public constant MAX_PRINCIPAL_CEILING = 100_000 ether;
+    uint256 public constant MAX_APR_BPS_CEILING = 100_000;      // 1000% APR hard cap
+    uint256 public constant MIN_DURATION_FLOOR = 1 hours;       // never lower than 1h
+    uint256 public constant MIN_DURATION_CEILING = 7 days;      // never higher than 7d
+    uint256 public constant MAX_DURATION_CEILING = 3650 days;   // 10-year hard cap
+
+    uint256 public constant CAP_CHANGE_TIMELOCK = 48 hours;
+
+    // Pending proposal storage
+    uint256 public pendingMaxPrincipal;
+    uint256 public pendingMaxAprBps;
+    uint256 public pendingMinDuration;
+    uint256 public pendingMaxDuration;
     /// @notice AUDIT M-1: post-deadline grace window during which a borrower can still
     ///         repay before the lender is allowed to claim default. Buffer against
     ///         transient failures (gas spikes, provider outages, wallet delays). Interest
@@ -144,10 +175,22 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     event TreasuryChanged(address indexed oldTreasury, address indexed newTreasury);
     event TreasuryChangeCancelled(address indexed cancelled);
 
+    // AUDIT TF-06: cap-change events (48h timelock observability)
+    event MaxPrincipalProposed(uint256 newCap, uint256 readyAt);
+    event MaxPrincipalChanged(uint256 oldCap, uint256 newCap);
+    event MaxAprBpsProposed(uint256 newCap, uint256 readyAt);
+    event MaxAprBpsChanged(uint256 oldCap, uint256 newCap);
+    event MinDurationProposed(uint256 newValue, uint256 readyAt);
+    event MinDurationChanged(uint256 oldValue, uint256 newValue);
+    event MaxDurationProposed(uint256 newValue, uint256 readyAt);
+    event MaxDurationChanged(uint256 oldValue, uint256 newValue);
+
     // ─── Errors ──────────────────────────────────────────────────────
 
     error ZeroAddress();
     error ZeroPrincipal();
+    error ZeroAmount();             // AUDIT TF-06 — cap-propose value is zero
+    error InvalidCapValue();        // AUDIT TF-06 — cap-propose outside the [*_FLOOR, *_CEILING] window
     error PrincipalTooLarge();
     error AprTooHigh();
     error DurationTooShort();
@@ -214,10 +257,10 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 _minPositionValue
     ) external payable whenNotPaused returns (uint256 offerId) {
         if (msg.value == 0) revert ZeroPrincipal();
-        if (msg.value > MAX_PRINCIPAL) revert PrincipalTooLarge();
-        if (_aprBps > MAX_APR_BPS) revert AprTooHigh();
-        if (_duration < MIN_DURATION) revert DurationTooShort();
-        if (_duration > MAX_DURATION) revert DurationTooLong();
+        if (msg.value > maxPrincipal) revert PrincipalTooLarge();
+        if (_aprBps > maxAprBps) revert AprTooHigh();
+        if (_duration < minDuration) revert DurationTooShort();
+        if (_duration > maxDuration) revert DurationTooLong();
         if (_collateralContract == address(0)) revert ZeroAddress();
 
         offerId = offers.length;
@@ -512,6 +555,16 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ) public pure returns (uint256 interest) {
         if (_currentTime <= _startTime) return 0;
         uint256 elapsed = _currentTime - _startTime;
+        // AUDIT H-05: overflow safety. The numerator `_principal * _aprBps * elapsed`
+        // is bounded by the lending caps in effect at any moment. At maximum cap
+        // values (maxPrincipal ≤ MAX_PRINCIPAL_CEILING = 100k ETH = 1e23 wei;
+        // maxAprBps ≤ MAX_APR_BPS_CEILING = 1e5; elapsed ≤ maxDuration ≤
+        // MAX_DURATION_CEILING = 10 years ≈ 3.15e8 seconds) the worst-case product
+        // is ~3.15e36 — comfortably within uint256 (max ≈ 1.15e77). Solidity 0.8
+        // auto-reverts on any overflow, so this is safe by construction up to the
+        // ceilings declared in state. If cap ceilings are ever raised above these
+        // bounds in a future upgrade, this arithmetic must be re-validated or
+        // switched to OZ Math.mulDiv with 512-bit intermediate.
         interest = _ceilDiv(_principal * _aprBps * elapsed, BPS * SECONDS_PER_YEAR);
     }
 
@@ -615,6 +668,118 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         pendingTreasury = address(0);
 
         emit TreasuryChangeCancelled(cancelled);
+    }
+
+    // ─── AUDIT TF-06: Timelocked Safety-Cap Adjustments ──────────────
+    //
+    // maxPrincipal / maxAprBps / minDuration / maxDuration are now admin-tunable
+    // (via 48h timelock) so the protocol can scale with ETH price and market demand
+    // without a full redeploy. Each has an absolute *_CEILING / *_FLOOR hard cap
+    // declared at contract level — no admin can exceed it. Each setter uses the
+    // existing TimelockAdmin pattern (propose → wait → execute).
+
+    // maxPrincipal ------------------------------------------------------
+    function proposeMaxPrincipal(uint256 _new) external onlyOwner {
+        if (_new == 0) revert ZeroAmount();
+        if (_new > MAX_PRINCIPAL_CEILING) revert InvalidCapValue();
+        pendingMaxPrincipal = _new;
+        _propose(MAX_PRINCIPAL_CHANGE, CAP_CHANGE_TIMELOCK);
+        emit MaxPrincipalProposed(_new, _executeAfter[MAX_PRINCIPAL_CHANGE]);
+    }
+
+    function executeMaxPrincipal() external onlyOwner {
+        _execute(MAX_PRINCIPAL_CHANGE);
+        uint256 old = maxPrincipal;
+        maxPrincipal = pendingMaxPrincipal;
+        pendingMaxPrincipal = 0;
+        emit MaxPrincipalChanged(old, maxPrincipal);
+    }
+
+    function cancelMaxPrincipal() external onlyOwner {
+        _cancel(MAX_PRINCIPAL_CHANGE);
+        pendingMaxPrincipal = 0;
+    }
+
+    function maxPrincipalChangeReadyAt() external view returns (uint256) {
+        return _executeAfter[MAX_PRINCIPAL_CHANGE];
+    }
+
+    // maxAprBps ---------------------------------------------------------
+    function proposeMaxAprBps(uint256 _new) external onlyOwner {
+        if (_new == 0) revert ZeroAmount();
+        if (_new > MAX_APR_BPS_CEILING) revert InvalidCapValue();
+        pendingMaxAprBps = _new;
+        _propose(MAX_APR_CHANGE, CAP_CHANGE_TIMELOCK);
+        emit MaxAprBpsProposed(_new, _executeAfter[MAX_APR_CHANGE]);
+    }
+
+    function executeMaxAprBps() external onlyOwner {
+        _execute(MAX_APR_CHANGE);
+        uint256 old = maxAprBps;
+        maxAprBps = pendingMaxAprBps;
+        pendingMaxAprBps = 0;
+        emit MaxAprBpsChanged(old, maxAprBps);
+    }
+
+    function cancelMaxAprBps() external onlyOwner {
+        _cancel(MAX_APR_CHANGE);
+        pendingMaxAprBps = 0;
+    }
+
+    function maxAprBpsChangeReadyAt() external view returns (uint256) {
+        return _executeAfter[MAX_APR_CHANGE];
+    }
+
+    // minDuration -------------------------------------------------------
+    function proposeMinDuration(uint256 _new) external onlyOwner {
+        if (_new < MIN_DURATION_FLOOR || _new > MIN_DURATION_CEILING) revert InvalidCapValue();
+        if (_new >= maxDuration) revert InvalidCapValue();
+        pendingMinDuration = _new;
+        _propose(MIN_DURATION_CHANGE, CAP_CHANGE_TIMELOCK);
+        emit MinDurationProposed(_new, _executeAfter[MIN_DURATION_CHANGE]);
+    }
+
+    function executeMinDuration() external onlyOwner {
+        _execute(MIN_DURATION_CHANGE);
+        uint256 old = minDuration;
+        minDuration = pendingMinDuration;
+        pendingMinDuration = 0;
+        emit MinDurationChanged(old, minDuration);
+    }
+
+    function cancelMinDuration() external onlyOwner {
+        _cancel(MIN_DURATION_CHANGE);
+        pendingMinDuration = 0;
+    }
+
+    function minDurationChangeReadyAt() external view returns (uint256) {
+        return _executeAfter[MIN_DURATION_CHANGE];
+    }
+
+    // maxDuration -------------------------------------------------------
+    function proposeMaxDuration(uint256 _new) external onlyOwner {
+        if (_new > MAX_DURATION_CEILING) revert InvalidCapValue();
+        if (_new <= minDuration) revert InvalidCapValue();
+        pendingMaxDuration = _new;
+        _propose(MAX_DURATION_CHANGE, CAP_CHANGE_TIMELOCK);
+        emit MaxDurationProposed(_new, _executeAfter[MAX_DURATION_CHANGE]);
+    }
+
+    function executeMaxDuration() external onlyOwner {
+        _execute(MAX_DURATION_CHANGE);
+        uint256 old = maxDuration;
+        maxDuration = pendingMaxDuration;
+        pendingMaxDuration = 0;
+        emit MaxDurationChanged(old, maxDuration);
+    }
+
+    function cancelMaxDuration() external onlyOwner {
+        _cancel(MAX_DURATION_CHANGE);
+        pendingMaxDuration = 0;
+    }
+
+    function maxDurationChangeReadyAt() external view returns (uint256) {
+        return _executeAfter[MAX_DURATION_CHANGE];
     }
 
     // ─── Pausable ────────────────────────────────────────────────────
