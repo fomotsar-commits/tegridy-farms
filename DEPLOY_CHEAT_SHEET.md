@@ -1,0 +1,323 @@
+# Deploy Cheat Sheet — Audit Remediation Broadcast
+
+Companion to `DEPLOY_RUNBOOK.md`. This doc is the paste-ready operator view: the exact commands to run in order, the edits to make between steps, and the post-deploy mechanical updates. Assumes no users / no funds on the existing deployment.
+
+**Source of truth for addresses and args:** `contracts/script/DeployFinal.s.sol` + `DeployV3Features.s.sol` + `DeployNFTLending.s.sol` + `DeployGaugeController.s.sol` + `DeployVoteIncentives.s.sol` + `DeployLPFarming.s.sol`.
+
+**Tagged commit:** `audit-remediation` → `a2cdcad` (confirmed clean compile, 66/66 forge test suites pass).
+
+---
+
+## 0. Prerequisites (once, before first broadcast)
+
+In `contracts/.env`, confirm set:
+```
+PRIVATE_KEY=<deployer EOA, funded with ≥ 0.4 ETH mainnet>
+MULTISIG=<multisig address to receive ownership>
+ETHERSCAN_API_KEY=<for source verification>
+ETH_RPC_URL=<mainnet RPC — must be archive-capable>
+```
+
+`eth.llamarpc.com` is fine for broadcast but not for local simulation. If you want to dry-run against fork first, use Alchemy/Infura.
+
+`cd contracts` for every step below.
+
+---
+
+## 1. Known gaps to resolve BEFORE broadcasting
+
+### Gap A — stale hardcoded staking address in 3 satellite scripts
+
+Three scripts hardcode the pre-remediation `TegridyStaking` address. They must point at the NEW staking that Step 2 below will deploy.
+
+**Two ways to handle this.** Pick one before you broadcast satellites (Steps 3–7):
+
+**Option A1 — one-liner sed after Step 2** (lower surface area):
+```bash
+NEW_STAKING=0x...   # from Step 2 output
+sed -i "s/0x65D8b87917c59a0B33009493fB236bCccF1Ea421/$NEW_STAKING/g" \
+  script/DeployGaugeController.s.sol \
+  script/DeployV3Features.s.sol
+sed -i "s/0x626644523d34B84818df602c991B4a06789C4819/$NEW_STAKING/g" \
+  script/DeployVoteIncentives.s.sol
+forge build --skip test  # confirm still compiles
+```
+
+**Option A2 — convert the three `address constant` lines to read env var.** Change each `address constant TEGRIDY_STAKING = 0x…;` into:
+```solidity
+address TEGRIDY_STAKING = vm.envOr("TEGRIDY_STAKING", address(0x65D8b87917c59a0B33009493fB236bCccF1Ea421));
+```
+(store the fetched value into a `run()`-local variable instead of a file-scoped constant). Then set `TEGRIDY_STAKING=$NEW_STAKING` in env between steps. Preserves the fallback for legacy re-runs.
+
+Either approach is fine; A1 is 1 line of ops, A2 is a reusable refactor.
+
+### Gap B — audit-fixed `TegridyLPFarming` has no deploy script
+
+The repo has two LP-farming contracts:
+- `src/LPFarming.sol` (old, no boost) ← what `script/DeployLPFarming.s.sol` deploys
+- `src/TegridyLPFarming.sol` (C-01-fixed, boost via TegridyStaking) ← runbook specifies this
+
+The existing `DeployLPFarming.s.sol` deploys the wrong contract. **Decide before Step 8:**
+
+| Choice | Impact |
+|---|---|
+| **B1: Ship without TegridyLPFarming** | C-01 remediation not live; the old non-boosted `LPFarming` deploys as-is. Re-run `DeployLPFarming.s.sol` unchanged. |
+| **B2: Ship TegridyLPFarming** | Write `contracts/script/DeployTegridyLPFarming.s.sol` mirroring the existing one but calling `new TegridyLPFarming(TOWELI, tegridyLP, NEW_STAKING, TREASURY, DURATION)`. The exact constructor signature is shown in `test/TegridyLPFarming.t.sol:47` — `(address rewardToken, address stakingToken, address tegridyStaking, address treasury, uint256 rewardsDuration)`. Then `forge script script/DeployTegridyLPFarming.s.sol --rpc-url $ETH_RPC_URL --broadcast --verify`. |
+
+### Gap C — `TEGRIDY_LP` env var not set
+
+`DeployLPFarming.s.sol` and (if you take B2) `DeployTegridyLPFarming.s.sol` require `TEGRIDY_LP`. This is the TOWELI/WETH pair created by `DeployFinal` in Step 2. After Step 2, grep its output for the pair address and `export TEGRIDY_LP=0x...` before Step 8.
+
+---
+
+## 2. Step-by-step broadcast
+
+Each step below is one `forge script … --broadcast` invocation. Run them in order. Pause after each to capture addresses from the `broadcast/*/run-latest.json` artifact or stdout.
+
+### Step 1 — Sanity check (local, no broadcast)
+```bash
+forge build --skip test            # must exit 0
+forge test --summary               # 66 suites ok, 0 failed
+```
+
+### Step 2 — Core protocol (DeployFinal)
+Deploys: `TegridyStaking`, `TegridyFactory`, `TegridyRouter`, `TegridyPair` (via factory.createPair), `TegridyRestaking`, `RevenueDistributor`, `ReferralSplitter`, `SwapFeeRouter`, `POLAccumulator`, `PremiumAccess`, `CommunityGrants`, `MemeBountyBoard`.
+
+```bash
+forge script script/DeployFinal.s.sol \
+  --rpc-url "$ETH_RPC_URL" \
+  --broadcast \
+  --verify \
+  --etherscan-api-key "$ETHERSCAN_API_KEY" \
+  --slow
+```
+
+**After Step 2:**
+- Copy `TegridyStaking` addr → `$NEW_STAKING`
+- Copy `TegridyPair` addr (logged as `Pair` or read from `TegridyFactory.getPair(TOWELI, WETH)`) → `$TEGRIDY_LP`
+- Resolve **Gap A** (sed or env refactor)
+
+### Step 3 — V3 features
+Deploys: `TegridyLending`, `TegridyDrop`, `TegridyLaunchpad`, `TegridyNFTPool` (template), `TegridyNFTPoolFactory`.
+
+```bash
+forge script script/DeployV3Features.s.sol \
+  --rpc-url "$ETH_RPC_URL" --broadcast --verify \
+  --etherscan-api-key "$ETHERSCAN_API_KEY" --slow
+```
+
+### Step 4 — NFT Lending
+Standalone, no staking dep.
+
+```bash
+forge script script/DeployNFTLending.s.sol \
+  --rpc-url "$ETH_RPC_URL" --broadcast --verify \
+  --etherscan-api-key "$ETHERSCAN_API_KEY" --slow
+```
+
+### Step 5 — Gauge Controller
+Reads updated `TEGRIDY_STAKING`.
+
+```bash
+forge script script/DeployGaugeController.s.sol \
+  --rpc-url "$ETH_RPC_URL" --broadcast --verify \
+  --etherscan-api-key "$ETHERSCAN_API_KEY" --slow
+```
+
+### Step 6 — Vote Incentives (H-2 commit-reveal)
+Reads updated `TEGRIDY_STAKING`.
+
+```bash
+forge script script/DeployVoteIncentives.s.sol \
+  --rpc-url "$ETH_RPC_URL" --broadcast --verify \
+  --etherscan-api-key "$ETHERSCAN_API_KEY" --slow
+```
+
+### Step 7 — Token URI Reader (optional; points at new staking for NFT metadata)
+Update the hardcoded `TEGRIDY_STAKING` constant in `script/DeployTokenURIReader.s.sol:8` via the same sed approach (or env refactor) before running.
+
+```bash
+forge script script/DeployTokenURIReader.s.sol \
+  --rpc-url "$ETH_RPC_URL" --broadcast --verify \
+  --etherscan-api-key "$ETHERSCAN_API_KEY" --slow
+```
+
+### Step 8 — LP Farming
+Requires `TEGRIDY_LP` env var set from Step 2. Resolve **Gap B** first.
+
+**If Gap B = B1 (old LPFarming):**
+```bash
+export TEGRIDY_LP=0x...   # from Step 2
+forge script script/DeployLPFarming.s.sol \
+  --rpc-url "$ETH_RPC_URL" --broadcast --verify \
+  --etherscan-api-key "$ETHERSCAN_API_KEY" --slow
+```
+
+**If Gap B = B2 (TegridyLPFarming):**
+```bash
+export TEGRIDY_LP=0x...
+forge script script/DeployTegridyLPFarming.s.sol \
+  --rpc-url "$ETH_RPC_URL" --broadcast --verify \
+  --etherscan-api-key "$ETHERSCAN_API_KEY" --slow
+```
+
+### Step 9 — TWAP (if needed)
+```bash
+forge script script/DeployTWAP.s.sol \
+  --rpc-url "$ETH_RPC_URL" --broadcast --verify \
+  --etherscan-api-key "$ETHERSCAN_API_KEY" --slow
+```
+
+---
+
+## 3. Post-broadcast wiring (runbook §3)
+
+With ownership transferred to multisig, the multisig must queue and execute:
+
+1. `TegridyStaking.proposeLendingContract(TEGRIDY_LENDING, true)` — wait 48h — `executeLendingContract()`
+2. `TegridyStaking.proposeLendingContract(TEGRIDY_NFT_LENDING, true)` — wait 48h — `executeLendingContract()`
+3. `TegridyStaking.proposeRestakingContract(TEGRIDY_RESTAKING)` — wait 48h — `executeRestakingContract()`
+4. `GaugeController.proposeAddGauge(gaugeA)` + peer gauges — wait 24h — `executeAddGauge()` for each
+5. Fund TOWELI to all reward-paying contracts (LPFarming, TegridyLPFarming, VoteIncentives bribe pool)
+
+---
+
+## 4. Frontend address update
+
+After every broadcast completes, update `frontend/src/lib/constants.ts`. The affected lines (from the current main HEAD):
+
+| Line | Constant | Get new address from |
+|---|---|---|
+| 5 | `TEGRIDY_STAKING_ADDRESS` | Step 2 output |
+| 6 | `TEGRIDY_RESTAKING_ADDRESS` | Step 2 output |
+| 9 | `TEGRIDY_FACTORY_ADDRESS` | Step 2 output |
+| 10 | `TEGRIDY_ROUTER_ADDRESS` | Step 2 output |
+| 11 | `TEGRIDY_LP_ADDRESS` | Step 2 pair addr |
+| 14 | `REVENUE_DISTRIBUTOR_ADDRESS` | Step 2 output |
+| 15 | `SWAP_FEE_ROUTER_ADDRESS` | Step 2 output |
+| 16 | `POL_ACCUMULATOR_ADDRESS` | Step 2 output |
+| 19 | `LP_FARMING_ADDRESS` | Step 8 output |
+| 22 | `GAUGE_CONTROLLER_ADDRESS` | Step 5 output |
+| 25 | `COMMUNITY_GRANTS_ADDRESS` | Step 2 output |
+| 26 | `MEME_BOUNTY_BOARD_ADDRESS` | Step 2 output |
+| 27 | `REFERRAL_SPLITTER_ADDRESS` | Step 2 output |
+| 28 | `PREMIUM_ACCESS_ADDRESS` | Step 2 output |
+| 29 | `VOTE_INCENTIVES_ADDRESS` | Step 6 output |
+| 32 | `TEGRIDY_LENDING_ADDRESS` | Step 3 output |
+| 33 | `TEGRIDY_LAUNCHPAD_ADDRESS` | Step 3 output |
+| 34 | `TEGRIDY_NFT_POOL_FACTORY_ADDRESS` | Step 3 output |
+| 35 | `TEGRIDY_TOKEN_URI_READER_ADDRESS` | Step 7 output |
+| 36 | `TEGRIDY_NFT_LENDING_ADDRESS` | Step 4 output |
+| 37 | `TEGRIDY_TWAP_ADDRESS` | Step 9 output |
+| 45 | `TOWELI_WETH_LP_ADDRESS` | same as line 11 |
+
+Unchanged (keep as-is):
+- `TOWELI_ADDRESS` (line 2) — not being redeployed
+- `WETH_ADDRESS` (line 41) — canonical
+- `TREASURY_ADDRESS` (line 51) — unchanged
+- `JBAC_NFT_ADDRESS` (line 54), `JBAY_GOLD_ADDRESS` (line 55) — external
+
+Then:
+```bash
+cd frontend
+npm run wagmi:generate       # regenerates src/generated.ts ABIs against new addrs
+npm run build                # sanity check
+```
+
+---
+
+## 5. Indexer re-sync
+
+```bash
+cd indexer
+# edit ponder.config.ts: update every contract address + its startBlock
+# (startBlock = the mainnet block where that contract was deployed, visible on Etherscan)
+rm -rf .ponder/
+npm run codegen              # needs Node 20 LTS if Node 24 throws the Response-state-key error
+npm run start                # fresh re-sync, 30–60 min
+```
+
+---
+
+## 6. Merkle tree re-issuance (TegridyDrop allowlists)
+
+If any TegridyDrop allowlisted drops are active, their Merkle proofs are now invalid. The leaf format changed from `keccak256(msg.sender)` to `keccak256(abi.encodePacked(address(this), msg.sender))`.
+
+For each drop:
+1. Compute new leaves with `address(drop)` prefix
+2. Build new Merkle tree
+3. Call `TegridyDrop.setMerkleRoot(newRoot)` via multisig
+4. Publish new proofs to the allowlist distribution channel
+
+If no drops are active yet, skip.
+
+---
+
+## 7. Post-deploy verification checklist
+
+Copy this to a tracking doc and tick as you verify:
+
+### Smart contract invariants (run via cast)
+- [ ] `cast call $NEW_LP_FARMING "MAX_BOOST_BPS_CEILING()(uint256)"` → `45000`
+- [ ] `cast call $NEW_LENDING "GRACE_PERIOD()(uint256)"` → `3600`
+- [ ] `cast call $NEW_LENDING "maxPrincipal()(uint256)"` → `1000000000000000000000` (1000 ether)
+- [ ] `cast call $NEW_STAKING "isLendingContract(address)(bool)" $NEW_LENDING` → `false` (pending 48h timelock)
+- [ ] Two distinct senders call `TegridyNFTPoolFactory.createPool(...)` with identical args → different pool addresses (CREATE2 salt)
+- [ ] `GaugeController.vote(tokenId, gauges, weights)` succeeds on epoch 0 (batch 6 regression)
+
+### Frontend
+- [ ] `/` HomePage step-circles render centered (batch 0)
+- [ ] `/dashboard` loads without console errors against new addrs
+- [ ] `/farm` stake/unstake round-trip works
+- [ ] `/swap` connects wallet, Swap/DCA/Limit tabs functional
+- [ ] `/nft-finance` renders pool list from the new factory
+- [ ] Mobile BottomNav shows Trade/Farm/Dashboard/NFT Finance/More (Community under Lore in dropdown)
+- [ ] Block-explorer links resolve to correct chain (batch 1)
+
+### API
+- [ ] SIWE sign-in → `/api/auth/me` → JWT cookie round-trip
+- [ ] `/api/auth/me` returns 401 for expired tokens
+- [ ] `/api/etherscan` rejects `endblock - startblock > 10000`
+- [ ] `/api/opensea` rejects URL-encoded paths
+
+### Indexer
+- [ ] Re-sync reaches `latestBlock` without errors
+- [ ] `restakingClaim`, `bribeClaim`, `proposalVote` tables populate on test events
+- [ ] No `0x0`-address rows in any action table
+
+---
+
+## 8. Rollback
+
+- **New contract bug found:** pause via owner multisig (all new contracts include `pause()`). Funds never touch the new contract until wiring + timelock completes, so exposure is minimal.
+- **Frontend broken:** revert the `constants.ts` commit; UX restores against the old addresses (old contracts are still on-chain until you explicitly `selfdestruct` or abandon them).
+- **Indexer corrupted:** `rm -rf indexer/.ponder/` and re-sync.
+
+---
+
+## 9. Ship sequence summary
+
+```
+forge build --skip test        ← confirm clean
+forge test                     ← 66 suites, 0 failed
+─── Step 2 ─── DeployFinal              → capture NEW_STAKING, TEGRIDY_LP
+resolve Gap A (sed or env refactor)
+─── Step 3 ─── DeployV3Features
+─── Step 4 ─── DeployNFTLending
+─── Step 5 ─── DeployGaugeController
+─── Step 6 ─── DeployVoteIncentives
+─── Step 7 ─── DeployTokenURIReader     (optional)
+resolve Gap B (B1 or B2)
+export TEGRIDY_LP=<from Step 2>
+─── Step 8 ─── DeployLPFarming OR DeployTegridyLPFarming
+─── Step 9 ─── DeployTWAP               (optional)
+update frontend/src/lib/constants.ts (22 lines)
+npm run wagmi:generate
+indexer: update ponder.config.ts, rm -rf .ponder/, re-sync
+merkle re-issue (if any drops are live)
+verify checklist (§7)
+```
+
+---
+
+*End of cheat sheet. For severity/change context, cross-reference `DEPLOY_RUNBOOK.md`. For audit-finding-to-contract mapping, `SECURITY_AUDIT_300_AGENT.md`.*
