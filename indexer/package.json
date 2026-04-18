@@ -2,6 +2,10 @@
   "name": "tegriddy-indexer",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "type": "module",
   "scripts": {
     "dev": "ponder dev",

@@ -1,0 +1,49 @@
+# Auto-detect text files and normalize to LF on check-in, restore native on check-out
+* text=auto eol=lf
+
+# Explicit text files
+*.sol     text eol=lf
+*.ts      text eol=lf
+*.tsx     text eol=lf
+*.js      text eol=lf
+*.jsx     text eol=lf
+*.mjs     text eol=lf
+*.json    text eol=lf
+*.md      text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.css     text eol=lf
+*.html    text eol=lf
+*.sh      text eol=lf
+*.toml    text eol=lf
+
+# Lock files treated as binary — avoids line-ending churn
+pnpm-lock.yaml     binary
+package-lock.json  binary
+yarn.lock          binary
+foundry.lock       binary
+
+# Generated ABIs — keep LF but don't diff on noise
+frontend/src/lib/abi-supplement.ts text eol=lf linguist-generated
+
+# Binary assets
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.otf  binary
+*.pdf  binary
+
+# GitHub linguist overrides — don't count vendored assets as project code
+frontend/public/art/**            linguist-vendored
+frontend/public/nakamigos/**      linguist-vendored
+frontend/public/collections/**    linguist-vendored
+frontend/src/generated.ts         linguist-generated
+contracts/out/**                  linguist-generated
+contracts/cache/**                linguist-generated
+contracts/broadcast/**            linguist-generated

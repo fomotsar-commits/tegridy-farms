@@ -1,0 +1,66 @@
+version: 2
+
+updates:
+  # Frontend npm dependencies
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "frontend"
+    groups:
+      # Batch viem/wagmi/rainbowkit together since they release in lockstep
+      web3-stack:
+        patterns:
+          - "viem"
+          - "wagmi"
+          - "@wagmi/*"
+          - "@rainbow-me/*"
+      # Batch React core together
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react*"
+      # Batch dev tooling together — low risk of breaking builds in a single PR
+      tooling:
+        patterns:
+          - "@vitejs/*"
+          - "vite"
+          - "typescript"
+          - "eslint*"
+          - "@types/*"
+
+  # Indexer npm dependencies
+  - package-ecosystem: npm
+    directory: "/indexer"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "indexer"
+
+  # Root (if any lockfile lives at root)
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+
+  # GitHub Actions themselves (action versions drift too)
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels:
+      - "dependencies"
+      - "ci"
