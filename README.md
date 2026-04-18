@@ -191,8 +191,21 @@ tegriddy-farms/
 ├── indexer/             Ponder — event indexer & GraphQL API
 ├── scripts/             Operations helpers (redeploy, address diff, etc.)
 ├── docs/                Architecture, deployment runbooks, developer docs
-├── AUDITS.md            Audit index — which file is canonical, which are archived
-├── CHANGELOG.md         Release notes
+├── AUDITS.md            🟢 Audit index — every review in this repo, which is canonical, which are archived
+├── SECURITY_AUDIT_300_AGENT.md   Canonical 300-agent full-stack review (Apr 16, 2026)
+├── AUDIT_FINDINGS.md    Current main-branch blocker list (35 detectives, Apr 17, 2026)
+├── SPARTAN_AUDIT.txt    External Spartan audit (Apr 16, 2026)
+├── SECURITY_AUDIT_200_AGENT.md   150-agent round (Apr 4)
+├── SECURITY_AUDIT_OPUS.md        38-agent round (Mar 30)
+├── SECURITY_AUDIT_40_AGENT.md    40-agent round (Mar 29)
+├── SECURITY_AUDIT_FINAL.md       200-manual fix-verification (Mar 29)
+├── SECURITY_AUDIT_REPORT.md      100-agent baseline (Mar 29)
+├── API_INDEXER_AUDIT.md          Serverless + Ponder domain audit
+├── findings_clean.txt / findings_text.txt  Plaintext mirrors of 100-finding doc (Mar 26)
+├── tegridy_100_findings.docx     Source 100-finding line-by-line (Mar 26)
+├── tegridy_farms_audit.docx      Earliest external review (Mar 25)
+├── FIX_STATUS.md        Rolling remediation tracker
+├── CHANGELOG.md         Release notes (Keep a Changelog)
 ├── ROADMAP.md           What's next
 ├── TOKENOMICS.md        Supply, emissions, revenue distribution
 ├── FAQ.md               User-facing questions
@@ -221,24 +234,42 @@ tegriddy-farms/
 
 ## Security & audits
 
-Tegridy Farms has undergone multiple rounds of review. The protocol is running on-chain with real TVL; treat it seriously.
+Tegridy Farms has undergone **7 distinct rounds of review** producing **14+ audit artifacts** — every one of them tracked in this repo. Nothing is buried. The protocol is running on-chain with real TVL; treat it seriously.
 
-- **Most recent external audit:** Spartan ([SPARTAN_AUDIT.txt](SPARTAN_AUDIT.txt)) — 2026-04-16. 1 critical (TF-01, patched), 1 high, 7 medium, 9 low.
-- **Most recent internal review:** 300-agent parallel detective audit ([SECURITY_AUDIT_300_AGENT.md](SECURITY_AUDIT_300_AGENT.md)).
-- **Current fix status:** [FIX_STATUS.md](FIX_STATUS.md) — honest tracker of what's landed on `main` and what's deferred. **Read this before depositing significant capital.** There are open items; we don't hide them.
-- **Findings tracker:** [AUDIT_FINDINGS.md](AUDIT_FINDINGS.md).
-
-**What's true as of the latest commit on `main`:**
-
-- Critical audit findings have patches in the working tree. Some patches are on-chain (C-01 staking migration, H-01 gauge destructure). Others are in source but pending redeploy (TegridyLPFarming `exit()`, NFT lending grace period, Drop refund/cancel). See FIX_STATUS.md for the exact state.
-- The contracts use `OpenZeppelin` primitives (SafeERC20, ReentrancyGuard, Pausable), a custom `TimelockAdmin` (24–48 hour delays on parameter changes), and `OwnableNoRenounce` (prevents accidental brick).
+- **Complete audit index:** [AUDITS.md](AUDITS.md) — every file, every methodology, every chronological pass, plus a cross-reference table showing which blockers have patches and which need on-chain redeploys.
+- **Current fix status:** [FIX_STATUS.md](FIX_STATUS.md) — rolling tracker of what's landed on `main` and what's deferred. **Read this before depositing significant capital.** Items are open; we don't hide them.
 - **Bug bounty is active.** Report process: see [SECURITY.md](SECURITY.md). We pay.
 
-**What to still be careful about:**
+### Audit artifact summary
+
+| Audit | Date | Methodology | Headline severity | Role |
+|---|---|---|---|---|
+| [SECURITY_AUDIT_300_AGENT.md](SECURITY_AUDIT_300_AGENT.md) | 2026-04-16 | 300 agents, 10 waves + external ingest | 5 C / 12 H / many M+L | **🟢 Canonical severity** |
+| [AUDIT_FINDINGS.md](AUDIT_FINDINGS.md) | 2026-04-17 | 35 parallel detectives vs `main` | 4 ship-blockers (B1–B4) + H/M/L | **🟢 Current working-tree state** |
+| [SPARTAN_AUDIT.txt](SPARTAN_AUDIT.txt) | 2026-04-16 | **External** (Spartan methodology) | 1 C / 1 H / 7 M / 9 L | Ingested into 300-agent |
+| [SECURITY_AUDIT_200_AGENT.md](SECURITY_AUDIT_200_AGENT.md) | 2026-04-04 | 150+ agents | 3 C / 12 H | Superseded |
+| [SECURITY_AUDIT_OPUS.md](SECURITY_AUDIT_OPUS.md) | 2026-03-30 | 38 agents | 0 C / H+M inventory | Historical |
+| [SECURITY_AUDIT_40_AGENT.md](SECURITY_AUDIT_40_AGENT.md) | 2026-03-29 | 40 agents, test-coverage focus | 0 C / 15 H / 83 M / 95 L / 49 I | Historical |
+| [SECURITY_AUDIT_FINAL.md](SECURITY_AUDIT_FINAL.md) | 2026-03-29 | 200 + manual | Fix-verification pass | Historical |
+| [SECURITY_AUDIT_REPORT.md](SECURITY_AUDIT_REPORT.md) | 2026-03-29 | 100 agents | 7 C / 32 H / 85+ M | Historical baseline |
+| [tegridy_100_findings.docx](tegridy_100_findings.docx) | 2026-03-26 | Line-by-line manual | 12 C / 18 H / 30 M / 40 L | First comprehensive pass |
+| [findings_clean.txt](findings_clean.txt) / [findings_text.txt](findings_text.txt) | 2026-03-26 | Plaintext of 100-finding doc | Same | grep-friendly mirrors |
+| [tegridy_farms_audit.docx](tegridy_farms_audit.docx) | 2026-03-25 | External, pre-release | Baseline | Earliest artifact |
+| [API_INDEXER_AUDIT.md](API_INDEXER_AUDIT.md) | 2026-04-17 | Domain-specific | H + M triage | `frontend/api/**` + `indexer/` |
+
+Plus **27 audit-derived Foundry test files** under [`contracts/test/`](contracts/test/) — every finding that could be expressed as a regression test has one. Current pass rate: **1,921 / 1,921**.
+
+### What's true as of the latest commit on `main`
+
+- Critical audit findings have patches in the working tree. Some are on-chain (C-01 staking migration, H-01 gauge destructure). Others are in source but pending redeploy (TegridyLPFarming `exit()`, NFT lending grace period, Drop refund/cancel, GaugeController commit-reveal). See [AUDITS.md § blocker table](AUDITS.md#cross-reference-known-blockers-on-main) for the exact matrix.
+- The contracts use `OpenZeppelin` primitives (SafeERC20, ReentrancyGuard, Pausable), a custom `TimelockAdmin` (24–48 hour delays on parameter changes), and `OwnableNoRenounce` (prevents accidental brick).
+- The frontend has **403 passing unit tests** + **20+ Playwright E2E specs** covering trust surfaces, wallet integration, and the major flows.
+
+### What to still be careful about
 
 - Smart contract risk exists. No software is bug-free.
 - Market risk — TOWELI is a thin-liquidity token; IL in the LP is real.
-- Admin keys are timelocked but not (yet) multisig. See ROADMAP.md for the multisig migration plan.
+- Admin keys are timelocked but not (yet) multisig. See [ROADMAP.md](ROADMAP.md) + [docs/GOVERNANCE.md](docs/GOVERNANCE.md) for the multisig migration plan and honest threat model.
 
 ---
 

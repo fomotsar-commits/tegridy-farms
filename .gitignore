@@ -9,15 +9,22 @@ standard-json-farm.json
 .claude/worktrees/
 .vercel/
 
-# Repo root clutter — images, audit artifacts, personal files
+# Repo root clutter — images + personal files
 # (allow frontend/public/ and frontend/src/assets/ images)
 /*.jpg
 /*.jpeg
 /*.png
 /*.gif
 /*.bmp
-/*.docx
 /*.xlsx
 CODEBASE_FULL.txt
-SECURITY_AUDIT_*.md
-findings_*.txt
+CODEBASE_OVERVIEW.txt
+
+# Audit artifacts are EXPLICITLY tracked — every security review belongs on GitHub.
+# Prior versions of this file ignored `SECURITY_AUDIT_*.md`, `findings_*.txt`, and
+# `/*.docx` which silently dropped post-rule audits from version control
+# (caught SECURITY_AUDIT_300_AGENT.md, the canonical reference). Keep these files
+# in tree. If a genuine scratch / working buffer needs to stay out, prefix with
+# a leading dot (e.g. `.audit_findings.md`, `.spartan_unpacked/`) which is
+# already covered by general dotfile conventions.
+# Do NOT add SECURITY_AUDIT_*.md / findings_*.txt / tegridy_*.docx back to ignore.
