@@ -331,7 +331,10 @@ export default createConfig({
     TegridyStaking: {
       abi: TegridyStakingAbi,
       chain: "mainnet",
-      address: "0x65D8b87917c59a0B33009493fB236bCccF1Ea421",
+      // Canonical v2 (C-01 Spartan TF-01 fix migration) — the old
+      // 0x65D8...a421 v1 is paused and has been superseded. See
+      // docs/MIGRATION_HISTORY.md.
+      address: "0x626644523d34B84818df602c991B4a06789C4819",
       startBlock: 24500000,
     },
     TegridyRestaking: {
@@ -382,5 +385,7 @@ export default createConfig({
       address: "0x3457C2210be35bA7AF6F382a76247Ecd782BF0C9",
       startBlock: 24500000,
     },
+    // MemeBountyBoardExtras + CommunityGrantsExtras + GaugeController
+    // registrations deferred — see handler notes in src/index.ts.
   },
 });
