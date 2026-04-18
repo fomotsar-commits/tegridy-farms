@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther, parseEther, type Address } from 'viem';
-import { toast } from 'sonner';
 import { VOTE_INCENTIVES_ADDRESS, TEGRIDY_LP_ADDRESS } from '../../lib/constants';
 import { VOTE_INCENTIVES_ABI } from '../../lib/contracts';
 import { shortenAddress, formatTokenAmount, formatWei } from '../../lib/formatting';
 import { InfoTooltip } from '../ui/InfoTooltip';
 import { GOVERNANCE_COPY } from '../../lib/copy';
+import { useBribes } from '../../hooks/useBribes';
 
 const CARD_BG = 'rgba(13, 21, 48, 0.6)';
 const CARD_BORDER = 'var(--color-purple-12)';
@@ -15,62 +15,63 @@ export function VoteIncentivesSection() {
   const { address } = useAccount();
   const [bribeAmount, setBribeAmount] = useState('');
 
+  // Consolidated hook for pair-agnostic state + write actions (session 11 rewire).
+  // We still reach directly for pair-specific reads/writes below because
+  // `useBribes` hardcodes TOWELI_WETH_LP_ADDRESS (the Uniswap V2 pair) for
+  // its `claimable` query, whereas this section shows incentives on the
+  // native TegridyPair (TEGRIDY_LP_ADDRESS). Surfaces the wrong pair's
+  // claimables if we blindly swap them — and the two constants resolve to
+  // different contracts.
+  const bribes = useBribes();
   const viAddr = VOTE_INCENTIVES_ADDRESS as Address;
-  const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();
-  const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash });
 
-  // Read contract state
-  const { data: currentEpoch } = useReadContract({ address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'currentEpoch' });
-  const { data: epochCount } = useReadContract({ address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'epochCount' });
-  const { data: bribeFeeBps } = useReadContract({ address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'bribeFeeBps' });
+  // Pair-specific reads stay inline.
   const { data: pendingETH } = useReadContract({
     address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'pendingETHWithdrawals', args: address ? [address] : undefined,
     query: { enabled: !!address },
   });
 
-  // Check claimable bribes for current epoch on the main LP pair
+  // Claimable bribes for the current epoch on the native LP pair.
+  const currentEpoch = bribes.currentEpoch;
   const { data: claimableData } = useReadContract({
     address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'claimable',
-    args: address && currentEpoch !== undefined ? [address, BigInt(Number(currentEpoch) - 1), TEGRIDY_LP_ADDRESS as Address] : undefined,
-    query: { enabled: !!address && currentEpoch !== undefined && Number(currentEpoch) > 0 },
+    args: address && currentEpoch > 0 ? [address, BigInt(currentEpoch - 1), TEGRIDY_LP_ADDRESS as Address] : undefined,
+    query: { enabled: !!address && currentEpoch > 0 },
   });
 
-  const epoch = currentEpoch !== undefined ? Number(currentEpoch) : undefined;
-  const fee = bribeFeeBps !== undefined ? Number(bribeFeeBps) : 0;
+  // Pair-specific writes (withdraw pending ETH) stay on a local useWriteContract
+  // so they don't interfere with the bribes-hook's own tx lifecycle.
+  const { writeContract: writeLocal, data: withdrawTxHash, isPending: isLocalSigning } = useWriteContract();
+  const { isLoading: isLocalConfirming } = useWaitForTransactionReceipt({ hash: withdrawTxHash });
+
+  // Convenience flags — buttons disable on EITHER hook's busy state.
+  const isBusy = bribes.isPending || bribes.isConfirming || isLocalSigning || isLocalConfirming;
+
+  const epoch = currentEpoch;
+  const fee = bribes.bribeFeeBps;
+  const epochCount = bribes.epochCount;
   const pendingBig = (pendingETH as bigint) ?? 0n;
   const claimable = claimableData as [Address[], bigint[]] | undefined;
   const hasClaimable = claimable && claimable[1]?.some((a: bigint) => a > 0n);
 
   const handleDepositETH = () => {
     if (!bribeAmount) return;
-    writeContract({
-      address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'depositBribeETH',
-      args: [TEGRIDY_LP_ADDRESS as Address],
-      value: parseEther(bribeAmount),
-    });
-    toast.info('Depositing bribe...');
+    bribes.depositBribeETH(TEGRIDY_LP_ADDRESS as Address, parseEther(bribeAmount));
   };
 
   const handleClaimBribes = () => {
-    if (!address || epoch === undefined || epoch < 1) return;
-    writeContract({
-      address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'claimBribes',
-      args: [BigInt(epoch - 1), TEGRIDY_LP_ADDRESS as Address],
-    });
-    toast.info('Claiming bribes...');
+    if (!address || epoch < 1) return;
+    bribes.claimBribes(epoch - 1, TEGRIDY_LP_ADDRESS as Address);
   };
 
   const handleWithdrawPending = () => {
-    writeContract({
+    writeLocal({
       address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'withdrawPendingETH',
     });
   };
 
   const handleAdvanceEpoch = () => {
-    writeContract({
-      address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'advanceEpoch',
-    });
-    toast.info('Advancing epoch...');
+    bribes.advanceEpoch();
   };
 
   return (
@@ -78,8 +79,8 @@ export function VoteIncentivesSection() {
       {/* Stats Row */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {[
-          { label: 'Current Epoch', value: epoch !== undefined ? `#${epoch}` : '--' },
-          { label: 'Total Epochs', value: epochCount !== undefined ? Number(epochCount).toString() : '--' },
+          { label: 'Current Epoch', value: epoch > 0 ? `#${epoch}` : '--' },
+          { label: 'Total Epochs', value: epochCount > 0 ? epochCount.toString() : '--' },
           { label: 'Bribe Fee', value: fee > 0 ? `${fee / 100}%` : '--' },
         ].map(({ label, value }) => (
           <div key={label} className="rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
@@ -97,7 +98,7 @@ export function VoteIncentivesSection() {
             <p className="text-[11px] text-emerald-400/60 uppercase tracking-wider mb-0.5">Pending ETH Withdrawal</p>
             <p className="text-lg font-semibold text-emerald-400">{formatWei(pendingBig, 18, 6)} ETH</p>
           </div>
-          <button onClick={handleWithdrawPending} disabled={isSigning || isConfirming}
+          <button onClick={handleWithdrawPending} disabled={isBusy}
             className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/25 transition-colors disabled:opacity-40">
             Withdraw
           </button>
@@ -109,7 +110,7 @@ export function VoteIncentivesSection() {
         <div className="rounded-xl p-4 flex items-center justify-between"
           style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)' }}>
           <div>
-            <p className="text-[11px] text-purple-400/60 uppercase tracking-wider mb-0.5">Claimable Bribes (Epoch #{(epoch ?? 1) - 1})</p>
+            <p className="text-[11px] text-purple-400/60 uppercase tracking-wider mb-0.5">Claimable Bribes (Epoch #{Math.max(0, epoch - 1)})</p>
             <div className="flex gap-3">
               {claimable?.[0]?.map((token: Address, i: number) => (
                 <span key={token} className="text-sm font-semibold text-purple-300">
@@ -118,7 +119,7 @@ export function VoteIncentivesSection() {
               ))}
             </div>
           </div>
-          <button onClick={handleClaimBribes} disabled={isSigning || isConfirming}
+          <button onClick={handleClaimBribes} disabled={isBusy}
             className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-purple-500/15 text-purple-400 border border-purple-500/20 hover:bg-purple-500/25 transition-colors disabled:opacity-40">
             Claim
           </button>
@@ -148,16 +149,16 @@ export function VoteIncentivesSection() {
               </p>
             )}
           </div>
-          <button onClick={handleDepositETH} disabled={!bribeAmount || Number(bribeAmount) <= 0 || isSigning || isConfirming}
+          <button onClick={handleDepositETH} disabled={!bribeAmount || Number(bribeAmount) <= 0 || isBusy}
             className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-40"
             style={{ background: 'linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105))', color: 'white' }}>
-            {isSigning ? 'Confirm in Wallet...' : isConfirming ? 'Depositing...' : `Deposit ${bribeAmount || '0'} ETH Bribe`}
+            {bribes.isPending ? 'Confirm in Wallet...' : bribes.isConfirming ? 'Depositing...' : `Deposit ${bribeAmount || '0'} ETH Bribe`}
           </button>
         </div>
       </div>
 
       {/* Advance Epoch */}
-      <button onClick={handleAdvanceEpoch} disabled={isSigning || isConfirming}
+      <button onClick={handleAdvanceEpoch} disabled={isBusy}
         className="w-full py-2.5 rounded-xl text-[12px] font-semibold text-white/70 border border-white/10 hover:border-white/20 hover:text-white/60 transition-colors disabled:opacity-40">
         Advance Epoch (permissionless)
       </button>
