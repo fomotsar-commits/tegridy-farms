@@ -149,7 +149,13 @@ export default function useSmartAlerts(addToast) {
 
     // Push notification when tab is inactive
     if (document.hidden) {
-      sendLocalNotification(title, body).catch(() => {});
+      // Fire-and-forget: permission-denied is expected and silent here,
+      // but log any OTHER failure so it's diagnosable in devtools.
+      sendLocalNotification(title, body).catch((err) => {
+        if (err?.name !== 'NotAllowedError' && err?.name !== 'TypeError') {
+          console.warn('[useSmartAlerts] sendLocalNotification failed:', err?.message ?? err);
+        }
+      });
     }
   }, [config.cooldown, config.quietHours, addToast, collection.name, collection.slug]);
 

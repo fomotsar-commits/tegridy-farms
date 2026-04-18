@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
-import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { TEGRIDY_DROP_ABI } from '../../lib/contracts';
 import { ART } from '../../lib/artConfig';
 import { toast } from 'sonner';
@@ -15,8 +15,22 @@ export function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string
   const [revealURI, setRevealURI] = useState('');
 
   const { writeContract, data: txHash, isPending } = useWriteContract();
-  const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash });
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
   const busy = isPending || isConfirming || !deployed;
+
+  // Read current on-chain phase so the admin panel can surface CANCELLED state.
+  // MintPhase enum: 0=CLOSED, 1=ALLOWLIST, 2=PUBLIC, 3=DUTCH_AUCTION, 4=CLOSED_AGAIN, 5=CANCELLED.
+  const { data: onchainPhase, refetch: refetchPhase } = useReadContract({
+    address: contractAddr,
+    abi: TEGRIDY_DROP_ABI,
+    functionName: 'mintPhase',
+    query: { enabled: deployed, refetchInterval: 30_000 },
+  });
+  const currentPhaseNum = onchainPhase !== undefined ? Number(onchainPhase) : -1;
+  const isCancelled = currentPhaseNum === 5;
+  // Refetch phase after any successful tx (e.g. cancelSale) so the indicator
+  // updates without a page reload.
+  if (isSuccess) { void refetchPhase(); }
 
   const exec = useCallback(
     (fn: string, args?: unknown[], opts?: { onSuccess?: () => void }) => {
@@ -41,8 +55,21 @@ export function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between text-sm"
       >
-        <span className="text-black font-semibold tracking-wide uppercase text-[11px]">
+        <span className="text-black font-semibold tracking-wide uppercase text-[11px] flex items-center gap-2">
           Owner Admin
+          {isCancelled && (
+            <span
+              className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider"
+              style={{
+                background: 'rgba(239, 68, 68, 0.15)',
+                border: '1px solid rgba(239, 68, 68, 0.45)',
+                color: '#b91c1c',
+              }}
+              aria-label="Sale is cancelled — refunds are open"
+            >
+              Cancelled
+            </span>
+          )}
         </span>
         <m.span
           animate={{ rotate: open ? 180 : 0 }}
@@ -87,10 +114,11 @@ export function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string
                 </div>
                 <button
                   className={`mt-2 w-full py-2 rounded-lg text-xs ${BTN_EMERALD}`}
-                  disabled={busy}
+                  disabled={busy || isCancelled}
+                  title={isCancelled ? 'Sale is cancelled — phase transitions blocked by the contract.' : undefined}
                   onClick={() => exec('setMintPhase', [Number(phase)])}
                 >
-                  {isPending || isConfirming ? 'Setting...' : !deployed ? 'Contract Not Deployed' : 'Set Phase'}
+                  {isPending || isConfirming ? 'Setting...' : !deployed ? 'Contract Not Deployed' : isCancelled ? 'Sale Cancelled' : 'Set Phase'}
                 </button>
               </div>
 
@@ -107,14 +135,15 @@ export function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string
                 />
                 <button
                   className={`mt-2 w-full py-2 rounded-lg text-xs ${BTN_EMERALD}`}
-                  disabled={busy || !/^0x[0-9a-fA-F]{64}$/.test(merkleRoot)}
+                  disabled={busy || isCancelled || !/^0x[0-9a-fA-F]{64}$/.test(merkleRoot)}
+                  title={isCancelled ? 'Sale is cancelled.' : undefined}
                   onClick={() =>
                     exec('setMerkleRoot', [merkleRoot as `0x${string}`], {
                       onSuccess: () => setMerkleRoot(''),
                     })
                   }
                 >
-                  {isPending || isConfirming ? 'Setting...' : !deployed ? 'Contract Not Deployed' : 'Set Merkle Root'}
+                  {isPending || isConfirming ? 'Setting...' : !deployed ? 'Contract Not Deployed' : isCancelled ? 'Sale Cancelled' : 'Set Merkle Root'}
                 </button>
               </div>
 
@@ -131,22 +160,24 @@ export function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string
                 />
                 <button
                   className={`mt-2 w-full py-2 rounded-lg text-xs ${BTN_EMERALD}`}
-                  disabled={busy || !revealURI}
+                  disabled={busy || isCancelled || !revealURI}
+                  title={isCancelled ? 'Sale is cancelled.' : undefined}
                   onClick={() =>
                     exec('reveal', [revealURI], { onSuccess: () => setRevealURI('') })
                   }
                 >
-                  {isPending || isConfirming ? 'Revealing...' : !deployed ? 'Contract Not Deployed' : 'Reveal Collection'}
+                  {isPending || isConfirming ? 'Revealing...' : !deployed ? 'Contract Not Deployed' : isCancelled ? 'Sale Cancelled' : 'Reveal Collection'}
                 </button>
               </div>
 
               {/* Withdraw */}
               <button
                 className="w-full py-2.5 rounded-lg bg-amber-600/70 hover:bg-amber-600 text-white text-xs font-medium border border-amber-500/20 transition-colors disabled:opacity-70 disabled:pointer-events-none"
-                disabled={busy}
+                disabled={busy || isCancelled}
+                title={isCancelled ? 'Withdraw blocked — sale is cancelled. Buyers may claim refunds.' : undefined}
                 onClick={() => exec('withdraw')}
               >
-                {isPending || isConfirming ? 'Withdrawing...' : !deployed ? 'Contract Not Deployed' : 'Withdraw Mint Revenue'}
+                {isPending || isConfirming ? 'Withdrawing...' : !deployed ? 'Contract Not Deployed' : isCancelled ? 'Blocked — Sale Cancelled' : 'Withdraw Mint Revenue'}
               </button>
 
               {/* Danger Zone — cancelSale is IRREVERSIBLE; moves contract to
@@ -176,7 +207,8 @@ export function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string
                     borderColor: 'rgba(239, 68, 68, 0.35)',
                     color: '#fca5a5',
                   }}
-                  disabled={busy}
+                  disabled={busy || isCancelled}
+                  title={isCancelled ? 'Sale already cancelled. Buyers can claim refunds via the collection page.' : undefined}
                   onClick={() => {
                     // Double-confirm destructive action.
                     const ok = typeof window !== 'undefined' && window.confirm(
@@ -185,7 +217,7 @@ export function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string
                     if (ok) exec('cancelSale');
                   }}
                 >
-                  {isPending || isConfirming ? 'Cancelling…' : !deployed ? 'Contract Not Deployed' : 'Cancel Sale (Irreversible)'}
+                  {isPending || isConfirming ? 'Cancelling…' : !deployed ? 'Contract Not Deployed' : isCancelled ? 'Already Cancelled' : 'Cancel Sale (Irreversible)'}
                 </button>
               </div>
             </div>

@@ -61,7 +61,7 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
       .then(([w, e]) => {
         if (!cancelled) { setWethBal(w); setEthBal(e); }
       })
-      .catch(() => {});
+      .catch((err) => console.warn('[MakeOfferModal] balance fetch failed:', err?.message ?? err));
     fetchMyOffers(wallet, collectionContract)
       .then((offers) => {
         if (cancelled) return;
@@ -70,7 +70,7 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
         );
         setActiveOfferTotal(total);
       })
-      .catch(() => {});
+      .catch((err) => console.warn('[MakeOfferModal] fetchMyOffers failed:', err?.message ?? err));
     return () => { cancelled = true; };
   }, [wallet, collectionContract]);
 

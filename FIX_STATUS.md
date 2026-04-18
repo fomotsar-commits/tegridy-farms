@@ -1,9 +1,121 @@
-# Fix Status — 2026-04-17 Session
+# Fix Status — Rolling tracker
 
-Work landed this session in response to the 35-detective audit. See `AUDIT_FINDINGS.md` for
-the full finding list and `REVENUE_ANALYSIS.md` for the greed-vs-generosity calibration.
+Running log of what's landed on `main` in response to [AUDIT_FINDINGS.md](AUDIT_FINDINGS.md),
+the 35-detective audit, the Spartan audit, and the 300-agent internal review.
+See [REVENUE_ANALYSIS.md](REVENUE_ANALYSIS.md) for the fee-lever calibration.
 
-## ✅ Done this session
+Last refreshed after sessions 1–6 ending 2026-04-18. For a richer
+Keep-a-Changelog view see [CHANGELOG.md](CHANGELOG.md).
+
+## ✅ Sessions 3–6 (2026-04-18)
+
+### Contracts — shipped on `main`, **still need mainnet redeploy**
+
+- **[GaugeController.sol](contracts/src/GaugeController.sol)** — commit-reveal
+  voting implemented at the contract layer. `commitVote`, `revealVote`,
+  `computeCommitment`, `isRevealWindowOpen`, `commitmentOf`, `committerOf`.
+  Closes **audit H-2** (bribe arbitrage). 14/14 new tests pass in
+  [GaugeCommitReveal.t.sol](contracts/test/GaugeCommitReveal.t.sol).
+  All 1921 existing forge tests continue to pass.
+- **[Toweli.sol](contracts/src/Toweli.sol)** — canonical TOWELI source in-repo
+  for the first time. OpenZeppelin ERC-20 + ERC-2612 permit, 1B fixed
+  supply, no admin surface. Closes the "no token source" audit-trail gap.
+  Reference deploy script at
+  [DeployToweli.s.sol](contracts/script/DeployToweli.s.sol); mainnet uses
+  CREATE2 vanity per [docs/TOKEN_DEPLOY.md](docs/TOKEN_DEPLOY.md).
+- **[DeployTegridyFeeHook.s.sol](contracts/script/DeployTegridyFeeHook.s.sol)**
+  — **closes audit B7**. Self-contained CREATE2 salt-miner that finds a
+  deployment address satisfying the Uniswap V4 hook flag bitmask (0x0044).
+  Runs inline inside `forge script` — no external tooling required.
+
+### Frontend — commit-reveal + refund loop shipped
+
+- **[GaugeVoting.tsx](frontend/src/components/GaugeVoting.tsx)** — two-step
+  commit-reveal UI with localStorage salt persistence, mode toggle
+  (commit-reveal default, legacy emergency path), pending-reveal banner,
+  missing-salt warning when on-chain commitment exists but local data is
+  absent. Closes H-2 end-to-end.
+- **[CollectionDetail.tsx](frontend/src/components/launchpad/CollectionDetail.tsx)**
+  — red refund banner when sale is `CANCELLED` with a Claim Refund button
+  bound to `paidByUser > 0`. Closes **H10** user-facing loop.
+- **[OwnerAdminPanel.tsx](frontend/src/components/launchpad/OwnerAdminPanel.tsx)**
+  — new on-chain `mintPhase` read + "Cancelled" chip in the panel header.
+  Phase / MerkleRoot / Reveal / Withdraw / CancelSale buttons disable with
+  clear labels once the sale is in the CANCELLED terminal state.
+- **TegridyDrop ABI fix** ([contracts.ts](frontend/src/lib/contracts.ts)) —
+  pre-existing bug: `currentPhase()` doesn't exist on the contract (it's
+  `mintPhase()`). Every ABI call was reverting. Fixed + added
+  `cancelSale`/`refund`/`paidPerWallet`.
+- **[useToweliPrice](frontend/src/hooks/useToweliPrice.ts)** — `TegridyTWAP`
+  wired as third oracle leg. 30-minute TWAP cross-checks pair-reserve spot
+  price; divergence > 2% flips to TWAP for manipulation-resistant pricing.
+  `twapOverrideActive` signal exposed.
+- **Indexer `TegridyStaking` address** corrected from paused v1
+  `0x65D8…a421` to canonical v2 `0x6266…4819`
+  ([ponder.config.ts](indexer/ponder.config.ts)).
+- **Silent catches replaced** across the nakamigos sub-app (Listings,
+  MyCollection, MakeOfferModal, OnChainProfile, useSmartAlerts) with
+  scoped `console.warn` logging. Closes audit M8.
+- **[usePageTitle](frontend/src/hooks/usePageTitle.ts)** extended: canonical
+  `<link>`, `og:url`, `twitter:*`, per-page `og:image` override.
+- **E2E Playwright specs** extended in
+  [e2e/trust-pages.spec.ts](frontend/e2e/trust-pages.spec.ts): security,
+  contracts, treasury, tokenomics, changelog, risks, history pages +
+  sitemap/manifest/robots/og.svg asset served checks + SEO metadata checks.
+
+### Docs & repo hygiene
+
+- **[LICENSE](LICENSE)** (MIT) — was 404 despite README link.
+- **[NOTICE.md](NOTICE.md)** — third-party attributions (OZ, Synthetix,
+  Curve, Uniswap V2) + South Park fair-use / parody statement.
+- **[HALL_OF_FAME.md](HALL_OF_FAME.md)** — fixes the SECURITY.md broken ref.
+- **[docs/MIGRATION_HISTORY.md](docs/MIGRATION_HISTORY.md)** — canonical vs
+  deprecated addresses across every contract with multiple live versions.
+- **[docs/DEPRECATED_CONTRACTS.md](docs/DEPRECATED_CONTRACTS.md)** — ghost
+  addresses (TegridyFarm, FeeDistributor, WithdrawalFee) documented.
+- **[docs/TOKEN_DEPLOY.md](docs/TOKEN_DEPLOY.md)** — how TOWELI was
+  deployed, CREATE2 vanity notes, testnet redeploy reference.
+- **[docs/GOVERNANCE.md](docs/GOVERNANCE.md)** — admin-key model, timelock
+  windows per contract, honest threat model ("single EOA; multisig
+  migration is a priority"), what admin CAN and CANNOT do.
+- **[docs/DEVELOPING.md](docs/DEVELOPING.md)**,
+  **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**,
+  **[docs/API.md](docs/API.md)** — developer, deploy, and API references.
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — expanded from 2.7KB
+  outline to full reference with mermaid diagrams for every surface.
+- **[docs/banner.svg](docs/banner.svg)** + `frontend/public/og.svg` —
+  purpose-built 1280×640 social preview. Rendered as README hero + wired
+  into `index.html` as `og:image` + `twitter:image`.
+- **[README.md](README.md)** — rewritten with elevator pitch + badges
+  (Contracts CI / CodeQL / Slither / License / Solidity / Chain) + TOC
+  + repo layout + honest security section.
+- **[CHANGELOG.md](CHANGELOG.md)** — comprehensive `[Unreleased]` section
+  covering sessions 3–6 per Keep a Changelog.
+- **GitHub workflows:** new
+  [contracts-ci.yml](.github/workflows/contracts-ci.yml),
+  [codeql.yml](.github/workflows/codeql.yml),
+  [slither.yml](.github/workflows/slither.yml),
+  [release.yml](.github/workflows/release.yml).
+- **[.github/dependabot.yml](.github/dependabot.yml)** + FUNDING.yml
+  + [.gitattributes](.gitattributes) + [.nvmrc](.nvmrc).
+- **Vercel security headers** hardened: HSTS 2y + preload, COOP, CORP,
+  X-Permitted-Cross-Domain-Policies, extended Permissions-Policy
+  ([vercel.json](frontend/vercel.json)).
+- **[frontend/public/sitemap.xml](frontend/public/sitemap.xml)** —
+  `lastmod` + `changefreq` on every URL; added `/contracts` + `/treasury`.
+- **[frontend/public/manifest.json](frontend/public/manifest.json)** —
+  replaced broken `skeleton.jpg` icon refs with actual `icon-192.png` +
+  `icon-512.png`; added `any maskable` purpose.
+- **package.json `license: "MIT"`** + `engines.node ≥20` on both
+  `frontend/` and `indexer/`.
+
+## ⚠️ Status of original 2026-04-17 session work
+
+All original-session fixes below are still in place on `main` (re-verified
+at the session-6 HEAD). Addresses still need the mainnet redeploy to take
+effect on-chain.
+
+## ✅ Originally done (2026-04-17)
 
 ### Contracts (need rebuild + redeploy to take effect)
 - `contracts/src/TegridyLPFarming.sol` — added `exit()` convenience function so the
@@ -71,52 +183,64 @@ the full finding list and `REVENUE_ANALYSIS.md` for the greed-vs-generosity cali
   They were never committed to git (verified via `git log --all --full-history`). Rotate
   at your pace.
 
-## 🟡 Deferred / needs a focused second session
+## 🟡 Deferred — remaining work
 
-Each of these is non-trivial and was cut out of this session to avoid shipping half-done:
+Scope cut from the current work to keep changes reviewable. Each can be picked up later.
 
-1. **Commit-reveal gauge voting UI** — contracts already have `commitVote` + `revealVote`,
-   but `GaugeVoting.tsx` still calls legacy `vote()`. Need: regenerate ABIs, add 2-step UI
-   (commit button → countdown → reveal button), pending-reveal dashboard row. The
-   bribe-arbitrage vulnerability H-2 fixes is currently **not actually mitigated from the
-   UI**.
-2. **Launchpad admin UI** — `reveal()` button (contract supports it, no UI) + new
-   `cancelSale` / `refund` flow built this session (contract patched, no UI yet). Also,
-   the mock `mockMints[]` array in `launchpadShared.tsx:137-174` — replace with indexer
-   data once #5 lands.
-3. **Rewire ghost hooks into UI** — `useBribes`, `useReferralRewards`, `useAddLiquidity`
-   are all feature-complete, just unimported. The existing `VoteIncentivesSection.tsx`
-   reimplements bribe logic inline, so the cleanest path is refactor → use the hook.
-   `useAddLiquidity` has a consumer shell in `TradePage` that uses a different inline
-   implementation.
-4. **Indexer expansion** — register `GaugeController` (not listed at all), add
-   `EpochAdvanced` handler, add `MemeBountyBoard` submission/vote/dispute handlers, add
-   `CommunityGrants` lapse/cancel/refund handlers. Fix `restaking_position` tombstone
-   pattern (depositTime=0 on Unrestaked breaks "active positions" queries).
-5. **Wire Leaderboard + History to Ponder** — currently Etherscan proxy. Indexer is orphan
-   until the frontend actually queries it.
-6. **Wire `TegridyTWAP.consult()` into `useToweliPrice`** — contract deployed at
-   `0x1394A256...`, unused. Currently we rely on GeckoTerminal + Chainlink.
-7. **`TegridyFeeHook` deploy** — requires CREATE2 salt-mining for the 0x0044 address
-   prefix. Write a salt-mining script + integration into a V4 pool.
-8. **Regenerate `frontend/src/generated.ts`** via `wagmi generate` so it includes the 8
-   missing contracts (POLAccumulator, TegridyDrop, TegridyFeeHook, TegridyLPFarming,
-   TegridyNFTPool, TegridyPair, TegridyTWAP, TegridyTokenURIReader) + the new Drop refund
-   functions. Requires `forge build` first.
-9. **Test backfill** — 29 hooks with no tests, 0/19 pages with E2E, one stub test
-   (`RedTeam_POLPremium.t.sol` = `assertTrue(true)`). Whole day of work by itself.
-10. **Silent `.catch(() => {})` in nakamigos components** — `MakeOfferModal.jsx:64,73`,
-    `MyCollection.jsx:461,474`, `Listings.jsx:112`, `OnChainProfile.jsx:144`,
-    `useToweliPrice.ts:75`. Low-risk mechanical fix.
-11. **isPending guards** on `AMMSection.tsx:1223,1253,1717` and
-    `NFTLendingSection.tsx:370`.
+1. ✅ ~~Commit-reveal gauge voting UI~~ — **done in session 4-5**; `GaugeController.sol`
+   now has `commitVote`/`revealVote`, ABI is in `contracts.ts`, `GaugeVoting.tsx`
+   ships the two-step flow with localStorage salt persistence.
+2. ✅ ~~Launchpad admin UI (cancelSale, refund, reveal)~~ — **done in sessions 4-6**;
+   OwnerAdminPanel has Danger Zone + cancelSale confirm, CollectionDetail has
+   buyer-side refund banner, all gated on on-chain `mintPhase` reads.
+3. **Rewire ghost hooks** — `useBribes`, `useReferralRewards`, `useAddLiquidity` are
+   feature-complete but unimported. `VoteIncentivesSection.tsx` reimplements bribe
+   logic inline. Not blocking but is technical debt.
+4. **Indexer expansion — BLOCKED by Ponder type ceiling**. Register `GaugeController`
+   events, add `MemeBountyBoard` submission/vote/dispute/refund handlers, add
+   `CommunityGrants` lapse/cancel/refund/execution-failed handlers, fix
+   `restaking_position` tombstone (`depositTime=0` on Unrestaked breaks active-
+   positions queries). Attempted in session 5 — Ponder's `Virtual.Registry`
+   TypeScript inference ceiling trips when total contract count or per-ABI event
+   count crosses a threshold. Session 5 established the ceiling was pre-existing
+   (broken already in committed state), not a regression.
+5. **Wire Leaderboard + History to Ponder** — blocks on #4.
+6. ✅ ~~Wire `TegridyTWAP.consult()` into `useToweliPrice`~~ — **done in session 5**;
+   30-min TWAP cross-checks spot; > 2% divergence triggers fallback.
+7. ✅ ~~`TegridyFeeHook` deploy~~ — **salt-mining script shipped in session 6**
+   ([DeployTegridyFeeHook.s.sol](contracts/script/DeployTegridyFeeHook.s.sol)).
+   Self-contained CREATE2 miner for the `0x0044` hook-flag prefix. Needs
+   operational run + V4 pool wiring to close B7 fully.
+8. ✅ ~~Regenerate `frontend/src/generated.ts`~~ — **done in session 3** via
+   [scripts/extract-missing-abis.mjs](scripts/extract-missing-abis.mjs). 8 missing
+   ABIs now in [abi-supplement.ts](frontend/src/lib/abi-supplement.ts).
+9. **Test backfill** — 29 hooks with no unit tests. Session 5-6 added the
+   Playwright E2E scaffolding and extended smoke.spec.ts + wrote
+   `trust-pages.spec.ts`; significant frontend unit-test coverage is still owed.
+10. ✅ ~~Silent `.catch(() => {})` in nakamigos components~~ — **done in session 6**.
+    MakeOfferModal, MyCollection, Listings, OnChainProfile, useSmartAlerts all get
+    scoped `console.warn` logging. useSound AudioContext.close() left silent with
+    an explanatory comment (browser-owned lifecycle; errors not actionable).
+11. ✅ ~~isPending guards on AMMSection/NFTLendingSection~~ — **done in session 3**.
 
-## 🔴 Needs YOU (not something I can do)
+## 🔴 Needs YOU (not something an agent can do)
 
-- Rotate the committed API keys + private key out of `.env` working files.
-- After rebuilding contracts: `forge script DeployTegridyLPFarming` / redeploy
-  `TegridyNFTLending` / redeploy `TegridyDrop` template. Update `constants.ts` with the
-  new addresses. Current on-chain versions do **not** have the exit/grace/refund patches.
-- Apply Supabase migration 002 in the SQL editor.
-- Decide on the revenue calibration moves in `REVENUE_ANALYSIS.md` §4 — each one is a
-  24–48 h timelock proposal and you need to pick the numbers.
+- **Rotate committed API keys + private key** out of `.env` working files. Never pushed
+  to git per earlier `git log --all --full-history` check, but rotate anyway.
+- **After rebuilding contracts:** run
+  [`scripts/redeploy-patched-3.sh`](scripts/redeploy-patched-3.sh) →
+  [`scripts/diff-addresses.ts`](scripts/diff-addresses.ts) → apply the constants.ts
+  patch + README address-table updates in one commit. Current on-chain versions
+  still do **not** have the exit / grace / refund / commit-reveal patches.
+- **Apply Supabase migration 002** in the SQL editor.
+- **Run `DeployTegridyFeeHook.s.sol`** (CREATE2 miner) once POOL_MANAGER +
+  REVENUE_DIST env vars are set. Mining typically 10k–200k iterations.
+- **Transfer ownership to a Safe multisig** — biggest trust-model improvement still
+  outstanding. See [docs/GOVERNANCE.md](docs/GOVERNANCE.md).
+- **Finalise [TOKENOMICS.md](TOKENOMICS.md) allocation** — still "TBD placeholder"
+  on mainnet.
+- **Publish a community surface** — Discord / Twitter / governance forum. Until
+  then GitHub Issues / Discussions are the canonical channel per README.
+- **Decide on the revenue calibration moves in
+  [REVENUE_ANALYSIS.md](REVENUE_ANALYSIS.md) §4** — each one is a 24–48h timelock
+  proposal that needs a multisig signer set (blocks on multisig migration).

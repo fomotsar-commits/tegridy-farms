@@ -139,9 +139,11 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
   // Fetch real floor price for this collection
   useEffect(() => {
     let mounted = true;
-    fetchCollectionStats({ contract: collection.contract, slug: collection.slug, openseaSlug: collection.openseaSlug }).then((stats) => {
-      if (mounted && stats.floor != null) setFloorPrice(stats.floor);
-    }).catch(() => {});
+    fetchCollectionStats({ contract: collection.contract, slug: collection.slug, openseaSlug: collection.openseaSlug })
+      .then((stats) => {
+        if (mounted && stats.floor != null) setFloorPrice(stats.floor);
+      })
+      .catch((err) => console.warn('[OnChainProfile] fetchCollectionStats failed:', err?.message ?? err));
     return () => { mounted = false; };
   }, [collection.contract, collection.slug, collection.openseaSlug]);
 

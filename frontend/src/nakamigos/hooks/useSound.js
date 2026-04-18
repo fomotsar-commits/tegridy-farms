@@ -131,6 +131,9 @@ export default function useSound() {
   useEffect(() => {
     return () => {
       if (ctxRef.current) {
+        // Intentionally silent: close() throws InvalidStateError when the
+        // AudioContext was already closed (e.g. by tab suspend). The browser
+        // owns lifecycle here; errors are not actionable.
         ctxRef.current.close().catch(() => {});
         ctxRef.current = null;
       }

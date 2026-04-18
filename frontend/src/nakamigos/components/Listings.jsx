@@ -109,7 +109,9 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
   const [collectionOffers, setCollectionOffers] = useState([]);
   useEffect(() => {
     setCollectionOffers([]);
-    fetchCollectionOffers(osSlug).then(setCollectionOffers).catch(() => {});
+    fetchCollectionOffers(osSlug)
+      .then(setCollectionOffers)
+      .catch((err) => console.warn('[Listings] fetchCollectionOffers failed:', err?.message ?? err));
   }, [osSlug]);
 
   // Trait offer state

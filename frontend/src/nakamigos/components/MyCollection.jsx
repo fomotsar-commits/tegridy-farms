@@ -458,7 +458,9 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
           collection={collection}
           onClose={() => setBundleOpen(false)}
           onListingCreated={() => {
-            fetchMyListings(wallet, collection.contract).then(setListings).catch(() => {});
+            fetchMyListings(wallet, collection.contract)
+              .then(setListings)
+              .catch((err) => console.warn('[MyCollection] fetchMyListings failed:', err?.message ?? err));
           }}
           stats={stats}
         />
@@ -471,7 +473,9 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
           onClose={() => setBulkListOpen(false)}
           onListingCreated={() => {
             // Refresh listings after new listings are created
-            fetchMyListings(wallet, collection.contract).then(setListings).catch(() => {});
+            fetchMyListings(wallet, collection.contract)
+              .then(setListings)
+              .catch((err) => console.warn('[MyCollection] fetchMyListings failed:', err?.message ?? err));
           }}
           addToast={addToast}
           onConnect={onConnect}
