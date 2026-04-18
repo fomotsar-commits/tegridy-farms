@@ -1,0 +1,17 @@
+{
+  "name": "tegriddy-farms-root",
+  "private": true,
+  "description": "Root devDependencies for repo-wide tooling (OG banner rasterizer, etc.). The actual sub-projects live in frontend/, contracts/, indexer/ — each with their own package.json.",
+  "license": "MIT",
+  "scripts": {
+    "render-og-png": "node scripts/render-og-png.mjs",
+    "extract-abis": "node scripts/extract-missing-abis.mjs",
+    "diff-addresses": "npx tsx scripts/diff-addresses.ts"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
