@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (must already exist on origin)"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0 # needed so `git log` can diff against previous tag
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          TAG="${{ steps.tag.outputs.value }}"
+          PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || echo "")
+          echo "## What's changed in ${TAG}" > NOTES.md
+          echo "" >> NOTES.md
+          if [ -n "$PREV" ]; then
+            echo "Commits since \`${PREV}\`:" >> NOTES.md
+            echo "" >> NOTES.md
+            git log --no-merges --pretty='- %s (%h)' "${PREV}..${TAG}" >> NOTES.md
+          else
+            echo "Initial release." >> NOTES.md
+          fi
+          echo "" >> NOTES.md
+          echo "Full changelog: [CHANGELOG.md](../blob/${TAG}/CHANGELOG.md)" >> NOTES.md
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Build contracts
+        working-directory: contracts
+        run: forge build
+
+      - name: Package compiled artifacts
+        run: |
+          mkdir -p dist
+          # Strip unused test artifacts, keep only src contract outputs
+          tar -czf dist/contracts-${{ steps.tag.outputs.value }}.tar.gz \
+            -C contracts/out \
+            $(ls contracts/out | grep -v '\.t\.sol$' || true) || true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.value }}
+          name: ${{ steps.tag.outputs.value }}
+          body_path: NOTES.md
+          draft: false
+          prerelease: ${{ contains(steps.tag.outputs.value, 'rc') || contains(steps.tag.outputs.value, 'beta') || contains(steps.tag.outputs.value, 'alpha') || contains(steps.tag.outputs.value, 'pre') }}
+          files: dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

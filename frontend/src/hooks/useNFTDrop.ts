@@ -15,12 +15,13 @@ export function useNFTDrop(dropAddress: string) {
 
   const { data, refetch } = useReadContracts({
     contracts: [
-      { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'currentPhase' },
+      { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'mintPhase' },
       { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'currentPrice' },
       { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'totalMinted' },
       { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'maxSupply' },
       { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'owner' },
       { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'maxPerWallet' },
+      { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'paidPerWallet', args: address ? [address] : undefined },
     ],
     query: { enabled, refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
@@ -31,13 +32,23 @@ export function useNFTDrop(dropAddress: string) {
   const maxSupply = data?.[3]?.status === 'success' ? Number(data[3].result as bigint) : 0;
   const owner = data?.[4]?.status === 'success' ? (data[4].result as string) : '';
   const maxPerWallet = data?.[5]?.status === 'success' ? Number(data[5].result as bigint) : 0;
+  const paidByUser = data?.[6]?.status === 'success' ? (data[6].result as bigint) : 0n;
 
   const mintPriceFormatted = Number(formatWei(mintPrice, 18, 8));
   const isSoldOut = maxSupply > 0 && totalMinted >= maxSupply;
   const isOwner = !!address && owner.toLowerCase() === address.toLowerCase();
 
-  // Phase labels: 0 = Paused, 1 = Allowlist, 2 = Public
-  const phaseLabel = currentPhase === 2 ? 'Public' : currentPhase === 1 ? 'Allowlist' : 'Paused';
+  // Phase labels: 0 = Paused, 1 = Allowlist, 2 = Public, 3 = Dutch auction, 4 = Closed, 5 = Cancelled.
+  // Keep enum-numeric matches aligned with TegridyDrop.MintPhase; anything >= 5 surfaces as Cancelled.
+  const isCancelled = currentPhase === 5;
+  const canRefund = isCancelled && paidByUser > 0n;
+  const phaseLabel =
+    currentPhase === 5 ? 'Cancelled' :
+    currentPhase === 4 ? 'Closed' :
+    currentPhase === 3 ? 'Dutch auction' :
+    currentPhase === 2 ? 'Public' :
+    currentPhase === 1 ? 'Allowlist' :
+    'Paused';
 
   // Audit H-F8: wagmi's isPending is only true once wallet signs — between
   // clicking mint and MetaMask popping, it's false, so a second click races
@@ -57,6 +68,22 @@ export function useNFTDrop(dropAddress: string) {
       functionName: 'mint',
       args: [BigInt(quantity), proof],
       value: totalCost,
+    });
+  }
+
+  function refund() {
+    if (isPending || isConfirming || inFlight) {
+      toast.error('A transaction is already pending');
+      return;
+    }
+    if (!canRefund) {
+      toast.error(isCancelled ? 'No refund owed to this wallet' : 'Sale is not cancelled');
+      return;
+    }
+    writeContract({
+      address: contractAddr,
+      abi: TEGRIDY_DROP_ABI,
+      functionName: 'refund',
     });
   }
 
@@ -87,8 +114,12 @@ export function useNFTDrop(dropAddress: string) {
     owner,
     isSoldOut,
     isOwner,
+    isCancelled,
+    canRefund,
+    paidByUser,
     // Actions
     mint,
+    refund,
     refetch,
     // TX state
     hash,

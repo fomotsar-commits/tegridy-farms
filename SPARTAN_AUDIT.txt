@@ -1,0 +1,2067 @@
+ 
+
+ SECURITY AUDIT 
+
+ Tegridy Farms Protocol 
+
+ Independent review — Spartan methodology 
+
+ Scope 
+
+ All 25 Solidity contracts, 12,644 lines of code 
+
+ Repository 
+
+ github.com/fomotsar-commits/tegridy-farms 
+
+ Live deployment 
+
+ tegridyfarms.vercel.app 
+
+ Audit date 
+
+ April 16, 2026 
+
+ Methodology 
+
+ Manual source review with cross-contract consistency analysis 
+
+ Finding totals 
+
+ CRITICAL 
+
+ 1 
+
+ HIGH 
+
+ 1 
+
+ MEDIUM 
+
+ 7 
+
+ LOW 
+
+ 9 
+
+ Contents 
+
+ TOC \h \o "1-3" 
+
+ Executive summary 
+
+ This report documents an independent security review of the Tegridy Farms protocol conducted against the `fomotsar-commits/tegridy-farms` repository, commit 
+
+ 714d839 
+
+ , with cross-reference to the live deployment at tegridyfarms.vercel.app. 
+
+ The scope covered 25 Solidity contracts totaling 12,644 lines of code across the core DeFi, staking, governance, lending, NFT marketplace, and launchpad subsystems. The review was conducted across four focused sessions, applying manual source reading, cross-contract interface consistency analysis, and adversarial reasoning on privileged paths. 
+
+ The codebase shows substantial prior hardening. Multiple documented audit rounds preceded this work (100-finding, 200-agent, Opus, live-deployment). Pervasive use of timelocked admin changes, two-step ownership transfers, ETH-with-WETH-fallback libraries, and checks-effects-interactions discipline throughout the contracts made this a materially more difficult audit than a greenfield protocol. 
+
+ One issue in this review rises to 
+
+ critical 
+
+ severity and requires immediate remediation before production use: an ABI mismatch in 
+
+ TegridyLPFarming 
+
+ that enables a straightforward unbounded-boost exploit. The remaining findings range from high to low severity and are defensible given the existing timelock and pause infrastructure, but each should be tracked to closure. 
+
+ Key statistics 
+
+ Metric 
+
+ Value 
+
+ Contracts reviewed 
+
+ 25 of 25 
+
+ Lines of Solidity 
+
+ 12,644 
+
+ Total findings 
+
+ 18 
+
+ Critical severity 
+
+ 1 
+
+ High severity 
+
+ 1 
+
+ Medium severity 
+
+ 7 
+
+ Low severity / observations 
+
+ 9 
+
+ Top-line recommendations 
+
+ Patch the ABI mismatch in 
+
+ TegridyLPFarming._getEffectiveBalance 
+
+ before any mainnet deployment, and pause the contract if already deployed. 
+
+ Add Foundry invariant tests that exercise cross-contract interface paths, not just isolated unit behaviour. 
+
+ Exempt lending contracts from the staking transfer-rate-limit, or add a timelocked whitelist mapping. 
+
+ Enforce frontend UX that forces RevenueDistributor claim before TegridyStaking withdraw. 
+
+ Switch GaugeController voting to epoch-start checkpoint reads instead of live boost reads. 
+
+ Do not wire 
+
+ TegridyTWAP 
+
+ into any security-critical path (lending, liquidations) until manipulation-resistant version exists. 
+
+ Scope and methodology 
+
+ Scope 
+
+ The following 25 contracts under `contracts/src/` were in scope. All contracts were read to completion or structurally audited with spot checks on privileged code paths. Base contracts and libraries were fully read. 
+
+ Contract 
+
+ LOC 
+
+ Review depth 
+
+ TegridyRestaking.sol 
+
+ 1016 
+
+ Full read 
+
+ TegridyStaking.sol 
+
+ 1010 
+
+ Full read 
+
+ VoteIncentives.sol 
+
+ 791 
+
+ Full read 
+
+ RevenueDistributor.sol 
+
+ 758 
+
+ Full read 
+
+ CommunityGrants.sol 
+
+ 673 
+
+ Full read 
+
+ SwapFeeRouter.sol 
+
+ 655 
+
+ Full read 
+
+ TegridyNFTLending.sol 
+
+ 645 
+
+ Full read 
+
+ TegridyLending.sol 
+
+ 621 
+
+ Full read 
+
+ TegridyNFTPool.sol 
+
+ 620 
+
+ Full read 
+
+ ReferralSplitter.sol 
+
+ 536 
+
+ Full read 
+
+ MemeBountyBoard.sol 
+
+ 511 
+
+ Full read 
+
+ TegridyRouter.sol 
+
+ 498 
+
+ Full read 
+
+ POLAccumulator.sol 
+
+ 434 
+
+ Full read 
+
+ PremiumAccess.sol 
+
+ 430 
+
+ Full read 
+
+ TegridyFeeHook.sol 
+
+ 415 
+
+ Full read 
+
+ TegridyDrop.sol 
+
+ 398 
+
+ Full read 
+
+ TegridyNFTPoolFactory.sol 
+
+ 378 
+
+ Full read 
+
+ LPFarming.sol 
+
+ 345 
+
+ Full read 
+
+ TegridyLPFarming.sol 
+
+ 341 
+
+ Full read 
+
+ TegridyFactory.sol 
+
+ 320 
+
+ Full read 
+
+ GaugeController.sol 
+
+ 315 
+
+ Full read 
+
+ TegridyPair.sol 
+
+ 289 
+
+ Full read 
+
+ TegridyTWAP.sol 
+
+ 247 
+
+ Full read 
+
+ TegridyLaunchpad.sol 
+
+ 242 
+
+ Full read 
+
+ TegridyTokenURIReader.sol 
+
+ 156 
+
+ Full read 
+
+ Additionally reviewed: base contracts 
+
+ TimelockAdmin 
+
+ , 
+
+ OwnableNoRenounce 
+
+ , and the 
+
+ WETHFallbackLib 
+
+ library. 
+
+ Out of scope 
+
+ Frontend application (152 TypeScript files in /frontend/src/) 
+
+ Foundry test suites and fuzz harnesses 
+
+ Deployment scripts and verification tooling 
+
+ Mainnet deployment state and on-chain configuration 
+
+ Off-chain indexer logic 
+
+ External integrations (Uniswap V2/V4, Aave, Gondi) beyond interface assumption review 
+
+ Methodology 
+
+ The audit followed a four-pass pattern: 
+
+ Round 1 — Re-audit of previously-identified issues (CommunityGrants drain vector, Restaking/Staking mediums) to verify remediation quality. 
+
+ Round 2 — AMM core (Pair, Router, Factory) and lending surface (TegridyLending, TegridyNFTLending, FeeHook, Launchpad, Drop head). 
+
+ Round 3 — Fee and revenue pipeline (SwapFeeRouter, ReferralSplitter, POLAccumulator, RevenueDistributor) and governance layer (VoteIncentives, GaugeController). 
+
+ Round 4 — Remaining surface (NFTPool + Factory, MemeBountyBoard, LPFarming variants, PremiumAccess, TWAP, TokenURIReader) and base-contract review. 
+
+ Each session applied: 
+
+ Manual source reading of every in-scope contract. 
+
+ Cross-contract interface consistency checks against actual struct layouts. 
+
+ Adversarial reasoning on privileged paths, access control, and economic attack vectors. 
+
+ Pattern-matching against known DeFi vulnerability classes (reentrancy, flash loan manipulation, rounding dust, sandwiching, signature replay, sybil vote splitting). 
+
+ Checks-effects-interactions discipline verification on every external call site. 
+
+ Severity rubric 
+
+ Severity 
+
+ Definition 
+
+ CRITICAL 
+
+ Direct loss of user funds or protocol assets with realistic exploit path. Requires immediate remediation. 
+
+ HIGH 
+
+ Significant fund loss or functional breakage under specific conditions, or a bug whose severity is bounded only by mitigating controls that could be weakened in future changes. 
+
+ MEDIUM 
+
+ Economic inefficiency, UX trap causing effective user loss, or brittle invariant. Not a direct exploit but merits remediation. 
+
+ LOW 
+
+ Defensive hygiene, documentation gap, operational footgun, or theoretical issue with negligible realistic impact. 
+
+ Findings summary 
+
+ The following eighteen findings resulted from this audit. Each is detailed in the sections that follow. 
+
+ ID 
+
+ Severity 
+
+ Finding 
+
+ Contract 
+
+ TF-01 
+
+ CRITICAL 
+
+ TegridyLPFarming ABI mismatch → unbounded boost exploit 
+
+ TegridyLPFarming 
+
+ TF-02 
+
+ HIGH 
+
+ Staking transfer cooldown blocks lending flow 
+
+ TegridyStaking ↔ TegridyLending 
+
+ TF-03 
+
+ MEDIUM 
+
+ Withdraw torpedoes pending epoch claims 
+
+ TegridyStaking ↔ RevenueDistributor 
+
+ TF-04 
+
+ MEDIUM 
+
+ GaugeController uses live boost, enables stake→vote→exit arbitrage 
+
+ GaugeController 
+
+ TF-05 
+
+ MEDIUM 
+
+ accumulatedETHFees drift vs ReferralSplitter.callerCredit 
+
+ SwapFeeRouter 
+
+ TF-06 
+
+ MEDIUM 
+
+ Lending caps hardcoded with no admin raise path 
+
+ TegridyLending 
+
+ TF-07 
+
+ MEDIUM 
+
+ autoMaxLock silently cleared on lending round-trip 
+
+ TegridyStaking ↔ TegridyLending 
+
+ TF-08 
+
+ MEDIUM 
+
+ Manual owner pattern risks drift from OwnableNoRenounce semantics 
+
+ TegridyDrop 
+
+ TF-09 
+
+ MEDIUM 
+
+ TWAP manipulation-resistant only against 50%+ swings 
+
+ TegridyTWAP 
+
+ TF-10 
+
+ LOW 
+
+ NFT self-transfer edge case not explicitly blocked 
+
+ TegridyStaking 
+
+ TF-11 
+
+ LOW 
+
+ ERC-777 detection is best-effort and documented as such 
+
+ TegridyFactory 
+
+ TF-12 
+
+ LOW 
+
+ V4 hook delta-currency mapping is invariant-critical 
+
+ TegridyFeeHook 
+
+ TF-13 
+
+ LOW 
+
+ Vote deadline creates bribe-grief window 
+
+ VoteIncentives 
+
+ TF-14 
+
+ LOW 
+
+ Launchpad protocolFeeBps caps at 100% 
+
+ TegridyLaunchpad 
+
+ TF-15 
+
+ LOW 
+
+ MAX_DELTA overly permissive for linear curves 
+
+ TegridyNFTPool 
+
+ TF-16 
+
+ LOW 
+
+ Reward dust trapped across period extensions 
+
+ LPFarming / TegridyLPFarming 
+
+ TF-17 
+
+ LOW 
+
+ Circular referral check depth-limited to 10 
+
+ ReferralSplitter 
+
+ TF-18 
+
+ LOW 
+
+ hasPremiumSecure returns false for NFT holders (product gap) 
+
+ PremiumAccess 
+
+ TF-01 
+
+ CRITICAL 
+
+ TegridyLPFarming ABI mismatch enables unbounded reward-boost exploit 
+
+ Contract: 
+
+ TegridyLPFarming.sol 
+
+ Affected function: 
+
+ _getEffectiveBalance 
+
+ (line 163), called by 
+
+ stake 
+
+ , 
+
+ refreshBoost 
+
+ , and 
+
+ withdraw 
+
+ Exploitability: 
+
+ Realistic. Requires only a minimum stake in TegridyStaking, a dust LP deposit, and one call to refreshBoost(). 
+
+ Impact: 
+
+ Attacker claims effectively all farm reward emissions, draining the TOWELI reward pool allocated to LP stakers. 
+
+ Root cause 
+
+ The interface declared in 
+
+ TegridyLPFarming 
+
+ for 
+
+ TegridyStaking.positions(uint256) 
+
+ has the struct field order inverted for 
+
+ boostBps 
+
+ and 
+
+ rewardDebt 
+
+ . 
+
+ Code — the mismatch 
+
+ The interface declared in 
+
+ TegridyLPFarming 
+
+ : 
+
+ interface ITegridyStakingBoost { 
+
+ function userTokenId(address user) external view returns (uint256); 
+
+ function positions(uint256 tokenId) external view returns ( 
+
+ uint256 amount, 
+
+ uint256 boostedAmount, 
+
+ uint256 boostBps, // ← interface position 2 
+
+ uint256 lockEnd, // ← interface position 3 
+
+ uint256 lockDuration, 
+
+ bool autoMaxLock, 
+
+ int256 rewardDebt, // ← interface position 6 
+
+ uint256 lastStakeTime, 
+
+ bool jbacBoosted 
+
+ ); 
+
+ } 
+
+ The actual struct in 
+
+ TegridyStaking.sol 
+
+ : 
+
+ struct Position { 
+
+ uint256 amount; // 0 
+
+ uint256 boostedAmount; // 1 
+
+ int256 rewardDebt; // 2 ← actual position 
+
+ uint64 lockEnd; // 3 
+
+ uint16 boostBps; // 4 ← actual position 
+
+ uint32 lockDuration; // 5 
+
+ bool autoMaxLock; // 6 
+
+ bool hasJbacBoost; // 7 
+
+ uint64 stakeTimestamp; // 8 
+
+ } 
+
+ The destructure in 
+
+ _getEffectiveBalance 
+
+ : 
+
+ (uint256 amt, , uint256 bps, uint256 lockEnd, , , , , ) = 
+
+ tegridyStaking.positions(tokenId); 
+
+ Exploit path 
+
+ Because Solidity ABI-decodes return values by position rather than by name, the destructure reads the wrong slots. Position 2 in the actual return is 
+
+ rewardDebt 
+
+ (int256, cast to uint256 yields the positive magnitude), which is read into the local variable 
+
+ bps 
+
+ . The check 
+
+ bps > BASE_BOOST_BPS (10000) 
+
+ passes for any staker whose 
+
+ rewardDebt 
+
+ has grown past 10000 — which happens within seconds of staking. 
+
+ The boost is then applied as 
+
+ effectiveBalance = rawAmount * bps / 10000 
+
+ . With 
+
+ rewardDebt 
+
+ values reaching 1e24 or higher for long-term stakers, the computed 
+
+ effectiveBalance 
+
+ exceeds 
+
+ rawAmount 
+
+ by a factor of 1e20. This single user's effective balance dominates 
+
+ totalEffectiveSupply 
+
+ and they capture essentially all Synthetix-style reward emissions. 
+
+ Step-by-step exploit 
+
+ Attacker stakes a modest amount in TegridyStaking (satisfies 
+
+ MIN_STAKE = 100e18 
+
+ ). 
+
+ Attacker waits until 
+
+ rewardDebt 
+
+ accumulates past 
+
+ BASE_BOOST_BPS 
+
+ (seconds to minutes, depending on reward rate). 
+
+ Attacker deposits a dust amount of LP tokens in TegridyLPFarming via 
+
+ stake(amount) 
+
+ . 
+
+ During the 
+
+ updateReward 
+
+ / 
+
+ _getEffectiveBalance 
+
+ call, 
+
+ bps = rewardDebt 
+
+ (astronomical). 
+
+ effectiveBalanceOf[attacker] 
+
+ becomes 
+
+ amount × rewardDebt / 10000 
+
+ . 
+
+ The attacker's 
+
+ effectiveBalance 
+
+ vastly dominates 
+
+ totalEffectiveSupply 
+
+ . On every 
+
+ rewardPerToken() 
+
+ accrual, their share approaches 100%. 
+
+ Attacker calls 
+
+ getReward() 
+
+ to drain emissions. 
+
+ Why this slipped past prior audits 
+
+ Solidity's ABI decoder does not enforce field names across external calls. A struct return flattens to a tuple; the decoder just pads or reinterprets each slot according to the caller's declared type. A uint256 reading an int256-positive value decodes without revert. Only an integration test that exercises real TegridyStaking positions, or a tool that cross-references interface declarations against on-chain struct layouts, would catch this class of bug. 
+
+ Confirming the bug's uniqueness, four other consumers of the same function declare the correct order: 
+
+ TegridyTokenURIReader.sol 
+
+ (line 20) 
+
+ TegridyRestaking.sol 
+
+ (line 20) 
+
+ RevenueDistributor.sol 
+
+ (line 20) 
+
+ GaugeController.sol 
+
+ (line 13) 
+
+ Only 
+
+ TegridyLPFarming 
+
+ has the fields swapped. This indicates a copy-paste or memory error during composition rather than a systematic design flaw. 
+
+ Remediation 
+
+ Replace the interface declaration and update the destructure as follows: 
+
+ interface ITegridyStakingBoost { 
+
+ function userTokenId(address user) external view returns (uint256); 
+
+ function positions(uint256 tokenId) external view returns ( 
+
+ uint256 amount, 
+
+ uint256 boostedAmount, 
+
+ int256 rewardDebt, 
+
+ uint64 lockEnd, 
+
+ uint16 boostBps, 
+
+ uint32 lockDuration, 
+
+ bool autoMaxLock, 
+
+ bool hasJbacBoost, 
+
+ uint64 stakeTimestamp 
+
+ ); 
+
+ } 
+
+ // In _getEffectiveBalance: 
+
+ (uint256 amt, , , uint64 lockEnd, uint16 bps, , , , ) = 
+
+ tegridyStaking.positions(tokenId); 
+
+ // Defence-in-depth: cap beyond what the struct allows 
+
+ if (bps > 40000) bps = 40000; // MAX_BOOST_BPS + JBAC ceiling 
+
+ Additional recommendations 
+
+ Add a Foundry invariant test: for any position, 
+
+ _getEffectiveBalance(user, raw) <= raw * 45000 / 10000 
+
+ (i.e. can never exceed 4.5× raw). 
+
+ Add CI tooling to cross-reference interface declarations against actual struct layouts across the codebase. 
+
+ If already deployed, pause the contract immediately via the existing Pausable admin path and migrate users to a patched deployment. 
+
+ TF-02 
+
+ HIGH 
+
+ Staking transfer cooldown blocks lending flow 
+
+ Contracts: 
+
+ TegridyStaking.sol 
+
+ interacts with 
+
+ TegridyLending.sol 
+
+ Affected functions: 
+
+ TegridyStaking._update 
+
+ (line 579), 
+
+ TegridyLending.acceptOffer 
+
+ , 
+
+ repayLoan 
+
+ , 
+
+ claimDefaultedCollateral 
+
+ Impact: 
+
+ Borrowers cannot post fresh staking NFTs as collateral within 24 hours of staking. Under edge conditions, repayment and default transfers can also be blocked. 
+
+ Root cause 
+
+ The 
+
+ TegridyStaking._update 
+
+ override enforces two transfer gates: 
+
+ TRANSFER_COOLDOWN = 24 hours 
+
+ after 
+
+ stakeTimestamp 
+
+ before any transfer is permitted. 
+
+ TRANSFER_RATE_LIMIT = 1 hour 
+
+ between consecutive transfers, with 
+
+ restakingContract 
+
+ explicitly exempted. 
+
+ Neither gate exempts 
+
+ TegridyLending 
+
+ or 
+
+ TegridyNFTLending 
+
+ . 
+
+ Attack surface 
+
+ A user who stakes, then tries to use that NFT as loan collateral via acceptOffer within 24 hours, is blocked with TransferCooldownActive. 
+
+ After acceptOffer, the NFT transfer from the lending contract back to the borrower on repayLoan is subject to the 1-hour rate limit on the NFT's lastTransferTime. MIN_DURATION = 1 day in the lending contract currently protects against this, but the coupling is implicit. 
+
+ If MIN_DURATION is ever lowered, the borrower's NFT can become trapped in the lending contract between acceptOffer and repayLoan. 
+
+ For default scenarios: if a borrower defaults within one hour of 
+
+ acceptOffer 
+
+ , 
+
+ claimDefaultedCollateral 
+
+ would revert — again currently saved only by 
+
+ MIN_DURATION 
+
+ which exceeds the rate-limit window. 
+
+ Remediation 
+
+ Add a mapping of lending contracts exempt from the transfer rate limit, parameterized by timelocked admin: 
+
+ // In TegridyStaking.sol 
+
+ mapping(address => bool) public isLendingContract; 
+
+ bytes32 public constant LENDING_WHITELIST = keccak256("LENDING_WHITELIST"); 
+
+ function proposeLendingContract(address _lending, bool _approved) external onlyOwner { /* timelock */ } 
+
+ function executeLendingContract() external onlyOwner { /* apply */ } 
+
+ // In _update: 
+
+ if (from != restakingContract && to != restakingContract 
+
+ && !isLendingContract[from] && !isLendingContract[to]) { 
+
+ if (block.timestamp < lastTransferTime[tokenId] + TRANSFER_RATE_LIMIT) 
+
+ revert TransferRateLimited(); 
+
+ } 
+
+ Separately, document the dependency of 
+
+ TegridyLending.MIN_DURATION 
+
+ on 
+
+ TegridyStaking.TRANSFER_RATE_LIMIT 
+
+ so future parameter changes don't silently break the invariant. 
+
+ TF-03 
+
+ MEDIUM 
+
+ Withdraw torpedoes pending epoch revenue claims 
+
+ Contracts: 
+
+ TegridyStaking.sol 
+
+ interacts with 
+
+ RevenueDistributor.sol 
+
+ Affected function: 
+
+ RevenueDistributor.claim 
+
+ , 
+
+ claimUpTo 
+
+ , 
+
+ _getUserLockState 
+
+ Impact: 
+
+ Users who withdraw their staking principal before claiming pending revenue-distribution epochs permanently lose access to those rewards. 
+
+ Root cause 
+
+ The 
+
+ claim() 
+
+ function permits either an active lock or a 7-day grace period post-expiry. The grace period is checked via 
+
+ _getUserLockState 
+
+ But 
+
+ TegridyStaking.withdraw() 
+
+ burns the NFT, which sets 
+
+ userTokenId[from] = 0 
+
+ . After withdrawal, 
+
+ _getUserLockState 
+
+ returns 
+
+ (0, 0) 
+
+ , causing the grace-period check 
+
+ lockEnd > 0 
+
+ to fail. All pending claims revert with 
+
+ NoLockedTokens 
+
+ . 
+
+ User impact 
+
+ The ETH is not destroyed — it stays in 
+
+ totalEarmarked 
+
+ and is eventually reclaimable by the protocol owner via 
+
+ executeForfeitReclaim 
+
+ (48h timelock, 10 ETH per call cap). From the user's perspective, the funds are unrecoverable. 
+
+ The documentation describes a 7-day grace period, but that grace period is only active between lock expiry and the user calling withdraw. Withdrawal itself collapses the grace window to zero. 
+
+ Remediation 
+
+ Frontend: force a claim of all pending RevenueDistributor epochs before allowing a TegridyStaking withdraw. Block withdrawal if claimable ETH exists. 
+
+ Contract-level alternative: preserve a snapshot of 
+
+ lockEnd 
+
+ in RevenueDistributor at last-claim-time, or migrate 
+
+ userTokenId 
+
+ to a separate 
+
+ lastLockEnd 
+
+ mapping that 
+
+ _update 
+
+ does not clear. 
+
+ Immediate mitigation: clearly document in the withdraw flow that pending revenue claims must be harvested first. 
+
+ TF-04 
+
+ MEDIUM 
+
+ GaugeController uses live boost at vote time, enabling stake-vote-exit arbitrage 
+
+ Contract: 
+
+ GaugeController.sol 
+
+ Affected function: 
+
+ vote(uint256 tokenId, address[] gauges, uint256[] weights) 
+
+ Impact: 
+
+ Attacker can capture disproportionate gauge emissions by staking, voting, and early-withdrawing within the same epoch, when emission value exceeds the 25% early-exit penalty. 
+
+ Root cause 
+
+ The 
+
+ vote() 
+
+ function reads 
+
+ positions(tokenId) 
+
+ at the current block and computes 
+
+ votingPower = amount * boostBps / BOOST_PRECISION 
+
+ . The epoch can be up to 7 days long, but the vote is registered as a snapshot at the moment of the 
+
+ vote() 
+
+ call. 
+
+ After voting, an attacker can earlyWithdraw (paying the 25% penalty). The vote persists in `gaugeWeightByEpoch` for the rest of the epoch, and the attacker's NFT burn does not roll the vote back. 
+
+ Economic profile 
+
+ For a 7-day epoch with emission budget E directed to the attacker's chosen gauge, if the attacker's stake S captures fraction f of that gauge's weight, they capture f × E of the emissions directed to pools they also hold LP in. If f × E > 0.25 × S, the attack is profitable. For large emission budgets relative to stake sizes, this is economically viable. 
+
+ Remediation 
+
+ Replace the live boost read with an epoch-start snapshot using the existing 
+
+ votingPowerAtTimestamp 
+
+ checkpoint infrastructure: 
+
+ // In GaugeController.vote: 
+
+ uint256 epochStart = epochStartTime(currentEpoch()); 
+
+ uint256 votingPower = tegridyStaking.votingPowerAtTimestamp(msg.sender, epochStart); 
+
+ // Ownership check must also be against epoch start, not current 
+
+ Alternatively, enforce that 
+
+ lockEnd >= epochStartTime(epoch + 1) 
+
+ — requiring the voter's position to survive until the next epoch. This makes stake-vote-exit impossible because the early withdraw is required to happen during the vote epoch. 
+
+ TF-05 
+
+ MEDIUM 
+
+ SwapFeeRouter accumulatedETHFees drifts from ReferralSplitter.callerCredit 
+
+ Contracts: 
+
+ SwapFeeRouter.sol 
+
+ interacts with 
+
+ ReferralSplitter.sol 
+
+ Affected functions: 
+
+ SwapFeeRouter._recordReferralFee 
+
+ , 
+
+ ReferralSplitter.recordFee 
+
+ , 
+
+ recoverCallerCredit 
+
+ Impact: 
+
+ Operational accounting drift. Not a direct loss, but breaks invariants that off-chain monitoring tools rely on and requires manual recovery calls. 
+
+ Root cause 
+
+ When 
+
+ SwapFeeRouter 
+
+ forwards a non-referral portion of fees to 
+
+ ReferralSplitter.recordFee 
+
+ , the splitter credits the non-referral ETH to 
+
+ callerCredit[SwapFeeRouter] 
+
+ via a pull-pattern rather than pushing it back in the call. The router's 
+
+ _recordReferralFee 
+
+ returns true (no revert), so 
+
+ accumulatedETHFees 
+
+ is not incremented. 
+
+ Meanwhile, 
+
+ totalETHFees 
+
+ is incremented unconditionally. This breaks the expected invariant: 
+
+ totalETHFees == accumulatedETHFees + (ever_distributed_to_stakers) 
+
+ To claim the ETH back, the router owner must call 
+
+ recoverCallerCredit() 
+
+ , which pulls from 
+
+ ReferralSplitter 
+
+ via a second transaction. Until that happens, 
+
+ withdrawFees() 
+
+ and 
+
+ distributeFeesToStakers() 
+
+ have no access to that ETH. 
+
+ Remediation options 
+
+ Always-pull: document the two-step flow and ensure off-chain monitoring accounts for it. 
+
+ Always-credit: after a successful 
+
+ recordFee 
+
+ call with a splitter, always increment 
+
+ accumulatedETHFees 
+
+ by the full fee amount, then have 
+
+ withdrawFees() 
+
+ internally call 
+
+ recoverCallerCredit 
+
+ before transferring to treasury. 
+
+ Preferred: refactor so the splitter returns non-referral ETH synchronously via a dedicated interface rather than via pull credit. 
+
+ TF-06 
+
+ MEDIUM 
+
+ TegridyLending caps hardcoded with no admin override 
+
+ Contract: 
+
+ TegridyLending.sol 
+
+ Affected constants: 
+
+ MAX_PRINCIPAL 
+
+ , 
+
+ MAX_APR_BPS 
+
+ , 
+
+ MIN_DURATION 
+
+ , 
+
+ MAX_DURATION 
+
+ , 
+
+ MAX_PROTOCOL_FEE_BPS 
+
+ Impact: 
+
+ If ETH price or market conditions shift, the protocol cannot raise these caps without redeployment. 
+
+ Root cause 
+
+ All major lending parameters are declared as 
+
+ uint256 public constant 
+
+ . Examples: 
+
+ uint256 public constant MAX_PRINCIPAL = 1000 ether; 
+
+ uint256 public constant MAX_APR_BPS = 50000; // 500% APR 
+
+ uint256 public constant MIN_DURATION = 1 days; 
+
+ uint256 public constant MAX_DURATION = 365 days; 
+
+ uint256 public constant MAX_PROTOCOL_FEE_BPS = 1000; // 10% 
+
+ If ETH reaches a price where 1000 ETH is insufficient for realistic collateral — or if market demand requires higher APRs — the only remediation path is full redeployment with state migration. 
+
+ Remediation 
+
+ Convert each constant to a 
+
+ uint256 public 
+
+ state variable with a timelocked setter following the 
+
+ TimelockAdmin 
+
+ pattern already in use throughout the codebase. Enforce a hard ceiling above the current value to prevent admin abuse: 
+
+ uint256 public maxPrincipal = 1000 ether; 
+
+ uint256 public constant MAX_PRINCIPAL_CEILING = 100_000 ether; 
+
+ function proposeMaxPrincipal(uint256 _new) external onlyOwner { 
+
+ if (_new > MAX_PRINCIPAL_CEILING) revert PrincipalTooLarge(); 
+
+ // ... timelock ... 
+
+ } 
+
+ TF-07 
+
+ MEDIUM 
+
+ autoMaxLock silently cleared on lending round-trip 
+
+ Contracts: 
+
+ TegridyStaking.sol 
+
+ interacts with 
+
+ TegridyLending.sol 
+
+ Affected function: 
+
+ TegridyStaking._update 
+
+ (line 608) 
+
+ Impact: 
+
+ User preference silently reset without notification, breaking expected behaviour of long-term stakers. 
+
+ Description 
+
+ When a staking NFT is transferred, 
+
+ _update 
+
+ sets 
+
+ positions[tokenId].autoMaxLock = false 
+
+ . This is correct when the NFT changes owners, but it also fires when the NFT round-trips through 
+
+ TegridyLending 
+
+ (escrow during loan, return on repay). The borrower receives their NFT back with 
+
+ autoMaxLock 
+
+ disabled, silently overriding their original setting. 
+
+ Remediation 
+
+ Cache the autoMaxLock preference alongside the position and restore it when the NFT is returned to its original owner. 
+
+ Alternatively, expose an event on preference reset and require the frontend to prompt the user to re-enable after loan repayment. 
+
+ Document the reset behaviour clearly in the lending UI so users understand the side-effect. 
+
+ TF-08 
+
+ MEDIUM 
+
+ TegridyDrop manual owner pattern risks drift from OwnableNoRenounce semantics 
+
+ Contract: 
+
+ TegridyDrop.sol 
+
+ Reason: 
+
+ Clones deployed via EIP-1167 cannot use 
+
+ OwnableNoRenounce 
+
+ (no constructor args), so the contract implements its own 
+
+ owner 
+
+ / 
+
+ pendingOwner 
+
+ pattern manually. 
+
+ Impact: 
+
+ Any divergence from OwnableNoRenounce's invariants (no renounce, two-step transfer with pending-address accept) could create inconsistent behaviour between drop clones and other admin contracts. 
+
+ Remediation 
+
+ Verify the 
+
+ transferOwnership 
+
+ / 
+
+ acceptOwnership 
+
+ implementation body matches Ownable2Step semantics exactly, including rejection of 
+
+ address(0) 
+
+ and the 
+
+ renounceOwnership 
+
+ blocker. 
+
+ Document the manual pattern with a cross-reference to OZ Ownable2Step as the source of truth. 
+
+ Add unit tests asserting 
+
+ renounceOwnership 
+
+ reverts and that pending-owner transitions match the reference implementation exactly. 
+
+ TF-09 
+
+ MEDIUM 
+
+ TegridyTWAP resistant only against 50%+ single-update deviations 
+
+ Contract: 
+
+ TegridyTWAP.sol 
+
+ Affected function: 
+
+ update(address pair) 
+
+ Current consumers: 
+
+ None on-chain. Risk is latent until TWAP is wired into lending, liquidations, or oracle-consuming flows. 
+
+ Description 
+
+ The 
+
+ update() 
+
+ function is permissionless and reads 
+
+ getReserves() 
+
+ at call time. A 50% deviation cap (MAX_DEVIATION_BPS = 5000) rejects single observations that swing more than 50% from the prior spot price. This protects against single-block flash-loan manipulation but not against sustained sub-50% drift over many updates. 
+
+ An attacker who can manipulate reserves (via flash loan + sync, or direct token transfers followed by sync) can nudge the recorded cumulative by up to 49% per 15-minute observation window. Over the 48-observation / 12-hour buffer, coordinated manipulation can push the TWAP significantly off true market price. 
+
+ Impact assessment 
+
+ No on-chain contract currently consumes 
+
+ TegridyTWAP.consult() 
+
+ . The risk is entirely prospective — if future features (NFT lending oracle, liquidation price feed, collateral valuation) wire into TWAP without strengthening it, they inherit this manipulability. 
+
+ Remediation 
+
+ Do not use 
+
+ TegridyTWAP 
+
+ for any security-critical price feed. Document it as display-only. 
+
+ Tighten the deviation cap to something like 10% (1000 bps), and require consecutive observations to monotonically agree within that range. 
+
+ If an oracle is needed for collateral pricing, consume Chainlink or Uniswap V3 TWAP instead, or implement the manipulation-resistant observation pattern from Uniswap V3 with direct cumulative-price accumulator access. 
+
+ Restrict 
+
+ update() 
+
+ to an allowlist of keeper addresses to prevent attackers from timing updates. 
+
+ Low-severity findings and observations 
+
+ TF-10 
+
+ LOW 
+
+ NFT self-transfer edge case not explicitly blocked 
+
+ Contract: 
+
+ TegridyStaking.sol 
+
+ The 
+
+ _update 
+
+ override gates on 
+
+ from != address(0) && to != address(0) 
+
+ but does not explicitly reject 
+
+ to == from 
+
+ self-transfers. For EOAs, the subsequent 
+
+ AlreadyHasPosition 
+
+ check provides implicit protection. 
+
+ Recommendation: Add an explicit 
+
+ if (to == from) revert; 
+
+ guard for defensive clarity. 
+
+ TF-11 
+
+ LOW 
+
+ ERC-777 detection is best-effort and documented as such 
+
+ Contract: 
+
+ TegridyFactory.sol 
+
+ The 
+
+ _rejectERC777 
+
+ helper checks ERC-165, ERC-1820 registry, and the 
+
+ granularity() 
+
+ function signature. All three are bypassable by a malicious token that doesn't implement the detection signals. 
+
+ Recommendation: Maintain an off-chain allowlist of verified ERC-20 tokens. Restrict pair creation to allowlist members, or add an on-chain allowlist controlled by timelocked admin. 
+
+ TF-12 
+
+ LOW 
+
+ V4 hook delta-currency mapping is invariant-critical 
+
+ Contract: 
+
+ TegridyFeeHook.sol 
+
+ The hook's 
+
+ afterSwap 
+
+ derives the fee currency via: 
+
+ bool specifiedIsZero = (params.amountSpecified < 0) == params.zeroForOne; 
+
+ Currency creditCurrency = specifiedIsZero ? key.currency1 : key.currency0; 
+
+ This invariant is correct under current Uniswap V4 semantics but is fragile. Any V4 upgrade that changes delta interpretation silently breaks fee capture. 
+
+ Recommendation: Lock this invariant with Foundry fuzz tests covering all four quadrants (exactIn/Out × zeroForOne/oneForZero). Subscribe to Uniswap V4 release notes for breaking-change alerts. 
+
+ TF-13 
+
+ LOW 
+
+ Vote deadline creates bribe-grief window 
+
+ Contract: 
+
+ VoteIncentives.sol 
+
+ A briber deposits for an obscure pair into the next-to-snapshot epoch. After 
+
+ advanceEpoch 
+
+ and the 7-day 
+
+ VOTE_DEADLINE 
+
+ elapsing with no voters, the bribe sits in 
+
+ epochBribes 
+
+ for 30 days before 
+
+ BRIBE_RESCUE_DELAY 
+
+ enables rescue. 
+
+ Not a fund loss, but wastes 30 days of liquidity. Recommendation: automatically route bribes with 
+
+ totalGaugeVotes == 0 
+
+ at 
+
+ VOTE_DEADLINE 
+
+ expiry to a rescue queue accessible immediately by the briber. 
+
+ TF-14 
+
+ LOW 
+
+ Launchpad protocolFeeBps caps at 100% 
+
+ Contract: 
+
+ TegridyLaunchpad.sol 
+
+ The fee cap check allows values up to 
+
+ 10000 
+
+ (100%), gated only by the 48h timelock. Recommendation: reduce the hard cap to 
+
+ 1000 
+
+ (10%) to prevent any future governance capture from extracting all collection revenue. 
+
+ TF-15 
+
+ LOW 
+
+ MAX_DELTA overly permissive for linear curves 
+
+ Contract: 
+
+ TegridyNFTPool.sol 
+
+ The 
+
+ MAX_DELTA = 100 ether 
+
+ ceiling allows pool creators to initialize economically nonsensical configurations. A pool with 
+
+ spotPrice = 1 wei 
+
+ and 
+
+ delta = 100 ether 
+
+ would make the second purchase cost 100 ETH more than the first. 
+
+ Creator foot-shoot territory rather than a protocol vulnerability. Recommendation: lower 
+
+ MAX_DELTA 
+
+ to 
+
+ 10 ether 
+
+ , which is more than sufficient for any realistic linear bonding curve on NFT pricing. 
+
+ TF-16 
+
+ LOW 
+
+ Reward dust trapped across period extensions 
+
+ Contract: 
+
+ LPFarming.sol / TegridyLPFarming.sol 
+
+ When 
+
+ notifyRewardAmount 
+
+ is called mid-period, integer division in 
+
+ rewardRate = (leftover + actualReward) / rewardsDuration 
+
+ truncates. Over many extensions, unclaimable dust accumulates. 
+
+ The 
+
+ recoverERC20 
+
+ path blocks sweeping the reward token (correctly, to protect stakers), which means dust stays stuck forever. This is a known Synthetix pattern cost and acceptable. 
+
+ TF-17 
+
+ LOW 
+
+ Circular referral check depth-limited to 10 
+
+ Contract: 
+
+ ReferralSplitter.sol 
+
+ The 
+
+ _checkCircularReferral 
+
+ helper walks 10 levels of the referral chain. A coordinated sybil ring of 11+ addresses can construct a circular reference (A→B→...→K→A) that evades detection. 
+
+ Requires coordination across many addresses. The economic benefit of circular referrals is minor since referral payments are stake-gated (MIN_REFERRAL_STAKE_POWER). Accepted as low-impact. 
+
+ TF-18 
+
+ LOW 
+
+ hasPremiumSecure returns false for NFT holders (product gap) 
+
+ Contract: 
+
+ PremiumAccess.sol 
+
+ SwapFeeRouter's premium discount uses 
+
+ hasPremiumSecure() 
+
+ , which intentionally returns false for NFT-based access to resist flash-loan NFT borrows. Therefore JBAC NFT holders receive no fee discount on swaps. 
+
+ The behaviour is documented and security-justified, but likely violates user expectations. Product decision: either extend the subscription-only discount to a separate NFT-discount path (with activation delay + deactivation sweep), or clearly communicate in the UI that NFT premium only applies to off-chain feature gating, not on-chain swap discounts. 
+
+ Observed strengths 
+
+ Beyond specific findings, the audit surfaced several patterns worth commending. These are documented here because reproducing them in future contract work is as important as fixing the findings above. 
+
+ Defensive architecture 
+
+ TimelockAdmin 
+
+ used consistently across all admin parameter changes with 24-48 hour delays and 7-day proposal validity windows. 
+
+ OwnableNoRenounce 
+
+ prevents the accidental-brick failure mode documented from past DeFi incidents. 
+
+ WETHFallbackLib.safeTransferETHOrWrap 
+
+ with 10,000-gas stipend used consistently on every user-facing ETH transfer, preventing both revert-on-receive DoS and cross-contract reentrancy. 
+
+ ReentrancyGuard 
+
+ combined with CEI ordering on all external-call sites in the AMM, staking, and lending contracts. 
+
+ Economic safety 
+
+ CommunityGrants has rolling-window disbursement limits, per-proposal caps, minimum quorum with absolute and percentage thresholds, minimum unique voters, voting delay, and execution delay. 
+
+ RevenueDistributor uses double-read of totalBoostedStake with min() to bound same-block inflation. 
+
+ TegridyStaking has transfer cooldowns, rate limits, and reward settlement on NFT transfer. 
+
+ TegridyPair implements first-depositor inflation defence (minimum liquidity, 1000× ceiling requirement). 
+
+ Remediation discipline 
+
+ The repository shows clear evidence of serial audit remediation: 
+
+ Inline comments reference specific audit findings (H-01, C-02, M-14, etc.) alongside their fixes. 
+
+ Multiple audit documents in the repository (SECURITY_AUDIT_REPORT.md, SECURITY_AUDIT_FINAL.md, SECURITY_AUDIT_200_AGENT.md, SECURITY_AUDIT_OPUS.md) show sustained attention to security hardening. 
+
+ Deprecated functions revert with descriptive errors pointing to replacements, preserving calldata compatibility during migrations. 
+
+ Code hygiene 
+
+ Consistent use of custom errors over require strings (gas-efficient). 
+
+ Clear separation of base contracts (TimelockAdmin, OwnableNoRenounce) from domain logic. 
+
+ Library-based ETH handling (WETHFallbackLib) prevents per-contract variation and drift. 
+
+ ABI-level documentation comments on every public function, including parameter and return descriptions. 
+
+ Remediation roadmap 
+
+ The following prioritisation reflects exploitability, impact, and effort. Items in Phase 1 are blockers for any mainnet launch or expanded TVL allocation. 
+
+ Phase 1 — Immediate (before mainnet / within 48h) 
+
+ ID 
+
+ Action 
+
+ Rationale 
+
+ TF-01 
+
+ Fix ABI mismatch in TegridyLPFarming; add defensive 40000 cap. 
+
+ Direct exploit path. Only critical in report. 
+
+ TF-01 
+
+ Add Foundry invariant: effectiveBalance <= raw × 4.5 across all positions. 
+
+ Ensures regression doesn't reintroduce the exploit. 
+
+ TF-09 
+
+ Document TegridyTWAP as display-only; do not wire into any security-critical path. 
+
+ Manipulation-resistance is insufficient for oracle use. 
+
+ Phase 2 — Pre-expansion (within 2 weeks) 
+
+ ID 
+
+ Action 
+
+ Rationale 
+
+ TF-02 
+
+ Add lending-contract whitelist to TegridyStaking transfer gates. 
+
+ Fragile implicit dependency on MIN_DURATION. 
+
+ TF-03 
+
+ Frontend: force claim before withdraw; add contract-level grace-period preservation. 
+
+ Prevents silent user fund forfeiture. 
+
+ TF-04 
+
+ GaugeController: switch to epoch-start snapshot for voting power. 
+
+ Closes stake-vote-exit arbitrage. 
+
+ TF-05 
+
+ Refactor SwapFeeRouter fee-recovery flow or document thoroughly. 
+
+ Operational clarity; prevents stuck ETH. 
+
+ TF-06 
+
+ Convert TegridyLending constants to timelocked state variables with ceiling enforcement. 
+
+ Preserves upgradability without full redeploy. 
+
+ Phase 3 — Housekeeping (next sprint) 
+
+ All low-severity findings (TF-10 through TF-18) should be tracked in an issue queue with target resolution within the next release cycle. None are blocking; several (TF-10, TF-14, TF-15) are quick hardening wins worth batching. 
+
+ Phase 4 — Ongoing 
+
+ Add CI tooling that cross-references interface declarations against struct layouts across the repository. This would have caught TF-01 automatically. 
+
+ Add integration test harnesses that exercise real cross-contract interface paths, not just isolated unit behaviour. 
+
+ Subscribe to Uniswap V4 release notes and keep an invariant fuzz suite for TegridyFeeHook delta semantics (TF-12). 
+
+ Periodic re-audit cycle — the protocol surface is large (12.6k lines) and each new feature addition should trigger a focused re-review. 
+
+ Appendix A — Interface audit cross-reference 
+
+ The following contracts consume 
+
+ TegridyStaking.positions(uint256) 
+
+ . Cross-checking the interface declarations against the actual struct confirmed the critical finding in TF-01. 
+
+ Contract 
+
+ Interface state 
+
+ Position 2 / 3 / 4 
+
+ TegridyTokenURIReader 
+
+ Correct 
+
+ rewardDebt / lockEnd / boostBps 
+
+ TegridyRestaking 
+
+ Correct 
+
+ rewardDebt / lockEnd / boostBps 
+
+ RevenueDistributor 
+
+ Correct 
+
+ rewardDebt / lockEnd / boostBps 
+
+ GaugeController 
+
+ Correct 
+
+ rewardDebt / lockEnd / boostBps 
+
+ TegridyLPFarming 
+
+ BROKEN 
+
+ boostBps / lockEnd / lockDuration 
+
+ Appendix B — File-level scope inventory 
+
+ Contract 
+
+ LOC 
+
+ Focus areas 
+
+ TegridyRestaking.sol 
+
+ 1016 
+
+ Bonus reward accrual, auto-refresh 
+
+ TegridyStaking.sol 
+
+ 1010 
+
+ NFT positions, boost, transfer gates 
+
+ VoteIncentives.sol 
+
+ 791 
+
+ Gauge voting, bribe claim 
+
+ RevenueDistributor.sol 
+
+ 758 
+
+ Epoch claim, forfeiture flow 
+
+ CommunityGrants.sol 
+
+ 673 
+
+ Governance drain vector (patched) 
+
+ SwapFeeRouter.sol 
+
+ 655 
+
+ Fee routing, premium discount 
+
+ TegridyNFTLending.sol 
+
+ 645 
+
+ Whitelisted NFT collateral 
+
+ TegridyLending.sol 
+
+ 621 
+
+ Staking-NFT collateral, defaults 
+
+ TegridyNFTPool.sol 
+
+ 620 
+
+ Sudoswap-style bonding curve 
+
+ ReferralSplitter.sol 
+
+ 536 
+
+ recordFee, callerCredit 
+
+ MemeBountyBoard.sol 
+
+ 511 
+
+ Bounty creation, voting, payout 
+
+ TegridyRouter.sol 
+
+ 498 
+
+ Swap routing, path validation 
+
+ POLAccumulator.sol 
+
+ 434 
+
+ Protocol-owned liquidity 
+
+ PremiumAccess.sol 
+
+ 430 
+
+ NFT vs subscription access 
+
+ TegridyFeeHook.sol 
+
+ 415 
+
+ V4 hook fee capture 
+
+ TegridyDrop.sol 
+
+ 398 
+
+ Cloneable NFT drop 
+
+ TegridyNFTPoolFactory.sol 
+
+ 378 
+
+ Clone factory, discovery 
+
+ LPFarming.sol 
+
+ 345 
+
+ Synthetix port (unboosted) 
+
+ TegridyLPFarming.sol 
+
+ 341 
+
+ Boosted Synthetix — CRITICAL BUG 
+
+ TegridyFactory.sol 
+
+ 320 
+
+ AMM pair factory, ERC-777 reject 
+
+ GaugeController.sol 
+
+ 315 
+
+ Curve-style gauge voting 
+
+ TegridyPair.sol 
+
+ 289 
+
+ V2 AMM with CEI fixes 
+
+ TegridyTWAP.sol 
+
+ 247 
+
+ Time-weighted oracle 
+
+ TegridyLaunchpad.sol 
+
+ 242 
+
+ EIP-1167 drop factory 
+
+ TegridyTokenURIReader.sol 
+
+ 156 
+
+ SVG metadata generation 
+
+ Appendix C — Closing notes 
+
+ This report documents findings from a focused independent audit. Findings are delivered as-is without warranty. The reviewer is an AI assistant (Claude, Anthropic) acting at the direction of the repository owner. Remediation decisions remain the responsibility of the protocol team. 
+
+ The absence of a finding in this report does not guarantee the absence of a bug. Out-of-scope items (frontend, tests, scripts, mainnet state) are not covered. A thorough final assurance programme should include at minimum: an additional independent human audit of the critical remediation, Foundry invariant fuzzing of the full staking-restaking-LPFarming subsystem, and a formal Immunefi bounty programme with clearly-scoped assets and reward tiers. 
+
+ The protocol's overall security posture is mature relative to typical mid-tier DeFi projects. The discovered critical issue is a classic ABI-boundary drift bug rather than a fundamental design flaw, and the existing Pausable + TimelockAdmin infrastructure gives operators the tools to respond to any issues discovered post-deployment. 
+
+ End of report. Audit performed April 16, 2026. 
+
+ 

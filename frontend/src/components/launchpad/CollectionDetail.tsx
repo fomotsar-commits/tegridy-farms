@@ -32,16 +32,18 @@ export function CollectionDetail({
   const mintLabel = useMemo(() => {
     if (!deployed) return 'Contract Not Deployed';
     if (!isConnected) return 'Connect Wallet';
+    if (drop.isCancelled) return 'Sale Cancelled';
     if (drop.isPending) return 'Confirm in Wallet...';
     if (drop.isConfirming) return 'Confirming...';
     if (drop.isSoldOut) return 'Sold Out';
     if (drop.currentPhase === 0) return 'Minting Paused';
     return `Mint ${mintQty} for ${totalCost.toFixed(4)} ETH`;
-  }, [deployed, isConnected, drop.isPending, drop.isConfirming, drop.isSoldOut, drop.currentPhase, mintQty, totalCost]);
+  }, [deployed, isConnected, drop.isCancelled, drop.isPending, drop.isConfirming, drop.isSoldOut, drop.currentPhase, mintQty, totalCost]);
 
   const mintDisabled =
     !deployed ||
     !isConnected ||
+    drop.isCancelled ||
     drop.isPending ||
     drop.isConfirming ||
     drop.isSoldOut ||
@@ -93,6 +95,57 @@ export function CollectionDetail({
           <div className="flex justify-center mb-8">
             <PhaseIndicator current={drop.currentPhase} />
           </div>
+
+          {/* Cancelled-sale refund banner */}
+          {drop.isCancelled && (
+            <div
+              className="rounded-xl p-4 mb-6"
+              style={{
+                background: 'rgba(239, 68, 68, 0.10)',
+                border: '1px solid rgba(239, 68, 68, 0.35)',
+              }}
+              role="alert"
+            >
+              <div className="flex items-start gap-3">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fca5a5" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mt-0.5 flex-shrink-0">
+                  <circle cx="12" cy="12" r="9" />
+                  <line x1="12" y1="8" x2="12" y2="13" />
+                  <line x1="12" y1="16.5" x2="12" y2="16.5" />
+                </svg>
+                <div className="flex-1">
+                  <p className="text-red-200 text-sm font-semibold mb-1">Sale cancelled — refunds are open</p>
+                  <p className="text-red-100/80 text-xs leading-relaxed">
+                    The creator ended this drop. Minting is disabled. If you previously paid in, you can
+                    pull your funds back now. Refunds are pull-pattern (non-custodial) and cannot be
+                    blocked.
+                  </p>
+                  {drop.canRefund ? (
+                    <div className="mt-3 flex items-center gap-3 flex-wrap">
+                      <span className="text-red-100 text-xs font-mono">
+                        You paid: {Number(drop.paidByUser) / 1e18} ETH
+                      </span>
+                      <button
+                        onClick={() => drop.refund()}
+                        disabled={drop.isPending || drop.isConfirming}
+                        className="px-4 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                        style={{
+                          background: 'rgba(239, 68, 68, 0.2)',
+                          border: '1px solid rgba(239, 68, 68, 0.5)',
+                          color: '#fca5a5',
+                        }}
+                      >
+                        {drop.isPending ? 'Check wallet…' : drop.isConfirming ? 'Refunding…' : 'Claim Refund'}
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-red-100/60 text-[11px]">
+                      {isConnected ? 'No refund owed to this wallet.' : 'Connect your wallet to check for a refund.'}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Stats Row */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">

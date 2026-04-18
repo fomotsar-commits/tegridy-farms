@@ -1,12 +1,72 @@
-import { useState, useEffect, useMemo } from 'react';
-import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { formatEther, type Address } from 'viem';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
+import { formatEther, keccak256, encodeAbiParameters, toHex, type Address, type Hex } from 'viem';
 import { m } from 'framer-motion';
 import { toast } from 'sonner';
 import { GAUGE_CONTROLLER_ADDRESS, TEGRIDY_STAKING_ADDRESS, isDeployed } from '../lib/constants';
 import { GAUGE_CONTROLLER_ABI, TEGRIDY_STAKING_ABI } from '../lib/contracts';
 import { formatTokenAmount, shortenAddress } from '../lib/formatting';
 import { InfoTooltip } from './ui/InfoTooltip';
+import { surfaceTxError } from '../lib/txErrors';
+
+// ─── Commit-Reveal Local Storage ────────────────────────────────────
+// We persist {salt, gauges, weights, commitmentHash} per (chainId, voter, tokenId, epoch)
+// so the user can close the tab between commit and reveal and still reveal.
+type CommitmentRecord = {
+  salt: Hex;
+  gauges: Address[];
+  weights: string[];       // stored as strings because JSON can't hold bigint
+  commitmentHash: Hex;
+  commitTx?: Hex;
+  committedAt: number;     // unix seconds
+};
+
+const COMMITMENT_KEY = (chainId: number, voter: Address, tokenId: bigint, epoch: number) =>
+  `tegridy:gaugeCommit:${chainId}:${voter.toLowerCase()}:${tokenId.toString()}:${epoch}`;
+
+function loadCommitment(key: string): CommitmentRecord | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as CommitmentRecord) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveCommitment(key: string, record: CommitmentRecord) {
+  try { localStorage.setItem(key, JSON.stringify(record)); }
+  catch (err) { console.warn('[GaugeVoting] commitment persist failed', err); }
+}
+
+function clearCommitment(key: string) {
+  try { localStorage.removeItem(key); } catch { /* noop */ }
+}
+
+/// Client-side mirror of GaugeController.computeCommitment() — must match
+/// the Solidity `keccak256(abi.encode(voter, tokenId, gauges, weights, salt, epoch))`.
+function buildCommitmentHash(
+  voter: Address, tokenId: bigint, gauges: Address[], weights: bigint[], salt: Hex, epoch: bigint,
+): Hex {
+  return keccak256(
+    encodeAbiParameters(
+      [
+        { type: 'address' },
+        { type: 'uint256' },
+        { type: 'address[]' },
+        { type: 'uint256[]' },
+        { type: 'bytes32' },
+        { type: 'uint256' },
+      ],
+      [voter, tokenId, gauges, weights, salt, epoch],
+    ),
+  );
+}
+
+function generateSalt(): Hex {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return toHex(bytes);
+}
 
 const CARD_BG = 'rgba(13, 21, 48, 0.6)';
 const CARD_BORDER = 'var(--color-purple-12)';
@@ -28,7 +88,11 @@ function useCountdown(targetTimestamp: number) {
 
 export function GaugeVoting() {
   const { address, isConnected } = useAccount();
+  const chainId = useChainId();
   const [weights, setWeights] = useState<Record<string, number>>({});
+  // mode: 'commit' = two-step commit-reveal (default; H-2 mitigation),
+  //       'legacy' = one-step vote() kept only for emergencies.
+  const [mode, setMode] = useState<'commit' | 'legacy'>('commit');
   const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
@@ -85,9 +149,38 @@ export function GaugeVoting() {
     query: { enabled: tokenId !== undefined && tokenId > 0n },
   });
 
+  // Reveal window state (commit-reveal gate)
+  const { data: revealWindowData, refetch: refetchRevealWindow } = useReadContract({
+    address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'isRevealWindowOpen',
+  });
+
+  // Commitment on-chain (present if user has committed for this epoch)
+  const { data: onchainCommitment } = useReadContract({
+    address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'commitmentOf',
+    args: tokenId !== undefined && currentEpoch !== undefined ? [tokenId, BigInt(currentEpoch)] : undefined,
+    query: { enabled: tokenId !== undefined && tokenId > 0n && currentEpoch !== undefined },
+  });
+
   const position = positionData as readonly [bigint, bigint, bigint, bigint, number, number, boolean, boolean, bigint] | undefined;
   const votingPower = position ? (position[0] * BigInt(position[4])) / BigInt(BPS) : 0n;
   const hasVotedThisEpoch = lastVotedData !== undefined && currentEpoch !== undefined && Number(lastVotedData) === currentEpoch;
+
+  const rw = revealWindowData as readonly [bigint, boolean, bigint, bigint] | undefined;
+  const revealOpen = rw?.[1] ?? false;
+  const revealOpensAt = rw ? Number(rw[2]) : 0;
+  const hasOnchainCommitment = onchainCommitment && (onchainCommitment as Hex) !== '0x0000000000000000000000000000000000000000000000000000000000000000';
+
+  // localStorage for the commitment reveal secret
+  const commitmentKey = useMemo(() => {
+    if (!address || tokenId === undefined || tokenId === 0n || currentEpoch === undefined) return null;
+    return COMMITMENT_KEY(chainId, address as Address, tokenId, currentEpoch);
+  }, [chainId, address, tokenId, currentEpoch]);
+
+  const [localCommitment, setLocalCommitment] = useState<CommitmentRecord | null>(null);
+  useEffect(() => {
+    if (!commitmentKey) { setLocalCommitment(null); return; }
+    setLocalCommitment(loadCommitment(commitmentKey));
+  }, [commitmentKey, txHash, isSuccess]);
 
   // ─── Weight Allocation ──────────────────────────────────────
   const totalWeight = useMemo(() => Object.values(weights).reduce((a, b) => a + b, 0), [weights]);
@@ -102,18 +195,74 @@ export function GaugeVoting() {
     });
   };
 
-  // ─── Vote Handler ───────────────────────────────────────────
-  const handleVote = () => {
+  // ─── Legacy Vote Handler (one-step) ─────────────────────────
+  const handleLegacyVote = () => {
     if (!tokenId || totalWeight !== BPS) return;
     const voteGauges = Object.keys(weights).filter((g) => (weights[g] ?? 0) > 0) as Address[];
     const voteWeights = voteGauges.map((g) => BigInt(weights[g] ?? 0));
-    writeContract({
-      address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'vote',
-      args: [tokenId, voteGauges, voteWeights],
-    });
+    try {
+      writeContract({
+        address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'vote',
+        args: [tokenId, voteGauges, voteWeights],
+      });
+    } catch (err) {
+      surfaceTxError(err, toast, { component: 'GaugeVoting.legacy' });
+    }
   };
 
-  useEffect(() => { if (isSuccess) toast.success('Vote cast successfully!'); }, [isSuccess]);
+  // ─── Commit Handler (step 1 of commit-reveal) ───────────────
+  const handleCommit = useCallback(() => {
+    if (!tokenId || !address || currentEpoch === undefined || !commitmentKey || totalWeight !== BPS) return;
+    const voteGauges = Object.keys(weights).filter((g) => (weights[g] ?? 0) > 0) as Address[];
+    const voteWeights = voteGauges.map((g) => BigInt(weights[g] ?? 0));
+    const salt = generateSalt();
+    const commitmentHash = buildCommitmentHash(
+      address as Address, tokenId, voteGauges, voteWeights, salt, BigInt(currentEpoch),
+    );
+    // Persist BEFORE broadcasting — if the user closes the tab after signing
+    // but before the tx confirms, they still have the salt to reveal later.
+    saveCommitment(commitmentKey, {
+      salt, gauges: voteGauges, weights: voteWeights.map((w) => w.toString()),
+      commitmentHash, committedAt: Math.floor(Date.now() / 1000),
+    });
+    setLocalCommitment(loadCommitment(commitmentKey));
+    try {
+      writeContract({
+        address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'commitVote',
+        args: [tokenId, commitmentHash],
+      });
+    } catch (err) {
+      surfaceTxError(err, toast, { component: 'GaugeVoting.commit' });
+    }
+  }, [tokenId, address, currentEpoch, commitmentKey, totalWeight, weights, writeContract, gcAddr]);
+
+  // ─── Reveal Handler (step 2 of commit-reveal) ───────────────
+  const handleReveal = useCallback(() => {
+    if (!tokenId || !localCommitment) return;
+    const gaugesToReveal = localCommitment.gauges;
+    const weightsToReveal = localCommitment.weights.map((w) => BigInt(w));
+    try {
+      writeContract({
+        address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'revealVote',
+        args: [tokenId, gaugesToReveal, weightsToReveal, localCommitment.salt],
+      });
+    } catch (err) {
+      surfaceTxError(err, toast, { component: 'GaugeVoting.reveal' });
+    }
+  }, [tokenId, localCommitment, writeContract, gcAddr]);
+
+  // On confirm: toast, clear localStorage if reveal just landed, refetch window state.
+  useEffect(() => {
+    if (!isSuccess) return;
+    toast.success('Transaction confirmed');
+    refetchRevealWindow();
+    // If the user just revealed (hasVotedThisEpoch becomes true via chain read),
+    // clean up the local commitment record since it's no longer useful.
+    if (hasVotedThisEpoch && commitmentKey) {
+      clearCommitment(commitmentKey);
+      setLocalCommitment(null);
+    }
+  }, [isSuccess, hasVotedThisEpoch, commitmentKey, refetchRevealWindow]);
 
   // ─── Not Connected ──────────────────────────────────────────
   if (!isConnected) {
@@ -191,19 +340,66 @@ export function GaugeVoting() {
         )}
       </div>
 
+      {/* ── Commit-Reveal State Banner ─────────────────────────── */}
+      {tokenId !== undefined && tokenId > 0n && hasOnchainCommitment && !hasVotedThisEpoch && (
+        <div className="rounded-xl p-4" style={{ background: 'rgba(245, 228, 184, 0.08)', border: '1px solid rgba(245, 228, 184, 0.25)' }}>
+          <div className="flex items-start gap-3">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f5e4b8" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mt-0.5 flex-shrink-0">
+              <circle cx="12" cy="12" r="9" />
+              <polyline points="12 7 12 12 15 14" />
+            </svg>
+            <div className="flex-1 text-[12px] text-white/80 leading-relaxed">
+              <p className="font-semibold mb-1" style={{ color: '#f5e4b8' }}>Pending reveal — your commitment is stored on-chain.</p>
+              {revealOpen ? (
+                <p>The reveal window is open. Click <span className="font-mono">Reveal Vote</span> below to finalise your vote before the epoch ends.</p>
+              ) : (
+                <p>Reveal opens in <span className="font-mono">{useCountdown(revealOpensAt)}</span>. Keep this browser's <span className="font-mono">localStorage</span> intact, or export the salt before then.</p>
+              )}
+              {!localCommitment && (
+                <p className="mt-2 text-red-300">⚠ On-chain commitment found but no local salt to reveal it. You may have committed from a different browser or cleared local data. Without the salt this vote cannot be revealed.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Vote Form ──────────────────────────────────────────── */}
       <div className="rounded-2xl overflow-hidden" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
         <div className="px-5 py-4 border-b border-white/5">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold text-white">Cast Your Vote</h3>
-              <InfoTooltip text="Allocate your voting power across gauges. Weights must sum to 100%. One vote per epoch per staking position." />
+              <InfoTooltip text="Allocate your voting power across gauges. Commit-reveal is enabled by default to prevent bribe arbitrage — your chosen gauges are hidden until the reveal window opens at the end of each epoch." />
             </div>
-            {votingPower > 0n && (
-              <span className="text-[11px] text-white/70">
-                Voting Power: <span className="text-purple-300 font-medium">{formatTokenAmount(formatEther(votingPower), 2)}</span>
-              </span>
-            )}
+            <div className="flex items-center gap-3">
+              {/* Mode toggle */}
+              {!hasOnchainCommitment && !hasVotedThisEpoch && tokenId !== undefined && tokenId > 0n && (
+                <div className="inline-flex rounded-lg p-0.5" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <button
+                    type="button"
+                    onClick={() => setMode('commit')}
+                    className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${mode === 'commit' ? 'bg-purple-500/30 text-white' : 'text-white/50 hover:text-white/80'}`}
+                    aria-pressed={mode === 'commit'}
+                  >
+                    Commit-reveal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode('legacy')}
+                    className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${mode === 'legacy' ? 'bg-red-500/30 text-white' : 'text-white/50 hover:text-white/80'}`}
+                    aria-pressed={mode === 'legacy'}
+                    title="Legacy one-step vote. Exposes your choice in the mempool; do not use unless absolutely necessary."
+                  >
+                    Legacy
+                  </button>
+                </div>
+              )}
+              {votingPower > 0n && (
+                <span className="text-[11px] text-white/70">
+                  VP: <span className="text-purple-300 font-medium">{formatTokenAmount(formatEther(votingPower), 2)}</span>
+                </span>
+              )}
+            </div>
           </div>
         </div>
         <div className="p-5 space-y-4">
@@ -215,7 +411,38 @@ export function GaugeVoting() {
                 <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
-                <span className="text-sm text-emerald-300">You have already voted this epoch</span>
+                <span className="text-sm text-emerald-300">Vote recorded for this epoch</span>
+              </div>
+            </div>
+          ) : hasOnchainCommitment && localCommitment ? (
+            // Reveal flow: skip the weight sliders, show the reveal summary.
+            <div className="space-y-4">
+              <div className="rounded-lg p-3" style={{ background: 'rgba(0,0,0,0.25)' }}>
+                <p className="text-[11px] text-white/50 uppercase tracking-wider mb-2">Your committed ballot</p>
+                <ul className="space-y-1 text-[12px] font-mono text-white/80">
+                  {localCommitment.gauges.map((g, i) => (
+                    <li key={g} className="flex justify-between">
+                      <span>{shortenAddress(g, 5)}</span>
+                      <span className="text-purple-300">{(Number(localCommitment.weights[i]) / 100).toFixed(0)}%</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-white/50">
+                  {revealOpen ? 'Reveal window is open' : 'Reveal window closed — wait until end of epoch'}
+                </span>
+                <button
+                  onClick={handleReveal}
+                  disabled={!revealOpen || isSigning || isConfirming}
+                  className="px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{
+                    background: revealOpen ? 'linear-gradient(135deg, rgb(139 92 246), rgb(124 58 237))' : 'rgba(255,255,255,0.06)',
+                    color: 'white',
+                    boxShadow: revealOpen ? '0 4px 15px rgba(139, 92, 246, 0.35)' : 'none',
+                  }}>
+                  {isSigning ? 'Signing…' : isConfirming ? 'Revealing…' : 'Reveal Vote'}
+                </button>
               </div>
             </div>
           ) : gauges.length === 0 ? (
@@ -241,14 +468,17 @@ export function GaugeVoting() {
                 <span className={`text-[12px] font-medium ${remaining === 0 ? 'text-emerald-400' : remaining < 0 ? 'text-red-400' : 'text-white/70'}`}>
                   {remaining === 0 ? 'Fully allocated' : `${(remaining / 100).toFixed(0)}% remaining`}
                 </span>
-                <button onClick={handleVote} disabled={totalWeight !== BPS || isSigning || isConfirming}
+                <button
+                  onClick={mode === 'commit' ? handleCommit : handleLegacyVote}
+                  disabled={totalWeight !== BPS || isSigning || isConfirming || (mode === 'commit' && revealOpen)}
+                  title={mode === 'commit' && revealOpen ? 'Commit window is closed — reveal window is open. Wait for the next epoch to commit.' : undefined}
                   className="px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
                   style={{
-                    background: totalWeight === BPS ? 'linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105))' : 'rgba(255,255,255,0.06)',
+                    background: totalWeight === BPS ? (mode === 'commit' ? 'linear-gradient(135deg, rgb(139 92 246), rgb(124 58 237))' : 'linear-gradient(135deg, rgb(220 38 38), rgb(185 28 28))') : 'rgba(255,255,255,0.06)',
                     color: totalWeight === BPS ? 'white' : 'rgba(255,255,255,0.3)',
-                    boxShadow: totalWeight === BPS ? '0 4px 15px rgba(16, 185, 129, 0.3)' : 'none',
+                    boxShadow: totalWeight === BPS ? (mode === 'commit' ? '0 4px 15px rgba(139, 92, 246, 0.3)' : '0 4px 15px rgba(220, 38, 38, 0.3)') : 'none',
                   }}>
-                  {isSigning ? 'Signing...' : isConfirming ? 'Confirming...' : 'Cast Vote'}
+                  {isSigning ? 'Check wallet…' : isConfirming ? 'Confirming…' : mode === 'commit' ? 'Commit Vote' : 'Cast Vote (Legacy)'}
                 </button>
               </div>
             </>

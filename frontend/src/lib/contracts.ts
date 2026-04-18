@@ -283,7 +283,9 @@ export const TEGRIDY_DROP_ABI = [
   { type: 'function', name: 'currentPrice', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalMinted', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'maxSupply', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'currentPhase', inputs: [], outputs: [{ name: '', type: 'uint8' }], stateMutability: 'view' },
+  // mintPhase is the contract-canonical getter (public MintPhase storage var).
+  // The old `currentPhase` entry was a stale label that reverted on-chain.
+  { type: 'function', name: 'mintPhase', inputs: [], outputs: [{ name: '', type: 'uint8' }], stateMutability: 'view' },
   { type: 'function', name: 'merkleRoot', inputs: [], outputs: [{ name: '', type: 'bytes32' }], stateMutability: 'view' },
   { type: 'function', name: 'setMintPhase', inputs: [{ name: 'phase', type: 'uint8' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'setMerkleRoot', inputs: [{ name: 'root', type: 'bytes32' }], outputs: [], stateMutability: 'nonpayable' },
@@ -291,6 +293,10 @@ export const TEGRIDY_DROP_ABI = [
   { type: 'function', name: 'withdraw', inputs: [], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'owner', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
   { type: 'function', name: 'maxPerWallet', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // Cancel-sale + refund surface (added with the H10 closure patch).
+  { type: 'function', name: 'cancelSale', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'refund', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'paidPerWallet', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
 ] as const;
 
 // ─── TegridyNFTPool (Sudoswap-style NFT AMM Pool) ─────────────
@@ -356,6 +362,55 @@ export const GAUGE_CONTROLLER_ABI = [
   { type: 'function', name: 'EPOCH_DURATION', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'genesisEpoch', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalWeightByEpoch', inputs: [{ name: '', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // ─── Commit-Reveal (Audit H-2 closure) ──────────────────────────
+  { type: 'function', name: 'REVEAL_WINDOW', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'epochStartTime', inputs: [{ name: 'epoch', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'computeCommitment',
+    inputs: [
+      { name: 'voter', type: 'address' },
+      { name: 'tokenId', type: 'uint256' },
+      { name: 'gauges', type: 'address[]' },
+      { name: 'weights', type: 'uint256[]' },
+      { name: 'salt', type: 'bytes32' },
+      { name: 'epoch', type: 'uint256' },
+    ], outputs: [{ name: '', type: 'bytes32' }], stateMutability: 'pure' },
+  { type: 'function', name: 'commitVote',
+    inputs: [{ name: 'tokenId', type: 'uint256' }, { name: 'commitmentHash', type: 'bytes32' }],
+    outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'revealVote',
+    inputs: [
+      { name: 'tokenId', type: 'uint256' },
+      { name: 'gauges', type: 'address[]' },
+      { name: 'weights', type: 'uint256[]' },
+      { name: 'salt', type: 'bytes32' },
+    ], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'isRevealWindowOpen', inputs: [],
+    outputs: [
+      { name: 'epoch', type: 'uint256' },
+      { name: 'open', type: 'bool' },
+      { name: 'revealOpensAt', type: 'uint256' },
+      { name: 'revealClosesAt', type: 'uint256' },
+    ], stateMutability: 'view' },
+  { type: 'function', name: 'commitmentOf',
+    inputs: [{ name: '', type: 'uint256' }, { name: '', type: 'uint256' }],
+    outputs: [{ name: '', type: 'bytes32' }], stateMutability: 'view' },
+  { type: 'function', name: 'hasVotedInEpoch',
+    inputs: [{ name: '', type: 'uint256' }, { name: '', type: 'uint256' }],
+    outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
+  // Events (indexed in event logs, helpful for wagmi event hooks)
+  { type: 'event', name: 'VoteCommitted', inputs: [
+    { name: 'voter', type: 'address', indexed: true },
+    { name: 'tokenId', type: 'uint256', indexed: true },
+    { name: 'epoch', type: 'uint256', indexed: true },
+    { name: 'commitmentHash', type: 'bytes32', indexed: false },
+  ], anonymous: false },
+  { type: 'event', name: 'VoteRevealed', inputs: [
+    { name: 'voter', type: 'address', indexed: true },
+    { name: 'tokenId', type: 'uint256', indexed: true },
+    { name: 'epoch', type: 'uint256', indexed: true },
+    { name: 'gauges', type: 'address[]', indexed: false },
+    { name: 'weights', type: 'uint256[]', indexed: false },
+  ], anonymous: false },
 ] as const;
 
 export const ERC721_ABI = [
