@@ -65,6 +65,14 @@
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* iPhone 14 Pro notch-safe padding for fixed bottom elements.
+   Use this on BottomNav and any fixed CTA that must clear the home indicator.
+   TODO: verify <meta name="viewport" content="... viewport-fit=cover"> in index.html
+   for safe-area insets to resolve correctly on iOS. */
+.pb-safe {
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+}
+
 /* Main content bottom padding for bottom nav + safe area on mobile (#87) */
 @media (max-width: 767px) {
   .safe-area-content-bottom {
@@ -259,16 +267,21 @@ body {
 }
 
 /* ─── Nav ─── */
+/* A11y: nav-link color was #d4a843 (gold). On dark-purple translucent backdrops
+   (bg-purple-75 etc.) contrast dropped to ~2.8:1 and failed WCAG AA.
+   Swapped to #f5e4b8 (warm cream) which measures ~13.5:1 on #060c1a (bg-base)
+   and ~5.1:1 on the translucent purple overlay — passes AA in both contexts.
+   Active state now gets a visible background tint, not just underline. */
 .nav-link {
   position: relative;
   font-family: var(--font-family-body);
   font-size: 14px;
   font-weight: 500;
-  color: #d4a843;
+  color: #f5e4b8;
   text-decoration: none;
   padding: 6px 14px;
   border-radius: 8px;
-  transition: color 200ms;
+  transition: color 200ms, background-color 200ms;
 }
 .nav-link::after {
   content: '';
@@ -277,7 +290,7 @@ body {
   left: 0;
   width: 0;
   height: 2px;
-  background: linear-gradient(90deg, #8b5cf6, #d4a017);
+  background: linear-gradient(90deg, #8b5cf6, #f5e4b8);
   transition: width 0.3s ease;
 }
 .nav-link:hover::after,
@@ -286,9 +299,11 @@ body {
 }
 .nav-link:hover {
   color: var(--color-primary);
+  background-color: rgba(245, 228, 184, 0.06);
 }
 .nav-link.active {
   color: var(--color-primary);
+  background-color: rgba(139, 92, 246, 0.12);
 }
 
 /* ─── Inputs ─── */
@@ -529,12 +544,18 @@ body {
   color: var(--color-primary);
 }
 
+/* A11y: light-mode nav-link now uses a deep purple against the cream backdrop.
+   #4c1d95 on #f5f3ff measures ~10.4:1 — passes WCAG AAA. */
 [data-theme="light"] .nav-link {
-  color: var(--color-text-secondary);
+  color: #4c1d95;
 }
-[data-theme="light"] .nav-link:hover,
+[data-theme="light"] .nav-link:hover {
+  color: var(--color-primary);
+  background-color: rgba(76, 29, 149, 0.06);
+}
 [data-theme="light"] .nav-link.active {
   color: var(--color-primary);
+  background-color: rgba(139, 92, 246, 0.12);
 }
 
 [data-theme="light"] .stat-value {

@@ -3,6 +3,52 @@ import { UNISWAP_BUY_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, TOWELI_ADDRESS } f
 import { shortenAddress } from '../../lib/formatting';
 import { CopyButton } from '../ui/CopyButton';
 
+/**
+ * Footer — four-column IA: Product / Resources / Community / Legal.
+ * Every route demoted from the top nav must be reachable here so the
+ * reduced TopNav doesn't strand any page.
+ */
+const PRODUCT_LINKS: { to: string; label: string }[] = [
+  { to: '/dashboard', label: 'Dashboard' },
+  { to: '/farm', label: 'Farm' },
+  { to: '/swap', label: 'Trade' },
+  { to: '/lending', label: 'NFT Finance' },
+  { to: '/community', label: 'Governance' },
+  { to: '/premium', label: 'Gold Card' },
+  { to: '/leaderboard', label: 'Points' },
+  { to: '/nakamigos', label: 'Marketplace' },
+];
+
+const RESOURCE_LINKS: { to: string; label: string }[] = [
+  { to: '/tokenomics', label: 'Tokenomics' },
+  { to: '/gallery', label: 'Gallery' },
+  { to: '/lore', label: 'Lore' },
+  { to: '/history', label: 'History' },
+  { to: '/changelog', label: 'Changelog' },
+  { to: '/faq', label: 'FAQ' },
+  { to: '/contracts', label: 'Contracts' },
+  { to: '/treasury', label: 'Treasury' },
+];
+
+const EXTERNAL_RESOURCES: { href: string; label: string }[] = [
+  { href: UNISWAP_BUY_URL, label: 'Trade on Uniswap' },
+  { href: ETHERSCAN_TOKEN, label: 'Etherscan' },
+  { href: GECKOTERMINAL_URL, label: 'GeckoTerminal' },
+];
+
+const COMMUNITY_LINKS: { href: string; label: string }[] = [
+  { href: 'https://x.com/junglebayac', label: 'Twitter / X' },
+  { href: 'https://discord.gg/junglebay', label: 'Discord' },
+  { href: 'https://t.me/tegridyfarms', label: 'Telegram' },
+];
+
+const LEGAL_LINKS: { to: string; label: string }[] = [
+  { to: '/security', label: 'Security' },
+  { to: '/risks', label: 'Risks' },
+  { to: '/terms', label: 'Terms' },
+  { to: '/privacy', label: 'Privacy' },
+];
+
 export function Footer() {
   return (
     <footer className="relative mt-8" role="contentinfo">
@@ -11,7 +57,7 @@ export function Footer() {
         <div className="accent-divider" />
 
         {/* Top section */}
-        <div className="pt-12 pb-8 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 md:gap-8">
+        <div className="pt-12 pb-8 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 md:gap-8">
           {/* Brand */}
           <div className="col-span-2 md:col-span-1">
             <div className="flex items-center gap-2 mb-3">
@@ -23,24 +69,20 @@ export function Footer() {
             <p className="text-white text-[13px] leading-relaxed max-w-[280px]">
               Art-first yield farming on Ethereum. Stake TOWELI & LP tokens to earn rewards. 100% of protocol revenue goes to stakers.
             </p>
+            <div className="mt-4 rounded-lg p-3 inline-block" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
+              <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-1">Contract</p>
+              <CopyButton text={TOWELI_ADDRESS} display={shortenAddress(TOWELI_ADDRESS, 6)}
+                className="font-mono text-[12px] text-white" />
+            </div>
           </div>
 
-          {/* Navigation */}
+          {/* Product */}
           <div>
-            <h4 className="text-white text-[11px] uppercase tracking-wider label-pill font-semibold mb-3">Protocol</h4>
+            <h4 className="text-white text-[11px] uppercase tracking-wider label-pill font-semibold mb-3">Product</h4>
             <div className="space-y-2">
-              {[
-                { to: '/farm', label: 'Farm' },
-                { to: '/swap', label: 'Swap' },
-                { to: '/dashboard', label: 'Dashboard' },
-                { to: '/lending', label: 'NFT Finance' },
-                { to: '/community', label: 'Community' },
-                { to: '/gallery', label: 'Gallery' },
-                { to: '/tokenomics', label: 'Tokenomics' },
-                { to: '/premium', label: 'Gold Card' },
-                { to: '/leaderboard', label: 'Points' },
-              ].map((l) => (
-                <Link key={l.to} to={l.to} className="block text-white/60 text-[13px] hover:text-white transition-colors">
+              {PRODUCT_LINKS.map((l) => (
+                <Link key={l.to} to={l.to} className="block text-white/60 text-[13px] hover:text-white transition-colors"
+                  style={l.to === '/premium' ? { color: '#d4a017' } : undefined}>
                   {l.label}
                 </Link>
               ))}
@@ -51,11 +93,12 @@ export function Footer() {
           <div>
             <h4 className="text-white text-[11px] uppercase tracking-wider label-pill font-semibold mb-3">Resources</h4>
             <div className="space-y-2">
-              {[
-                { href: UNISWAP_BUY_URL, label: 'Trade on Uniswap' },
-                { href: ETHERSCAN_TOKEN, label: 'Etherscan' },
-                { href: GECKOTERMINAL_URL, label: 'GeckoTerminal' },
-              ].map((l) => (
+              {RESOURCE_LINKS.map((l) => (
+                <Link key={l.to} to={l.to} className="block text-white/60 text-[13px] hover:text-white transition-colors">
+                  {l.label}
+                </Link>
+              ))}
+              {EXTERNAL_RESOURCES.map((l) => (
                 <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
                   aria-label={`${l.label} (opens in new tab)`}
                   className="block text-white/60 text-[13px] hover:text-white transition-colors">
@@ -63,43 +106,31 @@ export function Footer() {
                 </a>
               ))}
             </div>
-            <div className="mt-4 rounded-lg p-3 inline-block" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
-              <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-1">Contract</p>
-              <CopyButton text={TOWELI_ADDRESS} display={shortenAddress(TOWELI_ADDRESS, 6)}
-                className="font-mono text-[12px] text-white" />
+          </div>
+
+          {/* Community */}
+          <div>
+            <h4 className="text-white text-[11px] uppercase tracking-wider label-pill font-semibold mb-3">Community</h4>
+            <div className="space-y-2">
+              <Link to="/community" className="block text-white/60 text-[13px] hover:text-white transition-colors">
+                Governance
+              </Link>
+              {COMMUNITY_LINKS.map((l) => (
+                <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
+                  aria-label={`${l.label} (opens in new tab)`}
+                  className="block text-white/60 text-[13px] hover:text-white transition-colors">
+                  {l.label} <span className="text-white/15">↗</span>
+                </a>
+              ))}
             </div>
           </div>
 
-          {/* Social & Legal */}
+          {/* Legal */}
           <div>
-            <h4 className="text-white text-[11px] uppercase tracking-wider label-pill font-semibold mb-3">Social</h4>
+            <h4 className="text-white text-[11px] uppercase tracking-wider label-pill font-semibold mb-3">Legal</h4>
             <div className="space-y-2">
-              <a href="https://x.com/junglebayac" target="_blank" rel="noopener noreferrer"
-                aria-label="Twitter / X (opens in new tab)"
-                className="block text-white/60 text-[13px] hover:text-white transition-colors">
-                Twitter / X <span className="text-white/15">↗</span>
-              </a>
-              <a href="https://discord.gg/junglebay" target="_blank" rel="noopener noreferrer"
-                aria-label="Discord (opens in new tab)"
-                className="block text-white/60 text-[13px] hover:text-white transition-colors">
-                Discord <span className="text-white/15">↗</span>
-              </a>
-              <a href="https://t.me/tegridyfarms" target="_blank" rel="noopener noreferrer"
-                aria-label="Telegram (opens in new tab)"
-                className="block text-white/60 text-[13px] hover:text-white transition-colors">
-                Telegram <span className="text-white/15">↗</span>
-              </a>
-            </div>
-            <div className="mt-4 space-y-1.5">
-              {[
-                { to: '/security', label: 'Security' },
-                { to: '/faq', label: 'FAQ' },
-                { to: '/changelog', label: 'Changelog' },
-                { to: '/terms', label: 'Terms' },
-                { to: '/privacy', label: 'Privacy' },
-                { to: '/risks', label: 'Risks' },
-              ].map((l) => (
-                <Link key={l.to} to={l.to} className="block text-white/70 text-[11px] hover:text-white/60 transition-colors">
+              {LEGAL_LINKS.map((l) => (
+                <Link key={l.to} to={l.to} className="block text-white/60 text-[13px] hover:text-white transition-colors">
                   {l.label}
                 </Link>
               ))}

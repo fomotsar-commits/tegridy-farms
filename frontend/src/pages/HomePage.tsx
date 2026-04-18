@@ -14,6 +14,7 @@ import { formatCurrency } from '../lib/formatting';
 import { FlashValue } from '../components/FlashValue';
 import { ReferralWidget } from '../components/ReferralWidget';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { YieldCalculator } from '../components/ui/YieldCalculator';
 
 export default function HomePage() {
   usePageTitle('Home', 'Earn ETH yields on Ethereum. Stake TOWELI & earn 100% of protocol revenue.');
@@ -72,7 +73,35 @@ export default function HomePage() {
                 Buy TOWELI
               </Link>
             </div>
+
+            {/* Audit trust badge — visible in hero so first-time visitors
+                see security posture before scrolling. Links to /security. */}
+            <Link
+              to="/security"
+              aria-label="View security audit details and bug bounty program"
+              className="inline-flex items-center gap-2 mt-5 px-3 py-1.5 rounded-full text-[12px] font-medium transition-all hover:opacity-90"
+              style={{
+                background: 'rgba(139, 92, 246, 0.12)',
+                border: '1px solid rgba(245, 228, 184, 0.25)',
+                color: '#f5e4b8',
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 3l8 3v6c0 5-3.5 8.5-8 9-4.5-.5-8-4-8-9V6l8-3z" />
+                <path d="M9 12l2 2 4-4" />
+              </svg>
+              Audited · Bug Bounty Active
+            </Link>
           </m.div>
+
+          {/* Wallet-less yield calculator for first-time visitors.
+              Only shown when disconnected — once they connect, the live stats
+              and Dashboard are the better signal. */}
+          {!address && (
+            <div className="mt-10 max-w-xl">
+              <YieldCalculator />
+            </div>
+          )}
 
           <m.div className="mt-14 flex flex-wrap gap-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
             {[

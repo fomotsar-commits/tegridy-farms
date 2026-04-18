@@ -72,7 +72,14 @@ export function useToweliPrice() {
           safeSetItem('tegridy_api_price', JSON.stringify({ price: p, ts: Date.now() }));
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        // GeckoTerminal fallback price fetch failed — not fatal (price falls
+        // back to on-chain pool reserves). Log for diagnostics so silent
+        // price-staleness bugs are visible in devtools.
+        if (err?.name !== 'AbortError') {
+          console.warn('[useToweliPrice] fallback price fetch failed:', err?.message ?? err);
+        }
+      });
     return () => { clearTimeout(timeout); controller.abort(); };
   }, []);
 

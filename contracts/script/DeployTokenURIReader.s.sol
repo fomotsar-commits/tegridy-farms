@@ -5,7 +5,7 @@ import "forge-std/Script.sol";
 import "../src/TegridyTokenURIReader.sol";
 
 contract DeployTokenURIReaderScript is Script {
-    address constant TEGRIDY_STAKING = 0x65D8b87917c59a0B33009493fB236bCccF1Ea421;
+    address constant TEGRIDY_STAKING = 0x626644523d34B84818df602c991B4a06789C4819;
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");

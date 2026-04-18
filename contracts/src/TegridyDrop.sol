@@ -28,7 +28,10 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
         CLOSED,
         ALLOWLIST,
         PUBLIC,
-        DUTCH_AUCTION
+        DUTCH_AUCTION,
+        /// @notice Terminal state. Minting blocked, creator withdraw blocked, minters may
+        /// pull back their payments via refund(). Transition via cancelSale(); cannot undo.
+        CANCELLED
     }
 
     // ─── Custom Errors ───────────────────────────────────────────────
@@ -49,6 +52,10 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
     error InvalidDutchAuctionConfig();
     error DutchAuctionNotActive();
     error InvalidMintPrice();
+    error SaleCancelled();
+    error SaleNotCancelled();
+    error NothingToRefund();
+    error RefundFailed();
 
     // ─── Events ──────────────────────────────────────────────────────
     event Initialized(
@@ -75,6 +82,8 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
     );
     event Minted(address indexed to, uint256 startTokenId, uint256 quantity, uint256 paid);
     event Withdrawn(address indexed creator, uint256 creatorAmount, address indexed platform, uint256 platformAmount);
+    event SaleCancelledEvent(uint256 mintedAtCancel, uint256 reservedForRefunds);
+    event Refunded(address indexed minter, uint256 amount);
 
     // ─── State ───────────────────────────────────────────────────────
     // Manual owner (not OwnableNoRenounce — clone can't use constructor args)
@@ -114,6 +123,11 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
 
     // Per-wallet mint tracking
     mapping(address => uint256) public mintedPerWallet;
+    /// @notice Per-wallet cumulative ETH paid into the drop (net of instant refunds).
+    ///         Used by refund() after cancelSale() so minters can recover exactly what
+    ///         they paid. Because Dutch auction prices vary per mint, we cannot derive
+    ///         this from quantity alone — the running total must be stored.
+    mapping(address => uint256) public paidPerWallet;
 
     // ─── Modifiers ───────────────────────────────────────────────────
     modifier onlyOwner() {
@@ -218,6 +232,7 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
     {
         if (quantity == 0) revert ZeroQuantity();
         if (mintPhase == MintPhase.CLOSED) revert MintClosed();
+        if (mintPhase == MintPhase.CANCELLED) revert SaleCancelled();
         if (mintPhase == MintPhase.DUTCH_AUCTION && block.timestamp < dutchStartTime) {
             revert DutchAuctionNotActive();
         }
@@ -249,6 +264,9 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
         }
         totalSupply += quantity;
         mintedPerWallet[msg.sender] += quantity;
+        // Track net paid (excluding overpayment refund below) so refund() can reimburse if
+        // the sale is later cancelled by the creator or platform.
+        paidPerWallet[msg.sender] += totalCost;
 
         // SECURITY FIX: Use WETHFallbackLib for refund instead of full-gas .call{value}.
         // Full-gas call allows recipient to execute arbitrary code during callback.
@@ -284,6 +302,12 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
     // ─── Admin: Phase & Config ───────────────────────────────────────
     /// @notice Set the current mint phase
     function setMintPhase(MintPhase phase) external onlyOwner {
+        // Once cancelled, the sale is terminal — minters are owed refunds and cannot be
+        // re-exposed to mint pressure or have their reserved balance rug-pulled.
+        if (mintPhase == MintPhase.CANCELLED) revert SaleCancelled();
+        // setMintPhase cannot be used to "cancel" (use cancelSale for semantic clarity +
+        // event emission). Forces operators to use the explicit irrevocable entry point.
+        if (phase == MintPhase.CANCELLED) revert SaleNotCancelled();
         if (phase == MintPhase.DUTCH_AUCTION && dutchDuration == 0) {
             revert DutchAuctionNotActive();
         }
@@ -372,6 +396,8 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
     /// SECURITY FIX: Added onlyOwner. Previously anyone could trigger withdrawal,
     /// removing timing control from the creator (OZ Ownable pattern).
     function withdraw() external onlyOwner nonReentrant {
+        // Cancelled sales reserve their balance for refunds. Creator/platform cannot drain.
+        if (mintPhase == MintPhase.CANCELLED) revert SaleCancelled();
         uint256 balance = address(this).balance;
         if (balance == 0) revert WithdrawFailed();
 
@@ -388,6 +414,35 @@ contract TegridyDrop is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Init
 
         emit Withdrawn(creator, creatorAmount, platformFeeRecipient, platformAmount);
     }
+
+    // ─── Cancel + Refund ─────────────────────────────────────────────
+    /// @notice Irreversibly cancel the sale. Blocks further mints and blocks creator
+    ///         withdraw; minters may call refund() to recover exactly what they paid.
+    ///         Only callable by the owner (creator). Once CANCELLED, phase cannot change.
+    function cancelSale() external onlyOwner {
+        if (mintPhase == MintPhase.CANCELLED) revert SaleCancelled();
+        mintPhase = MintPhase.CANCELLED;
+        emit MintPhaseChanged(MintPhase.CANCELLED);
+        emit SaleCancelledEvent(totalSupply, address(this).balance);
+    }
+
+    /// @notice Claim an ETH refund for the net amount you paid. Available only after
+    ///         cancelSale(). Minter keeps their NFTs (ownership is not clawed back);
+    ///         the assumption is that a cancelled drop's tokens are worthless metadata.
+    ///         Uses WETHFallbackLib so a reverting receiver cannot trap refunds.
+    function refund() external nonReentrant {
+        if (mintPhase != MintPhase.CANCELLED) revert SaleNotCancelled();
+        uint256 owed = paidPerWallet[msg.sender];
+        if (owed == 0) revert NothingToRefund();
+        // CEI: clear credit before external call.
+        paidPerWallet[msg.sender] = 0;
+        WETHFallbackLib.safeTransferETHOrWrap(weth, msg.sender, owed);
+        emit Refunded(msg.sender, owed);
+    }
+
+    /// @notice Prevent `setMintPhase(...)` from re-activating a cancelled sale.
+    ///         The owner's `setMintPhase` path still exists; this check bolts shut
+    ///         the CANCELLED → anything-else edge.
 
     // ─── Owner Management (2-step, mirrors Ownable2Step) ─────────────
     /// @notice Begin ownership transfer. New owner must call acceptOwnership().

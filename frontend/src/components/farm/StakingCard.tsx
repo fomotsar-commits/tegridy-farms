@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { ART } from '../../lib/artConfig';
 import { formatTokenAmount } from '../../lib/formatting';
 import { AnimatedCounter } from '../AnimatedCounter';
+import { PENALTY_COPY } from '../../lib/copy';
 import type { useFarmActions } from '../../hooks/useFarmActions';
 import type { useUserPosition } from '../../hooks/useUserPosition';
 import type { useNFTBoost } from '../../hooks/useNFTBoost';
@@ -193,7 +194,7 @@ export function StakingCard({
                     disabled={actions.isPending || actions.isConfirming}
                     className="w-full py-2.5 text-[13px] rounded-lg disabled:opacity-70"
                     style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: 'rgba(239,68,68,0.8)' }}>
-                    Early Withdraw ({EARLY_WITHDRAWAL_PENALTY_PCT}% penalty)
+                    {PENALTY_COPY.earlyExitLabel} ({EARLY_WITHDRAWAL_PENALTY_PCT}%)
                   </button>
                 )}
                 {pos.isLocked && confirms.earlyWithdraw && (() => {
@@ -202,7 +203,7 @@ export function StakingCard({
                   const receiveAmt = stakedNum - penaltyAmt;
                   return (
                   <div className="col-span-2 rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
-                    <p className="text-danger text-[12px] font-semibold mb-2">Are you sure? You will lose {EARLY_WITHDRAWAL_PENALTY_PCT}% of your staked amount as a penalty.</p>
+                    <p className="text-danger text-[12px] font-semibold mb-2">The cops showed up. You'll lose {EARLY_WITHDRAWAL_PENALTY_PCT}% of your crop to the {PENALTY_COPY.earlyExitLabel} — {PENALTY_COPY.earlyExitTagline}</p>
                     <div className="rounded-lg p-2.5 mb-2" style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.10)' }}>
                       <p className="text-danger/80 text-[11px] mb-1">Penalty: <span className="font-mono font-semibold">{penaltyAmt.toFixed(2)} TOWELI</span> will be sent to treasury</p>
                       <p className="text-white/80 text-[11px]">You will receive: <span className="font-mono font-semibold">{receiveAmt.toFixed(2)} TOWELI</span></p>
@@ -217,7 +218,7 @@ export function StakingCard({
                         disabled={actions.isPending || actions.isConfirming}
                         className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-danger cursor-pointer disabled:opacity-70"
                         style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.25)' }}>
-                        Confirm Early Withdrawal
+                        Pay the {PENALTY_COPY.earlyExitLabel}
                       </button>
                     </div>
                   </div>
@@ -370,7 +371,7 @@ export function StakingCard({
             </button>
 
             <p className="text-white text-[10px] text-center mt-3">
-              Early withdrawal available with {EARLY_WITHDRAWAL_PENALTY_PCT}% penalty (redistributed to stakers)
+              Early exit available — {EARLY_WITHDRAWAL_PENALTY_PCT}% {PENALTY_COPY.earlyExitLabel} redistributed to stakers still farming with tegridy
             </p>
           </div>
         )}

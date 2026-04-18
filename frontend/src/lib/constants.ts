@@ -1,8 +1,9 @@
 // TOWELI Token
 export const TOWELI_ADDRESS = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D' as const;
 
-// Core Contracts — DEPLOYED ON MAINNET (audit-fixed v2)
-export const TEGRIDY_STAKING_ADDRESS = '0x65D8b87917c59a0B33009493fB236bCccF1Ea421' as const;
+// Core Contracts — DEPLOYED ON MAINNET (audit-fixed v2, C-01 migration)
+// 2026-04-17: swapped from 0x65D8... (paused) to 0x6266... per DEPLOY_CHEAT_SHEET §1 Gap A
+export const TEGRIDY_STAKING_ADDRESS = '0x626644523d34B84818df602c991B4a06789C4819' as const;
 export const TEGRIDY_RESTAKING_ADDRESS = '0xfba4D340759Ae4c36DfFC6C773D171bf7BDCaEe4' as const;
 
 // Native DEX
@@ -59,6 +60,8 @@ export const CHAIN_ID = 1;
 
 // Token info
 export const TOWELI_DECIMALS = 18;
+// TOWELI is a fixed-supply ERC20 — no mint/burn entrypoints. Safe to hardcode.
+// If the token is ever replaced, regenerate this from `IERC20(TOWELI).totalSupply()`.
 export const TOWELI_TOTAL_SUPPLY = 1_000_000_000; // 1B TOWELI
 
 // Staking constants (mirrors TegridyStaking.sol)

@@ -32,7 +32,8 @@ export function BoostScheduleTable({ selectedLockLabel, apr }: BoostScheduleTabl
         <h3 className="heading-luxury text-white text-[20px] mb-5" id="boost-schedule-heading">Boost Schedule</h3>
         <p className="text-white text-[12px] mb-4">Lock longer = higher boost + more voting power. JBAC NFT holders get +0.5x bonus.</p>
 
-        <div className="space-y-1.5 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0" role="table" aria-labelledby="boost-schedule-heading">
+        {/* Desktop / tablet: flex-table layout with horizontal scroll fallback. Hidden below 480px. */}
+        <div className="hidden max-[480px]:hidden min-[481px]:block space-y-1.5 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0" role="table" aria-labelledby="boost-schedule-heading">
           <div className="min-w-[320px]">
           {LOCK_OPTIONS.map((opt) => {
             const b = calculateBoost(opt.seconds);
@@ -56,6 +57,43 @@ export function BoostScheduleTable({ selectedLockLabel, apr }: BoostScheduleTabl
           })}
           </div>
         </div>
+
+        {/* Mobile (<=480px): semantic card list. Drops role="table" in favor of <ul>/<li>. */}
+        <ul className="hidden max-[480px]:flex flex-col gap-2 list-none p-0 m-0" aria-labelledby="boost-schedule-heading">
+          {LOCK_OPTIONS.map((opt) => {
+            const b = calculateBoost(opt.seconds);
+            const withNft = b + JBAC_BONUS_BPS;
+            const isSelected = selectedLockLabel === opt.label;
+            return (
+              <li key={opt.label} aria-current={isSelected ? 'true' : undefined}
+                className="rounded-lg px-3 py-3"
+                style={{
+                  background: isSelected ? 'var(--color-purple-75)' : 'rgba(0,0,0,0.50)',
+                  border: isSelected ? '1px solid var(--color-purple-20)' : '1px solid transparent',
+                  minHeight: '44px',
+                }}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-white/60 text-[10px] uppercase tracking-wider">Lock</span>
+                  <span className="text-white text-[13px] font-medium">{opt.label}</span>
+                </div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-white/60 text-[10px] uppercase tracking-wider">Boost</span>
+                  <span className="stat-value text-[14px] text-white">{(b / 10000).toFixed(2)}x</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-white/60 text-[10px] uppercase tracking-wider">
+                    {baseApr > 0 ? 'APY' : 'With NFT'}
+                  </span>
+                  {baseApr > 0 ? (
+                    <span className="text-emerald-400 text-[12px] font-mono">{(baseApr * b / 10000).toFixed(1)}%</span>
+                  ) : (
+                    <span className="text-white text-[12px]">{(withNft / 10000).toFixed(2)}x</span>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
 
         <div className="mt-6 relative overflow-hidden rounded-lg" style={{ border: '1px solid rgba(255,178,55,0.12)' }}>
           <div className="absolute inset-0">

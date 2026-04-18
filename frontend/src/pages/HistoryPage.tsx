@@ -118,6 +118,10 @@ export default function HistoryPage() {
   const [txs, setTxs] = useState<TxRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // Pagination: 25/page avoids scrolling a wall of rows on mobile while still letting
+  // active users drill back through months of activity without a URL param.
+  const PAGE_SIZE = 25;
+  const [page, setPage] = useState(0);
 
   const fetchHistory = useCallback((addr: string, signal: AbortSignal, skipCache = false) => {
     // Check cache first
@@ -151,9 +155,11 @@ export default function HistoryPage() {
       .then(data => {
         if (signal.aborted) return;
         if (data.status === '1' && Array.isArray(data.result)) {
+          // Fetch up to 500 protocol-relevant txns; pagination handled client-side below.
+          // 500 is a UX cap, not a privacy one — Etherscan paginates server-side too.
           const relevant = data.result.filter((tx: unknown) =>
             isValidTxRecord(tx) && contracts.includes(tx.to?.toLowerCase())
-          ).slice(0, 50).map(truncateTxFields);
+          ).slice(0, 500).map(truncateTxFields);
           setTxs(relevant);
           try {
             localStorage.setItem(cacheKey, JSON.stringify({ data: relevant, ts: Date.now() }));
@@ -191,6 +197,13 @@ export default function HistoryPage() {
     ...tx,
     ...categorizeTx(tx),
   })), [txs]);
+
+  // Reset to page 0 whenever the underlying tx set changes (connect different wallet, refetch).
+  useEffect(() => { setPage(0); }, [txs.length]);
+
+  const totalPages = Math.max(1, Math.ceil(categorized.length / PAGE_SIZE));
+  const pageStart = page * PAGE_SIZE;
+  const pagedCategorized = categorized.slice(pageStart, pageStart + PAGE_SIZE);
 
   const exportCSV = useCallback(() => {
     if (categorized.length === 0) return;
@@ -294,7 +307,7 @@ export default function HistoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {categorized.map(tx => (
+                {pagedCategorized.map(tx => (
                   <tr key={tx.hash} className="hover:bg-black/60 transition-colors"
                     style={{ borderBottom: '1px solid var(--color-purple-75)' }}>
                     {/* Desktop cells */}
@@ -343,6 +356,37 @@ export default function HistoryPage() {
             </table>
           )}
         </m.div>
+
+        {categorized.length > PAGE_SIZE && (
+          <div className="flex items-center justify-between mt-4 gap-3 flex-wrap">
+            <div className="text-white/40 text-[11px]">
+              Showing {pageStart + 1}&ndash;{Math.min(pageStart + PAGE_SIZE, categorized.length)} of {categorized.length}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage(p => Math.max(0, p - 1))}
+                disabled={page === 0}
+                className="px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white/80 border border-white/15 hover:border-white/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                aria-label="Previous page"
+              >
+                Prev
+              </button>
+              <span className="text-white/60 text-[11px] min-w-[60px] text-center">
+                {page + 1} / {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                disabled={page >= totalPages - 1}
+                className="px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white/80 border border-white/15 hover:border-white/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                aria-label="Next page"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
 
         <p className="text-white/15 text-[10px] text-center mt-4">
           Showing interactions with all Tegridy Farms protocol contracts.

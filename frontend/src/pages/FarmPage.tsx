@@ -24,6 +24,7 @@ import { useAutoReset } from '../hooks/useAutoReset';
 import { useRestaking } from '../hooks/useRestaking';
 import { parseEther } from 'viem';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
+import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 
 import { FarmStatsRow } from '../components/farm/FarmStatsRow';
 import { LPFarmingSection } from '../components/farm/LPFarmingSection';
@@ -162,6 +163,22 @@ export default function FarmPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- stakeAmount/selectedLock/boostDisplay captured via submittedDataRef at submission time
   }, [actions.isSuccess, actions.hash, showReceipt, confetti, pool.isDeployed, pool.apr, pos.pendingFormatted, pos.stakedFormatted]);
+
+  // Wallet-gate: render ConnectPrompt instead of broken interactive UI
+  // when no wallet is connected. Keeps the scenery, swaps the content.
+  if (!isConnected) {
+    return (
+      <div className="-mt-14 relative min-h-screen">
+        <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
+          <img src={ART.jungleBus.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 20%' }} />
+          <div className="absolute inset-0" style={{ background: 'rgba(6, 12, 26, 0.55)' }} aria-hidden="true" />
+        </div>
+        <div className="relative z-10 pt-20">
+          <ConnectPrompt surface="farm" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="-mt-14 relative min-h-screen">

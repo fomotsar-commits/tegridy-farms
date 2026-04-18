@@ -1,8 +1,8 @@
 import { useMemo, useEffect, useState, useRef } from 'react';
-import { useReadContract } from 'wagmi';
+import { useReadContract, useChainId } from 'wagmi';
 import { formatUnits } from 'viem';
 import { UNISWAP_V2_ROUTER_ABI, UNISWAP_V2_FACTORY_ABI, UNISWAP_V2_PAIR_ABI, TEGRIDY_ROUTER_ABI, TEGRIDY_FACTORY_ABI } from '../lib/contracts';
-import { UNISWAP_V2_ROUTER, WETH_ADDRESS, UNISWAP_V2_FACTORY, TEGRIDY_FACTORY_ADDRESS, TEGRIDY_ROUTER_ADDRESS } from '../lib/constants';
+import { UNISWAP_V2_ROUTER, WETH_ADDRESS, UNISWAP_V2_FACTORY, TEGRIDY_FACTORY_ADDRESS, TEGRIDY_ROUTER_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { type TokenInfo } from '../lib/tokenList';
 import { getAggregatorPrice, calculateAggregatorSpread, AGGREGATOR_NAMES, type AggregatorQuote, type AggregatorSource } from '../lib/aggregator';
 
@@ -63,6 +63,13 @@ export function useSwapQuote(
   const toDecimals = toToken?.decimals ?? 18;
   const path = fromToken && toToken ? buildPath(fromToken, toToken) : [];
 
+  // All configured contract addresses are for CHAIN_ID (Ethereum mainnet). On any other
+  // chain, the wagmi read calls silently return garbage (either an empty 0x response from
+  // a nonexistent contract or — worse — data from a different contract at the same address
+  // on another chain). Gate every read with a chain match.
+  const chainId = useChainId();
+  const onRightChain = chainId === CHAIN_ID;
+
   // Track which inputAmount generated each aggregator quote to discard stale results
   const quoteRequestIdRef = useRef(0);
 
@@ -72,13 +79,13 @@ export function useSwapQuote(
     abi: UNISWAP_V2_ROUTER_ABI,
     functionName: 'getAmountsOut',
     args: [parsedAmount, path],
-    query: { enabled: parsedAmount > 0n && path.length >= 2 },
+    query: { enabled: onRightChain && parsedAmount > 0n && path.length >= 2 },
   });
 
   // ---- Tegridy DEX: check own pools ----
   const fromAddrForPair = fromToken?.isNative ? WETH_ADDRESS : (fromToken?.address ?? WETH_ADDRESS);
   const toAddrForPair = toToken?.isNative ? WETH_ADDRESS : (toToken?.address ?? WETH_ADDRESS);
-  const pairsEnabled = !!fromToken && !!toToken && fromAddrForPair.toLowerCase() !== toAddrForPair.toLowerCase();
+  const pairsEnabled = onRightChain && !!fromToken && !!toToken && fromAddrForPair.toLowerCase() !== toAddrForPair.toLowerCase();
 
   // Check if Tegridy Factory has a pair for these tokens
   const { data: tegridyPairAddr } = useReadContract({

@@ -1,19 +1,12 @@
-import { NavLink, useLocation } from 'react-router-dom';
-import React, { useState, useRef, useEffect } from 'react';
-import { AnimatePresence, m } from 'framer-motion';
-import { MORE_NAV_MOBILE, MORE_PATHS_MOBILE } from '../../lib/navConfig';
+import { NavLink } from 'react-router-dom';
+import React from 'react';
 
+/**
+ * Bottom nav tabs — identical set and order to TopNav's PRIMARY_NAV so
+ * desktop and mobile IA stay symmetric. Everything else is demoted to
+ * the Footer, reachable by scrolling down on mobile.
+ */
 const TABS = [
-  { to: '/swap', label: 'Trade', icon: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M7 10l5-5 5 5M7 14l5 5 5-5" />
-    </svg>
-  )},
-  { to: '/farm', label: 'Farm', icon: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M12 22V8M12 8c-2-3-6-4-8-2M12 8c2-3 6-4 8-2M5 18h14" />
-    </svg>
-  )},
   { to: '/dashboard', label: 'Dashboard', icon: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -22,54 +15,34 @@ const TABS = [
       <rect x="14" y="14" width="7" height="7" rx="1" />
     </svg>
   )},
-  { to: '/lending', label: 'NFT Finance', icon: (
+  { to: '/farm', label: 'Farm', icon: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M12 22V8M12 8c-2-3-6-4-8-2M12 8c2-3 6-4 8-2M5 18h14" />
+    </svg>
+  )},
+  { to: '/swap', label: 'Trade', icon: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M7 10l5-5 5 5M7 14l5 5 5-5" />
+    </svg>
+  )},
+  { to: '/lending', label: 'Lending', icon: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <rect x="3" y="6" width="18" height="13" rx="2" />
       <path d="M3 10h18M7 15h3" />
+    </svg>
+  )},
+  { to: '/community', label: 'Governance', icon: (
+    // Inline SVG — ballot box with check, matches existing 1.8 stroke-width convention
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 7h16v13H4z" />
+      <path d="M9 3h6v4H9z" />
+      <path d="M9 13l2 2 4-4" />
     </svg>
   )},
 ];
 
 
 export const BottomNav = React.memo(function BottomNav() {
-  const [open, setOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const moreBtnRef = useRef<HTMLButtonElement>(null);
-  const location = useLocation();
-  const isMoreActive = MORE_PATHS_MOBILE.some(p => location.pathname === p || location.pathname.startsWith(p + '/'));
-
-  // Close on route change
-  useEffect(() => { setOpen(false); }, [location.pathname]);
-
-  // Close on outside click
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      const target = e.target as Node;
-      if (
-        menuRef.current && !menuRef.current.contains(target) &&
-        moreBtnRef.current && !moreBtnRef.current.contains(target)
-      ) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [open]);
-
-  // Audit H-F12: match TopNav behavior — Escape closes the popup on mobile too
-  useEffect(() => {
-    if (!open) return;
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        setOpen(false);
-        moreBtnRef.current?.focus();
-      }
-    }
-    document.addEventListener('keydown', handleKey);
-    return () => document.removeEventListener('keydown', handleKey);
-  }, [open]);
-
   return (
     <nav aria-label="Main navigation" className="fixed bottom-0 left-0 right-0 z-50 md:hidden"
       style={{
@@ -78,45 +51,6 @@ export const BottomNav = React.memo(function BottomNav() {
         WebkitBackdropFilter: 'blur(20px)',
         borderTop: '1px solid var(--color-purple-75)',
       }}>
-
-      {/* More menu popup */}
-      <AnimatePresence>
-        {open && (
-          <m.div
-            ref={menuRef}
-            className="absolute bottom-full left-0 right-0 px-3 pb-2"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 10 }}
-            transition={{ duration: 0.15 }}
-          >
-            <div className="rounded-xl overflow-hidden py-1"
-              style={{
-                background: 'rgba(10,16,32,0.97)',
-                border: '1px solid var(--color-purple-20)',
-                backdropFilter: 'blur(20px)',
-                boxShadow: '0 -8px 30px rgba(0,0,0,0.5)',
-              }}>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-0.5 p-2">
-                {MORE_NAV_MOBILE.map(page => (
-                  <NavLink
-                    key={page.to}
-                    to={page.to}
-                    className={({ isActive }) =>
-                      `flex items-center justify-center py-2.5 px-2 min-h-[44px] rounded-lg text-[12px] font-medium transition-colors ${
-                        isActive ? 'text-purple-400 bg-primary/10' : 'text-white/60 hover:text-white hover:bg-white/5'
-                      }`
-                    }
-                  >
-                    {page.label}
-                  </NavLink>
-                ))}
-              </div>
-            </div>
-          </m.div>
-        )}
-      </AnimatePresence>
-
       <div className="flex items-center justify-around h-16 safe-area-bottom">
         {TABS.map(tab => (
           <NavLink key={tab.to} to={tab.to} aria-label={tab.label}
@@ -129,24 +63,6 @@ export const BottomNav = React.memo(function BottomNav() {
             <span className="text-[10px] font-medium">{tab.label}</span>
           </NavLink>
         ))}
-
-        {/* More button */}
-        <button
-          ref={moreBtnRef}
-          onClick={() => setOpen(!open)}
-          aria-label="More pages"
-          aria-expanded={open}
-          className={`flex flex-col items-center justify-center gap-0.5 min-w-[52px] min-h-[48px] px-2 py-2 transition-colors cursor-pointer ${
-            isMoreActive || open ? 'text-purple-400' : 'text-white/60'
-          }`}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <circle cx="5" cy="12" r="1.5" />
-            <circle cx="12" cy="12" r="1.5" />
-            <circle cx="19" cy="12" r="1.5" />
-          </svg>
-          <span className="text-[10px] font-medium">More</span>
-        </button>
       </div>
     </nav>
   );

@@ -213,9 +213,24 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     // ║  USER ACTIONS                                               ║
     // ═══════════════════════════════════════════════════════════════
 
-    /// @notice Stake LP tokens to earn boosted TOWELI rewards
+    /// @notice Stake LP tokens to earn boosted TOWELI rewards.
+    /// @dev Also refreshes the caller's effective balance against their current staking NFT
+    ///      position so newly-acquired JBAC boost applies without a separate refreshBoost call.
     function stake(uint256 amount) external nonReentrant whenNotPaused updateReward(msg.sender) {
         if (amount == 0) revert ZeroAmount();
+
+        // Reconcile any pre-existing effective balance with the current boost first.
+        uint256 existingRaw = rawBalanceOf[msg.sender];
+        if (existingRaw > 0) {
+            uint256 oldEffective = effectiveBalanceOf[msg.sender];
+            uint256 newEffective = _getEffectiveBalance(msg.sender, existingRaw);
+            if (oldEffective != newEffective) {
+                totalEffectiveSupply = totalEffectiveSupply - oldEffective + newEffective;
+                effectiveBalanceOf[msg.sender] = newEffective;
+                emit BoostUpdated(msg.sender, oldEffective, newEffective);
+            }
+        }
+
         uint256 effective = _getEffectiveBalance(msg.sender, amount);
         rawBalanceOf[msg.sender] += amount;
         effectiveBalanceOf[msg.sender] += effective;
@@ -225,27 +240,48 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
         emit Staked(msg.sender, amount, effective);
     }
 
+    /// @notice Convenience: withdraw full balance and claim all pending rewards in one tx.
+    /// @dev Mirrors the Synthetix `exit()` helper. Uses internal helpers so msg.sender is
+    ///      preserved and the nonReentrant guard is only taken once for the composite call.
+    function exit() external nonReentrant updateReward(msg.sender) {
+        uint256 raw = rawBalanceOf[msg.sender];
+        if (raw > 0) {
+            _withdrawInternal(msg.sender, raw);
+        }
+        if (rewards[msg.sender] > 0) {
+            _getRewardInternal(msg.sender);
+        }
+    }
+
     /// @notice Withdraw staked LP tokens
     function withdraw(uint256 amount) external nonReentrant updateReward(msg.sender) {
+        _withdrawInternal(msg.sender, amount);
+    }
+
+    function _withdrawInternal(address user, uint256 amount) internal {
         if (amount == 0) revert ZeroAmount();
-        if (amount > rawBalanceOf[msg.sender]) revert InsufficientBalance();
+        if (amount > rawBalanceOf[user]) revert InsufficientBalance();
         // Proportionally reduce effective balance
-        uint256 effectiveReduction = (effectiveBalanceOf[msg.sender] * amount) / rawBalanceOf[msg.sender];
-        rawBalanceOf[msg.sender] -= amount;
-        effectiveBalanceOf[msg.sender] -= effectiveReduction;
+        uint256 effectiveReduction = (effectiveBalanceOf[user] * amount) / rawBalanceOf[user];
+        rawBalanceOf[user] -= amount;
+        effectiveBalanceOf[user] -= effectiveReduction;
         totalRawSupply -= amount;
         totalEffectiveSupply -= effectiveReduction;
-        stakingToken.safeTransfer(msg.sender, amount);
-        emit Withdrawn(msg.sender, amount);
+        stakingToken.safeTransfer(user, amount);
+        emit Withdrawn(user, amount);
     }
 
     /// @notice Claim pending TOWELI rewards
     function getReward() public nonReentrant updateReward(msg.sender) {
-        uint256 reward = rewards[msg.sender];
+        _getRewardInternal(msg.sender);
+    }
+
+    function _getRewardInternal(address user) internal {
+        uint256 reward = rewards[user];
         if (reward > 0) {
-            rewards[msg.sender] = 0;
-            rewardToken.safeTransfer(msg.sender, reward);
-            emit RewardPaid(msg.sender, reward);
+            rewards[user] = 0;
+            rewardToken.safeTransfer(user, reward);
+            emit RewardPaid(user, reward);
         }
     }
 

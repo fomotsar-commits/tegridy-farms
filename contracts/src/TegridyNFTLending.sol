@@ -43,6 +43,10 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     uint256 public constant MAX_PROTOCOL_FEE_BPS = 1000; // 10%
     uint256 public constant BPS = 10000;
     uint256 public constant SECONDS_PER_YEAR = 365 days;
+    /// @notice Post-deadline window in which the borrower may still repay. Mirrors
+    /// TegridyLending's GRACE_PERIOD (AUDIT M-1) so NFT-collateralised borrowers are not
+    /// defaulted by transient gas/network issues.
+    uint256 public constant GRACE_PERIOD = 1 hours;
 
     // ─── WETH Fallback ──────────────────────────────────────────────
     address public immutable weth;
@@ -357,8 +361,8 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         // Prevent same-block zero-interest repayment
         if (block.timestamp == startTime) revert LoanTooRecent();
 
-        // Enforce deadline — borrower cannot repay after deadline
-        if (block.timestamp > loan.deadline) revert LoanNotDefaulted();
+        // Enforce deadline with grace window — borrower can still repay up to deadline + GRACE_PERIOD
+        if (block.timestamp > loan.deadline + GRACE_PERIOD) revert LoanNotDefaulted();
 
         uint256 interest = calculateInterest(
             principal,
@@ -413,7 +417,8 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         address collateralContract = loan.collateralContract;
 
         if (msg.sender != lender) revert NotLoanLender();
-        if (block.timestamp <= loan.deadline) revert LoanNotDefaulted();
+        // Lender can only claim after the grace window has closed, matching repayLoan's buffer.
+        if (block.timestamp <= loan.deadline + GRACE_PERIOD) revert LoanNotDefaulted();
 
         // CEI: state change before external call
         loan.defaultClaimed = true;

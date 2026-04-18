@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, formatEther, type Address } from 'viem';
 import { m, AnimatePresence } from 'framer-motion';
@@ -1731,7 +1732,7 @@ export function LendingSection({ address: _propAddress }: { address?: string }) 
       {!deployed && (
         <ArtPanel artSrc={ART.smokingDuo.src} opacity={1} overlay="none">
           <div className="px-4 py-3 text-center text-[13px] text-amber-400/80">
-            Lending contracts are being audited and will be deployed soon. Explore the interface below. <a href="/security" className="underline hover:text-amber-300 transition-colors">View security details</a>
+            Lending contracts are being audited and will be deployed soon. Explore the interface below. <Link to="/security" className="underline hover:text-amber-300 transition-colors">View security details</Link>
           </div>
         </ArtPanel>
       )}

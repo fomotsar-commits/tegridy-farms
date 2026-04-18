@@ -35,6 +35,8 @@ const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
 const RisksPage = lazy(() => import('./pages/RisksPage'));
 const FAQPage = lazy(() => import('./pages/FAQPage'));
 const ChangelogPage = lazy(() => import('./pages/ChangelogPage'));
+const ContractsPage = lazy(() => import('./pages/ContractsPage'));
+const TreasuryPage = lazy(() => import('./pages/TreasuryPage'));
 // LaunchpadPage lazy import removed — loaded inside LendingPage
 // NFTAMMPage merged into LendingPage (NFT Finance)
 
@@ -143,6 +145,8 @@ function AnimatedRoutes() {
         <Route path="risks" element={<Suspense fallback={<PageSkeleton />}><RisksPage /></Suspense>} />
         <Route path="faq" element={<Suspense fallback={<PageSkeleton />}><FAQPage /></Suspense>} />
         <Route path="changelog" element={<Suspense fallback={<PageSkeleton />}><ChangelogPage /></Suspense>} />
+        <Route path="contracts" element={<Suspense fallback={<PageSkeleton />}><ContractsPage /></Suspense>} />
+        <Route path="treasury" element={<Suspense fallback={<PageSkeleton />}><TreasuryPage /></Suspense>} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

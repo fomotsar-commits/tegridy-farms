@@ -9,6 +9,7 @@ import {
 } from '../hooks/useTransactionReceipt';
 import { formatTokenAmount } from '../lib/formatting';
 import { getTxUrl } from '../lib/explorer';
+import { RECEIPT_COPY } from '../lib/copy';
 
 /* ─── Sanitize text to prevent HTML/script injection in rendered receipts ─── */
 function sanitize(str: string | undefined): string {
@@ -50,19 +51,36 @@ export function TransactionReceiptProvider({ children }: { children: ReactNode }
 
 /* ─── Type config ─── */
 
+// Labels & verbs sourced from lib/copy.ts (Full Tegridy voice).
+// Icons remain here since they're presentation-specific.
+const TYPE_ICONS: Record<ReceiptType, string> = {
+  swap:             '\u{1F504}',
+  stake:            '\u{1F512}',
+  unstake:          '\u{1F513}',
+  claim:            '\u{1F4B0}',
+  vote:             '\u{1F5F3}\u{FE0F}',
+  bounty:           '\u{1F3AF}',
+  lock:             '\u{26D3}\u{FE0F}',
+  approve:          '\u{2705}',
+  liquidity_add:    '\u{1F4A7}',
+  liquidity_remove: '\u{1F4A8}',
+  subscribe:        '\u{1F451}',
+  claim_revenue:    '\u{1F4B0}',
+};
+
 const TYPE_CONFIG: Record<ReceiptType, { label: string; icon: string; verb: string }> = {
-  swap:    { label: 'SWAP CONFIRMED',    icon: '\u{1F504}', verb: 'swapped' },
-  stake:   { label: 'STAKE CONFIRMED',   icon: '\u{1F512}', verb: 'staked' },
-  unstake: { label: 'UNSTAKE CONFIRMED', icon: '\u{1F513}', verb: 'unstaked' },
-  claim:   { label: 'CLAIM CONFIRMED',   icon: '\u{1F4B0}', verb: 'claimed rewards' },
-  vote:    { label: 'VOTE CONFIRMED',    icon: '\u{1F5F3}\u{FE0F}', verb: 'voted' },
-  bounty:  { label: 'BOUNTY POSTED',     icon: '\u{1F3AF}', verb: 'posted a bounty' },
-  lock:    { label: 'LOCK CONFIRMED',    icon: '\u{26D3}\u{FE0F}', verb: 'locked' },
-  approve: { label: 'APPROVAL CONFIRMED', icon: '\u{2705}', verb: 'approved' },
-  liquidity_add: { label: 'LIQUIDITY ADDED', icon: '\u{1F4A7}', verb: 'added liquidity' },
-  liquidity_remove: { label: 'LIQUIDITY REMOVED', icon: '\u{1F4A8}', verb: 'removed liquidity' },
-  subscribe: { label: 'GOLD CARD ACTIVATED', icon: '\u{1F451}', verb: 'subscribed to Gold Card' },
-  claim_revenue: { label: 'REVENUE CLAIMED', icon: '\u{1F4B0}', verb: 'claimed revenue' },
+  swap:             { ...RECEIPT_COPY.swap,             icon: TYPE_ICONS.swap },
+  stake:            { ...RECEIPT_COPY.stake,            icon: TYPE_ICONS.stake },
+  unstake:          { ...RECEIPT_COPY.unstake,          icon: TYPE_ICONS.unstake },
+  claim:            { ...RECEIPT_COPY.claim,            icon: TYPE_ICONS.claim },
+  vote:             { ...RECEIPT_COPY.vote,             icon: TYPE_ICONS.vote },
+  bounty:           { ...RECEIPT_COPY.bounty,           icon: TYPE_ICONS.bounty },
+  lock:             { ...RECEIPT_COPY.lock,             icon: TYPE_ICONS.lock },
+  approve:          { ...RECEIPT_COPY.approve,          icon: TYPE_ICONS.approve },
+  liquidity_add:    { ...RECEIPT_COPY.liquidity_add,    icon: TYPE_ICONS.liquidity_add },
+  liquidity_remove: { ...RECEIPT_COPY.liquidity_remove, icon: TYPE_ICONS.liquidity_remove },
+  subscribe:        { ...RECEIPT_COPY.subscribe,        icon: TYPE_ICONS.subscribe },
+  claim_revenue:    { ...RECEIPT_COPY.claim_revenue,    icon: TYPE_ICONS.claim_revenue },
 };
 
 /* ─── Detail rows per type ─── */

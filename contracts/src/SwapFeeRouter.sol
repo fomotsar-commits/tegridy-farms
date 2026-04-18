@@ -94,6 +94,34 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     bytes32 public constant REV_DIST_CHANGE = keccak256("REV_DIST_CHANGE");
     address public pendingRevenueDistributor;
 
+    // ─── V3: Three-way fee split (stakers / treasury / POL) ──────────
+    /// @notice BPS of each distribution that flows to RevenueDistributor → stakers.
+    ///         Remainder = (BPS - stakerShareBps - polShareBps) goes to treasury.
+    ///         Initialised to 10000 (100% stakers) to preserve existing behaviour on
+    ///         upgrade. Owner must propose a split change via timelock to start
+    ///         funding treasury / POL.
+    uint256 public stakerShareBps = 10_000;
+    /// @notice BPS of each distribution that flows to polAccumulator for permanent
+    ///         protocol-owned liquidity. Default 0. Combined with stakerShareBps
+    ///         must total <= 10000.
+    uint256 public polShareBps = 0;
+    /// @notice Destination for the POL slice. Can be the POLAccumulator contract.
+    address public polAccumulator;
+
+    bytes32 public constant FEE_SPLIT_CHANGE = keccak256("FEE_SPLIT_CHANGE");
+    bytes32 public constant POL_ACCUMULATOR_CHANGE = keccak256("POL_ACCUMULATOR_CHANGE");
+    uint256 public constant FEE_SPLIT_CHANGE_DELAY = 48 hours;
+    uint256 public constant POL_ACCUMULATOR_CHANGE_DELAY = 48 hours;
+    /// @notice Guardrails: stakers get no less than 50% and POL no more than 25%.
+    ///         Protects the "stakers earn fees" marketing story through any future
+    ///         governance mis-step.
+    uint256 public constant MIN_STAKER_SHARE_BPS = 5_000;
+    uint256 public constant MAX_POL_SHARE_BPS = 2_500;
+
+    uint256 public pendingStakerShareBps;
+    uint256 public pendingPolShareBps;
+    address public pendingPolAccumulator;
+
     // ─── Pending Values (for timelocked changes) ─────────────────────
     uint256 public pendingFeeBps;
     address public pendingTreasury;
@@ -131,6 +159,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     event RevenueDistributorUpdated(address indexed oldDistributor, address indexed newDistributor);
     event RevenueDistributorChangeProposed(address indexed newDistributor, uint256 executeAfter);
     event RevenueDistributorChangeCancelled(address indexed cancelledDistributor);
+    event FeeSplitUpdated(uint256 stakerShareBps, uint256 polShareBps, uint256 treasuryShareBps);
+    event FeeSplitChangeProposed(uint256 stakerShareBps, uint256 polShareBps, uint256 executeAfter);
+    event FeeSplitChangeCancelled();
+    event PolAccumulatorUpdated(address indexed oldAccumulator, address indexed newAccumulator);
+    event PolAccumulatorChangeProposed(address indexed newAccumulator, uint256 executeAfter);
+    event PolAccumulatorChangeCancelled(address indexed cancelled);
+    event FeesDistributedSplit(uint256 stakerAmount, uint256 treasuryAmount, uint256 polAmount);
 
     // ─── Errors ──────────────────────────────────────────────────────
     error FeeTooHigh();
@@ -146,6 +181,9 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     error PathEndMismatch();
     error InsufficientOutput();
     error DuplicateTokenInPath();
+    error SplitInvalid();
+    error StakerShareTooLow();
+    error PolShareTooHigh();
 
     // Legacy error aliases (kept for test compatibility during V2 migration)
     // Note: ProposalExpired() removed — use TimelockAdmin.ProposalExpired(bytes32) instead
@@ -550,18 +588,121 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
 
     // ─── V2: Revenue Pipeline (Permissionless Fee Distribution) ─────
 
-    /// @notice Permissionless: anyone can trigger fee distribution to RevenueDistributor.
+    /// @notice Permissionless: anyone can trigger fee distribution.
     ///         Pattern: Curve FeeDistributor — keeper/bot/user pushes accumulated fees forward.
-    ///         Sends all accumulatedETHFees to the configured revenueDistributor address.
+    ///         Splits accumulatedETHFees across stakers (revenueDistributor), POL
+    ///         (polAccumulator), and treasury based on the timelocked fee-split BPS.
+    ///
+    ///         Invariants enforced at propose-time:
+    ///           stakerShareBps >= MIN_STAKER_SHARE_BPS (50%)
+    ///           polShareBps    <= MAX_POL_SHARE_BPS    (25%)
+    ///           staker + pol   <= BPS (treasury gets the remainder)
+    ///
+    ///         Backward compatibility: on upgrade, stakerShareBps defaults to 10000
+    ///         which means pol/treasury slices are zero and behaviour is identical
+    ///         to V2 (100% to stakers). Owner must propose a split change explicitly.
     function distributeFeesToStakers() external nonReentrant {
         if (revenueDistributor == address(0)) revert ZeroAddress();
         uint256 amount = accumulatedETHFees;
         if (amount == 0) revert ZeroAmount();
         accumulatedETHFees = 0;
-        (bool ok,) = revenueDistributor.call{value: amount}("");
-        require(ok, "TRANSFER_FAILED");
-        emit FeesDistributed(revenueDistributor, amount);
+
+        // Compute slices. Treasury is the remainder so the three slices always sum
+        // to exactly `amount` — no dust can be lost or double-spent.
+        uint256 stakerAmount = (amount * stakerShareBps) / BPS;
+        uint256 polAmount = (amount * polShareBps) / BPS;
+        uint256 treasuryAmount = amount - stakerAmount - polAmount;
+
+        // Staker path: direct .call{} preserves the existing behaviour / gas profile
+        // that RevenueDistributor expects (it's the receiver for the ETH deposit).
+        if (stakerAmount > 0) {
+            (bool okStaker,) = revenueDistributor.call{value: stakerAmount}("");
+            require(okStaker, "STAKER_TRANSFER_FAILED");
+        }
+
+        // POL path: only run if we have a configured accumulator AND a non-zero slice.
+        // If polShareBps > 0 but polAccumulator is unset, we fold the POL slice into
+        // treasury rather than revert, so governance can't brick distribution by
+        // forgetting to set the address.
+        if (polAmount > 0) {
+            if (polAccumulator != address(0)) {
+                (bool okPol,) = polAccumulator.call{value: polAmount}("");
+                require(okPol, "POL_TRANSFER_FAILED");
+            } else {
+                treasuryAmount += polAmount;
+                polAmount = 0;
+            }
+        }
+
+        // Treasury path: WETH fallback in case treasury is a contract that reverts on
+        // plain ETH receive (consistent with other treasury flows in this contract).
+        if (treasuryAmount > 0) {
+            WETHFallbackLib.safeTransferETHOrWrap(WETH, treasury, treasuryAmount);
+        }
+
+        emit FeesDistributed(revenueDistributor, stakerAmount);
+        emit FeesDistributedSplit(stakerAmount, treasuryAmount, polAmount);
     }
+
+    // ─── V3: Fee-split governance (timelocked 48h) ────────────────────
+
+    /// @notice Propose new staker/POL split. Treasury share is implicit (remainder).
+    /// @dev    Both bounds checked here so a malformed proposal never enters the queue.
+    function proposeFeeSplit(uint256 _stakerShareBps, uint256 _polShareBps) external onlyOwner {
+        if (_stakerShareBps < MIN_STAKER_SHARE_BPS) revert StakerShareTooLow();
+        if (_polShareBps > MAX_POL_SHARE_BPS) revert PolShareTooHigh();
+        if (_stakerShareBps + _polShareBps > BPS) revert SplitInvalid();
+        pendingStakerShareBps = _stakerShareBps;
+        pendingPolShareBps = _polShareBps;
+        _propose(FEE_SPLIT_CHANGE, FEE_SPLIT_CHANGE_DELAY);
+        emit FeeSplitChangeProposed(_stakerShareBps, _polShareBps, _executeAfter[FEE_SPLIT_CHANGE]);
+    }
+
+    function executeFeeSplit() external onlyOwner {
+        _execute(FEE_SPLIT_CHANGE);
+        stakerShareBps = pendingStakerShareBps;
+        polShareBps = pendingPolShareBps;
+        pendingStakerShareBps = 0;
+        pendingPolShareBps = 0;
+        emit FeeSplitUpdated(stakerShareBps, polShareBps, BPS - stakerShareBps - polShareBps);
+    }
+
+    function cancelFeeSplit() external onlyOwner {
+        _cancel(FEE_SPLIT_CHANGE);
+        pendingStakerShareBps = 0;
+        pendingPolShareBps = 0;
+        emit FeeSplitChangeCancelled();
+    }
+
+    function feeSplitChangeTime() external view returns (uint256) { return _executeAfter[FEE_SPLIT_CHANGE]; }
+
+    // ─── V3: POL accumulator governance (timelocked 48h) ──────────────
+
+    function proposePolAccumulator(address _newAccumulator) external onlyOwner {
+        // Zero address is allowed — that's how you disable the POL slice without
+        // changing the BPS. When address is zero, POL share re-routes to treasury
+        // in distributeFeesToStakers.
+        pendingPolAccumulator = _newAccumulator;
+        _propose(POL_ACCUMULATOR_CHANGE, POL_ACCUMULATOR_CHANGE_DELAY);
+        emit PolAccumulatorChangeProposed(_newAccumulator, _executeAfter[POL_ACCUMULATOR_CHANGE]);
+    }
+
+    function executePolAccumulator() external onlyOwner {
+        _execute(POL_ACCUMULATOR_CHANGE);
+        address old = polAccumulator;
+        polAccumulator = pendingPolAccumulator;
+        pendingPolAccumulator = address(0);
+        emit PolAccumulatorUpdated(old, polAccumulator);
+    }
+
+    function cancelPolAccumulator() external onlyOwner {
+        _cancel(POL_ACCUMULATOR_CHANGE);
+        address cancelled = pendingPolAccumulator;
+        pendingPolAccumulator = address(0);
+        emit PolAccumulatorChangeCancelled(cancelled);
+    }
+
+    function polAccumulatorChangeTime() external view returns (uint256) { return _executeAfter[POL_ACCUMULATOR_CHANGE]; }
 
     // ─── Admin: Timelocked Revenue Distributor Change (48h) ──────────
 

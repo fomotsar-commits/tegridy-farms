@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { m, AnimatePresence } from 'framer-motion';
 import {
   useAccount,
@@ -991,7 +992,9 @@ function PoolCard({
     functionName: 'getHeldTokenIds',
   });
 
-  const { writeContract, data: txHash } = useWriteContract();
+  // isPending = wallet signing phase; isConfirming = on-chain confirmation.
+  // Both must gate buttons to prevent double-submit during wallet prompt.
+  const { writeContract, data: txHash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: poolTxSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
   // Refetch pool data after successful liquidity operations
@@ -1220,10 +1223,10 @@ function PoolCard({
                           </div>
                           <button
                             className="w-full py-2.5 rounded-xl bg-emerald-600/80 hover:bg-emerald-600 transition-colors text-white text-sm font-medium disabled:opacity-70"
-                            disabled={isConfirming || (!liqNftIds.trim() && !liqEth)}
+                            disabled={isPending || isConfirming || (!liqNftIds.trim() && !liqEth)}
                             onClick={handleAddLiquidity}
                           >
-                            {isConfirming ? 'Adding...' : 'Deposit Liquidity'}
+                            {isPending ? 'Check wallet…' : isConfirming ? 'Adding...' : 'Deposit Liquidity'}
                           </button>
                         </div>
                       ) : (
@@ -1250,10 +1253,10 @@ function PoolCard({
                           </div>
                           <button
                             className="w-full py-2.5 rounded-xl bg-orange-600/80 hover:bg-orange-600 transition-colors text-white text-sm font-medium disabled:opacity-70"
-                            disabled={isConfirming || (!withdrawNftIds.trim() && !withdrawEth)}
+                            disabled={isPending || isConfirming || (!withdrawNftIds.trim() && !withdrawEth)}
                             onClick={handleWithdraw}
                           >
-                            {isConfirming ? 'Withdrawing...' : 'Withdraw Liquidity'}
+                            {isPending ? 'Check wallet…' : isConfirming ? 'Withdrawing...' : 'Withdraw Liquidity'}
                           </button>
                         </div>
                       )}
@@ -1370,7 +1373,8 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
   const [nftIds, setNftIds] = useState('');
   const [feeBps, setFeeBps] = useState('200');
 
-  const { writeContract, data: txHash } = useWriteContract();
+  // isPending gates the wallet-signing phase; isConfirming the on-chain wait.
+  const { writeContract, data: txHash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: _isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
   const spotNum = parseFloat(spotPriceInput) || 0;
@@ -1714,10 +1718,10 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                   ) : (
                     <button
                       className={`flex-1 ${btnPrimary}`}
-                      disabled={isConfirming || !address}
+                      disabled={isPending || isConfirming || !address}
                       onClick={handleDeploy}
                     >
-                      {isConfirming ? 'Deploying Pool...' : !address ? 'Connect Wallet' : 'Deploy Pool'}
+                      {isPending ? 'Check wallet…' : isConfirming ? 'Deploying Pool...' : !address ? 'Connect Wallet' : 'Deploy Pool'}
                     </button>
                   )}
                 </div>
@@ -1978,7 +1982,7 @@ export function AMMSection() {
           className="rounded-xl px-4 py-3 text-center text-[13px] text-amber-400/80 border border-amber-500/20 mb-6"
           style={{ background: 'rgba(245,158,11,0.06)' }}
         >
-          NFT AMM contracts are being finalized and will be deployed soon. Explore the interface below. <a href="/security" className="underline hover:text-amber-300 transition-colors">View security details</a>
+          NFT AMM contracts are being finalized and will be deployed soon. Explore the interface below. <Link to="/security" className="underline hover:text-amber-300 transition-colors">View security details</Link>
         </div>
       )}
       <AMMStatsBar poolCount={poolCount as bigint | undefined} />

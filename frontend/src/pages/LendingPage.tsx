@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { ART } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { LendingSection } from '../components/nftfinance/LendingSection';
 import { AMMSection } from '../components/nftfinance/AMMSection';
 import { NFTLendingSection } from '../components/nftfinance/NFTLendingSection';
 import { LaunchpadSection } from '../components/nftfinance/LaunchpadSection';
+import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 
 type Section = 'lending' | 'nftlending' | 'amm' | 'launchpad';
 
@@ -169,24 +169,7 @@ export default function LendingPage() {
         </m.div>
 
         {!isConnected ? (
-          <m.div
-            className="max-w-md mx-auto rounded-2xl p-8 text-center"
-            style={{
-              border: '1px solid rgba(16,185,129,0.08)',
-              backdropFilter: 'blur(20px)',
-            }}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-          >
-            <div className="w-12 h-12 rounded-xl bg-emerald-500/30 border border-emerald-500/40 flex items-center justify-center mx-auto mb-4">
-              <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-black">
-                <path d="M12 2v10l4.5 2.6M12 12L7.5 14.6M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <p className="text-white mb-5 text-[14px]">Connect your wallet to access NFT Finance</p>
-            <ConnectButton />
-          </m.div>
+          <ConnectPrompt surface="lending" />
         ) : (
           <m.div
             key={section}

@@ -1,0 +1,100 @@
+name: Bug Report
+description: Report a reproducible bug in Tegriddy Farms (frontend, contracts, or integrations)
+title: "[Bug]: "
+labels: ["bug", "triage"]
+assignees:
+  - tegridy-team
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Please fill out the sections below so we can reproduce and fix the issue quickly.
+
+        **Do not report security vulnerabilities here.** See our [Security Policy](../../SECURITY.md) for private disclosure.
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      description: Please confirm the following before filing.
+      options:
+        - label: I have searched existing issues and this is not a duplicate.
+          required: true
+        - label: This is not a security vulnerability (those go to SECURITY.md).
+          required: true
+        - label: I am running the latest version on the affected branch.
+          required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected Area
+      description: Which part of the codebase is affected?
+      options:
+        - Frontend (React / Vite)
+        - Smart contracts (Solidity / Foundry)
+        - Subgraph / Indexer
+        - Deploy scripts
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Provide a minimal, ordered list of steps to reproduce the bug.
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. Enter value '...'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened? Include error messages, transaction hashes, or console output.
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser, OS, wallet, network, contract addresses, and commit SHA.
+      value: |
+        - OS:
+        - Browser / Wallet:
+        - Network (chain ID):
+        - Commit SHA:
+        - Node / Forge version:
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots / Logs
+      description: Attach screenshots, stack traces, or transaction traces if available.
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Anything else that may help us triage.
+    validations:
+      required: false

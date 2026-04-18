@@ -3,31 +3,34 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
-import { PRIMARY_NAV, MORE_NAV, ALL_NAV, MORE_PATHS } from '../../lib/navConfig';
+import { PRIMARY_NAV, ALL_NAV } from '../../lib/navConfig';
 
 export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const moreRef = useRef<HTMLDivElement>(null);
+  const [kebabOpen, setKebabOpen] = useState(false);
+  const kebabRef = useRef<HTMLDivElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const location = useLocation();
   const { isDark, toggleTheme } = useTheme();
-  const isMoreActive = MORE_PATHS.some(p => location.pathname === p || location.pathname.startsWith(p + '/'));
 
-  // Close dropdown on outside click
+  // Admin link visibility — only show if flag set in localStorage. Keeps the
+  // kebab menu empty (and hidden) for ordinary users.
+  const showAdmin = typeof window !== 'undefined' && !!window.localStorage?.getItem('tegridy_admin');
+
+  // Close kebab on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
-        setMoreOpen(false);
+      if (kebabRef.current && !kebabRef.current.contains(e.target as Node)) {
+        setKebabOpen(false);
       }
     }
-    if (moreOpen) document.addEventListener('mousedown', handleClick);
+    if (kebabOpen) document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
-  }, [moreOpen]);
+  }, [kebabOpen]);
 
-  // Close dropdown on route change
-  useEffect(() => { setMoreOpen(false); }, [location.pathname]);
+  // Close kebab on route change
+  useEffect(() => { setKebabOpen(false); }, [location.pathname]);
 
   // Audit H-F10: close on Escape + trap focus inside the drawer while open.
   // Without the trap, keyboard Tab escapes to the page content behind the overlay.
@@ -122,49 +125,6 @@ export const TopNav = React.memo(function TopNav() {
                 {n.label}
               </NavLink>
             ))}
-
-            {/* Community */}
-            <NavLink to="/community"
-              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-              Community
-            </NavLink>
-
-            {/* More dropdown */}
-            <div className="relative" ref={moreRef}>
-              <button
-                onClick={() => setMoreOpen(!moreOpen)}
-                aria-expanded={moreOpen}
-                aria-haspopup="true"
-                className={`nav-link flex items-center gap-1 ${isMoreActive ? 'active' : ''}`}
-              >
-                More
-                <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.5" className={`transition-transform ${moreOpen ? 'rotate-180' : ''}`}>
-                  <path d="M2 4l3 3 3-3" />
-                </svg>
-              </button>
-              <AnimatePresence>
-                {moreOpen && (
-                  <m.div
-                    className="absolute top-full right-0 mt-1 py-1 rounded-lg min-w-[160px]"
-                    style={{
-                      background: isDark ? 'rgba(10,10,20,0.95)' : 'rgba(255,255,255,0.97)',
-                      border: '1px solid var(--color-purple-20)',
-                      backdropFilter: 'blur(20px)',
-                      boxShadow: isDark ? '0 8px 30px rgba(0,0,0,0.5)' : '0 8px 30px rgba(0,0,0,0.12)',
-                    }}
-                    initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}
-                    transition={{ duration: 0.15 }}
-                  >
-                    {MORE_NAV.map((n) => (
-                      <NavLink key={n.to} to={n.to}
-                        className={({ isActive }) => `nav-link block px-4 py-2 text-[13px] transition-colors ${isActive ? 'active' : ''}`}>
-                        {n.label}
-                      </NavLink>
-                    ))}
-                  </m.div>
-                )}
-              </AnimatePresence>
-            </div>
           </nav>
 
           <div className="flex items-center gap-2">
@@ -222,6 +182,46 @@ export const TopNav = React.memo(function TopNav() {
               }}
             </ConnectButton.Custom>
 
+            {/* Admin kebab — only rendered if tegridy_admin flag is set */}
+            {showAdmin && (
+              <div className="relative hidden md:block" ref={kebabRef}>
+                <button
+                  onClick={() => setKebabOpen(!kebabOpen)}
+                  aria-expanded={kebabOpen}
+                  aria-haspopup="true"
+                  aria-label="Profile menu"
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:text-primary transition-colors"
+                  style={{ background: 'var(--color-purple-10)', border: '1px solid var(--color-purple-15)' }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                    <circle cx="12" cy="5" r="1.5" />
+                    <circle cx="12" cy="12" r="1.5" />
+                    <circle cx="12" cy="19" r="1.5" />
+                  </svg>
+                </button>
+                <AnimatePresence>
+                  {kebabOpen && (
+                    <m.div
+                      className="absolute top-full right-0 mt-1 py-1 rounded-lg min-w-[140px]"
+                      style={{
+                        background: isDark ? 'rgba(10,10,20,0.95)' : 'rgba(255,255,255,0.97)',
+                        border: '1px solid var(--color-purple-20)',
+                        backdropFilter: 'blur(20px)',
+                        boxShadow: isDark ? '0 8px 30px rgba(0,0,0,0.5)' : '0 8px 30px rgba(0,0,0,0.12)',
+                      }}
+                      initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}
+                      transition={{ duration: 0.15 }}
+                    >
+                      <NavLink to="/admin"
+                        className={({ isActive }) => `nav-link block px-4 py-2 text-[13px] transition-colors ${isActive ? 'active' : ''}`}>
+                        Admin
+                      </NavLink>
+                    </m.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+
             <button ref={menuButtonRef} onClick={() => setOpen(true)} aria-label="Open navigation menu" aria-expanded={open} className="md:hidden p-2.5 -mr-2 text-text-muted min-w-[48px] min-h-[48px] flex items-center justify-center">
               <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
                 <path d="M3 5h14M3 10h14M3 15h14" />
@@ -257,11 +257,16 @@ export const TopNav = React.memo(function TopNav() {
               <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
                 {ALL_NAV.map((n) => (
                   <NavLink key={n.to} to={n.to} onClick={() => setOpen(false)}
-                    className={({ isActive }) => `nav-link block py-2.5 ${isActive ? 'active' : ''}`}
-                    style={n.to === '/premium' ? { color: '#d4a017' } : undefined}>
+                    className={({ isActive }) => `nav-link block py-2.5 ${isActive ? 'active' : ''}`}>
                     {n.label}
                   </NavLink>
                 ))}
+                {showAdmin && (
+                  <NavLink to="/admin" onClick={() => setOpen(false)}
+                    className={({ isActive }) => `nav-link block py-2.5 ${isActive ? 'active' : ''}`}>
+                    Admin
+                  </NavLink>
+                )}
               </nav>
             </m.div>
           </>

@@ -15,7 +15,7 @@ contract DeployV3FeaturesScript is Script {
     address constant TOWELI = 0x420698CFdEDdEa6bc78D59bC17798113ad278F9D;
     address constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     address constant TREASURY = 0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e;
-    address constant TEGRIDY_STAKING = 0x65D8b87917c59a0B33009493fB236bCccF1Ea421;
+    address constant TEGRIDY_STAKING = 0x626644523d34B84818df602c991B4a06789C4819;
 
     // ─── Default Fees ───────────────────────────────────────────────
     uint256 constant LENDING_FEE_BPS = 500;     // 5% of interest earned

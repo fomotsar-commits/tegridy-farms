@@ -1,0 +1,78 @@
+name: Feature Request
+description: Suggest a new feature, enhancement, or improvement for Tegriddy Farms
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+assignees:
+  - tegridy-team
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing an idea. Please describe the problem you're trying to solve and what you'd like to see happen.
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      options:
+        - label: I have searched existing issues and discussions and this is not a duplicate.
+          required: true
+        - label: This is not a security-sensitive request (see SECURITY.md if it is).
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected Area
+      description: Which part of the product would this touch?
+      options:
+        - Frontend (React / Vite)
+        - Smart contracts (Solidity / Foundry)
+        - Subgraph / Indexer
+        - Deploy scripts / Tooling
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem or user pain are you trying to solve? Who is affected?
+      placeholder: As a user, I'm frustrated that ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution you'd like. Include UI sketches, contract interfaces, or pseudocode where helpful.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What other approaches did you consider? Why did you reject them?
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Audit / Security Impact
+      description: Does this change touch audited contracts, access control, oracles, or user funds? If unsure, say so.
+      placeholder: None / Minor (frontend only) / Requires audit review
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Links, references, prior art, or anything else.
+    validations:
+      required: false

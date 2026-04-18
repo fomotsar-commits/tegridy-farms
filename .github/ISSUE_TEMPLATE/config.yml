@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security Vulnerability (Private Disclosure)
+    url: https://github.com/tegridy-team/tegriddy-farms/security/policy
+    about: Please report security vulnerabilities privately. See SECURITY.md — do not open public issues.
+  - name: Questions & Discussion
+    url: https://github.com/tegridy-team/tegriddy-farms/discussions
+    about: Ask questions or discuss ideas in GitHub Discussions before opening an issue.

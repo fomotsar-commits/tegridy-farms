@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { ART } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { FAQ_INTRO } from '../lib/copy';
 
 interface FAQItem {
   q: string;
@@ -117,10 +118,10 @@ export default function FAQPage() {
           className="text-center mb-10"
         >
           <h1 className="text-3xl md:text-4xl font-bold text-white mb-3">
-            Frequently Asked Questions
+            {FAQ_INTRO.headline}
           </h1>
-          <p className="text-gray-400 text-sm md:text-base">
-            Everything you need to know about Tegridy Farms
+          <p className="text-gray-400 text-sm md:text-base max-w-[600px] mx-auto">
+            {FAQ_INTRO.subheading}
           </p>
         </m.div>
 

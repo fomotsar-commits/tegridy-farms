@@ -5,7 +5,7 @@ import "forge-std/Script.sol";
 import "../src/GaugeController.sol";
 
 contract DeployGaugeControllerScript is Script {
-    address constant TEGRIDY_STAKING = 0x65D8b87917c59a0B33009493fB236bCccF1Ea421;
+    address constant TEGRIDY_STAKING = 0x626644523d34B84818df602c991B4a06789C4819;
     uint256 constant EMISSION_BUDGET = 1_000_000e18;
 
     function run() external {

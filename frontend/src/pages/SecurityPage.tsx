@@ -121,23 +121,37 @@ export default function SecurityPage() {
 
         {/* Security Fixes Tracked */}
         <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.05 }} className="mb-14">
-          <h2 className="text-2xl font-bold mb-6">Security Fixes Tracked</h2>
+          <h2 className="text-2xl font-bold mb-6">Audit Artifacts</h2>
           <div className="rounded-2xl p-6 md:p-8" style={glass}>
-            <p className="text-xl font-semibold text-white mb-5">5 Critical, 13 High, 26 Medium, 38 Low — <span className="text-green-400">all resolved</span></p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {[
-                { label: 'Critical', range: 'C-01 to C-05', count: 5, color: '#ef4444', examples: 'K-invariant normalization, unsettled reward caps, emergency exit' },
-                { label: 'High', range: 'H-01 to H-13', count: 13, color: '#f97316', examples: 'CEI pattern, reward tracking, backstop slippage' },
-                { label: 'Medium', range: 'M-01 to M-26', count: 26, color: '#eab308', examples: 'Parameter fixes, boost revalidation' },
-                { label: 'Low', range: 'L-01 to L-38', count: 38, color: '#22c55e', examples: 'Event emissions, zero-address validation' },
-              ].map((s) => (
-                <div key={s.label} className="rounded-xl p-4" style={{ ...glass, borderLeft: `3px solid ${s.color}` }}>
-                  <div className="text-2xl font-bold" style={{ color: s.color }}>{s.count}</div>
-                  <div className="text-sm font-semibold text-white">{s.label} ({s.range})</div>
-                  <div className="text-xs text-gray-400 mt-1">{s.examples}</div>
-                  <div className="flex items-center gap-1 mt-2 text-xs text-green-400"><CheckIcon /> Resolved</div>
-                </div>
-              ))}
+            <p className="text-gray-300 mb-4">
+              Multiple multi-agent security reviews have been run against the codebase. The full
+              findings, the fixes applied, and the items still open are tracked in the audit
+              files linked below. We do not publish aggregate &ldquo;resolved&rdquo; counts here
+              because the contents of those files change as work lands; read the source of truth
+              directly.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <a
+                href="https://github.com/fomotsar-commits/tegridy-farms/blob/main/SECURITY_AUDIT_300_AGENT.md"
+                target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-purple-600 hover:bg-purple-500 transition-colors"
+              >
+                300-agent review
+              </a>
+              <a
+                href="https://github.com/fomotsar-commits/tegridy-farms/blob/main/SECURITY_AUDIT_OPUS.md"
+                target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white/90 border border-white/15 hover:border-white/30 transition-colors"
+              >
+                Opus review
+              </a>
+              <a
+                href="https://github.com/fomotsar-commits/tegridy-farms/tree/main#security"
+                target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white/90 border border-white/15 hover:border-white/30 transition-colors"
+              >
+                All audit files
+              </a>
             </div>
           </div>
         </m.section>

@@ -36,7 +36,7 @@ const CHANGELOG: ChangelogEntry[] = [
     date: 'April 2026',
     title: 'Security Hardening',
     items: [
-      'Fixed all v4 audit findings (C-02, C-03, C-04, H-01, H-03, M-01, M-04)',
+      'Applied fixes for several v4 audit findings (C-02, C-03, H-01, H-03, M-02). Full status in SECURITY_AUDIT_300_AGENT.md',
       'Added WETH fallback on acceptOffer (audit M-02)',
       'Added reentrancy tests for NFT Pool contracts',
       'Added sandwich attack simulation tests',

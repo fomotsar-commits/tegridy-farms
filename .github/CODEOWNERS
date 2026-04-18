@@ -1,0 +1,48 @@
+# CODEOWNERS for Tegriddy Farms
+#
+# Each line is a file pattern followed by one or more owners.
+# Owners are requested for review automatically when a PR touches matching files.
+# The last matching pattern wins.
+#
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-security/customizing-your-repository/about-code-owners
+
+# ---------------------------------------------------------------------------
+# Default — any file without a more specific rule below falls through to the
+# core team.
+# ---------------------------------------------------------------------------
+*                               @tegridy-team
+
+# ---------------------------------------------------------------------------
+# Frontend
+# ---------------------------------------------------------------------------
+/frontend/                      @tegridy-team/frontend-team
+/frontend/**                    @tegridy-team/frontend-team
+*.tsx                           @tegridy-team/frontend-team
+*.ts                            @tegridy-team/frontend-team
+*.css                           @tegridy-team/frontend-team
+*.scss                          @tegridy-team/frontend-team
+
+# ---------------------------------------------------------------------------
+# Smart contracts
+# ---------------------------------------------------------------------------
+/contracts/                     @tegridy-team/contracts-team
+/contracts/**                   @tegridy-team/contracts-team
+*.sol                           @tegridy-team/contracts-team
+/contracts/src/                 @tegridy-team/contracts-team
+/contracts/test/                @tegridy-team/contracts-team
+/contracts/script/              @tegridy-team/contracts-team
+/contracts/foundry.toml         @tegridy-team/contracts-team
+
+# ---------------------------------------------------------------------------
+# Security-sensitive — require core team review in addition to area owners
+# ---------------------------------------------------------------------------
+/SECURITY.md                    @tegridy-team
+/.github/                       @tegridy-team
+/.github/workflows/             @tegridy-team
+/.github/CODEOWNERS             @tegridy-team
+
+# ---------------------------------------------------------------------------
+# Deploy scripts & infra
+# ---------------------------------------------------------------------------
+/contracts/script/              @tegridy-team/contracts-team @tegridy-team
+/scripts/                       @tegridy-team

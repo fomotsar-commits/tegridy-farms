@@ -32,7 +32,7 @@ interface IOwnable {
 /// @notice Sends the 14 wiring transactions that were dropped during initial broadcast.
 contract WireV2Script is Script {
     // V2 deployed addresses
-    address constant STAKING = 0x65D8b87917c59a0B33009493fB236bCccF1Ea421;
+    address constant STAKING = 0x626644523d34B84818df602c991B4a06789C4819;
     address constant VOTE_INCENTIVES = 0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A;
     address constant RESTAKING = 0xfba4D340759Ae4c36DfFC6C773D171bf7BDCaEe4;
     address constant REFERRAL = 0xd3d46C0d25Ef1F4EAdb58b9218AA23Ed4c2f2c16;

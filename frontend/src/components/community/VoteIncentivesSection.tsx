@@ -6,6 +6,7 @@ import { VOTE_INCENTIVES_ADDRESS, TEGRIDY_LP_ADDRESS } from '../../lib/constants
 import { VOTE_INCENTIVES_ABI } from '../../lib/contracts';
 import { shortenAddress, formatTokenAmount, formatWei } from '../../lib/formatting';
 import { InfoTooltip } from '../ui/InfoTooltip';
+import { GOVERNANCE_COPY } from '../../lib/copy';
 
 const CARD_BG = 'rgba(13, 21, 48, 0.6)';
 const CARD_BORDER = 'var(--color-purple-12)';
@@ -124,15 +125,18 @@ export function VoteIncentivesSection() {
         </div>
       )}
 
-      {/* Deposit Bribe */}
+      {/* Deposit Bribe — "Cartman's Market" */}
       <div className="rounded-2xl overflow-hidden" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
         <div className="px-5 py-4 border-b border-white/5 flex items-center gap-2">
-          <h3 className="text-sm font-semibold text-white">Deposit Vote Incentive</h3>
-          <InfoTooltip text="Deposit ETH to incentivize gauge voters for the TOWELI/WETH LP pool. Voters earn a pro-rata share of deposited bribes." />
+          <h3 className="text-sm font-semibold text-white">{GOVERNANCE_COPY.bribesSectionTitle}</h3>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/20">
+            {GOVERNANCE_COPY.bribesSectionTag}
+          </span>
+          <InfoTooltip text="Deposit ETH to incentivize gauge voters for the TOWELI/WETH LP pool. Voters earn a pro-rata share of deposited incentives." />
         </div>
         <div className="p-5 space-y-4">
           <p className="text-[12px] text-white/70">
-            Incentivize gauge voters by depositing bribes. Voters who allocate weight to the TOWELI/WETH pool earn a share proportional to their voting power.
+            {GOVERNANCE_COPY.bribesSubheading}
           </p>
           <div>
             <label className="text-[11px] text-white/40 uppercase tracking-wider block mb-1">Amount (ETH)</label>

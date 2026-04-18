@@ -3,61 +3,28 @@ export interface NavItem {
   label: string;
 }
 
-/** Primary navigation items shown in the main nav bar */
+/**
+ * Primary navigation — the 5 core items shown in both TopNav (desktop)
+ * and BottomNav (mobile). Order is identical across viewports for
+ * symmetric IA. Everything else lives in the Footer.
+ */
 export const PRIMARY_NAV: NavItem[] = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/farm', label: 'Farm' },
   { to: '/swap', label: 'Trade' },
-  { to: '/lending', label: 'NFT Finance' },
+  { to: '/lending', label: 'Lending' },
+  { to: '/community', label: 'Governance' },
 ];
 
-/** Community link shown separately (desktop top-level nav; on mobile it lives in the More dropdown) */
-export const COMMUNITY_NAV: NavItem = { to: '/community', label: 'Community' };
-
-/** Items in the desktop "More" dropdown / overflow menu */
-export const MORE_NAV: NavItem[] = [
-  { to: '/premium', label: 'Gold Card' },
-  { to: '/gallery', label: 'Gallery' },
-  { to: '/nakamigos', label: 'Marketplace' },
-  { to: '/tokenomics', label: 'Tokenomics' },
-  { to: '/security', label: 'Security' },
-  { to: '/faq', label: 'FAQ' },
-  { to: '/changelog', label: 'Changelog' },
-  { to: '/lore', label: 'Lore' },
-  { to: '/history', label: 'History' },
-];
-
-/**
- * Mobile "More" dropdown items — identical to desktop MORE_NAV but with Community
- * inserted under Lore (mobile bottom nav tab row doesn't include Community, so it
- * lives in the overflow menu on small viewports).
- */
-export const MORE_NAV_MOBILE: NavItem[] = [
-  { to: '/premium', label: 'Gold Card' },
-  { to: '/gallery', label: 'Gallery' },
-  { to: '/nakamigos', label: 'Marketplace' },
-  { to: '/tokenomics', label: 'Tokenomics' },
-  { to: '/security', label: 'Security' },
-  { to: '/faq', label: 'FAQ' },
-  { to: '/changelog', label: 'Changelog' },
-  { to: '/lore', label: 'Lore' },
-  { to: '/community', label: 'Community' },
-  { to: '/history', label: 'History' },
-];
-
-/** Points link shown separately */
+/** Points link — right-aligned action, separate from primary nav */
 export const POINTS_NAV: NavItem = { to: '/leaderboard', label: 'Points' };
 
-/** All nav items combined (for mobile drawer) */
+/**
+ * All-nav list used by the mobile drawer fallback. Matches PRIMARY_NAV
+ * plus the Points action so every top-level action is reachable without
+ * opening the footer.
+ */
 export const ALL_NAV: NavItem[] = [
   ...PRIMARY_NAV,
-  COMMUNITY_NAV,
-  ...MORE_NAV,
   POINTS_NAV,
 ];
-
-/** Paths that belong to the desktop "More" section (for active state detection) */
-export const MORE_PATHS: string[] = MORE_NAV.map(n => n.to);
-
-/** Paths that belong to the mobile "More" section (includes /community) */
-export const MORE_PATHS_MOBILE: string[] = MORE_NAV_MOBILE.map(n => n.to);

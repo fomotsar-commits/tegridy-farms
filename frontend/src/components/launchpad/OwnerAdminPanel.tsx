@@ -148,6 +148,46 @@ export function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string
               >
                 {isPending || isConfirming ? 'Withdrawing...' : !deployed ? 'Contract Not Deployed' : 'Withdraw Mint Revenue'}
               </button>
+
+              {/* Danger Zone — cancelSale is IRREVERSIBLE; moves contract to
+                   MintPhase.CANCELLED, blocks withdraw, enables buyer refunds. */}
+              <div
+                className="mt-6 rounded-lg p-3"
+                style={{
+                  background: 'rgba(239, 68, 68, 0.04)',
+                  border: '1px solid rgba(239, 68, 68, 0.20)',
+                }}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f87171" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9" />
+                    <line x1="12" y1="8" x2="12" y2="13" />
+                    <line x1="12" y1="16.5" x2="12" y2="16.5" />
+                  </svg>
+                  <span className="text-red-300 text-[11px] font-semibold uppercase tracking-wider">Danger zone</span>
+                </div>
+                <p className="text-white/60 text-[11px] leading-relaxed mb-3">
+                  Cancel the sale permanently. This is <strong>irreversible</strong>: buyers become eligible for refunds, and future mint phases and withdrawals are blocked. Use only if the sale is abandoned.
+                </p>
+                <button
+                  className="w-full py-2 rounded-lg text-xs font-medium border transition-colors disabled:opacity-40"
+                  style={{
+                    background: 'rgba(239, 68, 68, 0.12)',
+                    borderColor: 'rgba(239, 68, 68, 0.35)',
+                    color: '#fca5a5',
+                  }}
+                  disabled={busy}
+                  onClick={() => {
+                    // Double-confirm destructive action.
+                    const ok = typeof window !== 'undefined' && window.confirm(
+                      'Cancel the sale? This cannot be undone. Buyers will be able to claim refunds and no further mints will be possible.'
+                    );
+                    if (ok) exec('cancelSale');
+                  }}
+                >
+                  {isPending || isConfirming ? 'Cancelling…' : !deployed ? 'Contract Not Deployed' : 'Cancel Sale (Irreversible)'}
+                </button>
+              </div>
             </div>
           </m.div>
         )}
