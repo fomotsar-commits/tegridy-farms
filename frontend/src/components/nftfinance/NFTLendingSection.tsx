@@ -146,7 +146,7 @@ export function NFTLendingSection() {
 
       {/* Stats Bar */}
       <m.div
-        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3"
+        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ease: EASE, delay: 0.03 }}

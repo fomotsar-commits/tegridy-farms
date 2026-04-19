@@ -308,7 +308,7 @@ export default function DashboardPage() {
               <ArtImg pageId="dashboard" idx={12} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 <div>
                   <p className="text-white text-[10px] mb-0.5">Staked</p>
                   <AnimatedCounter value={stakedTotal} decimals={2} className="stat-value text-[16px] text-white" />
@@ -363,6 +363,13 @@ export default function DashboardPage() {
             referredCount={revenueStats.referredCount}
             referralEarned={revenueStats.referralEarned}
             referralPending={revenueStats.referralPending}
+            referralPendingBig={revenueStats.referralPendingBig}
+            hasReferrer={revenueStats.hasReferrer}
+            referrer={revenueStats.referrer}
+            onClaim={revenueStats.claimReferralRewards}
+            onSetReferrer={revenueStats.setReferrer}
+            isPending={revenueStats.isPending}
+            isConfirming={revenueStats.isConfirming}
           />
         )}
 
@@ -538,7 +545,7 @@ function Projections({ staked, apr, price, boost = 1 }: {
 }) {
   const daily = (staked * apr / 100) / 365 * boost;
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
       {[{ l: '7 Days', m: 7 }, { l: '30 Days', m: 30 }, { l: '90 Days', m: 90 }, { l: '1 Year', m: 365 }].map(({ l, m }) => (
         <div key={l} className="glass-card rounded-lg p-3 text-center card-hover">
           <p className="text-white text-[10px] mb-1">{l}</p>

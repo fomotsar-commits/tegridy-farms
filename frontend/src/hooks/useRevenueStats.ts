@@ -30,6 +30,8 @@ export function useRevenueStats() {
       { address: REFERRAL_SPLITTER_ADDRESS, abi: REFERRAL_SPLITTER_ABI, functionName: 'pendingETH', args: [userAddr] },
       // Referral Splitter — global
       { address: REFERRAL_SPLITTER_ADDRESS, abi: REFERRAL_SPLITTER_ABI, functionName: 'totalReferralsPaid' },
+      // Referral Splitter — who referred this user (null if unset)
+      { address: REFERRAL_SPLITTER_ADDRESS, abi: REFERRAL_SPLITTER_ABI, functionName: 'referrerOf', args: [userAddr] },
     ],
     query: { enabled: !!address, refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
@@ -49,6 +51,8 @@ export function useRevenueStats() {
   const referralPendingFromInfo = referralInfo ? referralInfo[2] : 0n;
   const referralPending = data?.[5]?.status === 'success' ? (data[5].result as bigint) : referralPendingFromInfo;
   const totalReferralsPaid = data?.[6]?.status === 'success' ? (data[6].result as bigint) : 0n;
+  const referrer = data?.[7]?.status === 'success' ? (data[7].result as string) : null;
+  const hasReferrer = !!referrer && referrer !== '0x0000000000000000000000000000000000000000';
 
   // Actions — no registration needed, just claim
   function claimRevenue() {
@@ -64,6 +68,16 @@ export function useRevenueStats() {
       address: REFERRAL_SPLITTER_ADDRESS,
       abi: REFERRAL_SPLITTER_ABI,
       functionName: 'claimReferralRewards',
+    });
+  }
+
+  function setReferrer(referrerAddress: `0x${string}`) {
+    if (hasReferrer) { toast.info('Referrer already set'); return; }
+    writeClaim({
+      address: REFERRAL_SPLITTER_ADDRESS,
+      abi: REFERRAL_SPLITTER_ABI,
+      functionName: 'setReferrer',
+      args: [referrerAddress],
     });
   }
 
@@ -96,9 +110,12 @@ export function useRevenueStats() {
     referralPending: Number(formatWei(referralPending, 18, 6)),
     referralPendingBig: referralPending,
     totalReferralsPaid: Number(formatWei(totalReferralsPaid, 18, 6)),
+    referrer,
+    hasReferrer,
     // Actions
     claimRevenue,
     claimReferralRewards,
+    setReferrer,
     // TX
     hash: claimHash,
     isPending,

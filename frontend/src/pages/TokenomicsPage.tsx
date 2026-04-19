@@ -62,7 +62,7 @@ export default function TokenomicsPage() {
         </m.div>
 
         {/* Token info */}
-        <m.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+        <m.div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           {[
             { l: 'Token', v: 'TOWELI', art: pageArt('tokenomics', 1), pos: 'center 40%' },
             { l: 'Total Supply', v: '1B', art: pageArt('tokenomics', 2), pos: 'center 30%' },

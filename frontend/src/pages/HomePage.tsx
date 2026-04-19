@@ -391,7 +391,7 @@ export default function HomePage() {
               View all →
             </Link>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {GALLERY_ORDER.slice(0, 4).map((piece, i) => (
               <m.div key={piece.src} initial={{ opacity: 0, y: 25, scale: 0.85 }} whileInView={{ opacity: 1, y: 0, scale: 1 }}
                 viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
@@ -420,6 +420,13 @@ export default function HomePage() {
               referredCount={revenueStats.referredCount}
               referralEarned={revenueStats.referralEarned}
               referralPending={revenueStats.referralPending}
+              referralPendingBig={revenueStats.referralPendingBig}
+              hasReferrer={revenueStats.hasReferrer}
+              referrer={revenueStats.referrer}
+              onClaim={revenueStats.claimReferralRewards}
+              onSetReferrer={revenueStats.setReferrer}
+              isPending={revenueStats.isPending}
+              isConfirming={revenueStats.isConfirming}
             />
           </div>
         )}

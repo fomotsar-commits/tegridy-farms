@@ -63,7 +63,7 @@ export default function LeaderboardPage() {
               )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-4">
               <div className="rounded-lg p-3 text-center" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-1">Points</p>
                 <AnimatedCounter value={points.data?.points ?? 0} decimals={0} className="stat-value text-xl text-white" />
@@ -185,7 +185,7 @@ export default function LeaderboardPage() {
           </div>
           <div className="relative z-10 p-5">
             <h2 className="text-white text-[15px] font-semibold mb-3">Tiers</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
               {TIER_THRESHOLDS.map(t => (
                 <div key={t.name} className="rounded-lg p-3 text-center"
                   style={{ background: 'var(--color-purple-75)', border: `1px solid ${t.color}20` }}>

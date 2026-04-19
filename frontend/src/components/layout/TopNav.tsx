@@ -200,19 +200,50 @@ export const TopNav = React.memo(function TopNav() {
             </div>
           </nav>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 md:gap-2 min-w-0">
             <NavLink to="/nakamigos" className={({ isActive }) => `nav-link text-[13px] hidden md:block ${isActive ? 'active' : ''}`}>
               Tradermigos
             </NavLink>
+
+            {/* Wallet — placed before the theme toggle so the hamburger has a
+                clear slot at the far right on narrow viewports. Padding, font
+                size, and displayName width all shrink on mobile so long ENS
+                names don't push the menu button off-screen. */}
+            <ConnectButton.Custom>
+              {({ account, chain, openAccountModal, openChainModal, openConnectModal, mounted }) => {
+                const connected = mounted && account && chain;
+                return (
+                  <div className="min-w-0" {...(!mounted && { 'aria-hidden': true, style: { opacity: 0, pointerEvents: 'none', userSelect: 'none' } })}>
+                    {!connected ? (
+                      <button onClick={openConnectModal} aria-label="Connect wallet" className="btn-primary text-[12px] md:text-[13px] px-3 md:px-4 py-1 md:py-1.5">
+                        Connect
+                      </button>
+                    ) : chain.unsupported ? (
+                      <button onClick={openChainModal} aria-label="Switch to correct network" className="btn-secondary text-[11.5px] md:text-[13px] px-2.5 md:px-3 py-1 md:py-1.5 text-danger border-danger/30">
+                        Wrong Network
+                      </button>
+                    ) : (
+                      <button onClick={openAccountModal} aria-label="Account details"
+                        className="flex items-center gap-1.5 md:gap-2 px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-[11.5px] md:text-[13px] font-mono text-text-secondary max-w-[140px] md:max-w-none"
+                        style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
+                        <span className="w-1.5 h-1.5 rounded-full bg-success flex-shrink-0" />
+                        <span className="truncate">{account.displayName}</span>
+                      </button>
+                    )}
+                  </div>
+                );
+              }}
+            </ConnectButton.Custom>
+
             <button
               onClick={toggleTheme}
               aria-label={isDark ? 'Toggle light mode' : 'Toggle dark mode'}
               title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-              className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:text-primary transition-colors"
+              className="w-7 h-7 md:w-8 md:h-8 flex-shrink-0 flex items-center justify-center rounded-lg text-text-secondary hover:text-primary transition-colors"
               style={{ background: 'var(--color-purple-10)', border: '1px solid var(--color-purple-15)' }}
             >
               {isDark ? (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="14" height="14" className="md:w-4 md:h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="5" />
                   <line x1="12" y1="1" x2="12" y2="3" />
                   <line x1="12" y1="21" x2="12" y2="23" />
@@ -224,40 +255,15 @@ export const TopNav = React.memo(function TopNav() {
                   <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
                 </svg>
               ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="14" height="14" className="md:w-4 md:h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
                 </svg>
               )}
             </button>
-            <ConnectButton.Custom>
-              {({ account, chain, openAccountModal, openChainModal, openConnectModal, mounted }) => {
-                const connected = mounted && account && chain;
-                return (
-                  <div {...(!mounted && { 'aria-hidden': true, style: { opacity: 0, pointerEvents: 'none', userSelect: 'none' } })}>
-                    {!connected ? (
-                      <button onClick={openConnectModal} aria-label="Connect wallet" className="btn-primary text-[13px] px-4 py-1.5">
-                        Connect
-                      </button>
-                    ) : chain.unsupported ? (
-                      <button onClick={openChainModal} aria-label="Switch to correct network" className="btn-secondary text-[13px] px-3 py-1.5 text-danger border-danger/30">
-                        Wrong Network
-                      </button>
-                    ) : (
-                      <button onClick={openAccountModal} aria-label="Account details"
-                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[13px] font-mono text-text-secondary"
-                        style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
-                        <span className="w-1.5 h-1.5 rounded-full bg-success" />
-                        {account.displayName}
-                      </button>
-                    )}
-                  </div>
-                );
-              }}
-            </ConnectButton.Custom>
 
             {/* Admin kebab — only rendered if tegridy_admin flag is set */}
             {showAdmin && (
-              <div className="relative hidden md:block" ref={kebabRef}>
+              <div className="relative hidden md:block flex-shrink-0" ref={kebabRef}>
                 <button
                   onClick={() => setKebabOpen(!kebabOpen)}
                   aria-expanded={kebabOpen}
@@ -295,7 +301,7 @@ export const TopNav = React.memo(function TopNav() {
               </div>
             )}
 
-            <button ref={menuButtonRef} onClick={() => setOpen(true)} aria-label="Open navigation menu" aria-expanded={open} className="md:hidden p-2.5 -mr-2 text-text-muted min-w-[48px] min-h-[48px] flex items-center justify-center">
+            <button ref={menuButtonRef} onClick={() => setOpen(true)} aria-label="Open navigation menu" aria-expanded={open} className="md:hidden p-2 -mr-1 flex-shrink-0 text-text-muted min-w-[44px] min-h-[44px] flex items-center justify-center">
               <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
                 <path d="M3 5h14M3 10h14M3 15h14" />
               </svg>

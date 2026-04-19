@@ -153,7 +153,7 @@ export default function PremiumPage() {
         )}
 
         {/* Stats Row */}
-        <m.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-10"
+        <m.div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-10"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15 }}>
           {/* Fix #3: Loading skeletons for stats */}
           {isLoading ? (
@@ -204,7 +204,7 @@ export default function PremiumPage() {
             <p className="text-white text-[12px] mb-5">Pay in TOWELI. Longer plans save more.</p>
 
             {/* Plan Cards — Fix #1: BigInt-derived display values */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
               {PLANS.map((p, i) => {
                 const planCostRaw = p.discount > 0
                   ? premium.monthlyFee * BigInt(p.months) * BigInt(100 - p.discount) / 100n

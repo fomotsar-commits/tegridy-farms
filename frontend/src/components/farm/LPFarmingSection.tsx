@@ -40,7 +40,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
           </div>
         </div>
         <div className="rounded-xl p-6" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid var(--color-purple-15)' }}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
             {[...Array(4)].map((_, i) => (
               <div key={i} className="rounded-lg p-3" style={{ background: 'var(--color-purple-15)', border: '1px solid var(--color-purple-15)' }}>
                 <div className="h-3 w-20 rounded bg-white/10 animate-pulse mb-2" />
@@ -99,7 +99,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
         </div>
         <div className="relative z-10 p-6">
           {/* Stats row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
             <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
               <p className="text-white text-[10px] mb-0.5">Total LP Staked</p>
               <p className="stat-value text-[14px] text-white font-mono">{formatTokenAmount(lpFarm.totalStakedFormatted)}</p>

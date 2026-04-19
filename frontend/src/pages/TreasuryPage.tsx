@@ -104,7 +104,7 @@ export default function TreasuryPage() {
       </div>
 
       {/* Top stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-10">
         <div className="rounded-xl p-5" style={glass}>
           <p className="text-white/55 text-[10px] uppercase tracking-wider label-pill mb-2">Total Value Locked</p>
           <p className="heading-luxury text-2xl text-white">{pool.tvlFormatted}</p>
