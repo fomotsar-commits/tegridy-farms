@@ -1229,7 +1229,7 @@ export function VoteIncentivesSection() {
     } catch { /* invalid */ }
   };
 
-  const handleCommitVote = (pair: Address, power: bigint, commitHash: Hex, record: Omit<CommitRecord, 'commitIndex' | 'committedAt'>) => {
+  const handleCommitVote = (_pair: Address, _power: bigint, commitHash: Hex, record: Omit<CommitRecord, 'commitIndex' | 'committedAt'>) => {
     if (!address) return;
     // Capture hash + record; persist after we learn the commitIndex on success.
     bribes.commitVote(prevEpoch, commitHash);

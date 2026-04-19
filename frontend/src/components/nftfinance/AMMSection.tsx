@@ -1070,6 +1070,9 @@ function PoolAdminPanel({
   const busy = isPending || isConfirming;
 
   const call = (functionName: string, args?: unknown[], value?: bigint) => {
+    // wagmi's writeContract is overloaded per function signature; we defeat
+    // the overload discrimination so this single admin helper can dispatch
+    // any of the owner actions. All payloads are validated on-chain.
     writeContract(
       {
         address: poolAddress,
@@ -1077,7 +1080,7 @@ function PoolAdminPanel({
         functionName: functionName as 'pause',
         args: args as never,
         value,
-      },
+      } as never,
       { onError: (e: Error) => toast.error(e.message?.slice(0, 100) || 'Call failed') },
     );
   };
@@ -1292,26 +1295,33 @@ function PoolTradeHistory({ poolAddress }: { poolAddress: Address }) {
     const sellEvent = TEGRIDY_NFT_POOL_ABI.find((a) => a.type === 'event' && a.name === 'SwapNFTsForETH');
     if (!buyEvent || !sellEvent) { setLoading(false); return; }
 
+    // Shape of decoded log objects we need, independent of viem's internal
+    // event-inference generics (which don't narrow through `as never`).
+    type DecodedLog = {
+      args: Record<string, unknown>;
+      blockNumber?: bigint;
+      transactionHash?: `0x${string}`;
+    };
     Promise.all([
-      publicClient.getLogs({ address: poolAddress, event: buyEvent as never, fromBlock, toBlock: blockNumber }),
-      publicClient.getLogs({ address: poolAddress, event: sellEvent as never, fromBlock, toBlock: blockNumber }),
+      publicClient.getLogs({ address: poolAddress, event: buyEvent as never, fromBlock, toBlock: blockNumber }) as Promise<DecodedLog[]>,
+      publicClient.getLogs({ address: poolAddress, event: sellEvent as never, fromBlock, toBlock: blockNumber }) as Promise<DecodedLog[]>,
     ])
       .then(([buys, sells]) => {
         if (cancelled) return;
         const rows: TradeRow[] = [
           ...buys.map((l) => ({
             kind: 'buy' as const,
-            counterparty: (l.args as { buyer: Address }).buyer,
-            tokenIds: (l.args as { tokenIds: bigint[] }).tokenIds,
-            amount: (l.args as { totalCost: bigint }).totalCost,
+            counterparty: l.args.buyer as Address,
+            tokenIds: l.args.tokenIds as bigint[],
+            amount: l.args.totalCost as bigint,
             blockNumber: l.blockNumber ?? 0n,
             txHash: l.transactionHash ?? ('0x' as `0x${string}`),
           })),
           ...sells.map((l) => ({
             kind: 'sell' as const,
-            counterparty: (l.args as { seller: Address }).seller,
-            tokenIds: (l.args as { tokenIds: bigint[] }).tokenIds,
-            amount: (l.args as { totalPayout: bigint }).totalPayout,
+            counterparty: l.args.seller as Address,
+            tokenIds: l.args.tokenIds as bigint[],
+            amount: l.args.totalPayout as bigint,
             blockNumber: l.blockNumber ?? 0n,
             txHash: l.transactionHash ?? ('0x' as `0x${string}`),
           })),
