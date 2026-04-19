@@ -162,7 +162,7 @@ export const TopNav = React.memo(function TopNav() {
               <AnimatePresence>
                 {moreOpen && (
                   <m.div
-                    className="absolute top-full left-0 mt-1 py-2 rounded-lg w-[460px] grid grid-cols-2 gap-x-3 gap-y-1 z-50"
+                    className="absolute top-full left-0 mt-1 py-2 rounded-lg w-[240px] flex flex-col gap-y-1 z-50"
                     style={{
                       background: isDark ? 'rgba(10,10,20,0.96)' : 'rgba(255,255,255,0.97)',
                       border: '1px solid var(--color-purple-20)',
