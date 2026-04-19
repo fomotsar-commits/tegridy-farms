@@ -25,66 +25,16 @@ export interface NavSection {
 }
 
 /**
- * "More" dropdown — every secondary destination not in the primary 5.
- * Sectioned so a long list stays scannable. Was previously trimmed to 4
- * items, which left Treasury, Contracts, Lore, FAQ, Premium, Leaderboard,
- * History, Security, Risks, Terms, and Privacy reachable only from the
- * footer. They're now all here.
+ * "More" dropdown / drawer — curated secondary destinations. Three sections
+ * of three items keeps the menu scannable on both desktop and mobile with a
+ * single source of truth. Pages merged into tabbed hosts (LearnPage covers
+ * Tokenomics/Lore/Security/FAQ; ActivityPage covers Leaderboard/Gold Card/
+ * History/Changelog; InfoPage covers Treasury/Contracts/Risks/Terms/Privacy)
+ * have one representative entry each so the menu stays flat instead of
+ * listing every tab. Lore/FAQ/Security/Gold Card/History/Changelog remain
+ * reachable via the Footer and direct URLs.
  */
 export const MORE_NAV_SECTIONS: NavSection[] = [
-  {
-    heading: 'Engage',
-    items: [
-      { to: '/community', label: 'Community' },
-      { to: '/gallery',   label: 'Gallery' },
-    ],
-  },
-  {
-    heading: 'Stats',
-    items: [
-      { to: '/tokenomics', label: 'Tokenomics' },
-      { to: '/treasury',   label: 'Treasury' },
-      { to: '/contracts',  label: 'Contracts' },
-    ],
-  },
-  {
-    heading: 'Activity',
-    items: [
-      { to: '/leaderboard', label: 'Leaderboard' },
-      { to: '/history',     label: 'History' },
-      { to: '/changelog',   label: 'Changelog' },
-      { to: '/premium',     label: 'Gold Card' },
-    ],
-  },
-  {
-    heading: 'Learn',
-    items: [
-      { to: '/lore',     label: 'Lore' },
-      { to: '/faq',      label: 'FAQ' },
-      { to: '/security', label: 'Security' },
-      { to: '/risks',    label: 'Risks' },
-    ],
-  },
-  {
-    heading: 'Legal',
-    items: [
-      { to: '/terms',   label: 'Terms' },
-      { to: '/privacy', label: 'Privacy' },
-    ],
-  },
-];
-
-/** Flat list of every "More" item — used by the mobile drawer. */
-export const MORE_NAV: NavItem[] = MORE_NAV_SECTIONS.flatMap((s) => s.items);
-
-/**
- * Mobile-only "More" drawer — curated subset of MORE_NAV_SECTIONS. Trims
- * pages that have low mobile traffic or are better reached through other
- * surfaces (Lore/FAQ/Security/Gold Card/History/Changelog still live on
- * desktop and via direct URL + the Footer). Three sections of three keeps
- * the drawer scannable on a phone.
- */
-export const MOBILE_MORE_SECTIONS: NavSection[] = [
   {
     heading: 'Engage',
     items: [
@@ -110,6 +60,9 @@ export const MOBILE_MORE_SECTIONS: NavSection[] = [
     ],
   },
 ];
+
+/** Flat list of every "More" item — used by the mobile drawer. */
+export const MORE_NAV: NavItem[] = MORE_NAV_SECTIONS.flatMap((s) => s.items);
 
 /**
  * All-nav list used by the mobile drawer fallback. Matches PRIMARY_NAV
