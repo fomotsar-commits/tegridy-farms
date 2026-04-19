@@ -1,8 +1,39 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { m, AnimatePresence } from 'framer-motion';
+import { useAccount, useChainId } from 'wagmi';
+import { mainnet } from 'wagmi/chains';
 import { ART } from '../lib/artConfig';
 import { randomToweliQuote } from '../lib/copy';
+import { useTransactionReceipt } from '../hooks/useTransactionReceipt';
+
+// ─────────────────────────────────────────────────────────────────
+// Event copy banks. Pick a random line per event so repeat triggers
+// don't get repetitive. Keep in voice — Towelie is a slacker towel.
+// ─────────────────────────────────────────────────────────────────
+const COPY = {
+  walletConnected: [
+    "Hey, you connected. Don't fuck this up.",
+    "Wallet's in. The farm awaits.",
+    "Connected. I have no idea what just happened, but cool.",
+  ],
+  txSuccess: [
+    "Locked it down. With tegridy.",
+    "Done. Easy money.",
+    "Boom. That worked.",
+    "Tegridy preserved.",
+  ],
+  txFail: [
+    "Eh, shit happens. Try again.",
+    "That didn't take. Wallet probably said no.",
+    "Whoops. Maybe more gas?",
+  ],
+  wrongNetwork: [
+    "Wrong network, dude. Hop to mainnet.",
+    "We don't farm on that chain. Switch to Ethereum.",
+  ],
+} as const;
+const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(Math.random() * arr.length)]!;
 
 // ─────────────────────────────────────────────────────────────────
 // Per-route greeting copy. First visit to a route gets the tailored
@@ -30,8 +61,9 @@ const STORAGE_SEEN_PREFIX = 'towelie:seen:'; // per-route flag
 const SNOOZE_MS = 2 * 60 * 1000;             // dismiss → hide for 2 min
 const IDLE_MS = 45_000;                       // 45s idle → "you there?"
 const ROUTE_TIP_DELAY_MS = 2200;              // 2.2s after navigation
+const EVENT_COOLDOWN_MS = 25_000;             // min gap between event-driven bubbles
 
-type BubbleSource = 'route' | 'idle' | 'click' | null;
+type BubbleSource = 'route' | 'idle' | 'click' | 'event' | null;
 
 export function TowelieAssistant() {
   const location = useLocation();
@@ -40,9 +72,23 @@ export function TowelieAssistant() {
   });
   const [bubble, setBubble] = useState<{ text: string; src: BubbleSource } | null>(null);
   const snoozedUntil = useRef<number>(0);
+  const lastEventAt = useRef<number>(0);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { isConnected } = useAccount();
+  const chainId = useChainId();
+  const { receiptData } = useTransactionReceipt();
 
   const canShow = useCallback(() => !disabled && Date.now() >= snoozedUntil.current, [disabled]);
+
+  // Event-driven nudge (wallet/tx/wrong-network). Throttled and only when
+  // not actively showing another bubble.
+  const fireEvent = useCallback((text: string) => {
+    if (!canShow()) return;
+    const now = Date.now();
+    if (now - lastEventAt.current < EVENT_COOLDOWN_MS) return;
+    lastEventAt.current = now;
+    setBubble({ text, src: 'event' });
+  }, [canShow]);
 
   // Route greeting — fires once per route per browser, after a short pause
   // so it doesn't punch over a navigation transition.
@@ -59,6 +105,32 @@ export function TowelieAssistant() {
     }, ROUTE_TIP_DELAY_MS);
     return () => clearTimeout(t);
   }, [location.pathname, canShow]);
+
+  // Wallet connected — fires once per connection edge. Skips initial mount
+  // (hydrated-already-connected shouldn't trigger a greeting every load).
+  const wasConnected = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (wasConnected.current === null) { wasConnected.current = isConnected; return; }
+    if (!wasConnected.current && isConnected) fireEvent(pick(COPY.walletConnected));
+    wasConnected.current = isConnected;
+  }, [isConnected, fireEvent]);
+
+  // Tx success — receiptData going non-null means a tx just confirmed.
+  const lastReceiptKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!receiptData) return;
+    const key = receiptData.data.txHash ?? `${receiptData.type}:${receiptData.data.amount ?? ''}`;
+    if (lastReceiptKey.current === key) return;
+    lastReceiptKey.current = key;
+    fireEvent(pick(COPY.txSuccess));
+  }, [receiptData, fireEvent]);
+
+  // Wrong network — only when connected to a non-mainnet chain.
+  useEffect(() => {
+    if (!isConnected) return;
+    if (chainId === mainnet.id) return;
+    fireEvent(pick(COPY.wrongNetwork));
+  }, [isConnected, chainId, fireEvent]);
 
   // Idle nudge — resets on mouse/key/touch activity. Shows once per idle
   // period, then snoozes itself so it doesn't loop.
@@ -100,7 +172,10 @@ export function TowelieAssistant() {
   if (disabled) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-[60] flex items-end gap-2 pointer-events-none select-none">
+    <div
+      className="fixed right-4 z-[60] flex items-end gap-2 pointer-events-none select-none bottom-20 md:bottom-4"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}
+    >
       <AnimatePresence>
         {bubble && (
           <m.div
