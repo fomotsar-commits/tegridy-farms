@@ -1,9 +1,17 @@
 import { useAccount, useReadContracts, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { formatEther } from 'viem';
+import { formatEther, type Address } from 'viem';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { VOTE_INCENTIVES_ABI } from '../lib/contracts';
+import { VOTE_INCENTIVES_ABI, ERC20_ABI } from '../lib/contracts';
 import { VOTE_INCENTIVES_ADDRESS, TOWELI_WETH_LP_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
+
+export interface WhitelistedToken {
+  address: Address;
+  symbol: string;
+  decimals: number;
+  balance: bigint;
+  allowance: bigint;
+}
 
 export function useBribes() {
   const { address } = useAccount();
@@ -12,12 +20,13 @@ export function useBribes() {
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash });
 
-  // Global stats
+  // Global stats + whitelist addresses
   const { data: globalData, refetch } = useReadContracts({
     contracts: [
       { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'epochCount' },
       { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'currentEpoch' },
       { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'bribeFeeBps' },
+      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'getWhitelistedTokens' },
     ],
     query: { enabled: isDeployed, refetchInterval: 60_000 },
   });
@@ -25,6 +34,39 @@ export function useBribes() {
   const epochCount = globalData?.[0]?.status === 'success' ? Number(globalData[0].result as bigint) : 0;
   const currentEpoch = globalData?.[1]?.status === 'success' ? Number(globalData[1].result as bigint) : 0;
   const bribeFeeBps = globalData?.[2]?.status === 'success' ? Number(globalData[2].result as bigint) : 300;
+  const whitelistAddrs = globalData?.[3]?.status === 'success' ? (globalData[3].result as Address[]) : [];
+
+  // Per-token metadata + user balance/allowance. 4 reads each (symbol, decimals,
+  // balanceOf, allowance). All batched via multicall.
+  const userAddr = address ?? ('0x0000000000000000000000000000000000000000' as Address);
+  const whitelistReads = useMemo(
+    () =>
+      whitelistAddrs.flatMap((t) => [
+        { address: t, abi: ERC20_ABI, functionName: 'symbol' as const },
+        { address: t, abi: ERC20_ABI, functionName: 'decimals' as const },
+        { address: t, abi: ERC20_ABI, functionName: 'balanceOf' as const, args: [userAddr] as const },
+        { address: t, abi: ERC20_ABI, functionName: 'allowance' as const, args: [userAddr, VOTE_INCENTIVES_ADDRESS] as const },
+      ]),
+    [whitelistAddrs, userAddr],
+  );
+
+  const { data: whitelistData, refetch: refetchWhitelist } = useReadContracts({
+    contracts: whitelistReads,
+    query: { enabled: whitelistAddrs.length > 0, refetchInterval: 60_000 },
+  });
+
+  const whitelistedTokens = useMemo<WhitelistedToken[]>(
+    () =>
+      whitelistAddrs.map((addr, i) => {
+        const base = i * 4;
+        const symbol = whitelistData?.[base]?.status === 'success' ? (whitelistData[base]!.result as string) : '';
+        const decimals = whitelistData?.[base + 1]?.status === 'success' ? Number(whitelistData[base + 1]!.result as number) : 18;
+        const balance = whitelistData?.[base + 2]?.status === 'success' ? (whitelistData[base + 2]!.result as bigint) : 0n;
+        const allowance = whitelistData?.[base + 3]?.status === 'success' ? (whitelistData[base + 3]!.result as bigint) : 0n;
+        return { address: addr, symbol, decimals, balance, allowance };
+      }),
+    [whitelistAddrs, whitelistData],
+  );
 
   // Get the most recent epoch's info (if any exist)
   const { data: latestEpochData } = useReadContract({
@@ -54,7 +96,8 @@ export function useBribes() {
     return () => clearInterval(id);
   }, [latestEpoch?.timestamp]);
 
-  // Check user's claimable bribes for the main TOWELI/WETH pair across recent epochs
+  // Legacy single-pair claimable read — kept for back-compat. New code should
+  // query claimables per pair directly using `useReadContracts`.
   const { data: claimableData } = useReadContract({
     address: VOTE_INCENTIVES_ADDRESS,
     abi: VOTE_INCENTIVES_ABI,
@@ -80,7 +123,7 @@ export function useBribes() {
       address: VOTE_INCENTIVES_ADDRESS,
       abi: VOTE_INCENTIVES_ABI,
       functionName: 'claimBribes',
-      args: [BigInt(epoch), pair as `0x${string}`],
+      args: [BigInt(epoch), pair as Address],
     });
   }
 
@@ -89,7 +132,7 @@ export function useBribes() {
       address: VOTE_INCENTIVES_ADDRESS,
       abi: VOTE_INCENTIVES_ABI,
       functionName: 'claimBribesBatch',
-      args: [BigInt(epochStart), BigInt(epochEnd), pair as `0x${string}`],
+      args: [BigInt(epochStart), BigInt(epochEnd), pair as Address],
     });
   }
 
@@ -106,16 +149,35 @@ export function useBribes() {
       address: VOTE_INCENTIVES_ADDRESS,
       abi: VOTE_INCENTIVES_ABI,
       functionName: 'depositBribeETH',
-      args: [pair as `0x${string}`],
+      args: [pair as Address],
       value,
+    });
+  }
+
+  function depositBribe(pair: string, token: string, amount: bigint) {
+    writeContract({
+      address: VOTE_INCENTIVES_ADDRESS,
+      abi: VOTE_INCENTIVES_ABI,
+      functionName: 'depositBribe',
+      args: [pair as Address, token as Address, amount],
+    });
+  }
+
+  function approveToken(token: string, amount: bigint) {
+    writeContract({
+      address: token as Address,
+      abi: ERC20_ABI,
+      functionName: 'approve',
+      args: [VOTE_INCENTIVES_ADDRESS, amount],
     });
   }
 
   // Toast feedback — defer reset() to next tick so isSuccess is readable by consumers this render
   useEffect(() => {
     if (isSuccess) {
-      toast.success('Bribe transaction confirmed!');
+      toast.success('Transaction confirmed!');
       refetch();
+      refetchWhitelist();
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
@@ -124,7 +186,7 @@ export function useBribes() {
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
-  }, [isSuccess, isTxError, writeError, refetch, reset]);
+  }, [isSuccess, isTxError, writeError, refetch, refetchWhitelist, reset]);
 
   return {
     isDeployed,
@@ -132,17 +194,22 @@ export function useBribes() {
     currentEpoch,
     bribeFeeBps,
     latestEpoch,
+    whitelistedTokens,
     claimableTokens,
     // Actions
     claimBribes,
     claimBribesBatch,
     advanceEpoch,
     depositBribeETH,
+    depositBribe,
+    approveToken,
     // TX state
     isPending,
     isConfirming,
     isSuccess,
+    hash,
     cooldownRemaining,
     refetch,
+    refetchWhitelist,
   };
 }
