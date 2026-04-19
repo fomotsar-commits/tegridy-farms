@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import { pageArt } from '../../lib/artConfig';
 
 /**
  * Lightweight hover tooltip with a "?" icon for explaining DeFi terms.
@@ -108,17 +109,10 @@ export function HowItWorks({
     } catch { /* noop */ }
   };
 
-  // Pick art based on storageKey so each HowItWorks panel across the app has
-  // a distinct identity. Each mapping chosen for thematic fit.
-  const artSrc =
-    storageKey.includes('lending') ? '/art/boxing-ring.jpg' :
-    storageKey.includes('amm') ? '/art/pool-party.jpg' :
-    storageKey.includes('launchpad') ? '/art/jungle-bus.jpg' :
-    storageKey.includes('bounties') ? '/art/chaos-scene.jpg' :
-    storageKey.includes('grants') ? '/art/mfers-heaven.jpg' :
-    storageKey.includes('bribes') || storageKey.includes('incentives') ? '/art/dance-night.jpg' :
-    storageKey.includes('farm') ? '/art/smoking-duo.jpg' :
-    '/art/forest-scene.jpg';
+  // Each HowItWorks panel uses its storageKey as a unique pageId so the
+  // header art and step-card arts are pulled from the global pool with
+  // no collisions against the parent page (which uses a different pageId).
+  const artSrc = pageArt(`how-it-works:${storageKey}`, 0).src;
 
   return (
     <div
@@ -167,18 +161,9 @@ export function HowItWorks({
         <div className="relative px-4 pb-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {steps.map((step, i) => {
-              // Step cards rotate through distinct art pieces so each numbered step has its own mood.
-              const stepArts = [
-                '/art/smoking-duo.jpg',
-                '/art/jungle-dark.jpg',
-                '/art/mumu-bull.jpg',
-                '/art/wrestler.jpg',
-                '/art/porch-chill.jpg',
-                '/art/rose-ape.jpg',
-                '/art/ape-hug.jpg',
-                '/art/towelie-window.jpg',
-              ];
-              const stepArt = stepArts[i % stepArts.length];
+              // Each step gets the next pieces from the same storageKey-derived
+              // pool. idx 0 is the panel header art (above), so steps start at 1.
+              const stepArt = pageArt(`how-it-works:${storageKey}`, i + 1).src;
               return (
                 <div
                   key={i}
