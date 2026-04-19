@@ -45,18 +45,19 @@ describe('useBribes', () => {
     expect(result.current.bribeFeeBps).toBe(250);
   });
 
-  it('latestEpoch resolves when epochs read returns a (totalPower, timestamp) tuple', () => {
+  it('latestEpoch resolves when epochs read returns a (totalPower, timestamp, usesCommitReveal) tuple', () => {
     const ts = 1_700_000_000n;
     wagmiMock.setReadResult({ functionName: 'epochCount', result: 3n });
     wagmiMock.setReadResult({
       functionName: 'epochs',
-      result: [100_000n, ts],
+      result: [100_000n, ts, false],
     });
 
     const { result } = renderHook(() => useBribes());
     expect(result.current.latestEpoch).toEqual({
       totalPower: 100_000n,
       timestamp: Number(ts),
+      usesCommitReveal: false,
     });
   });
 
@@ -168,7 +169,7 @@ describe('useBribes', () => {
     wagmiMock.setReadResult({ functionName: 'epochCount', result: 1n });
     wagmiMock.setReadResult({
       functionName: 'epochs',
-      result: [0n, BigInt(lastEpochAt)],
+      result: [0n, BigInt(lastEpochAt), false],
     });
 
     const { result } = renderHook(() => useBribes());
@@ -184,7 +185,7 @@ describe('useBribes', () => {
     wagmiMock.setReadResult({ functionName: 'epochCount', result: 1n });
     wagmiMock.setReadResult({
       functionName: 'epochs',
-      result: [0n, BigInt(stale)],
+      result: [0n, BigInt(stale), false],
     });
 
     const { result } = renderHook(() => useBribes());

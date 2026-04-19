@@ -1,9 +1,9 @@
 import { useAccount, useReadContracts, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { formatEther, type Address } from 'viem';
+import { formatEther, type Address, type Hex } from 'viem';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { VOTE_INCENTIVES_ABI, ERC20_ABI } from '../lib/contracts';
-import { VOTE_INCENTIVES_ADDRESS, TOWELI_WETH_LP_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
+import { VOTE_INCENTIVES_ADDRESS, TOWELI_WETH_LP_ADDRESS, TOWELI_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
 
 export interface WhitelistedToken {
   address: Address;
@@ -11,6 +11,11 @@ export interface WhitelistedToken {
   decimals: number;
   balance: bigint;
   allowance: bigint;
+  /** Per-token spam floor set by governance (H-7 fix). Falls back to the
+   *  global MIN_BRIBE_AMOUNT when unset for a token. */
+  minBribe: bigint;
+  /** ERC20 amount stuck in pendingTokenWithdrawals for the connected user. */
+  pendingWithdrawal: bigint;
 }
 
 export function useBribes() {
@@ -20,13 +25,18 @@ export function useBribes() {
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash });
 
-  // Global stats + whitelist addresses
+  // Global stats + whitelist addresses + pending-fee + bond size + min-bribe floor.
   const { data: globalData, refetch } = useReadContracts({
     contracts: [
       { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'epochCount' },
       { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'currentEpoch' },
       { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'bribeFeeBps' },
       { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'getWhitelistedTokens' },
+      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'pendingFeeBps' },
+      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'feeChangeTime' },
+      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'commitRevealEnabled' },
+      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'COMMIT_BOND' },
+      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'MIN_BRIBE_AMOUNT' },
     ],
     query: { enabled: isDeployed, refetchInterval: 60_000 },
   });
@@ -35,9 +45,14 @@ export function useBribes() {
   const currentEpoch = globalData?.[1]?.status === 'success' ? Number(globalData[1].result as bigint) : 0;
   const bribeFeeBps = globalData?.[2]?.status === 'success' ? Number(globalData[2].result as bigint) : 300;
   const whitelistAddrs = globalData?.[3]?.status === 'success' ? (globalData[3].result as Address[]) : [];
+  const pendingFeeBps = globalData?.[4]?.status === 'success' ? Number(globalData[4].result as bigint) : 0;
+  const feeChangeTime = globalData?.[5]?.status === 'success' ? Number(globalData[5].result as bigint) : 0;
+  const commitRevealEnabled = globalData?.[6]?.status === 'success' ? Boolean(globalData[6].result) : false;
+  const commitBond = globalData?.[7]?.status === 'success' ? (globalData[7].result as bigint) : 10n * 10n ** 18n;
+  const minBribeGlobal = globalData?.[8]?.status === 'success' ? (globalData[8].result as bigint) : 10n ** 15n;
 
-  // Per-token metadata + user balance/allowance. 4 reads each (symbol, decimals,
-  // balanceOf, allowance). All batched via multicall.
+  // Per-token reads. 6 reads each: symbol, decimals, balanceOf, allowance,
+  // minBribeAmounts, pendingTokenWithdrawals. All batched via multicall.
   const userAddr = address ?? ('0x0000000000000000000000000000000000000000' as Address);
   const whitelistReads = useMemo(
     () =>
@@ -46,6 +61,8 @@ export function useBribes() {
         { address: t, abi: ERC20_ABI, functionName: 'decimals' as const },
         { address: t, abi: ERC20_ABI, functionName: 'balanceOf' as const, args: [userAddr] as const },
         { address: t, abi: ERC20_ABI, functionName: 'allowance' as const, args: [userAddr, VOTE_INCENTIVES_ADDRESS] as const },
+        { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'minBribeAmounts' as const, args: [t] as const },
+        { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'pendingTokenWithdrawals' as const, args: [userAddr, t] as const },
       ]),
     [whitelistAddrs, userAddr],
   );
@@ -58,17 +75,20 @@ export function useBribes() {
   const whitelistedTokens = useMemo<WhitelistedToken[]>(
     () =>
       whitelistAddrs.map((addr, i) => {
-        const base = i * 4;
+        const base = i * 6;
         const symbol = whitelistData?.[base]?.status === 'success' ? (whitelistData[base]!.result as string) : '';
         const decimals = whitelistData?.[base + 1]?.status === 'success' ? Number(whitelistData[base + 1]!.result as number) : 18;
         const balance = whitelistData?.[base + 2]?.status === 'success' ? (whitelistData[base + 2]!.result as bigint) : 0n;
         const allowance = whitelistData?.[base + 3]?.status === 'success' ? (whitelistData[base + 3]!.result as bigint) : 0n;
-        return { address: addr, symbol, decimals, balance, allowance };
+        const perTokenMin = whitelistData?.[base + 4]?.status === 'success' ? (whitelistData[base + 4]!.result as bigint) : 0n;
+        const pendingWithdrawal = whitelistData?.[base + 5]?.status === 'success' ? (whitelistData[base + 5]!.result as bigint) : 0n;
+        const minBribe = perTokenMin > 0n ? perTokenMin : minBribeGlobal;
+        return { address: addr, symbol, decimals, balance, allowance, minBribe, pendingWithdrawal };
       }),
-    [whitelistAddrs, whitelistData],
+    [whitelistAddrs, whitelistData, minBribeGlobal],
   );
 
-  // Get the most recent epoch's info (if any exist)
+  // Most recent epoch info — 3-tuple now (totalPower, timestamp, usesCommitReveal).
   const { data: latestEpochData } = useReadContract({
     address: VOTE_INCENTIVES_ADDRESS,
     abi: VOTE_INCENTIVES_ABI,
@@ -78,7 +98,11 @@ export function useBribes() {
   });
 
   const latestEpoch = latestEpochData
-    ? { totalPower: (latestEpochData as [bigint, bigint])[0], timestamp: Number((latestEpochData as [bigint, bigint])[1]) }
+    ? {
+        totalPower: (latestEpochData as readonly [bigint, bigint, boolean])[0],
+        timestamp: Number((latestEpochData as readonly [bigint, bigint, boolean])[1]),
+        usesCommitReveal: Boolean((latestEpochData as readonly [bigint, bigint, boolean])[2]),
+      }
     : null;
 
   // Cooldown tracking for advance epoch (MIN_EPOCH_INTERVAL = 1 hour)
@@ -96,8 +120,9 @@ export function useBribes() {
     return () => clearInterval(id);
   }, [latestEpoch?.timestamp]);
 
-  // Legacy single-pair claimable read — kept for back-compat. New code should
-  // query claimables per pair directly using `useReadContracts`.
+  // Legacy single-pair claimable read — kept for back-compat with the test
+  // suite and any external consumer. The new UI batches per-pair claimables
+  // directly in the section.
   const { data: claimableData } = useReadContract({
     address: VOTE_INCENTIVES_ADDRESS,
     abi: VOTE_INCENTIVES_ABI,
@@ -117,7 +142,17 @@ export function useBribes() {
     })).filter(t => (t.amount ?? 0n) > 0n);
   }, [claimableData]);
 
-  // Actions
+  // User's TOWELI allowance toward the bribe contract — gate for commitVote
+  // which requires the contract to pull the bond up-front.
+  const { data: toweliAllowance, refetch: refetchToweli } = useReadContract({
+    address: TOWELI_ADDRESS,
+    abi: ERC20_ABI,
+    functionName: 'allowance',
+    args: address ? [address, VOTE_INCENTIVES_ADDRESS] : undefined,
+    query: { enabled: !!address && isDeployed, refetchInterval: 30_000 },
+  });
+
+  // ─── Actions ──────────────────────────────────────────────────────
   function claimBribes(epoch: number, pair: string) {
     writeContract({
       address: VOTE_INCENTIVES_ADDRESS,
@@ -153,6 +188,24 @@ export function useBribes() {
     });
   }
 
+  function commitVote(epoch: number, commitHash: Hex) {
+    writeContract({
+      address: VOTE_INCENTIVES_ADDRESS,
+      abi: VOTE_INCENTIVES_ABI,
+      functionName: 'commitVote',
+      args: [BigInt(epoch), commitHash],
+    });
+  }
+
+  function revealVote(epoch: number, commitIndex: number, pair: string, power: bigint, salt: Hex) {
+    writeContract({
+      address: VOTE_INCENTIVES_ADDRESS,
+      abi: VOTE_INCENTIVES_ABI,
+      functionName: 'revealVote',
+      args: [BigInt(epoch), BigInt(commitIndex), pair as Address, power, salt],
+    });
+  }
+
   function depositBribeETH(pair: string, value: bigint) {
     writeContract({
       address: VOTE_INCENTIVES_ADDRESS,
@@ -181,12 +234,31 @@ export function useBribes() {
     });
   }
 
+  function approveToweliForBond(amount: bigint) {
+    writeContract({
+      address: TOWELI_ADDRESS,
+      abi: ERC20_ABI,
+      functionName: 'approve',
+      args: [VOTE_INCENTIVES_ADDRESS, amount],
+    });
+  }
+
+  function withdrawPendingToken(token: string) {
+    writeContract({
+      address: VOTE_INCENTIVES_ADDRESS,
+      abi: VOTE_INCENTIVES_ABI,
+      functionName: 'withdrawPendingToken',
+      args: [token as Address],
+    });
+  }
+
   // Toast feedback — defer reset() to next tick so isSuccess is readable by consumers this render
   useEffect(() => {
     if (isSuccess) {
       toast.success('Transaction confirmed!');
       refetch();
       refetchWhitelist();
+      refetchToweli();
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
@@ -195,24 +267,34 @@ export function useBribes() {
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
-  }, [isSuccess, isTxError, writeError, refetch, refetchWhitelist, reset]);
+  }, [isSuccess, isTxError, writeError, refetch, refetchWhitelist, refetchToweli, reset]);
 
   return {
     isDeployed,
     epochCount,
     currentEpoch,
     bribeFeeBps,
+    pendingFeeBps,
+    feeChangeTime,
+    commitRevealEnabled,
+    commitBond,
+    minBribeGlobal,
     latestEpoch,
     whitelistedTokens,
     claimableTokens,
+    toweliAllowance: (toweliAllowance as bigint | undefined) ?? 0n,
     // Actions
     claimBribes,
     claimBribesBatch,
     advanceEpoch,
     vote,
+    commitVote,
+    revealVote,
     depositBribeETH,
     depositBribe,
     approveToken,
+    approveToweliForBond,
+    withdrawPendingToken,
     // TX state
     isPending,
     isConfirming,
@@ -221,5 +303,6 @@ export function useBribes() {
     cooldownRemaining,
     refetch,
     refetchWhitelist,
+    refetchToweli,
   };
 }

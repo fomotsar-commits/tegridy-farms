@@ -209,7 +209,13 @@ export const TEGRIDY_ROUTER_ABI = [
 export const VOTE_INCENTIVES_ABI = [
   { type: 'function', name: 'epochCount', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'currentEpoch', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'epochs', inputs: [{ name: '', type: 'uint256' }], outputs: [{ name: 'totalPower', type: 'uint256' }, { name: 'timestamp', type: 'uint256' }], stateMutability: 'view' },
+  // EpochInfo struct has 3 public fields — include usesCommitReveal so the
+  // UI can detect which voting path applies.
+  { type: 'function', name: 'epochs', inputs: [{ name: '', type: 'uint256' }], outputs: [
+    { name: 'totalPower', type: 'uint256' },
+    { name: 'timestamp', type: 'uint256' },
+    { name: 'usesCommitReveal', type: 'bool' },
+  ], stateMutability: 'view' },
   { type: 'function', name: 'epochBribes', inputs: [{ name: 'epoch', type: 'uint256' }, { name: 'pair', type: 'address' }, { name: 'token', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'getEpochBribeTokens', inputs: [{ name: 'epoch', type: 'uint256' }, { name: 'pair', type: 'address' }], outputs: [{ name: '', type: 'address[]' }], stateMutability: 'view' },
   { type: 'function', name: 'claimable', inputs: [{ name: 'user', type: 'address' }, { name: 'epoch', type: 'uint256' }, { name: 'pair', type: 'address' }], outputs: [{ name: 'tokens', type: 'address[]' }, { name: 'amounts', type: 'uint256[]' }], stateMutability: 'view' },
@@ -219,16 +225,52 @@ export const VOTE_INCENTIVES_ABI = [
   { type: 'function', name: 'depositBribeETH', inputs: [{ name: 'pair', type: 'address' }], outputs: [], stateMutability: 'payable' },
   { type: 'function', name: 'advanceEpoch', inputs: [], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'bribeFeeBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'pendingFeeBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'feeChangeTime', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'getWhitelistedTokens', inputs: [], outputs: [{ name: '', type: 'address[]' }], stateMutability: 'view' },
   { type: 'function', name: 'whitelistedTokens', inputs: [{ name: 'token', type: 'address' }], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
+  { type: 'function', name: 'minBribeAmounts', inputs: [{ name: 'token', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'MIN_BRIBE_AMOUNT', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'BRIBE_RESCUE_DELAY', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'epochBribeFirstDeposit', inputs: [{ name: 'epoch', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // Pull-pattern withdrawals (ETH + ERC20)
   { type: 'function', name: 'withdrawPendingETH', inputs: [], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'pendingETHWithdrawals', inputs: [{ name: 'user', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  // Gauge voting (bribe-weighted) — public mappings auto-generate getters.
+  { type: 'function', name: 'withdrawPendingToken', inputs: [{ name: 'token', type: 'address' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'pendingTokenWithdrawals', inputs: [{ name: 'user', type: 'address' }, { name: 'token', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // Legacy (non-commit-reveal) gauge voting
   { type: 'function', name: 'vote', inputs: [{ name: 'epoch', type: 'uint256' }, { name: 'pair', type: 'address' }, { name: 'power', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'gaugeVotes', inputs: [{ name: 'user', type: 'address' }, { name: 'epoch', type: 'uint256' }, { name: 'pair', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalGaugeVotes', inputs: [{ name: 'epoch', type: 'uint256' }, { name: 'pair', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'userTotalVotes', inputs: [{ name: 'user', type: 'address' }, { name: 'epoch', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'VOTE_DEADLINE', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // Commit-reveal gauge voting (Phase-1/Phase-2 anti-arbitrage)
+  { type: 'function', name: 'commitRevealEnabled', inputs: [], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
+  { type: 'function', name: 'COMMIT_BOND', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'COMMIT_RATIO_BPS', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'commitDeadline', inputs: [{ name: 'epoch', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'revealDeadline', inputs: [{ name: 'epoch', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'computeCommitHash', inputs: [
+    { name: 'user', type: 'address' },
+    { name: 'epoch', type: 'uint256' },
+    { name: 'pair', type: 'address' },
+    { name: 'power', type: 'uint256' },
+    { name: 'salt', type: 'bytes32' },
+  ], outputs: [{ name: '', type: 'bytes32' }], stateMutability: 'view' },
+  { type: 'function', name: 'commitVote', inputs: [{ name: 'epoch', type: 'uint256' }, { name: 'commitHash', type: 'bytes32' }], outputs: [{ name: 'commitIndex', type: 'uint256' }], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'revealVote', inputs: [
+    { name: 'epoch', type: 'uint256' },
+    { name: 'commitIndex', type: 'uint256' },
+    { name: 'pair', type: 'address' },
+    { name: 'power', type: 'uint256' },
+    { name: 'salt', type: 'bytes32' },
+  ], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'sweepForfeitedBond', inputs: [{ name: 'user', type: 'address' }, { name: 'epoch', type: 'uint256' }, { name: 'commitIndex', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'voterCommits', inputs: [{ name: '', type: 'address' }, { name: '', type: 'uint256' }, { name: '', type: 'uint256' }], outputs: [
+    { name: 'commitHash', type: 'bytes32' },
+    { name: 'bond', type: 'uint96' },
+    { name: 'revealed', type: 'bool' },
+  ], stateMutability: 'view' },
 ] as const;
 
 export const voteIncentivesConfig = {
