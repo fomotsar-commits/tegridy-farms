@@ -48,15 +48,6 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/tokenomics', label: 'Tokenomics' },
       { to: '/treasury',   label: 'Treasury' },
-      { to: '/contracts',  label: 'Contracts' },
-    ],
-  },
-  {
-    heading: 'Legal',
-    items: [
-      { to: '/risks',   label: 'Risks' },
-      { to: '/terms',   label: 'Terms' },
-      { to: '/privacy', label: 'Privacy' },
     ],
   },
 ];
