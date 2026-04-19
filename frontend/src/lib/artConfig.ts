@@ -92,7 +92,11 @@ export const ART = {
  */
 export const ART_POOL_ALL: ArtPiece[] = [
   // Classic Tegridy art
-  ART.mfersHeaven, ART.mumuBull, ART.bobowelie, ART.jungleBus, ART.poolParty,
+  // bobowelie excluded — it's the TOWELI brand image used as the token logo
+  // throughout the app (TopNav button, token selectors, pool LP icon). If we
+  // also rotated it as a card background, every page would visually clash with
+  // its own TOWELI affordances. It still ships in ART.bobowelie for those uses.
+  ART.mfersHeaven, ART.mumuBull, ART.jungleBus, ART.poolParty,
   ART.boxingRing, ART.busCrew, ART.forestScene, ART.swordOfLove, ART.towelieWindow,
   ART.chaosScene, ART.galleryCollage, ART.apeHug, ART.beachVibes, ART.danceNight,
   ART.wrestler, ART.jungleDark, ART.smokingDuo, ART.jbChristmas, ART.beachSunset,
