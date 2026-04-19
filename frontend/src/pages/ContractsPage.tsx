@@ -2,6 +2,7 @@ import { m } from 'framer-motion';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { CopyButton } from '../components/ui/CopyButton';
 import { shortenAddress } from '../lib/formatting';
+import { ArtImg } from '../components/ArtImg';
 import {
   TOWELI_ADDRESS,
   TEGRIDY_STAKING_ADDRESS,
@@ -168,63 +169,77 @@ export default function ContractsPage() {
   usePageTitle('Contracts');
 
   return (
-    <m.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="max-w-[1200px] mx-auto px-4 md:px-6 py-8 md:py-12"
-    >
-      <header className="mb-8 md:mb-12">
-        <h1 className="heading-luxury text-3xl md:text-5xl text-white mb-3">Contract Index</h1>
-        <p className="text-white/70 text-[13px] md:text-[14px] max-w-[720px] leading-relaxed">
-          Canonical, on-chain addresses for every Tegridy Farms contract, grouped by role. All
-          contracts are verified on Etherscan. Source mirrored from the repo{' '}
-          <a
-            href={`${GITHUB_BASE}/CONTRACTS.md`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-white underline hover:text-white/70 transition-colors"
-          >
-            CONTRACTS.md
-          </a>
-          .
-        </p>
-      </header>
+    <div className="-mt-14 relative min-h-screen">
+      {/* Full-bleed page art with scrim so mono text stays readable. */}
+      <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
+        <ArtImg pageId="contracts" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
+        <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(6,12,26,0.55) 0%, rgba(6,12,26,0.82) 45%, rgba(6,12,26,0.92) 100%)' }} />
+      </div>
 
-      <div className="space-y-8 md:space-y-10">
-        {GROUPS.map((group) => (
-          <section key={group.title} aria-labelledby={`group-${group.title}`}>
-            <div className="mb-4 flex items-baseline justify-between gap-4 flex-wrap">
-              <h2
-                id={`group-${group.title}`}
-                className="heading-luxury text-xl md:text-2xl text-white"
-              >
-                {group.title}
-              </h2>
-              <span className="text-white/40 text-[11px] uppercase tracking-wider label-pill">
-                {group.entries.length} contract{group.entries.length === 1 ? '' : 's'}
-              </span>
-            </div>
-            <p className="text-white/50 text-[12px] mb-4 max-w-[680px]">{group.description}</p>
-            <div
-              className="rounded-xl px-4 md:px-5 py-1"
-              style={{
-                background: 'var(--color-purple-75)',
-                border: '1px solid var(--color-purple-75)',
-              }}
+      <m.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-28 pb-20"
+      >
+        <header className="mb-8 md:mb-12">
+          <h1 className="heading-luxury text-3xl md:text-5xl text-white mb-3" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.9)' }}>Contract Index</h1>
+          <p className="text-white/75 text-[13px] md:text-[14px] max-w-[720px] leading-relaxed" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
+            Canonical, on-chain addresses for every Tegridy Farms contract, grouped by role. All
+            contracts are verified on Etherscan. Source mirrored from the repo{' '}
+            <a
+              href={`${GITHUB_BASE}/CONTRACTS.md`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-white underline hover:text-white/70 transition-colors"
             >
-              {group.entries.map((entry) => (
-                <ContractRow key={entry.address + entry.label} entry={entry} />
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
+              CONTRACTS.md
+            </a>
+            .
+          </p>
+        </header>
 
-      <div className="mt-12 text-center text-white/30 text-[11px]">
-        Chain ID 1 (Ethereum mainnet). Last regenerated from{' '}
-        <code className="font-mono text-white/50">frontend/src/lib/constants.ts</code>.
-      </div>
-    </m.div>
+        <div className="space-y-8 md:space-y-10">
+          {GROUPS.map((group, groupIdx) => (
+            <section key={group.title} aria-labelledby={`group-${group.title}`}>
+              <div className="mb-4 flex items-baseline justify-between gap-4 flex-wrap">
+                <h2
+                  id={`group-${group.title}`}
+                  className="heading-luxury text-xl md:text-2xl text-white"
+                  style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}
+                >
+                  {group.title}
+                </h2>
+                <span className="text-white/50 text-[11px] uppercase tracking-wider label-pill">
+                  {group.entries.length} contract{group.entries.length === 1 ? '' : 's'}
+                </span>
+              </div>
+              <p className="text-white/60 text-[12px] mb-4 max-w-[680px]" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{group.description}</p>
+              <div
+                className="relative overflow-hidden rounded-xl px-4 md:px-5 py-1"
+                style={{
+                  border: '1px solid var(--color-purple-12)',
+                }}
+              >
+                <div className="absolute inset-0">
+                  <ArtImg pageId="contracts" idx={groupIdx + 1} alt="" loading="lazy" className="w-full h-full object-cover" />
+                  <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.80)' }} />
+                </div>
+                <div className="relative z-10">
+                  {group.entries.map((entry) => (
+                    <ContractRow key={entry.address + entry.label} entry={entry} />
+                  ))}
+                </div>
+              </div>
+            </section>
+          ))}
+        </div>
+
+        <div className="mt-12 text-center text-white/35 text-[11px]">
+          Chain ID 1 (Ethereum mainnet). Last regenerated from{' '}
+          <code className="font-mono text-white/55">frontend/src/lib/constants.ts</code>.
+        </div>
+      </m.div>
+    </div>
   );
 }
