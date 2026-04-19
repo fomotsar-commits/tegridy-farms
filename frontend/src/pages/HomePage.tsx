@@ -205,7 +205,7 @@ export default function HomePage() {
         >
           <div className="relative rounded-2xl overflow-hidden" style={{ border: '1px solid var(--color-weed-40)' }}>
             <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-              <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" loading="lazy" />
+              <img src={ART.naka01.src} alt="" className="w-full h-full object-cover" loading="lazy" />
             </div>
             <div className="relative p-5 md:p-6">
               <div className="flex items-center gap-2 mb-4">
@@ -258,9 +258,9 @@ export default function HomePage() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
-              { to: '/swap', title: 'Swap', desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.', stat: 'Uniswap V2', label: 'Router', art: ART.mumuBull.src },
-              { to: '/farm', title: 'Farm', desc: 'Stake TOWELI or LP tokens across two active pools to earn yield.', stat: '2', label: 'Active Pools', art: ART.poolParty.src },
-              { to: '/dashboard', title: 'Dashboard', desc: 'Track your portfolio, positions, claimable rewards, and projections.', stat: 'Real-time', label: 'On-chain Data', art: ART.towelieWindow.src },
+              { to: '/swap', title: 'Swap', desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.', stat: 'Uniswap V2', label: 'Router', art: ART.naka02.src },
+              { to: '/farm', title: 'Farm', desc: 'Stake TOWELI or LP tokens across two active pools to earn yield.', stat: '2', label: 'Active Pools', art: ART.naka03.src },
+              { to: '/dashboard', title: 'Dashboard', desc: 'Track your portfolio, positions, claimable rewards, and projections.', stat: 'Real-time', label: 'On-chain Data', art: ART.naka04.src },
             ].map((f, i) => (
               <m.div key={f.title} initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }}
                 viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>

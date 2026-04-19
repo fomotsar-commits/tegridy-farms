@@ -19,6 +19,14 @@ const CARD_ART = [
   ART.smokingDuo,
   ART.roseApe,
   ART.danceNight,
+  ART.naka08,
+  ART.naka14,
+  ART.naka19,
+  ART.naka23,
+  ART.naka26,
+  ART.naka29,
+  ART.naka31,
+  ART.naka16,
 ];
 
 const CHANGELOG: ChangelogEntry[] = [
