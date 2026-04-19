@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
-import { GALLERY_ORDER, pageArt } from '../lib/artConfig';
+import { GALLERY_ORDER } from '../lib/artConfig';
 import { ArtLightbox } from '../components/ui/ArtLightbox';
 import { safeSetItem } from '../lib/storage';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -65,9 +65,9 @@ export default function GalleryPage() {
 
   return (
     <div className="-mt-14 relative min-h-screen">
-      <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={pageArt('gallery', 0).src} alt="" className="w-full h-full object-cover object-center" />
-      </div>
+      {/* Gallery has its own grid of every art piece — adding a fullscreen bg
+          guarantees the bg matches one of the cards. Solid color only. */}
+      <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }} />
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         <m.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
