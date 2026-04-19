@@ -33,8 +33,34 @@ const COPY = {
     "Wrong network, dude. Hop to mainnet.",
     "We don't farm on that chain. Switch to Ethereum.",
   ],
+  // Idle nudge bank — rotated so we don't say the same thing every time.
+  idle: [
+    "Still there? I'll be right here if you need me.",
+    "You good? Take your time. I'm just a towel.",
+    "Wanna get high? Oh wait, wrong farm.",
+    "I should probably do something. Or not.",
+    "Don't forget to bring a towel. Or do. I'm not your boss.",
+  ],
 } as const;
 const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(Math.random() * arr.length)]!;
+
+// Type-on-screen for the bubble text. ~18ms per char ≈ ~1s for a typical
+// line. Resets whenever the source text changes (i.e. new bubble).
+function useTypewriter(text: string | undefined, charMs = 18): string {
+  const [shown, setShown] = useState('');
+  useEffect(() => {
+    if (!text) { setShown(''); return; }
+    setShown('');
+    let i = 0;
+    const id = setInterval(() => {
+      i++;
+      setShown(text.slice(0, i));
+      if (i >= text.length) clearInterval(id);
+    }, charMs);
+    return () => clearInterval(id);
+  }, [text, charMs]);
+  return shown;
+}
 
 // ─────────────────────────────────────────────────────────────────
 // Per-route greeting copy. First visit to a route gets the tailored
@@ -71,6 +97,9 @@ const SNOOZE_MS = 2 * 60 * 1000;             // dismiss → hide for 2 min
 const IDLE_MS = 45_000;                       // 45s idle → "you there?"
 const ROUTE_TIP_DELAY_MS = 2200;              // 2.2s after navigation
 const EVENT_COOLDOWN_MS = 25_000;             // min gap between event-driven bubbles
+const FATIGUE_THRESHOLD = 3;                  // dismissals before auto-snooze
+const FATIGUE_WINDOW_MS = 5 * 60 * 1000;      // count dismissals over 5 min
+const FATIGUE_SNOOZE_MS = 30 * 60 * 1000;     // snooze for 30 min when fatigued
 
 type BubbleSource = 'route' | 'idle' | 'click' | 'event' | 'api' | null;
 
@@ -80,9 +109,13 @@ export function TowelieAssistant() {
     try { return localStorage.getItem(STORAGE_DISABLED) === '1'; } catch { return false; }
   });
   const [bubble, setBubble] = useState<{ text: string; src: BubbleSource } | null>(null);
+  const typedText = useTypewriter(bubble?.text);
   const snoozedUntil = useRef<number>(0);
   const lastEventAt = useRef<number>(0);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Fatigue tracking — if user dismisses N times in W minutes, take a hint
+  // and snooze for 30 min so we stop being annoying. Cleared on page reload.
+  const dismissTimes = useRef<number[]>([]);
   const { isConnected } = useAccount();
   const chainId = useChainId();
   const { receiptData } = useTransactionReceipt();
@@ -169,7 +202,7 @@ export function TowelieAssistant() {
       if (idleTimer.current) clearTimeout(idleTimer.current);
       idleTimer.current = setTimeout(() => {
         if (!canShow()) return;
-        setBubble({ text: "Still there? I'll be right here if you need me.", src: 'idle' });
+        setBubble({ text: pick(COPY.idle), src: 'idle' });
         snoozedUntil.current = Date.now() + SNOOZE_MS;
       }, IDLE_MS);
     };
@@ -191,6 +224,15 @@ export function TowelieAssistant() {
     // API messages get a shorter snooze so the queue can drain naturally.
     const snooze = bubble?.src === 'api' ? EVENT_COOLDOWN_MS : SNOOZE_MS;
     snoozedUntil.current = Date.now() + snooze;
+    // Track this dismissal. If the user has rage-dismissed N times in the
+    // last 5 minutes, take the hint and snooze for 30 min — they're trying
+    // to focus, not chat with a towel.
+    const now = Date.now();
+    dismissTimes.current = [...dismissTimes.current, now].filter((t) => now - t < FATIGUE_WINDOW_MS);
+    if (dismissTimes.current.length >= FATIGUE_THRESHOLD) {
+      snoozedUntil.current = now + FATIGUE_SNOOZE_MS;
+      dismissTimes.current = [];
+    }
   };
 
   const disablePermanently = () => {
@@ -231,7 +273,7 @@ export function TowelieAssistant() {
                 backdropFilter: 'blur(8px)',
               }}
             >
-              {bubble.text}
+              {typedText || '\u00a0'}
               <button
                 onClick={dismissBubble}
                 aria-label="Dismiss Towelie"
@@ -270,7 +312,7 @@ export function TowelieAssistant() {
         }}
         animate={{ y: [0, -3, 0] }}
         transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
-        whileHover={{ scale: 1.06 }}
+        whileHover={{ scale: 1.06, rotate: [0, -10, 10, -6, 6, 0], transition: { duration: 0.7 } }}
         whileTap={{ scale: 0.94 }}
       >
         <img src={ART.bobowelie.src} alt="Towelie" className="w-full h-full object-cover" />
