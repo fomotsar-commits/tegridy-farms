@@ -15,7 +15,7 @@ import { useNFTBoost } from '../hooks/useNFTBoost';
 import { useDCA } from '../hooks/useDCA';
 import { useLimitOrders } from '../hooks/useLimitOrders';
 import { useMyLoans } from '../hooks/useMyLoans';
-import { pageArt } from '../lib/artConfig';
+import { pageArt, artStyle } from '../lib/artConfig';
 import { formatTokenAmount, formatCurrency } from '../lib/formatting';
 import { Skeleton } from '../components/ui/Skeleton';
 import { AnimatedCounter } from '../components/AnimatedCounter';
@@ -31,6 +31,7 @@ import { useNetworkCheck } from '../hooks/useNetworkCheck';
 import { useRevenueStats } from '../hooks/useRevenueStats';
 import { ReferralWidget } from '../components/ReferralWidget';
 import { PriceAlertWidget } from '../components/PriceAlertWidget';
+import { ArtImg } from '../components/ArtImg';
 
 export default function DashboardPage() {
   usePageTitle('Dashboard', 'Real-time protocol analytics, TVL, and TOWELI token metrics.');
@@ -92,7 +93,7 @@ export default function DashboardPage() {
     return (
       <div className="-mt-14 relative min-h-screen">
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-          <img src={pageArt('dashboard', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 5%' }} />
+          <ArtImg pageId="dashboard" idx={0} fallbackPosition="center 5%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
           <m.div className="text-center max-w-sm" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}>
@@ -116,7 +117,7 @@ export default function DashboardPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={pageArt('dashboard', 1).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 85%' }} />
+        <ArtImg pageId="dashboard" idx={1} fallbackPosition="center 85%" alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
 
       <ErrorBoundary>
@@ -157,14 +158,14 @@ export default function DashboardPage() {
         {/* Summary Stats */}
         <m.div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           {[
-            { l: 'TOWELI Balance', numVal: walletToweli, decimals: 0, sub: price.isLoaded ? formatCurrency(walletToweli * price.priceInUsd) : '–', art: pageArt('dashboard', 2).src, loading: isToweliLoading, error: toweliError },
-            { l: 'ETH Balance', numVal: ethBal, decimals: 4, sub: ethBalance && price.ethUsd > 0 ? formatCurrency(ethBal * price.ethUsd) : '–', art: pageArt('dashboard', 3).src, loading: isEthLoading, error: ethError },
-            { l: 'Claimable', numVal: pendingTotal, decimals: 2, sub: price.isLoaded ? formatCurrency(pendingTotal * price.priceInUsd) : '–', accent: true, art: pageArt('dashboard', 4).src, loading: !price.isLoaded },
-            { l: 'TOWELI Price', numVal: price.priceInUsd, decimals: price.priceInUsd < 0.01 ? 8 : 6, prefix: '$', sub: priceChangeStr || (price.priceInUsd > 0 ? 'Live' : (price.oracleStale ? 'Stale' : '–')), priceUp: price.priceChange > 0, priceDown: price.priceChange < 0, stale: price.oracleStale, art: pageArt('dashboard', 5).src, showSparkline: true, isPrice: true, loading: !price.isLoaded },
+            { l: 'TOWELI Balance', numVal: walletToweli, decimals: 0, sub: price.isLoaded ? formatCurrency(walletToweli * price.priceInUsd) : '–', art: pageArt('dashboard', 2), loading: isToweliLoading, error: toweliError },
+            { l: 'ETH Balance', numVal: ethBal, decimals: 4, sub: ethBalance && price.ethUsd > 0 ? formatCurrency(ethBal * price.ethUsd) : '–', art: pageArt('dashboard', 3), loading: isEthLoading, error: ethError },
+            { l: 'Claimable', numVal: pendingTotal, decimals: 2, sub: price.isLoaded ? formatCurrency(pendingTotal * price.priceInUsd) : '–', accent: true, art: pageArt('dashboard', 4), loading: !price.isLoaded },
+            { l: 'TOWELI Price', numVal: price.priceInUsd, decimals: price.priceInUsd < 0.01 ? 8 : 6, prefix: '$', sub: priceChangeStr || (price.priceInUsd > 0 ? 'Live' : (price.oracleStale ? 'Stale' : '–')), priceUp: price.priceChange > 0, priceDown: price.priceChange < 0, stale: price.oracleStale, art: pageArt('dashboard', 5), showSparkline: true, isPrice: true, loading: !price.isLoaded },
           ].map((s) => (
             <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
-                <img src={s.art} alt="" loading="lazy" className="w-full h-full object-cover" />
+                <img src={s.art.src} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(s.art)} />
               </div>
               {/* Semi-transparent content panel — art bleeds through while kyle-green stat
                   text stays readable against the dimmed backdrop. */}
@@ -207,7 +208,7 @@ export default function DashboardPage() {
         <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
           <div className="absolute inset-0">
-            <img src={pageArt('dashboard', 6).src} alt="" loading="lazy" className="w-full h-full object-cover" />
+            <ArtImg pageId="dashboard" idx={6} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 m-2 md:m-3 rounded-lg p-3 md:p-4 flex items-center justify-between flex-wrap gap-2" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <TegridyScoreMini />
@@ -238,7 +239,7 @@ export default function DashboardPage() {
           <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={pageArt('dashboard', 8).src} alt="" loading="lazy" className="w-full h-full object-cover" />
+              <ArtImg pageId="dashboard" idx={8} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-5">
               <div className="flex items-center gap-2 mb-2">
@@ -257,7 +258,7 @@ export default function DashboardPage() {
           <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={pageArt('dashboard', 9).src} alt="" loading="lazy" className="w-full h-full object-cover" />
+              <ArtImg pageId="dashboard" idx={9} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-4 flex items-center justify-between flex-wrap gap-2">
               <div>
@@ -274,7 +275,7 @@ export default function DashboardPage() {
           <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={pageArt('dashboard', 10).src} alt="" loading="lazy" className="w-full h-full object-cover" />
+              <ArtImg pageId="dashboard" idx={10} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-4">
               <p className="text-white text-[13px] font-medium mb-1">{limitOrders.activeOrders.length} active price alert{limitOrders.activeOrders.length > 1 ? 's' : ''}</p>
@@ -294,7 +295,7 @@ export default function DashboardPage() {
           <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10 card-hover" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
             <div className="absolute inset-0">
-              <img src={pageArt('dashboard', 12).src} alt="" loading="lazy" className="w-full h-full object-cover" />
+              <ArtImg pageId="dashboard" idx={12} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -336,7 +337,7 @@ export default function DashboardPage() {
           <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="absolute inset-0">
-              <img src={pageArt('dashboard', 13).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 20%' }} />
+              <ArtImg pageId="dashboard" idx={13} fallbackPosition="center 20%" alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-8 py-12 text-center">
               <p className="text-white text-[15px] mb-4">No staking position yet</p>
@@ -407,7 +408,7 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
       <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
         initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
         <div className="absolute inset-0">
-          <img src={pageArt('dashboard', 7).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 55%' }} />
+          <ArtImg pageId="dashboard" idx={7} fallbackPosition="center 55%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 p-4 flex items-center justify-between flex-wrap gap-2">
           <div>
@@ -453,7 +454,7 @@ function OutstandingLoans({ loans }: { loans: import('../hooks/useMyLoans').MyLo
       </div>
       <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
         <div className="absolute inset-0">
-          <img src={pageArt('dashboard', 11).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 45%' }} />
+          <ArtImg pageId="dashboard" idx={11} fallbackPosition="center 45%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 p-5">
           <div className="grid grid-cols-3 gap-4 mb-4 pb-4" style={{ borderBottom: '1px solid var(--color-purple-20)' }}>

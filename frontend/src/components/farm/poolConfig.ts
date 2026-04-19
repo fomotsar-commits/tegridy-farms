@@ -1,4 +1,4 @@
-import { pageArt } from '../../lib/artConfig';
+import { pageArt, type ArtPiece } from '../../lib/artConfig';
 
 /* ── Native LP Pool Types & Config ──────────────────────────────────── */
 
@@ -12,7 +12,7 @@ export interface LPPool {
   apr: string;
   volume24h: string;
   status: 'live' | 'new' | 'hot' | 'soon';
-  art: string;
+  art: ArtPiece;
   artPos: string;
 }
 
@@ -36,7 +36,7 @@ export const UPCOMING_POOLS: Omit<LPPool, 'tvl' | 'apr' | 'volume24h'>[] = [
     tokenB: { symbol: 'USDC', logo: TOKEN_LOGOS.USDC! },
     fee: '0.05%',
     status: 'soon',
-    art: pageArt('upcoming-pools', 0).src,
+    art: pageArt('upcoming-pools', 0),
     artPos: 'center 40%',
   },
   {
@@ -46,7 +46,7 @@ export const UPCOMING_POOLS: Omit<LPPool, 'tvl' | 'apr' | 'volume24h'>[] = [
     tokenB: { symbol: 'WBTC', logo: TOKEN_LOGOS.WBTC! },
     fee: '0.3%',
     status: 'soon',
-    art: pageArt('upcoming-pools', 1).src,
+    art: pageArt('upcoming-pools', 1),
     artPos: 'center 20%',
   },
   {
@@ -56,7 +56,7 @@ export const UPCOMING_POOLS: Omit<LPPool, 'tvl' | 'apr' | 'volume24h'>[] = [
     tokenB: { symbol: 'ETH', logo: TOKEN_LOGOS.ETH! },
     fee: '0.3%',
     status: 'soon',
-    art: pageArt('upcoming-pools', 2).src,
+    art: pageArt('upcoming-pools', 2),
     artPos: 'center 30%',
   },
   {
@@ -66,7 +66,7 @@ export const UPCOMING_POOLS: Omit<LPPool, 'tvl' | 'apr' | 'volume24h'>[] = [
     tokenB: { symbol: 'ETH', logo: TOKEN_LOGOS.ETH! },
     fee: '0.3%',
     status: 'soon',
-    art: pageArt('upcoming-pools', 3).src,
+    art: pageArt('upcoming-pools', 3),
     artPos: 'center 20%',
   },
 ];

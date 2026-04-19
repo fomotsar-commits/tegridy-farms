@@ -1,5 +1,5 @@
 import { m } from 'framer-motion';
-import { pageArt } from '../../lib/artConfig';
+import { pageArt, artStyle } from '../../lib/artConfig';
 import { CURRENT_SEASON } from '../../lib/constants';
 import { PulseDot } from '../PulseDot';
 import { Sparkline } from '../Sparkline';
@@ -15,10 +15,10 @@ interface FarmStatsRowProps {
 
 export function FarmStatsRow({ stats, pool, price, priceData, priceError, daysLeft }: FarmStatsRowProps) {
   const items = [
-    { l: 'Total Value Locked', v: stats.tvl, art: pageArt('farm-stats', 0).src, pos: 'center 30%' },
-    { l: 'TOWELI Price', v: stats.toweliPrice + (price.displayPriceStale ? ' (stale)' : ''), art: pageArt('farm-stats', 1).src, pos: 'center 30%' },
-    { l: 'Base APR', v: pool.isDeployed ? `${pool.apr}%` : '–', accent: true, art: pageArt('farm-stats', 2).src, pos: 'center 0%', sub: pool.aprDisclaimer },
-    { l: 'Season', v: `${daysLeft}d left`, sub: CURRENT_SEASON.name, art: pageArt('farm-stats', 3).src, pos: 'center 30%' },
+    { l: 'Total Value Locked', v: stats.tvl, art: pageArt('farm-stats', 0), pos: 'center 30%' },
+    { l: 'TOWELI Price', v: stats.toweliPrice + (price.displayPriceStale ? ' (stale)' : ''), art: pageArt('farm-stats', 1), pos: 'center 30%' },
+    { l: 'Base APR', v: pool.isDeployed ? `${pool.apr}%` : '–', accent: true, art: pageArt('farm-stats', 2), pos: 'center 0%', sub: pool.aprDisclaimer },
+    { l: 'Season', v: `${daysLeft}d left`, sub: CURRENT_SEASON.name, art: pageArt('farm-stats', 3), pos: 'center 30%' },
   ];
 
   return (
@@ -26,7 +26,7 @@ export function FarmStatsRow({ stats, pool, price, priceData, priceError, daysLe
       {items.map((s) => (
         <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
           <div className="absolute inset-0">
-            <img src={s.art} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: s.pos }} />
+            <img src={s.art.src} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(s.art, s.pos)} />
           </div>
           {/* Semi-transparent content panel — art bleeds through while kyle-green text stays readable. */}
           <div className="relative z-10 m-2 md:m-3 rounded-lg p-3 md:p-4 pt-6 pb-5" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>

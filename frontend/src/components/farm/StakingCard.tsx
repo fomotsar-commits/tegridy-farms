@@ -8,6 +8,7 @@ import { PENALTY_COPY } from '../../lib/copy';
 import type { useFarmActions } from '../../hooks/useFarmActions';
 import type { useUserPosition } from '../../hooks/useUserPosition';
 import type { useNFTBoost } from '../../hooks/useNFTBoost';
+import { ArtImg } from '../ArtImg';
 
 const EARLY_WITHDRAWAL_PENALTY_PCT = 25;
 
@@ -68,7 +69,7 @@ export function StakingCard({
     <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
       <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
         <div className="absolute inset-0">
-          <img src={pageArt('staking-card', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%' }} />
+          <ArtImg pageId="staking-card" idx={0} fallbackPosition="center 40%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 p-6">
         <h3 className="heading-luxury text-white text-[20px] mb-5">

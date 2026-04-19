@@ -1,13 +1,14 @@
 import { Link } from 'react-router-dom';
 import { PoolStatusBadge } from './PoolStatusBadge';
 import type { UPCOMING_POOLS } from './poolConfig';
+import { artStyle } from '../../lib/artConfig';
 
 /** Coming soon pool card */
 export function UpcomingPoolCard({ pool }: { pool: typeof UPCOMING_POOLS[number] }) {
   return (
     <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover group" style={{ border: '1px solid var(--color-purple-75)' }}>
       <div className="absolute inset-0">
-        <img src={pool.art} alt="" loading="lazy" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" style={{ objectPosition: pool.artPos }} />
+        <img src={pool.art.src} alt="" loading="lazy" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" style={artStyle(pool.art, pool.artPos)} />
       </div>
       <div className="relative z-10 p-5">
         {/* Header */}

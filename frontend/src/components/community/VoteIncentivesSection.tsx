@@ -8,6 +8,7 @@ import { InfoTooltip } from '../ui/InfoTooltip';
 import { GOVERNANCE_COPY } from '../../lib/copy';
 import { useBribes } from '../../hooks/useBribes';
 import { pageArt } from '../../lib/artConfig';
+import { ArtImg } from '../ArtImg';
 
 const CARD_BORDER = 'var(--color-purple-12)';
 const STAT_ARTS = [pageArt('vote-incentives', 0), pageArt('vote-incentives', 1), pageArt('vote-incentives', 2)];
@@ -135,7 +136,7 @@ export function VoteIncentivesSection() {
       {/* Deposit Bribe — "Cartman's Market" */}
       <div className="rounded-2xl overflow-hidden relative" style={{ border: `1px solid ${CARD_BORDER}` }}>
         <div className="absolute inset-0">
-          <img src={pageArt('vote-incentives', 3).src} alt="" loading="lazy" className="w-full h-full object-cover" />
+          <ArtImg pageId="vote-incentives" idx={3} alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10">
           <div className="px-5 py-4 border-b border-white/10 flex items-center gap-2">

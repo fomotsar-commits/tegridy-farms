@@ -1,6 +1,5 @@
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
-import { pageArt } from '../lib/artConfig';
 import { usePoints } from '../hooks/usePoints';
 import { useNFTBoost } from '../hooks/useNFTBoost';
 import { TIER_THRESHOLDS, BADGES } from '../lib/pointsEngine';
@@ -10,8 +9,7 @@ import { TegridyScore } from '../components/TegridyScore';
 import { AnimatedCounter } from '../components/AnimatedCounter';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { PageSkeleton } from '../components/PageSkeleton';
-
-const JB_CHRISTMAS_SRC = pageArt('leaderboard', 0).src;
+import { ArtImg } from '../components/ArtImg';
 
 export default function LeaderboardPage() {
   usePageTitle('Leaderboard', 'Top TOWELI stakers ranked by points, boost multipliers, and protocol participation.');
@@ -26,7 +24,7 @@ export default function LeaderboardPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={JB_CHRISTMAS_SRC} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
+        <ArtImg pageId="leaderboard" idx={0} alt="" loading="lazy" fallbackPosition="center 15%" className="w-full h-full object-cover" />
       </div>
 
       <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-32 pb-28 md:pb-12">
@@ -55,7 +53,7 @@ export default function LeaderboardPage() {
           <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
             <div className="absolute inset-0">
-              <img src={pageArt('leaderboard', 1).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%' }} />
+              <ArtImg pageId="leaderboard" idx={1} fallbackPosition="center 40%" alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-5">
             <div className="flex items-center justify-between mb-4">
@@ -141,7 +139,7 @@ export default function LeaderboardPage() {
           <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
             <div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid var(--color-purple-40)' }}>
               <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-                <img src={pageArt('leaderboard', 2).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
+                <ArtImg pageId="leaderboard" idx={2} fallbackPosition="center 30%" alt="" loading="lazy" className="w-full h-full object-cover" />
               </div>
               <div className="relative z-10 p-8 text-center" style={{ background: 'rgba(6,12,26,0.55)' }}>
                 <p className="text-white text-[14px] font-medium mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>No participants yet. Stake TOWELI to earn your first points!</p>
@@ -155,7 +153,7 @@ export default function LeaderboardPage() {
         <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
           <div className="absolute inset-0">
-            <img src={pageArt('leaderboard', 3).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%' }} />
+            <ArtImg pageId="leaderboard" idx={3} fallbackPosition="center 10%" alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 p-5">
             <h2 className="text-white text-[15px] font-semibold mb-3">How Points Work</h2>
@@ -183,7 +181,7 @@ export default function LeaderboardPage() {
         <m.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
           <div className="absolute inset-0">
-            <img src={pageArt('leaderboard', 4).src} alt="" loading="lazy" className="w-full h-full object-cover" />
+            <ArtImg pageId="leaderboard" idx={4} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 p-5">
             <h2 className="text-white text-[15px] font-semibold mb-3">Tiers</h2>
@@ -203,7 +201,7 @@ export default function LeaderboardPage() {
         <m.div className="relative overflow-hidden rounded-xl glass-card-animated mt-6" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
           <div className="absolute inset-0">
-            <img src={pageArt('leaderboard', 5).src} alt="" loading="lazy" className="w-full h-full object-cover" />
+            <ArtImg pageId="leaderboard" idx={5} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 p-5">
             <h2 className="text-white text-[15px] font-semibold mb-3">All Badges</h2>

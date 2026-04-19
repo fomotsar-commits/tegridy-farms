@@ -3,13 +3,14 @@ import { pageArt } from '../../lib/artConfig';
 import { TOKEN_LOGOS } from './poolConfig';
 import { PoolStatusBadge } from './PoolStatusBadge';
 import type { usePoolTVL } from '../../hooks/usePoolTVL';
+import { ArtImg } from '../ArtImg';
 
 /** Live TOWELI/ETH pool card with on-chain data */
 export function LivePoolCard({ poolData }: { poolData: ReturnType<typeof usePoolTVL> }) {
   return (
     <div className="relative overflow-hidden rounded-xl card-hover group" style={{ border: '1px solid rgba(239,68,68,0.15)' }}>
       <div className="absolute inset-0">
-        <img src={pageArt('live-pool', 0).src} alt="" loading="lazy" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" style={{ objectPosition: 'center 30%' }} />
+        <ArtImg pageId="live-pool" idx={0} fallbackPosition="center 30%" alt="" loading="lazy" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
       </div>
       <div className="relative z-10 p-5">
         {/* Header */}

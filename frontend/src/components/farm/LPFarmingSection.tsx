@@ -6,6 +6,7 @@ import { formatTokenAmount } from '../../lib/formatting';
 import { parseEther } from 'viem';
 import type { useLPFarming } from '../../hooks/useLPFarming';
 import { ILCalculator } from './ILCalculator';
+import { ArtImg } from '../ArtImg';
 
 type LPFarmHook = ReturnType<typeof useLPFarming>;
 
@@ -68,7 +69,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
         </div>
         <div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid var(--color-purple-40)' }}>
           <div className="absolute inset-0">
-            <img src={pageArt('lp-farming', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
+            <ArtImg pageId="lp-farming" idx={0} fallbackPosition="center 30%" alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 p-8 text-center" style={{ background: 'rgba(6,12,26,0.65)' }}>
             <p className="text-white/90 text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
@@ -95,7 +96,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
 
       <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
         <div className="absolute inset-0">
-          <img src={pageArt('lp-farming', 1).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
+          <ArtImg pageId="lp-farming" idx={1} fallbackPosition="center 30%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 p-6">
           {/* Stats row */}

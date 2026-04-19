@@ -3,6 +3,7 @@ import { m, AnimatePresence } from 'framer-motion';
 import { pageArt } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { FAQ_INTRO } from '../lib/copy';
+import { ArtImg } from '../components/ArtImg';
 
 interface FAQItem {
   q: string;
@@ -107,7 +108,7 @@ export default function FAQPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={pageArt('faq', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        <ArtImg pageId="faq" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
 
       <div className="relative z-10 max-w-[800px] mx-auto px-4 md:px-6 pt-32 pb-20">

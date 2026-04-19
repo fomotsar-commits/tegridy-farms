@@ -1,6 +1,7 @@
 import { m } from 'framer-motion';
 import { pageArt } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { ArtImg } from '../components/ArtImg';
 
 const TIMELINE = [
   {
@@ -46,7 +47,7 @@ export default function LorePage() {
     <div className="-mt-14 relative min-h-screen">
       {/* Fixed background covering entire page */}
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={pageArt('lore', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 32%' }} />
+        <ArtImg pageId="lore" idx={0} fallbackPosition="center 32%" alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
 
       {/* Hero */}
@@ -70,7 +71,7 @@ export default function LorePage() {
             viewport={{ once: true }} transition={{ delay: i * 0.05 }}>
             <div className="relative rounded-2xl overflow-hidden glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
-                <img src={pageArt('lore', i + 1).src} alt={`Phase ${item.phase}: ${item.title}`} loading="lazy" className="w-full h-full object-cover" />
+                <ArtImg pageId="lore" idx={i + 1} alt={`Phase ${item.phase}: ${item.title}`} loading="lazy" className="w-full h-full object-cover" />
               </div>
               <div className="relative z-10 p-5 md:p-10">
                 <div className="flex items-start gap-4 md:gap-8">

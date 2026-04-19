@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { m } from 'framer-motion';
 import { pageArt } from '../lib/artConfig';
+import { ArtImg } from './ArtImg';
 
 interface ReferralWidgetProps {
   address: string;
@@ -52,7 +53,7 @@ export function ReferralWidget({ address, referredCount, referralEarned, referra
       animate={{ opacity: 1, y: 0 }}
     >
       <div className="absolute inset-0">
-        <img src={pageArt('referral-widget', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        <ArtImg pageId="referral-widget" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
       <div className="relative z-10 p-5">
         <h3 className="text-white text-[15px] font-medium mb-4">Referral Program</h3>

@@ -1,6 +1,7 @@
 import { m } from 'framer-motion';
 import { pageArt } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { ArtImg } from '../components/ArtImg';
 
 const SECTIONS = [
   {
@@ -55,12 +56,7 @@ export default function TermsPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img
-          src={pageArt('terms', 0).src}
-          alt=""
-          loading="lazy"
-          className="w-full h-full object-cover"
-        />
+        <ArtImg pageId="terms" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
         {/* Dark scrim so the long-form legal copy stays crisp no matter where you scroll */}
         <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(6,12,26,0.55) 0%, rgba(6,12,26,0.78) 40%, rgba(6,12,26,0.85) 100%)' }} />
       </div>

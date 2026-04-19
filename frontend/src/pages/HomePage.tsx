@@ -3,7 +3,7 @@ import { m, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
-import { GALLERY_ORDER, pageArt } from '../lib/artConfig';
+import { GALLERY_ORDER, pageArt, artStyle } from '../lib/artConfig';
 import { useFarmStats } from '../hooks/useFarmStats';
 import { usePoolData } from '../hooks/usePoolData';
 import { useRevenueStats } from '../hooks/useRevenueStats';
@@ -17,6 +17,7 @@ import { ReferralWidget } from '../components/ReferralWidget';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { YieldCalculator } from '../components/ui/YieldCalculator';
 import { TOWELIE_QUOTES } from '../lib/copy';
+import { ArtImg } from '../components/ArtImg';
 
 const CORE_LOOP_STEPS = [
   { label: 'People trade TOWELI',     sub: 'on the Tegridy DEX' },
@@ -72,7 +73,7 @@ export default function HomePage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={pageArt('home', 0).src} alt="" className="w-full h-full object-cover object-center" />
+        <ArtImg pageId="home" idx={0} alt="" className="w-full h-full object-cover object-center" />
       </div>
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6">
@@ -202,7 +203,7 @@ export default function HomePage() {
         >
           <div className="relative rounded-2xl overflow-hidden" style={{ border: '1px solid var(--color-weed-40)' }}>
             <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-              <img src={pageArt('home', 1).src} alt="" className="w-full h-full object-cover" loading="lazy" />
+              <ArtImg pageId="home" idx={1} alt="" className="w-full h-full object-cover" loading="lazy" />
             </div>
             <div className="relative p-5 md:p-6">
               <div className="flex items-center gap-2 mb-4">
@@ -218,7 +219,7 @@ export default function HomePage() {
                       style={{ border: '1px solid var(--color-weed-40)' }}
                     >
                       <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-                        <img src={pageArt('home', 2 + i).src} alt="" loading="lazy" className="w-full h-full object-cover" />
+                        <ArtImg pageId="home" idx={2 + i} alt="" loading="lazy" className="w-full h-full object-cover" />
                       </div>
                       <div className="relative p-3 md:p-4">
                         <div className="text-white text-[13px] md:text-[14px] font-semibold leading-tight" style={{ textShadow: '0 2px 8px rgba(0,0,0,1), 0 0 4px rgba(0,0,0,1)' }}>{step.label}</div>
@@ -255,15 +256,15 @@ export default function HomePage() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
-              { to: '/swap', title: 'Swap', desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.', stat: 'Uniswap V2', label: 'Router', art: pageArt('home', 6).src },
-              { to: '/farm', title: 'Farm', desc: 'Stake TOWELI or LP tokens across two active pools to earn yield.', stat: '2', label: 'Active Pools', art: pageArt('home', 7).src },
-              { to: '/dashboard', title: 'Dashboard', desc: 'Track your portfolio, positions, claimable rewards, and projections.', stat: 'Real-time', label: 'On-chain Data', art: pageArt('home', 8).src },
+              { to: '/swap', title: 'Swap', desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.', stat: 'Uniswap V2', label: 'Router', art: pageArt('home', 6) },
+              { to: '/farm', title: 'Farm', desc: 'Stake TOWELI or LP tokens across two active pools to earn yield.', stat: '2', label: 'Active Pools', art: pageArt('home', 7) },
+              { to: '/dashboard', title: 'Dashboard', desc: 'Track your portfolio, positions, claimable rewards, and projections.', stat: 'Real-time', label: 'On-chain Data', art: pageArt('home', 8) },
             ].map((f, i) => (
               <m.div key={f.title} initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }}
                 viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
                 <Link to={f.to} className="block group relative rounded-xl overflow-hidden glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
                   <div className="absolute inset-0">
-                    <img src={f.art} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
+                    <img src={f.art.src} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" style={artStyle(f.art)} />
                   </div>
                   <div className="relative z-10 p-6 min-h-[220px] flex flex-col">
                     <h3 className="heading-luxury text-[17px] text-white mb-2 group-hover:text-white transition-colors" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{f.title}</h3>
@@ -294,7 +295,7 @@ export default function HomePage() {
                       Text readability comes from layered text-shadow, not a scrim —
                       so the art shows at full brightness. */}
                   <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-                    <img src={pageArt('home', 9 + i).src} alt="" loading="lazy" className="w-full h-full object-cover" />
+                    <ArtImg pageId="home" idx={9 + i} alt="" loading="lazy" className="w-full h-full object-cover" />
                   </div>
                   <div className="relative p-5">
                     <span className="inline-flex w-8 h-8 shrink-0 rounded-full text-[14px] font-bold leading-none items-center justify-center mb-3"
@@ -345,7 +346,7 @@ export default function HomePage() {
             <a href="https://opensea.io/collection/junglebay" target="_blank" rel="noopener noreferrer"
               className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
-                <img src={pageArt('home', 12).src} alt="" className="w-full h-full object-cover" loading="lazy" />
+                <ArtImg pageId="home" idx={12} alt="" className="w-full h-full object-cover" loading="lazy" />
               </div>
               <div className="relative z-10 p-5">
                 <p className="text-white text-[14px] font-semibold group-hover:text-white transition-colors mb-1">JBAC NFTs</p>
@@ -357,7 +358,7 @@ export default function HomePage() {
             <a href="https://app.uniswap.org/swap?chain=base" target="_blank" rel="noopener noreferrer"
               className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
-                <img src={pageArt('home', 13).src} alt="" className="w-full h-full object-cover" loading="lazy" />
+                <ArtImg pageId="home" idx={13} alt="" className="w-full h-full object-cover" loading="lazy" />
               </div>
               <div className="relative z-10 p-5">
                 <p className="text-white text-[14px] font-semibold group-hover:text-white transition-colors mb-1">$JBM on Base</p>
@@ -368,7 +369,7 @@ export default function HomePage() {
             <m.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.3, type: 'spring', damping: 20, stiffness: 100 }}>
             <Link to="/lore" className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
-                <img src={pageArt('home', 14).src} alt="" className="w-full h-full object-cover" loading="lazy" />
+                <ArtImg pageId="home" idx={14} alt="" className="w-full h-full object-cover" loading="lazy" />
               </div>
               <div className="relative z-10 p-5">
                 <p className="text-white text-[14px] font-semibold group-hover:text-white transition-colors mb-1">The Story</p>

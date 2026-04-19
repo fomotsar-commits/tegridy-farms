@@ -1,8 +1,20 @@
+import type React from 'react';
+import { ART_OVERRIDES } from './artOverrides';
+
 export interface ArtPiece {
   id: string;
   src: string;
   title: string;
   description?: string;
+  // Optional CSS object-position. Set by /art-studio overrides; honored by
+  // surfaces that have been migrated to read it (legacy surfaces use their
+  // hardcoded inline position).
+  objectPosition?: string;
+  // Optional CSS scale. With object-fit:cover, object-position only pans
+  // along the axis where the image overflows the container. Setting scale
+  // > 1 enlarges the image beyond the container in both axes, freeing X/Y
+  // pan in both directions. Default 1 (no zoom).
+  scale?: number;
 }
 
 export const ART = {
@@ -119,12 +131,64 @@ export const ART_POOL_ALL: ArtPiece[] = [
 ];
 
 /**
- * Returns the Nth art piece for a given page, deterministically.
- * Each pageId hashes to a stable starting offset in ART_POOL_ALL, then we
- * take consecutive pieces — guaranteeing no same-page duplicates as long as
- * the page uses indexes 0..N-1 with N <= ART_POOL_ALL.length.
+ * Build the inline `style` object for an art surface that already has the
+ * full ArtPiece (i.e. components that don't use the `<ArtImg>` wrapper).
+ * Honors `objectPosition` and `scale` from /art-studio overrides.
+ */
+export function artStyle(art: ArtPiece, fallbackPosition?: string): React.CSSProperties {
+  const objectPosition = art.objectPosition ?? fallbackPosition;
+  const out: React.CSSProperties = {};
+  if (objectPosition) out.objectPosition = objectPosition;
+  if (art.scale && art.scale !== 1) {
+    out.transform = `scale(${art.scale})`;
+    out.transformOrigin = objectPosition ?? 'center center';
+  }
+  return out;
+}
+
+// Lookup: artId → ArtPiece. Used by pageArt() to resolve override picks
+// from /art-studio. Built lazily so adding entries to ART doesn't require
+// touching this map.
+let _artById: Map<string, ArtPiece> | null = null;
+function artById(): Map<string, ArtPiece> {
+  if (!_artById) {
+    _artById = new Map();
+    for (const piece of Object.values(ART)) {
+      _artById.set(piece.id, piece);
+    }
+  }
+  return _artById;
+}
+
+/**
+ * Returns the Nth art piece for a given page.
+ *
+ * Resolution order:
+ *  1. ART_OVERRIDES[`${pageId}:${idx}`] — explicit pick from /art-studio.
+ *  2. Deterministic rotation: hash(pageId) → offset into ART_POOL_ALL, then
+ *     take consecutive pieces. Guarantees no same-page duplicates as long as
+ *     the page uses indexes 0..N-1 with N <= ART_POOL_ALL.length.
+ *
+ * If `objectPosition` is set on the override, it's attached to the returned
+ * piece. Surfaces that have been migrated to read `art.objectPosition` will
+ * honor it; legacy surfaces continue using their hardcoded inline position.
  */
 export function pageArt(pageId: string, idx: number): ArtPiece {
+  const override = ART_OVERRIDES[`${pageId}:${idx}`];
+  if (override) {
+    const picked = artById().get(override.artId);
+    if (picked) {
+      if (override.objectPosition || override.scale) {
+        return {
+          ...picked,
+          ...(override.objectPosition ? { objectPosition: override.objectPosition } : {}),
+          ...(override.scale ? { scale: override.scale } : {}),
+        };
+      }
+      return picked;
+    }
+    // Fall through to rotation if artId is unknown (e.g. file deleted).
+  }
   let hash = 5381;
   for (let i = 0; i < pageId.length; i++) {
     hash = ((hash * 33) ^ pageId.charCodeAt(i)) >>> 0;

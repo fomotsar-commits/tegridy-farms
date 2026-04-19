@@ -10,6 +10,7 @@ import { GaugeVoting } from '../components/GaugeVoting';
 import { GrantsSection } from '../components/community/GrantsSection';
 import { BountiesSection } from '../components/community/BountiesSection';
 import { VoteIncentivesSection } from '../components/community/VoteIncentivesSection';
+import { ArtImg } from '../components/ArtImg';
 
 type Section = 'grants' | 'bounties' | 'bribes' | 'gauges';
 
@@ -28,7 +29,7 @@ export default function CommunityPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={pageArt('community', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%' }} />
+        <ArtImg pageId="community" idx={0} fallbackPosition="center 10%" alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-24 pb-16">
@@ -85,7 +86,7 @@ export default function CommunityPage() {
             transition={{ delay: 0.1 }}
           >
             <div className="absolute inset-0">
-              <img src={pageArt('community', 1).src} alt="" loading="lazy" className="w-full h-full object-cover" />
+              <ArtImg pageId="community" idx={1} alt="" loading="lazy" className="w-full h-full object-cover" />
               <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.10) 0%, rgba(6,12,26,0.35) 100%)' }} />
             </div>
             <div className="relative z-10">

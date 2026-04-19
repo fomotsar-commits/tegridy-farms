@@ -27,6 +27,7 @@ const LearnPage = lazy(() => import('./pages/LearnPage'));
 // BribesPage, GrantsPage, BountyPage merged into CommunityPage
 const NakamigosApp = lazy(() => import('./nakamigos/App'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
+const ArtStudioPage = lazy(() => import('./pages/ArtStudioPage'));
 const LendingPage = lazy(() => import('./pages/LendingPage'));
 const TermsPage = lazy(() => import('./pages/TermsPage'));
 const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
@@ -113,6 +114,8 @@ function AnimatedRoutes() {
     <Routes>
       {/* Nakamigos marketplace — renders outside AppLayout (has its own header/footer/background) */}
       <Route path="nakamigos/*" element={<NakamigosApp />} />
+      {/* Art studio — internal dev tool, renders standalone (no app chrome/background) */}
+      <Route path="art-studio" element={<Suspense fallback={<PageSkeleton />}><ArtStudioPage /></Suspense>} />
       <Route element={<AppLayout />}>
         <Route index element={<Suspense fallback={<PageSkeleton />}><HomePage /></Suspense>} />
         <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><FarmPage /></Suspense>} />

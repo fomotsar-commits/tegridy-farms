@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { pageArt } from '../../lib/artConfig';
+import { pageArt, artStyle } from '../../lib/artConfig';
 
 /**
  * Lightweight hover tooltip with a "?" icon for explaining DeFi terms.
@@ -112,7 +112,7 @@ export function HowItWorks({
   // Each HowItWorks panel uses its storageKey as a unique pageId so the
   // header art and step-card arts are pulled from the global pool with
   // no collisions against the parent page (which uses a different pageId).
-  const artSrc = pageArt(`how-it-works:${storageKey}`, 0).src;
+  const headerArt = pageArt(`how-it-works:${storageKey}`, 0);
 
   return (
     <div
@@ -122,7 +122,7 @@ export function HowItWorks({
       }}
     >
       <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-        <img src={artSrc} alt="" loading="lazy" className="w-full h-full object-cover" />
+        <img src={headerArt.src} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(headerArt)} />
       </div>
       <button
         onClick={toggle}
@@ -163,7 +163,7 @@ export function HowItWorks({
             {steps.map((step, i) => {
               // Each step gets the next pieces from the same storageKey-derived
               // pool. idx 0 is the panel header art (above), so steps start at 1.
-              const stepArt = pageArt(`how-it-works:${storageKey}`, i + 1).src;
+              const stepArt = pageArt(`how-it-works:${storageKey}`, i + 1);
               return (
                 <div
                   key={i}
@@ -171,7 +171,7 @@ export function HowItWorks({
                   style={{ border: '1px solid rgba(255,255,255,0.10)' }}
                 >
                   <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-                    <img src={stepArt} alt="" loading="lazy" className="w-full h-full object-cover" />
+                    <img src={stepArt.src} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(stepArt)} />
                   </div>
                   <span className="relative z-10 flex-shrink-0 w-6 h-6 rounded-full bg-purple-500/40 border border-purple-500/60 flex items-center justify-center text-[11px] font-bold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.95)' }}>
                     {i + 1}

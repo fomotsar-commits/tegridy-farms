@@ -1,7 +1,8 @@
 import { m } from 'framer-motion';
 import { useState } from 'react';
-import { pageArt } from '../lib/artConfig';
+import { pageArt, artStyle } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { ArtImg } from '../components/ArtImg';
 
 const fade = { hidden: { opacity: 0, y: 24 }, visible: { opacity: 1, y: 0 } };
 
@@ -39,7 +40,7 @@ function ArtCard({
   className = '',
   padding = 'p-5 md:p-6',
 }: {
-  art: { src: string };
+  art: { src: string; objectPosition?: string; scale?: number };
   children: React.ReactNode;
   className?: string;
   padding?: string;
@@ -50,7 +51,7 @@ function ArtCard({
       style={{ border: '1px solid var(--color-purple-12)' }}
     >
       <div className="absolute inset-0">
-        <img src={art.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        <img src={art.src} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(art)} />
       </div>
       <div
         className={`relative z-10 m-2 md:m-3 rounded-lg ${padding}`}
@@ -105,7 +106,7 @@ export default function SecurityPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={pageArt('security', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        <ArtImg pageId="security" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-32 pb-20">
 
