@@ -27,6 +27,7 @@ const GlitchTransition = lazy(() =>
 );
 import type { GlitchConfig } from '../GlitchTransition';
 import { LiveActivity } from '../LiveActivity';
+import { TowelieAssistant } from '../TowelieAssistant';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { OnboardingModal } from '../ui/OnboardingModal';
 import { SeasonalEventBanner } from '../SeasonalEvent';
@@ -130,6 +131,7 @@ export function AppLayout() {
 
       <BottomNav />
       <LiveActivity />
+      <TowelieAssistant />
       <OnboardingModal />
 
       <Toaster
