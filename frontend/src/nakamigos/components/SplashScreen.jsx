@@ -7,23 +7,29 @@ const IS_MOBILE = typeof window !== "undefined" && window.innerWidth < 768;
 // ═══ Art pieces config — SPLASH ONLY ═══
 // Mobile: fewer pieces, smaller sizes for performance
 const ART_PIECES_DESKTOP = [
-  { src: "/splash/watercolor.jpg", size: 420, pixel: false },
-  { src: "/splash/HBbsuPEacAAX0VA.jpg", size: 400, pixel: false },
-  { src: "/splash/G24BZRrakAA1M_9.jpg", size: 380, pixel: false },
-  { src: "/splash/frogking.jpg", size: 320, pixel: true },
+  { src: "/splash/new/61.avif", size: 440, pixel: false },
+  { src: "/splash/new/2.jpg", size: 420, pixel: false },
+  { src: "/splash/new/50.jpg", size: 400, pixel: false },
+  { src: "/splash/new/58.avif", size: 380, pixel: false },
+  { src: "/splash/frogking.jpg", size: 280, pixel: true },
   { src: "/splash/skeleton.jpg", size: 220, pixel: true },
-  { src: "/splash/G--r5iuXIAEPwLt.jpg", size: 380, pixel: false },
-  { src: "/splash/G-FPcYdXMAAKsWR.jpg", size: 420, pixel: false },
-  { src: "/splash/G8jE1EcWMAAvHTy.jpg", size: 360, pixel: false },
-  { src: "/splash/HA5Fd6kWMAAMqL_.jpg", size: 340, pixel: false },
-  { src: "/splash/HC6HNXsW4AA-UwM.jpg", size: 420, pixel: false },
+  { src: "/splash/new/48.jpg", size: 420, pixel: false },
+  { src: "/splash/new/28.jpg", size: 380, pixel: false },
+  { src: "/splash/new/53.avif", size: 360, pixel: false },
+  { src: "/splash/new/41.jpg", size: 380, pixel: false },
+  { src: "/splash/new/29.jpg", size: 340, pixel: false },
+  { src: "/splash/watercolor.jpg", size: 360, pixel: false },
+  { src: "/splash/new/17.jpg", size: 360, pixel: false },
+  { src: "/splash/new/46.jpg", size: 380, pixel: false },
 ];
 const ART_PIECES_MOBILE = [
   { src: "/splash/skeleton.jpg", size: 140, pixel: true },
   { src: "/splash/frogking.jpg", size: 160, pixel: true },
-  { src: "/splash/watercolor.jpg", size: 200, pixel: false },
-  { src: "/splash/HBbsuPEacAAX0VA.jpg", size: 180, pixel: false },
-  { src: "/splash/G24BZRrakAA1M_9.jpg", size: 170, pixel: false },
+  { src: "/splash/new/61.avif", size: 200, pixel: false },
+  { src: "/splash/new/2.jpg", size: 190, pixel: false },
+  { src: "/splash/new/50.jpg", size: 180, pixel: false },
+  { src: "/splash/new/58.avif", size: 170, pixel: false },
+  { src: "/splash/new/28.jpg", size: 180, pixel: false },
 ];
 const ART_PIECES = IS_MOBILE ? ART_PIECES_MOBILE : ART_PIECES_DESKTOP;
 
@@ -72,6 +78,10 @@ function usePhysics(pieces, containerRef, phase) {
       { cx: 0.45, cy: 0.70 },  // bottom-center
       { cx: 0.35, cy: 0.88 },  // lower-left
       { cx: 0.65, cy: 0.55 },  // center-right
+      { cx: 0.18, cy: 0.30 },  // upper-left-mid
+      { cx: 0.82, cy: 0.28 },  // upper-right-mid
+      { cx: 0.20, cy: 0.60 },  // lower-left-mid
+      { cx: 0.80, cy: 0.62 },  // lower-right-mid
     ];
 
     for (let i = 0; i < count; i++) {

@@ -45,7 +45,7 @@ const HOW_IT_WORKS_STEPS = [
     title: 'Harvest the Tegridy',
     desc: '100% of every swap fee pays out in ETH. Not tokens, not IOUs \u2014 ETH. Claim whenever the crop looks ripe.',
     to: '/dashboard',
-    art: '/art/pool-party.jpg',
+    art: '/splash/new/61.avif',
   },
 ];
 

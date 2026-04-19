@@ -294,7 +294,7 @@ export default function DashboardPage() {
           <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10 card-hover" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
             <div className="absolute inset-0">
-              <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+              <img src={ART.naka05.src} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -453,7 +453,7 @@ function OutstandingLoans({ loans }: { loans: import('../hooks/useMyLoans').MyLo
       </div>
       <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
         <div className="absolute inset-0">
-          <img src={ART.smokingDuo.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 45%' }} />
+          <img src={ART.naka18.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 45%' }} />
         </div>
         <div className="relative z-10 p-5">
           <div className="grid grid-cols-3 gap-4 mb-4 pb-4" style={{ borderBottom: '1px solid var(--color-purple-20)' }}>

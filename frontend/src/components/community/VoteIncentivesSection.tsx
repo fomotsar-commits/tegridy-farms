@@ -10,7 +10,7 @@ import { useBribes } from '../../hooks/useBribes';
 import { ART } from '../../lib/artConfig';
 
 const CARD_BORDER = 'var(--color-purple-12)';
-const STAT_ARTS = [ART.chaosScene, ART.smokingDuo, ART.poolParty];
+const STAT_ARTS = [ART.naka05, ART.naka12, ART.naka20];
 
 export function VoteIncentivesSection() {
   const { address } = useAccount();

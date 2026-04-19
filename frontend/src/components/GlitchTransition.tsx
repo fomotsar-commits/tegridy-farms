@@ -14,6 +14,14 @@ const ART_IMAGES = [
   '/art/beach-vibes.jpg', '/art/dance-night.jpg', '/art/wrestler.jpg',
   '/art/jungle-dark.jpg', '/art/smoking-duo.jpg', '/art/jb-christmas.jpg',
   '/art/beach-sunset.jpg', '/art/porch-chill.jpg', '/art/rose-ape.jpg',
+  // Nakamigos drop — extra slice variety in glitch transitions
+  '/splash/new/61.avif', '/splash/new/58.avif', '/splash/new/53.avif',
+  '/splash/new/28.avif', '/splash/new/1.avif', '/splash/new/3.avif',
+  '/splash/new/2.jpg', '/splash/new/50.jpg', '/splash/new/48.jpg',
+  '/splash/new/41.jpg', '/splash/new/28.jpg', '/splash/new/29.jpg',
+  '/splash/new/17.jpg', '/splash/new/46.jpg', '/splash/new/18.jpg',
+  '/splash/new/14.jpg', '/splash/new/20.jpg', '/splash/new/5.jpg',
+  '/splash/new/39.jpg',
 ];
 
 const SUBLIMINAL_PHRASES = [

@@ -9,7 +9,7 @@ import { shortenAddress, formatTimeAgo, formatWei } from '../../lib/formatting';
 import { ART } from '../../lib/artConfig';
 
 const CARD_BORDER = 'var(--color-purple-12)';
-const STAT_ARTS = [ART.beachVibes, ART.jbChristmas, ART.beachSunset, ART.poolParty];
+const STAT_ARTS = [ART.naka07, ART.naka15, ART.naka22, ART.naka28];
 
 const STATUS_LABELS: Record<number, { label: string; color: string }> = {
   0: { label: 'Open', color: 'text-emerald-400' },

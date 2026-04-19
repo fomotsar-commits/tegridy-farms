@@ -10,7 +10,7 @@ import { InfoTooltip } from './ui/InfoTooltip';
 import { surfaceTxError } from '../lib/txErrors';
 import { ART } from '../lib/artConfig';
 
-const GAUGE_STAT_ARTS = [ART.jungleDark, ART.mfersHeaven, ART.forestScene];
+const GAUGE_STAT_ARTS = [ART.naka03, ART.naka10, ART.naka18];
 
 // ─── Commit-Reveal Local Storage ────────────────────────────────────
 // We persist {salt, gauges, weights, commitmentHash} per (chainId, voter, tokenId, epoch)

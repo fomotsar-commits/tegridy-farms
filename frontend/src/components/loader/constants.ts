@@ -21,6 +21,25 @@ export const ART_COLLECTION: Array<{ src: string; title: string }> = [
   { src: '/art/gallery-collage.jpg', title: 'The Collection' },
   { src: '/art/jungle-dark.jpg', title: 'Into the Jungle' },
   { src: '/art/jb-christmas.jpg', title: 'JB Christmas' },
+  // Nakamigos drop — fresh art for the loader rotation
+  { src: '/splash/new/61.avif', title: 'Naka #61' },
+  { src: '/splash/new/2.jpg', title: 'Naka #2' },
+  { src: '/splash/new/50.jpg', title: 'Naka #50' },
+  { src: '/splash/new/48.jpg', title: 'Naka #48' },
+  { src: '/splash/new/28.jpg', title: 'Naka #28' },
+  { src: '/splash/new/58.avif', title: 'Naka #58' },
+  { src: '/splash/new/41.jpg', title: 'Naka #41' },
+  { src: '/splash/new/53.avif', title: 'Naka #53' },
+  { src: '/splash/new/29.jpg', title: 'Naka #29' },
+  { src: '/splash/new/17.jpg', title: 'Naka #17' },
+  { src: '/splash/new/46.jpg', title: 'Naka #46' },
+  { src: '/splash/new/1.avif', title: 'Naka #1' },
+  { src: '/splash/new/14.jpg', title: 'Naka #14' },
+  { src: '/splash/new/20.jpg', title: 'Naka #20' },
+  { src: '/splash/new/3.avif', title: 'Naka #3' },
+  { src: '/splash/new/18.jpg', title: 'Naka #18' },
+  { src: '/splash/new/5.jpg', title: 'Naka #5' },
+  { src: '/splash/new/39.jpg', title: 'Naka #39' },
 ];
 
 export const GOLD = '#d4a017';
