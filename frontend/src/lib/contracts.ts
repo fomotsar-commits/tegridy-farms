@@ -277,6 +277,99 @@ export const TEGRIDY_LAUNCHPAD_ABI = [
   { type: 'function', name: 'getCollectionCount', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
 ] as const;
 
+// ─── TegridyLaunchpadV2 (Click-Deploy Factory — CollectionConfig struct input) ──
+// Lives alongside v1. Not exclusive — the frontend lists collections from both
+// factories and tags each by origin. v2 fires both the legacy CollectionCreated
+// event and a richer CollectionCreatedV2.
+export const TEGRIDY_LAUNCHPAD_V2_ABI = [
+  { type: 'function', name: 'createCollection', inputs: [{ name: 'cfg', type: 'tuple', components: [
+    { name: 'name', type: 'string' },
+    { name: 'symbol', type: 'string' },
+    { name: 'maxSupply', type: 'uint256' },
+    { name: 'mintPrice', type: 'uint256' },
+    { name: 'maxPerWallet', type: 'uint256' },
+    { name: 'royaltyBps', type: 'uint16' },
+    { name: 'placeholderURI', type: 'string' },
+    { name: 'contractURI', type: 'string' },
+    { name: 'merkleRoot', type: 'bytes32' },
+    { name: 'dutchStartPrice', type: 'uint256' },
+    { name: 'dutchEndPrice', type: 'uint256' },
+    { name: 'dutchStartTime', type: 'uint256' },
+    { name: 'dutchDuration', type: 'uint256' },
+    { name: 'initialPhase', type: 'uint8' },
+  ]}], outputs: [{ name: 'id', type: 'uint256' }, { name: 'collection', type: 'address' }], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'getCollection', inputs: [{ name: 'id', type: 'uint256' }], outputs: [{ name: '', type: 'tuple', components: [
+    { name: 'id', type: 'uint256' },
+    { name: 'collection', type: 'address' },
+    { name: 'creator', type: 'address' },
+    { name: 'name', type: 'string' },
+    { name: 'symbol', type: 'string' },
+  ]}], stateMutability: 'view' },
+  { type: 'function', name: 'getCollectionCount', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'getAllCollections', inputs: [], outputs: [{ name: '', type: 'address[]' }], stateMutability: 'view' },
+  { type: 'function', name: 'dropTemplate', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
+  { type: 'function', name: 'protocolFeeBps', inputs: [], outputs: [{ name: '', type: 'uint16' }], stateMutability: 'view' },
+  { type: 'event', name: 'CollectionCreated', inputs: [
+    { name: 'id', type: 'uint256', indexed: true },
+    { name: 'collection', type: 'address', indexed: true },
+    { name: 'creator', type: 'address', indexed: true },
+    { name: 'name', type: 'string', indexed: false },
+    { name: 'symbol', type: 'string', indexed: false },
+    { name: 'maxSupply', type: 'uint256', indexed: false },
+  ] },
+  { type: 'event', name: 'CollectionCreatedV2', inputs: [
+    { name: 'id', type: 'uint256', indexed: true },
+    { name: 'collection', type: 'address', indexed: true },
+    { name: 'creator', type: 'address', indexed: true },
+    { name: 'contractURI', type: 'string', indexed: false },
+    { name: 'merkleRoot', type: 'bytes32', indexed: false },
+    { name: 'initialPhase', type: 'uint8', indexed: false },
+  ] },
+] as const;
+
+// ─── TegridyDropV2 (V2 clone — adds contractURI + setContractURI) ─────
+export const TEGRIDY_DROP_V2_ABI = [
+  // Mint surface (same bytes4s as v1)
+  { type: 'function', name: 'mint', inputs: [{ name: 'quantity', type: 'uint256' }, { name: 'proof', type: 'bytes32[]' }], outputs: [], stateMutability: 'payable' },
+  { type: 'function', name: 'currentPrice', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'totalSupply', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'maxSupply', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'mintPhase', inputs: [], outputs: [{ name: '', type: 'uint8' }], stateMutability: 'view' },
+  { type: 'function', name: 'merkleRoot', inputs: [], outputs: [{ name: '', type: 'bytes32' }], stateMutability: 'view' },
+  { type: 'function', name: 'mintPrice', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'maxPerWallet', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'owner', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
+  { type: 'function', name: 'creator', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
+  { type: 'function', name: 'paidPerWallet', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'mintedPerWallet', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'revealed', inputs: [], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
+  { type: 'function', name: 'paused', inputs: [], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
+  // V2-only: ERC-7572 contractURI surface
+  { type: 'function', name: 'contractURI', inputs: [], outputs: [{ name: '', type: 'string' }], stateMutability: 'view' },
+  { type: 'function', name: 'setContractURI', inputs: [{ name: 'uri', type: 'string' }], outputs: [], stateMutability: 'nonpayable' },
+  // Admin setters
+  { type: 'function', name: 'setMintPhase', inputs: [{ name: 'phase', type: 'uint8' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'setMerkleRoot', inputs: [{ name: 'root', type: 'bytes32' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'setMintPrice', inputs: [{ name: 'price', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'setMaxPerWallet', inputs: [{ name: 'max', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'setBaseURI', inputs: [{ name: 'uri', type: 'string' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'reveal', inputs: [{ name: 'revealURI', type: 'string' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'configureDutchAuction', inputs: [
+    { name: 'startPrice', type: 'uint256' },
+    { name: 'endPrice', type: 'uint256' },
+    { name: 'startTime', type: 'uint256' },
+    { name: 'duration', type: 'uint256' },
+  ], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'pause', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'unpause', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'withdraw', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'cancelSale', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'refund', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'transferOwnership', inputs: [{ name: 'newOwner', type: 'address' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'acceptOwnership', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'tokenURI', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ name: '', type: 'string' }], stateMutability: 'view' },
+] as const;
+
 // ─── TegridyDrop (NFT Collection Instance) ────────────────────
 export const TEGRIDY_DROP_ABI = [
   { type: 'function', name: 'mint', inputs: [{ name: 'quantity', type: 'uint256' }, { name: 'proof', type: 'bytes32[]' }], outputs: [], stateMutability: 'payable' },

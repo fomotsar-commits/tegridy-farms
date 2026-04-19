@@ -64,44 +64,44 @@ export function LimitOrderTab() {
 
   return (
     <div className="p-5">
-      <p className="text-white text-[11px] mb-3">Set a price target. When the market price reaches your target, the swap executes automatically — your wallet will prompt for approval.</p>
-      <p className="text-amber-400/60 text-[10px] mb-4 bg-amber-900/20 rounded px-2 py-1 border border-amber-700/30">⚠️ Browser-only feature: Orders only execute while this tab is open. This is not an on-chain limit order — closing the tab cancels all pending orders. Use for convenience, not reliability.</p>
+      <p className="text-white text-[11px] mb-3" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Set a price target. When the market price reaches your target, the swap executes automatically &mdash; your wallet will prompt for approval.</p>
+      <p className="text-amber-300 text-[10px] mb-4 rounded px-2 py-1.5 border border-amber-500/50" style={{ background: 'rgba(0,0,0,0.70)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>&#9888; Browser-only feature: Orders only execute while this tab is open. This is not an on-chain limit order &mdash; closing the tab cancels all pending orders. Use for convenience, not reliability.</p>
 
       {/* Amount */}
       <div className="mb-3">
         <div className="flex items-center justify-between mb-1.5">
-          <label htmlFor="limit-amount" className="text-white text-[11px]">Amount (ETH)</label>
-          <span className="text-white/70 text-[10px] font-mono">Max: {MAX_AMOUNT_ETH} ETH</span>
+          <label htmlFor="limit-amount" className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Amount (ETH)</label>
+          <span className="text-white/90 text-[10px] font-mono" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Max: {MAX_AMOUNT_ETH} ETH</span>
         </div>
         <input id="limit-amount" type="number" inputMode="decimal" value={amount} onChange={handleAmountChange}
           onKeyDown={blockNegativeKey}
           placeholder="0.1" min="0" max={MAX_AMOUNT_ETH} step="0.01"
-          className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
-          style={{ border: '1px solid rgba(255,255,255,0.20)' }} />
+          className="w-full font-mono text-[16px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
+          style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }} />
       </div>
 
       {/* Target Price */}
       <div className="mb-3">
-        <label htmlFor="limit-target-price" className="text-white text-[11px] mb-1.5 block">Target Price (TOWELI per ETH)</label>
+        <label htmlFor="limit-target-price" className="text-white text-[11px] mb-1.5 block" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Target Price (TOWELI per ETH)</label>
         <input id="limit-target-price" type="number" inputMode="decimal" value={targetPrice} onChange={handlePriceChange}
           onKeyDown={blockNegativeKey}
           placeholder="25000000" min="0"
-          className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
-          style={{ border: '1px solid rgba(255,255,255,0.20)' }} />
+          className="w-full font-mono text-[16px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
+          style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }} />
       </div>
 
       {/* Expiry */}
       <div className="mb-4">
-        <span id="limit-expiry-label" className="text-white text-[11px] mb-1.5 block">Expires In</span>
+        <span id="limit-expiry-label" className="text-white text-[11px] mb-1.5 block" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Expires In</span>
         <div className="flex gap-1.5" role="group" aria-labelledby="limit-expiry-label">
           {EXPIRY_OPTIONS.map((opt, i) => (
             <button key={opt.label} onClick={() => setExpiryIdx(i)}
               aria-pressed={expiryIdx === i}
-              className="flex-1 py-2 min-h-[44px] rounded-lg text-[11px] font-medium cursor-pointer transition-all"
+              className="flex-1 py-2 min-h-[44px] rounded-lg text-[11px] font-medium cursor-pointer transition-all text-white"
               style={{
-                background: expiryIdx === i ? 'var(--color-purple-75)' : 'rgba(0,0,0,0.55)',
-                color: expiryIdx === i ? 'var(--color-primary)' : 'rgba(255,255,255,0.4)',
-                border: expiryIdx === i ? '1px solid var(--color-purple-75)' : '1px solid rgba(255,255,255,0.25)',
+                background: expiryIdx === i ? 'var(--color-stan)' : 'rgba(0,0,0,0.55)',
+                border: expiryIdx === i ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.18)',
+                boxShadow: expiryIdx === i ? '0 4px 12px var(--color-stan-40)' : undefined,
               }}>
               {opt.label}
             </button>

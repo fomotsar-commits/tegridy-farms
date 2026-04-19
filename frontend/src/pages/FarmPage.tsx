@@ -216,7 +216,7 @@ export default function FarmPage() {
           <div className="absolute inset-0">
             <img src={ART.bobowelie.src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
-          <div className="relative z-10 p-6 py-8 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-6 py-6 md:py-7 flex flex-col md:flex-row md:items-center justify-between gap-3" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <div>
               <div className="flex items-center gap-2 mb-1.5">
                 <span className="text-white text-[17px] font-semibold">Season {CURRENT_SEASON.number}: {CURRENT_SEASON.name}</span>
@@ -272,21 +272,21 @@ export default function FarmPage() {
             <div className="glass-card p-5 rounded-xl" style={{ border: '1px solid var(--color-purple-12)' }}>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
                 <div>
-                  <p className="text-white/50 text-[10px] uppercase tracking-wider mb-0.5">Status</p>
+                  <p className="text-white/90 text-[10px] uppercase tracking-wider mb-0.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Status</p>
                   <p className="stat-value text-[14px]" style={{ color: restaking.isRestaked ? '#22c55e' : 'var(--color-purple-75)' }}>
                     {restaking.isRestaked ? 'Active' : 'Not Restaked'}
                   </p>
                 </div>
                 <div>
-                  <p className="text-white/50 text-[10px] uppercase tracking-wider mb-0.5">Restaked</p>
+                  <p className="text-white/90 text-[10px] uppercase tracking-wider mb-0.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Restaked</p>
                   <p className="stat-value text-[14px] text-white">{restaking.restakedFormatted.toLocaleString()} TOWELI</p>
                 </div>
                 <div>
-                  <p className="text-white/50 text-[10px] uppercase tracking-wider mb-0.5">Pending Rewards</p>
+                  <p className="text-white/90 text-[10px] uppercase tracking-wider mb-0.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Pending Rewards</p>
                   <p className="stat-value text-[14px] text-green-400">{restaking.pendingTotalFormatted.toFixed(4)} TOWELI</p>
                 </div>
                 <div>
-                  <p className="text-white/50 text-[10px] uppercase tracking-wider mb-0.5">Total Restaked (Protocol)</p>
+                  <p className="text-white/90 text-[10px] uppercase tracking-wider mb-0.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Total Restaked (Protocol)</p>
                   <p className="stat-value text-[14px] text-white">{restaking.totalRestakedFormatted.toLocaleString()}</p>
                 </div>
               </div>

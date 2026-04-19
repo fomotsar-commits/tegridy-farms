@@ -26,8 +26,11 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
     }
   }, [lpFarm.isSuccess]);
 
-  // Loading skeleton
-  if (lpFarm.isDeployed && lpFarm.isReadLoading) {
+  // Loading skeleton — render whenever we're still reading, regardless of deploy status.
+  // Prior guard (`isDeployed && isReadLoading`) skipped the skeleton when isDeployed was
+  // still undefined at first render, leaving the section blank for the critical first
+  // frame. See audit blocker: LPFarmingSection double-return null.
+  if (lpFarm.isReadLoading) {
     return (
       <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
         <div className="flex items-center justify-between mb-5">
@@ -51,7 +54,34 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
     );
   }
 
-  if (!lpFarm.isDeployed || lpFarm.isReadLoading) return null;
+  // Contract not deployed — render a lightweight "coming soon" panel rather than
+  // returning null, so the section slot is acknowledged in the page flow.
+  if (!lpFarm.isDeployed) {
+    return (
+      <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h2 className="heading-luxury text-white text-[22px] tracking-tight" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>LP Farming</h2>
+            <p className="text-white/85 text-[13px] mt-0.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Stake LP tokens &middot; earn TOWELI rewards</p>
+          </div>
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">SOON</span>
+        </div>
+        <div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid var(--color-purple-40)' }}>
+          <div className="absolute inset-0">
+            <img src={ART.smokingDuo.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
+          </div>
+          <div className="relative z-10 p-8 text-center" style={{ background: 'rgba(6,12,26,0.65)' }}>
+            <p className="text-white/90 text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+              LP farming contract is not yet deployed on this network.
+            </p>
+            <p className="text-white/70 text-[11px] mt-1.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+              Provide liquidity on the Trade page &rarr; Liquidity tab in the meantime.
+            </p>
+          </div>
+        </div>
+      </m.div>
+    );
+  }
 
   return (
     <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>

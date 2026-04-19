@@ -1,4 +1,5 @@
-import { m } from 'framer-motion';
+import { useState, useEffect } from 'react';
+import { m, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
@@ -15,6 +16,38 @@ import { FlashValue } from '../components/FlashValue';
 import { ReferralWidget } from '../components/ReferralWidget';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { YieldCalculator } from '../components/ui/YieldCalculator';
+import { TOWELIE_QUOTES } from '../lib/copy';
+
+const CORE_LOOP_STEPS = [
+  { label: 'People trade TOWELI',     sub: 'on the Tegridy DEX',        art: '/art/mumu-bull.jpg' },
+  { label: 'Every swap skims a fee',  sub: '0.3% on each trade',        art: '/art/bobowelie.jpg' },
+  { label: '100% flows to stakers',   sub: 'paid out in ETH',           art: '/art/pool-party.jpg' },
+  { label: 'Longer lock + NFT',       sub: 'bigger slice of the ETH',   art: '/art/boxing-ring.jpg' },
+];
+
+const HOW_IT_WORKS_STEPS = [
+  {
+    step: '1',
+    title: 'Get Some Towelies',
+    desc: 'Swap ETH for TOWELI on the Tegridy DEX. Nine routes checked, best price picked \u2014 Randy does the math so you don\u2019t have to.',
+    to: '/swap',
+    art: '/art/towelie-window.jpg',
+  },
+  {
+    step: '2',
+    title: 'Lock It Down',
+    desc: 'From The Taste Test (7d) to Till Death Do Us Farm (4y). Longer lock + NFT boost = up to 4.5x share.',
+    to: '/farm',
+    art: '/art/smoking-duo.jpg',
+  },
+  {
+    step: '3',
+    title: 'Harvest the Tegridy',
+    desc: '100% of every swap fee pays out in ETH. Not tokens, not IOUs \u2014 ETH. Claim whenever the crop looks ripe.',
+    to: '/dashboard',
+    art: '/art/pool-party.jpg',
+  },
+];
 
 export default function HomePage() {
   usePageTitle('Home', 'Earn ETH yields on Ethereum. Stake TOWELI & earn 100% of protocol revenue.');
@@ -28,6 +61,16 @@ export default function HomePage() {
 
   // Use PriceContext price (useToweliPrice already fetches from GeckoTerminal as fallback)
   const effectiveToweliPrice = price.priceInUsd > 0 ? formatCurrency(price.priceInUsd, 6) : stats.toweliPrice;
+
+  // Rotating Towelie one-liner under the hero CTAs — pure personality surface,
+  // never blocks interaction. Starts on a random quote so repeat visits feel fresh.
+  const [quoteIdx, setQuoteIdx] = useState(() => Math.floor(Math.random() * TOWELIE_QUOTES.length));
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setQuoteIdx(i => (i + 1) % TOWELIE_QUOTES.length);
+    }, 7000);
+    return () => window.clearInterval(id);
+  }, []);
 
   return (
     <div className="-mt-14 relative min-h-screen">
@@ -45,7 +88,8 @@ export default function HomePage() {
             </h1>
 
             <p className="text-white text-base md:text-lg mb-6 max-w-md leading-relaxed">
-              Stake TOWELI & LP tokens to earn rewards. 100% of protocol revenue goes to stakers.
+              Stake TOWELI. Every swap on the DEX feeds ETH back to stakers &mdash; 100% of it.
+              Real farm. Real yield. Earned with tegridy.
             </p>
 
             <div className="flex flex-wrap gap-3">
@@ -72,6 +116,24 @@ export default function HomePage() {
                 style={{ background: 'linear-gradient(135deg, #d4a843 0%, #b8892e 100%)', color: '#0a0a0f' }}>
                 Buy TOWELI
               </Link>
+            </div>
+
+            {/* Rotating Towelie one-liner — the personality beat right next to
+                the CTAs that the front-end critique flagged as missing. */}
+            <div className="mt-4 min-h-[22px]" aria-live="polite">
+              <AnimatePresence mode="wait">
+                <m.span
+                  key={quoteIdx}
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.4 }}
+                  className="inline-flex items-baseline gap-2 text-[12px] italic"
+                >
+                  <span className="text-white/80">&ldquo;{TOWELIE_QUOTES[quoteIdx]}&rdquo;</span>
+                  <span className="text-[10px] not-italic" style={{ color: 'var(--color-weed)' }}>&mdash; Towelie</span>
+                </m.span>
+              </AnimatePresence>
             </div>
 
             {/* Audit trust badge — visible in hero so first-time visitors
@@ -110,31 +172,88 @@ export default function HomePage() {
               { l: 'Base APR', v: pool.isDeployed && pool.apr !== '0' ? `${pool.apr}%` : '–' },
               { l: 'ETH Distributed', v: revenueStats.totalDistributed > 0 ? `${revenueStats.totalDistributed.toFixed(4)} ETH` : '–' },
             ].map((s) => (
-              <div key={s.l} className="glass-card flex items-center gap-3 px-4 py-2.5">
-                <span className="text-white text-[12px] flex items-center gap-1.5">{s.l}{s.showSparkline && <PulseDot size={5} />}</span>
+              <div key={s.l} className="flex items-center gap-3 px-4 py-2.5 rounded-lg"
+                style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid rgba(76,175,80,0.35)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
+                {/* Kyle green on stats text over black pill for maximum visibility on brown/purple art. */}
+                <span className="text-[12px] flex items-center gap-1.5" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{s.l}{s.showSparkline && <PulseDot size={5} />}</span>
                 {s.showSparkline ? (
                   <FlashValue value={price.priceInUsd}>
-                    <span className="stat-value text-white text-[13px]">{(!s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-black/60 shimmer" /> : s.v}</span>
+                    <span className="stat-value text-[13px]" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{(!s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-black/60 shimmer" /> : s.v}</span>
                   </FlashValue>
                 ) : (
-                  <span className="stat-value text-white text-[13px]">{(!s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-black/60 shimmer" /> : s.v}</span>
+                  <span className="stat-value text-[13px]" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{(!s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-black/60 shimmer" /> : s.v}</span>
                 )}
                 {s.showSparkline && priceData.length > 1 && (
                   <Sparkline data={priceData} width={48} height={16} />
                 )}
                 {s.showSparkline && priceError && priceData.length === 0 && (
-                  <span className="text-white text-[10px]">Price data unavailable</span>
+                  <span className="text-[10px]" style={{ color: 'var(--color-kyle)' }}>Price data unavailable</span>
                 )}
               </div>
             ))}
           </m.div>
         </div>
 
+        {/* Core Loop — the 10-second explainer.
+            Directly addresses the critique that new visitors don't grasp
+            TOWELI-trade → ETH-fee → stakers → bigger-lock flow fast enough. */}
+        <m.div
+          className="pb-16"
+          initial={{ opacity: 0, y: 15 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+        >
+          <div className="relative rounded-2xl overflow-hidden" style={{ border: '1px solid var(--color-weed-40)' }}>
+            <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+              <img src={ART.smokingDuo.src} alt="" className="w-full h-full object-cover" loading="lazy" />
+            </div>
+            <div className="relative p-5 md:p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-weed)' }} />
+                <span className="text-[10px] uppercase tracking-[0.18em] text-white/90" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>The Core Loop</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr] items-stretch gap-3 md:gap-2">
+                {CORE_LOOP_STEPS.flatMap((step, i) => {
+                  const box = (
+                    <div
+                      key={`loop-step-${i}`}
+                      className="relative rounded-xl overflow-hidden text-center flex flex-col justify-center min-h-[88px]"
+                      style={{ border: '1px solid var(--color-weed-40)' }}
+                    >
+                      <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+                        <img src={step.art} alt="" loading="lazy" className="w-full h-full object-cover" />
+                      </div>
+                      <div className="relative p-3 md:p-4">
+                        <div className="text-white text-[13px] md:text-[14px] font-semibold leading-tight" style={{ textShadow: '0 2px 8px rgba(0,0,0,1), 0 0 4px rgba(0,0,0,1)' }}>{step.label}</div>
+                        <div className="text-white text-[11px] mt-1" style={{ textShadow: '0 2px 8px rgba(0,0,0,1), 0 0 4px rgba(0,0,0,1)' }}>{step.sub}</div>
+                      </div>
+                    </div>
+                  );
+                  const isLast = i === CORE_LOOP_STEPS.length - 1;
+                  if (isLast) return [box];
+                  const arrow = (
+                    <div
+                      key={`loop-arrow-${i}`}
+                      className="flex items-center justify-center"
+                      style={{ color: 'var(--color-weed)' }}
+                      aria-hidden="true"
+                    >
+                      <span className="md:hidden text-[20px] leading-none">&darr;</span>
+                      <span className="hidden md:inline text-[22px] leading-none">&rarr;</span>
+                    </div>
+                  );
+                  return [box, arrow];
+                })}
+              </div>
+            </div>
+          </div>
+        </m.div>
+
         {/* Protocol Overview */}
         <div className="pb-16">
           <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
-            <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1">Protocol Overview</h2>
-            <p className="text-white text-[13px]">Farm, swap, and track your positions.</p>
+            <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Protocol Overview</h2>
+            <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Farm, swap, and track your positions.</p>
           </m.div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -150,11 +269,11 @@ export default function HomePage() {
                     <img src={f.art} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
                   </div>
                   <div className="relative z-10 p-6 min-h-[220px] flex flex-col">
-                    <h3 className="heading-luxury text-[17px] text-white mb-2 group-hover:text-white transition-colors">{f.title}</h3>
-                    <p className="text-white text-[13px] leading-relaxed mb-auto">{f.desc}</p>
+                    <h3 className="heading-luxury text-[17px] text-white mb-2 group-hover:text-white transition-colors" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{f.title}</h3>
+                    <p className="text-white text-[13px] leading-relaxed mb-auto" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{f.desc}</p>
                     <div className="pt-4 flex items-center justify-between mt-4" style={{ borderTop: '1px solid var(--color-purple-75)' }}>
-                      <span className="stat-value text-white text-[16px]">{f.stat}</span>
-                      <span className="text-white text-[11px] uppercase tracking-wider label-pill">{f.label}</span>
+                      <span className="stat-value text-white text-[16px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{f.stat}</span>
+                      <span className="text-white text-[11px] uppercase tracking-wider label-pill" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{f.label}</span>
                     </div>
                   </div>
                 </Link>
@@ -166,19 +285,28 @@ export default function HomePage() {
         {/* How It Works */}
         <div className="pb-16">
           <m.div initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
-            <h2 className="heading-luxury text-xl text-white tracking-tight mb-6 text-center">How It Works</h2>
+            <h2 className="heading-luxury text-xl text-white tracking-tight mb-1 text-center" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>How It Works</h2>
+            <p className="text-white/90 text-[12px] text-center mb-6" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Three steps. No bullshit. Real tegridy.</p>
           </m.div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {[
-              { step: '1', title: 'Buy TOWELI', desc: 'Swap ETH for TOWELI on our DEX with smart routing across 9 sources.', to: '/swap' },
-              { step: '2', title: 'Stake & Lock', desc: 'Lock 7 days to 4 years. Longer lock = higher boost (up to 4.5x with NFT).', to: '/farm' },
-              { step: '3', title: 'Earn ETH Revenue', desc: '100% of protocol fees distributed to stakers as ETH. Claim anytime.', to: '/dashboard' },
-            ].map((s, i) => (
+            {HOW_IT_WORKS_STEPS.map((s, i) => (
               <m.div key={s.step} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.1 }}>
-                <Link to={s.to} className="block glass-card rounded-xl p-5 hover:border-emerald-600/30 transition-colors" style={{ border: '1px solid var(--color-purple-12)' }}>
-                  <span className="inline-flex w-8 h-8 shrink-0 rounded-full bg-emerald-600/20 border border-emerald-600/40 text-emerald-400 text-[14px] font-bold leading-none items-center justify-center mb-3">{s.step}</span>
-                  <h3 className="text-white text-[15px] font-semibold mb-1">{s.title}</h3>
-                  <p className="text-white/60 text-[12px] leading-relaxed">{s.desc}</p>
+                <Link to={s.to} className="relative block rounded-xl overflow-hidden transition-transform hover:scale-[1.015] h-full"
+                  style={{ border: '1px solid var(--color-purple-40)' }}>
+                  {/* Art background keeps each step card visually unique.
+                      Text readability comes from layered text-shadow, not a scrim —
+                      so the art shows at full brightness. */}
+                  <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+                    <img src={s.art} alt="" loading="lazy" className="w-full h-full object-cover" />
+                  </div>
+                  <div className="relative p-5">
+                    <span className="inline-flex w-8 h-8 shrink-0 rounded-full text-[14px] font-bold leading-none items-center justify-center mb-3"
+                      style={{ background: 'var(--color-weed-60)', border: '2px solid #fff', color: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.6)' }}>
+                      {s.step}
+                    </span>
+                    <h3 className="text-white text-[15px] font-semibold mb-1" style={{ textShadow: '0 2px 8px rgba(0,0,0,1), 0 0 4px rgba(0,0,0,1)' }}>{s.title}</h3>
+                    <p className="text-white text-[12px] leading-relaxed" style={{ textShadow: '0 2px 8px rgba(0,0,0,1), 0 0 4px rgba(0,0,0,1)' }}>{s.desc}</p>
+                  </div>
                 </Link>
               </m.div>
             ))}
@@ -196,12 +324,14 @@ export default function HomePage() {
             ].map((b) => (
               'href' in b ? (
                 <a key={b.label} href={b.href} target="_blank" rel="noopener noreferrer"
-                  className="glass-card px-4 py-2 rounded-lg text-white/60 text-[11px] hover:text-white transition-colors flex items-center gap-1.5">
+                  className="px-4 py-2 rounded-lg text-white text-[11px] hover:text-white transition-colors flex items-center gap-1.5"
+                  style={{ background: 'rgba(6,12,26,0.78)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid var(--color-purple-40)' }}>
                   <span className="text-emerald-400">&#10003;</span> {b.label}
                 </a>
               ) : (
                 <Link key={b.label} to={b.to}
-                  className="glass-card px-4 py-2 rounded-lg text-white/60 text-[11px] hover:text-white transition-colors flex items-center gap-1.5">
+                  className="px-4 py-2 rounded-lg text-white text-[11px] hover:text-white transition-colors flex items-center gap-1.5"
+                  style={{ background: 'rgba(6,12,26,0.78)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid var(--color-purple-40)' }}>
                   <span className="text-emerald-400">&#10003;</span> {b.label}
                 </Link>
               )

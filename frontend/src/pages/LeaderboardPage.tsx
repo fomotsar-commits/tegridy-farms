@@ -29,7 +29,7 @@ export default function LeaderboardPage() {
         <img src={JB_CHRISTMAS_SRC} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
       </div>
 
-      <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
+      <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-32 pb-28 md:pb-12">
         <div className="rounded-xl p-4 mb-6" style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.2)' }}>
           <p className="text-yellow-400 text-[13px] font-semibold mb-1">On-Chain Verified Points</p>
           <p className="text-white/60 text-[12px]">All points are now derived exclusively from on-chain activity (swaps, staking, LP, referrals). Client-side streaks have been removed for integrity.</p>
@@ -37,8 +37,10 @@ export default function LeaderboardPage() {
 
         <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Leaderboard</h1>
-          <p className="text-white text-[14px]">{CURRENT_SEASON.name} — Earn points by using the protocol</p>
-          <p className="text-amber-400/50 text-[11px] mt-1">Points are tracked locally for fun. Any future rewards will be based on on-chain activity only.</p>
+          <div className="rounded-lg p-3 inline-block max-w-full" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <p className="text-[14px] font-medium" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{CURRENT_SEASON.name} — Earn points by using the protocol</p>
+            <p className="text-[11px] mt-1" style={{ color: '#22c55e', opacity: 0.85, textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Points are tracked locally for fun. Any future rewards will be based on on-chain activity only.</p>
+          </div>
         </m.div>
 
         {/* Tegridy Score */}
@@ -134,12 +136,17 @@ export default function LeaderboardPage() {
           </m.div>
         )}
 
-        {/* Empty state for non-connected users */}
+        {/* Empty state for non-connected users — hero-style welcome card with art */}
         {!isConnected && (
           <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-            <div className="rounded-xl p-8 text-center" style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' }}>
-              <p className="text-white/70 text-[13px]">No participants yet. Stake TOWELI to earn your first points!</p>
-              <p className="text-white/25 text-[11px] mt-1">Connect your wallet to start earning points, badges, and tier rewards.</p>
+            <div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid var(--color-purple-40)' }}>
+              <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+                <img src={ART.apeHug.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
+              </div>
+              <div className="relative z-10 p-8 text-center" style={{ background: 'rgba(6,12,26,0.55)' }}>
+                <p className="text-white text-[14px] font-medium mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>No participants yet. Stake TOWELI to earn your first points!</p>
+                <p className="text-white/85 text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Connect your wallet to start earning points, badges, and tier rewards.</p>
+              </div>
             </div>
           </m.div>
         )}

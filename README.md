@@ -307,7 +307,8 @@ All contracts are verified on Etherscan; click any address to view source.
 | RevenueDistributor | [`0x332aa…264D8`](https://etherscan.io/address/0x332aaE555b1164eA45c2291fD7eDfa97aAA264D8#code) |
 | SwapFeeRouter | [`0xea13C…937A0`](https://etherscan.io/address/0xea13Cd47a37cC5B59675bfd52BFc8ff8691937A0#code) |
 | POLAccumulator | [`0x17215…B7Ca`](https://etherscan.io/address/0x17215f0dfA5E97c33c025E0560eeddffaD87B7Ca#code) |
-| TegridyLPFarming | [`0xa5AB5…D77c`](https://etherscan.io/address/0xa5AB522C99F86dEd9F429766872101c75517D77c#code) |
+| TegridyLPFarming (C-01 fixed) | [`0xa7EF7…9ec1`](https://etherscan.io/address/0xa7EF711Be3662B9557634502032F98944eC69ec1#code) |
+| TegridyFeeHook (V4 hook, ends `0x0044`) | [`0xB6cfe…0044`](https://etherscan.io/address/0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044#code) |
 
 </details>
 
@@ -316,9 +317,10 @@ All contracts are verified on Etherscan; click any address to view source.
 
 | Contract | Address |
 |---|---|
-| GaugeController | [`0xb6E4C…B414`](https://etherscan.io/address/0xb6E4CFCb83D846af159b9c653240426841AEB414#code) |
+| GaugeController (H-2 commit-reveal) | [`0xb9326…0Fdb`](https://etherscan.io/address/0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb#code) |
 | VoteIncentives | [`0x417F4…Cf1A`](https://etherscan.io/address/0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A#code) |
-| TegridyLaunchpad | [`0x5d597…FF3C2`](https://etherscan.io/address/0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2#code) |
+| TegridyLaunchpad (v1) | [`0x5d597…FF3C2`](https://etherscan.io/address/0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2#code) |
+| TegridyLaunchpadV2 (click-deploy w/ ERC-7572 contractURI) | _pending broadcast — placeholder `0x0…0` until deploy_ |
 | TegridyNFTPoolFactory | [`0x1C0e1…04f0`](https://etherscan.io/address/0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0#code) |
 
 </details>
@@ -329,8 +331,9 @@ All contracts are verified on Etherscan; click any address to view source.
 | Contract | Address |
 |---|---|
 | TegridyLending | [`0xd471e…3367f`](https://etherscan.io/address/0xd471e5675EaDbD8C192A5dA2fF44372D5713367f#code) |
-| TegridyNFTLending | [`0x63baD…968aD`](https://etherscan.io/address/0x63baD13f89186E0769F636D4Cd736eB26E2968aD#code) |
-| TegridyTWAP | [`0x1394A…dBe25`](https://etherscan.io/address/0x1394A256e127814B52244Bbd0CCB94f0007dBe25#code) |
+| TegridyNFTLending (C-02 grace period) | [`0x05409…B139`](https://etherscan.io/address/0x05409880aDFEa888F2c93568B8D88c7b4aAdB139#code) |
+| TegridyTokenURIReader | [`0xfec9a…1eb2`](https://etherscan.io/address/0xfec9aea42ea966c9382eeb03f63a784579841eb2#code) |
+| TegridyTWAP | [`0xddbe4…4995`](https://etherscan.io/address/0xddbe4cd58faf4b0b93e4e03a2493327ee3bb4995#code) |
 
 </details>
 

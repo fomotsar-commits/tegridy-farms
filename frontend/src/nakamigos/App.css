@@ -222,8 +222,11 @@
 }
 .nakamigos-app select option { background: var(--surface); color: var(--text); }
 
-/* ═══ Buttons ═══ */
-.btn-primary {
+/* ═══ Buttons ═══
+   Scoped under .nakamigos-app because these rules were leaking out to the
+   whole app and overriding the main .btn-primary (Kyle green gradient).
+   Nakamigos keeps its gold button palette locally. */
+.nakamigos-app .btn-primary {
   font-family: var(--display); font-size: 9px; font-weight: 700;
   padding: 15px; min-height: 44px; border-radius: 12px; cursor: pointer; border: none;
   background: linear-gradient(135deg, var(--gold), var(--gold-dim), #b8944a);
@@ -232,16 +235,16 @@
   transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative; overflow: hidden;
 }
-.btn-primary:hover {
+.nakamigos-app .btn-primary:hover {
   box-shadow: 0 10px 45px rgba(200, 170, 100, 0.45), 0 0 70px rgba(200, 170, 100, 0.15);
   transform: translateY(-3px) scale(1.02);
 }
-.btn-primary:active {
+.nakamigos-app .btn-primary:active {
   transform: translateY(0) scale(0.98);
   transition-duration: 0.1s;
 }
 
-.btn-secondary {
+.nakamigos-app .btn-secondary {
   font-family: var(--display); font-size: 9px; font-weight: 500;
   padding: 15px; min-height: 44px; border-radius: 12px; cursor: pointer;
   border: 1px solid rgba(111, 168, 220, 0.12);
@@ -250,13 +253,13 @@
   transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative; overflow: hidden;
 }
-.btn-secondary:hover {
+.nakamigos-app .btn-secondary:hover {
   background: linear-gradient(145deg, rgba(111, 168, 220, 0.1), rgba(111, 168, 220, 0.03));
   border-color: rgba(111, 168, 220, 0.3);
   box-shadow: 0 8px 30px rgba(111, 168, 220, 0.08), 0 0 50px rgba(111, 168, 220, 0.04);
   transform: translateY(-2px);
 }
-.btn-secondary:active {
+.nakamigos-app .btn-secondary:active {
   transform: translateY(0) scale(0.98);
   transition-duration: 0.1s;
 }

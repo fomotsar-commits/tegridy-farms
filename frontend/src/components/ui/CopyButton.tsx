@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 
-export function CopyButton({ text, display, className = '' }: { text: string; display?: string; className?: string }) {
+export function CopyButton({ text, display, className = '', style }: { text: string; display?: string; className?: string; style?: React.CSSProperties }) {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -31,7 +31,8 @@ export function CopyButton({ text, display, className = '' }: { text: string; di
   return (
     <button
       onClick={handleCopy}
-      className={`inline-flex items-center gap-1.5 cursor-pointer transition-colors hover:text-white ${className}`}
+      className={`inline-flex items-center gap-1.5 cursor-pointer transition-opacity hover:opacity-80 ${className}`}
+      style={style}
       title="Copy to clipboard"
     >
       {display ?? text}

@@ -75,7 +75,7 @@ export function TegridyScoreMini() {
           />
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className="stat-value text-2xl text-white">{displayScore}</span>
+          <span className="stat-value text-2xl" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{displayScore}</span>
         </div>
       </div>
       <div>

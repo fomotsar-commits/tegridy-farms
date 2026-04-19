@@ -56,11 +56,13 @@ export default function TermsPage() {
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <img
-          src={ART.forestScene.src}
+          src={ART.jbacSkeleton.src}
           alt=""
           loading="lazy"
           className="w-full h-full object-cover"
         />
+        {/* Dark scrim so the long-form legal copy stays crisp no matter where you scroll */}
+        <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(6,12,26,0.55) 0%, rgba(6,12,26,0.78) 40%, rgba(6,12,26,0.85) 100%)' }} />
       </div>
 
       <div className="relative z-10 max-w-[800px] mx-auto px-4 md:px-6 pt-28 pb-20">

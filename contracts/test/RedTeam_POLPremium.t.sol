@@ -245,7 +245,7 @@ contract RedTeamPOLPremium is Test {
         // ── Fee Hook setup ──
         poolMgr = new MockPoolManagerRT();
         address hookAddr = address(uint160(0x0044));
-        bytes memory args = abi.encode(IPoolManager(address(poolMgr)), distributor, uint256(30));
+        bytes memory args = abi.encode(IPoolManager(address(poolMgr)), distributor, uint256(30), address(this));
         deployCodeTo("TegridyFeeHook.sol:TegridyFeeHook", args, hookAddr);
         hook = TegridyFeeHook(payable(hookAddr));
 

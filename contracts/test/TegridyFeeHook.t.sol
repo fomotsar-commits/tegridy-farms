@@ -28,7 +28,7 @@ contract TegridyFeeHookTest is Test {
         // The TegridyFeeHook constructor requires: uint160(address(this)) & 0x0044 == 0x0044
         // Use deployCodeTo to place the contract at a valid hook address.
         address hookAddr = address(uint160(0x0044));
-        bytes memory args = abi.encode(IPoolManager(address(poolManager)), distributor, INITIAL_FEE);
+        bytes memory args = abi.encode(IPoolManager(address(poolManager)), distributor, INITIAL_FEE, owner);
         deployCodeTo("TegridyFeeHook.sol:TegridyFeeHook", args, hookAddr);
         hook = TegridyFeeHook(payable(hookAddr));
     }
@@ -43,17 +43,26 @@ contract TegridyFeeHookTest is Test {
 
     function test_constructor_revert_zeroPoolManager() public {
         vm.expectRevert(TegridyFeeHook.ZeroAddress.selector);
-        new TegridyFeeHook(IPoolManager(address(0)), distributor, INITIAL_FEE);
+        new TegridyFeeHook(IPoolManager(address(0)), distributor, INITIAL_FEE, owner);
     }
 
     function test_constructor_revert_zeroDistributor() public {
         vm.expectRevert(TegridyFeeHook.ZeroAddress.selector);
-        new TegridyFeeHook(IPoolManager(address(poolManager)), address(0), INITIAL_FEE);
+        new TegridyFeeHook(IPoolManager(address(poolManager)), address(0), INITIAL_FEE, owner);
+    }
+
+    function test_constructor_revert_zeroOwner() public {
+        // OwnableNoRenounce(address(0)) reverts with OwnableInvalidOwner — we don't
+        // duplicate the zero check in TegridyFeeHook's own body.
+        vm.expectRevert(
+            abi.encodeWithSignature("OwnableInvalidOwner(address)", address(0))
+        );
+        new TegridyFeeHook(IPoolManager(address(poolManager)), distributor, INITIAL_FEE, address(0));
     }
 
     function test_constructor_revert_feeTooHigh() public {
         vm.expectRevert(TegridyFeeHook.FeeTooHigh.selector);
-        new TegridyFeeHook(IPoolManager(address(poolManager)), distributor, 101);
+        new TegridyFeeHook(IPoolManager(address(poolManager)), distributor, 101, owner);
     }
 
     // ─── Deprecated setFee() reverts ────────────────────────────────

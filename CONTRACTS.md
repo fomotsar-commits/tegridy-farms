@@ -26,9 +26,9 @@ All addresses are EIP-55 checksummed. Etherscan links use `https://etherscan.io/
 | **TegridyLP (TOWELI/WETH pair)** — Native DEX LP token for TOWELI/WETH. | [`0xeD01d5f52EBE97360133bdeF77305ee24d5f26f6`](https://etherscan.io/address/0xeD01d5f52EBE97360133bdeF77305ee24d5f26f6) | `contracts/src/TegridyPair.sol` | Live |
 | **SwapFeeRouter** — Routes DEX swap fees to RevenueDistributor + POLAccumulator. | [`0xea13Cd47a37cC5B59675bfd52BFc8ff8691937A0`](https://etherscan.io/address/0xea13Cd47a37cC5B59675bfd52BFc8ff8691937A0) | `contracts/src/SwapFeeRouter.sol` | Live |
 | **POLAccumulator** — Protocol-owned-liquidity sink; buys TOWELI and LPs it. | [`0x17215f0dfA5E97c33c025E0560eeddffaD87B7Ca`](https://etherscan.io/address/0x17215f0dfA5E97c33c025E0560eeddffaD87B7Ca) | `contracts/src/POLAccumulator.sol` | Live |
-| **TegridyTWAP** — Time-weighted average price oracle over native pairs. | [`0x1394A256e127814B52244Bbd0CCB94f0007dBe25`](https://etherscan.io/address/0x1394A256e127814B52244Bbd0CCB94f0007dBe25) | `contracts/src/TegridyTWAP.sol` | Live |
-| **TegridyFeeHook** — Per-pair dynamic fee hook. | _pending_ | `contracts/src/TegridyFeeHook.sol` | Not yet deployed — pending CREATE2 salt mining. |
-| **TegridyLPFarming** — Fixed-schedule LP farming rewards vault (C-01 fix). | [`0xa5AB522C99F86dEd9F429766872101c75517D77c`](https://etherscan.io/address/0xa5AB522C99F86dEd9F429766872101c75517D77c) | `contracts/src/TegridyLPFarming.sol` | Live |
+| **TegridyTWAP** — Time-weighted average price oracle over native pairs. | [`0xddbe4cd58faf4b0b93e4e03a2493327ee3bb4995`](https://etherscan.io/address/0xddbe4cd58faf4b0b93e4e03a2493327ee3bb4995) | `contracts/src/TegridyTWAP.sol` | Live (Wave 0 redeploy 2026-04-18) |
+| **TegridyFeeHook** — Per-pair dynamic fee hook; address ends `0x0044` encoding `AFTER_SWAP`+`AFTER_SWAP_RETURNS_DELTA` V4 permissions. | [`0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044`](https://etherscan.io/address/0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044) | `contracts/src/TegridyFeeHook.sol` | Live 2026-04-18 — **owner stranded** on Arachnid CREATE2 proxy; patched constructor accepts `_owner`, redeploy pending. |
+| **TegridyLPFarming** — Fixed-schedule LP farming rewards vault (C-01 fix, `MAX_BOOST_BPS_CEILING=45000`). | [`0xa7EF711Be3662B9557634502032F98944eC69ec1`](https://etherscan.io/address/0xa7EF711Be3662B9557634502032F98944eC69ec1) | `contracts/src/TegridyLPFarming.sol` | Live (Wave 0 redeploy 2026-04-18) |
 
 ---
 
@@ -45,7 +45,7 @@ All addresses are EIP-55 checksummed. Etherscan links use `https://etherscan.io/
 
 | Contract | Address | Source | Status |
 |---|---|---|---|
-| **GaugeController** — veTOWELI-weighted gauge voting for emissions allocation (H-2 commit-reveal). | [`0xb6E4CFCb83D846af159b9c653240426841AEB414`](https://etherscan.io/address/0xb6E4CFCb83D846af159b9c653240426841AEB414) | `contracts/src/GaugeController.sol` | Live |
+| **GaugeController** — veTOWELI-weighted gauge voting for emissions allocation (H-2 commit-reveal). | [`0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb`](https://etherscan.io/address/0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb) | `contracts/src/GaugeController.sol` | Live (Wave 0 redeploy 2026-04-18) |
 | **VoteIncentives** — Bribes market for gauge voters. | [`0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A`](https://etherscan.io/address/0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A) | `contracts/src/VoteIncentives.sol` | Live |
 | **CommunityGrants** — Grant disbursement multisig with milestone gating. | [`0x8f1Ba1eC97a932EE1332BA0f366BC6aDf60B3032`](https://etherscan.io/address/0x8f1Ba1eC97a932EE1332BA0f366BC6aDf60B3032) | `contracts/src/CommunityGrants.sol` | Live |
 | **MemeBountyBoard** — On-chain bounties for meme submissions, voted by veTOWELI. | [`0x3457C2210be35bA7AF6F382a76247Ecd782BF0C9`](https://etherscan.io/address/0x3457C2210be35bA7AF6F382a76247Ecd782BF0C9) | `contracts/src/MemeBountyBoard.sol` | Live |
@@ -57,11 +57,13 @@ All addresses are EIP-55 checksummed. Etherscan links use `https://etherscan.io/
 | Contract | Address | Source | Status |
 |---|---|---|---|
 | **TegridyLending** — ERC20 money market collateralized by TOWELI and LP tokens. | [`0xd471e5675EaDbD8C192A5dA2fF44372D5713367f`](https://etherscan.io/address/0xd471e5675EaDbD8C192A5dA2fF44372D5713367f) | `contracts/src/TegridyLending.sol` | Live |
-| **TegridyNFTLending** — NFT-backed peer-to-pool loans against JBAC/Gold and approved collections. | [`0x63baD13f89186E0769F636D4Cd736eB26E2968aD`](https://etherscan.io/address/0x63baD13f89186E0769F636D4Cd736eB26E2968aD) | `contracts/src/TegridyNFTLending.sol` | Live |
+| **TegridyNFTLending** — NFT-backed peer-to-pool loans against JBAC/Gold and approved collections (C-02 grace period). | [`0x05409880aDFEa888F2c93568B8D88c7b4aAdB139`](https://etherscan.io/address/0x05409880aDFEa888F2c93568B8D88c7b4aAdB139) | `contracts/src/TegridyNFTLending.sol` | Live (Wave 0 redeploy 2026-04-18) |
 | **TegridyNFTPoolFactory** — Deploys isolated NFT lending pools per collection. | [`0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0`](https://etherscan.io/address/0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0) | `contracts/src/TegridyNFTPoolFactory.sol` | Live |
-| **TegridyTokenURIReader** — Fallback tokenURI resolver for non-standard ERC721s. | [`0x0f165D012fA46E267Bd846BdAFf9Fd4607fdD702`](https://etherscan.io/address/0x0f165D012fA46E267Bd846BdAFf9Fd4607fdD702) | `contracts/src/TegridyTokenURIReader.sol` | Live |
+| **TegridyTokenURIReader** — Fallback tokenURI resolver for non-standard ERC721s. | [`0xfec9aea42ea966c9382eeb03f63a784579841eb2`](https://etherscan.io/address/0xfec9aea42ea966c9382eeb03f63a784579841eb2) | `contracts/src/TegridyTokenURIReader.sol` | Live (Wave 0 redeploy 2026-04-18) |
 | **TegridyDrop** — Per-drop ERC721 template deployed by the Launchpad. | _per-drop clones_ | `contracts/src/TegridyDrop.sol` | Live (template) |
-| **TegridyLaunchpad** — NFT launch factory that clones TegridyDrop. | [`0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2`](https://etherscan.io/address/0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2) | `contracts/src/TegridyLaunchpad.sol` | Live |
+| **TegridyDropV2** — V2 drop template with `contractURI` (ERC-7572) + atomic InitParams. | _per-drop clones_ | `contracts/src/TegridyDropV2.sol` | Compiled + tested; factory deploy pending. |
+| **TegridyLaunchpad** — V1 NFT launch factory that clones TegridyDrop. | [`0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2`](https://etherscan.io/address/0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2) | `contracts/src/TegridyLaunchpad.sol` | Live |
+| **TegridyLaunchpadV2** — Click-deploy factory for V2 drops with single `CollectionConfig` struct. | _pending (placeholder `0x0…0` in constants)_ | `contracts/src/TegridyLaunchpadV2.sol` | Compiled + 11 tests pass; broadcast pending. |
 
 ---
 

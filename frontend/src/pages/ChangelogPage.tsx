@@ -8,7 +8,37 @@ interface ChangelogEntry {
   items: string[];
 }
 
+// Each card rotates through a distinct art piece so every entry feels its own.
+// Page bg is jungleBus, so rotation intentionally excludes that piece.
+const CARD_ART = [
+  ART.jbacSkeleton,
+  ART.chaosScene,
+  ART.wrestler,
+  ART.apeHug,
+  ART.boxingRing,
+  ART.smokingDuo,
+  ART.roseApe,
+  ART.danceNight,
+];
+
 const CHANGELOG: ChangelogEntry[] = [
+  {
+    date: 'April 18, 2026',
+    title: 'Visual Identity Refresh',
+    items: [
+      'South Park palette adopted: kyle-green stat text and Kenny-orange day mode',
+      'Dark mode is now the default; light/day mode toggles in manually',
+      'Per-card art with translucent black content panels across Dashboard, Farm, Tokenomics, Changelog, Security, Community, and NFT Finance',
+      'Nakamigos art gallery renamed to Tradermigos across splash, marketplace header, and top-bar action',
+      'Top-bar Points slot swapped for Tradermigos; Points moved into the More dropdown',
+      'More dropdown now opens under the More button instead of spilling under Community',
+      'Collection cards on NFT Lending now use per-project canonical art (JBAC skeleton, Nakamigos pixel, GNSS Art render)',
+      'Launchpad feature bullets recolored with the full South Park character palette',
+      'FAQ + Changelog page-background scrims removed; Tegridy Score ring digit is kyle green',
+      'History page: surface a readable message when the Etherscan proxy returns a non-JSON response instead of the raw "Unexpected token" parse error',
+      'Broken /splash/*.png fallback paths fixed to the actual .jpg assets (kills the broken-image stub in the marketplace header)',
+    ],
+  },
   {
     date: 'April 14, 2026',
     title: 'NFT Finance UX Overhaul',
@@ -71,10 +101,10 @@ export default function ChangelogPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        <img src={ART.jungleBus.src} alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
 
-      <div className="relative z-10 max-w-[800px] mx-auto px-4 md:px-6 pt-28 pb-20">
+      <div className="relative z-10 max-w-[800px] mx-auto px-4 md:px-6 pt-32 pb-20">
         {/* Header */}
         <m.div
           initial={{ opacity: 0, y: 20 }}
@@ -106,33 +136,40 @@ export default function ChangelogPage() {
 
                 {/* Card */}
                 <div
-                  className="rounded-xl p-5 md:p-6"
-                  style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' }}
+                  className="rounded-xl relative overflow-hidden"
+                  style={{ border: '1px solid var(--color-purple-12)' }}
                 >
-                  {/* Date badge */}
-                  <span className="inline-block text-xs font-semibold text-purple-400 bg-purple-500/10 px-3 py-1 rounded-full mb-3">
-                    {entry.date}
-                  </span>
+                  <div className="absolute inset-0">
+                    <img src={CARD_ART[idx % CARD_ART.length].src} alt="" loading="lazy" className="w-full h-full object-cover" />
+                  </div>
+                  {/* Translucent black content panel — art still bleeds through the border,
+                      text stays readable against the dimmed backdrop. */}
+                  <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-5" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    {/* Date badge */}
+                    <span className="inline-block text-xs font-semibold text-purple-300 bg-purple-500/20 px-3 py-1 rounded-full mb-3" style={{ backdropFilter: 'blur(4px)' }}>
+                      {entry.date}
+                    </span>
 
-                  {/* Title */}
-                  <h2 className="text-white text-lg font-bold mb-4">{entry.title}</h2>
+                    {/* Title */}
+                    <h2 className="text-white text-lg font-bold mb-4" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.9)' }}>{entry.title}</h2>
 
-                  {/* Items */}
-                  <ul className="space-y-2.5">
-                    {entry.items.map((item, iIdx) => (
-                      <li key={iIdx} className="flex items-start gap-2.5 text-sm text-gray-300 leading-relaxed">
-                        <svg
-                          className="w-4 h-4 text-green-400 shrink-0 mt-0.5"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                        </svg>
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                  </ul>
+                    {/* Items */}
+                    <ul className="space-y-2.5">
+                      {entry.items.map((item, iIdx) => (
+                        <li key={iIdx} className="flex items-start gap-2.5 text-sm text-gray-200 leading-relaxed" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
+                          <svg
+                            className="w-4 h-4 text-green-400 shrink-0 mt-0.5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                          </svg>
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
               </m.div>
             ))}

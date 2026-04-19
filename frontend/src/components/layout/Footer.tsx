@@ -16,7 +16,7 @@ const PRODUCT_LINKS: { to: string; label: string }[] = [
   { to: '/community', label: 'Governance' },
   { to: '/premium', label: 'Gold Card' },
   { to: '/leaderboard', label: 'Points' },
-  { to: '/nakamigos', label: 'Marketplace' },
+  { to: '/nakamigos', label: 'Tradermigos' },
 ];
 
 const RESOURCE_LINKS: { to: string; label: string }[] = [
@@ -50,8 +50,24 @@ const LEGAL_LINKS: { to: string; label: string }[] = [
 ];
 
 export function Footer() {
+  // Footer sits on top of whatever fixed art background the current page provides
+  // (galleryCollage on Home, apeHug on Trade, etc.). Before this change, links were
+  // text-white/60 with no scrim — barely legible over bright art regions. Now we
+  // layer a dark frosted panel under the whole footer and bump link contrast so the
+  // IA is readable regardless of what's behind it.
+  const LINK_CLASS = 'block text-white/90 text-[13px] hover:text-white transition-colors';
+  const LINK_SHADOW = { textShadow: '0 1px 6px rgba(0,0,0,0.95)' } as const;
   return (
-    <footer className="relative mt-8" role="contentinfo">
+    <footer
+      className="relative mt-8"
+      role="contentinfo"
+      style={{
+        background: 'rgba(6,12,26,0.78)',
+        backdropFilter: 'blur(14px)',
+        WebkitBackdropFilter: 'blur(14px)',
+        borderTop: '1px solid var(--color-purple-20)',
+      }}
+    >
       <div className="max-w-[1200px] mx-auto px-4 md:px-6">
         {/* Gold divider */}
         <div className="accent-divider" />
@@ -61,28 +77,29 @@ export function Footer() {
           {/* Brand */}
           <div className="col-span-2 md:col-span-1">
             <div className="flex items-center gap-2 mb-3">
-              <span className="heading-luxury text-[18px]">
-                <span className="text-white">TEGRIDY</span>{' '}
-                <span className="text-white">FARMS</span>
+              <span className="text-[18px] font-bold tracking-wide" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)', fontFamily: 'var(--font-family-heading)' }}>
+                <span>TEGRIDY</span>{' '}
+                <span>FARMS</span>
               </span>
             </div>
-            <p className="text-white text-[13px] leading-relaxed max-w-[280px]">
+            <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
               Art-first yield farming on Ethereum. Stake TOWELI & LP tokens to earn rewards. 100% of protocol revenue goes to stakers.
             </p>
-            <div className="mt-4 rounded-lg p-3 inline-block" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
-              <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-1">Contract</p>
+            <div className="mt-4 rounded-lg p-3 inline-block" style={{ background: 'rgba(0,0,0,0.75)', border: '1px solid var(--color-kyle-40)' }}>
+              <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Contract</p>
               <CopyButton text={TOWELI_ADDRESS} display={shortenAddress(TOWELI_ADDRESS, 6)}
-                className="font-mono text-[12px] text-white" />
+                className="font-mono text-[12px]"
+                style={{ color: 'var(--color-kyle)', textShadow: '0 1px 4px rgba(0,0,0,0.85)' }} />
             </div>
           </div>
 
           {/* Product */}
           <div>
-            <h4 className="text-white text-[11px] uppercase tracking-wider label-pill font-semibold mb-3">Product</h4>
+            <h4 className="text-[11px] uppercase tracking-wider font-semibold mb-3" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>Product</h4>
             <div className="space-y-2">
               {PRODUCT_LINKS.map((l) => (
-                <Link key={l.to} to={l.to} className="block text-white/60 text-[13px] hover:text-white transition-colors"
-                  style={l.to === '/premium' ? { color: '#d4a017' } : undefined}>
+                <Link key={l.to} to={l.to} className={LINK_CLASS}
+                  style={l.to === '/premium' ? { color: '#d4a017', ...LINK_SHADOW } : LINK_SHADOW}>
                   {l.label}
                 </Link>
               ))}
@@ -91,18 +108,18 @@ export function Footer() {
 
           {/* Resources */}
           <div>
-            <h4 className="text-white text-[11px] uppercase tracking-wider label-pill font-semibold mb-3">Resources</h4>
+            <h4 className="text-[11px] uppercase tracking-wider font-semibold mb-3" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>Resources</h4>
             <div className="space-y-2">
               {RESOURCE_LINKS.map((l) => (
-                <Link key={l.to} to={l.to} className="block text-white/60 text-[13px] hover:text-white transition-colors">
+                <Link key={l.to} to={l.to} className={LINK_CLASS} style={LINK_SHADOW}>
                   {l.label}
                 </Link>
               ))}
               {EXTERNAL_RESOURCES.map((l) => (
                 <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
                   aria-label={`${l.label} (opens in new tab)`}
-                  className="block text-white/60 text-[13px] hover:text-white transition-colors">
-                  {l.label} <span className="text-white/15">↗</span>
+                  className={LINK_CLASS} style={LINK_SHADOW}>
+                  {l.label} <span className="text-white/40">↗</span>
                 </a>
               ))}
             </div>
@@ -110,16 +127,16 @@ export function Footer() {
 
           {/* Community */}
           <div>
-            <h4 className="text-white text-[11px] uppercase tracking-wider label-pill font-semibold mb-3">Community</h4>
+            <h4 className="text-[11px] uppercase tracking-wider font-semibold mb-3" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>Community</h4>
             <div className="space-y-2">
-              <Link to="/community" className="block text-white/60 text-[13px] hover:text-white transition-colors">
+              <Link to="/community" className={LINK_CLASS} style={LINK_SHADOW}>
                 Governance
               </Link>
               {COMMUNITY_LINKS.map((l) => (
                 <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
                   aria-label={`${l.label} (opens in new tab)`}
-                  className="block text-white/60 text-[13px] hover:text-white transition-colors">
-                  {l.label} <span className="text-white/15">↗</span>
+                  className={LINK_CLASS} style={LINK_SHADOW}>
+                  {l.label} <span className="text-white/40">↗</span>
                 </a>
               ))}
             </div>
@@ -127,10 +144,10 @@ export function Footer() {
 
           {/* Legal */}
           <div>
-            <h4 className="text-white text-[11px] uppercase tracking-wider label-pill font-semibold mb-3">Legal</h4>
+            <h4 className="text-[11px] uppercase tracking-wider font-semibold mb-3" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>Legal</h4>
             <div className="space-y-2">
               {LEGAL_LINKS.map((l) => (
-                <Link key={l.to} to={l.to} className="block text-white/60 text-[13px] hover:text-white transition-colors">
+                <Link key={l.to} to={l.to} className={LINK_CLASS} style={LINK_SHADOW}>
                   {l.label}
                 </Link>
               ))}
@@ -141,10 +158,10 @@ export function Footer() {
         {/* Bottom bar */}
         <div className="accent-divider" />
         <div className="py-5 flex flex-col md:flex-row items-center justify-between gap-3">
-          <span className="text-white text-[11px]">
-            Experimental protocol. Use at your own risk. Not financial advice. <Link to="/risks" className="text-white/70 hover:text-white/60 underline">Risk Disclosure</Link> · <Link to="/security" className="text-white/70 hover:text-white/60 underline">Security</Link>
+          <span className="text-white/90 text-[11px]" style={LINK_SHADOW}>
+            Experimental protocol. Use at your own risk. Not financial advice. <Link to="/risks" className="text-white hover:text-white/80 underline" style={LINK_SHADOW}>Risk Disclosure</Link> · <Link to="/security" className="text-white hover:text-white/80 underline" style={LINK_SHADOW}>Security</Link>
           </span>
-          <span className="text-white/15 text-[11px]">
+          <span className="text-white/60 text-[11px]" style={LINK_SHADOW}>
             © 2026 Tegridy Farms
           </span>
         </div>

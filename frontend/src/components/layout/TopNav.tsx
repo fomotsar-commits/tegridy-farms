@@ -3,12 +3,14 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
-import { PRIMARY_NAV, ALL_NAV } from '../../lib/navConfig';
+import { PRIMARY_NAV, ALL_NAV, MORE_NAV } from '../../lib/navConfig';
 
 export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
   const [kebabOpen, setKebabOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const kebabRef = useRef<HTMLDivElement>(null);
+  const moreRef = useRef<HTMLDivElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const location = useLocation();
@@ -29,8 +31,19 @@ export const TopNav = React.memo(function TopNav() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [kebabOpen]);
 
-  // Close kebab on route change
-  useEffect(() => { setKebabOpen(false); }, [location.pathname]);
+  // Close "More" dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
+        setMoreOpen(false);
+      }
+    }
+    if (moreOpen) document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [moreOpen]);
+
+  // Close both menus on route change
+  useEffect(() => { setKebabOpen(false); setMoreOpen(false); }, [location.pathname]);
 
   // Audit H-F10: close on Escape + trap focus inside the drawer while open.
   // Without the trap, keyboard Tab escapes to the page content behind the overlay.
@@ -83,13 +96,17 @@ export const TopNav = React.memo(function TopNav() {
       <header
         className="fixed top-0 left-0 right-0 z-50 h-14"
         style={{
-          background: isDark ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.80)',
+          background: isDark
+            ? 'linear-gradient(180deg, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.86) 100%)'
+            : 'linear-gradient(180deg, rgba(255,140,26,0.92) 0%, rgba(255,111,0,0.86) 100%)',
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
-          borderBottom: '1px solid var(--color-purple-20)',
+          borderBottom: isDark
+            ? '1px solid rgba(255,255,255,0.10)'
+            : '1px solid rgba(255,111,0,0.45)',
           boxShadow: isDark
-            ? '0 1px 12px var(--color-purple-75), 0 0 1px var(--color-purple-75)'
-            : '0 1px 12px rgba(124,58,237,0.10), 0 0 1px rgba(124,58,237,0.15)',
+            ? '0 1px 12px rgba(0,0,0,0.55), 0 0 1px rgba(0,0,0,0.70)'
+            : '0 1px 12px rgba(255,111,0,0.25), 0 0 1px rgba(255,111,0,0.30)',
           transition: 'background-color 0.3s ease, box-shadow 0.3s ease',
         }}
       >
@@ -125,11 +142,57 @@ export const TopNav = React.memo(function TopNav() {
                 {n.label}
               </NavLink>
             ))}
+
+            {/* "More" dropdown — secondary destinations (Marketplace, Gallery, etc.)
+                that don't fit in the primary nav but still deserve a top-bar slot. */}
+            <div className="relative" ref={moreRef}>
+              <button
+                onClick={() => setMoreOpen(!moreOpen)}
+                aria-expanded={moreOpen}
+                aria-haspopup="true"
+                aria-label="More navigation"
+                className={`nav-link flex items-center gap-1 ${MORE_NAV.some(n => location.pathname.startsWith(n.to)) ? 'active' : ''}`}
+              >
+                More
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+                  style={{ transform: moreOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}>
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
+              <AnimatePresence>
+                {moreOpen && (
+                  <m.div
+                    className="absolute top-full left-0 mt-1 py-1 rounded-lg min-w-[180px] z-50"
+                    style={{
+                      background: isDark ? 'rgba(10,10,20,0.96)' : 'rgba(255,255,255,0.97)',
+                      border: '1px solid var(--color-purple-20)',
+                      backdropFilter: 'blur(20px)',
+                      WebkitBackdropFilter: 'blur(20px)',
+                      boxShadow: isDark ? '0 8px 30px rgba(0,0,0,0.5)' : '0 8px 30px rgba(0,0,0,0.12)',
+                    }}
+                    initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}
+                    transition={{ duration: 0.15 }}
+                    role="menu"
+                  >
+                    {MORE_NAV.map((n) => (
+                      <NavLink
+                        key={n.to}
+                        to={n.to}
+                        role="menuitem"
+                        className={({ isActive }) => `nav-link block px-4 py-2 text-[13px] transition-colors ${isActive ? 'active' : ''}`}
+                      >
+                        {n.label}
+                      </NavLink>
+                    ))}
+                  </m.div>
+                )}
+              </AnimatePresence>
+            </div>
           </nav>
 
           <div className="flex items-center gap-2">
-            <NavLink to="/leaderboard" className={({ isActive }) => `nav-link text-[13px] hidden md:block ${isActive ? 'active' : ''}`}>
-              Points
+            <NavLink to="/nakamigos" className={({ isActive }) => `nav-link text-[13px] hidden md:block ${isActive ? 'active' : ''}`}>
+              Tradermigos
             </NavLink>
             <button
               onClick={toggleTheme}

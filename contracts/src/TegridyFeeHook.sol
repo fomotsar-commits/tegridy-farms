@@ -91,9 +91,15 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     ///      afterSwap (0x0040) + afterSwapReturnsDelta (0x0004). This is enforced by the
     ///      PoolManager during pool initialization — if the address does not match, the
     ///      PoolManager will revert. Use CREATE2 with salt mining to deploy to a valid address.
-    constructor(IPoolManager _poolManager, address _revenueDistributor, uint256 _feeBps)
-        OwnableNoRenounce(msg.sender)
+    /// @dev Wave 0 redeploy: takes `_owner` as an explicit constructor arg so CREATE2
+    ///      deploys via Arachnid's proxy don't strand ownership on the proxy address.
+    ///      Pass the creator EOA (or multisig) directly; msg.sender is only the proxy
+    ///      when reached through the canonical deterministic deployer.
+    constructor(IPoolManager _poolManager, address _revenueDistributor, uint256 _feeBps, address _owner)
+        OwnableNoRenounce(_owner)
     {
+        // OwnableNoRenounce(_owner) above already reverts with OwnableInvalidOwner
+        // if _owner is address(0), so we don't duplicate the check here.
         if (address(_poolManager) == address(0) || _revenueDistributor == address(0)) revert ZeroAddress();
         if (_feeBps > MAX_FEE_BPS) revert FeeTooHigh();
         require(uint160(address(this)) & 0x0044 == 0x0044, "INVALID_HOOK_ADDRESS");

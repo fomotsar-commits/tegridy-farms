@@ -151,7 +151,22 @@ export default function HistoryPage() {
     // SECURITY FIX: Route Etherscan calls through server-side proxy to keep API key hidden.
     // Previously used VITE_ETHERSCAN_API_KEY which was exposed in client-side bundle.
     fetch(`/api/etherscan?module=account&action=txlist&address=${addr}&startblock=0&endblock=99999999&sort=desc`, { signal })
-      .then(r => r.json())
+      .then(async r => {
+        // The proxy can return a Vercel HTML/comment error page instead of JSON
+        // (e.g. during a deploy or when /api/etherscan is missing). r.json() on
+        // that body surfaces a cryptic "Unexpected token '/'" to the user — catch
+        // it here and fall back to a readable message.
+        const text = await r.text();
+        try {
+          return JSON.parse(text);
+        } catch {
+          throw new Error(
+            r.ok
+              ? 'History service returned an unexpected response. Try again shortly.'
+              : `History service unavailable (HTTP ${r.status}). Try again shortly.`
+          );
+        }
+      })
       .then(data => {
         if (signal.aborted) return;
         if (data.status === '1' && Array.isArray(data.result)) {
@@ -256,7 +271,7 @@ export default function HistoryPage() {
         <img src={ART.jungleDark.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%' }} />
       </div>
 
-      <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
+      <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-32 pb-28 md:pb-12">
         <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div className="flex items-center justify-between gap-4">
             <div>
@@ -272,7 +287,11 @@ export default function HistoryPage() {
           </div>
         </m.div>
 
-        <m.div className="glass-card rounded-xl overflow-hidden" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+        <m.div className="rounded-xl overflow-hidden relative" style={{ border: '1px solid var(--color-purple-12)' }} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+          <div className="absolute inset-0">
+            <img src={ART.smokingDuo.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+          </div>
+          <div className="relative z-10">
           {loading ? (
             <div className="p-6 space-y-3">
               {[1,2,3,4,5].map(i => (
@@ -286,19 +305,19 @@ export default function HistoryPage() {
             </div>
           ) : error ? (
             <div className="p-6 text-center">
-              <p className="text-danger text-[13px] mb-3">{error}</p>
+              <p className="text-[13px] mb-3 font-medium" style={{ color: '#fca5a5', textShadow: '0 1px 6px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.9)' }}>{error}</p>
               <button onClick={handleRetry} className="btn-primary px-5 py-1.5 text-[12px]">Retry</button>
             </div>
           ) : categorized.length === 0 ? (
-            <div className="rounded-xl p-8 text-center" style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' }}>
-              <p className="text-white/70 text-[13px]">No transactions found. Start trading or staking to see your history here.</p>
-              <p className="text-white/70 text-[11px] mt-1">Swaps, stakes, claims, and governance actions will appear automatically.</p>
+            <div className="p-8 text-center">
+              <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.9)' }}>No transactions found. Start trading or staking to see your history here.</p>
+              <p className="text-white/85 text-[11px] mt-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.9)' }}>Swaps, stakes, claims, and governance actions will appear automatically.</p>
             </div>
           ) : (
             <table className="w-full">
               <thead className="hidden md:table-header-group">
                 <tr className="text-[11px] text-white uppercase tracking-wider label-pill"
-                  style={{ borderBottom: '1px solid var(--color-purple-75)' }}>
+                  style={{ borderBottom: '1px solid var(--color-purple-75)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
                   <th className="px-4 md:px-5 py-3 text-left font-normal w-20">Type</th>
                   <th className="py-3 text-left font-normal w-24">Function</th>
                   <th className="py-3 text-left font-normal">Tx Hash</th>
@@ -355,6 +374,7 @@ export default function HistoryPage() {
               </tbody>
             </table>
           )}
+          </div>
         </m.div>
 
         {categorized.length > PAGE_SIZE && (

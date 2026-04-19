@@ -17,24 +17,20 @@ const FarmPage = lazy(() => import('./pages/FarmPage'));
 const TradePage = lazy(() => import('./pages/TradePage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const GalleryPage = lazy(() => import('./pages/GalleryPage'));
-const TokenomicsPage = lazy(() => import('./pages/TokenomicsPage'));
-const HistoryPage = lazy(() => import('./pages/HistoryPage'));
-const LorePage = lazy(() => import('./pages/LorePage'));
-const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
+// HistoryPage, LeaderboardPage, PremiumPage, ChangelogPage merged into ActivityPage (tabs)
+const ActivityPage = lazy(() => import('./pages/ActivityPage'));
 const CommunityPage = lazy(() => import('./pages/CommunityPage'));
+// Tokenomics + Lore + Security + FAQ merged into LearnPage (tabs)
+const LearnPage = lazy(() => import('./pages/LearnPage'));
 // RestakePage + LaunchpadPage merged into LendingPage (NFT Finance)
 // LiquidityPage + SwapPage merged into TradePage
-const PremiumPage = lazy(() => import('./pages/PremiumPage'));
 // BribesPage, GrantsPage, BountyPage merged into CommunityPage
 const NakamigosApp = lazy(() => import('./nakamigos/App'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const LendingPage = lazy(() => import('./pages/LendingPage'));
-const SecurityPage = lazy(() => import('./pages/SecurityPage'));
 const TermsPage = lazy(() => import('./pages/TermsPage'));
 const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
 const RisksPage = lazy(() => import('./pages/RisksPage'));
-const FAQPage = lazy(() => import('./pages/FAQPage'));
-const ChangelogPage = lazy(() => import('./pages/ChangelogPage'));
 const ContractsPage = lazy(() => import('./pages/ContractsPage'));
 const TreasuryPage = lazy(() => import('./pages/TreasuryPage'));
 // LaunchpadPage lazy import removed — loaded inside LendingPage
@@ -121,30 +117,31 @@ function AnimatedRoutes() {
         <Route index element={<Suspense fallback={<PageSkeleton />}><HomePage /></Suspense>} />
         <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><FarmPage /></Suspense>} />
         <Route path="swap" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
+        <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
         <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />
         <Route path="gallery" element={<Suspense fallback={<PageSkeleton />}><GalleryPage /></Suspense>} />
-        <Route path="tokenomics" element={<Suspense fallback={<PageSkeleton />}><TokenomicsPage /></Suspense>} />
-        <Route path="history" element={<Suspense fallback={<PageSkeleton />}><HistoryPage /></Suspense>} />
-        <Route path="lore" element={<Suspense fallback={<PageSkeleton />}><LorePage /></Suspense>} />
-        <Route path="leaderboard" element={<Suspense fallback={<PageSkeleton />}><LeaderboardPage /></Suspense>} />
+        <Route path="tokenomics" element={<Suspense fallback={<PageSkeleton />}><LearnPage /></Suspense>} />
+        <Route path="history" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
+        <Route path="lore" element={<Suspense fallback={<PageSkeleton />}><LearnPage /></Suspense>} />
+        <Route path="learn" element={<Navigate to="/tokenomics" replace />} />
+        <Route path="leaderboard" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
         <Route path="community" element={<Suspense fallback={<PageSkeleton />}><CommunityPage /></Suspense>} />
         <Route path="grants" element={<Navigate to="/community" replace />} />
         <Route path="bounties" element={<Navigate to="/community" replace />} />
         <Route path="restake" element={<Navigate to="/lending" replace />} />
-        <Route path="liquidity" element={<Navigate to="/swap" replace />} />
-        <Route path="premium" element={<Suspense fallback={<PageSkeleton />}><PremiumPage /></Suspense>} />
+        <Route path="premium" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
         <Route path="bribes" element={<Navigate to="/community" replace />} />
         <Route path="admin" element={<Suspense fallback={<PageSkeleton />}><AdminPage /></Suspense>} />
         <Route path="lending" element={<Suspense fallback={<PageSkeleton />}><LendingPage /></Suspense>} />
         <Route path="launchpad" element={<Navigate to="/lending" replace />} />
         <Route path="nft-amm" element={<Navigate to="/lending" replace />} />
         <Route path="governance" element={<Navigate to="/community" replace />} />
-        <Route path="security" element={<Suspense fallback={<PageSkeleton />}><SecurityPage /></Suspense>} />
+        <Route path="security" element={<Suspense fallback={<PageSkeleton />}><LearnPage /></Suspense>} />
         <Route path="terms" element={<Suspense fallback={<PageSkeleton />}><TermsPage /></Suspense>} />
         <Route path="privacy" element={<Suspense fallback={<PageSkeleton />}><PrivacyPage /></Suspense>} />
         <Route path="risks" element={<Suspense fallback={<PageSkeleton />}><RisksPage /></Suspense>} />
-        <Route path="faq" element={<Suspense fallback={<PageSkeleton />}><FAQPage /></Suspense>} />
-        <Route path="changelog" element={<Suspense fallback={<PageSkeleton />}><ChangelogPage /></Suspense>} />
+        <Route path="faq" element={<Suspense fallback={<PageSkeleton />}><LearnPage /></Suspense>} />
+        <Route path="changelog" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
         <Route path="contracts" element={<Suspense fallback={<PageSkeleton />}><ContractsPage /></Suspense>} />
         <Route path="treasury" element={<Suspense fallback={<PageSkeleton />}><TreasuryPage /></Suspense>} />
         <Route path="*" element={<NotFoundPage />} />

@@ -8,6 +8,9 @@ import { GAUGE_CONTROLLER_ABI, TEGRIDY_STAKING_ABI } from '../lib/contracts';
 import { formatTokenAmount, shortenAddress } from '../lib/formatting';
 import { InfoTooltip } from './ui/InfoTooltip';
 import { surfaceTxError } from '../lib/txErrors';
+import { ART } from '../lib/artConfig';
+
+const GAUGE_STAT_ARTS = [ART.jungleDark, ART.mfersHeaven, ART.forestScene];
 
 // ─── Commit-Reveal Local Storage ────────────────────────────────────
 // We persist {salt, gauges, weights, commitmentHash} per (chainId, voter, tokenId, epoch)
@@ -100,8 +103,11 @@ export function GaugeVoting() {
   if (!isDeployed(GAUGE_CONTROLLER_ADDRESS)) {
     return (
       <m.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
-        className="rounded-2xl p-6 text-center" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-        <p className="text-white/70 text-sm">Gauge controller not deployed yet</p>
+        className="rounded-2xl p-6 text-center relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
+        <div className="absolute inset-0">
+          <img src={ART.towelieWindow.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        </div>
+        <p className="text-white/80 text-sm relative z-10" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Gauge controller not deployed yet</p>
       </m.div>
     );
   }
@@ -268,8 +274,11 @@ export function GaugeVoting() {
   if (!isConnected) {
     return (
       <m.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
-        className="rounded-2xl p-6 text-center" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-        <p className="text-white/70 text-sm">Connect wallet to vote on gauge emissions</p>
+        className="rounded-2xl p-6 text-center relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
+        <div className="absolute inset-0">
+          <img src={ART.busCrew.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        </div>
+        <p className="text-white/80 text-sm relative z-10" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Connect wallet to vote on gauge emissions</p>
       </m.div>
     );
   }
@@ -283,23 +292,32 @@ export function GaugeVoting() {
           { label: 'Current Epoch', value: currentEpoch !== undefined ? `#${currentEpoch}` : '--', sub: `Next in ${countdown}` },
           { label: 'Emission Budget', value: budget !== undefined ? `${formatTokenAmount(formatEther(budget), 0)} TOWELI` : '--', sub: 'per epoch (7 days)' },
           { label: 'Active Gauges', value: `${gauges.length}`, sub: 'whitelisted pools' },
-        ].map(({ label, value, sub }) => (
-          <div key={label} className="rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-            <p className="text-[11px] text-white/40 uppercase tracking-wider mb-1">{label}</p>
-            <p className="text-lg font-semibold text-white">{value}</p>
-            <p className="text-[11px] text-white/30 mt-0.5">{sub}</p>
+        ].map(({ label, value, sub }, i) => (
+          <div key={label} className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
+            <div className="absolute inset-0">
+              <img src={GAUGE_STAT_ARTS[i % GAUGE_STAT_ARTS.length].src} alt="" loading="lazy" className="w-full h-full object-cover" />
+                </div>
+            <div className="relative z-10 p-4">
+              <p className="text-[11px] text-white/60 uppercase tracking-wider mb-1" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>{label}</p>
+              <p className="text-lg font-semibold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>{value}</p>
+              <p className="text-[11px] text-white/60 mt-0.5" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>{sub}</p>
+            </div>
           </div>
         ))}
       </div>
 
       {/* ── Gauge List ─────────────────────────────────────────── */}
-      <div className="rounded-2xl overflow-hidden" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-        <div className="px-5 py-4 border-b border-white/5 flex items-center gap-2">
-          <h3 className="text-sm font-semibold text-white">Gauge Weights</h3>
+      <div className="rounded-2xl overflow-hidden relative" style={{ border: `1px solid ${CARD_BORDER}` }}>
+        <div className="absolute inset-0">
+          <img src={ART.apeHug.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        </div>
+        <div className="relative z-10">
+        <div className="px-5 py-4 border-b border-white/10 flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Gauge Weights</h3>
           <InfoTooltip text="Each gauge receives a share of TOWELI emissions proportional to its vote weight. Weights reset each epoch." />
         </div>
         {gauges.length === 0 ? (
-          <p className="px-5 py-8 text-center text-white/30 text-sm">No gauges registered yet</p>
+          <p className="px-5 py-8 text-center text-white/60 text-sm" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>No gauges registered yet</p>
         ) : (
           <div className="divide-y divide-white/[0.04]">
             {gauges.map((gauge, i) => {
@@ -338,6 +356,7 @@ export function GaugeVoting() {
             })}
           </div>
         )}
+        </div>
       </div>
 
       {/* ── Commit-Reveal State Banner ─────────────────────────── */}
@@ -364,11 +383,15 @@ export function GaugeVoting() {
       )}
 
       {/* ── Vote Form ──────────────────────────────────────────── */}
-      <div className="rounded-2xl overflow-hidden" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-        <div className="px-5 py-4 border-b border-white/5">
+      <div className="rounded-2xl overflow-hidden relative" style={{ border: `1px solid ${CARD_BORDER}` }}>
+        <div className="absolute inset-0">
+          <img src={ART.boxingRing.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        </div>
+        <div className="relative z-10">
+        <div className="px-5 py-4 border-b border-white/10">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-white">Cast Your Vote</h3>
+              <h3 className="text-sm font-semibold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Cast Your Vote</h3>
               <InfoTooltip text="Allocate your voting power across gauges. Commit-reveal is enabled by default to prevent bribe arbitrage — your chosen gauges are hidden until the reveal window opens at the end of each epoch." />
             </div>
             <div className="flex items-center gap-3">
@@ -483,6 +506,7 @@ export function GaugeVoting() {
               </div>
             </>
           )}
+        </div>
         </div>
       </div>
     </m.div>

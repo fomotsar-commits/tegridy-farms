@@ -72,27 +72,27 @@ function getColors() {
 const BG_ART = [
   // Row 0 (top: -5vh) — cols at 0, 25, 50, 75
   { src: "/splash/HBl2oMKbIAA813y.jpg", pos: { left: "-3vw", top: "-4vh" }, w: "clamp(340px, 30vw, 520px)", rot: -3, drift: { x: 4, y: 3 }, dur: 30 },      // BIG
-  { src: "/splash/watercolor.png", pos: { left: "26vw", top: "0vh" }, w: "clamp(280px, 24vw, 420px)", rot: 4, drift: { x: 5, y: -3 }, dur: 32 },             // medium
+  { src: "/splash/watercolor.jpg", pos: { left: "26vw", top: "0vh" }, w: "clamp(280px, 24vw, 420px)", rot: 4, drift: { x: 5, y: -3 }, dur: 32 },             // medium
   { src: "/splash/HCIMNrZWYAAqbo1.jpg", pos: { left: "52vw", top: "-2vh" }, w: "clamp(320px, 28vw, 480px)", rot: -2, drift: { x: 3, y: -3 }, dur: 34 },     // BIG
   { src: "/splash/HA5nUQ_bsAIHd55.jpg", pos: { left: "77vw", top: "2vh" }, w: "clamp(260px, 22vw, 400px)", rot: 3, drift: { x: -4, y: 5 }, dur: 28 },       // medium
 
   // Row 1 (top: 20vh) — staggered right 12vw
-  { src: "/splash/skeleton.png", pos: { left: "10vw", top: "20vh" }, w: "clamp(240px, 22vw, 380px)", rot: -2, drift: { x: 3, y: -3 }, dur: 26 },             // medium
+  { src: "/splash/skeleton.jpg", pos: { left: "10vw", top: "20vh" }, w: "clamp(240px, 22vw, 380px)", rot: -2, drift: { x: 3, y: -3 }, dur: 26 },             // medium
   { src: "/splash/G-FPcYdXMAAKsWR.jpg", pos: { left: "36vw", top: "22vh" }, w: "clamp(340px, 30vw, 520px)", rot: -3, drift: { x: -4, y: 4 }, dur: 27 },     // BIG
   { src: "/splash/HBbsuPEacAAX0VA.jpg", pos: { left: "62vw", top: "19vh" }, w: "clamp(280px, 24vw, 420px)", rot: 2, drift: { x: -3, y: 4 }, dur: 28 },       // medium
-  { src: "/splash/sartoshi3d.png", pos: { left: "84vw", top: "23vh" }, w: "clamp(300px, 26vw, 460px)", rot: -4, drift: { x: -5, y: 3 }, dur: 34 },            // BIG-ish
+  { src: "/splash/sartoshi3d.jpg", pos: { left: "84vw", top: "23vh" }, w: "clamp(300px, 26vw, 460px)", rot: -4, drift: { x: -5, y: 3 }, dur: 34 },            // BIG-ish
 
   // Row 2 (top: 42vh) — cols at 0, 25, 50, 75
   { src: "/splash/HBTG_oqa0AAzPs4.jpg", pos: { left: "-2vw", top: "40vh" }, w: "clamp(300px, 26vw, 460px)", rot: -4, drift: { x: 6, y: -4 }, dur: 36 },      // BIG-ish
-  { src: "/splash/ninja.png", pos: { left: "26vw", top: "44vh" }, w: "clamp(260px, 22vw, 400px)", rot: 3, drift: { x: -3, y: 5 }, dur: 24 },                  // medium
+  { src: "/splash/ninja.jpg", pos: { left: "26vw", top: "44vh" }, w: "clamp(260px, 22vw, 400px)", rot: 3, drift: { x: -3, y: 5 }, dur: 24 },                  // medium
   { src: "/splash/G--r5iuXIAEPwLt.jpg", pos: { left: "52vw", top: "41vh" }, w: "clamp(340px, 30vw, 520px)", rot: -2, drift: { x: 4, y: -3 }, dur: 25 },      // BIG
   { src: "/splash/G_dkPgxX0AA-9SG.jpg", pos: { left: "78vw", top: "43vh" }, w: "clamp(280px, 24vw, 420px)", rot: 4, drift: { x: -5, y: 4 }, dur: 32 },       // medium
 
   // Row 3 (top: 62vh) — staggered right 12vw
-  { src: "/splash/angel.png", pos: { left: "8vw", top: "62vh" }, w: "clamp(320px, 28vw, 480px)", rot: -3, drift: { x: -4, y: -3 }, dur: 26 },                 // BIG
+  { src: "/splash/angel.jpg", pos: { left: "8vw", top: "62vh" }, w: "clamp(320px, 28vw, 480px)", rot: -3, drift: { x: -4, y: -3 }, dur: 26 },                 // BIG
   { src: "/splash/GVsANPZW4AAv1XY.jpg", pos: { left: "35vw", top: "64vh" }, w: "clamp(240px, 22vw, 380px)", rot: 2, drift: { x: 3, y: -4 }, dur: 29 },       // medium
   { src: "/splash/G24BZRrakAA1M_9.jpg", pos: { left: "60vw", top: "61vh" }, w: "clamp(300px, 26vw, 460px)", rot: -3, drift: { x: -3, y: 4 }, dur: 35 },      // BIG-ish
-  { src: "/splash/frogking.png", pos: { left: "84vw", top: "65vh" }, w: "clamp(260px, 22vw, 400px)", rot: 5, drift: { x: 5, y: -4 }, dur: 29 },               // medium
+  { src: "/splash/frogking.jpg", pos: { left: "84vw", top: "65vh" }, w: "clamp(260px, 22vw, 400px)", rot: 5, drift: { x: 5, y: -4 }, dur: 29 },               // medium
 
   // Row 4 (top: 83vh) — cols at 0, 25, 50, 75
   { src: "/splash/G-AVjGGakAAuW7Z.jpg", pos: { left: "0vw", top: "83vh" }, w: "clamp(280px, 24vw, 420px)", rot: 3, drift: { x: 5, y: -5 }, dur: 30 },        // medium

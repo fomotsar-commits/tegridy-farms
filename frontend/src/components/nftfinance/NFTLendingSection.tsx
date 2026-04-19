@@ -6,12 +6,25 @@ import { toast } from 'sonner';
 import { TEGRIDY_NFT_LENDING_ADDRESS } from '../../lib/constants';
 import { TEGRIDY_NFT_LENDING_ABI, ERC721_ABI } from '../../lib/contracts';
 import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '../ui/InfoTooltip';
-// ART import available for future card backgrounds
-// import { ART } from '../../lib/artConfig';
+import { ART } from '../../lib/artConfig';
+
+// Per-collection art for the collateral selector — pulls from each project's
+// canonical asset instead of Tegridy's art pool so the cards represent the
+// actual collection. Paths match frontend/src/nakamigos/constants.js.
+const COLLECTION_ART: Record<string, string> = {
+  JBAC: ART.jbacSkeleton.src,
+  NAKA: '/splash/skeleton.jpg',
+  GNSS: '/collections/gnssart.jpg',
+};
 
 /* ─── Constants ─────────────────────────────────────────────────── */
-const CARD_BG = 'rgba(13, 21, 48, 0.6)';
-const CARD_BORDER = 'var(--color-purple-12)';
+// Bumped from 0.6 → 0.80 so form labels and stat cards stay legible against the
+// animated art backgrounds that sit behind this whole section. Border bumped from
+// var(--color-purple-12) (4% alpha, almost invisible) → 18% white so cards have
+// a clear edge against the art.
+const CARD_BG = 'rgba(6, 12, 26, 0.80)';
+const CARD_BORDER = 'rgba(255, 255, 255, 0.18)';
+const LABEL_STYLE: React.CSSProperties = { textShadow: '0 1px 6px rgba(0,0,0,0.95)' };
 const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
 
 const COLLECTIONS = [
@@ -138,21 +151,29 @@ export function NFTLendingSection() {
         transition={{ ease: EASE, delay: 0.03 }}
       >
         {[
-          { label: 'Total Offers', value: offerCount.toString(), tooltip: 'Number of active loan offers available for borrowers' },
-          { label: 'Active Loans', value: loanCount.toString(), tooltip: 'Loans currently outstanding with locked NFT collateral' },
-          { label: 'Protocol Fee', value: `${bpsToPercent(protocolFeeBps)}%`, tooltip: 'Fee taken from interest earned by lenders, paid to the protocol treasury' },
-          { label: 'Collections', value: COLLECTIONS.length.toString(), tooltip: `Supported collections: ${COLLECTIONS.map(c => c.symbol).join(', ')}` },
+          { label: 'Total Offers', value: offerCount.toString(), tooltip: 'Number of active loan offers available for borrowers', art: ART.boxingRing.src },
+          { label: 'Active Loans', value: loanCount.toString(), tooltip: 'Loans currently outstanding with locked NFT collateral', art: ART.apeHug.src },
+          { label: 'Protocol Fee', value: `${bpsToPercent(protocolFeeBps)}%`, tooltip: 'Fee taken from interest earned by lenders, paid to the protocol treasury', art: ART.mumuBull.src },
+          { label: 'Collections', value: COLLECTIONS.length.toString(), tooltip: `Supported collections: ${COLLECTIONS.map(c => c.symbol).join(', ')}`, art: ART.galleryCollage.src },
         ].map((s) => (
           <div
             key={s.label}
-            className="rounded-xl p-3 md:p-5"
-            style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
+            className="relative overflow-hidden rounded-xl"
+            style={{ border: `1px solid ${CARD_BORDER}` }}
           >
-            <p className="text-white/50 text-[11px] uppercase tracking-wider mb-1 flex items-center gap-1">
-              {s.label}
-              <InfoTooltip text={s.tooltip} />
-            </p>
-            <p className="text-white text-xl font-semibold">{s.value}</p>
+            <img src={s.art} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+            {/* Translucent black content panel — art bleeds through around the
+                edges while the stat stays readable. */}
+            <div
+              className="relative z-10 m-2 rounded-lg p-3 md:p-4"
+              style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}
+            >
+              <p className="text-white/90 text-[11px] uppercase tracking-wider mb-1 flex items-center gap-1" style={LABEL_STYLE}>
+                {s.label}
+                <InfoTooltip text={s.tooltip} />
+              </p>
+              <p className="text-white text-xl font-semibold" style={LABEL_STYLE}>{s.value}</p>
+            </div>
           </div>
         ))}
       </m.div>
@@ -177,7 +198,7 @@ export function NFTLendingSection() {
               <m.div
                 layoutId="lending-tab-indicator"
                 className="absolute inset-0 rounded-lg"
-                style={{ background: 'var(--color-purple-20)', border: '1px solid var(--color-purple-30)' }}
+                style={{ background: 'var(--color-stan)', boxShadow: '0 4px 12px var(--color-stan-40)' }}
                 transition={{ type: 'spring', stiffness: 400, damping: 30 }}
               />
             )}
@@ -264,21 +285,35 @@ function LendTab() {
     <div className="space-y-5">
       {/* Collection Selector */}
       <div>
-        <label className="text-white/50 text-[11px] uppercase tracking-wider mb-2 block">Collateral Collection</label>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 block" style={LABEL_STYLE}>Collateral Collection</label>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {COLLECTIONS.map((c) => (
             <button
               key={c.address}
               onClick={() => setSelectedCollection(c.address)}
-              className={`min-h-[44px] rounded-xl p-3 text-left transition-all ${
+              className={`relative overflow-hidden aspect-square rounded-xl text-left transition-all ${
                 selectedCollection === c.address
-                  ? 'bg-emerald-500/15 border border-emerald-500/40 text-white'
-                  : 'border border-white/5 text-white/60 hover:border-white/15 hover:text-white/80'
+                  ? 'border-2 border-emerald-500/70 text-white'
+                  : 'border border-white/10 text-white hover:border-white/25'
               }`}
-              style={selectedCollection !== c.address ? { background: CARD_BG } : undefined}
             >
-              <span className="text-[13px] font-medium block">{c.name}</span>
-              <span className="text-[11px] opacity-60 font-mono">{c.symbol}</span>
+              <img src={COLLECTION_ART[c.symbol]} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+              {/* Label overlaid on the art — text sits inside a tight black
+                  inline-block sized to the text itself, not a full-width panel. */}
+              <div className="absolute inset-0 p-3 flex flex-col justify-end items-start">
+                <span
+                  className="inline-block text-[15px] font-semibold px-2 py-0.5 rounded"
+                  style={{ color: '#22c55e', background: 'rgba(0,0,0,0.85)', textShadow: '0 1px 4px rgba(0,0,0,0.95)' }}
+                >
+                  {c.name}
+                </span>
+                <span
+                  className="inline-block text-[11px] font-mono px-2 py-0.5 mt-0.5 rounded"
+                  style={{ color: '#22c55e', background: 'rgba(0,0,0,0.85)', textShadow: '0 1px 4px rgba(0,0,0,0.95)' }}
+                >
+                  {c.symbol}
+                </span>
+              </div>
             </button>
           ))}
         </div>
@@ -287,7 +322,7 @@ function LendTab() {
       {/* Principal + APR */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label className="text-white/50 text-[11px] uppercase tracking-wider mb-2 block">Principal (ETH)</label>
+          <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 block" style={LABEL_STYLE}>Principal (ETH)</label>
           <input
             type="number"
             step="0.01"
@@ -295,12 +330,12 @@ function LendTab() {
             placeholder="0.00"
             value={principal}
             onChange={(e) => setPrincipal(e.target.value)}
-            className="w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/20"
+            className="w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
             style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
           />
         </div>
         <div>
-          <label className="text-white/50 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+          <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5" style={LABEL_STYLE}>
             APR (bps){' '}
             {aprBps && parseInt(aprBps) > 0 && (
               <span className="text-emerald-400 normal-case">({bpsToPercent(parseInt(aprBps))}%)</span>
@@ -314,7 +349,7 @@ function LendTab() {
             placeholder="e.g. 1000 = 10%"
             value={aprBps}
             onChange={(e) => setAprBps(e.target.value)}
-            className="w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/20"
+            className="w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
             style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
           />
         </div>
@@ -322,7 +357,7 @@ function LendTab() {
 
       {/* Duration Presets */}
       <div>
-        <label className="text-white/50 text-[11px] uppercase tracking-wider mb-2 block">Loan Duration</label>
+        <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 block" style={LABEL_STYLE}>Loan Duration</label>
         <div className="flex flex-wrap gap-2">
           {DURATION_PRESETS.map((d) => (
             <button
@@ -349,7 +384,7 @@ function LendTab() {
           className="rounded-xl p-3 md:p-5"
           style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)' }}
         >
-          <p className="text-white/50 text-[11px] uppercase tracking-wider mb-1">Estimated Interest Earned</p>
+          <p className="text-white/85 text-[11px] uppercase tracking-wider mb-1">Estimated Interest Earned</p>
           <p className="text-emerald-400 text-xl font-semibold">{interestPreview} ETH</p>
           <p className="text-white/70 text-[11px] mt-1">
             {principal} ETH at {bpsToPercent(parseInt(aprBps))}% APR for {formatDuration(duration)}
@@ -457,22 +492,46 @@ function BorrowTab({ offerCount }: { offerCount: number }) {
 
   return (
     <div className="space-y-5">
-      {/* Filter Pills */}
-      <div className="flex flex-wrap gap-2">
-        {['all', ...COLLECTIONS.map((c) => c.symbol)].map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`min-h-[44px] px-4 py-2 rounded-xl text-[13px] font-medium transition-all ${
-              filter === f
-                ? 'bg-purple-500/15 border border-purple-500/40 text-purple-400'
-                : 'border border-white/5 text-white/70 hover:text-white/70 hover:border-white/15'
-            }`}
-            style={filter !== f ? { background: CARD_BG } : undefined}
-          >
-            {f === 'all' ? 'All' : f}
-          </button>
-        ))}
+      {/* Collection filter cards — matched to the Lend tab's card size
+          (aspect-square, full-bleed art, green name + symbol labels) so both
+          tabs feel like the same picker. "All" stands in for every collection
+          and uses the gallery collage. */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {(['all', ...COLLECTIONS.map((c) => c.symbol)] as const).map((f) => {
+          const art =
+            f === 'all' ? ART.galleryCollage.src : COLLECTION_ART[f] ?? ART.galleryCollage.src;
+          const isActive = filter === f;
+          const col = f === 'all' ? null : COLLECTIONS.find((c) => c.symbol === f) ?? null;
+          const title = f === 'all' ? 'All Collections' : col?.name ?? f;
+          const badge = f === 'all' ? 'ALL' : f;
+          return (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`relative overflow-hidden aspect-square rounded-xl text-left transition-all ${
+                isActive
+                  ? 'border-2 border-emerald-500/70 text-white'
+                  : 'border border-white/10 text-white hover:border-white/25'
+              }`}
+            >
+              <img src={art} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+              <div className="absolute inset-0 p-3 flex flex-col justify-end items-start">
+                <span
+                  className="inline-block text-[15px] font-semibold px-2 py-0.5 rounded"
+                  style={{ color: '#22c55e', background: 'rgba(0,0,0,0.85)', textShadow: '0 1px 4px rgba(0,0,0,0.95)' }}
+                >
+                  {title}
+                </span>
+                <span
+                  className="inline-block text-[11px] font-mono px-2 py-0.5 mt-0.5 rounded"
+                  style={{ color: '#22c55e', background: 'rgba(0,0,0,0.85)', textShadow: '0 1px 4px rgba(0,0,0,0.95)' }}
+                >
+                  {badge}
+                </span>
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       {/* Best Rate Highlights */}
@@ -481,7 +540,7 @@ function BorrowTab({ offerCount }: { offerCount: number }) {
           className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl px-4 py-2.5"
           style={{ background: 'rgba(16, 185, 129, 0.06)', border: '1px solid rgba(16, 185, 129, 0.12)' }}
         >
-          <span className="text-[11px] text-white/50 uppercase tracking-wider">Highlights:</span>
+          <span className="text-[11px] text-white/85 uppercase tracking-wider">Highlights:</span>
           <span className="text-[12px] text-emerald-400 font-medium">Best APR: {bpsToPercent(bestApr)}%</span>
           {quickestDuration !== null && (
             <span className="text-[12px] text-purple-400 font-medium">Quickest: {formatDuration(quickestDuration)}</span>
@@ -497,11 +556,21 @@ function BorrowTab({ offerCount }: { offerCount: number }) {
         <div className="text-center py-12 text-white/70 text-[13px]">Loading offers...</div>
       ) : filteredOffers.length === 0 ? (
         <div
-          className="rounded-xl p-8 text-center"
-          style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
+          className="relative overflow-hidden rounded-xl"
+          style={{ border: `1px solid ${CARD_BORDER}` }}
         >
-          <p className="text-white/70 text-[13px]">No offers {filter !== 'all' ? `for ${filter} ` : ''}yet.</p>
-          <p className="text-white/25 text-[11px] mt-1">Be the first! Switch to the Lend tab to create an offer.</p>
+          <img src={ART.poolParty.src} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+          <div
+            className="relative z-10 m-2 rounded-lg p-6 md:p-8 text-center"
+            style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}
+          >
+            <p className="text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+              No offers {filter !== 'all' ? `for ${filter} ` : ''}yet.
+            </p>
+            <p className="text-[11px] mt-1" style={{ color: '#22c55e', opacity: 0.85, textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>
+              Be the first! Switch to the Lend tab to create an offer.
+            </p>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -611,7 +680,7 @@ function OfferCard({
             <p className="text-white/70 text-[11px]">Duration</p>
           </div>
           <div className="truncate">
-            <p className="text-white/60 text-[13px] font-mono truncate">{shortenAddress(offer.lender)}</p>
+            <p className="text-white/80 text-[13px] font-mono truncate">{shortenAddress(offer.lender)}</p>
             <p className="text-white/70 text-[11px]">Lender</p>
           </div>
         </div>
@@ -630,7 +699,7 @@ function OfferCard({
           >
             <div className="px-3 pb-3 md:px-5 md:pb-5 space-y-3 border-t border-white/5 pt-3">
               <div>
-                <label className="text-white/50 text-[11px] uppercase tracking-wider mb-1 block">Your NFT Token ID</label>
+                <label className="text-white/85 text-[11px] uppercase tracking-wider mb-1 block">Your NFT Token ID</label>
                 <input
                   type="number"
                   step="1"
@@ -638,7 +707,7 @@ function OfferCard({
                   placeholder="e.g. 1234"
                   value={tokenId}
                   onChange={(e) => setTokenId(e.target.value)}
-                  className="w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/20"
+                  className="w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
                   style={{ background: 'rgba(13,21,48,0.8)', border: `1px solid ${CARD_BORDER}` }}
                 />
               </div>
@@ -777,7 +846,7 @@ function MyLoansTab({ loanCount }: { loanCount: number }) {
         style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
       >
         <p className="text-white/70 text-[13px]">No loans yet.</p>
-        <p className="text-white/25 text-[11px] mt-1">Browse available offers in the Borrow tab to get started, or create your own in the Lend tab!</p>
+        <p className="text-white/70 text-[11px] mt-1">Browse available offers in the Borrow tab to get started, or create your own in the Lend tab!</p>
       </div>
     );
   }
@@ -794,7 +863,7 @@ function MyLoansTab({ loanCount }: { loanCount: number }) {
 /* ─── Loan Card ─────────────────────────────────────────────────── */
 function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; userAddress: Address }) {
   const status = getLoanStatus(loan);
-  const colors = STATUS_COLORS[status] ?? { text: 'text-white/60', border: 'border-white/20', bg: 'rgba(255,255,255,0.05)' };
+  const colors = STATUS_COLORS[status] ?? { text: 'text-white/80', border: 'border-white/20', bg: 'rgba(255,255,255,0.05)' };
   const isBorrower = loan.borrower.toLowerCase() === userAddress.toLowerCase();
   const isLender = loan.lender.toLowerCase() === userAddress.toLowerCase();
   const now = Math.floor(Date.now() / 1000);

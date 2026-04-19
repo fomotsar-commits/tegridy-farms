@@ -68,7 +68,7 @@ contract Audit195PremiumHookTest is Test {
         // --- TegridyFeeHook ---
         poolManager = new MockPoolManager195();
         address hookAddr = address(uint160(0x0044));
-        bytes memory args = abi.encode(IPoolManager(address(poolManager)), distributor, INITIAL_FEE);
+        bytes memory args = abi.encode(IPoolManager(address(poolManager)), distributor, INITIAL_FEE, address(this));
         deployCodeTo("TegridyFeeHook.sol:TegridyFeeHook", args, hookAddr);
         hook = TegridyFeeHook(payable(hookAddr));
     }

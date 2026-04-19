@@ -32,16 +32,16 @@ export function LivePoolCard({ poolData }: { poolData: ReturnType<typeof usePool
         {/* Stats Grid -- live data */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
           <div className="rounded-lg p-2.5" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
-            <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">TVL</p>
-            <p className="stat-value text-[14px] text-white">{poolData.tvlFormatted}</p>
+            <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>TVL</p>
+            <p className="stat-value text-[14px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{poolData.tvlFormatted}</p>
           </div>
-          <div className="rounded-lg p-2.5" style={{ background: 'rgba(45,139,78,0.04)', border: '1px solid rgba(45,139,78,0.08)' }}>
-            <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">Est. APR</p>
-            <p className="stat-value text-[14px] text-white">{poolData.apr}</p>
+          <div className="rounded-lg p-2.5" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
+            <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Est. APR</p>
+            <p className="stat-value text-[14px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{poolData.apr}</p>
           </div>
-          <div className="rounded-lg p-2.5" style={{ background: 'rgba(212,160,23,0.04)', border: '1px solid rgba(212,160,23,0.08)' }}>
-            <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">Est. 24h Vol</p>
-            <p className="stat-value text-[14px] text-white">{poolData.vol24hFormatted}</p>
+          <div className="rounded-lg p-2.5" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
+            <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Est. 24h Vol</p>
+            <p className="stat-value text-[14px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{poolData.vol24hFormatted}</p>
           </div>
         </div>
 

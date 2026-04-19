@@ -358,8 +358,9 @@ export default createConfig({
     LPFarming: {
       abi: LPFarmingAbi,
       chain: "mainnet",
-      address: "0xa5AB522C99F86dEd9F429766872101c75517D77c",
-      startBlock: 24500000,
+      // Wave 0 2026-04-18: C-01 fix redeploy (MAX_BOOST_BPS_CEILING=45000)
+      address: "0xa7EF711Be3662B9557634502032F98944eC69ec1",
+      startBlock: 24910270,
     },
     TegridyLending: {
       abi: TegridyLendingAbi,

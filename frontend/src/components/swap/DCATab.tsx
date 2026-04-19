@@ -61,34 +61,34 @@ export function DCATab() {
 
   return (
     <div className="p-5">
-      <p className="text-white text-[11px] mb-2">Automatically buy TOWELI at regular intervals. Reduce timing risk with dollar-cost averaging.</p>
-      <p className="text-amber-400/60 text-[10px] mb-4 bg-amber-900/20 rounded px-2 py-1 border border-amber-700/30">⚠️ Browser-only feature: DCA schedules only run while this tab is open. Closing the browser stops all scheduled swaps. A keeper-based on-chain DCA is planned for v2.</p>
+      <p className="text-white text-[11px] mb-2" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Automatically buy TOWELI at regular intervals. Reduce timing risk with dollar-cost averaging.</p>
+      <p className="text-amber-300 text-[10px] mb-4 rounded px-2 py-1.5 border border-amber-500/50" style={{ background: 'rgba(0,0,0,0.70)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>&#9888; Browser-only feature: DCA schedules only run while this tab is open. Closing the browser stops all scheduled swaps. A keeper-based on-chain DCA is planned for v2.</p>
 
       {/* Amount per swap */}
       <div className="mb-3">
         <div className="flex items-center justify-between mb-1.5">
-          <label htmlFor="dca-amount" className="text-white text-[11px]">Amount per Swap (ETH)</label>
-          <span className="text-white/70 text-[10px] font-mono">Max: {MAX_AMOUNT_ETH} ETH</span>
+          <label htmlFor="dca-amount" className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Amount per Swap (ETH)</label>
+          <span className="text-white/90 text-[10px] font-mono" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Max: {MAX_AMOUNT_ETH} ETH</span>
         </div>
         <input id="dca-amount" type="number" inputMode="decimal" value={amount} onChange={handleAmountChange}
           onKeyDown={blockNegativeKey}
           placeholder="0.01" min="0" max={MAX_AMOUNT_ETH} step="0.001"
-          className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
-          style={{ border: '1px solid rgba(255,255,255,0.20)' }} />
+          className="w-full font-mono text-[16px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
+          style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }} />
       </div>
 
       {/* Interval */}
       <div className="mb-3">
-        <span id="dca-frequency-label" className="text-white text-[11px] mb-1.5 block">Frequency</span>
+        <span id="dca-frequency-label" className="text-white text-[11px] mb-1.5 block" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Frequency</span>
         <div className="flex gap-1.5" role="group" aria-labelledby="dca-frequency-label">
           {INTERVALS.map((opt, i) => (
             <button key={opt.value} onClick={() => setIntervalIdx(i)}
               aria-pressed={intervalIdx === i}
-              className="flex-1 py-2 min-h-[44px] rounded-lg text-[11px] font-medium cursor-pointer transition-all"
+              className="flex-1 py-2 min-h-[44px] rounded-lg text-[11px] font-medium cursor-pointer transition-all text-white"
               style={{
-                background: intervalIdx === i ? 'var(--color-purple-75)' : 'rgba(0,0,0,0.55)',
-                color: intervalIdx === i ? 'var(--color-primary)' : 'rgba(255,255,255,0.4)',
-                border: intervalIdx === i ? '1px solid var(--color-purple-75)' : '1px solid rgba(255,255,255,0.25)',
+                background: intervalIdx === i ? 'var(--color-stan)' : 'rgba(0,0,0,0.55)',
+                border: intervalIdx === i ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.18)',
+                boxShadow: intervalIdx === i ? '0 4px 12px var(--color-stan-40)' : undefined,
               }}>
               {opt.label}
             </button>
@@ -98,13 +98,13 @@ export function DCATab() {
 
       {/* Number of swaps */}
       <div className="mb-3">
-        <label htmlFor="dca-total-swaps" className="text-white text-[11px] mb-1.5 block">Number of Swaps</label>
+        <label htmlFor="dca-total-swaps" className="text-white text-[11px] mb-1.5 block" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Number of Swaps</label>
         <input id="dca-total-swaps" type="number" inputMode="numeric" value={totalSwaps} onChange={handleSwapsChange}
           onKeyDown={blockNegativeKey}
           placeholder="30" min="1" max="365"
           onBlur={() => { const v = parseInt(totalSwaps); if (isNaN(v) || v < 1) setTotalSwaps('1'); else if (v > 365) setTotalSwaps('365'); }}
-          className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
-          style={{ border: '1px solid rgba(255,255,255,0.20)' }} />
+          className="w-full font-mono text-[16px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
+          style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }} />
       </div>
 
       {/* Summary */}

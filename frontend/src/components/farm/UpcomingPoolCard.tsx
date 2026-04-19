@@ -30,9 +30,9 @@ export function UpcomingPoolCard({ pool }: { pool: typeof UPCOMING_POOLS[number]
         {/* Placeholder Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
           {['TVL', 'APR', '24h Vol'].map((label) => (
-            <div key={label} className="rounded-lg p-2.5" style={{ background: 'rgba(0,0,0,0.50)', border: '1px solid rgba(255,255,255,0.20)' }}>
-              <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">{label}</p>
-              <p className="stat-value text-[14px] text-white">&ndash;</p>
+            <div key={label} className="rounded-lg p-2.5" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
+              <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>{label}</p>
+              <p className="stat-value text-[14px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>&ndash;</p>
             </div>
           ))}
         </div>

@@ -17,9 +17,9 @@ function getInitialTheme(): Theme {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === 'dark' || stored === 'light') return stored;
   } catch {}
-  if (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches) {
-    return 'light';
-  }
+  // Default to dark regardless of OS preference — the brand art/colors are
+  // tuned for the dark palette, and light mode is only available if the user
+  // explicitly toggles to it.
   return 'dark';
 }
 
@@ -38,17 +38,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     } catch {}
   }, [theme]);
 
-  // Listen for live OS theme changes (e.g. macOS/Windows auto dark mode)
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: light)');
-    const handler = (e: MediaQueryListEvent) => {
-      // Only follow system preference if user hasn't manually chosen a theme
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (!stored) setTheme(e.matches ? 'light' : 'dark');
-    };
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
+  // Intentional: no auto-follow of OS preference. Default is always dark;
+  // the user must opt-in to light via the toggle, and that choice persists.
 
   const toggleTheme = useCallback(() => {
     setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));

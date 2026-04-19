@@ -15,6 +15,8 @@ import {
   LP_FARMING_ABI,
   TEGRIDY_LENDING_ABI,
   TEGRIDY_LAUNCHPAD_ABI,
+  TEGRIDY_LAUNCHPAD_V2_ABI,
+  TEGRIDY_DROP_V2_ABI,
   TEGRIDY_NFT_POOL_FACTORY_ABI,
   TEGRIDY_NFT_LENDING_ABI,
   GAUGE_CONTROLLER_ABI,
@@ -34,6 +36,7 @@ import {
   LP_FARMING_ADDRESS,
   TEGRIDY_LENDING_ADDRESS,
   TEGRIDY_LAUNCHPAD_ADDRESS,
+  TEGRIDY_LAUNCHPAD_V2_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_NFT_LENDING_ADDRESS,
   GAUGE_CONTROLLER_ADDRESS,
@@ -59,6 +62,10 @@ export default defineConfig({
     { name: 'LPFarming', abi: LP_FARMING_ABI, address: LP_FARMING_ADDRESS },
     { name: 'TegridyLending', abi: TEGRIDY_LENDING_ABI, address: TEGRIDY_LENDING_ADDRESS },
     { name: 'TegridyLaunchpad', abi: TEGRIDY_LAUNCHPAD_ABI, address: TEGRIDY_LAUNCHPAD_ADDRESS },
+    { name: 'TegridyLaunchpadV2', abi: TEGRIDY_LAUNCHPAD_V2_ABI, address: TEGRIDY_LAUNCHPAD_V2_ADDRESS },
+    // V2 Drop is a per-clone contract — no single address, each deployed collection
+    // has its own. Wagmi generates typed read/write hooks from the ABI alone.
+    { name: 'TegridyDropV2', abi: TEGRIDY_DROP_V2_ABI },
     { name: 'TegridyNFTPoolFactory', abi: TEGRIDY_NFT_POOL_FACTORY_ABI, address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS },
     { name: 'TegridyNFTLending', abi: TEGRIDY_NFT_LENDING_ABI, address: TEGRIDY_NFT_LENDING_ADDRESS },
     { name: 'GaugeController', abi: GAUGE_CONTROLLER_ABI, address: GAUGE_CONTROLLER_ADDRESS },

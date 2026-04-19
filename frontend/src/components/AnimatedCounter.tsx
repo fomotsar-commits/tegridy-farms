@@ -7,6 +7,7 @@ interface AnimatedCounterProps {
   decimals?: number;
   duration?: number;
   className?: string;
+  style?: React.CSSProperties;
 }
 
 /** Ease-out cubic: decelerates towards the end */
@@ -41,6 +42,7 @@ export const AnimatedCounter = React.memo(function AnimatedCounter({
   decimals = 2,
   duration = 1000,
   className,
+  style,
 }: AnimatedCounterProps) {
   const [displayValue, setDisplayValue] = useState(value);
   const previousValue = useRef(value);
@@ -87,7 +89,7 @@ export const AnimatedCounter = React.memo(function AnimatedCounter({
   }, [value, animate]);
 
   return (
-    <span className={className}>
+    <span className={className} style={style}>
       {prefix}{formatAnimatedNumber(displayValue, decimals)}{suffix}
     </span>
   );

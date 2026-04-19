@@ -131,14 +131,17 @@ function AppInner() {
   // If we're on the landing page, render that directly (no collection context needed)
   const isLanding = tab === "landing";
 
-  const [splashDone, setSplashDone] = useState(() => {
-    try { return sessionStorage.getItem("splashDone") === "true"; } catch { return false; }
-  });
+  // Splash persistence is per-mount only (no sessionStorage): the user asked that
+  // every entry to /nakamigos from elsewhere plays the Tradermigos splash. Because
+  // NakamigosApp is lazy-loaded, leaving and returning to /nakamigos remounts it
+  // and re-fires the splash. Internal route changes (landing → collection) don't
+  // remount this component, so the splash only plays once per visit.
+  const [splashDone, setSplashDone] = useState(false);
 
   // Landing page: set title and scroll to top
   useEffect(() => {
     if (isLanding) {
-      document.title = "Marketplace | NFT Collections";
+      document.title = "Tradermigos | NFT Collections";
       window.scrollTo({ top: 0, behavior: "instant" });
     }
   }, [isLanding]);
@@ -146,16 +149,13 @@ function AppInner() {
   // 404 page: set title
   useEffect(() => {
     if (tab === "404" && !collectionSlug) {
-      document.title = "Not Found | Marketplace";
+      document.title = "Not Found | Tradermigos";
     }
   }, [tab, collectionSlug]);
 
-  // ═══ Splash screen (only once per session) ═══
+  // ═══ Splash screen — plays on every fresh entry to /nakamigos ═══
   if (!splashDone) {
-    return <SplashScreen onComplete={() => {
-      setSplashDone(true);
-      try { sessionStorage.setItem("splashDone", "true"); } catch {}
-    }} />;
+    return <SplashScreen onComplete={() => setSplashDone(true)} />;
   }
 
   if (isLanding) {
@@ -277,7 +277,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   // update the page title and scroll to top.
   // All React state resets are handled by the remount itself (useState initializers).
   useEffect(() => {
-    document.title = `${collection.name} | Marketplace`;
+    document.title = `${collection.name} | Tradermigos`;
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [collectionSlug, collection.name]);
 
@@ -295,7 +295,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   // Update page title on tab change
   useEffect(() => {
     const tabLabel = tab === "gallery" ? "" : ` - ${tab.charAt(0).toUpperCase() + tab.slice(1)}`;
-    document.title = `${collection.name}${tabLabel} | Marketplace`;
+    document.title = `${collection.name}${tabLabel} | Tradermigos`;
   }, [tab, collection.name]);
 
   // Scroll listener

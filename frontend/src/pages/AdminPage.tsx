@@ -97,8 +97,8 @@ function PauseControls({ isPaused }: { isPaused: boolean }) {
 
   return (
     <div className="glass-card p-6 rounded-2xl">
-      <h2 className="heading-luxury text-white text-[20px] tracking-tight mb-2">Emergency Controls</h2>
-      <p className="text-white/60 text-sm mb-4">
+      <h2 className="heading-luxury text-white text-[20px] tracking-tight mb-2" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Emergency Controls</h2>
+      <p className="text-white/85 text-sm mb-4" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
         Pause or unpause the TegridyStaking contract. When paused, staking, withdrawals, and claims are disabled.
       </p>
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -111,12 +111,15 @@ function PauseControls({ isPaused }: { isPaused: boolean }) {
         {!confirming ? (
           <button
             onClick={() => { setConfirming(true); setTyped(''); }}
-            className="px-5 py-2.5 rounded-xl text-sm font-semibold transition-all"
+            aria-label={isPaused ? 'Unpause the TegridyStaking contract' : 'Pause the TegridyStaking contract (halts staking, withdrawals, and claims)'}
+            className="px-5 py-2.5 rounded-xl text-sm font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-black"
             style={{
               background: isPaused
                 ? 'linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105))'
                 : 'linear-gradient(135deg, rgb(239 68 68), rgb(185 28 28))',
               color: 'white',
+              textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
             }}
           >
             {isPaused ? 'Unpause Contract' : 'Pause Contract'}

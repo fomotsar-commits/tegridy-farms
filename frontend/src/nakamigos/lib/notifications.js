@@ -154,7 +154,7 @@ export async function sendLocalNotification(title, body, url = "/") {
   const registration = await navigator.serviceWorker.ready;
   await registration.showNotification(title, {
     body,
-    icon: "/splash/skeleton.png",
+    icon: "/splash/skeleton.jpg",
     data: { url },
     tag: "local-" + (title || "notification").slice(0, 20),
     vibrate: [100, 50, 100],

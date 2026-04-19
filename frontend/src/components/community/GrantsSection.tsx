@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { COMMUNITY_GRANTS_ADDRESS } from '../../lib/constants';
 import { COMMUNITY_GRANTS_ABI } from '../../lib/contracts';
 import { shortenAddress, formatTokenAmount, formatTimeAgo } from '../../lib/formatting';
+import { ART } from '../../lib/artConfig';
 
 const CARD_BG = 'rgba(13, 21, 48, 0.6)';
 const CARD_BORDER = 'var(--color-purple-12)';
@@ -126,15 +127,25 @@ export function GrantsSection() {
     <div className="space-y-4">
       {/* Stats Row */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-          <p className="text-[11px] text-white/40 uppercase tracking-wider mb-1">Total Proposals</p>
-          <p className="text-lg font-semibold text-white">{count}</p>
+        <div className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
+          <div className="absolute inset-0">
+            <img src={ART.mumuBull.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+          </div>
+          <div className="relative z-10 p-4">
+            <p className="text-[11px] text-white/60 uppercase tracking-wider mb-1" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Total Proposals</p>
+            <p className="text-lg font-semibold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>{count}</p>
+          </div>
         </div>
-        <div className="rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-          <p className="text-[11px] text-white/40 uppercase tracking-wider mb-1">Total Granted</p>
-          <p className="text-lg font-semibold text-emerald-400">
-            {totalGranted !== undefined ? `${formatTokenAmount(formatEther(totalGranted as bigint), 0)} TOWELI` : '--'}
-          </p>
+        <div className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
+          <div className="absolute inset-0">
+            <img src={ART.mfersHeaven.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+          </div>
+          <div className="relative z-10 p-4">
+            <p className="text-[11px] text-white/60 uppercase tracking-wider mb-1" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Total Granted</p>
+            <p className="text-lg font-semibold text-white" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+              {totalGranted !== undefined ? `${formatTokenAmount(formatEther(totalGranted as bigint), 0)} TOWELI` : '--'}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -155,9 +166,13 @@ export function GrantsSection() {
       {/* Create Form */}
       {showCreate && (
         <m.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
-          className="rounded-2xl p-5 space-y-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-          <h3 className="text-sm font-semibold text-white">New Grant Proposal</h3>
-          <p className="text-[11px] text-white/70">Requires veTOWELI voting power. Quorum-based approval with 24h execution delay.</p>
+          className="rounded-2xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
+          <div className="absolute inset-0">
+            <img src={ART.roseApe.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+          </div>
+          <div className="relative z-10 p-5 space-y-4">
+          <h3 className="text-sm font-semibold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>New Grant Proposal</h3>
+          <p className="text-[11px] text-white/80" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Requires veTOWELI voting power. Quorum-based approval with 24h execution delay.</p>
           <div>
             <label className="text-[11px] text-white/40 uppercase tracking-wider block mb-1">Recipient Address</label>
             <input type="text" value={newRecipient} onChange={(e) => setNewRecipient(e.target.value)}
@@ -189,16 +204,21 @@ export function GrantsSection() {
             style={{ background: 'linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105))', color: 'white' }}>
             {isSigning ? 'Confirm in Wallet...' : isConfirming ? 'Creating...' : 'Submit Proposal'}
           </button>
+          </div>
         </m.div>
       )}
 
       {/* Proposal List */}
-      <div className="rounded-2xl overflow-hidden" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-        <div className="px-5 py-4 border-b border-white/5">
-          <h3 className="text-sm font-semibold text-white">Proposals</h3>
+      <div className="rounded-2xl overflow-hidden relative" style={{ border: `1px solid ${CARD_BORDER}` }}>
+        <div className="absolute inset-0">
+          <img src={ART.galleryCollage.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        </div>
+        <div className="relative z-10">
+        <div className="px-5 py-4 border-b border-white/10">
+          <h3 className="text-sm font-semibold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Proposals</h3>
         </div>
         {count === 0 ? (
-          <p className="px-5 py-8 text-center text-white/30 text-sm">No proposals yet. Be the first to create one.</p>
+          <p className="px-5 py-8 text-center text-white/60 text-sm" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>No proposals yet. Be the first to create one.</p>
         ) : (
           <div className="divide-y divide-white/[0.04]">
             {proposalResults?.map((result, i) => {
@@ -271,6 +291,7 @@ export function GrantsSection() {
             })}
           </div>
         )}
+        </div>
       </div>
 
       {/* Contract Link */}

@@ -28,18 +28,19 @@ export function FarmStatsRow({ stats, pool, price, priceData, priceError, daysLe
           <div className="absolute inset-0">
             <img src={s.art} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: s.pos }} />
           </div>
-          <div className="relative z-10 p-3 md:p-5 pt-8 pb-6">
-          <p className="text-white text-[11px] uppercase tracking-wider label-pill mb-2 flex items-center gap-1.5">{s.l}{s.l === 'TOWELI Price' && <PulseDot size={5} />}</p>
+          {/* Semi-transparent content panel — art bleeds through while kyle-green text stays readable. */}
+          <div className="relative z-10 m-2 md:m-3 rounded-lg p-3 md:p-4 pt-6 pb-5" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <p className="text-[11px] uppercase tracking-wider label-pill mb-2 flex items-center gap-1.5" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{s.l}{s.l === 'TOWELI Price' && <PulseDot size={5} />}</p>
           <div className="flex items-center gap-2">
-            <p className={`stat-value text-2xl text-white`}>{s.v}</p>
+            <p className="stat-value text-2xl" style={{ color: '#22c55e', textShadow: '0 1px 8px rgba(0,0,0,0.95)' }}>{s.v}</p>
             {s.l === 'TOWELI Price' && priceData.length > 1 && (
               <Sparkline data={priceData} width={48} height={18} />
             )}
             {s.l === 'TOWELI Price' && !!priceError && priceData.length === 0 && (
-              <span className="text-white text-[10px]">Price data unavailable</span>
+              <span className="text-[10px]" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Price data unavailable</span>
             )}
           </div>
-          {s.sub && <p className="text-white text-[11px] mt-1">{s.sub}</p>}
+          {s.sub && <p className="text-[11px] mt-1" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>{s.sub}</p>}
           </div>
         </div>
       ))}

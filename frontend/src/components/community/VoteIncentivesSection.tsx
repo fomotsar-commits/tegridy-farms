@@ -7,9 +7,10 @@ import { shortenAddress, formatTokenAmount, formatWei } from '../../lib/formatti
 import { InfoTooltip } from '../ui/InfoTooltip';
 import { GOVERNANCE_COPY } from '../../lib/copy';
 import { useBribes } from '../../hooks/useBribes';
+import { ART } from '../../lib/artConfig';
 
-const CARD_BG = 'rgba(13, 21, 48, 0.6)';
 const CARD_BORDER = 'var(--color-purple-12)';
+const STAT_ARTS = [ART.chaosScene, ART.smokingDuo, ART.poolParty];
 
 export function VoteIncentivesSection() {
   const { address } = useAccount();
@@ -82,10 +83,15 @@ export function VoteIncentivesSection() {
           { label: 'Current Epoch', value: epoch > 0 ? `#${epoch}` : '--' },
           { label: 'Total Epochs', value: epochCount > 0 ? epochCount.toString() : '--' },
           { label: 'Bribe Fee', value: fee > 0 ? `${fee / 100}%` : '--' },
-        ].map(({ label, value }) => (
-          <div key={label} className="rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-            <p className="text-[11px] text-white/40 uppercase tracking-wider mb-1">{label}</p>
-            <p className="text-lg font-semibold text-white">{value}</p>
+        ].map(({ label, value }, i) => (
+          <div key={label} className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
+            <div className="absolute inset-0">
+              <img src={STAT_ARTS[i % STAT_ARTS.length].src} alt="" loading="lazy" className="w-full h-full object-cover" />
+            </div>
+            <div className="relative z-10 p-4">
+              <p className="text-[11px] text-white/60 uppercase tracking-wider mb-1" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>{label}</p>
+              <p className="text-lg font-semibold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>{value}</p>
+            </div>
           </div>
         ))}
       </div>
@@ -127,33 +133,38 @@ export function VoteIncentivesSection() {
       )}
 
       {/* Deposit Bribe — "Cartman's Market" */}
-      <div className="rounded-2xl overflow-hidden" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-        <div className="px-5 py-4 border-b border-white/5 flex items-center gap-2">
-          <h3 className="text-sm font-semibold text-white">{GOVERNANCE_COPY.bribesSectionTitle}</h3>
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/20">
-            {GOVERNANCE_COPY.bribesSectionTag}
-          </span>
-          <InfoTooltip text="Deposit ETH to incentivize gauge voters for the TOWELI/WETH LP pool. Voters earn a pro-rata share of deposited incentives." />
+      <div className="rounded-2xl overflow-hidden relative" style={{ border: `1px solid ${CARD_BORDER}` }}>
+        <div className="absolute inset-0">
+          <img src={ART.roseApe.src} alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
-        <div className="p-5 space-y-4">
-          <p className="text-[12px] text-white/70">
-            {GOVERNANCE_COPY.bribesSubheading}
-          </p>
-          <div>
-            <label className="text-[11px] text-white/40 uppercase tracking-wider block mb-1">Amount (ETH)</label>
-            <input type="number" step="0.01" value={bribeAmount} onChange={(e) => setBribeAmount(e.target.value)}
-              placeholder="0.1" className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm font-mono focus:border-emerald-500 outline-none transition-colors" />
-            {fee > 0 && bribeAmount && (
-              <p className="text-[10px] text-white/30 mt-1">
-                Fee: {(Number(bribeAmount) * fee / 10000).toFixed(6)} ETH ({fee / 100}%)
-              </p>
-            )}
+        <div className="relative z-10">
+          <div className="px-5 py-4 border-b border-white/10 flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>{GOVERNANCE_COPY.bribesSectionTitle}</h3>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/25 text-purple-200 border border-purple-500/30">
+              {GOVERNANCE_COPY.bribesSectionTag}
+            </span>
+            <InfoTooltip text="Deposit ETH to incentivize gauge voters for the TOWELI/WETH LP pool. Voters earn a pro-rata share of deposited incentives." />
           </div>
-          <button onClick={handleDepositETH} disabled={!bribeAmount || Number(bribeAmount) <= 0 || isBusy}
-            className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-40"
-            style={{ background: 'linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105))', color: 'white' }}>
-            {bribes.isPending ? 'Confirm in Wallet...' : bribes.isConfirming ? 'Depositing...' : `Deposit ${bribeAmount || '0'} ETH Bribe`}
-          </button>
+          <div className="p-5 space-y-4">
+            <p className="text-[12px] text-white/85" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
+              {GOVERNANCE_COPY.bribesSubheading}
+            </p>
+            <div>
+              <label className="text-[11px] text-white/60 uppercase tracking-wider block mb-1" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Amount (ETH)</label>
+              <input type="number" step="0.01" value={bribeAmount} onChange={(e) => setBribeAmount(e.target.value)}
+                placeholder="0.1" className="w-full bg-black/40 border border-white/15 rounded-lg px-3 py-2.5 text-white text-sm font-mono focus:border-emerald-500 outline-none transition-colors" />
+              {fee > 0 && bribeAmount && (
+                <p className="text-[10px] text-white/50 mt-1">
+                  Fee: {(Number(bribeAmount) * fee / 10000).toFixed(6)} ETH ({fee / 100}%)
+                </p>
+              )}
+            </div>
+            <button onClick={handleDepositETH} disabled={!bribeAmount || Number(bribeAmount) <= 0 || isBusy}
+              className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-40"
+              style={{ background: 'linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105))', color: 'white' }}>
+              {bribes.isPending ? 'Confirm in Wallet...' : bribes.isConfirming ? 'Depositing...' : `Deposit ${bribeAmount || '0'} ETH Bribe`}
+            </button>
+          </div>
         </div>
       </div>
 

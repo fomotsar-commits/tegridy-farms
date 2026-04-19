@@ -108,17 +108,31 @@ export function HowItWorks({
     } catch { /* noop */ }
   };
 
+  // Pick art based on storageKey so each HowItWorks panel across the app has
+  // a distinct identity. Each mapping chosen for thematic fit.
+  const artSrc =
+    storageKey.includes('lending') ? '/art/boxing-ring.jpg' :
+    storageKey.includes('amm') ? '/art/pool-party.jpg' :
+    storageKey.includes('launchpad') ? '/art/jungle-bus.jpg' :
+    storageKey.includes('bounties') ? '/art/chaos-scene.jpg' :
+    storageKey.includes('grants') ? '/art/mfers-heaven.jpg' :
+    storageKey.includes('bribes') || storageKey.includes('incentives') ? '/art/dance-night.jpg' :
+    storageKey.includes('farm') ? '/art/smoking-duo.jpg' :
+    '/art/forest-scene.jpg';
+
   return (
     <div
-      className="rounded-xl overflow-hidden transition-all duration-300"
+      className="relative rounded-xl overflow-hidden transition-all duration-300"
       style={{
-        background: 'rgba(13, 21, 48, 0.4)',
-        border: '1px solid var(--color-purple-12)',
+        border: '1px solid rgba(255, 255, 255, 0.14)',
       }}
     >
+      <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+        <img src={artSrc} alt="" loading="lazy" className="w-full h-full object-cover" />
+      </div>
       <button
         onClick={toggle}
-        className="w-full flex items-center justify-between px-4 py-3 text-left group"
+        className="relative w-full flex items-center justify-between px-4 py-3 text-left group"
       >
         <span className="flex items-center gap-2">
           <svg
@@ -150,23 +164,40 @@ export function HowItWorks({
       </button>
 
       {open && (
-        <div className="px-4 pb-4">
+        <div className="relative px-4 pb-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {steps.map((step, i) => (
-              <div
-                key={i}
-                className="flex gap-3 p-3 rounded-lg"
-                style={{ background: 'var(--color-purple-06)' }}
-              >
-                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-[11px] font-bold text-purple-400">
-                  {i + 1}
-                </span>
-                <div>
-                  <p className="text-[12px] font-semibold text-white/90 mb-0.5">{step.label}</p>
-                  <p className="text-[11px] text-white/70 leading-relaxed">{step.description}</p>
+            {steps.map((step, i) => {
+              // Step cards rotate through distinct art pieces so each numbered step has its own mood.
+              const stepArts = [
+                '/art/smoking-duo.jpg',
+                '/art/jungle-dark.jpg',
+                '/art/mumu-bull.jpg',
+                '/art/wrestler.jpg',
+                '/art/porch-chill.jpg',
+                '/art/rose-ape.jpg',
+                '/art/ape-hug.jpg',
+                '/art/towelie-window.jpg',
+              ];
+              const stepArt = stepArts[i % stepArts.length];
+              return (
+                <div
+                  key={i}
+                  className="relative overflow-hidden flex gap-3 p-3 rounded-lg"
+                  style={{ border: '1px solid rgba(255,255,255,0.10)' }}
+                >
+                  <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+                    <img src={stepArt} alt="" loading="lazy" className="w-full h-full object-cover" />
+                  </div>
+                  <span className="relative z-10 flex-shrink-0 w-6 h-6 rounded-full bg-purple-500/40 border border-purple-500/60 flex items-center justify-center text-[11px] font-bold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.95)' }}>
+                    {i + 1}
+                  </span>
+                  <div className="relative z-10">
+                    <p className="text-[12px] font-semibold text-white mb-0.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.9)' }}>{step.label}</p>
+                    <p className="text-[11px] text-white leading-relaxed" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.9)' }}>{step.description}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

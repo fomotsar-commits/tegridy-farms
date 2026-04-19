@@ -166,9 +166,11 @@ export default function DashboardPage() {
               <div className="absolute inset-0">
                 <img src={s.art} alt="" loading="lazy" className="w-full h-full object-cover" />
               </div>
-              <div className="relative z-10 p-3 md:p-5 pt-8 pb-6">
+              {/* Semi-transparent content panel — art bleeds through while kyle-green stat
+                  text stays readable against the dimmed backdrop. */}
+              <div className="relative z-10 m-2 md:m-3 rounded-lg p-3 md:p-4 pt-6 pb-5" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
               <div className="flex items-center gap-1.5">
-                <p className="text-white text-[11px] uppercase tracking-wider label-pill mb-2">{s.l}</p>
+                <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{s.l}</p>
                 {s.error && (
                   <span className="w-2 h-2 rounded-full bg-danger mb-2 shrink-0" title="Failed to load" />
                 )}
@@ -178,23 +180,23 @@ export default function DashboardPage() {
                   <Skeleton width={80} height={24} />
                 ) : s.isPrice ? (
                   <FlashValue value={s.numVal}>
-                    <AnimatedCounter value={s.numVal} prefix={s.prefix} decimals={s.decimals} className="stat-value text-2xl text-white" />
+                    <AnimatedCounter value={s.numVal} prefix={s.prefix} decimals={s.decimals} className="stat-value text-2xl" style={{ color: '#22c55e', textShadow: '0 1px 8px rgba(0,0,0,0.95)' }} />
                   </FlashValue>
                 ) : (
-                  <AnimatedCounter value={s.numVal} prefix={s.prefix} decimals={s.decimals} className="stat-value text-2xl text-white" />
+                  <AnimatedCounter value={s.numVal} prefix={s.prefix} decimals={s.decimals} className="stat-value text-2xl" style={{ color: '#22c55e', textShadow: '0 1px 8px rgba(0,0,0,0.95)' }} />
                 )}
                 {s.showSparkline && priceHistory.length > 1 && (
                   <Sparkline data={priceHistory} width={48} height={18} />
                 )}
               </div>
-              <p className={`text-[12px] mt-1.5 ${s.stale ? 'text-warning' : s.priceUp ? 'text-success' : s.priceDown ? 'text-danger' : 'text-white'}`}>
+              <p className="text-[12px] mt-1.5" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
                 {s.priceUp && '▲ '}{s.priceDown && '▼ '}
                 {s.stale ? (
                   <span className="inline-flex items-center gap-1">
                     <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>Stale</span>
                   </span>
                 ) : s.sub === 'Live' ? <span className="inline-flex items-center gap-1">Live <PulseDot size={5} /></span> : s.sub}
-                {(s.priceUp || s.priceDown) && <span className="text-white text-[10px] ml-1">since session start</span>}
+                {(s.priceUp || s.priceDown) && <span className="text-[10px] ml-1" style={{ color: '#22c55e' }}>since session start</span>}
               </p>
               </div>
             </div>
@@ -207,7 +209,7 @@ export default function DashboardPage() {
           <div className="absolute inset-0">
             <img src={ART.danceNight.src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
-          <div className="relative z-10 p-4 flex items-center justify-between flex-wrap gap-2">
+          <div className="relative z-10 m-2 md:m-3 rounded-lg p-3 md:p-4 flex items-center justify-between flex-wrap gap-2" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <TegridyScoreMini />
             <Link to="/leaderboard" className="text-[11px] text-white hover:text-white transition-colors">
               View Breakdown &#8594;
@@ -369,7 +371,7 @@ export default function DashboardPage() {
         {/* Chart */}
         <m.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <h3 className="heading-luxury text-[16px] text-white mb-3">Price Chart</h3>
-          <div className="relative rounded-xl overflow-hidden glass-card-animated h-[280px] md:h-[400px]" style={{ border: '1px solid var(--color-purple-75)' }}>
+          <div className="relative rounded-xl overflow-hidden glass-card-animated h-[280px] md:h-[400px]" style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}>
             <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}><PriceChart /></ErrorBoundary>
           </div>
         </m.div>

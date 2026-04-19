@@ -9,13 +9,15 @@ export const BTN_EMERALD =
   'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 transition-colors text-white font-medium disabled:opacity-70 disabled:pointer-events-none';
 
 export const PHASE_LABELS = ['Paused', 'Allowlist', 'Public'] as const;
+// South Park character palette: Kyle green, Stan blue, Cartman red,
+// Kenny orange, Cartman yellow, Chef purple. One per bullet.
 export const FEATURE_BULLETS = [
-  { label: 'ERC-721 Collections', icon: '\u25C8' },
-  { label: 'Merkle Allowlists', icon: '\u25CE' },
-  { label: 'Dutch Auctions', icon: '\u25C7' },
-  { label: 'Delayed Reveals', icon: '\u25C9' },
-  { label: 'ERC-2981 Royalties', icon: '\u25C6' },
-  { label: 'Revenue Splits', icon: '\u25D0' },
+  { label: 'ERC-721 Collections', icon: '\u25C8', color: '#2eb62c' }, // Kyle green
+  { label: 'Merkle Allowlists', icon: '\u25CE', color: '#4a90e2' },   // Stan blue
+  { label: 'Dutch Auctions', icon: '\u25C7', color: '#e74c3c' },      // Cartman red
+  { label: 'Delayed Reveals', icon: '\u25C9', color: '#e67e22' },     // Kenny orange
+  { label: 'ERC-2981 Royalties', icon: '\u25C6', color: '#f1c40f' },  // Cartman yellow
+  { label: 'Revenue Splits', icon: '\u25D0', color: '#9b59b6' },      // Chef purple
 ];
 
 export const fadeUp = { initial: { opacity: 0, y: 14 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.35 } };

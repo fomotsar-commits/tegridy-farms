@@ -16,11 +16,11 @@ export const REVENUE_DISTRIBUTOR_ADDRESS = '0x332aaE555b1164eA45c2291fD7eDfa97aA
 export const SWAP_FEE_ROUTER_ADDRESS = '0xea13Cd47a37cC5B59675bfd52BFc8ff8691937A0' as const;
 export const POL_ACCUMULATOR_ADDRESS = '0x17215f0dfA5E97c33c025E0560eeddffaD87B7Ca' as const;
 
-// LP Farming
-export const LP_FARMING_ADDRESS = '0xa5AB522C99F86dEd9F429766872101c75517D77c' as const;
+// LP Farming — Wave 0 2026-04-18: C-01 fix (MAX_BOOST_BPS_CEILING=45000) redeploy
+export const LP_FARMING_ADDRESS = '0xa7EF711Be3662B9557634502032F98944eC69ec1' as const;
 
-// Gauge Controller
-export const GAUGE_CONTROLLER_ADDRESS = '0xb6E4CFCb83D846af159b9c653240426841AEB414' as const;
+// Gauge Controller — Wave 0 2026-04-18: H-2 commit-reveal redeploy
+export const GAUGE_CONTROLLER_ADDRESS = '0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb' as const;
 
 // Community
 export const COMMUNITY_GRANTS_ADDRESS = '0x8f1Ba1eC97a932EE1332BA0f366BC6aDf60B3032' as const;
@@ -33,9 +33,23 @@ export const VOTE_INCENTIVES_ADDRESS = '0x417F44aee21Cc709262e71A7fdF6028cc17eCf
 export const TEGRIDY_LENDING_ADDRESS = '0xd471e5675EaDbD8C192A5dA2fF44372D5713367f' as const;
 export const TEGRIDY_LAUNCHPAD_ADDRESS = '0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2' as const;
 export const TEGRIDY_NFT_POOL_FACTORY_ADDRESS = '0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0' as const;
-export const TEGRIDY_TOKEN_URI_READER_ADDRESS = '0x0f165D012fA46E267Bd846BdAFf9Fd4607fdD702' as const;
-export const TEGRIDY_NFT_LENDING_ADDRESS = '0x63baD13f89186E0769F636D4Cd736eB26E2968aD' as const;
-export const TEGRIDY_TWAP_ADDRESS = '0x1394A256e127814B52244Bbd0CCB94f0007dBe25' as const;
+// Wave 0 2026-04-18: redeployed pointing at current staking (0x6266...)
+export const TEGRIDY_TOKEN_URI_READER_ADDRESS = '0xfec9aea42ea966c9382eeb03f63a784579841eb2' as const;
+// Wave 0 2026-04-18: C-02 grace period redeploy
+export const TEGRIDY_NFT_LENDING_ADDRESS = '0x05409880aDFEa888F2c93568B8D88c7b4aAdB139' as const;
+// Wave 0 2026-04-18: fresh TWAP oracle deploy
+export const TEGRIDY_TWAP_ADDRESS = '0xddbe4cd58faf4b0b93e4e03a2493327ee3bb4995' as const;
+// Wave 0 2026-04-18: Uniswap V4 fee hook (B7). Address ends in 0x0044 for
+// AFTER_SWAP_FLAG|AFTER_SWAP_RETURNS_DELTA permissions. NOTE: deployed via
+// Arachnid CREATE2 proxy — owner is the proxy (0x4e59b44...), not our EOA.
+// Admin functions (pause, setFee, setDistributor) are stranded until we patch
+// the constructor to accept _owner as arg and redeploy.
+export const TEGRIDY_FEE_HOOK_ADDRESS = '0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044' as const;
+
+// Launchpad V2 — click-deploy flow with single-tx createCollection + contractURI.
+// Placeholder until DeployLaunchpadV2.s.sol broadcasts. Frontend can still list v1
+// collections and fall through to the legacy form while this is zero.
+export const TEGRIDY_LAUNCHPAD_V2_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 
 // Uniswap V2 (external routing fallback)
 export const UNISWAP_V2_ROUTER = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D' as const;

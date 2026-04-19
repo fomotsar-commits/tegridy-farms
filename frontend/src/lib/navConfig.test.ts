@@ -29,9 +29,11 @@ describe('navConfig', () => {
     expect(paths).toContain('/lending');
   });
 
-  it('POINTS_NAV is the right-aligned Points action', () => {
-    expect(POINTS_NAV.to).toBe('/leaderboard');
-    expect(POINTS_NAV.label).toBe('Points');
+  it('POINTS_NAV is the right-aligned promoted action (Tradermigos)', () => {
+    // Previously the right-aligned slot was Points; Tradermigos was swapped
+    // in from the "More" dropdown so the art marketplace gets top-bar prominence.
+    expect(POINTS_NAV.to).toBe('/nakamigos');
+    expect(POINTS_NAV.label).toBe('Tradermigos');
   });
 
   it('ALL_NAV is a superset of PRIMARY_NAV', () => {

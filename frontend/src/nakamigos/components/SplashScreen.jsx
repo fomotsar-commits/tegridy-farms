@@ -7,11 +7,11 @@ const IS_MOBILE = typeof window !== "undefined" && window.innerWidth < 768;
 // ═══ Art pieces config — SPLASH ONLY ═══
 // Mobile: fewer pieces, smaller sizes for performance
 const ART_PIECES_DESKTOP = [
-  { src: "/splash/watercolor.png", size: 420, pixel: false },
+  { src: "/splash/watercolor.jpg", size: 420, pixel: false },
   { src: "/splash/HBbsuPEacAAX0VA.jpg", size: 400, pixel: false },
   { src: "/splash/G24BZRrakAA1M_9.jpg", size: 380, pixel: false },
-  { src: "/splash/frogking.png", size: 320, pixel: true },
-  { src: "/splash/skeleton.png", size: 220, pixel: true },
+  { src: "/splash/frogking.jpg", size: 320, pixel: true },
+  { src: "/splash/skeleton.jpg", size: 220, pixel: true },
   { src: "/splash/G--r5iuXIAEPwLt.jpg", size: 380, pixel: false },
   { src: "/splash/G-FPcYdXMAAKsWR.jpg", size: 420, pixel: false },
   { src: "/splash/G8jE1EcWMAAvHTy.jpg", size: 360, pixel: false },
@@ -19,9 +19,9 @@ const ART_PIECES_DESKTOP = [
   { src: "/splash/HC6HNXsW4AA-UwM.jpg", size: 420, pixel: false },
 ];
 const ART_PIECES_MOBILE = [
-  { src: "/splash/skeleton.png", size: 140, pixel: true },
-  { src: "/splash/frogking.png", size: 160, pixel: true },
-  { src: "/splash/watercolor.png", size: 200, pixel: false },
+  { src: "/splash/skeleton.jpg", size: 140, pixel: true },
+  { src: "/splash/frogking.jpg", size: 160, pixel: true },
+  { src: "/splash/watercolor.jpg", size: 200, pixel: false },
   { src: "/splash/HBbsuPEacAAX0VA.jpg", size: 180, pixel: false },
   { src: "/splash/G24BZRrakAA1M_9.jpg", size: 170, pixel: false },
 ];
@@ -1285,7 +1285,7 @@ export default function SplashScreen({ onComplete }) {
         {/* Collection title */}
         <div style={{ marginBottom: 8, overflow: "hidden", position: "relative" }}>
           <div style={{ display: "flex", justifyContent: "center", gap: 5, position: "relative" }}>
-            {(COLLECTIONS[DEFAULT_COLLECTION]?.name || "NAKAMIGOS").toUpperCase().split("").map((letter, i) => {
+            {"TRADERMIGOS".split("").map((letter, i) => {
               const palette = ["#c8a850", "#e8c080", "#ff8fa0", "#c8a850", "#7eb8e0", "#a088d0", "#e0a0c0", "#c8a850", "#7eb8e0"];
               const colors = palette;
               return (

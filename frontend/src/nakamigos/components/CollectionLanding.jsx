@@ -687,7 +687,7 @@ export default function CollectionLanding() {
           lineHeight: 1.3,
           textShadow: "0 0 40px rgba(111,168,220,0.15)",
         }}>
-          MARKETPLACE
+          TRADERMIGOS
         </h1>
 
         <p style={{

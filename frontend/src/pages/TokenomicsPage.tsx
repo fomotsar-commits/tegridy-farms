@@ -54,7 +54,7 @@ export default function TokenomicsPage() {
         <img src={ART.swordOfLove.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 25%' }} />
       </div>
 
-      <div className="relative z-10 max-w-[1000px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
+      <div className="relative z-10 max-w-[1000px] mx-auto px-4 md:px-6 pt-32 pb-28 md:pb-12">
         <m.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Tokenomics</h1>
           <p className="text-white text-[14px]">TOWELI token economics and protocol transparency</p>
@@ -99,7 +99,7 @@ export default function TokenomicsPage() {
             <div className="absolute inset-0">
               <img src={ART.danceNight.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
             </div>
-            <div className="relative z-10 p-5">
+            <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-5" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <h2 className="heading-luxury text-[15px] text-white mb-3">Supply Distribution</h2>
             <div className="h-48">
               <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}>
@@ -136,7 +136,7 @@ export default function TokenomicsPage() {
             <div className="absolute inset-0">
               <img src={ART.jbChristmas.src} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
-            <div className="relative z-10 p-5">
+            <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-5" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <h2 className="heading-luxury text-[15px] text-white mb-3">Emission Schedule</h2>
             <div className="space-y-3">
               {[
@@ -165,7 +165,7 @@ export default function TokenomicsPage() {
           <div className="absolute inset-0">
             <img src={ART.beachVibes.src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
-          <div className="relative z-10 p-5">
+          <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-5" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <div className="flex items-center justify-between mb-3">
               <h2 className="heading-luxury text-[15px] text-white">Community Treasury</h2>
               <a href={`https://etherscan.io/address/${TEGRIDY_STAKING_ADDRESS}`} target="_blank" rel="noopener noreferrer"
@@ -178,16 +178,16 @@ export default function TokenomicsPage() {
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
-                <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">Rewards Remaining</p>
-                <p className="stat-value text-[13px] text-white">{pool.totalRewardsFunded || '0'} TOWELI</p>
+                <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Rewards Remaining</p>
+                <p className="stat-value text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{pool.totalRewardsFunded || '0'} TOWELI</p>
               </div>
               <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
-                <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">Emission Rate</p>
-                <p className="stat-value text-[13px] text-white">{((parseFloat(pool.rewardRate) || 0) * 86400).toFixed(2)} / day</p>
+                <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Emission Rate</p>
+                <p className="stat-value text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{((parseFloat(pool.rewardRate) || 0) * 86400).toFixed(2)} / day</p>
               </div>
               <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
-                <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-0.5">Est. Duration</p>
-                <p className="stat-value text-[13px] text-white">{daysLeft > 0 ? `${daysLeft.toFixed(0)} days` : '–'}</p>
+                <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Est. Duration</p>
+                <p className="stat-value text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{daysLeft > 0 ? `${daysLeft.toFixed(0)} days` : '–'}</p>
               </div>
             </div>
           </div>
@@ -199,7 +199,7 @@ export default function TokenomicsPage() {
           <div className="absolute inset-0">
             <img src={ART.jbacSkeleton.src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
-          <div className="relative z-10 p-5">
+          <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-5" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <h2 className="heading-luxury text-[15px] text-white mb-3">Contracts</h2>
             <div className="space-y-1.5">
               {CONTRACTS.map((c) => {

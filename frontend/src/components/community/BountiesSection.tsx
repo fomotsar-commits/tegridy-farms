@@ -6,9 +6,11 @@ import { toast } from 'sonner';
 import { MEME_BOUNTY_BOARD_ADDRESS } from '../../lib/constants';
 import { MEME_BOUNTY_BOARD_ABI } from '../../lib/contracts';
 import { shortenAddress, formatTimeAgo, formatWei } from '../../lib/formatting';
+import { ART } from '../../lib/artConfig';
 
 const CARD_BG = 'rgba(13, 21, 48, 0.6)';
 const CARD_BORDER = 'var(--color-purple-12)';
+const STAT_ARTS = [ART.beachVibes, ART.jbChristmas, ART.beachSunset, ART.poolParty];
 
 const STATUS_LABELS: Record<number, { label: string; color: string }> = {
   0: { label: 'Open', color: 'text-emerald-400' },
@@ -93,10 +95,15 @@ export function BountiesSection() {
           { label: 'Total Paid Out', value: totalPaidOut !== undefined ? `${formatWei(totalPaidOut as bigint, 18, 4)} ETH` : '--' },
           { label: 'Your Pending Payout', value: `${formatWei(payoutBig, 18, 4)} ETH`, highlight: payoutBig > 0n },
           { label: 'Your Pending Refund', value: `${formatWei(refundBig, 18, 4)} ETH`, highlight: refundBig > 0n },
-        ].map(({ label, value, highlight }) => (
-          <div key={label} className="rounded-xl p-3" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-            <p className="text-[10px] text-white/40 uppercase tracking-wider mb-1">{label}</p>
-            <p className={`text-sm font-semibold ${highlight ? 'text-emerald-400' : 'text-white'}`}>{value}</p>
+        ].map(({ label, value, highlight }, i) => (
+          <div key={label} className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
+            <div className="absolute inset-0">
+              <img src={STAT_ARTS[i % STAT_ARTS.length].src} alt="" loading="lazy" className="w-full h-full object-cover" />
+            </div>
+            <div className="relative z-10 p-3">
+              <p className="text-[10px] text-white/60 uppercase tracking-wider mb-1" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>{label}</p>
+              <p className={`text-sm font-semibold ${highlight ? 'text-emerald-400' : 'text-white'}`} style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>{value}</p>
+            </div>
           </div>
         ))}
       </div>
@@ -132,9 +139,13 @@ export function BountiesSection() {
 
       {showCreate && (
         <m.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
-          className="rounded-2xl p-5 space-y-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-          <h3 className="text-sm font-semibold text-white">New Meme Bounty</h3>
-          <p className="text-[11px] text-white/70">Fund a bounty with ETH. Community votes on submissions. Winner takes the reward.</p>
+          className="rounded-2xl overflow-hidden relative" style={{ border: `1px solid ${CARD_BORDER}` }}>
+          <div className="absolute inset-0">
+            <img src={ART.chaosScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+          </div>
+          <div className="relative z-10 p-5 space-y-4">
+          <h3 className="text-sm font-semibold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>New Meme Bounty</h3>
+          <p className="text-[11px] text-white/80" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Fund a bounty with ETH. Community votes on submissions. Winner takes the reward.</p>
           <div>
             <label className="text-[11px] text-white/40 uppercase tracking-wider block mb-1">Description</label>
             <textarea value={newDescription} onChange={(e) => setNewDescription(e.target.value)}
@@ -158,16 +169,21 @@ export function BountiesSection() {
             style={{ background: 'linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105))', color: 'white' }}>
             {isSigning ? 'Confirm in Wallet...' : isConfirming ? 'Creating...' : `Post Bounty (${newReward || '0'} ETH)`}
           </button>
+          </div>
         </m.div>
       )}
 
       {/* Bounty List */}
-      <div className="rounded-2xl overflow-hidden" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-        <div className="px-5 py-4 border-b border-white/5">
-          <h3 className="text-sm font-semibold text-white">Active Bounties</h3>
+      <div className="rounded-2xl overflow-hidden relative" style={{ border: `1px solid ${CARD_BORDER}` }}>
+        <div className="absolute inset-0">
+          <img src={ART.galleryCollage.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        </div>
+        <div className="relative z-10">
+        <div className="px-5 py-4 border-b border-white/10">
+          <h3 className="text-sm font-semibold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Active Bounties</h3>
         </div>
         {count === 0 ? (
-          <p className="px-5 py-8 text-center text-white/30 text-sm">No bounties yet. Post the first one.</p>
+          <p className="px-5 py-8 text-center text-white/60 text-sm" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>No bounties yet. Post the first one.</p>
         ) : (
           <div className="divide-y divide-white/[0.04]">
             {bountyResults?.map((result, i) => {
@@ -226,6 +242,7 @@ export function BountiesSection() {
             })}
           </div>
         )}
+        </div>
       </div>
 
       {/* Contract Link */}

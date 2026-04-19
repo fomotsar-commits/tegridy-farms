@@ -77,7 +77,7 @@ export default function PremiumPage() {
         <img src={ART.swordOfLove.src} alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
 
-      <div className="relative z-10 max-w-[1000px] mx-auto px-4 md:px-6 pt-24 pb-28 md:pb-16">
+      <div className="relative z-10 max-w-[1000px] mx-auto px-4 md:px-6 pt-32 pb-28 md:pb-16">
         {/* Hero */}
         <m.div className="text-center mb-12" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <div className="inline-block mb-4">

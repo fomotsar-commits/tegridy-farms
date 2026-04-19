@@ -2,6 +2,7 @@ import {
   createUseReadContract,
   createUseWriteContract,
   createUseSimulateContract,
+  createUseWatchContractEvent,
 } from 'wagmi/codegen'
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -201,10 +202,115 @@ export const gaugeControllerAbi = [
     outputs: [{ name: '', type: 'uint256' }],
     stateMutability: 'view',
   },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'REVEAL_WINDOW',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'epoch', type: 'uint256' }],
+    name: 'epochStartTime',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'voter', type: 'address' },
+      { name: 'tokenId', type: 'uint256' },
+      { name: 'gauges', type: 'address[]' },
+      { name: 'weights', type: 'uint256[]' },
+      { name: 'salt', type: 'bytes32' },
+      { name: 'epoch', type: 'uint256' },
+    ],
+    name: 'computeCommitment',
+    outputs: [{ name: '', type: 'bytes32' }],
+    stateMutability: 'pure',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'tokenId', type: 'uint256' },
+      { name: 'commitmentHash', type: 'bytes32' },
+    ],
+    name: 'commitVote',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'tokenId', type: 'uint256' },
+      { name: 'gauges', type: 'address[]' },
+      { name: 'weights', type: 'uint256[]' },
+      { name: 'salt', type: 'bytes32' },
+    ],
+    name: 'revealVote',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'isRevealWindowOpen',
+    outputs: [
+      { name: 'epoch', type: 'uint256' },
+      { name: 'open', type: 'bool' },
+      { name: 'revealOpensAt', type: 'uint256' },
+      { name: 'revealClosesAt', type: 'uint256' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: '', type: 'uint256' },
+      { name: '', type: 'uint256' },
+    ],
+    name: 'commitmentOf',
+    outputs: [{ name: '', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: '', type: 'uint256' },
+      { name: '', type: 'uint256' },
+    ],
+    name: 'hasVotedInEpoch',
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'voter', type: 'address', indexed: true },
+      { name: 'tokenId', type: 'uint256', indexed: true },
+      { name: 'epoch', type: 'uint256', indexed: true },
+      { name: 'commitmentHash', type: 'bytes32', indexed: false },
+    ],
+    name: 'VoteCommitted',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'voter', type: 'address', indexed: true },
+      { name: 'tokenId', type: 'uint256', indexed: true },
+      { name: 'epoch', type: 'uint256', indexed: true },
+      { name: 'gauges', type: 'address[]', indexed: false },
+      { name: 'weights', type: 'uint256[]', indexed: false },
+    ],
+    name: 'VoteRevealed',
+  },
 ] as const
 
 export const gaugeControllerAddress =
-  '0xb6E4CFCb83D846af159b9c653240426841AEB414' as const
+  '0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb' as const
 
 export const gaugeControllerConfig = {
   address: gaugeControllerAddress,
@@ -331,7 +437,7 @@ export const lpFarmingAbi = [
 ] as const
 
 export const lpFarmingAddress =
-  '0xa5AB522C99F86dEd9F429766872101c75517D77c' as const
+  '0xa7EF711Be3662B9557634502032F98944eC69ec1' as const
 
 export const lpFarmingConfig = {
   address: lpFarmingAddress,
@@ -791,6 +897,238 @@ export const swapFeeRouterConfig = {
 } as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// TegridyDropV2
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const tegridyDropV2Abi = [
+  {
+    type: 'function',
+    inputs: [
+      { name: 'quantity', type: 'uint256' },
+      { name: 'proof', type: 'bytes32[]' },
+    ],
+    name: 'mint',
+    outputs: [],
+    stateMutability: 'payable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'currentPrice',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'totalSupply',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'maxSupply',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'mintPhase',
+    outputs: [{ name: '', type: 'uint8' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'merkleRoot',
+    outputs: [{ name: '', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'mintPrice',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'maxPerWallet',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'owner',
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'creator',
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', type: 'address' }],
+    name: 'paidPerWallet',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', type: 'address' }],
+    name: 'mintedPerWallet',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'revealed',
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'paused',
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'contractURI',
+    outputs: [{ name: '', type: 'string' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'uri', type: 'string' }],
+    name: 'setContractURI',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'phase', type: 'uint8' }],
+    name: 'setMintPhase',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'root', type: 'bytes32' }],
+    name: 'setMerkleRoot',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'price', type: 'uint256' }],
+    name: 'setMintPrice',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'max', type: 'uint256' }],
+    name: 'setMaxPerWallet',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'uri', type: 'string' }],
+    name: 'setBaseURI',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'revealURI', type: 'string' }],
+    name: 'reveal',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'startPrice', type: 'uint256' },
+      { name: 'endPrice', type: 'uint256' },
+      { name: 'startTime', type: 'uint256' },
+      { name: 'duration', type: 'uint256' },
+    ],
+    name: 'configureDutchAuction',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'pause',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'unpause',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'withdraw',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'cancelSale',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'refund',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'newOwner', type: 'address' }],
+    name: 'transferOwnership',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'acceptOwnership',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'tokenId', type: 'uint256' }],
+    name: 'tokenURI',
+    outputs: [{ name: '', type: 'string' }],
+    stateMutability: 'view',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // TegridyFactory
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -889,6 +1227,123 @@ export const tegridyLaunchpadAddress =
 export const tegridyLaunchpadConfig = {
   address: tegridyLaunchpadAddress,
   abi: tegridyLaunchpadAbi,
+} as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// TegridyLaunchpadV2
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const tegridyLaunchpadV2Abi = [
+  {
+    type: 'function',
+    inputs: [
+      {
+        name: 'cfg',
+        type: 'tuple',
+        components: [
+          { name: 'name', type: 'string' },
+          { name: 'symbol', type: 'string' },
+          { name: 'maxSupply', type: 'uint256' },
+          { name: 'mintPrice', type: 'uint256' },
+          { name: 'maxPerWallet', type: 'uint256' },
+          { name: 'royaltyBps', type: 'uint16' },
+          { name: 'placeholderURI', type: 'string' },
+          { name: 'contractURI', type: 'string' },
+          { name: 'merkleRoot', type: 'bytes32' },
+          { name: 'dutchStartPrice', type: 'uint256' },
+          { name: 'dutchEndPrice', type: 'uint256' },
+          { name: 'dutchStartTime', type: 'uint256' },
+          { name: 'dutchDuration', type: 'uint256' },
+          { name: 'initialPhase', type: 'uint8' },
+        ],
+      },
+    ],
+    name: 'createCollection',
+    outputs: [
+      { name: 'id', type: 'uint256' },
+      { name: 'collection', type: 'address' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'id', type: 'uint256' }],
+    name: 'getCollection',
+    outputs: [
+      {
+        name: '',
+        type: 'tuple',
+        components: [
+          { name: 'id', type: 'uint256' },
+          { name: 'collection', type: 'address' },
+          { name: 'creator', type: 'address' },
+          { name: 'name', type: 'string' },
+          { name: 'symbol', type: 'string' },
+        ],
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'getCollectionCount',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'getAllCollections',
+    outputs: [{ name: '', type: 'address[]' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'dropTemplate',
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'protocolFeeBps',
+    outputs: [{ name: '', type: 'uint16' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'event',
+    inputs: [
+      { name: 'id', type: 'uint256', indexed: true },
+      { name: 'collection', type: 'address', indexed: true },
+      { name: 'creator', type: 'address', indexed: true },
+      { name: 'name', type: 'string', indexed: false },
+      { name: 'symbol', type: 'string', indexed: false },
+      { name: 'maxSupply', type: 'uint256', indexed: false },
+    ],
+    name: 'CollectionCreated',
+  },
+  {
+    type: 'event',
+    inputs: [
+      { name: 'id', type: 'uint256', indexed: true },
+      { name: 'collection', type: 'address', indexed: true },
+      { name: 'creator', type: 'address', indexed: true },
+      { name: 'contractURI', type: 'string', indexed: false },
+      { name: 'merkleRoot', type: 'bytes32', indexed: false },
+      { name: 'initialPhase', type: 'uint8', indexed: false },
+    ],
+    name: 'CollectionCreatedV2',
+  },
+] as const
+
+export const tegridyLaunchpadV2Address =
+  '0x0000000000000000000000000000000000000000' as const
+
+export const tegridyLaunchpadV2Config = {
+  address: tegridyLaunchpadV2Address,
+  abi: tegridyLaunchpadV2Abi,
 } as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1136,7 +1591,7 @@ export const tegridyNftLendingAbi = [
 ] as const
 
 export const tegridyNftLendingAddress =
-  '0x63baD13f89186E0769F636D4Cd736eB26E2968aD' as const
+  '0x05409880aDFEa888F2c93568B8D88c7b4aAdB139' as const
 
 export const tegridyNftLendingConfig = {
   address: tegridyNftLendingAddress,
@@ -1711,7 +2166,7 @@ export const tegridyStakingAbi = [
 ] as const
 
 export const tegridyStakingAddress =
-  '0x65D8b87917c59a0B33009493fB236bCccF1Ea421' as const
+  '0x626644523d34B84818df602c991B4a06789C4819' as const
 
 export const tegridyStakingConfig = {
   address: tegridyStakingAddress,
@@ -2241,6 +2696,66 @@ export const useReadGaugeControllerTotalWeightByEpoch =
   })
 
 /**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link gaugeControllerAbi}__ and `functionName` set to `"REVEAL_WINDOW"`
+ */
+export const useReadGaugeControllerRevealWindow =
+  /*#__PURE__*/ createUseReadContract({
+    abi: gaugeControllerAbi,
+    address: gaugeControllerAddress,
+    functionName: 'REVEAL_WINDOW',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link gaugeControllerAbi}__ and `functionName` set to `"epochStartTime"`
+ */
+export const useReadGaugeControllerEpochStartTime =
+  /*#__PURE__*/ createUseReadContract({
+    abi: gaugeControllerAbi,
+    address: gaugeControllerAddress,
+    functionName: 'epochStartTime',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link gaugeControllerAbi}__ and `functionName` set to `"computeCommitment"`
+ */
+export const useReadGaugeControllerComputeCommitment =
+  /*#__PURE__*/ createUseReadContract({
+    abi: gaugeControllerAbi,
+    address: gaugeControllerAddress,
+    functionName: 'computeCommitment',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link gaugeControllerAbi}__ and `functionName` set to `"isRevealWindowOpen"`
+ */
+export const useReadGaugeControllerIsRevealWindowOpen =
+  /*#__PURE__*/ createUseReadContract({
+    abi: gaugeControllerAbi,
+    address: gaugeControllerAddress,
+    functionName: 'isRevealWindowOpen',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link gaugeControllerAbi}__ and `functionName` set to `"commitmentOf"`
+ */
+export const useReadGaugeControllerCommitmentOf =
+  /*#__PURE__*/ createUseReadContract({
+    abi: gaugeControllerAbi,
+    address: gaugeControllerAddress,
+    functionName: 'commitmentOf',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link gaugeControllerAbi}__ and `functionName` set to `"hasVotedInEpoch"`
+ */
+export const useReadGaugeControllerHasVotedInEpoch =
+  /*#__PURE__*/ createUseReadContract({
+    abi: gaugeControllerAbi,
+    address: gaugeControllerAddress,
+    functionName: 'hasVotedInEpoch',
+  })
+
+/**
  * Wraps __{@link useWriteContract}__ with `abi` set to __{@link gaugeControllerAbi}__
  */
 export const useWriteGaugeController = /*#__PURE__*/ createUseWriteContract({
@@ -2260,6 +2775,26 @@ export const useWriteGaugeControllerVote = /*#__PURE__*/ createUseWriteContract(
 )
 
 /**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link gaugeControllerAbi}__ and `functionName` set to `"commitVote"`
+ */
+export const useWriteGaugeControllerCommitVote =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: gaugeControllerAbi,
+    address: gaugeControllerAddress,
+    functionName: 'commitVote',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link gaugeControllerAbi}__ and `functionName` set to `"revealVote"`
+ */
+export const useWriteGaugeControllerRevealVote =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: gaugeControllerAbi,
+    address: gaugeControllerAddress,
+    functionName: 'revealVote',
+  })
+
+/**
  * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link gaugeControllerAbi}__
  */
 export const useSimulateGaugeController =
@@ -2276,6 +2811,55 @@ export const useSimulateGaugeControllerVote =
     abi: gaugeControllerAbi,
     address: gaugeControllerAddress,
     functionName: 'vote',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link gaugeControllerAbi}__ and `functionName` set to `"commitVote"`
+ */
+export const useSimulateGaugeControllerCommitVote =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: gaugeControllerAbi,
+    address: gaugeControllerAddress,
+    functionName: 'commitVote',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link gaugeControllerAbi}__ and `functionName` set to `"revealVote"`
+ */
+export const useSimulateGaugeControllerRevealVote =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: gaugeControllerAbi,
+    address: gaugeControllerAddress,
+    functionName: 'revealVote',
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link gaugeControllerAbi}__
+ */
+export const useWatchGaugeControllerEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: gaugeControllerAbi,
+    address: gaugeControllerAddress,
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link gaugeControllerAbi}__ and `eventName` set to `"VoteCommitted"`
+ */
+export const useWatchGaugeControllerVoteCommittedEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: gaugeControllerAbi,
+    address: gaugeControllerAddress,
+    eventName: 'VoteCommitted',
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link gaugeControllerAbi}__ and `eventName` set to `"VoteRevealed"`
+ */
+export const useWatchGaugeControllerVoteRevealedEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: gaugeControllerAbi,
+    address: gaugeControllerAddress,
+    eventName: 'VoteRevealed',
   })
 
 /**
@@ -3263,6 +3847,437 @@ export const useSimulateSwapFeeRouterSwapExactTokensForTokens =
   })
 
 /**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyDropV2Abi}__
+ */
+export const useReadTegridyDropV2 = /*#__PURE__*/ createUseReadContract({
+  abi: tegridyDropV2Abi,
+})
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"currentPrice"`
+ */
+export const useReadTegridyDropV2CurrentPrice =
+  /*#__PURE__*/ createUseReadContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'currentPrice',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"totalSupply"`
+ */
+export const useReadTegridyDropV2TotalSupply =
+  /*#__PURE__*/ createUseReadContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'totalSupply',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"maxSupply"`
+ */
+export const useReadTegridyDropV2MaxSupply =
+  /*#__PURE__*/ createUseReadContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'maxSupply',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"mintPhase"`
+ */
+export const useReadTegridyDropV2MintPhase =
+  /*#__PURE__*/ createUseReadContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'mintPhase',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"merkleRoot"`
+ */
+export const useReadTegridyDropV2MerkleRoot =
+  /*#__PURE__*/ createUseReadContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'merkleRoot',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"mintPrice"`
+ */
+export const useReadTegridyDropV2MintPrice =
+  /*#__PURE__*/ createUseReadContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'mintPrice',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"maxPerWallet"`
+ */
+export const useReadTegridyDropV2MaxPerWallet =
+  /*#__PURE__*/ createUseReadContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'maxPerWallet',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"owner"`
+ */
+export const useReadTegridyDropV2Owner = /*#__PURE__*/ createUseReadContract({
+  abi: tegridyDropV2Abi,
+  functionName: 'owner',
+})
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"creator"`
+ */
+export const useReadTegridyDropV2Creator = /*#__PURE__*/ createUseReadContract({
+  abi: tegridyDropV2Abi,
+  functionName: 'creator',
+})
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"paidPerWallet"`
+ */
+export const useReadTegridyDropV2PaidPerWallet =
+  /*#__PURE__*/ createUseReadContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'paidPerWallet',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"mintedPerWallet"`
+ */
+export const useReadTegridyDropV2MintedPerWallet =
+  /*#__PURE__*/ createUseReadContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'mintedPerWallet',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"revealed"`
+ */
+export const useReadTegridyDropV2Revealed = /*#__PURE__*/ createUseReadContract(
+  { abi: tegridyDropV2Abi, functionName: 'revealed' },
+)
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"paused"`
+ */
+export const useReadTegridyDropV2Paused = /*#__PURE__*/ createUseReadContract({
+  abi: tegridyDropV2Abi,
+  functionName: 'paused',
+})
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"contractURI"`
+ */
+export const useReadTegridyDropV2ContractUri =
+  /*#__PURE__*/ createUseReadContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'contractURI',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"tokenURI"`
+ */
+export const useReadTegridyDropV2TokenUri = /*#__PURE__*/ createUseReadContract(
+  { abi: tegridyDropV2Abi, functionName: 'tokenURI' },
+)
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyDropV2Abi}__
+ */
+export const useWriteTegridyDropV2 = /*#__PURE__*/ createUseWriteContract({
+  abi: tegridyDropV2Abi,
+})
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"mint"`
+ */
+export const useWriteTegridyDropV2Mint = /*#__PURE__*/ createUseWriteContract({
+  abi: tegridyDropV2Abi,
+  functionName: 'mint',
+})
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"setContractURI"`
+ */
+export const useWriteTegridyDropV2SetContractUri =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'setContractURI',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"setMintPhase"`
+ */
+export const useWriteTegridyDropV2SetMintPhase =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'setMintPhase',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"setMerkleRoot"`
+ */
+export const useWriteTegridyDropV2SetMerkleRoot =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'setMerkleRoot',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"setMintPrice"`
+ */
+export const useWriteTegridyDropV2SetMintPrice =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'setMintPrice',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"setMaxPerWallet"`
+ */
+export const useWriteTegridyDropV2SetMaxPerWallet =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'setMaxPerWallet',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"setBaseURI"`
+ */
+export const useWriteTegridyDropV2SetBaseUri =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'setBaseURI',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"reveal"`
+ */
+export const useWriteTegridyDropV2Reveal = /*#__PURE__*/ createUseWriteContract(
+  { abi: tegridyDropV2Abi, functionName: 'reveal' },
+)
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"configureDutchAuction"`
+ */
+export const useWriteTegridyDropV2ConfigureDutchAuction =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'configureDutchAuction',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"pause"`
+ */
+export const useWriteTegridyDropV2Pause = /*#__PURE__*/ createUseWriteContract({
+  abi: tegridyDropV2Abi,
+  functionName: 'pause',
+})
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"unpause"`
+ */
+export const useWriteTegridyDropV2Unpause =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'unpause',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"withdraw"`
+ */
+export const useWriteTegridyDropV2Withdraw =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'withdraw',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"cancelSale"`
+ */
+export const useWriteTegridyDropV2CancelSale =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'cancelSale',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"refund"`
+ */
+export const useWriteTegridyDropV2Refund = /*#__PURE__*/ createUseWriteContract(
+  { abi: tegridyDropV2Abi, functionName: 'refund' },
+)
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"transferOwnership"`
+ */
+export const useWriteTegridyDropV2TransferOwnership =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'transferOwnership',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"acceptOwnership"`
+ */
+export const useWriteTegridyDropV2AcceptOwnership =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'acceptOwnership',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyDropV2Abi}__
+ */
+export const useSimulateTegridyDropV2 = /*#__PURE__*/ createUseSimulateContract(
+  { abi: tegridyDropV2Abi },
+)
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"mint"`
+ */
+export const useSimulateTegridyDropV2Mint =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'mint',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"setContractURI"`
+ */
+export const useSimulateTegridyDropV2SetContractUri =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'setContractURI',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"setMintPhase"`
+ */
+export const useSimulateTegridyDropV2SetMintPhase =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'setMintPhase',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"setMerkleRoot"`
+ */
+export const useSimulateTegridyDropV2SetMerkleRoot =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'setMerkleRoot',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"setMintPrice"`
+ */
+export const useSimulateTegridyDropV2SetMintPrice =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'setMintPrice',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"setMaxPerWallet"`
+ */
+export const useSimulateTegridyDropV2SetMaxPerWallet =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'setMaxPerWallet',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"setBaseURI"`
+ */
+export const useSimulateTegridyDropV2SetBaseUri =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'setBaseURI',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"reveal"`
+ */
+export const useSimulateTegridyDropV2Reveal =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'reveal',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"configureDutchAuction"`
+ */
+export const useSimulateTegridyDropV2ConfigureDutchAuction =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'configureDutchAuction',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"pause"`
+ */
+export const useSimulateTegridyDropV2Pause =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'pause',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"unpause"`
+ */
+export const useSimulateTegridyDropV2Unpause =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'unpause',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"withdraw"`
+ */
+export const useSimulateTegridyDropV2Withdraw =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'withdraw',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"cancelSale"`
+ */
+export const useSimulateTegridyDropV2CancelSale =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'cancelSale',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"refund"`
+ */
+export const useSimulateTegridyDropV2Refund =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'refund',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"transferOwnership"`
+ */
+export const useSimulateTegridyDropV2TransferOwnership =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'transferOwnership',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyDropV2Abi}__ and `functionName` set to `"acceptOwnership"`
+ */
+export const useSimulateTegridyDropV2AcceptOwnership =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: tegridyDropV2Abi,
+    functionName: 'acceptOwnership',
+  })
+
+/**
  * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyFactoryAbi}__
  */
 export const useReadTegridyFactory = /*#__PURE__*/ createUseReadContract({
@@ -3401,6 +4416,130 @@ export const useSimulateTegridyLaunchpadCreateCollection =
     abi: tegridyLaunchpadAbi,
     address: tegridyLaunchpadAddress,
     functionName: 'createCollection',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyLaunchpadV2Abi}__
+ */
+export const useReadTegridyLaunchpadV2 = /*#__PURE__*/ createUseReadContract({
+  abi: tegridyLaunchpadV2Abi,
+  address: tegridyLaunchpadV2Address,
+})
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyLaunchpadV2Abi}__ and `functionName` set to `"getCollection"`
+ */
+export const useReadTegridyLaunchpadV2GetCollection =
+  /*#__PURE__*/ createUseReadContract({
+    abi: tegridyLaunchpadV2Abi,
+    address: tegridyLaunchpadV2Address,
+    functionName: 'getCollection',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyLaunchpadV2Abi}__ and `functionName` set to `"getCollectionCount"`
+ */
+export const useReadTegridyLaunchpadV2GetCollectionCount =
+  /*#__PURE__*/ createUseReadContract({
+    abi: tegridyLaunchpadV2Abi,
+    address: tegridyLaunchpadV2Address,
+    functionName: 'getCollectionCount',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyLaunchpadV2Abi}__ and `functionName` set to `"getAllCollections"`
+ */
+export const useReadTegridyLaunchpadV2GetAllCollections =
+  /*#__PURE__*/ createUseReadContract({
+    abi: tegridyLaunchpadV2Abi,
+    address: tegridyLaunchpadV2Address,
+    functionName: 'getAllCollections',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyLaunchpadV2Abi}__ and `functionName` set to `"dropTemplate"`
+ */
+export const useReadTegridyLaunchpadV2DropTemplate =
+  /*#__PURE__*/ createUseReadContract({
+    abi: tegridyLaunchpadV2Abi,
+    address: tegridyLaunchpadV2Address,
+    functionName: 'dropTemplate',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyLaunchpadV2Abi}__ and `functionName` set to `"protocolFeeBps"`
+ */
+export const useReadTegridyLaunchpadV2ProtocolFeeBps =
+  /*#__PURE__*/ createUseReadContract({
+    abi: tegridyLaunchpadV2Abi,
+    address: tegridyLaunchpadV2Address,
+    functionName: 'protocolFeeBps',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyLaunchpadV2Abi}__
+ */
+export const useWriteTegridyLaunchpadV2 = /*#__PURE__*/ createUseWriteContract({
+  abi: tegridyLaunchpadV2Abi,
+  address: tegridyLaunchpadV2Address,
+})
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyLaunchpadV2Abi}__ and `functionName` set to `"createCollection"`
+ */
+export const useWriteTegridyLaunchpadV2CreateCollection =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: tegridyLaunchpadV2Abi,
+    address: tegridyLaunchpadV2Address,
+    functionName: 'createCollection',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyLaunchpadV2Abi}__
+ */
+export const useSimulateTegridyLaunchpadV2 =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: tegridyLaunchpadV2Abi,
+    address: tegridyLaunchpadV2Address,
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyLaunchpadV2Abi}__ and `functionName` set to `"createCollection"`
+ */
+export const useSimulateTegridyLaunchpadV2CreateCollection =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: tegridyLaunchpadV2Abi,
+    address: tegridyLaunchpadV2Address,
+    functionName: 'createCollection',
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link tegridyLaunchpadV2Abi}__
+ */
+export const useWatchTegridyLaunchpadV2Event =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: tegridyLaunchpadV2Abi,
+    address: tegridyLaunchpadV2Address,
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link tegridyLaunchpadV2Abi}__ and `eventName` set to `"CollectionCreated"`
+ */
+export const useWatchTegridyLaunchpadV2CollectionCreatedEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: tegridyLaunchpadV2Abi,
+    address: tegridyLaunchpadV2Address,
+    eventName: 'CollectionCreated',
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link tegridyLaunchpadV2Abi}__ and `eventName` set to `"CollectionCreatedV2"`
+ */
+export const useWatchTegridyLaunchpadV2CollectionCreatedV2Event =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: tegridyLaunchpadV2Abi,
+    address: tegridyLaunchpadV2Address,
+    eventName: 'CollectionCreatedV2',
   })
 
 /**

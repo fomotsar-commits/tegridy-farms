@@ -48,9 +48,9 @@ export function BoostScheduleTable({ selectedLockLabel, apr }: BoostScheduleTabl
                 }}>
                 <span className="text-white text-[12px] sm:text-[13px] flex-shrink-0">{opt.label}</span>
                 <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-                  <span className="stat-value text-[13px] sm:text-[14px] text-white">{(b / 10000).toFixed(2)}x</span>
+                  <span className="stat-value text-[13px] sm:text-[14px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{(b / 10000).toFixed(2)}x</span>
                   {baseApr > 0 && <span className="text-emerald-400 text-[10px] sm:text-[11px] font-mono">{(baseApr * b / 10000).toFixed(1)}% APY</span>}
-                  {baseApr === 0 && <span className="text-white text-[10px] sm:text-[11px]">({(withNft / 10000).toFixed(2)}x w/NFT)</span>}
+                  {baseApr === 0 && <span className="text-[10px] sm:text-[11px]" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>({(withNft / 10000).toFixed(2)}x w/NFT)</span>}
                 </div>
               </div>
             );
@@ -78,7 +78,7 @@ export function BoostScheduleTable({ selectedLockLabel, apr }: BoostScheduleTabl
                 </div>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-white/60 text-[10px] uppercase tracking-wider">Boost</span>
-                  <span className="stat-value text-[14px] text-white">{(b / 10000).toFixed(2)}x</span>
+                  <span className="stat-value text-[14px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{(b / 10000).toFixed(2)}x</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-white/60 text-[10px] uppercase tracking-wider">
@@ -87,7 +87,7 @@ export function BoostScheduleTable({ selectedLockLabel, apr }: BoostScheduleTabl
                   {baseApr > 0 ? (
                     <span className="text-emerald-400 text-[12px] font-mono">{(baseApr * b / 10000).toFixed(1)}%</span>
                   ) : (
-                    <span className="text-white text-[12px]">{(withNft / 10000).toFixed(2)}x</span>
+                    <span className="text-[12px]" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>{(withNft / 10000).toFixed(2)}x</span>
                   )}
                 </div>
               </li>

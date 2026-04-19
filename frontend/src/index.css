@@ -31,6 +31,72 @@
   --color-warning: #ffb237;
   --color-warning-dim: rgba(255, 178, 55, 0.75);
 
+  /* Weed-green accent — personality only (core-loop arrows, Towelie beats).
+     Additive to the purple system; never replaces P&L greens. */
+  --color-weed: #2d8b4e;
+  --color-weed-80: rgba(45, 139, 78, 0.80);
+  --color-weed-60: rgba(45, 139, 78, 0.60);
+  --color-weed-40: rgba(45, 139, 78, 0.40);
+  --color-weed-25: rgba(45, 139, 78, 0.25);
+  --color-weed-20: rgba(45, 139, 78, 0.20);
+  --color-weed-12: rgba(45, 139, 78, 0.12);
+  --color-weed-08: rgba(45, 139, 78, 0.08);
+
+  /* ─── South Park character accents ─── */
+  /* Additive personality tokens. Use for thematic beats only — never replaces
+     purple luxury or P&L greens/reds. Each character has a semantic role:
+       Cartman  (red)    → premium, bribes, high-risk, attention
+       Stan     (blue)   → trust, security, audits, interactive/trading
+       Kyle     (green)  → community, sharing, referrals (non-P&L)
+       Kenny    (orange) → urgency, time-sensitive, warnings (non-P&L)
+       Towelie  (sky)    → onboarding, tips, guidance, Towelie voice
+     Replaces hardcoded emerald-600 across Trade page with Stan blue. */
+
+  --color-cartman: #D22B2B;
+  --color-cartman-80: rgba(210, 43, 43, 0.80);
+  --color-cartman-60: rgba(210, 43, 43, 0.60);
+  --color-cartman-40: rgba(210, 43, 43, 0.40);
+  --color-cartman-25: rgba(210, 43, 43, 0.25);
+  --color-cartman-20: rgba(210, 43, 43, 0.20);
+  --color-cartman-12: rgba(210, 43, 43, 0.12);
+  --color-cartman-08: rgba(210, 43, 43, 0.08);
+
+  --color-stan: #1E88E5;
+  --color-stan-80: rgba(30, 136, 229, 0.80);
+  --color-stan-60: rgba(30, 136, 229, 0.60);
+  --color-stan-40: rgba(30, 136, 229, 0.40);
+  --color-stan-25: rgba(30, 136, 229, 0.25);
+  --color-stan-20: rgba(30, 136, 229, 0.20);
+  --color-stan-12: rgba(30, 136, 229, 0.12);
+  --color-stan-08: rgba(30, 136, 229, 0.08);
+
+  --color-kyle: #4CAF50;
+  --color-kyle-80: rgba(76, 175, 80, 0.80);
+  --color-kyle-60: rgba(76, 175, 80, 0.60);
+  --color-kyle-40: rgba(76, 175, 80, 0.40);
+  --color-kyle-25: rgba(76, 175, 80, 0.25);
+  --color-kyle-20: rgba(76, 175, 80, 0.20);
+  --color-kyle-12: rgba(76, 175, 80, 0.12);
+  --color-kyle-08: rgba(76, 175, 80, 0.08);
+
+  --color-kenny: #FF6F00;
+  --color-kenny-80: rgba(255, 111, 0, 0.80);
+  --color-kenny-60: rgba(255, 111, 0, 0.60);
+  --color-kenny-40: rgba(255, 111, 0, 0.40);
+  --color-kenny-25: rgba(255, 111, 0, 0.25);
+  --color-kenny-20: rgba(255, 111, 0, 0.20);
+  --color-kenny-12: rgba(255, 111, 0, 0.12);
+  --color-kenny-08: rgba(255, 111, 0, 0.08);
+
+  --color-towelie: #42A5F5;
+  --color-towelie-80: rgba(66, 165, 245, 0.80);
+  --color-towelie-60: rgba(66, 165, 245, 0.60);
+  --color-towelie-40: rgba(66, 165, 245, 0.40);
+  --color-towelie-25: rgba(66, 165, 245, 0.25);
+  --color-towelie-20: rgba(66, 165, 245, 0.20);
+  --color-towelie-12: rgba(66, 165, 245, 0.12);
+  --color-towelie-08: rgba(66, 165, 245, 0.08);
+
   /* ─── Deep dark backgrounds ─── */
   --color-bg-base: #060c1a;
   --color-bg-surface: #0c1628;
@@ -174,24 +240,28 @@ body {
 
 /* ─── Buttons ─── */
 .btn-primary {
-  background: linear-gradient(145deg, #3b1a7e 0%, #5b21b6 35%, #7c3aed 65%, #4c1d95 100%);
+  /* Kyle-green gradient: much more visible against the brown/purple art
+     backgrounds than the old purple gradient was. Gives primary CTAs
+     unmistakable affordance even before hover. */
+  background: linear-gradient(145deg, #1b5e20 0%, #2e7d32 35%, #4CAF50 65%, #1b5e20 100%);
   color: #ffffff;
   font-family: var(--font-family-body);
   font-weight: 700;
   font-size: 14px;
   letter-spacing: 0.02em;
-  border: 1px solid rgba(167, 139, 250, 0.35);
-  border-top: 1px solid rgba(167, 139, 250, 0.50);
-  border-bottom: 1px solid rgba(46, 16, 101, 0.60);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(129, 199, 132, 0.45);
+  border-top: 1px solid rgba(165, 214, 167, 0.60);
+  border-bottom: 1px solid rgba(27, 94, 32, 0.75);
   border-radius: 10px;
   padding: 10px 20px;
   cursor: pointer;
   transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(91, 33, 182, 0.40), inset 0 1px 0 rgba(167, 139, 250, 0.25), inset 0 -1px 0 rgba(0, 0, 0, 0.20);
+  box-shadow: 0 2px 8px rgba(76, 175, 80, 0.45), inset 0 1px 0 rgba(200, 230, 201, 0.30), inset 0 -1px 0 rgba(0, 0, 0, 0.25);
 }
 .btn-primary:hover {
-  background: linear-gradient(145deg, #4c1d95 0%, #7c3aed 35%, #a78bfa 65%, #5b21b6 100%);
-  box-shadow: 0 0 20px rgba(124, 58, 237, 0.5), 0 0 40px rgba(91, 33, 182, 0.25), inset 0 1px 0 rgba(196, 181, 253, 0.35), inset 0 -1px 0 rgba(0, 0, 0, 0.25);
+  background: linear-gradient(145deg, #2e7d32 0%, #4CAF50 35%, #81c784 65%, #2e7d32 100%);
+  box-shadow: 0 0 20px rgba(76, 175, 80, 0.55), 0 0 40px rgba(46, 125, 50, 0.3), inset 0 1px 0 rgba(200, 230, 201, 0.40), inset 0 -1px 0 rgba(0, 0, 0, 0.25);
   transform: translateY(-1px);
 }
 .btn-primary:active { transform: scale(0.98); box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3); }
@@ -246,12 +316,37 @@ body {
 .badge-success { background: rgba(49, 208, 170, 0.75); color: #000; }
 .badge-warning { background: rgba(255, 178, 55, 0.75); color: #000; }
 /* ─── Small Label Pill (uppercase labels on art) ─── */
+/* .label-pill is applied to many UI micro-labels (footer section headers,
+   dashboard stat labels, uppercase tracking-wider hints). Originally it was
+   just a dark pill with no explicit color, so it inherited from parent —
+   which collapsed to transparent purple in some contexts (e.g., Footer
+   section headers floating over art, purple-on-purple). Pinning an explicit
+   cream color + text-shadow makes every instance readable regardless of
+   whichever art sits behind the parent. */
 .label-pill {
   background: rgba(0, 0, 0, 0.75);
+  color: #f5e4b8;
   padding: 1px 5px;
   border-radius: 3px;
   display: inline-block;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
 }
+
+/* ─────────────────────────────────────────────────────────────────
+   Global contrast floor: raise any legacy low-opacity text-white/N
+   usage (text-white/10 through text-white/60) to readable levels.
+   Earlier components used 30-50% opacity for "subtle" text without
+   considering art backgrounds underneath. Rather than chase every
+   call-site, this cascades a minimum-4:1 contrast floor across the
+   whole app. Components that genuinely want faint decorative text
+   can use explicit rgba() inline styles to bypass this.
+   ───────────────────────────────────────────────────────────────── */
+.text-white\/10, .text-white\/15 { color: rgba(255, 255, 255, 0.55) !important; }
+.text-white\/20, .text-white\/25 { color: rgba(255, 255, 255, 0.70) !important; }
+.text-white\/30, .text-white\/35 { color: rgba(255, 255, 255, 0.78) !important; }
+.text-white\/40, .text-white\/45 { color: rgba(255, 255, 255, 0.82) !important; }
+.text-white\/50, .text-white\/55 { color: rgba(255, 255, 255, 0.85) !important; }
+.text-white\/60, .text-white\/65 { color: rgba(255, 255, 255, 0.88) !important; }
 
 /* ─── Stat Value (monospace, tabular numerals) ─── */
 .stat-value {
@@ -290,20 +385,23 @@ body {
   left: 0;
   width: 0;
   height: 2px;
-  background: linear-gradient(90deg, #8b5cf6, #f5e4b8);
+  /* Underline swapped from purple → kyle green to match hover/active text. */
+  background: linear-gradient(90deg, #22c55e, #f5e4b8);
   transition: width 0.3s ease;
 }
 .nav-link:hover::after,
 .nav-link.active::after {
   width: 100%;
 }
+/* Hover/active text is kyle green (#22c55e) instead of the brand purple so
+   nav state reads as "go" against the dark top bar. */
 .nav-link:hover {
-  color: var(--color-primary);
-  background-color: rgba(245, 228, 184, 0.06);
+  color: #22c55e;
+  background-color: rgba(34, 197, 94, 0.08);
 }
 .nav-link.active {
-  color: var(--color-primary);
-  background-color: rgba(139, 92, 246, 0.12);
+  color: #22c55e;
+  background-color: rgba(34, 197, 94, 0.12);
 }
 
 /* ─── Inputs ─── */
@@ -431,12 +529,15 @@ body {
 .no-scrollbar::-webkit-scrollbar { display: none; }
 
 /* ─── Light Mode Overrides ─── */
+/* Day mode is now Kenny-orange (#ff8c1a / warm South Park orange) instead of
+   the cream/lavender baseline. Elevations step down in saturation to stay
+   readable under the text colors below. */
 [data-theme="light"] {
-  --color-bg-base: #f5f3ff;
-  --color-bg-surface: #ffffff;
-  --color-bg-elevated: #ede9fe;
-  --color-bg-hover: #e4ddf7;
-  --color-bg-input: #f0ebff;
+  --color-bg-base: #ff8c1a;
+  --color-bg-surface: #ffa347;
+  --color-bg-elevated: #ff9b33;
+  --color-bg-hover: #ffb266;
+  --color-bg-input: #ffc285;
   --color-primary: #7c3aed;
   --color-primary-dim: rgba(124, 58, 237, 0.75);
   --color-primary-glow: rgba(124, 58, 237, 0.30);
@@ -549,13 +650,15 @@ body {
 [data-theme="light"] .nav-link {
   color: #4c1d95;
 }
+/* Light-mode hover/active also flips to kyle green so the interaction affordance
+   stays identical across themes. #15803d on cream (#f5f3ff) is ~5.8:1 — passes AA. */
 [data-theme="light"] .nav-link:hover {
-  color: var(--color-primary);
-  background-color: rgba(76, 29, 149, 0.06);
+  color: #15803d;
+  background-color: rgba(34, 197, 94, 0.08);
 }
 [data-theme="light"] .nav-link.active {
-  color: var(--color-primary);
-  background-color: rgba(139, 92, 246, 0.12);
+  color: #15803d;
+  background-color: rgba(34, 197, 94, 0.12);
 }
 
 [data-theme="light"] .stat-value {

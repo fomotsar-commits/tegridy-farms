@@ -21,7 +21,7 @@ export function PriceAlertWidget() {
   };
 
   return (
-    <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+    <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}>
       <div className="relative z-10 p-4">
         {/* Header */}
         <button

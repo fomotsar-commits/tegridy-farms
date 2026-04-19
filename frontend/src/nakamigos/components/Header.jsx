@@ -363,17 +363,17 @@ export default memo(function Header({
           )}
           <div onClick={() => isLanding ? null : handleNav("gallery")} onKeyDown={(e) => { if (!isLanding && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); handleNav("gallery"); } }} role={isLanding ? undefined : "button"} tabIndex={isLanding ? undefined : 0} aria-label={isLanding ? undefined : "Go to gallery"} style={{ display: "flex", alignItems: "center", gap: 10, cursor: isLanding ? "default" : "pointer" }}>
             <img
-              src={collectionImage || "/splash/skeleton.png"}
-              alt={collectionName || "Marketplace"}
+              src={collectionImage || "/splash/skeleton.jpg"}
+              alt={collectionName || "Tradermigos"}
               className="header-logo-icon"
               style={{ objectFit: "cover", imageRendering: collectionPixelated ? "pixelated" : "auto" }}
             />
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
               <span style={{ fontFamily: "var(--pixel)", fontSize: 11, color: "var(--naka-blue)", letterSpacing: "0.04em", lineHeight: 1 }}>
-                {isLanding ? "MARKETPLACE" : (collectionName || "COLLECTION").toUpperCase()}
+                {isLanding ? "TRADERMIGOS" : (collectionName || "COLLECTION").toUpperCase()}
               </span>
               <span className="header-badge">
-                {isLanding ? "NFT COLLECTIONS" : "MARKETPLACE"}
+                {isLanding ? "NFT COLLECTIONS" : "TRADERMIGOS"}
               </span>
             </div>
           </div>
