@@ -144,6 +144,15 @@ export function useBribes() {
     });
   }
 
+  function vote(epoch: number, pair: string, power: bigint) {
+    writeContract({
+      address: VOTE_INCENTIVES_ADDRESS,
+      abi: VOTE_INCENTIVES_ABI,
+      functionName: 'vote',
+      args: [BigInt(epoch), pair as Address, power],
+    });
+  }
+
   function depositBribeETH(pair: string, value: bigint) {
     writeContract({
       address: VOTE_INCENTIVES_ADDRESS,
@@ -200,6 +209,7 @@ export function useBribes() {
     claimBribes,
     claimBribesBatch,
     advanceEpoch,
+    vote,
     depositBribeETH,
     depositBribe,
     approveToken,

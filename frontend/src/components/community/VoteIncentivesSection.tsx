@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useAccount, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther, formatUnits, parseEther, parseUnits, type Address } from 'viem';
-import { toast } from 'sonner';
-import { VOTE_INCENTIVES_ADDRESS } from '../../lib/constants';
-import { VOTE_INCENTIVES_ABI } from '../../lib/contracts';
+import { VOTE_INCENTIVES_ADDRESS, TEGRIDY_STAKING_ADDRESS } from '../../lib/constants';
+import { VOTE_INCENTIVES_ABI, TEGRIDY_STAKING_ABI } from '../../lib/contracts';
 import { useBribes, type WhitelistedToken } from '../../hooks/useBribes';
 import { useGaugeList, type GaugeInfo } from '../../hooks/useGaugeList';
 import { shortenAddress, formatTokenAmount } from '../../lib/formatting';
@@ -15,7 +14,9 @@ import { ArtImg } from '../ArtImg';
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as Address;
 const CARD_BORDER = 'var(--color-purple-12)';
 const STAT_ARTS = [pageArt('vote-incentives', 0), pageArt('vote-incentives', 1), pageArt('vote-incentives', 2)];
+const DEFAULT_VOTE_DEADLINE_SEC = 7 * 24 * 60 * 60; // 7 days — matches contract constant
 
+type SortKey = 'bribe' | 'votes' | 'yours' | 'claimable';
 type EpochBribe = { token: Address; amount: bigint };
 
 interface PairBribeSummary {
@@ -29,7 +30,7 @@ interface PairClaimable {
   pair: Address;
   tokens: Address[];
   amounts: bigint[];
-  total: bigint; // sum in raw units (not price-adjusted; display only)
+  total: bigint;
 }
 
 // ─── How It Works explainer ─────────────────────────────────────────
@@ -51,12 +52,12 @@ function HowItWorks() {
           </p>
         </div>
 
-        {/* 3-step how it works */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           {[
             { n: 1, title: 'Deposit', body: 'Project posts a bribe on a gauge — ETH or a whitelisted ERC20. 3% fee, rest sits in the epoch pool.' },
-            { n: 2, title: 'Vote', body: 'veTOWELI holders allocate voting power toward that gauge before the snapshot.' },
-            { n: 3, title: 'Claim', body: 'After the epoch advances, voters claim their pro-rata share of every bribe token on that gauge.' },
+            { n: 2, title: 'Snapshot', body: 'advanceEpoch() locks voting power; a 7-day voting window opens.' },
+            { n: 3, title: 'Vote', body: 'veTOWELI holders allocate power toward their chosen gauges inside the window.' },
+            { n: 4, title: 'Claim', body: 'After the window closes, voters claim their pro-rata share of every bribe token on each voted gauge.' },
           ].map((s) => (
             <div key={s.n} className="rounded-xl p-4" style={{ background: 'rgba(13,21,48,0.7)', border: '1px solid rgba(255,255,255,0.1)' }}>
               <div className="flex items-center gap-2 mb-1.5">
@@ -68,7 +69,6 @@ function HowItWorks() {
           ))}
         </div>
 
-        {/* Dual value props */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="rounded-xl p-4" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)' }}>
             <p className="text-[10px] uppercase tracking-wider text-emerald-400 mb-1 font-semibold">For projects earning votes</p>
@@ -115,7 +115,75 @@ function OverviewStrip({ epoch, epochCount, feeBps }: { epoch: number; epochCoun
   );
 }
 
-// ─── Your Claimables row ───────────────────────────────────────────
+// ─── Voting power banner ───────────────────────────────────────────
+function VotingPowerBanner({
+  userPower,
+  userUsed,
+  deadline,
+  now,
+  voteEpoch,
+  isConnected,
+}: {
+  userPower: bigint;
+  userUsed: bigint;
+  deadline: number; // unix seconds; 0 if unknown
+  now: number;
+  voteEpoch: number;
+  isConnected: boolean;
+}) {
+  const remaining = userPower > userUsed ? userPower - userUsed : 0n;
+  const usedPct = userPower > 0n ? Number((userUsed * 10000n) / userPower) / 100 : 0;
+  const secondsLeft = Math.max(0, deadline - now);
+  const deadlineOpen = deadline > 0 && secondsLeft > 0;
+  const d = Math.floor(secondsLeft / 86400);
+  const h = Math.floor((secondsLeft % 86400) / 3600);
+  const min = Math.floor((secondsLeft % 3600) / 60);
+  const countdown = d > 0 ? `${d}d ${h}h` : h > 0 ? `${h}h ${min}m` : `${min}m`;
+
+  return (
+    <div className="rounded-2xl overflow-hidden relative" style={{ border: `1px solid ${CARD_BORDER}` }}>
+      <div className="absolute inset-0">
+        <ArtImg pageId="vote-incentives" idx={2} alt="" loading="lazy" className="w-full h-full object-cover" />
+      </div>
+      <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.88)' }} />
+      <div className="relative z-10 p-5 flex items-center justify-between flex-wrap gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <p className="text-[10px] uppercase tracking-wider text-purple-300 font-semibold">Your Voting Power · Epoch #{voteEpoch}</p>
+            <InfoTooltip text="Voting power snapshot at the moment advanceEpoch() was called. Allocate any amount to a gauge to earn its bribes; vote updates are additive." />
+          </div>
+          {!isConnected ? (
+            <p className="text-white/75 text-[13px]">Connect a wallet to see your voting power.</p>
+          ) : userPower === 0n ? (
+            <p className="text-yellow-300 text-[13px]">Stake TOWELI before the next snapshot to earn voting power.</p>
+          ) : (
+            <>
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <p className="stat-value text-white text-[22px] font-mono">{formatTokenAmount(formatEther(remaining), 2)}</p>
+                <p className="text-white/55 text-[12px]">remaining of {formatTokenAmount(formatEther(userPower), 2)} total</p>
+              </div>
+              <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className="h-full rounded-full"
+                  style={{ width: `${Math.min(100, usedPct)}%`, background: 'linear-gradient(90deg, rgb(139 92 246), rgb(124 58 237))' }}
+                />
+              </div>
+              <p className="text-white/55 text-[11px] mt-1">{usedPct.toFixed(1)}% allocated</p>
+            </>
+          )}
+        </div>
+        <div className="text-right flex-shrink-0">
+          <p className="text-[10px] uppercase tracking-wider text-white/55">Vote Deadline</p>
+          <p className={`text-[15px] font-semibold ${deadlineOpen ? 'text-emerald-300' : 'text-red-300'}`}>
+            {deadline === 0 ? '—' : deadlineOpen ? countdown : 'Closed'}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Your Claimables ───────────────────────────────────────────────
 function ClaimablesPanel({
   claimables,
   gauges,
@@ -131,7 +199,6 @@ function ClaimablesPanel({
 }) {
   if (claimables.length === 0) return null;
   const gaugeByAddr = new Map(gauges.map((g) => [g.pair.toLowerCase(), g]));
-
   return (
     <div className="rounded-xl p-4" style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.25)' }}>
       <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
@@ -172,101 +239,164 @@ function ClaimablesPanel({
   );
 }
 
-// ─── Gauge leaderboard ─────────────────────────────────────────────
-function GaugeLeaderboard({
-  rows,
-  gauges,
-  selectedPair,
-  onSelect,
-  whitelistMap,
+// ─── Leaderboard controls ──────────────────────────────────────────
+function LeaderboardControls({
+  search,
+  setSearch,
+  sort,
+  setSort,
+  hideEmpty,
+  setHideEmpty,
+  total,
+  shown,
 }: {
-  rows: PairBribeSummary[];
-  gauges: GaugeInfo[];
-  selectedPair: Address | null;
-  onSelect: (pair: Address) => void;
-  whitelistMap: Map<string, WhitelistedToken>;
+  search: string;
+  setSearch: (v: string) => void;
+  sort: SortKey;
+  setSort: (v: SortKey) => void;
+  hideEmpty: boolean;
+  setHideEmpty: (v: boolean) => void;
+  total: number;
+  shown: number;
 }) {
-  if (gauges.length === 0) {
-    return (
-      <div className="rounded-xl p-5 text-center" style={{ background: 'rgba(13,21,48,0.7)', border: `1px solid ${CARD_BORDER}` }}>
-        <p className="text-white/70 text-[13px]">No gauges deployed yet.</p>
-      </div>
-    );
-  }
+  return (
+    <div className="flex items-center gap-3 flex-wrap px-5 py-3 border-b border-white/10">
+      <input
+        type="text"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search gauge…"
+        className="flex-1 min-w-[140px] bg-black/50 border border-white/15 rounded-lg px-3 py-2 text-white text-[12px] focus:border-purple-500 outline-none transition-colors"
+      />
+      <select
+        value={sort}
+        onChange={(e) => setSort(e.target.value as SortKey)}
+        className="bg-black/50 border border-white/15 rounded-lg px-3 py-2 text-white text-[12px] focus:border-purple-500 outline-none transition-colors"
+      >
+        <option value="bribe" className="bg-[#0a0f1a]">Sort: Bribe TVL</option>
+        <option value="votes" className="bg-[#0a0f1a]">Sort: Total Votes</option>
+        <option value="yours" className="bg-[#0a0f1a]">Sort: Your Allocation</option>
+        <option value="claimable" className="bg-[#0a0f1a]">Sort: Your Claimable</option>
+      </select>
+      <label className="flex items-center gap-1.5 text-white/70 text-[11.5px] cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={hideEmpty}
+          onChange={(e) => setHideEmpty(e.target.checked)}
+          className="w-3.5 h-3.5 accent-purple-500"
+        />
+        Hide empty
+      </label>
+      <span className="text-[11px] text-white/45 ml-auto">{shown} / {total}</span>
+    </div>
+  );
+}
 
-  const gaugeByAddr = new Map(gauges.map((g) => [g.pair.toLowerCase(), g]));
-  // Rank pairs: those with bribes come first (by ETH amount desc, then token count).
-  const ranked = [...rows].sort((a, b) => {
-    if (a.ethAmount !== b.ethAmount) return b.ethAmount > a.ethAmount ? 1 : -1;
-    return b.tokenCount - a.tokenCount;
-  });
+// ─── Gauge row ─────────────────────────────────────────────────────
+function GaugeRow({
+  gauge,
+  summary,
+  totalVotes,
+  userVotes,
+  userClaimable,
+  whitelistMap,
+  selected,
+  canVote,
+  voteInput,
+  setVoteInput,
+  onSelect,
+  onSubmitVote,
+  isBusy,
+}: {
+  gauge: GaugeInfo;
+  summary: PairBribeSummary;
+  totalVotes: bigint;
+  userVotes: bigint;
+  userClaimable: bigint;
+  whitelistMap: Map<string, WhitelistedToken>;
+  selected: boolean;
+  canVote: boolean;
+  voteInput: string;
+  setVoteInput: (v: string) => void;
+  onSelect: () => void;
+  onSubmitVote: () => void;
+  isBusy: boolean;
+}) {
+  const tokenBadges = summary.bribes.filter((b) => b.token.toLowerCase() !== ZERO_ADDRESS);
+  const hasBribes = summary.ethAmount > 0n || tokenBadges.length > 0;
 
   return (
-    <div className="rounded-2xl overflow-hidden relative" style={{ border: `1px solid ${CARD_BORDER}` }}>
-      <div className="absolute inset-0">
-        <ArtImg pageId="vote-incentives" idx={1} alt="" loading="lazy" className="w-full h-full object-cover" />
-      </div>
-      <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.85)' }} />
-      <div className="relative z-10">
-        <div className="px-5 py-4 border-b border-white/10 flex items-center gap-2">
-          <h3 className="text-sm font-semibold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Active Bribes — This Epoch</h3>
-          <InfoTooltip text="Every gauge with a deposited bribe for the current epoch. Tap a row to pre-select it in the deposit form below." />
+    <div className={`px-5 py-3 transition-colors ${selected ? 'bg-purple-500/12' : 'hover:bg-white/3'}`}>
+      <button onClick={onSelect} type="button" className="w-full text-left">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-white text-[14px] font-semibold">{gauge.label}</p>
+              {selected && <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/25 text-purple-200 border border-purple-500/40">Selected</span>}
+              {userVotes > 0n && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                  Your vote: {formatTokenAmount(formatEther(userVotes), 2)}
+                </span>
+              )}
+            </div>
+            <p className="text-white/50 text-[11px] font-mono">{shortenAddress(gauge.pair)}</p>
+          </div>
+          <div className="flex items-center gap-4 flex-wrap text-right">
+            <div>
+              <p className="text-[10px] text-white/50 uppercase tracking-wider">Total Votes</p>
+              <p className="text-white text-[13px] stat-value font-mono">{totalVotes > 0n ? formatTokenAmount(formatEther(totalVotes), 2) : '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-white/50 uppercase tracking-wider">ETH Bribe</p>
+              <p className="text-white text-[13px] stat-value font-mono">{summary.ethAmount > 0n ? `${formatTokenAmount(formatEther(summary.ethAmount), 4)} ETH` : '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-white/50 uppercase tracking-wider">Tokens</p>
+              <div className="flex items-center gap-1 justify-end">
+                {tokenBadges.length === 0 ? (
+                  <p className="text-white/50 text-[12px]">—</p>
+                ) : (
+                  tokenBadges.slice(0, 3).map((b) => {
+                    const meta = whitelistMap.get(b.token.toLowerCase());
+                    const sym = meta?.symbol ?? shortenAddress(b.token);
+                    const amt = meta ? formatUnits(b.amount, meta.decimals) : formatEther(b.amount);
+                    return (
+                      <span key={b.token} className="text-[10.5px] px-2 py-0.5 rounded-full bg-white/5 text-white/85 border border-white/10 whitespace-nowrap">
+                        {formatTokenAmount(amt, 2)} {sym}
+                      </span>
+                    );
+                  })
+                )}
+                {tokenBadges.length > 3 && <span className="text-[10.5px] text-white/50">+{tokenBadges.length - 3}</span>}
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="divide-y divide-white/5">
-          {ranked.map((r) => {
-            const g = gaugeByAddr.get(r.pair.toLowerCase());
-            const isSelected = selectedPair?.toLowerCase() === r.pair.toLowerCase();
-            const tokenBadges = r.bribes.filter((b) => b.token.toLowerCase() !== ZERO_ADDRESS);
-            return (
-              <button
-                key={r.pair}
-                onClick={() => onSelect(r.pair)}
-                className={`w-full text-left px-5 py-3 transition-colors ${isSelected ? 'bg-purple-500/12' : 'hover:bg-white/3'}`}
-              >
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-white text-[14px] font-semibold">{g?.label ?? shortenAddress(r.pair)}</p>
-                      {isSelected && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/25 text-purple-200 border border-purple-500/40">Selected</span>
-                      )}
-                    </div>
-                    <p className="text-white/50 text-[11px] font-mono">{shortenAddress(r.pair)}</p>
-                  </div>
-                  <div className="flex items-center gap-4 flex-wrap text-right">
-                    <div>
-                      <p className="text-[10px] text-white/50 uppercase tracking-wider">ETH Bribe</p>
-                      <p className="text-white text-[13px] stat-value font-mono">{r.ethAmount > 0n ? `${formatTokenAmount(formatEther(r.ethAmount), 4)} ETH` : '—'}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-white/50 uppercase tracking-wider">Tokens</p>
-                      <div className="flex items-center gap-1 justify-end">
-                        {tokenBadges.length === 0 ? (
-                          <p className="text-white/50 text-[12px]">—</p>
-                        ) : (
-                          tokenBadges.slice(0, 3).map((b) => {
-                            const meta = whitelistMap.get(b.token.toLowerCase());
-                            const sym = meta?.symbol ?? shortenAddress(b.token);
-                            const amt = meta ? formatUnits(b.amount, meta.decimals) : formatEther(b.amount);
-                            return (
-                              <span key={b.token} className="text-[10.5px] px-2 py-0.5 rounded-full bg-white/5 text-white/85 border border-white/10 whitespace-nowrap">
-                                {formatTokenAmount(amt, 2)} {sym}
-                              </span>
-                            );
-                          })
-                        )}
-                        {tokenBadges.length > 3 && (
-                          <span className="text-[10.5px] text-white/50">+{tokenBadges.length - 3}</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </button>
-            );
-          })}
+      </button>
+
+      {/* Inline vote form (only when this row is selected and voting is open) */}
+      {selected && canVote && hasBribes && (
+        <div className="mt-3 flex items-center gap-2 flex-wrap">
+          <input
+            type="number"
+            step="0.01"
+            value={voteInput}
+            onChange={(e) => setVoteInput(e.target.value)}
+            placeholder="Voting power to add"
+            className="flex-1 min-w-[160px] bg-black/60 border border-white/15 rounded-lg px-3 py-2 text-white text-[12px] font-mono focus:border-purple-500 outline-none transition-colors"
+          />
+          <button
+            onClick={onSubmitVote}
+            disabled={!voteInput || Number(voteInput) <= 0 || isBusy}
+            className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-purple-500/20 text-purple-200 border border-purple-500/40 hover:bg-purple-500/30 transition-colors disabled:opacity-40"
+          >
+            Cast Vote
+          </button>
+          {userClaimable > 0n && (
+            <span className="text-[10px] text-emerald-300 ml-2">You&apos;d claim ~{formatTokenAmount(formatEther(userClaimable), 4)} now</span>
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -301,7 +431,6 @@ function DepositCard({
   const [amount, setAmount] = useState('');
   const [tokenAddr, setTokenAddr] = useState<Address | null>(null);
 
-  // Default to first whitelisted token when switching to token mode
   useEffect(() => {
     if (mode === 'token' && !tokenAddr && whitelistedTokens.length > 0) {
       setTokenAddr(whitelistedTokens[0]!.address);
@@ -328,14 +457,9 @@ function DepositCard({
     return (amountWei * BigInt(feeBps)) / 10000n;
   }, [amountWei, feeBps]);
 
-  const needsApproval =
-    mode === 'token' && selectedToken && amountWei > 0n && selectedToken.allowance < amountWei;
-
-  const insufficientBalance =
-    mode === 'token' && selectedToken && amountWei > selectedToken.balance;
-
-  const canSubmit =
-    !!selectedPair && amountWei > 0n && !isBusy && !insufficientBalance;
+  const needsApproval = mode === 'token' && selectedToken && amountWei > 0n && selectedToken.allowance < amountWei;
+  const insufficientBalance = mode === 'token' && selectedToken && amountWei > selectedToken.balance;
+  const canSubmit = !!selectedPair && amountWei > 0n && !isBusy && !insufficientBalance;
 
   const handleSubmit = () => {
     if (!selectedPair || amountWei === 0n) return;
@@ -369,7 +493,6 @@ function DepositCard({
         </div>
 
         <div className="p-5 space-y-4">
-          {/* Pair selector */}
           <div>
             <label className="text-[11px] text-white/65 uppercase tracking-wider block mb-1.5">Gauge</label>
             <select
@@ -386,7 +509,6 @@ function DepositCard({
             </select>
           </div>
 
-          {/* Mode tabs */}
           <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'rgba(13,21,48,0.7)', border: '1px solid rgba(255,255,255,0.08)' }}>
             {(['eth', 'token'] as const).map((m) => (
               <button
@@ -400,7 +522,6 @@ function DepositCard({
             ))}
           </div>
 
-          {/* Token picker — only in token mode */}
           {mode === 'token' && (
             whitelistedTokens.length === 0 ? (
               <div className="rounded-lg p-3 text-center" style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.25)' }}>
@@ -424,7 +545,6 @@ function DepositCard({
             )
           )}
 
-          {/* Amount input */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-[11px] text-white/65 uppercase tracking-wider">Amount ({mode === 'eth' ? 'ETH' : selectedToken?.symbol ?? 'TOKEN'})</label>
@@ -452,9 +572,7 @@ function DepositCard({
                   : formatTokenAmount(formatUnits(amountWei - feePreview, selectedToken?.decimals ?? 18), 6)}
               </p>
             )}
-            {insufficientBalance && (
-              <p className="text-[11px] text-red-400 mt-1.5">Insufficient balance.</p>
-            )}
+            {insufficientBalance && <p className="text-[11px] text-red-400 mt-1.5">Insufficient balance.</p>}
           </div>
 
           <button
@@ -483,27 +601,101 @@ function DepositCard({
 
 // ─── Main section ───────────────────────────────────────────────────
 export function VoteIncentivesSection() {
-  const { address } = useAccount();
+  const { address, isConnected } = useAccount();
   const bribes = useBribes();
   const { gauges, isLoading: gaugesLoading } = useGaugeList();
   const viAddr = VOTE_INCENTIVES_ADDRESS as Address;
 
-  // Local tx lifecycle for withdrawPendingETH so it doesn't fight bribes hook txs.
   const { writeContract: writeLocal, data: localTx, isPending: isLocalSigning } = useWriteContract();
   const { isLoading: isLocalConfirming } = useWaitForTransactionReceipt({ hash: localTx });
 
-  // Selected gauge for the deposit form. Starts with the first gauge once loaded.
   const [selectedPair, setSelectedPair] = useState<Address | null>(null);
+  const [voteInput, setVoteInput] = useState('');
+
   useEffect(() => {
     if (!selectedPair && gauges.length > 0) setSelectedPair(gauges[0]!.pair);
   }, [gauges, selectedPair]);
 
+  // Clear the vote input when user selects a different gauge.
+  useEffect(() => { setVoteInput(''); }, [selectedPair]);
+
   const currentEpoch = bribes.currentEpoch;
   const prevEpoch = Math.max(0, currentEpoch - 1);
-  const depositEpoch = currentEpoch; // epochs.length — bribes deposit into the upcoming epoch snapshot
+  const depositEpoch = currentEpoch;
+  const hasEpochs = bribes.epochCount > 0;
+
+  // ── Vote deadline: prefer on-chain constant, fall back to 7 days ───
+  const { data: voteDeadlineData } = useReadContract({
+    address: viAddr,
+    abi: VOTE_INCENTIVES_ABI,
+    functionName: 'VOTE_DEADLINE',
+    query: { enabled: bribes.isDeployed, staleTime: Infinity },
+  });
+  const voteDeadlineSec = voteDeadlineData ? Number(voteDeadlineData as bigint) : DEFAULT_VOTE_DEADLINE_SEC;
+  const deadlineUnix = bribes.latestEpoch ? bribes.latestEpoch.timestamp + voteDeadlineSec : 0;
+  const [nowSec, setNowSec] = useState(Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const votingOpen = hasEpochs && deadlineUnix > 0 && nowSec < deadlineUnix;
+
+  // ── User voting power at epoch snapshot time ──────────────────
+  const { data: userPowerData } = useReadContract({
+    address: TEGRIDY_STAKING_ADDRESS,
+    abi: TEGRIDY_STAKING_ABI,
+    functionName: 'votingPowerAtTimestamp',
+    args: address && bribes.latestEpoch ? [address, BigInt(bribes.latestEpoch.timestamp)] : undefined,
+    query: { enabled: !!address && !!bribes.latestEpoch, refetchInterval: 60_000 },
+  });
+  const userPower = (userPowerData as bigint | undefined) ?? 0n;
+
+  // ── User total votes used this epoch ──────────────────────────
+  const { data: userUsedData } = useReadContract({
+    address: viAddr,
+    abi: VOTE_INCENTIVES_ABI,
+    functionName: 'userTotalVotes',
+    args: address ? [address, BigInt(prevEpoch)] : undefined,
+    query: { enabled: !!address && hasEpochs, refetchInterval: 30_000 },
+  });
+  const userUsed = (userUsedData as bigint | undefined) ?? 0n;
+
+  // ── Per-pair: totalGaugeVotes and (if connected) user's gaugeVotes ──
+  const voteReads = useMemo(
+    () =>
+      gauges.flatMap((g) => {
+        const base: Array<any> = [
+          { address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'totalGaugeVotes' as const, args: [BigInt(prevEpoch), g.pair] as const },
+        ];
+        if (address) {
+          base.push({
+            address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'gaugeVotes' as const,
+            args: [address, BigInt(prevEpoch), g.pair] as const,
+          });
+        }
+        return base;
+      }),
+    [gauges, prevEpoch, address, viAddr],
+  );
+  const { data: voteData } = useReadContracts({
+    contracts: voteReads,
+    query: { enabled: hasEpochs && gauges.length > 0, refetchInterval: 30_000 },
+  });
+
+  const perPairVotes = useMemo(() => {
+    const stride = address ? 2 : 1;
+    const m = new Map<string, { total: bigint; user: bigint }>();
+    gauges.forEach((g, i) => {
+      const totalR = voteData?.[i * stride];
+      const userR = address ? voteData?.[i * stride + 1] : undefined;
+      const total = totalR?.status === 'success' ? (totalR.result as bigint) : 0n;
+      const user = userR?.status === 'success' ? (userR.result as bigint) : 0n;
+      m.set(g.pair.toLowerCase(), { total, user });
+    });
+    return m;
+  }, [gauges, voteData, address]);
 
   // ── Active bribes for the upcoming epoch ───────────────────────
-  // Pass 1: read token list per gauge.
   const tokenListReads = useMemo(
     () =>
       gauges.map((g) => ({
@@ -529,7 +721,6 @@ export function VoteIncentivesSection() {
     return m;
   }, [gauges, tokenListData]);
 
-  // Pass 2: read amount for each (pair, token) tuple.
   const amountReads = useMemo(() => {
     const out: { pair: Address; token: Address }[] = [];
     gauges.forEach((g) => {
@@ -573,7 +764,7 @@ export function VoteIncentivesSection() {
     });
   }, [amountReads, amountData, gauges]);
 
-  // ── User claimables for previous epoch across every gauge ──────
+  // ── User claimables (for prevEpoch across every gauge) ─────────
   const claimableReads = useMemo(
     () =>
       address && currentEpoch > 0
@@ -599,21 +790,25 @@ export function VoteIncentivesSection() {
       if (r?.status !== 'success') return;
       const [tokens, amounts] = r.result as [Address[], bigint[]];
       const total = amounts.reduce((acc, a) => acc + (a ?? 0n), 0n);
-      if (total > 0n) {
-        rows.push({ pair: g.pair, tokens, amounts, total });
-      }
+      if (total > 0n) rows.push({ pair: g.pair, tokens, amounts, total });
     });
     return rows;
   }, [gauges, claimableData]);
 
-  // ── Whitelist lookup ───────────────────────────────────────────
+  const claimableByPair = useMemo(() => {
+    const m = new Map<string, bigint>();
+    claimables.forEach((c) => m.set(c.pair.toLowerCase(), c.total));
+    return m;
+  }, [claimables]);
+
+  // ── Whitelist lookup ──────────────────────────────────────────
   const whitelistMap = useMemo(() => {
     const m = new Map<string, WhitelistedToken>();
     bribes.whitelistedTokens.forEach((t) => m.set(t.address.toLowerCase(), t));
     return m;
   }, [bribes.whitelistedTokens]);
 
-  // ── Pending ETH withdrawal (pull pattern) ──────────────────────
+  // ── Pending ETH refund ────────────────────────────────────────
   const { data: pendingETHData } = useReadContracts({
     contracts: address
       ? [{ address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'pendingETHWithdrawals' as const, args: [address] as const }]
@@ -633,7 +828,62 @@ export function VoteIncentivesSection() {
     bribes.claimBribes(prevEpoch, pair);
   };
 
-  // ── Not deployed guard ─────────────────────────────────────────
+  const handleVote = () => {
+    if (!selectedPair || !voteInput || Number(voteInput) <= 0) return;
+    try {
+      const power = parseEther(voteInput);
+      const remaining = userPower > userUsed ? userPower - userUsed : 0n;
+      if (power > remaining) {
+        // Surface a friendlier message before the contract reverts.
+        alert(`Not enough voting power. Remaining: ${formatTokenAmount(formatEther(remaining), 4)}`);
+        return;
+      }
+      bribes.vote(prevEpoch, selectedPair, power);
+      setVoteInput('');
+    } catch {
+      // parseEther throws for invalid input
+    }
+  };
+
+  // ── Leaderboard filter / sort ────────────────────────────────
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<SortKey>('bribe');
+  const [hideEmpty, setHideEmpty] = useState(false);
+
+  const rankedRows = useMemo(() => {
+    const combined = gauges.map((g) => {
+      const summary = pairSummaries.find((p) => p.pair === g.pair) ?? {
+        pair: g.pair, bribes: [], ethAmount: 0n, tokenCount: 0,
+      };
+      const votes = perPairVotes.get(g.pair.toLowerCase()) ?? { total: 0n, user: 0n };
+      const claimable = claimableByPair.get(g.pair.toLowerCase()) ?? 0n;
+      return { gauge: g, summary, votes, claimable };
+    });
+
+    const filtered = combined.filter((r) => {
+      if (hideEmpty && r.summary.ethAmount === 0n && r.summary.tokenCount === 0) return false;
+      if (!search) return true;
+      const q = search.toLowerCase();
+      return r.gauge.label.toLowerCase().includes(q) || r.gauge.pair.toLowerCase().includes(q);
+    });
+
+    const sorted = [...filtered].sort((a, b) => {
+      switch (sort) {
+        case 'votes': return b.votes.total > a.votes.total ? 1 : b.votes.total < a.votes.total ? -1 : 0;
+        case 'yours': return b.votes.user > a.votes.user ? 1 : b.votes.user < a.votes.user ? -1 : 0;
+        case 'claimable': return b.claimable > a.claimable ? 1 : b.claimable < a.claimable ? -1 : 0;
+        case 'bribe':
+        default:
+          if (a.summary.ethAmount !== b.summary.ethAmount)
+            return b.summary.ethAmount > a.summary.ethAmount ? 1 : -1;
+          return b.summary.tokenCount - a.summary.tokenCount;
+      }
+    });
+
+    return sorted;
+  }, [gauges, pairSummaries, perPairVotes, claimableByPair, search, sort, hideEmpty]);
+
+  // ── Not deployed guard ────────────────────────────────────────
   if (!bribes.isDeployed) {
     return (
       <div className="rounded-2xl p-5 text-center relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
@@ -652,7 +902,15 @@ export function VoteIncentivesSection() {
 
       <OverviewStrip epoch={currentEpoch} epochCount={bribes.epochCount} feeBps={bribes.bribeFeeBps} />
 
-      {/* Pending ETH pull */}
+      <VotingPowerBanner
+        userPower={userPower}
+        userUsed={userUsed}
+        deadline={deadlineUnix}
+        now={nowSec}
+        voteEpoch={prevEpoch}
+        isConnected={isConnected}
+      />
+
       {pendingETH > 0n && (
         <div className="rounded-xl p-4 flex items-center justify-between flex-wrap gap-2"
           style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)' }}>
@@ -670,27 +928,71 @@ export function VoteIncentivesSection() {
         </div>
       )}
 
-      <ClaimablesPanel
-        claimables={claimables}
-        gauges={gauges}
-        prevEpoch={prevEpoch}
-        onClaim={handleClaim}
-        isBusy={isBusy}
-      />
+      <ClaimablesPanel claimables={claimables} gauges={gauges} prevEpoch={prevEpoch} onClaim={handleClaim} isBusy={isBusy} />
 
-      {gaugesLoading && gauges.length === 0 ? (
-        <div className="rounded-xl p-5 text-center" style={{ background: 'rgba(13,21,48,0.7)', border: `1px solid ${CARD_BORDER}` }}>
-          <p className="text-white/60 text-[13px]">Loading gauges…</p>
+      <div className="rounded-2xl overflow-hidden relative" style={{ border: `1px solid ${CARD_BORDER}` }}>
+        <div className="absolute inset-0">
+          <ArtImg pageId="vote-incentives" idx={1} alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
-      ) : (
-        <GaugeLeaderboard
-          rows={pairSummaries}
-          gauges={gauges}
-          selectedPair={selectedPair}
-          onSelect={setSelectedPair}
-          whitelistMap={whitelistMap}
-        />
-      )}
+        <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.88)' }} />
+        <div className="relative z-10">
+          <div className="px-5 py-4 border-b border-white/10 flex items-center gap-2 flex-wrap">
+            <h3 className="text-sm font-semibold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>
+              Gauges {votingOpen ? '— Voting Open' : hasEpochs ? '— Voting Closed' : ''}
+            </h3>
+            <InfoTooltip text="Each row is a whitelisted gauge. Tap to pre-select in the deposit form below. When voting is open, cast power inline to earn that row's bribes." />
+          </div>
+
+          {gauges.length === 0 ? (
+            <div className="p-8 text-center">
+              <p className="text-white/70 text-[13px] mb-1">No gauges deployed yet.</p>
+              <p className="text-white/45 text-[11.5px]">Once the team whitelists pairs, they'll show up here.</p>
+            </div>
+          ) : (
+            <>
+              <LeaderboardControls
+                search={search}
+                setSearch={setSearch}
+                sort={sort}
+                setSort={setSort}
+                hideEmpty={hideEmpty}
+                setHideEmpty={setHideEmpty}
+                total={gauges.length}
+                shown={rankedRows.length}
+              />
+              {rankedRows.length === 0 ? (
+                <div className="p-8 text-center">
+                  <p className="text-white/70 text-[13px]">No gauges match that filter.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-white/5">
+                  {rankedRows.map((row) => (
+                    <GaugeRow
+                      key={row.gauge.pair}
+                      gauge={row.gauge}
+                      summary={row.summary}
+                      totalVotes={row.votes.total}
+                      userVotes={row.votes.user}
+                      userClaimable={row.claimable}
+                      whitelistMap={whitelistMap}
+                      selected={selectedPair?.toLowerCase() === row.gauge.pair.toLowerCase()}
+                      canVote={votingOpen && isConnected && userPower > 0n}
+                      voteInput={voteInput}
+                      setVoteInput={setVoteInput}
+                      onSelect={() => setSelectedPair(row.gauge.pair)}
+                      onSubmitVote={handleVote}
+                      isBusy={isBusy}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          {gaugesLoading && gauges.length === 0 && (
+            <div className="p-6 text-center"><p className="text-white/50 text-[12px]">Loading gauges…</p></div>
+          )}
+        </div>
+      </div>
 
       <DepositCard
         gauges={gauges}
@@ -706,7 +1008,6 @@ export function VoteIncentivesSection() {
         isConfirming={bribes.isConfirming || isLocalConfirming}
       />
 
-      {/* Advance epoch — permissionless keeper action */}
       <div className="rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap"
         style={{ background: 'rgba(13,21,48,0.7)', border: `1px solid ${CARD_BORDER}` }}>
         <div className="min-w-0">
@@ -729,7 +1030,6 @@ export function VoteIncentivesSection() {
         </button>
       </div>
 
-      {/* Contract link */}
       <div className="text-center pt-1">
         <a
           href={`https://etherscan.io/address/${VOTE_INCENTIVES_ADDRESS}`}
