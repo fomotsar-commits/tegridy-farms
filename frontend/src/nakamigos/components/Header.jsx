@@ -495,18 +495,10 @@ export default memo(function Header({
             )}
           </button>
 
-          {wallet && !siwe.isAuthenticated && (
-            <button
-              onClick={handleSignIn}
-              disabled={siwe.isAuthenticating}
-              className="wallet-btn"
-              style={{ background: "linear-gradient(135deg, var(--gold), var(--gold-dim))", color: "var(--bg)", fontWeight: 700 }}
-              title="Sign in with Ethereum to enable chat, voting, and profile features"
-              aria-label="Sign in with Ethereum"
-            >
-              {siwe.isAuthenticating ? "Signing..." : "Sign In"}
-            </button>
-          )}
+          {/* SIWE Sign In button hidden — infrastructure (useSiweAuth + /api/auth/*)
+              is intact and will be re-surfaced when a feature actually gates on
+              siwe.isAuthenticated (chat / profile / on-chain voting). Until then
+              the button promises capabilities that don't exist. */}
           <button
             onClick={handleConnect}
             className={`wallet-btn ${wallet ? "connected" : "disconnected"}`}
