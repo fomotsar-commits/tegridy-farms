@@ -13,6 +13,7 @@ import { LimitOrderTab } from '../components/swap/LimitOrderTab';
 import { LiquidityTab } from '../components/swap/LiquidityTab';
 import { TokenSelectModal } from '../components/swap/TokenSelectModal';
 import { ArtImg } from '../components/ArtImg';
+import { useTowelie } from '../hooks/useTowelie';
 
 type Tab = 'swap' | 'liquidity' | 'dca' | 'limit';
 
@@ -40,6 +41,17 @@ export default function TradePage() {
   }, [location.pathname]);
 
   const swap = useSwap();
+
+  // Towelie nudge: warn before user fires a swap with high price impact.
+  // Urgent so it jumps the queue. Dedup `key` so we don't spam every tick;
+  // when impact drops back under 5% the dedup naturally clears once consumed.
+  const { say } = useTowelie();
+  useEffect(() => {
+    if (tab !== 'swap') return;
+    if (swap.priceImpact > 5) {
+      say(`Price impact is ${swap.priceImpact.toFixed(1)}%. You sure?`, { priority: 'urgent', key: 'high-price-impact' });
+    }
+  }, [tab, swap.priceImpact, say]);
 
   const handleTokenSelect = (token: typeof swap.fromToken) => {
     if (!token) return;

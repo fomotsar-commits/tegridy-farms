@@ -32,6 +32,7 @@ import { useRevenueStats } from '../hooks/useRevenueStats';
 import { ReferralWidget } from '../components/ReferralWidget';
 import { PriceAlertWidget } from '../components/PriceAlertWidget';
 import { ArtImg } from '../components/ArtImg';
+import { useTowelie } from '../hooks/useTowelie';
 
 export default function DashboardPage() {
   usePageTitle('Dashboard', 'Real-time protocol analytics, TVL, and TOWELI token metrics.');
@@ -83,6 +84,15 @@ export default function DashboardPage() {
       toast.success('Rewards claimed successfully!');
     }
   }, [farmActions.isSuccess]);
+
+  // Towelie nudge: surface unclaimed yield. Dedup by `key` so the bubble
+  // doesn't re-fire on every price tick or remount — once per page load.
+  const { say } = useTowelie();
+  useEffect(() => {
+    if (!isConnected || isWrongNetwork) return;
+    if (!pos.hasPosition || pendingTotal < 0.01) return;
+    say(`You've got ${pendingTotal.toFixed(2)} TOWELI waiting. Claim it.`, { key: 'unclaimed-yield' });
+  }, [isConnected, isWrongNetwork, pos.hasPosition, pendingTotal, say]);
 
   // Price change indicator
   const priceChangeStr = price.priceChange !== 0

@@ -55,6 +55,14 @@ const ROUTE_TIPS: Record<string, string> = {
   '/leaderboard': "Climb the ranks. Earn points. Brag responsibly.",
   '/changelog':   "Every shipped feature, with Tegridy.",
   '/premium':     "Randy's Gold Card. Bonus rewards for the loyal.",
+  '/gallery':     "All the art. Look, don't lick.",
+  '/history':     "Your tx receipts. Tegridy keeps the books.",
+  '/faq':         "Got questions? I probably have shrugs.",
+  '/risks':       "Read this. Seriously. With tegridy.",
+  '/terms':       "Legal stuff. Required by grown-ups.",
+  '/privacy':     "We don't track much. Towels respect privacy.",
+  '/contracts':   "Where the magic happens. On-chain.",
+  '/treasury':    "Watch the funds. Transparency, with tegridy.",
 };
 
 const STORAGE_DISABLED = 'towelie:disabled';
