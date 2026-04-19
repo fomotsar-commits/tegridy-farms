@@ -451,9 +451,11 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
 }
 
 function OutstandingLoans({ loans }: { loans: import('../hooks/useMyLoans').MyLoan[] }) {
-  const active = loans.filter(l => l.status === 'active').length;
+  const borrower = loans.filter(l => l.role === 'borrower');
+  const lender = loans.filter(l => l.role === 'lender');
   const overdue = loans.filter(l => l.status === 'overdue').length;
-  const totalPrincipal = loans.reduce((acc, l) => acc + l.principal, 0n);
+  const owed = borrower.reduce((acc, l) => acc + l.principal, 0n);
+  const earning = lender.reduce((acc, l) => acc + l.principal, 0n);
   return (
     <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -474,14 +476,20 @@ function OutstandingLoans({ loans }: { loans: import('../hooks/useMyLoans').MyLo
           <ArtImg pageId="dashboard" idx={11} fallbackPosition="center 45%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 p-5">
-          <div className="grid grid-cols-3 gap-4 mb-4 pb-4" style={{ borderBottom: '1px solid var(--color-purple-20)' }}>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 pb-4" style={{ borderBottom: '1px solid var(--color-purple-20)' }}>
             <div>
               <p className="text-white/60 text-[10px] uppercase tracking-wider mb-1">Open</p>
               <p className="stat-value text-[18px] text-white">{loans.length}</p>
             </div>
             <div>
-              <p className="text-white/60 text-[10px] uppercase tracking-wider mb-1">Active</p>
-              <p className="stat-value text-[18px] text-success">{active}</p>
+              <p className="text-white/60 text-[10px] uppercase tracking-wider mb-1">Borrowing</p>
+              <p className="stat-value text-[18px] text-white">{borrower.length}</p>
+              <p className="text-[10px] text-white/55 font-mono">{formatEther(owed)} ETH owed</p>
+            </div>
+            <div>
+              <p className="text-white/60 text-[10px] uppercase tracking-wider mb-1">Lending</p>
+              <p className="stat-value text-[18px] text-success">{lender.length}</p>
+              <p className="text-[10px] text-success/70 font-mono">{formatEther(earning)} ETH out</p>
             </div>
             <div>
               <p className="text-white/60 text-[10px] uppercase tracking-wider mb-1">Overdue</p>
@@ -490,7 +498,7 @@ function OutstandingLoans({ loans }: { loans: import('../hooks/useMyLoans').MyLo
           </div>
           <div className="space-y-2">
             {loans.slice(0, 5).map(loan => (
-              <LoanRow key={loan.id} loan={loan} />
+              <LoanRow key={`${loan.source}-${loan.id}`} loan={loan} />
             ))}
             {loans.length > 5 && (
               <Link to="/nft-finance"
@@ -499,10 +507,6 @@ function OutstandingLoans({ loans }: { loans: import('../hooks/useMyLoans').MyLo
                 View {loans.length - 5} more &#8594;
               </Link>
             )}
-          </div>
-          <div className="mt-4 pt-3 flex items-center justify-between text-[12px]" style={{ borderTop: '1px solid var(--color-purple-20)' }}>
-            <span className="text-white/60">Total principal outstanding</span>
-            <span className="stat-value text-white">{formatEther(totalPrincipal)} ETH</span>
           </div>
         </div>
       </div>
@@ -518,14 +522,26 @@ function LoanRow({ loan }: { loan: import('../hooks/useMyLoans').MyLoan }) {
     ? 'Overdue'
     : days > 0 ? `${days}d ${hours}h` : `${hours}h`;
   const isUrgent = loan.status === 'active' && remaining < 86400;
+  const roleLabel = loan.role === 'borrower' ? 'You owe' : 'You lent';
+  const roleColor = loan.role === 'borrower' ? 'text-white' : 'text-success';
+  const sourceBadge = loan.source === 'nft' ? 'NFT' : 'Token';
+  const sourceBadgeClass = loan.source === 'nft'
+    ? 'bg-purple-500/20 text-purple-200 border-purple-500/40'
+    : 'bg-blue-500/20 text-blue-200 border-blue-500/40';
+  const roleBadgeClass = loan.role === 'borrower'
+    ? 'bg-orange-500/15 text-orange-200 border-orange-500/35'
+    : 'bg-emerald-500/15 text-emerald-200 border-emerald-500/35';
+  const linkTo = loan.source === 'nft' ? '/nft-finance?section=nftlending' : '/nft-finance?section=lending';
   return (
-    <Link to="/nft-finance" className="flex items-center justify-between gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors"
+    <Link to={linkTo} className="flex items-center justify-between gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors"
       style={{ background: 'rgba(255,255,255,0.02)' }}>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 mb-0.5">
+        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+          <span className={`text-[9px] px-1.5 py-0.5 rounded border font-semibold uppercase tracking-wider ${sourceBadgeClass}`}>{sourceBadge}</span>
+          <span className={`text-[9px] px-1.5 py-0.5 rounded border font-semibold uppercase tracking-wider ${roleBadgeClass}`}>{loan.role}</span>
           <span className="text-white text-[13px] font-semibold">#{loan.id}</span>
           <span className="text-white/60 text-[11px]">·</span>
-          <span className="stat-value text-[13px] text-white">{formatEther(loan.principal)} ETH</span>
+          <span className={`stat-value text-[13px] ${roleColor}`}>{roleLabel} {formatEther(loan.principal)} ETH</span>
           <span className="text-white/60 text-[11px]">@ {(Number(loan.aprBps) / 100).toFixed(2)}% APR</span>
         </div>
         <p className="text-white/70 text-[11px]">Token #{loan.tokenId.toString()}</p>

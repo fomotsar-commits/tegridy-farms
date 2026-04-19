@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { m, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { pageArt, artStyle } from '../lib/artConfig';
@@ -45,10 +46,33 @@ const INTRO_CARDS = [
 
 const INTRO_DISMISSED_KEY = 'tegridy-nft-finance-intro-dismissed';
 
+const VALID_SECTIONS: Section[] = ['lending', 'nftlending', 'amm', 'launchpad'];
+
+function sectionFromQuery(v: string | null): Section | null {
+  if (!v) return null;
+  return (VALID_SECTIONS as string[]).includes(v) ? (v as Section) : null;
+}
+
 export default function LendingPage() {
   usePageTitle('NFT Finance', 'NFT-backed lending, fractional AMM, and launchpad.');
   const { isConnected, address } = useAccount();
-  const [section, setSection] = useState<Section>('lending');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [section, setSection] = useState<Section>(() => sectionFromQuery(searchParams.get('section')) ?? 'lending');
+
+  // Keep state in sync with ?section= so Dashboard loan rows can deep-link to
+  // the right tab; pushing a new query also keeps the URL shareable.
+  useEffect(() => {
+    const fromQuery = sectionFromQuery(searchParams.get('section'));
+    if (fromQuery && fromQuery !== section) setSection(fromQuery);
+  }, [searchParams, section]);
+
+  const handleSectionChange = (next: Section) => {
+    setSection(next);
+    const params = new URLSearchParams(searchParams);
+    if (next === 'lending') params.delete('section');
+    else params.set('section', next);
+    setSearchParams(params, { replace: true });
+  };
   const [introDismissed, setIntroDismissed] = useState(() => {
     try { return localStorage.getItem(INTRO_DISMISSED_KEY) === '1'; } catch { return false; }
   });
@@ -92,7 +116,7 @@ export default function LendingPage() {
                 {INTRO_CARDS.map((card, i) => (
                   <m.button
                     key={card.key}
-                    onClick={() => setSection(card.key)}
+                    onClick={() => handleSectionChange(card.key)}
                     className={`relative text-left rounded-xl transition-all duration-300 group overflow-hidden ${
                       section === card.key ? 'ring-1 ring-emerald-500/40' : ''
                     }`}
@@ -155,7 +179,7 @@ export default function LendingPage() {
                   ? 'text-white'
                   : 'text-white hover:text-white'
               }`}
-              onClick={() => setSection(key)}
+              onClick={() => handleSectionChange(key)}
             >
               {section === key && (
                 <m.div
