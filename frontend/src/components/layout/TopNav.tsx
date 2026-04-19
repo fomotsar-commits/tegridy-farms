@@ -235,15 +235,16 @@ export const TopNav = React.memo(function TopNav() {
               }}
             </ConnectButton.Custom>
 
+            {/* Theme toggle — desktop only; mobile has it in the BottomNav. */}
             <button
               onClick={toggleTheme}
               aria-label={isDark ? 'Toggle light mode' : 'Toggle dark mode'}
               title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-              className="w-7 h-7 md:w-8 md:h-8 flex-shrink-0 flex items-center justify-center rounded-lg text-text-secondary hover:text-primary transition-colors"
+              className="hidden md:flex w-8 h-8 flex-shrink-0 items-center justify-center rounded-lg text-text-secondary hover:text-primary transition-colors"
               style={{ background: 'var(--color-purple-10)', border: '1px solid var(--color-purple-15)' }}
             >
               {isDark ? (
-                <svg width="14" height="14" className="md:w-4 md:h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="5" />
                   <line x1="12" y1="1" x2="12" y2="3" />
                   <line x1="12" y1="21" x2="12" y2="23" />
@@ -255,7 +256,7 @@ export const TopNav = React.memo(function TopNav() {
                   <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
                 </svg>
               ) : (
-                <svg width="14" height="14" className="md:w-4 md:h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
                 </svg>
               )}
