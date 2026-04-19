@@ -50,7 +50,7 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Activity',
     items: [
-      { to: '/leaderboard', label: 'Points' },
+      { to: '/leaderboard', label: 'Leaderboard' },
       { to: '/history',     label: 'History' },
       { to: '/changelog',   label: 'Changelog' },
       { to: '/premium',     label: 'Gold Card' },
@@ -90,7 +90,7 @@ export const MOBILE_MORE_SECTIONS: NavSection[] = [
     items: [
       { to: '/community',   label: 'Community' },
       { to: '/gallery',     label: 'Gallery' },
-      { to: '/leaderboard', label: 'Points' },
+      { to: '/leaderboard', label: 'Leaderboard' },
     ],
   },
   {

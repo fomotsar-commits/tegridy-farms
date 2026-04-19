@@ -29,11 +29,8 @@ const NakamigosApp = lazy(() => import('./nakamigos/App'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const ArtStudioPage = lazy(() => import('./pages/ArtStudioPage'));
 const LendingPage = lazy(() => import('./pages/LendingPage'));
-const TermsPage = lazy(() => import('./pages/TermsPage'));
-const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
-const RisksPage = lazy(() => import('./pages/RisksPage'));
-const ContractsPage = lazy(() => import('./pages/ContractsPage'));
-const TreasuryPage = lazy(() => import('./pages/TreasuryPage'));
+// Terms, Privacy, Risks, Contracts, Treasury merged into InfoPage (tabs)
+const InfoPage = lazy(() => import('./pages/InfoPage'));
 // LaunchpadPage lazy import removed — loaded inside LendingPage
 // NFTAMMPage merged into LendingPage (NFT Finance)
 
@@ -141,13 +138,13 @@ function AnimatedRoutes() {
         <Route path="nft-amm" element={<Navigate to="/nft-finance" replace />} />
         <Route path="governance" element={<Navigate to="/community" replace />} />
         <Route path="security" element={<Suspense fallback={<PageSkeleton />}><LearnPage /></Suspense>} />
-        <Route path="terms" element={<Suspense fallback={<PageSkeleton />}><TermsPage /></Suspense>} />
-        <Route path="privacy" element={<Suspense fallback={<PageSkeleton />}><PrivacyPage /></Suspense>} />
-        <Route path="risks" element={<Suspense fallback={<PageSkeleton />}><RisksPage /></Suspense>} />
+        <Route path="terms" element={<Suspense fallback={<PageSkeleton />}><InfoPage /></Suspense>} />
+        <Route path="privacy" element={<Suspense fallback={<PageSkeleton />}><InfoPage /></Suspense>} />
+        <Route path="risks" element={<Suspense fallback={<PageSkeleton />}><InfoPage /></Suspense>} />
         <Route path="faq" element={<Suspense fallback={<PageSkeleton />}><LearnPage /></Suspense>} />
         <Route path="changelog" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
-        <Route path="contracts" element={<Suspense fallback={<PageSkeleton />}><ContractsPage /></Suspense>} />
-        <Route path="treasury" element={<Suspense fallback={<PageSkeleton />}><TreasuryPage /></Suspense>} />
+        <Route path="contracts" element={<Suspense fallback={<PageSkeleton />}><InfoPage /></Suspense>} />
+        <Route path="treasury" element={<Suspense fallback={<PageSkeleton />}><InfoPage /></Suspense>} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
