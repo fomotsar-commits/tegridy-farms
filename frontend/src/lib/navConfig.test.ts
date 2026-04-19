@@ -26,7 +26,7 @@ describe('navConfig', () => {
     expect(paths).toContain('/dashboard');
     expect(paths).toContain('/farm');
     expect(paths).toContain('/swap');
-    expect(paths).toContain('/lending');
+    expect(paths).toContain('/nft-finance');
   });
 
   it('POINTS_NAV is the right-aligned promoted action (Tradermigos)', () => {

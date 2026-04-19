@@ -12,7 +12,7 @@ export const PRIMARY_NAV: NavItem[] = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/farm', label: 'Farm' },
   { to: '/swap', label: 'Trade' },
-  { to: '/lending', label: 'NFT Finance' },
+  { to: '/nft-finance', label: 'NFT Finance' },
   { to: '/community', label: 'Community' },
 ];
 

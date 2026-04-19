@@ -447,7 +447,7 @@ function OutstandingLoans({ loans }: { loans: import('../hooks/useMyLoans').MyLo
             </span>
           )}
         </h2>
-        <Link to="/lending" className="text-[12px] text-white/70 hover:text-white transition-colors">
+        <Link to="/nft-finance" className="text-[12px] text-white/70 hover:text-white transition-colors">
           Manage in NFT Finance &#8594;
         </Link>
       </div>
@@ -475,7 +475,7 @@ function OutstandingLoans({ loans }: { loans: import('../hooks/useMyLoans').MyLo
               <LoanRow key={loan.id} loan={loan} />
             ))}
             {loans.length > 5 && (
-              <Link to="/lending"
+              <Link to="/nft-finance"
                 className="block text-center text-[12px] text-white/70 hover:text-white py-2 rounded-lg transition-colors"
                 style={{ background: 'rgba(255,255,255,0.03)' }}>
                 View {loans.length - 5} more &#8594;
@@ -501,7 +501,7 @@ function LoanRow({ loan }: { loan: import('../hooks/useMyLoans').MyLoan }) {
     : days > 0 ? `${days}d ${hours}h` : `${hours}h`;
   const isUrgent = loan.status === 'active' && remaining < 86400;
   return (
-    <Link to="/lending" className="flex items-center justify-between gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors"
+    <Link to="/nft-finance" className="flex items-center justify-between gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors"
       style={{ background: 'rgba(255,255,255,0.02)' }}>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 mb-0.5">

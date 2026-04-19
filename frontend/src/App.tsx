@@ -128,13 +128,14 @@ function AnimatedRoutes() {
         <Route path="community" element={<Suspense fallback={<PageSkeleton />}><CommunityPage /></Suspense>} />
         <Route path="grants" element={<Navigate to="/community" replace />} />
         <Route path="bounties" element={<Navigate to="/community" replace />} />
-        <Route path="restake" element={<Navigate to="/lending" replace />} />
+        <Route path="restake" element={<Navigate to="/nft-finance" replace />} />
         <Route path="premium" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
         <Route path="bribes" element={<Navigate to="/community" replace />} />
         <Route path="admin" element={<Suspense fallback={<PageSkeleton />}><AdminPage /></Suspense>} />
-        <Route path="lending" element={<Suspense fallback={<PageSkeleton />}><LendingPage /></Suspense>} />
-        <Route path="launchpad" element={<Navigate to="/lending" replace />} />
-        <Route path="nft-amm" element={<Navigate to="/lending" replace />} />
+        <Route path="nft-finance" element={<Suspense fallback={<PageSkeleton />}><LendingPage /></Suspense>} />
+        <Route path="lending" element={<Navigate to="/nft-finance" replace />} />
+        <Route path="launchpad" element={<Navigate to="/nft-finance" replace />} />
+        <Route path="nft-amm" element={<Navigate to="/nft-finance" replace />} />
         <Route path="governance" element={<Navigate to="/community" replace />} />
         <Route path="security" element={<Suspense fallback={<PageSkeleton />}><LearnPage /></Suspense>} />
         <Route path="terms" element={<Suspense fallback={<PageSkeleton />}><TermsPage /></Suspense>} />

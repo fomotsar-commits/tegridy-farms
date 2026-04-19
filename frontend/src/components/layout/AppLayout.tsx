@@ -32,7 +32,7 @@ import { OnboardingModal } from '../ui/OnboardingModal';
 import { SeasonalEventBanner } from '../SeasonalEvent';
 
 const NAV_ORDER = [
-  '/', '/dashboard', '/farm', '/swap', '/lending', '/gallery', '/tokenomics',
+  '/', '/dashboard', '/farm', '/swap', '/nft-finance', '/gallery', '/tokenomics',
   '/lore', '/leaderboard', '/community', '/premium', '/history', '/admin',
 ];
 

@@ -25,7 +25,7 @@ const TABS = [
       <path d="M7 10l5-5 5 5M7 14l5 5 5-5" />
     </svg>
   )},
-  { to: '/lending', label: 'Lending', icon: (
+  { to: '/nft-finance', label: 'NFT Finance', icon: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <rect x="3" y="6" width="18" height="13" rx="2" />
       <path d="M3 10h18M7 15h3" />

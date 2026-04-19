@@ -12,7 +12,7 @@ const PRODUCT_LINKS: { to: string; label: string }[] = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/farm', label: 'Farm' },
   { to: '/swap', label: 'Trade' },
-  { to: '/lending', label: 'NFT Finance' },
+  { to: '/nft-finance', label: 'NFT Finance' },
   { to: '/community', label: 'Governance' },
   { to: '/premium', label: 'Gold Card' },
   { to: '/leaderboard', label: 'Points' },
