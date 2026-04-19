@@ -47,18 +47,24 @@ const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(Math.random() * arr.le
 
 // Type-on-screen for the bubble text. ~18ms per char ≈ ~1s for a typical
 // line. Resets whenever the source text changes (i.e. new bubble).
+//
+// `cancelled` flag prevents setState-after-unmount when a bubble dismisses
+// mid-type — without it, React 18 strict-mode logs warnings, and dropping
+// it causes a memory leak in long-running sessions.
 function useTypewriter(text: string | undefined, charMs = 18): string {
   const [shown, setShown] = useState('');
   useEffect(() => {
     if (!text) { setShown(''); return; }
+    let cancelled = false;
     setShown('');
     let i = 0;
     const id = setInterval(() => {
+      if (cancelled) { clearInterval(id); return; }
       i++;
       setShown(text.slice(0, i));
       if (i >= text.length) clearInterval(id);
     }, charMs);
-    return () => clearInterval(id);
+    return () => { cancelled = true; clearInterval(id); };
   }, [text, charMs]);
   return shown;
 }
@@ -248,8 +254,15 @@ export function TowelieAssistant() {
   };
 
   const handleAvatarClick = () => {
-    if (bubble) { dismissBubble(); return; }
-    setBubble({ text: randomToweliQuote(), src: 'click' });
+    // Avatar acts as a chat toggle — once a user knows Towelie can answer
+    // questions, the click becomes the obvious way to summon him.
+    // - No bubble + click → bubble opens with a quote AND chat input ready
+    // - Bubble showing + chat closed → click opens chat
+    // - Bubble showing + chat open → click dismisses everything
+    if (bubble && chatOpen) { dismissBubble(); return; }
+    if (!bubble) setBubble({ text: randomToweliQuote(), src: 'click' });
+    setChatOpen(true);
+    setTimeout(() => chatInputRef.current?.focus(), 60);
   };
 
   const submitQuestion = (e?: React.FormEvent) => {

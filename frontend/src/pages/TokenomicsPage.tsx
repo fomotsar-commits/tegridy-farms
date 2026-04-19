@@ -102,9 +102,12 @@ export default function TokenomicsPage() {
             </div>
             <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-5" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <h2 className="heading-luxury text-[15px] text-white mb-3">Supply Distribution</h2>
-            <div className="h-48">
+            <div className="w-full h-48 min-h-[192px]">
               <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}>
-              <ResponsiveContainer width="100%" height="100%">
+              {/* Recharts warns "width(-1) and height(-1)" if it measures the
+                  container before layout settles (e.g. during page transition).
+                  Explicit min sizes give the ResizeObserver a non-zero baseline. */}
+              <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={192}>
                 <PieChart>
                   <Pie data={SUPPLY_DATA} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value" stroke="none">
                     {SUPPLY_DATA.map((e) => <Cell key={e.name} fill={e.color} />)}

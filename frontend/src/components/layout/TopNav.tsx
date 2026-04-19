@@ -3,7 +3,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
-import { PRIMARY_NAV, MORE_NAV } from '../../lib/navConfig';
+import { PRIMARY_NAV, MORE_NAV, MORE_NAV_SECTIONS } from '../../lib/navConfig';
 
 export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
@@ -162,7 +162,7 @@ export const TopNav = React.memo(function TopNav() {
               <AnimatePresence>
                 {moreOpen && (
                   <m.div
-                    className="absolute top-full left-0 mt-1 py-1 rounded-lg min-w-[180px] z-50"
+                    className="absolute top-full left-0 mt-1 py-2 rounded-lg w-[460px] grid grid-cols-2 gap-x-3 gap-y-1 z-50"
                     style={{
                       background: isDark ? 'rgba(10,10,20,0.96)' : 'rgba(255,255,255,0.97)',
                       border: '1px solid var(--color-purple-20)',
@@ -174,15 +174,25 @@ export const TopNav = React.memo(function TopNav() {
                     transition={{ duration: 0.15 }}
                     role="menu"
                   >
-                    {MORE_NAV.map((n) => (
-                      <NavLink
-                        key={n.to}
-                        to={n.to}
-                        role="menuitem"
-                        className={({ isActive }) => `nav-link block px-4 py-2 text-[13px] transition-colors ${isActive ? 'active' : ''}`}
-                      >
-                        {n.label}
-                      </NavLink>
+                    {MORE_NAV_SECTIONS.map((section) => (
+                      <div key={section.heading} className="px-2">
+                        <p
+                          className="px-2 pt-1.5 pb-1 text-[10px] uppercase tracking-wider font-semibold opacity-60"
+                          style={{ color: isDark ? '#fff' : '#1a1a1a' }}
+                        >
+                          {section.heading}
+                        </p>
+                        {section.items.map((n) => (
+                          <NavLink
+                            key={n.to}
+                            to={n.to}
+                            role="menuitem"
+                            className={({ isActive }) => `nav-link block px-2 py-1.5 text-[12.5px] rounded-md transition-colors ${isActive ? 'active' : ''}`}
+                          >
+                            {n.label}
+                          </NavLink>
+                        ))}
+                      </div>
                     ))}
                   </m.div>
                 )}
@@ -317,18 +327,28 @@ export const TopNav = React.memo(function TopNav() {
                   </svg>
                 </button>
               </div>
-              <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
+              <nav className="flex-1 px-3 overflow-y-auto pb-6">
                 {/* Mirror desktop "More" dropdown — primary tabs already live in
-                    the BottomNav, so the drawer is just the secondary overflow. */}
-                {MORE_NAV.map((n) => (
-                  <NavLink key={n.to} to={n.to} onClick={() => setOpen(false)}
-                    className={({ isActive }) => `nav-link block py-2.5 ${isActive ? 'active' : ''}`}>
-                    {n.label}
-                  </NavLink>
+                    the BottomNav, so the drawer is just the secondary overflow.
+                    Sections give the long list scannable structure on small screens. */}
+                {MORE_NAV_SECTIONS.map((section) => (
+                  <div key={section.heading} className="mb-3">
+                    <p className="px-2 pt-2 pb-1 text-[10px] uppercase tracking-wider font-semibold opacity-60 text-text-muted">
+                      {section.heading}
+                    </p>
+                    <div className="space-y-0.5">
+                      {section.items.map((n) => (
+                        <NavLink key={n.to} to={n.to} onClick={() => setOpen(false)}
+                          className={({ isActive }) => `nav-link block px-2 py-2 rounded-md ${isActive ? 'active' : ''}`}>
+                          {n.label}
+                        </NavLink>
+                      ))}
+                    </div>
+                  </div>
                 ))}
                 {showAdmin && (
                   <NavLink to="/admin" onClick={() => setOpen(false)}
-                    className={({ isActive }) => `nav-link block py-2.5 ${isActive ? 'active' : ''}`}>
+                    className={({ isActive }) => `nav-link block px-2 py-2 rounded-md ${isActive ? 'active' : ''}`}>
                     Admin
                   </NavLink>
                 )}
