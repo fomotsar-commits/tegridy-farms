@@ -401,15 +401,54 @@ export const TEGRIDY_DROP_ABI = [
 
 // ─── TegridyNFTPool (Sudoswap-style NFT AMM Pool) ─────────────
 export const TEGRIDY_NFT_POOL_ABI = [
+  // ─── Trading (public) ──────────────────────────────────────────
   { type: 'function', name: 'swapETHForNFTs', inputs: [{ name: 'tokenIds', type: 'uint256[]' }], outputs: [], stateMutability: 'payable' },
   { type: 'function', name: 'swapNFTsForETH', inputs: [{ name: 'tokenIds', type: 'uint256[]' }, { name: 'minOutput', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'getBuyQuote', inputs: [{ name: 'numItems', type: 'uint256' }], outputs: [{ name: 'inputAmount', type: 'uint256' }, { name: 'protocolFee', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'getSellQuote', inputs: [{ name: 'numItems', type: 'uint256' }], outputs: [{ name: 'outputAmount', type: 'uint256' }, { name: 'protocolFee', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'getHeldTokenIds', inputs: [], outputs: [{ name: '', type: 'uint256[]' }], stateMutability: 'view' },
   { type: 'function', name: 'getPoolInfo', inputs: [], outputs: [{ name: '_nftCollection', type: 'address' }, { name: '_poolType', type: 'uint8' }, { name: '_spotPrice', type: 'uint256' }, { name: '_delta', type: 'uint256' }, { name: '_feeBps', type: 'uint256' }, { name: '_protocolFeeBps', type: 'uint256' }, { name: '_owner', type: 'address' }, { name: '_numNFTs', type: 'uint256' }, { name: '_ethBalance', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'addLiquidity', inputs: [{ name: 'tokenIds', type: 'uint256[]' }], outputs: [], stateMutability: 'payable' },
   { type: 'function', name: 'spotPrice', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'delta', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'feeBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'owner', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
+  { type: 'function', name: 'paused', inputs: [], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
+  // ─── Liquidity (owner) ─────────────────────────────────────────
+  { type: 'function', name: 'addLiquidity', inputs: [{ name: 'tokenIds', type: 'uint256[]' }], outputs: [], stateMutability: 'payable' },
+  { type: 'function', name: 'removeLiquidity', inputs: [{ name: 'tokenIds', type: 'uint256[]' }, { name: 'ethAmount', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  // ─── Timelocked parameter changes (owner) ──────────────────────
+  { type: 'function', name: 'proposeSpotPrice', inputs: [{ name: 'newPrice', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'executeSpotPriceChange', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'cancelSpotPriceChange', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'proposeDelta', inputs: [{ name: 'newDelta', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'executeDeltaChange', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'cancelDeltaChange', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'pendingSpotPrice', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'pendingSpotPriceExecuteAfter', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'pendingDelta', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'pendingDeltaExecuteAfter', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'PARAMETER_TIMELOCK', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // ─── Immediate owner actions ───────────────────────────────────
+  { type: 'function', name: 'changeFee', inputs: [{ name: 'newFee', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'withdrawETH', inputs: [{ name: 'amount', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'withdrawNFTs', inputs: [{ name: 'tokenIds', type: 'uint256[]' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'pause', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'unpause', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  // ─── Events (for trade history) ────────────────────────────────
+  {
+    type: 'event', name: 'SwapETHForNFTs', anonymous: false, inputs: [
+      { indexed: true, name: 'buyer', type: 'address' },
+      { indexed: false, name: 'tokenIds', type: 'uint256[]' },
+      { indexed: false, name: 'totalCost', type: 'uint256' },
+    ],
+  },
+  {
+    type: 'event', name: 'SwapNFTsForETH', anonymous: false, inputs: [
+      { indexed: true, name: 'seller', type: 'address' },
+      { indexed: false, name: 'tokenIds', type: 'uint256[]' },
+      { indexed: false, name: 'totalPayout', type: 'uint256' },
+    ],
+  },
 ] as const;
 
 // ─── TegridyNFTPoolFactory (NFT AMM Pool Factory) ─────────────

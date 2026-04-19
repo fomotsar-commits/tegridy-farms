@@ -28,10 +28,18 @@ interface PairBribeSummary {
 
 interface PairClaimable {
   pair: Address;
+  /** Aggregated tokens across every epoch in the scan window that had a non-zero claim. */
   tokens: Address[];
   amounts: bigint[];
   total: bigint;
+  /** Sorted ascending epochs in the scan window where this pair had a non-zero claim. */
+  epochs: number[];
 }
+
+/** How far back to scan for unclaimed bribes per pair. Contract caps batch
+ *  claims at MAX_CLAIM_EPOCHS = 500; 5 is more than enough for the typical
+ *  user who claims every few epochs and keeps the reads bounded. */
+const CLAIM_LOOKBACK_EPOCHS = 5;
 
 // ─── How It Works explainer ─────────────────────────────────────────
 function HowItWorks() {
@@ -187,34 +195,44 @@ function VotingPowerBanner({
 function ClaimablesPanel({
   claimables,
   gauges,
-  prevEpoch,
   onClaim,
   isBusy,
 }: {
   claimables: PairClaimable[];
   gauges: GaugeInfo[];
-  prevEpoch: number;
   onClaim: (pair: Address) => void;
   isBusy: boolean;
 }) {
   if (claimables.length === 0) return null;
   const gaugeByAddr = new Map(gauges.map((g) => [g.pair.toLowerCase(), g]));
+  const anyMulti = claimables.some((c) => c.epochs.length > 1);
   return (
     <div className="rounded-xl p-4" style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.25)' }}>
       <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
         <div>
           <p className="text-[10px] uppercase tracking-wider text-purple-300 font-semibold">Your Claimables</p>
-          <p className="text-white text-[13px]">Epoch #{prevEpoch} — claim per gauge below</p>
+          <p className="text-white text-[13px]">
+            {anyMulti
+              ? `Unclaimed across up to ${CLAIM_LOOKBACK_EPOCHS} past epochs — batched per gauge`
+              : 'Claim per gauge below'}
+          </p>
         </div>
         <span className="text-[11px] text-white/55">{claimables.length} gauge{claimables.length === 1 ? '' : 's'}</span>
       </div>
       <div className="space-y-2">
         {claimables.map((c) => {
           const g = gaugeByAddr.get(c.pair.toLowerCase());
+          const first = c.epochs[0]!;
+          const last = c.epochs[c.epochs.length - 1]!;
+          const epochRange = first === last ? `Epoch #${first}` : `Epochs #${first}–#${last}`;
+          const buttonLabel = first === last ? 'Claim' : `Claim ${c.epochs.length} epochs`;
           return (
             <div key={c.pair} className="rounded-lg p-3 flex items-center justify-between gap-3 flex-wrap" style={{ background: 'rgba(13,21,48,0.7)', border: '1px solid rgba(255,255,255,0.08)' }}>
               <div className="min-w-0 flex-1">
-                <p className="text-white text-[13px] font-medium">{g?.label ?? shortenAddress(c.pair)}</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-white text-[13px] font-medium">{g?.label ?? shortenAddress(c.pair)}</p>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-200 border border-purple-500/35 font-mono">{epochRange}</span>
+                </div>
                 <div className="flex flex-wrap gap-2 mt-1">
                   {c.tokens.map((tok, i) => (
                     <span key={`${tok}-${i}`} className="text-[11px] text-purple-200 font-mono">
@@ -229,7 +247,7 @@ function ClaimablesPanel({
                 disabled={isBusy}
                 className="flex-shrink-0 px-4 py-2 rounded-lg text-[12px] font-semibold bg-purple-500/20 text-purple-200 border border-purple-500/40 hover:bg-purple-500/30 transition-colors disabled:opacity-40"
               >
-                Claim
+                {buttonLabel}
               </button>
             </div>
           );
@@ -764,18 +782,31 @@ export function VoteIncentivesSection() {
     });
   }, [amountReads, amountData, gauges]);
 
-  // ── User claimables (for prevEpoch across every gauge) ─────────
+  // ── User claimables (scans up to CLAIM_LOOKBACK_EPOCHS past epochs per
+  //    gauge so we can surface a batch-claim path when the user has unclaimed
+  //    bribes across multiple epochs on the same pair).
+  const epochsToCheck = useMemo(() => {
+    const arr: number[] = [];
+    for (let i = 0; i < CLAIM_LOOKBACK_EPOCHS; i++) {
+      const e = prevEpoch - i;
+      if (e >= 0) arr.push(e);
+    }
+    return arr; // newest → oldest
+  }, [prevEpoch]);
+
   const claimableReads = useMemo(
     () =>
       address && currentEpoch > 0
-        ? gauges.map((g) => ({
-            address: viAddr,
-            abi: VOTE_INCENTIVES_ABI,
-            functionName: 'claimable' as const,
-            args: [address, BigInt(prevEpoch), g.pair] as const,
-          }))
+        ? gauges.flatMap((g) =>
+            epochsToCheck.map((e) => ({
+              address: viAddr,
+              abi: VOTE_INCENTIVES_ABI,
+              functionName: 'claimable' as const,
+              args: [address, BigInt(e), g.pair] as const,
+            })),
+          )
         : [],
-    [address, gauges, currentEpoch, prevEpoch, viAddr],
+    [address, gauges, currentEpoch, epochsToCheck, viAddr],
   );
   const { data: claimableData } = useReadContracts({
     contracts: claimableReads,
@@ -784,16 +815,41 @@ export function VoteIncentivesSection() {
 
   const claimables = useMemo<PairClaimable[]>(() => {
     if (!claimableData) return [];
+    const stride = epochsToCheck.length;
     const rows: PairClaimable[] = [];
-    gauges.forEach((g, i) => {
-      const r = claimableData[i];
-      if (r?.status !== 'success') return;
-      const [tokens, amounts] = r.result as [Address[], bigint[]];
-      const total = amounts.reduce((acc, a) => acc + (a ?? 0n), 0n);
-      if (total > 0n) rows.push({ pair: g.pair, tokens, amounts, total });
+    gauges.forEach((g, gi) => {
+      const tokenTotals = new Map<string, bigint>();
+      const epochs: number[] = [];
+      let total = 0n;
+      for (let ei = 0; ei < stride; ei++) {
+        const r = claimableData[gi * stride + ei];
+        if (!r || r.status !== 'success') continue;
+        const [tokens, amounts] = r.result as [Address[], bigint[]];
+        let epochTotal = 0n;
+        for (let ti = 0; ti < tokens.length; ti++) {
+          const amt = amounts[ti] ?? 0n;
+          if (amt === 0n) continue;
+          const key = tokens[ti]!.toLowerCase();
+          tokenTotals.set(key, (tokenTotals.get(key) ?? 0n) + amt);
+          epochTotal += amt;
+        }
+        if (epochTotal > 0n) {
+          epochs.push(epochsToCheck[ei]!);
+          total += epochTotal;
+        }
+      }
+      if (total === 0n) return;
+      // Preserve canonical token addresses (keep the first-seen casing).
+      const tokenList: Address[] = [];
+      const amountList: bigint[] = [];
+      tokenTotals.forEach((amt, key) => {
+        tokenList.push(key as Address);
+        amountList.push(amt);
+      });
+      rows.push({ pair: g.pair, tokens: tokenList, amounts: amountList, total, epochs: epochs.slice().sort((a, b) => a - b) });
     });
     return rows;
-  }, [gauges, claimableData]);
+  }, [gauges, claimableData, epochsToCheck]);
 
   const claimableByPair = useMemo(() => {
     const m = new Map<string, bigint>();
@@ -825,7 +881,18 @@ export function VoteIncentivesSection() {
 
   const handleClaim = (pair: Address) => {
     if (currentEpoch < 1) return;
-    bribes.claimBribes(prevEpoch, pair);
+    const row = claimables.find((c) => c.pair.toLowerCase() === pair.toLowerCase());
+    if (!row || row.epochs.length === 0) {
+      bribes.claimBribes(prevEpoch, pair);
+      return;
+    }
+    const first = row.epochs[0]!;
+    const last = row.epochs[row.epochs.length - 1]!;
+    if (first === last) {
+      bribes.claimBribes(first, pair);
+    } else {
+      bribes.claimBribesBatch(first, last, pair);
+    }
   };
 
   const handleVote = () => {
@@ -928,7 +995,7 @@ export function VoteIncentivesSection() {
         </div>
       )}
 
-      <ClaimablesPanel claimables={claimables} gauges={gauges} prevEpoch={prevEpoch} onClaim={handleClaim} isBusy={isBusy} />
+      <ClaimablesPanel claimables={claimables} gauges={gauges} onClaim={handleClaim} isBusy={isBusy} />
 
       <div className="rounded-2xl overflow-hidden relative" style={{ border: `1px solid ${CARD_BORDER}` }}>
         <div className="absolute inset-0">
