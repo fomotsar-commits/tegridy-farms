@@ -224,19 +224,21 @@ export function LaunchpadSection() {
         {showCreate ? 'Cancel' : 'Deploy New Collection'}
       </button>
 
-      {/* Create Form — wizard if v2 factory is live, legacy form otherwise.
-          While factory address is still 0x0 (pre-deploy), admins can preview
-          the new wizard UI via `?wizard=1` in the URL. */}
+      {/* Create flow — always the V2 wizard (image upload + Arweave + CSV + preview).
+          Step 5 shows an amber "factory pending" banner until `TEGRIDY_LAUNCHPAD_V2_ADDRESS`
+          is populated post-deploy, but every step before deploy (Connect → Upload →
+          Preview → Fund+Upload) works end-to-end. The legacy name/symbol-only form
+          is kept on disk for reference via `?legacy=1` but no longer the default. */}
       {showCreate && (() => {
-        const wizardPreview =
+        const legacyOverride =
           typeof window !== 'undefined' &&
-          new URLSearchParams(window.location.search).get('wizard') === '1';
-        return v2Live || wizardPreview
-          ? <CreateWizard onCreated={() => { setShowCreate(false); refetch(); }} />
-          : <CreateCollectionForm
+          new URLSearchParams(window.location.search).get('legacy') === '1';
+        return legacyOverride
+          ? <CreateCollectionForm
               onCreated={() => { setShowCreate(false); refetch(); }}
               deployed={deployed}
-            />;
+            />
+          : <CreateWizard onCreated={() => { setShowCreate(false); refetch(); }} />;
       })()}
 
       {/* Collection List */}
