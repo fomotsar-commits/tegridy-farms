@@ -6,6 +6,7 @@ import { mainnet } from 'wagmi/chains';
 import { ART } from '../lib/artConfig';
 import { randomToweliQuote } from '../lib/copy';
 import { useTransactionReceipt } from '../hooks/useTransactionReceipt';
+import { useToweliQueueInternal } from '../hooks/useTowelie';
 
 // ─────────────────────────────────────────────────────────────────
 // Event copy banks. Pick a random line per event so repeat triggers
@@ -63,7 +64,7 @@ const IDLE_MS = 45_000;                       // 45s idle → "you there?"
 const ROUTE_TIP_DELAY_MS = 2200;              // 2.2s after navigation
 const EVENT_COOLDOWN_MS = 25_000;             // min gap between event-driven bubbles
 
-type BubbleSource = 'route' | 'idle' | 'click' | 'event' | null;
+type BubbleSource = 'route' | 'idle' | 'click' | 'event' | 'api' | null;
 
 export function TowelieAssistant() {
   const location = useLocation();
@@ -77,6 +78,8 @@ export function TowelieAssistant() {
   const { isConnected } = useAccount();
   const chainId = useChainId();
   const { receiptData } = useTransactionReceipt();
+  const { queue, consume } = useToweliQueueInternal();
+  const currentApiId = useRef<number | null>(null);
 
   const canShow = useCallback(() => !disabled && Date.now() >= snoozedUntil.current, [disabled]);
 
@@ -105,6 +108,24 @@ export function TowelieAssistant() {
     }, ROUTE_TIP_DELAY_MS);
     return () => clearTimeout(t);
   }, [location.pathname, canShow]);
+
+  // useTowelie() queue — drain as fast as bubble visibility allows.
+  // Urgent messages bypass cooldown + replace whatever is showing. Info/flavor
+  // wait until the assistant is free and respect the same 25s cooldown as
+  // event-driven bubbles so we don't become a chatbox.
+  useEffect(() => {
+    if (disabled || queue.length === 0) return;
+    const next = queue[0]!;
+    const isUrgent = next.priority === 'urgent';
+    if (!isUrgent) {
+      if (bubble) return; // wait for current bubble to clear
+      if (Date.now() < snoozedUntil.current) return;
+      if (Date.now() - lastEventAt.current < EVENT_COOLDOWN_MS) return;
+    }
+    lastEventAt.current = Date.now();
+    currentApiId.current = next.id;
+    setBubble({ text: next.text, src: 'api' });
+  }, [queue, bubble, disabled]);
 
   // Wallet connected — fires once per connection edge. Skips initial mount
   // (hydrated-already-connected shouldn't trigger a greeting every load).
@@ -154,8 +175,14 @@ export function TowelieAssistant() {
   }, [disabled, canShow]);
 
   const dismissBubble = () => {
+    if (currentApiId.current !== null) {
+      consume(currentApiId.current);
+      currentApiId.current = null;
+    }
     setBubble(null);
-    snoozedUntil.current = Date.now() + SNOOZE_MS;
+    // API messages get a shorter snooze so the queue can drain naturally.
+    const snooze = bubble?.src === 'api' ? EVENT_COOLDOWN_MS : SNOOZE_MS;
+    snoozedUntil.current = Date.now() + snooze;
   };
 
   const disablePermanently = () => {

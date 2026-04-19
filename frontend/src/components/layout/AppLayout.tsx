@@ -28,6 +28,7 @@ const GlitchTransition = lazy(() =>
 import type { GlitchConfig } from '../GlitchTransition';
 import { LiveActivity } from '../LiveActivity';
 import { TowelieAssistant } from '../TowelieAssistant';
+import { TowelieProvider } from '../../hooks/useTowelie';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { OnboardingModal } from '../ui/OnboardingModal';
 import { SeasonalEventBanner } from '../SeasonalEvent';
@@ -91,6 +92,7 @@ export function AppLayout() {
     <PriceProvider>
     <ConfettiProvider>
     <TransactionReceiptProvider>
+    <TowelieProvider>
       <a href="#main-content" className="skip-link">Skip to main content</a>
       <Background />
       <Suspense fallback={null}>
@@ -146,6 +148,7 @@ export function AppLayout() {
           },
         }}
       />
+    </TowelieProvider>
     </TransactionReceiptProvider>
     </ConfettiProvider>
     </PriceProvider>
