@@ -1,5 +1,5 @@
 import { m } from 'framer-motion';
-import { ART } from '../lib/artConfig';
+import { pageArt } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 
 const TIMELINE = [
@@ -7,43 +7,36 @@ const TIMELINE = [
     phase: '01',
     title: 'The Rug',
     description: 'It started with LBAC — a project that promised the world and delivered nothing. The team vanished. The community was left holding the bag. Most would have walked away.',
-    art: ART.chaosScene.src,
   },
   {
     phase: '02',
     title: 'Lord of the Flies',
     description: 'But this community was different. Like survivors on a deserted island, they organized. No leaders, no roadmap — just a group of degens who refused to quit. They called it the Lord of the Flies moment.',
-    art: ART.jungleBus.src,
   },
   {
     phase: '03',
     title: 'The DAO',
     description: 'From the wreckage, a DAO was born. Community-funded treasury. NFT-gated governance. Every decision made by the holders, for the holders. The blueprint for building in uncharted waters.',
-    art: ART.busCrew.src,
   },
   {
     phase: '04',
     title: 'The Art',
     description: '5,555 apes. Each one customizable. Created not by a single artist but by the collective itself. Art that represents the spirit of survival, creativity, and pure degen energy.',
-    art: ART.galleryCollage.src,
   },
   {
     phase: '05',
     title: 'Memetic Finance',
     description: 'DM+T = Memetic Finance. Dank Memes plus Time equals real value. The community discovered that memes aren\'t just content — they\'re a form of currency, culture, and coordination.',
-    art: ART.mumuBull.src,
   },
   {
     phase: '06',
     title: 'Tegridy Farms',
     description: 'Built by the community, for the community. A DeFi platform where 100% of protocol revenue goes to stakers. No VC money. No insider allocations. Just pure, unadulterated TEGRIDY.',
-    art: ART.poolParty.src,
   },
   {
     phase: '07',
     title: 'The Future',
     description: 'Seize the memes of production. Vote-escrow tokenomics. Cross-chain expansion. NFT utility. The farm is just the beginning. FAFO.',
-    art: ART.swordOfLove.src,
   },
 ];
 
@@ -53,7 +46,7 @@ export default function LorePage() {
     <div className="-mt-14 relative min-h-screen">
       {/* Fixed background covering entire page */}
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.mfersHeaven.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 32%' }} />
+        <img src={pageArt('lore', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 32%' }} />
       </div>
 
       {/* Hero */}
@@ -77,7 +70,7 @@ export default function LorePage() {
             viewport={{ once: true }} transition={{ delay: i * 0.05 }}>
             <div className="relative rounded-2xl overflow-hidden glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
-                <img src={item.art} alt={`Phase ${item.phase}: ${item.title}`} loading="lazy" className="w-full h-full object-cover" />
+                <img src={pageArt('lore', i + 1).src} alt={`Phase ${item.phase}: ${item.title}`} loading="lazy" className="w-full h-full object-cover" />
               </div>
               <div className="relative z-10 p-5 md:p-10">
                 <div className="flex items-start gap-4 md:gap-8">

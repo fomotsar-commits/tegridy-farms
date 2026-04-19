@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ART } from '../../lib/artConfig';
+import { pageArt } from '../../lib/artConfig';
 import { TOKEN_LOGOS } from './poolConfig';
 import { PoolStatusBadge } from './PoolStatusBadge';
 import type { usePoolTVL } from '../../hooks/usePoolTVL';
@@ -9,7 +9,7 @@ export function LivePoolCard({ poolData }: { poolData: ReturnType<typeof usePool
   return (
     <div className="relative overflow-hidden rounded-xl card-hover group" style={{ border: '1px solid rgba(239,68,68,0.15)' }}>
       <div className="absolute inset-0">
-        <img src={ART.poolParty.src} alt="" loading="lazy" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" style={{ objectPosition: 'center 30%' }} />
+        <img src={pageArt('live-pool', 0).src} alt="" loading="lazy" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" style={{ objectPosition: 'center 30%' }} />
       </div>
       <div className="relative z-10 p-5">
         {/* Header */}

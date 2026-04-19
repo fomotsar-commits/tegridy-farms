@@ -2,7 +2,7 @@ import { m } from 'framer-motion';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { usePoolData } from '../hooks/usePoolData';
 import { useTOWELIPrice } from '../contexts/PriceContext';
-import { ART } from '../lib/artConfig';
+import { pageArt } from '../lib/artConfig';
 import {
   TOWELI_ADDRESS, TEGRIDY_STAKING_ADDRESS, SWAP_FEE_ROUTER_ADDRESS,
   COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS,
@@ -51,7 +51,7 @@ export default function TokenomicsPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0">
-        <img src={ART.swordOfLove.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 25%' }} />
+        <img src={pageArt('tokenomics', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 25%' }} />
       </div>
 
       <div className="relative z-10 max-w-[1000px] mx-auto px-4 md:px-6 pt-32 pb-28 md:pb-12">
@@ -63,10 +63,10 @@ export default function TokenomicsPage() {
         {/* Token info */}
         <m.div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           {[
-            { l: 'Token', v: 'TOWELI', art: ART.smokingDuo.src, pos: 'center 40%' },
-            { l: 'Total Supply', v: '1B', art: ART.poolParty.src, pos: 'center 30%' },
-            { l: 'Price', v: price.priceInUsd > 0 ? undefined : '–', numVal: price.priceInUsd, decimals: price.priceInUsd < 0.01 ? 8 : 6, prefix: '$', showSparkline: true, art: ART.mumuBull.src, pos: 'center 30%' },
-            { l: 'FDV', v: price.priceInUsd > 0 ? undefined : '–', numVal: TOWELI_TOTAL_SUPPLY * price.priceInUsd, decimals: 2, prefix: '$', art: ART.bobowelie.src, pos: 'center 20%' },
+            { l: 'Token', v: 'TOWELI', art: pageArt('tokenomics', 1).src, pos: 'center 40%' },
+            { l: 'Total Supply', v: '1B', art: pageArt('tokenomics', 2).src, pos: 'center 30%' },
+            { l: 'Price', v: price.priceInUsd > 0 ? undefined : '–', numVal: price.priceInUsd, decimals: price.priceInUsd < 0.01 ? 8 : 6, prefix: '$', showSparkline: true, art: pageArt('tokenomics', 3).src, pos: 'center 30%' },
+            { l: 'FDV', v: price.priceInUsd > 0 ? undefined : '–', numVal: TOWELI_TOTAL_SUPPLY * price.priceInUsd, decimals: 2, prefix: '$', art: pageArt('tokenomics', 4).src, pos: 'center 20%' },
           ].map((i) => (
             <div key={i.l} className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
@@ -97,7 +97,7 @@ export default function TokenomicsPage() {
           <m.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}>
             <div className="absolute inset-0">
-              <img src={ART.danceNight.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
+              <img src={pageArt('tokenomics', 5).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
             </div>
             <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-5" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <h2 className="heading-luxury text-[15px] text-white mb-3">Supply Distribution</h2>
@@ -134,7 +134,7 @@ export default function TokenomicsPage() {
           <m.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>
             <div className="absolute inset-0">
-              <img src={ART.jbChristmas.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+              <img src={pageArt('tokenomics', 6).src} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-5" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <h2 className="heading-luxury text-[15px] text-white mb-3">Emission Schedule</h2>
@@ -163,7 +163,7 @@ export default function TokenomicsPage() {
         <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-8" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <div className="absolute inset-0">
-            <img src={ART.beachVibes.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+            <img src={pageArt('tokenomics', 7).src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-5" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <div className="flex items-center justify-between mb-3">
@@ -197,7 +197,7 @@ export default function TokenomicsPage() {
         <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-8" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <div className="absolute inset-0">
-            <img src={ART.jbacSkeleton.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+            <img src={pageArt('tokenomics', 8).src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-5" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <h2 className="heading-luxury text-[15px] text-white mb-3">Contracts</h2>

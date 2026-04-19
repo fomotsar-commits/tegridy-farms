@@ -3,7 +3,7 @@ import { m } from 'framer-motion';
 import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { getTxUrl } from '../lib/explorer';
-import { ART } from '../lib/artConfig';
+import { pageArt } from '../lib/artConfig';
 import {
   TEGRIDY_STAKING_ADDRESS, TEGRIDY_RESTAKING_ADDRESS, UNISWAP_V2_ROUTER,
   SWAP_FEE_ROUTER_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS,
@@ -246,7 +246,7 @@ export default function HistoryPage() {
     return (
       <div className="-mt-14 relative min-h-screen">
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-          <img src={ART.jungleDark.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+          <img src={pageArt('history', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
           <m.div className="text-center max-w-sm" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}>
@@ -268,7 +268,7 @@ export default function HistoryPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.jungleDark.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%' }} />
+        <img src={pageArt('history', 1).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%' }} />
       </div>
 
       <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-32 pb-28 md:pb-12">
@@ -289,7 +289,7 @@ export default function HistoryPage() {
 
         <m.div className="rounded-xl overflow-hidden relative" style={{ border: '1px solid var(--color-purple-12)' }} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <div className="absolute inset-0">
-            <img src={ART.smokingDuo.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+            <img src={pageArt('history', 2).src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10">
           {loading ? (

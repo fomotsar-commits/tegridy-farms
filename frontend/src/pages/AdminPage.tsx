@@ -3,7 +3,7 @@ import { useAccount, useChains, useReadContract, useReadContracts, useWriteContr
 import { formatEther } from 'viem';
 import { toast } from 'sonner';
 import { usePageTitle } from '../hooks/usePageTitle';
-import { ART } from '../lib/artConfig';
+import { pageArt } from '../lib/artConfig';
 import { formatTokenAmount, formatNumber } from '../lib/formatting';
 import {
   TEGRIDY_STAKING_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, PREMIUM_ACCESS_ADDRESS,
@@ -281,7 +281,7 @@ export default function AdminPage() {
     return (
       <div className="-mt-14 relative min-h-screen">
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-          <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+          <img src={pageArt('admin', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
           <div className="glass-card p-8 rounded-2xl text-center max-w-md">
@@ -298,7 +298,7 @@ export default function AdminPage() {
     return (
       <div className="-mt-14 relative min-h-screen">
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-          <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+          <img src={pageArt('admin', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
           <div className="glass-card p-8 rounded-2xl text-center max-w-md">
@@ -315,7 +315,7 @@ export default function AdminPage() {
     return (
       <div className="-mt-14 relative min-h-screen">
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-          <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+          <img src={pageArt('admin', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
           <div className="glass-card p-8 rounded-2xl text-center max-w-md">
@@ -332,7 +332,7 @@ export default function AdminPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        <img src={pageArt('admin-dashboard', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
 
       <div className="relative z-10 max-w-5xl mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12 space-y-8">

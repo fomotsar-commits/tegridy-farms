@@ -3,7 +3,7 @@ import { m } from 'framer-motion';
 import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { formatEther } from 'viem';
-import { ART } from '../lib/artConfig';
+import { pageArt } from '../lib/artConfig';
 import { usePremiumAccess } from '../hooks/usePremiumAccess';
 import { useRevenueStats } from '../hooks/useRevenueStats';
 import { PREMIUM_ACCESS_ADDRESS } from '../lib/constants';
@@ -74,7 +74,7 @@ export default function PremiumPage() {
     <div className="-mt-14 relative min-h-screen">
       {/* Art background */}
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.swordOfLove.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        <img src={pageArt('premium', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
 
       <div className="relative z-10 max-w-[1000px] mx-auto px-4 md:px-6 pt-32 pb-28 md:pb-16">
@@ -85,7 +85,7 @@ export default function PremiumPage() {
               border: '2px solid #d4a017',
               boxShadow: '0 0 30px rgba(212,160,23,0.3), 0 0 60px rgba(212,160,23,0.1)',
             }}>
-              <img src={ART.bobowelie.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+              <img src={pageArt('premium', 1).src} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
           </div>
           <h1 className="heading-luxury text-2xl md:text-4xl lg:text-5xl text-white tracking-tight mb-3">
@@ -413,7 +413,7 @@ export default function PremiumPage() {
         <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <div className="glass-card p-5 flex flex-col md:flex-row items-center gap-5" style={{ border: '1px solid rgba(212,160,23,0.15)' }}>
             <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0" style={{ border: '1px solid rgba(212,160,23,0.3)' }}>
-              <img src={ART.apeHug.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+              <img src={pageArt('premium', 2).src} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="flex-1 text-center md:text-left">
               <h3 className="text-white text-[15px] font-semibold mb-1">JBAC NFT Holders</h3>

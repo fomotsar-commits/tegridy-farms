@@ -1,5 +1,5 @@
 import { m } from 'framer-motion';
-import { ART } from '../../lib/artConfig';
+import { pageArt } from '../../lib/artConfig';
 import { JBAC_BONUS_BPS } from '../../lib/constants';
 import { calculateBoost } from '../../lib/boostCalculations';
 
@@ -26,7 +26,7 @@ export function BoostScheduleTable({ selectedLockLabel, apr }: BoostScheduleTabl
     <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
       <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
         <div className="absolute inset-0">
-          <img src={ART.swordOfLove.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
+          <img src={pageArt('boost-schedule', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
         </div>
         <div className="relative z-10 p-4 sm:p-6">
         <h3 className="heading-luxury text-white text-[20px] mb-5" id="boost-schedule-heading">Boost Schedule</h3>
@@ -97,7 +97,7 @@ export function BoostScheduleTable({ selectedLockLabel, apr }: BoostScheduleTabl
 
         <div className="mt-6 relative overflow-hidden rounded-lg" style={{ border: '1px solid rgba(255,178,55,0.12)' }}>
           <div className="absolute inset-0">
-            <img src={ART.chaosScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+            <img src={pageArt('boost-schedule', 1).src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 p-4">
             <p className="text-warning/80 text-[12px] font-medium mb-1">Early Withdrawal</p>
@@ -109,7 +109,7 @@ export function BoostScheduleTable({ selectedLockLabel, apr }: BoostScheduleTabl
 
         <div className="mt-4 relative overflow-hidden rounded-lg" style={{ border: '1px solid var(--color-purple-75)' }}>
           <div className="absolute inset-0">
-            <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+            <img src={pageArt('boost-schedule', 2).src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 p-4">
             <p className="text-white text-[12px] font-medium mb-1">Auto-Max Lock</p>

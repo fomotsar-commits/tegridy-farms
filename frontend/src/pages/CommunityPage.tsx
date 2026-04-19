@@ -2,7 +2,7 @@ import { useState, Suspense } from 'react';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { ART } from '../lib/artConfig';
+import { pageArt } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 
@@ -28,7 +28,7 @@ export default function CommunityPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.danceNight.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%' }} />
+        <img src={pageArt('community', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%' }} />
       </div>
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-24 pb-16">
@@ -85,7 +85,7 @@ export default function CommunityPage() {
             transition={{ delay: 0.1 }}
           >
             <div className="absolute inset-0">
-              <img src={ART.busCrew.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+              <img src={pageArt('community', 1).src} alt="" loading="lazy" className="w-full h-full object-cover" />
               <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(6,12,26,0.10) 0%, rgba(6,12,26,0.35) 100%)' }} />
             </div>
             <div className="relative z-10">

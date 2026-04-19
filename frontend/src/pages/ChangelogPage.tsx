@@ -1,5 +1,5 @@
 import { m } from 'framer-motion';
-import { ART } from '../lib/artConfig';
+import { pageArt } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 
 interface ChangelogEntry {
@@ -9,25 +9,9 @@ interface ChangelogEntry {
 }
 
 // Each card rotates through a distinct art piece so every entry feels its own.
-// Page bg is jungleBus, so rotation intentionally excludes that piece.
-const CARD_ART = [
-  ART.jbacSkeleton,
-  ART.chaosScene,
-  ART.wrestler,
-  ART.apeHug,
-  ART.boxingRing,
-  ART.smokingDuo,
-  ART.roseApe,
-  ART.danceNight,
-  ART.naka08,
-  ART.naka14,
-  ART.naka19,
-  ART.naka23,
-  ART.naka26,
-  ART.naka29,
-  ART.naka31,
-  ART.naka16,
-];
+// Uses pageArt with a dedicated changelog-cards pageId so card art stays
+// disjoint from the page background (which uses the 'changelog' pageId).
+const CARD_ART = Array.from({ length: 16 }, (_, i) => pageArt('changelog-cards', i));
 
 const CHANGELOG: ChangelogEntry[] = [
   {
@@ -109,7 +93,7 @@ export default function ChangelogPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.jungleBus.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        <img src={pageArt('changelog', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
 
       <div className="relative z-10 max-w-[800px] mx-auto px-4 md:px-6 pt-32 pb-20">

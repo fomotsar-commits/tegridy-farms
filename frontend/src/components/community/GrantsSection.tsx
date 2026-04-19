@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { COMMUNITY_GRANTS_ADDRESS } from '../../lib/constants';
 import { COMMUNITY_GRANTS_ABI } from '../../lib/contracts';
 import { shortenAddress, formatTokenAmount, formatTimeAgo } from '../../lib/formatting';
-import { ART } from '../../lib/artConfig';
+import { pageArt } from '../../lib/artConfig';
 
 const CARD_BORDER = 'var(--color-purple-12)';
 
@@ -128,7 +128,7 @@ export function GrantsSection() {
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
           <div className="absolute inset-0">
-            <img src={ART.mumuBull.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+            <img src={pageArt('grants', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 p-4">
             <p className="text-[11px] text-white/60 uppercase tracking-wider mb-1" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Total Proposals</p>
@@ -137,7 +137,7 @@ export function GrantsSection() {
         </div>
         <div className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
           <div className="absolute inset-0">
-            <img src={ART.mfersHeaven.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+            <img src={pageArt('grants', 1).src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 p-4">
             <p className="text-[11px] text-white/60 uppercase tracking-wider mb-1" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Total Granted</p>
@@ -167,7 +167,7 @@ export function GrantsSection() {
         <m.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
           className="rounded-2xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
           <div className="absolute inset-0">
-            <img src={ART.roseApe.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+            <img src={pageArt('grants', 2).src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 p-5 space-y-4">
           <h3 className="text-sm font-semibold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>New Grant Proposal</h3>
@@ -210,7 +210,7 @@ export function GrantsSection() {
       {/* Proposal List */}
       <div className="rounded-2xl overflow-hidden relative" style={{ border: `1px solid ${CARD_BORDER}` }}>
         <div className="absolute inset-0">
-          <img src={ART.galleryCollage.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+          <img src={pageArt('grants', 3).src} alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10">
         <div className="px-5 py-4 border-b border-white/10">

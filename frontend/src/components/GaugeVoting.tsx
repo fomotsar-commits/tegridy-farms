@@ -8,9 +8,9 @@ import { GAUGE_CONTROLLER_ABI, TEGRIDY_STAKING_ABI } from '../lib/contracts';
 import { formatTokenAmount, shortenAddress } from '../lib/formatting';
 import { InfoTooltip } from './ui/InfoTooltip';
 import { surfaceTxError } from '../lib/txErrors';
-import { ART } from '../lib/artConfig';
+import { pageArt } from '../lib/artConfig';
 
-const GAUGE_STAT_ARTS = [ART.naka03, ART.naka10, ART.naka18];
+const GAUGE_STAT_ARTS = [pageArt('gauge-voting', 0), pageArt('gauge-voting', 1), pageArt('gauge-voting', 2)];
 
 // ─── Commit-Reveal Local Storage ────────────────────────────────────
 // We persist {salt, gauges, weights, commitmentHash} per (chainId, voter, tokenId, epoch)
@@ -104,7 +104,7 @@ export function GaugeVoting() {
       <m.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
         className="rounded-2xl p-6 text-center relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
         <div className="absolute inset-0">
-          <img src={ART.towelieWindow.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+          <img src={pageArt('gauge-voting', 3).src} alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <p className="text-white/80 text-sm relative z-10" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Gauge controller not deployed yet</p>
       </m.div>
@@ -275,7 +275,7 @@ export function GaugeVoting() {
       <m.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
         className="rounded-2xl p-6 text-center relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
         <div className="absolute inset-0">
-          <img src={ART.busCrew.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+          <img src={pageArt('gauge-voting', 4).src} alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <p className="text-white/80 text-sm relative z-10" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Connect wallet to vote on gauge emissions</p>
       </m.div>
@@ -308,7 +308,7 @@ export function GaugeVoting() {
       {/* ── Gauge List ─────────────────────────────────────────── */}
       <div className="rounded-2xl overflow-hidden relative" style={{ border: `1px solid ${CARD_BORDER}` }}>
         <div className="absolute inset-0">
-          <img src={ART.apeHug.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+          <img src={pageArt('gauge-voting', 5).src} alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10">
         <div className="px-5 py-4 border-b border-white/10 flex items-center gap-2">
@@ -384,7 +384,7 @@ export function GaugeVoting() {
       {/* ── Vote Form ──────────────────────────────────────────── */}
       <div className="rounded-2xl overflow-hidden relative" style={{ border: `1px solid ${CARD_BORDER}` }}>
         <div className="absolute inset-0">
-          <img src={ART.boxingRing.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+          <img src={pageArt('gauge-voting', 6).src} alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10">
         <div className="px-5 py-4 border-b border-white/10">

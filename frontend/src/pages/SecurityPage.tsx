@@ -1,6 +1,6 @@
 import { m } from 'framer-motion';
 import { useState } from 'react';
-import { ART } from '../lib/artConfig';
+import { pageArt } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 
 const fade = { hidden: { opacity: 0, y: 24 }, visible: { opacity: 1, y: 0 } };
@@ -105,7 +105,7 @@ export default function SecurityPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.forestScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        <img src={pageArt('security', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-32 pb-20">
 
@@ -118,7 +118,7 @@ export default function SecurityPage() {
         {/* Audit Methodology */}
         <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5 }} className="mb-14">
           <h2 className="text-2xl font-bold mb-6 flex items-center gap-3"><ShieldIcon /> Audit Methodology</h2>
-          <ArtCard art={ART.wrestler}>
+          <ArtCard art={pageArt('security', 1)}>
             <p className="text-[#22c55e] mb-5" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Our internal security audit employed red team testing across the full protocol surface. The final audit round included comprehensive re-testing of every previously identified finding.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {[
@@ -152,7 +152,7 @@ export default function SecurityPage() {
         {/* Security Fixes Tracked */}
         <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.05 }} className="mb-14">
           <h2 className="text-2xl font-bold mb-6">Audit Artifacts</h2>
-          <ArtCard art={ART.jbacSkeleton}>
+          <ArtCard art={pageArt('security', 2)}>
             <p className="mb-4" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.9)' }}>
               Multiple multi-agent security reviews have been run against the codebase. The full
               findings, the fixes applied, and the items still open are tracked in the audit
@@ -192,8 +192,7 @@ export default function SecurityPage() {
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
             {PROTECTIONS.map((p, i) => {
               const Icon = iconMap[p.icon];
-              const arts = [ART.wrestler, ART.porchChill, ART.towelieWindow, ART.smokingDuo, ART.jbacSkeleton, ART.beachSunset];
-              const artPiece = arts[i % arts.length]!;
+              const artPiece = pageArt('security', 3 + i);
               return (
                 <ArtCard key={p.title} art={artPiece} padding="p-5">
                   <div className="mb-3">{Icon && <Icon />}</div>
@@ -210,8 +209,7 @@ export default function SecurityPage() {
           <h2 className="text-2xl font-bold mb-6">Contract Addresses</h2>
           <div className="space-y-3">
             {CONTRACTS.map((c, i) => {
-              const arts = [ART.busCrew, ART.mumuBull, ART.bobowelie, ART.poolParty, ART.roseApe, ART.apeHug];
-              const artPiece = arts[i % arts.length]!;
+              const artPiece = pageArt('security', 9 + i);
               return (
                 <div key={c.name} className="rounded-xl relative overflow-hidden" style={{ border: '1px solid var(--color-purple-12)' }}>
                   <div className="absolute inset-0">
@@ -239,7 +237,7 @@ export default function SecurityPage() {
         {/* Transparency */}
         <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.2 }} className="mb-14">
           <h2 className="text-2xl font-bold mb-6">Transparency</h2>
-          <ArtCard art={ART.apeHug}>
+          <ArtCard art={pageArt('security', 15)}>
             <div className="space-y-3">
               {[
                 '100% of swap fees distributed to TOWELI stakers',
@@ -256,7 +254,7 @@ export default function SecurityPage() {
         {/* Bug Bounty */}
         <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.25 }} className="mb-14">
           <h2 className="text-2xl font-bold mb-6">Bug Bounty</h2>
-          <ArtCard art={ART.boxingRing}>
+          <ArtCard art={pageArt('security', 16)}>
             <p className="text-[#22c55e] mb-5" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>We partner with Immunefi, the leading Web3 bug bounty platform, for responsible disclosure. Report vulnerabilities via Immunefi or contact us directly via Twitter DM <a href="https://twitter.com/junglebayac" target="_blank" rel="noopener noreferrer" className="text-purple-300 hover:text-purple-200">@junglebayac</a>.</p>
             <a href="https://immunefi.com/bug-bounty/tegridyfarms/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-purple-600 hover:bg-purple-500 transition-colors mb-5">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
@@ -264,8 +262,7 @@ export default function SecurityPage() {
             </a>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
               {BOUNTY_TIERS.map((t, i) => {
-                const arts = [ART.chaosScene, ART.danceNight, ART.jungleDark, ART.poolParty];
-                const artPiece = arts[i % arts.length]!;
+                const artPiece = pageArt('security', 17 + i);
                 return (
                   <div key={t.severity} className="rounded-xl relative overflow-hidden" style={{ border: '1px solid var(--color-purple-12)' }}>
                     <div className="absolute inset-0">
@@ -286,7 +283,7 @@ export default function SecurityPage() {
         {/* Multisig & Governance */}
         <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.3 }}>
           <h2 className="text-2xl font-bold mb-6 flex items-center gap-3"><LockIcon /> Multisig &amp; Governance</h2>
-          <ArtCard art={ART.busCrew}>
+          <ArtCard art={pageArt('security', 21)}>
             <div className="space-y-3">
               {[
                 'Protocol admin controlled by team multisig',

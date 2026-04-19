@@ -1,6 +1,6 @@
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
-import { ART } from '../lib/artConfig';
+import { pageArt } from '../lib/artConfig';
 import { usePoints } from '../hooks/usePoints';
 import { useNFTBoost } from '../hooks/useNFTBoost';
 import { TIER_THRESHOLDS, BADGES } from '../lib/pointsEngine';
@@ -11,7 +11,7 @@ import { AnimatedCounter } from '../components/AnimatedCounter';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { PageSkeleton } from '../components/PageSkeleton';
 
-const JB_CHRISTMAS_SRC = ART.jbChristmas.src;
+const JB_CHRISTMAS_SRC = pageArt('leaderboard', 0).src;
 
 export default function LeaderboardPage() {
   usePageTitle('Leaderboard', 'Top TOWELI stakers ranked by points, boost multipliers, and protocol participation.');
@@ -55,7 +55,7 @@ export default function LeaderboardPage() {
           <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
             <div className="absolute inset-0">
-              <img src={ART.roseApe.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%' }} />
+              <img src={pageArt('leaderboard', 1).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 40%' }} />
             </div>
             <div className="relative z-10 p-5">
             <div className="flex items-center justify-between mb-4">
@@ -141,7 +141,7 @@ export default function LeaderboardPage() {
           <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
             <div className="relative overflow-hidden rounded-xl" style={{ border: '1px solid var(--color-purple-40)' }}>
               <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-                <img src={ART.apeHug.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
+                <img src={pageArt('leaderboard', 2).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 30%' }} />
               </div>
               <div className="relative z-10 p-8 text-center" style={{ background: 'rgba(6,12,26,0.55)' }}>
                 <p className="text-white text-[14px] font-medium mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>No participants yet. Stake TOWELI to earn your first points!</p>
@@ -155,7 +155,7 @@ export default function LeaderboardPage() {
         <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
           <div className="absolute inset-0">
-            <img src={JB_CHRISTMAS_SRC} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%' }} />
+            <img src={pageArt('leaderboard', 3).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 10%' }} />
           </div>
           <div className="relative z-10 p-5">
             <h2 className="text-white text-[15px] font-semibold mb-3">How Points Work</h2>
@@ -183,7 +183,7 @@ export default function LeaderboardPage() {
         <m.div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
           <div className="absolute inset-0">
-            <img src={ART.beachSunset.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+            <img src={pageArt('leaderboard', 4).src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 p-5">
             <h2 className="text-white text-[15px] font-semibold mb-3">Tiers</h2>
@@ -203,7 +203,7 @@ export default function LeaderboardPage() {
         <m.div className="relative overflow-hidden rounded-xl glass-card-animated mt-6" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
           <div className="absolute inset-0">
-            <img src={ART.jbacSkeleton.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+            <img src={pageArt('leaderboard', 5).src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 p-5">
             <h2 className="text-white text-[15px] font-semibold mb-3">All Badges</h2>

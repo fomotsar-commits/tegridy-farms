@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
-import { GALLERY_ORDER, ART } from '../lib/artConfig';
+import { GALLERY_ORDER, pageArt } from '../lib/artConfig';
 import { ArtLightbox } from '../components/ui/ArtLightbox';
 import { safeSetItem } from '../lib/storage';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -66,7 +66,7 @@ export default function GalleryPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.roseApe.src} alt="" className="w-full h-full object-cover object-center" />
+        <img src={pageArt('gallery', 0).src} alt="" className="w-full h-full object-cover object-center" />
       </div>
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">

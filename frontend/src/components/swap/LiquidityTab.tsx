@@ -7,7 +7,7 @@ import { DEFAULT_TOKENS, type TokenInfo } from '../../lib/tokenList';
 import { TokenSelectModal } from './TokenSelectModal';
 import { getTxUrl } from '../../lib/explorer';
 import { formatTokenAmount } from '../../lib/formatting';
-import { ART } from '../../lib/artConfig';
+import { pageArt } from '../../lib/artConfig';
 
 type LiquidityMode = 'add' | 'remove';
 
@@ -157,7 +157,7 @@ export function LiquidityTab() {
   return (
     <div className="relative">
       <div className="absolute inset-0 rounded-2xl overflow-hidden pointer-events-none" aria-hidden="true">
-        <img src={ART.beachVibes.src} alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
+        <img src={pageArt('liquidity-tab', 0).src} alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
       </div>
 
       <div className="relative p-5">
@@ -234,7 +234,7 @@ export function LiquidityTab() {
             {liq.pairExists && !liq.isEmptyPool && (
               <div className="mb-3 relative rounded-lg overflow-hidden" style={{ border: '1px solid rgba(16,185,129,0.18)' }}>
                 <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-                  <img src={ART.poolParty.src} alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
+                  <img src={pageArt('liquidity-tab', 1).src} alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
                 </div>
                 <div className="relative p-3 text-[11px]" style={{ background: 'rgba(16,185,129,0.05)' }}>
                   <div className="flex justify-between text-white/70 mb-1">

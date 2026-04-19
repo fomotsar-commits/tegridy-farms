@@ -6,10 +6,10 @@ import { toast } from 'sonner';
 import { MEME_BOUNTY_BOARD_ADDRESS } from '../../lib/constants';
 import { MEME_BOUNTY_BOARD_ABI } from '../../lib/contracts';
 import { shortenAddress, formatTimeAgo, formatWei } from '../../lib/formatting';
-import { ART } from '../../lib/artConfig';
+import { pageArt } from '../../lib/artConfig';
 
 const CARD_BORDER = 'var(--color-purple-12)';
-const STAT_ARTS = [ART.naka07, ART.naka15, ART.naka22, ART.naka28];
+const STAT_ARTS = [pageArt('bounties', 0), pageArt('bounties', 1), pageArt('bounties', 2), pageArt('bounties', 3)];
 
 const STATUS_LABELS: Record<number, { label: string; color: string }> = {
   0: { label: 'Open', color: 'text-emerald-400' },
@@ -140,7 +140,7 @@ export function BountiesSection() {
         <m.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
           className="rounded-2xl overflow-hidden relative" style={{ border: `1px solid ${CARD_BORDER}` }}>
           <div className="absolute inset-0">
-            <img src={ART.chaosScene.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+            <img src={pageArt('bounties', 4).src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 p-5 space-y-4">
           <h3 className="text-sm font-semibold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>New Meme Bounty</h3>
@@ -175,7 +175,7 @@ export function BountiesSection() {
       {/* Bounty List */}
       <div className="rounded-2xl overflow-hidden relative" style={{ border: `1px solid ${CARD_BORDER}` }}>
         <div className="absolute inset-0">
-          <img src={ART.galleryCollage.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+          <img src={pageArt('bounties', 5).src} alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10">
         <div className="px-5 py-4 border-b border-white/10">

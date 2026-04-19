@@ -4,7 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { getTxUrl } from '../lib/explorer';
-import { ART } from '../lib/artConfig';
+import { pageArt } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { useSwap } from '../hooks/useSwap';
@@ -51,7 +51,7 @@ export default function TradePage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.apeHug.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
+        <img src={pageArt('trade', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 15%' }} />
       </div>
 
       <div className="relative z-10 max-w-[600px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
@@ -79,7 +79,7 @@ export default function TradePage() {
         {tab === 'swap' && (
           <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative glass-card rounded-2xl overflow-hidden" style={{ border: '1px solid var(--color-purple-12)' }}>
             <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-              <img src={ART.chaosScene.src} alt="" className="w-full h-full object-cover opacity-100" style={{ objectPosition: 'center 15%' }} loading="lazy" />
+              <img src={pageArt('trade', 1).src} alt="" className="w-full h-full object-cover opacity-100" style={{ objectPosition: 'center 15%' }} loading="lazy" />
             </div>
             <div className="relative p-5 flex flex-col min-h-[640px]">
             {!isConnected ? (
@@ -283,7 +283,7 @@ export default function TradePage() {
         {tab === 'dca' && (
           <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative glass-card rounded-2xl overflow-hidden" style={{ border: '1px solid var(--color-purple-12)' }}>
             <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-              <img src={ART.danceNight.src} alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
+              <img src={pageArt('trade', 2).src} alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
             </div>
             <div className="relative">
               <DCATab />
@@ -295,7 +295,7 @@ export default function TradePage() {
         {tab === 'limit' && (
           <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative glass-card rounded-2xl overflow-hidden" style={{ border: '1px solid var(--color-purple-12)' }}>
             <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-              <img src={ART.wrestler.src} alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
+              <img src={pageArt('trade', 3).src} alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
             </div>
             <div className="relative">
               <LimitOrderTab />

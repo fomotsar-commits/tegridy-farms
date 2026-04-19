@@ -10,7 +10,7 @@ import { CreateWizard } from '../launchpad/wizard/CreateWizard';
 import { CollectionDetail } from '../launchpad/CollectionDetail';
 import { CollectionDetailV2 } from '../launchpad/CollectionDetailV2';
 import { FEATURE_BULLETS } from '../launchpad/launchpadConstants';
-import { ART } from '../../lib/artConfig';
+import { pageArt } from '../../lib/artConfig';
 
 const CARD_BG = 'rgba(6, 12, 26, 0.80)';
 const CARD_BORDER = 'var(--color-purple-12)';
@@ -167,7 +167,7 @@ export function LaunchpadSection() {
     <div className="space-y-6">
       {/* Features Overview */}
       <div className="rounded-2xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
-        <img src={ART.jungleBus.src} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+        <img src={pageArt('launchpad-section', 0).src} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
         <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-5" style={PANEL_STYLE}>
           <h3 className="text-sm font-semibold mb-3" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>NFT Launchpad</h3>
           <p className="text-[12px] mb-4" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>
@@ -187,7 +187,7 @@ export function LaunchpadSection() {
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
-          <img src={ART.mfersHeaven.src} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+          <img src={pageArt('launchpad-section', 1).src} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
           <div className="relative z-10 m-2 rounded-lg p-3 md:p-4" style={PANEL_STYLE}>
             <p className="text-[11px] uppercase tracking-wider mb-1" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Collections Deployed</p>
             <p className="text-lg font-semibold" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
@@ -201,7 +201,7 @@ export function LaunchpadSection() {
           </div>
         </div>
         <div className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
-          <img src={ART.jbacSkeleton.src} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+          <img src={pageArt('launchpad-section', 2).src} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
           <div className="relative z-10 m-2 rounded-lg p-3 md:p-4" style={PANEL_STYLE}>
             <p className="text-[11px] uppercase tracking-wider mb-1" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Contract</p>
             <a href={`https://etherscan.io/address/${v2Live ? TEGRIDY_LAUNCHPAD_V2_ADDRESS : TEGRIDY_LAUNCHPAD_ADDRESS}`} target="_blank" rel="noopener noreferrer"

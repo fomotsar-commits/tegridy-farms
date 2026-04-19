@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { Link } from 'react-router-dom';
-import { ART } from '../lib/artConfig';
+import { pageArt } from '../lib/artConfig';
 import { JBAC_BONUS_BPS, CURRENT_SEASON } from '../lib/constants';
 import { calculateBoost } from '../lib/boostCalculations';
 import { useFarmStats } from '../hooks/useFarmStats';
@@ -170,7 +170,7 @@ export default function FarmPage() {
     return (
       <div className="-mt-14 relative min-h-screen">
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-          <img src={ART.jungleBus.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 20%' }} />
+          <img src={pageArt('farm', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 20%' }} />
           <div className="absolute inset-0" style={{ background: 'rgba(6, 12, 26, 0.55)' }} aria-hidden="true" />
         </div>
         <div className="relative z-10 pt-20">
@@ -183,7 +183,7 @@ export default function FarmPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.jungleBus.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 20%' }} />
+        <img src={pageArt('farm', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 20%' }} />
       </div>
 
       <ErrorBoundary>
@@ -214,7 +214,7 @@ export default function FarmPage() {
         <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-8" style={{ border: '1px solid var(--color-purple-75)' }}
           initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div className="absolute inset-0">
-            <img src={ART.bobowelie.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+            <img src={pageArt('farm', 1).src} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-6 py-6 md:py-7 flex flex-col md:flex-row md:items-center justify-between gap-3" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <div>

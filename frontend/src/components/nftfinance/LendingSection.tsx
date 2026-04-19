@@ -11,7 +11,7 @@ import {
 } from '../../lib/constants';
 import { TEGRIDY_LENDING_ABI, TEGRIDY_STAKING_ABI } from '../../lib/contracts';
 import { formatTokenAmount, shortenAddress } from '../../lib/formatting';
-import { ART } from '../../lib/artConfig';
+import { pageArt } from '../../lib/artConfig';
 import { useTOWELIPrice } from '../../contexts/PriceContext';
 import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '../ui/InfoTooltip';
 
@@ -313,7 +313,7 @@ export function ComingSoonState() {
       <div className="filter blur-[2px] opacity-40 pointer-events-none select-none" aria-hidden="true">
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           {['12', '3', '1.50', '24.5000'].map((val, i) => (
-            <ArtPanel key={i} artSrc={ART.forestScene.src} opacity={1}>
+            <ArtPanel key={i} artSrc={pageArt('lending-section', 0).src} opacity={1}>
               <div className="p-4">
                 <div className="text-[11px] uppercase tracking-wider label-pill text-white mb-1">
                   {['Total Offers', 'Active Loans', 'Protocol Fee', 'TVL (ETH)'][i] ?? ''}
@@ -424,7 +424,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
       label: 'Total Offers',
       value: offerCountNum.toString(),
       tooltip: 'Number of active loan offers available for borrowers to accept',
-      art: ART.forestScene.src,
+      art: pageArt('lending-section', 1).src,
       icon: (
         <svg className="w-4 h-4 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
@@ -435,7 +435,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
       label: 'Active Loans',
       value: activeLoansCount.toString(),
       tooltip: 'Loans currently outstanding — borrowers have received ETH and must repay before their deadline',
-      art: ART.naka06.src,
+      art: pageArt('lending-section', 2).src,
       icon: (
         <svg className="w-4 h-4 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
@@ -446,7 +446,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
       label: 'Protocol Fee',
       value: protocolFeeBps !== undefined ? `${bpsToPercent(protocolFeeBps as bigint)}%` : '--%',
       tooltip: 'Percentage fee taken from interest earned by lenders. Paid to the protocol treasury.',
-      art: ART.naka11.src,
+      art: pageArt('lending-section', 3).src,
       icon: (
         <svg className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
@@ -458,7 +458,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
       label: 'TVL (ETH)',
       value: formatTokenAmount(formatEther(tvl)),
       tooltip: 'Total Value Locked — sum of ETH in active offers plus outstanding loan principal',
-      art: ART.naka13.src,
+      art: pageArt('lending-section', 4).src,
       icon: (
         <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -559,7 +559,7 @@ function OfferFilterBar({
   };
 
   return (
-    <ArtPanel artSrc={ART.porchChill.src} opacity={1} overlay={DARK_OVERLAY_HEAVY}>
+    <ArtPanel artSrc={pageArt('lending-section', 5).src} opacity={1} overlay={DARK_OVERLAY_HEAVY}>
       <div className="p-4">
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-[11px] uppercase tracking-wider label-pill text-white mr-1">Filters</span>
@@ -703,7 +703,7 @@ function LendTab({ deployed }: { deployed: boolean }) {
   const loading = isPending || isConfirming;
 
   return (
-    <ArtPanel artSrc={ART.mfersHeaven.src} opacity={1} overlay={DARK_OVERLAY}>
+    <ArtPanel artSrc={pageArt('lending-section', 6).src} opacity={1} overlay={DARK_OVERLAY}>
       <div className="p-5 sm:p-6 max-w-lg space-y-5">
         {/* Principal */}
         <div>
@@ -1043,7 +1043,7 @@ function OfferRow({
               transition={{ duration: 0.25, ease: EASE as [number, number, number, number] }}
               className="overflow-hidden"
             >
-              <ArtPanel artSrc={ART.apeHug.src} opacity={1} overlay={DARK_OVERLAY_HEAVY} className="mx-2 mb-2">
+              <ArtPanel artSrc={pageArt('lending-section', 7).src} opacity={1} overlay={DARK_OVERLAY_HEAVY} className="mx-2 mb-2">
                 <div className="p-4">
                   {!userAddress ? (
                     <p className="text-white text-sm">Connect wallet to borrow</p>
@@ -1253,7 +1253,7 @@ function BorrowTab({ deployed, allOffers, offersLoading }: { deployed: boolean; 
       />
 
       {offersLoading ? (
-        <ArtPanel artSrc={ART.beachVibes.src} opacity={1} overlay={DARK_OVERLAY_HEAVY}>
+        <ArtPanel artSrc={pageArt('lending-section', 8).src} opacity={1} overlay={DARK_OVERLAY_HEAVY}>
           <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
             <svg className="animate-spin h-8 w-8 text-purple-400 mb-4" viewBox="0 0 24 24" fill="none">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -1264,7 +1264,7 @@ function BorrowTab({ deployed, allOffers, offersLoading }: { deployed: boolean; 
         </ArtPanel>
       ) : sortedOffers.length === 0 && activeOffers.length === 0 ? (
         <EmptyState
-          artSrc={ART.beachVibes.src}
+          artSrc={pageArt('lending-section', 9).src}
           title="No loan offers yet"
           subtitle="Create the first one! Switch to the Lend tab to get started."
         />
@@ -1273,7 +1273,7 @@ function BorrowTab({ deployed, allOffers, offersLoading }: { deployed: boolean; 
           No offers match your filters. Try adjusting them.
         </div>
       ) : (
-        <ArtPanel artSrc={ART.poolParty.src} opacity={1} overlay={DARK_OVERLAY_HEAVY}>
+        <ArtPanel artSrc={pageArt('lending-section', 10).src} opacity={1} overlay={DARK_OVERLAY_HEAVY}>
           <div className="p-4 overflow-x-auto -mx-1">
             <table className="w-full text-left text-[11px] uppercase tracking-wider label-pill text-white">
               <thead>
@@ -1341,7 +1341,7 @@ function PnlSummaryCard({
   const netPnl = interestEarned - interestPaid;
 
   return (
-    <ArtPanel artSrc={ART.swordOfLove.src} opacity={1} overlay="none">
+    <ArtPanel artSrc={pageArt('lending-section', 11).src} opacity={1} overlay="none">
       <div className="p-5">
         <div className="flex items-center gap-2 mb-4">
           <svg className="w-4 h-4 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -1599,14 +1599,14 @@ function MyLoansTab({ deployed, allLoans, loansLoading }: { deployed: boolean; a
 
       {displayed.length === 0 ? (
         <EmptyState
-          artSrc={ART.porchChill.src}
+          artSrc={pageArt('lending-section', 12).src}
           title={subTab === 'borrower' ? 'No borrows yet' : 'No loans as lender yet'}
           subtitle={subTab === 'borrower'
             ? "You haven't borrowed yet. Browse offers in the Borrow tab to get started!"
             : "You haven't lent yet. Switch to the Lend tab to create your first offer!"}
         />
       ) : (
-        <ArtPanel artSrc={ART.swordOfLove.src} opacity={1} overlay={DARK_OVERLAY_HEAVY}>
+        <ArtPanel artSrc={pageArt('lending-section', 13).src} opacity={1} overlay={DARK_OVERLAY_HEAVY}>
           <div className="p-4">
             {displayed.map((loan, idx) => (
               <LoanRow key={loan.id} loan={loan} role={subTab} deployed={deployed} idx={idx} />
@@ -1734,7 +1734,7 @@ export function LendingSection({ address: _propAddress }: { address?: string }) 
     <section className="w-full space-y-6">
       <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }`}</style>
       {!deployed && (
-        <ArtPanel artSrc={ART.smokingDuo.src} opacity={1} overlay="none">
+        <ArtPanel artSrc={pageArt('lending-section', 14).src} opacity={1} overlay="none">
           <div className="px-4 py-3 text-center text-[13px] text-amber-400/80">
             Lending contracts are being audited and will be deployed soon. Explore the interface below. <Link to="/security" className="underline hover:text-amber-300 transition-colors">View security details</Link>
           </div>

@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { TEGRIDY_NFT_LENDING_ADDRESS } from '../../lib/constants';
 import { TEGRIDY_NFT_LENDING_ABI, ERC721_ABI } from '../../lib/contracts';
 import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '../ui/InfoTooltip';
-import { ART } from '../../lib/artConfig';
+import { ART, pageArt } from '../../lib/artConfig';
 
 // Per-collection art for the collateral selector — pulls from each project's
 // canonical asset instead of Tegridy's art pool so the cards represent the
@@ -151,10 +151,10 @@ export function NFTLendingSection() {
         transition={{ ease: EASE, delay: 0.03 }}
       >
         {[
-          { label: 'Total Offers', value: offerCount.toString(), tooltip: 'Number of active loan offers available for borrowers', art: ART.boxingRing.src },
-          { label: 'Active Loans', value: loanCount.toString(), tooltip: 'Loans currently outstanding with locked NFT collateral', art: ART.apeHug.src },
-          { label: 'Protocol Fee', value: `${bpsToPercent(protocolFeeBps)}%`, tooltip: 'Fee taken from interest earned by lenders, paid to the protocol treasury', art: ART.mumuBull.src },
-          { label: 'Collections', value: COLLECTIONS.length.toString(), tooltip: `Supported collections: ${COLLECTIONS.map(c => c.symbol).join(', ')}`, art: ART.galleryCollage.src },
+          { label: 'Total Offers', value: offerCount.toString(), tooltip: 'Number of active loan offers available for borrowers', art: pageArt('nft-lending', 0).src },
+          { label: 'Active Loans', value: loanCount.toString(), tooltip: 'Loans currently outstanding with locked NFT collateral', art: pageArt('nft-lending', 1).src },
+          { label: 'Protocol Fee', value: `${bpsToPercent(protocolFeeBps)}%`, tooltip: 'Fee taken from interest earned by lenders, paid to the protocol treasury', art: pageArt('nft-lending', 2).src },
+          { label: 'Collections', value: COLLECTIONS.length.toString(), tooltip: `Supported collections: ${COLLECTIONS.map(c => c.symbol).join(', ')}`, art: pageArt('nft-lending', 3).src },
         ].map((s) => (
           <div
             key={s.label}
@@ -559,7 +559,7 @@ function BorrowTab({ offerCount }: { offerCount: number }) {
           className="relative overflow-hidden rounded-xl"
           style={{ border: `1px solid ${CARD_BORDER}` }}
         >
-          <img src={ART.poolParty.src} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+          <img src={pageArt('nft-lending', 4).src} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
           <div
             className="relative z-10 m-2 rounded-lg p-6 md:p-8 text-center"
             style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}

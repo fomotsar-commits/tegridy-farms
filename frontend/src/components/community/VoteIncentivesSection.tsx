@@ -7,10 +7,10 @@ import { shortenAddress, formatTokenAmount, formatWei } from '../../lib/formatti
 import { InfoTooltip } from '../ui/InfoTooltip';
 import { GOVERNANCE_COPY } from '../../lib/copy';
 import { useBribes } from '../../hooks/useBribes';
-import { ART } from '../../lib/artConfig';
+import { pageArt } from '../../lib/artConfig';
 
 const CARD_BORDER = 'var(--color-purple-12)';
-const STAT_ARTS = [ART.naka05, ART.naka12, ART.naka20];
+const STAT_ARTS = [pageArt('vote-incentives', 0), pageArt('vote-incentives', 1), pageArt('vote-incentives', 2)];
 
 export function VoteIncentivesSection() {
   const { address } = useAccount();
@@ -135,7 +135,7 @@ export function VoteIncentivesSection() {
       {/* Deposit Bribe — "Cartman's Market" */}
       <div className="rounded-2xl overflow-hidden relative" style={{ border: `1px solid ${CARD_BORDER}` }}>
         <div className="absolute inset-0">
-          <img src={ART.roseApe.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+          <img src={pageArt('vote-incentives', 3).src} alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10">
           <div className="px-5 py-4 border-b border-white/10 flex items-center gap-2">

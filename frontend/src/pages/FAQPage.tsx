@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
-import { ART } from '../lib/artConfig';
+import { pageArt } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { FAQ_INTRO } from '../lib/copy';
 
@@ -107,7 +107,7 @@ export default function FAQPage() {
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <img src={ART.bobowelie.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        <img src={pageArt('faq', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
 
       <div className="relative z-10 max-w-[800px] mx-auto px-4 md:px-6 pt-32 pb-20">

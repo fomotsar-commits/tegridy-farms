@@ -1,5 +1,5 @@
 import { m } from 'framer-motion';
-import { ART } from '../lib/artConfig';
+import { pageArt } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 
 const SECTIONS = [
@@ -56,7 +56,7 @@ export default function TermsPage() {
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <img
-          src={ART.jbacSkeleton.src}
+          src={pageArt('terms', 0).src}
           alt=""
           loading="lazy"
           className="w-full h-full object-cover"

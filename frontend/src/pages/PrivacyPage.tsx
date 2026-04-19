@@ -1,5 +1,5 @@
 import { m } from 'framer-motion';
-import { ART } from '../lib/artConfig';
+import { pageArt } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 
 const SECTIONS = [
@@ -52,7 +52,7 @@ export default function PrivacyPage() {
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <img
-          src={ART.towelieWindow.src}
+          src={pageArt('privacy', 0).src}
           alt=""
           loading="lazy"
           className="w-full h-full object-cover"

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { m } from 'framer-motion';
 import { useTegridyScore, type TegridyScoreBreakdown } from '../hooks/useTegridyScore';
-import { ART } from '../lib/artConfig';
+import { pageArt } from '../lib/artConfig';
 
 const RING_SIZE = 160;
 const STROKE_WIDTH = 10;
@@ -57,7 +57,7 @@ export function TegridyScore() {
       transition={{ duration: 0.5 }}
     >
       <div className="absolute inset-0">
-        <img src={ART.jungleDark.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+        <img src={pageArt('tegridy-score', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
       <div className="relative z-10 p-6">
       {/* Circle + Score */}
