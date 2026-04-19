@@ -7,7 +7,7 @@ import {
   useReadContract,
   useWaitForTransactionReceipt,
 } from 'wagmi';
-import { parseEther, formatEther } from 'viem';
+import { parseEther, formatEther, decodeEventLog } from 'viem';
 import type { Address } from 'viem';
 import { toast } from 'sonner';
 import {
@@ -53,6 +53,27 @@ const POOL_TYPE_ICONS: Record<number, string> = {
 };
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as Address;
+
+// ─── Tracked pools (shared across tabs in this section) ─────────────
+// Module-level helper so CreatePoolTab can auto-add a freshly-deployed pool
+// and MyPoolsTab picks it up without a refresh. Sync is via a custom event
+// because the `storage` event only fires cross-tab, not same-tab.
+const POOL_LIST_EVENT = 'tegridy-amm-tracked-pools-updated';
+
+function addTrackedPool(addr: string) {
+  if (!_isValidAddress(addr)) return;
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    const prev: string[] = raw ? (JSON.parse(raw) as string[]) : [];
+    const lower = addr.toLowerCase();
+    if (prev.some((p) => p.toLowerCase() === lower)) return;
+    const next = [...prev, addr];
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(next));
+    window.dispatchEvent(new CustomEvent(POOL_LIST_EVENT));
+  } catch {
+    /* ignore — localStorage can throw in private mode */
+  }
+}
 
 const ERC721_APPROVAL_ABI = [
   {
@@ -1372,10 +1393,16 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
   const [ethDeposit, setEthDeposit] = useState('');
   const [nftIds, setNftIds] = useState('');
   const [feeBps, setFeeBps] = useState('200');
+  const [autoTracked, setAutoTracked] = useState<string | null>(null);
 
-  // isPending gates the wallet-signing phase; isConfirming the on-chain wait.
-  const { writeContract, data: txHash, isPending } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess: _isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+  // Two parallel tx lifecycles: one for the ERC721 setApprovalForAll,
+  // one for the factory.createPool call. Keeping them separate means we
+  // can watch receipts independently and react to each stage.
+  const { writeContract: writeApprove, data: approveTx, isPending: isApprovePending } = useWriteContract();
+  const { isLoading: isApproveConfirming, isSuccess: isApproveSuccess } = useWaitForTransactionReceipt({ hash: approveTx });
+
+  const { writeContract: writeDeploy, data: deployTx, isPending: isDeployPending } = useWriteContract();
+  const { data: deployReceipt, isLoading: isDeployConfirming, isSuccess: isDeploySuccess } = useWaitForTransactionReceipt({ hash: deployTx });
 
   const spotNum = parseFloat(spotPriceInput) || 0;
   const deltaNum = parseFloat(deltaInput) || 0;
@@ -1385,22 +1412,101 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
     return nftIds.split(',').map((s) => s.trim()).filter((s) => /^\d+$/.test(s)).map((s) => BigInt(s));
   }, [nftIds]);
 
+  // Approval state — only relevant when the user plans to seed the pool with
+  // NFTs. The factory pulls them via transferFrom during createPool().
+  const validCollection = isValidAddress(collection);
+  const needsNFTs = parsedNftIds.length > 0;
+
+  const { data: isApproved, refetch: refetchApproval } = useReadContract({
+    address: validCollection ? (collection as Address) : undefined,
+    abi: ERC721_APPROVAL_ABI,
+    functionName: 'isApprovedForAll',
+    args: address && validCollection ? [address as Address, TEGRIDY_NFT_POOL_FACTORY_ADDRESS as Address] : undefined,
+    query: { enabled: !!address && validCollection && needsNFTs, refetchInterval: 10_000 },
+  });
+
+  useEffect(() => {
+    if (isApproveSuccess) {
+      toast.success('Collection approved — ready to deploy');
+      refetchApproval();
+    }
+  }, [isApproveSuccess, refetchApproval]);
+
+  // Decode PoolCreated from the deploy receipt so the new pool can be auto-
+  // tracked without the user pasting the address by hand.
+  useEffect(() => {
+    if (!isDeploySuccess || !deployReceipt || autoTracked) return;
+    for (const log of deployReceipt.logs) {
+      if (log.address.toLowerCase() !== TEGRIDY_NFT_POOL_FACTORY_ADDRESS.toLowerCase()) continue;
+      try {
+        const decoded = decodeEventLog({
+          abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
+          data: log.data,
+          topics: log.topics,
+        });
+        if (decoded.eventName === 'PoolCreated') {
+          const poolAddr = (decoded.args as { pool?: Address } | undefined)?.pool;
+          if (poolAddr) {
+            addTrackedPool(poolAddr);
+            setAutoTracked(poolAddr);
+            toast.success('Pool deployed & tracked — see My Pools tab');
+            setStep(1);
+            setCollection('');
+            setNftIds('');
+            setEthDeposit('');
+          }
+          return;
+        }
+      } catch { /* skip non-matching logs */ }
+    }
+  }, [isDeploySuccess, deployReceipt, autoTracked]);
+
+  // Type-specific hints — don't hard-gate (the contract enforces the real
+  // rules), just warn when the combination doesn't match the chosen type.
+  const typeMismatch = useMemo<string | null>(() => {
+    if (poolType === 0 && parsedNftIds.length > 0) {
+      return 'BUY pools only accumulate NFTs from trades — remove the token IDs, or pick TRADE / SELL instead.';
+    }
+    if (poolType === 1 && ethDeposit && parseFloat(ethDeposit) > 0) {
+      return 'SELL pools only hold NFTs — remove the ETH deposit, or pick TRADE / BUY instead.';
+    }
+    return null;
+  }, [poolType, parsedNftIds.length, ethDeposit]);
+
   const canProceed = useCallback(
     (s: number) => {
-      if (s === 1) return isValidAddress(collection);
+      if (s === 1) return validCollection;
       if (s === 2) return spotNum > 0;
       if (s === 3) return true;
       return false;
     },
-    [collection, spotNum]
+    [validCollection, spotNum]
   );
+
+  const isPending = isDeployPending;
+  const isConfirming = isDeployConfirming;
+  const approvalNeeded = needsNFTs && isApproved === false;
+
+  const handleApproveCollection = () => {
+    if (!validCollection || !address) return;
+    writeApprove(
+      {
+        address: collection as Address,
+        abi: ERC721_APPROVAL_ABI,
+        functionName: 'setApprovalForAll',
+        args: [TEGRIDY_NFT_POOL_FACTORY_ADDRESS as Address, true],
+      },
+      { onError: (e: Error) => toast.error(e.message?.slice(0, 100) || 'Approval failed') },
+    );
+  };
 
   const handleDeploy = () => {
     if (!address) return toast.error('Connect your wallet');
-    if (!isValidAddress(collection)) return toast.error('Invalid collection address');
+    if (!validCollection) return toast.error('Invalid collection address');
+    if (approvalNeeded) return toast.error('Approve the collection first');
 
     try {
-      writeContract(
+      writeDeploy(
         {
           address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
           abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
@@ -1410,19 +1516,12 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
             poolType,
             parseEther(spotPriceInput || '0'),
             parseEther(deltaInput || '0'),
-            BigInt(feeBps || '0'),
+            BigInt(poolType === 2 ? (feeBps || '0') : '0'),
             parsedNftIds,
           ],
           value: ethDeposit ? parseEther(ethDeposit) : 0n,
         },
         {
-          onSuccess: () => {
-            toast.success('Pool deployed successfully!');
-            setStep(1);
-            setCollection('');
-            setNftIds('');
-            setEthDeposit('');
-          },
           onError: (e: Error) => toast.error(e.message?.slice(0, 100) || 'Pool creation failed'),
         }
       );
@@ -1706,6 +1805,42 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                   </div>
                 </ArtCard>
 
+                {typeMismatch && (
+                  <div className="mb-4">
+                    <RiskBanner variant="warning">{typeMismatch}</RiskBanner>
+                  </div>
+                )}
+
+                {needsNFTs && validCollection && (
+                  <div
+                    className="mb-4 rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap"
+                    style={{
+                      background: isApproved ? 'rgba(16,185,129,0.08)' : 'rgba(234,179,8,0.08)',
+                      border: `1px solid ${isApproved ? 'rgba(16,185,129,0.25)' : 'rgba(234,179,8,0.25)'}`,
+                    }}
+                  >
+                    <div className="min-w-0">
+                      <p className={`text-[11px] uppercase tracking-wider font-semibold mb-0.5 ${isApproved ? 'text-emerald-400' : 'text-yellow-300'}`}>
+                        Step A · Approve collection
+                      </p>
+                      <p className="text-white/80 text-[12px]">
+                        {isApproved
+                          ? 'Factory is approved to pull your NFTs during deploy.'
+                          : 'The factory needs permission to move your NFT IDs into the pool.'}
+                      </p>
+                    </div>
+                    {!isApproved && (
+                      <button
+                        onClick={handleApproveCollection}
+                        disabled={isApprovePending || isApproveConfirming || !address}
+                        className="flex-shrink-0 px-4 py-2 rounded-lg bg-yellow-500/20 text-yellow-200 border border-yellow-500/40 hover:bg-yellow-500/30 transition-colors text-[12px] font-semibold disabled:opacity-40"
+                      >
+                        {isApprovePending ? 'Check wallet…' : isApproveConfirming ? 'Approving…' : 'Approve'}
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex gap-3 mt-6">
                   <button
                     className="flex-1 py-3.5 rounded-xl bg-black/60 border border-white/25 hover:border-white/[0.15] text-white hover:text-white transition-all text-sm font-medium"
@@ -1718,10 +1853,18 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                   ) : (
                     <button
                       className={`flex-1 ${btnPrimary}`}
-                      disabled={isPending || isConfirming || !address}
+                      disabled={isPending || isConfirming || !address || approvalNeeded}
                       onClick={handleDeploy}
                     >
-                      {isPending ? 'Check wallet…' : isConfirming ? 'Deploying Pool...' : !address ? 'Connect Wallet' : 'Deploy Pool'}
+                      {isPending
+                        ? 'Check wallet…'
+                        : isConfirming
+                        ? 'Deploying Pool...'
+                        : !address
+                        ? 'Connect Wallet'
+                        : approvalNeeded
+                        ? 'Approve Collection First'
+                        : 'Deploy Pool'}
                     </button>
                   )}
                 </div>
@@ -1748,7 +1891,7 @@ function SummaryRow({ label, value, highlight }: { label: string; value: string;
 // ─── My Pools Tab ─────────────────────────────────────────────────
 
 function useTrackedPools() {
-  const [pools, setPools] = useState<string[]>(() => {
+  const readFromStorage = useCallback((): string[] => {
     try {
       const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (!stored) return [];
@@ -1758,23 +1901,34 @@ function useTrackedPools() {
     } catch {
       return [];
     }
-  });
+  }, []);
+
+  const [pools, setPools] = useState<string[]>(readFromStorage);
+
+  // Keep the list in sync when another surface (CreatePoolTab auto-tracks a
+  // freshly-deployed pool) calls addTrackedPool(). Same-tab updates use the
+  // custom event; cross-tab falls back to the native storage event.
+  useEffect(() => {
+    const refresh = () => setPools(readFromStorage());
+    window.addEventListener(POOL_LIST_EVENT, refresh);
+    window.addEventListener('storage', refresh);
+    return () => {
+      window.removeEventListener(POOL_LIST_EVENT, refresh);
+      window.removeEventListener('storage', refresh);
+    };
+  }, [readFromStorage]);
 
   const addPool = useCallback((addr: string) => {
     if (!isValidAddress(addr)) return;
-    setPools((prev) => {
-      const lower = addr.toLowerCase();
-      if (prev.some((p) => p.toLowerCase() === lower)) return prev;
-      const next = [...prev, addr];
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
-  }, []);
+    addTrackedPool(addr);
+    setPools(readFromStorage());
+  }, [readFromStorage]);
 
   const removePool = useCallback((addr: string) => {
     setPools((prev) => {
       const next = prev.filter((p) => p.toLowerCase() !== addr.toLowerCase());
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(next));
+      window.dispatchEvent(new CustomEvent(POOL_LIST_EVENT));
       return next;
     });
   }, []);

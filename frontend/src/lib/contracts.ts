@@ -419,6 +419,18 @@ export const TEGRIDY_NFT_POOL_FACTORY_ABI = [
   { type: 'function', name: 'getBestBuyPool', inputs: [{ name: 'collection', type: 'address' }, { name: 'numItems', type: 'uint256' }], outputs: [{ name: 'bestPool', type: 'address' }, { name: 'bestCost', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'getBestSellPool', inputs: [{ name: 'collection', type: 'address' }, { name: 'numItems', type: 'uint256' }], outputs: [{ name: 'bestPool', type: 'address' }, { name: 'bestPayout', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'getPoolCount', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  {
+    type: 'event', name: 'PoolCreated', anonymous: false,
+    inputs: [
+      { indexed: true, name: 'pool', type: 'address' },
+      { indexed: true, name: 'nftCollection', type: 'address' },
+      { indexed: false, name: 'poolType', type: 'uint8' },
+      { indexed: false, name: 'spotPrice', type: 'uint256' },
+      { indexed: false, name: 'delta', type: 'uint256' },
+      { indexed: false, name: 'feeBps', type: 'uint256' },
+      { indexed: true, name: 'owner', type: 'address' },
+    ],
+  },
 ] as const;
 
 // ─── Configs ────────────────────────────────────────────────────
