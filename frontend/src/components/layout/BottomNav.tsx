@@ -31,12 +31,13 @@ const TABS = [
       <path d="M3 10h18M7 15h3" />
     </svg>
   )},
-  { to: '/community', label: 'Governance', icon: (
-    // Inline SVG — ballot box with check, matches existing 1.8 stroke-width convention
+  { to: '/nakamigos', label: 'Tradermigos', icon: (
+    // Pixel-frame glyph — nod to the pixel-art collection this links to.
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 7h16v13H4z" />
-      <path d="M9 3h6v4H9z" />
-      <path d="M9 13l2 2 4-4" />
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <rect x="7" y="8" width="3" height="3" />
+      <rect x="14" y="8" width="3" height="3" />
+      <path d="M8 15c1.5 1.5 6.5 1.5 8 0" />
     </svg>
   )},
 ];

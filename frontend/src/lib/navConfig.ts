@@ -13,7 +13,6 @@ export const PRIMARY_NAV: NavItem[] = [
   { to: '/farm', label: 'Farm' },
   { to: '/swap', label: 'Trade' },
   { to: '/nft-finance', label: 'NFT Finance' },
-  { to: '/community', label: 'Community' },
 ];
 
 /** Tradermigos link — right-aligned action, separate from primary nav. Swapped
@@ -26,6 +25,7 @@ export const POINTS_NAV: NavItem = { to: '/nakamigos', label: 'Tradermigos' };
  * desktop and expanded inline in the mobile drawer.
  */
 export const MORE_NAV: NavItem[] = [
+  { to: '/community', label: 'Community' },
   { to: '/gallery',   label: 'Gallery' },
   { to: '/tokenomics', label: 'Tokenomics' },
   { to: '/changelog', label: 'Changelog' },
