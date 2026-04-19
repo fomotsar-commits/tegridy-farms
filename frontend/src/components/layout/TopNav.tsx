@@ -3,7 +3,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
-import { PRIMARY_NAV, ALL_NAV, MORE_NAV } from '../../lib/navConfig';
+import { PRIMARY_NAV, MORE_NAV } from '../../lib/navConfig';
 
 export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
@@ -318,7 +318,9 @@ export const TopNav = React.memo(function TopNav() {
                 </button>
               </div>
               <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
-                {ALL_NAV.map((n) => (
+                {/* Mirror desktop "More" dropdown — primary tabs already live in
+                    the BottomNav, so the drawer is just the secondary overflow. */}
+                {MORE_NAV.map((n) => (
                   <NavLink key={n.to} to={n.to} onClick={() => setOpen(false)}
                     className={({ isActive }) => `nav-link block py-2.5 ${isActive ? 'active' : ''}`}>
                     {n.label}
