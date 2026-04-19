@@ -3,7 +3,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
-import { PRIMARY_NAV, MORE_NAV, MORE_NAV_SECTIONS } from '../../lib/navConfig';
+import { PRIMARY_NAV, MORE_NAV, MORE_NAV_SECTIONS, MOBILE_MORE_SECTIONS } from '../../lib/navConfig';
 
 export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
@@ -335,10 +335,12 @@ export const TopNav = React.memo(function TopNav() {
                 </button>
               </div>
               <nav className="flex-1 px-3 overflow-y-auto pb-6">
-                {/* Mirror desktop "More" dropdown — primary tabs already live in
-                    the BottomNav, so the drawer is just the secondary overflow.
-                    Sections give the long list scannable structure on small screens. */}
-                {MORE_NAV_SECTIONS.map((section) => (
+                {/* Curated mobile subset — primary tabs already live in the
+                    BottomNav, and the full desktop "More" list is trimmed here
+                    to the surfaces that matter on a phone. Lore / FAQ /
+                    Security / Gold Card / History / Changelog stay reachable
+                    via direct URL and the Footer. */}
+                {MOBILE_MORE_SECTIONS.map((section) => (
                   <div key={section.heading} className="mb-3">
                     <p className="px-2 pt-2 pb-1 text-[10px] uppercase tracking-wider font-semibold opacity-60 text-text-muted">
                       {section.heading}

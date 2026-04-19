@@ -78,6 +78,40 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
 export const MORE_NAV: NavItem[] = MORE_NAV_SECTIONS.flatMap((s) => s.items);
 
 /**
+ * Mobile-only "More" drawer — curated subset of MORE_NAV_SECTIONS. Trims
+ * pages that have low mobile traffic or are better reached through other
+ * surfaces (Lore/FAQ/Security/Gold Card/History/Changelog still live on
+ * desktop and via direct URL + the Footer). Three sections of three keeps
+ * the drawer scannable on a phone.
+ */
+export const MOBILE_MORE_SECTIONS: NavSection[] = [
+  {
+    heading: 'Engage',
+    items: [
+      { to: '/community',   label: 'Community' },
+      { to: '/gallery',     label: 'Gallery' },
+      { to: '/leaderboard', label: 'Points' },
+    ],
+  },
+  {
+    heading: 'Stats',
+    items: [
+      { to: '/tokenomics', label: 'Tokenomics' },
+      { to: '/treasury',   label: 'Treasury' },
+      { to: '/contracts',  label: 'Contracts' },
+    ],
+  },
+  {
+    heading: 'Legal',
+    items: [
+      { to: '/risks',   label: 'Risks' },
+      { to: '/terms',   label: 'Terms' },
+      { to: '/privacy', label: 'Privacy' },
+    ],
+  },
+];
+
+/**
  * All-nav list used by the mobile drawer fallback. Matches PRIMARY_NAV
  * plus the Tradermigos action and the "More" destinations so every top-level
  * route is reachable from the drawer.

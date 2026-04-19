@@ -1,13 +1,11 @@
 import { NavLink } from 'react-router-dom';
 import React from 'react';
-import { useTheme } from '../../contexts/ThemeContext';
 
 /**
- * Bottom nav tabs — primary destinations mirrored from TopNav's PRIMARY_NAV,
- * plus Tradermigos and a theme toggle. The theme toggle lives here (not in
- * TopNav on mobile) because the top bar is too narrow for wallet + theme +
- * hamburger on iPhone-class widths. Secondary routes reach the user via
- * TopNav's hamburger → drawer.
+ * Bottom nav tabs — primary destinations mirrored from TopNav's PRIMARY_NAV
+ * plus Tradermigos. Secondary routes live in the TopNav hamburger drawer.
+ * Theme toggle is desktop-only (TopNav) — mobile has limited bottom real
+ * estate and theme is a low-frequency action.
  */
 const TABS = [
   { to: '/dashboard', label: 'Dashboard', icon: (
@@ -45,8 +43,6 @@ const TABS = [
 ];
 
 export const BottomNav = React.memo(function BottomNav() {
-  const { isDark, toggleTheme } = useTheme();
-
   return (
     <nav aria-label="Main navigation" className="fixed bottom-0 left-0 right-0 z-50 md:hidden"
       style={{
@@ -55,7 +51,7 @@ export const BottomNav = React.memo(function BottomNav() {
         WebkitBackdropFilter: 'blur(20px)',
         borderTop: '1px solid var(--color-purple-75)',
       }}>
-      <div className="flex items-stretch justify-around h-16 safe-area-bottom">
+      <div className="flex items-center justify-around h-16 safe-area-bottom">
         {TABS.map(tab => (
           <NavLink key={tab.to} to={tab.to} aria-label={tab.label}
             className={({ isActive }) =>
@@ -64,34 +60,9 @@ export const BottomNav = React.memo(function BottomNav() {
               }`
             }>
             {tab.icon}
-            <span className="text-[9.5px] font-medium leading-tight truncate max-w-full">{tab.label}</span>
+            <span className="text-[10px] font-medium leading-tight truncate max-w-full">{tab.label}</span>
           </NavLink>
         ))}
-        <button
-          type="button"
-          onClick={toggleTheme}
-          aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          className="flex flex-col items-center justify-center gap-0.5 flex-1 min-w-0 min-h-[48px] px-1 py-2 text-white/60 hover:text-white transition-colors"
-        >
-          {isDark ? (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="5" />
-              <line x1="12" y1="1" x2="12" y2="3" />
-              <line x1="12" y1="21" x2="12" y2="23" />
-              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-              <line x1="1" y1="12" x2="3" y2="12" />
-              <line x1="21" y1="12" x2="23" y2="12" />
-              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-            </svg>
-          ) : (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-            </svg>
-          )}
-          <span className="text-[9.5px] font-medium leading-tight">{isDark ? 'Light' : 'Dark'}</span>
-        </button>
       </div>
     </nav>
   );
