@@ -150,7 +150,13 @@ export default function HistoryPage() {
 
     // SECURITY FIX: Route Etherscan calls through server-side proxy to keep API key hidden.
     // Previously used VITE_ETHERSCAN_API_KEY which was exposed in client-side bundle.
-    fetch(`/api/etherscan?module=account&action=txlist&address=${addr}&startblock=0&endblock=99999999&sort=desc`, { signal })
+    //
+    // BUG FIX: We previously sent startblock=0&endblock=99999999 to fetch the full
+    // history. The proxy enforces a 10k-block range cap (it defends the upstream
+    // quota), so that request always 400'd and the page broke. Etherscan's default
+    // when no range is given is the full chain — combined with offset=500 to match
+    // the client-side cap, that's exactly what we want.
+    fetch(`/api/etherscan?module=account&action=txlist&address=${addr}&page=1&offset=500&sort=desc`, { signal })
       .then(async r => {
         // The proxy can return a Vercel HTML/comment error page instead of JSON
         // (e.g. during a deploy or when /api/etherscan is missing). r.json() on
@@ -182,7 +188,15 @@ export default function HistoryPage() {
         } else if (data.status === '0' && data.message === 'No transactions found') {
           setTxs([]);
         } else {
-          setError(data.message || 'Failed to load history. Try again later.');
+          // Normalize Etherscan's terse `NOTOK` (usually means a misconfigured
+          // API key on the server) into something a user can act on.
+          const raw = (data.message || '').toString();
+          const looksLikeAuthIssue = raw === 'NOTOK' || /api\s*key/i.test(data.result || '');
+          setError(
+            looksLikeAuthIssue
+              ? "Tegridy Farms can't reach Etherscan right now. View your full history directly on Etherscan below."
+              : (raw || 'Failed to load history. Try again later.')
+          );
         }
       })
       .catch((err) => {
@@ -306,7 +320,19 @@ export default function HistoryPage() {
           ) : error ? (
             <div className="p-6 text-center">
               <p className="text-[13px] mb-3 font-medium" style={{ color: '#fca5a5', textShadow: '0 1px 6px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.9)' }}>{error}</p>
-              <button onClick={handleRetry} className="btn-primary px-5 py-1.5 text-[12px]">Retry</button>
+              <div className="flex items-center justify-center gap-3">
+                <button onClick={handleRetry} className="btn-primary px-5 py-1.5 text-[12px]">Retry</button>
+                {address && (
+                  <a
+                    href={`https://etherscan.io/address/${address}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[12px] text-purple-300 hover:text-purple-200 underline underline-offset-2"
+                  >
+                    View on Etherscan ↗
+                  </a>
+                )}
+              </div>
             </div>
           ) : categorized.length === 0 ? (
             <div className="p-8 text-center">

@@ -118,6 +118,14 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api\/paraswap/, ''),
         },
+        // /api/etherscan is a Vercel serverless function in production.
+        // For local dev we forward to the deployed proxy so the API key stays
+        // server-side and we don't need a separate local key. Production
+        // requests hit the function directly and never touch this proxy.
+        '/api/etherscan': {
+          target: 'https://tegridyfarms.vercel.app',
+          changeOrigin: true,
+        },
         // ═══ Nakamigos marketplace dev proxies ═══
         // Mimics the Vercel serverless functions locally
         '/api/alchemy': {

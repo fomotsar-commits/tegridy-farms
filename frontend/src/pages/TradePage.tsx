@@ -25,12 +25,19 @@ const TAB_LABELS: Record<Tab, string> = {
 };
 
 export default function TradePage() {
-  usePageTitle('Trade', 'Swap tokens, provide liquidity, and schedule DCA/limit orders on Tegridy Farms.');
   const { isConnected } = useAccount();
   const chainId = useChainId();
   const location = useLocation();
   // Initialize tab from the pathname — /liquidity lands on the Liquidity tab.
   const [tab, setTab] = useState<Tab>(() => (location.pathname.startsWith('/liquidity') ? 'liquidity' : 'swap'));
+  // Title follows the active tab so /liquidity reads "Liquidity" not "Trade".
+  const titleByTab: Record<Tab, { title: string; desc: string }> = {
+    swap:      { title: 'Swap',      desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.' },
+    liquidity: { title: 'Liquidity', desc: 'Add or remove liquidity on Tegridy Farms native pools.' },
+    dca:       { title: 'DCA',       desc: 'Schedule recurring buys to dollar-cost-average into TOWELI.' },
+    limit:     { title: 'Limit Orders', desc: 'Place limit orders that fill when the market hits your price.' },
+  };
+  usePageTitle(titleByTab[tab].title, titleByTab[tab].desc);
   const [showTokenSelect, setShowTokenSelect] = useState<'from' | 'to' | null>(null);
   const [showRouteDetails, setShowRouteDetails] = useState(false);
 

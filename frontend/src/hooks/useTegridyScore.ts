@@ -283,13 +283,34 @@ export function useTegridyScore(): TegridyScoreResult {
 
   const onChainReferralCount = points.onChainMetrics?.referralCount ?? 0;
 
-  const [firstInteractionTs, setFirstInteractionTs] = useState(0);
+  // First-interaction timestamp is monotonic — once we know it for an
+  // address it never changes. Cache to localStorage so we don't hammer
+  // the RPC with a wide eth_getLogs scan on every page load (and so we
+  // tolerate flaky public RPCs that reject the wide range).
+  const cacheKey = address ? `tegridy-score:first-interaction:${address.toLowerCase()}` : '';
+  const [firstInteractionTs, setFirstInteractionTs] = useState<number>(() => {
+    if (!cacheKey) return 0;
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      const parsed = raw ? Number(raw) : 0;
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    } catch { return 0; }
+  });
 
   useEffect(() => {
     if (!address || !publicClient || !checkDeployed(TEGRIDY_STAKING_ADDRESS)) {
       setFirstInteractionTs(0);
       return;
     }
+    // If we already have a cached value for this address, skip the RPC.
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      const parsed = raw ? Number(raw) : 0;
+      if (Number.isFinite(parsed) && parsed > 0) {
+        setFirstInteractionTs(parsed);
+        return;
+      }
+    } catch {/* fall through to fetch */}
     let cancelled = false;
     publicClient.getLogs({
       address: TEGRIDY_STAKING_ADDRESS,
@@ -302,14 +323,19 @@ export function useTegridyScore(): TegridyScoreResult {
       if (cancelled) return;
       if (logs.length > 0) {
         const block = await publicClient.getBlock({ blockNumber: logs[0]!.blockNumber });
-        if (!cancelled) setFirstInteractionTs(Number(block.timestamp));
+        if (cancelled) return;
+        const ts = Number(block.timestamp);
+        setFirstInteractionTs(ts);
+        try { localStorage.setItem(cacheKey, String(ts)); } catch {/* noop */}
       }
     }).catch((err) => {
-      if (import.meta.env.DEV) console.error('Failed to fetch first interaction timestamp:', err);
+      // Public RPCs sometimes reject wide eth_getLogs ranges. Stay quiet
+      // for users — DEV gets a one-off log so it's still discoverable.
+      if (import.meta.env.DEV) console.warn('Tegridy Score: first-interaction lookup unavailable, falling back to 0', err);
       if (!cancelled) setFirstInteractionTs(0);
     });
     return () => { cancelled = true; };
-  }, [address, publicClient]);
+  }, [address, publicClient, cacheKey]);
 
   return useMemo(() => {
     const stakingScore = address ? calcStakingScore(pos.stakedAmount, pos.walletBalance) : 0;
