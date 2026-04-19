@@ -1,5 +1,4 @@
 import { Link } from 'react-router-dom';
-import { pageArt } from '../../lib/artConfig';
 import { TOKEN_LOGOS } from './poolConfig';
 import { PoolStatusBadge } from './PoolStatusBadge';
 import type { usePoolTVL } from '../../hooks/usePoolTVL';

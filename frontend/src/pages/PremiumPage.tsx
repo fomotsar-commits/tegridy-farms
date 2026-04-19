@@ -3,7 +3,6 @@ import { m } from 'framer-motion';
 import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { formatEther } from 'viem';
-import { pageArt } from '../lib/artConfig';
 import { usePremiumAccess } from '../hooks/usePremiumAccess';
 import { useRevenueStats } from '../hooks/useRevenueStats';
 import { PREMIUM_ACCESS_ADDRESS } from '../lib/constants';

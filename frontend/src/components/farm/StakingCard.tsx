@@ -1,7 +1,6 @@
 import { m } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from 'react-router-dom';
-import { pageArt } from '../../lib/artConfig';
 import { formatTokenAmount } from '../../lib/formatting';
 import { AnimatedCounter } from '../AnimatedCounter';
 import { PENALTY_COPY } from '../../lib/copy';

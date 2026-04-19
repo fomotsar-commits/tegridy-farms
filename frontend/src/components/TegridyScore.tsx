@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { m } from 'framer-motion';
 import { useTegridyScore, type TegridyScoreBreakdown } from '../hooks/useTegridyScore';
-import { pageArt } from '../lib/artConfig';
 import { ArtImg } from './ArtImg';
 
 const RING_SIZE = 160;

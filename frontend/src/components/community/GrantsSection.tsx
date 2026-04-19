@@ -6,7 +6,6 @@ import { toast } from 'sonner';
 import { COMMUNITY_GRANTS_ADDRESS } from '../../lib/constants';
 import { COMMUNITY_GRANTS_ABI } from '../../lib/contracts';
 import { shortenAddress, formatTokenAmount, formatTimeAgo } from '../../lib/formatting';
-import { pageArt } from '../../lib/artConfig';
 import { ArtImg } from '../ArtImg';
 
 const CARD_BORDER = 'var(--color-purple-12)';

@@ -10,7 +10,6 @@ import { CreateWizard } from '../launchpad/wizard/CreateWizard';
 import { CollectionDetail } from '../launchpad/CollectionDetail';
 import { CollectionDetailV2 } from '../launchpad/CollectionDetailV2';
 import { FEATURE_BULLETS } from '../launchpad/launchpadConstants';
-import { pageArt } from '../../lib/artConfig';
 import { ArtImg } from '../ArtImg';
 
 const CARD_BG = 'rgba(6, 12, 26, 0.80)';

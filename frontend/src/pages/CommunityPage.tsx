@@ -2,7 +2,6 @@ import { useState, Suspense } from 'react';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { pageArt } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 

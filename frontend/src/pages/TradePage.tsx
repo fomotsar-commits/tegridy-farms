@@ -4,7 +4,6 @@ import { useLocation } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { getTxUrl } from '../lib/explorer';
-import { pageArt } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { useSwap } from '../hooks/useSwap';

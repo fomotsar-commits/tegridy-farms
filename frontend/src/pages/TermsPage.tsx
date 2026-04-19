@@ -1,5 +1,4 @@
 import { m } from 'framer-motion';
-import { pageArt } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ArtImg } from '../components/ArtImg';
 

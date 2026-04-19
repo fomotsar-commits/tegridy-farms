@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { m } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { pageArt } from '../../lib/artConfig';
 import { formatTokenAmount } from '../../lib/formatting';
 import { parseEther } from 'viem';
 import type { useLPFarming } from '../../hooks/useLPFarming';

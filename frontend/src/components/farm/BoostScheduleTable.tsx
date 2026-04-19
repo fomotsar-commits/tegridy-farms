@@ -1,5 +1,4 @@
 import { m } from 'framer-motion';
-import { pageArt } from '../../lib/artConfig';
 import { JBAC_BONUS_BPS } from '../../lib/constants';
 import { calculateBoost } from '../../lib/boostCalculations';
 import { ArtImg } from '../ArtImg';

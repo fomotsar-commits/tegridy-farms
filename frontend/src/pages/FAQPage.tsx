@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
-import { pageArt } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { FAQ_INTRO } from '../lib/copy';
 import { ArtImg } from '../components/ArtImg';

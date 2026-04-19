@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { Link } from 'react-router-dom';
-import { pageArt } from '../lib/artConfig';
 import { JBAC_BONUS_BPS, CURRENT_SEASON } from '../lib/constants';
 import { calculateBoost } from '../lib/boostCalculations';
 import { useFarmStats } from '../hooks/useFarmStats';

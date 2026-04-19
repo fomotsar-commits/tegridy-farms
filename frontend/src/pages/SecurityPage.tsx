@@ -1,6 +1,6 @@
 import { m } from 'framer-motion';
 import { useState } from 'react';
-import { pageArt, artStyle } from '../lib/artConfig';
+import { pageArt, artStyle, type ArtPiece } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ArtImg } from '../components/ArtImg';
 
@@ -40,7 +40,7 @@ function ArtCard({
   className = '',
   padding = 'p-5 md:p-6',
 }: {
-  art: { src: string; objectPosition?: string; scale?: number };
+  art: ArtPiece;
   children: React.ReactNode;
   className?: string;
   padding?: string;

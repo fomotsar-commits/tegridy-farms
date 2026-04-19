@@ -7,7 +7,6 @@ import { DEFAULT_TOKENS, type TokenInfo } from '../../lib/tokenList';
 import { TokenSelectModal } from './TokenSelectModal';
 import { getTxUrl } from '../../lib/explorer';
 import { formatTokenAmount } from '../../lib/formatting';
-import { pageArt } from '../../lib/artConfig';
 import { ArtImg } from '../ArtImg';
 
 type LiquidityMode = 'add' | 'remove';

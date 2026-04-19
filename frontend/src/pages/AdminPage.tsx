@@ -3,16 +3,15 @@ import { useAccount, useChains, useReadContract, useReadContracts, useWriteContr
 import { formatEther } from 'viem';
 import { toast } from 'sonner';
 import { usePageTitle } from '../hooks/usePageTitle';
-import { pageArt } from '../lib/artConfig';
 import { formatTokenAmount, formatNumber } from '../lib/formatting';
 import {
   TEGRIDY_STAKING_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, PREMIUM_ACCESS_ADDRESS,
   LP_FARMING_ADDRESS,
 } from '../lib/constants';
 import {
-import { ArtImg } from '../components/ArtImg';
   TEGRIDY_STAKING_ABI, SWAP_FEE_ROUTER_ABI, PREMIUM_ACCESS_ABI, LP_FARMING_ABI,
 } from '../lib/contracts';
+import { ArtImg } from '../components/ArtImg';
 
 // Minimal ABI fragments for owner/admin reads not in the shared ABIs
 const OWNER_ABI = [

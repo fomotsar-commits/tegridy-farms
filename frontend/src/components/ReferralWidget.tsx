@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
 import { m } from 'framer-motion';
-import { pageArt } from '../lib/artConfig';
 import { ArtImg } from './ArtImg';
 
 interface ReferralWidgetProps {
