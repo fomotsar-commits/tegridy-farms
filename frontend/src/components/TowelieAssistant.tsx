@@ -7,6 +7,7 @@ import { ART } from '../lib/artConfig';
 import { randomToweliQuote } from '../lib/copy';
 import { useTransactionReceipt } from '../hooks/useTransactionReceipt';
 import { useToweliQueueInternal } from '../hooks/useTowelie';
+import { answerQuestion } from '../lib/towelieKnowledge';
 
 // ─────────────────────────────────────────────────────────────────
 // Event copy banks. Pick a random line per event so repeat triggers
@@ -101,7 +102,7 @@ const FATIGUE_THRESHOLD = 3;                  // dismissals before auto-snooze
 const FATIGUE_WINDOW_MS = 5 * 60 * 1000;      // count dismissals over 5 min
 const FATIGUE_SNOOZE_MS = 30 * 60 * 1000;     // snooze for 30 min when fatigued
 
-type BubbleSource = 'route' | 'idle' | 'click' | 'event' | 'api' | null;
+type BubbleSource = 'route' | 'idle' | 'click' | 'event' | 'api' | 'chat' | null;
 
 export function TowelieAssistant() {
   const location = useLocation();
@@ -110,6 +111,9 @@ export function TowelieAssistant() {
   });
   const [bubble, setBubble] = useState<{ text: string; src: BubbleSource } | null>(null);
   const typedText = useTypewriter(bubble?.text);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+  const chatInputRef = useRef<HTMLInputElement | null>(null);
   const snoozedUntil = useRef<number>(0);
   const lastEventAt = useRef<number>(0);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -221,6 +225,8 @@ export function TowelieAssistant() {
       currentApiId.current = null;
     }
     setBubble(null);
+    setChatOpen(false);
+    setChatInput('');
     // API messages get a shorter snooze so the queue can drain naturally.
     const snooze = bubble?.src === 'api' ? EVENT_COOLDOWN_MS : SNOOZE_MS;
     snoozedUntil.current = Date.now() + snooze;
@@ -244,6 +250,29 @@ export function TowelieAssistant() {
   const handleAvatarClick = () => {
     if (bubble) { dismissBubble(); return; }
     setBubble({ text: randomToweliQuote(), src: 'click' });
+  };
+
+  const submitQuestion = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const q = chatInput.trim();
+    if (!q) return;
+    const answer = answerQuestion(q);
+    setBubble({ text: answer, src: 'chat' });
+    setChatInput('');
+    // Chat answers shouldn't auto-snooze — user is actively chatting.
+    snoozedUntil.current = 0;
+    // Refocus input for follow-up question.
+    setTimeout(() => chatInputRef.current?.focus(), 0);
+  };
+
+  const toggleChat = () => {
+    const next = !chatOpen;
+    setChatOpen(next);
+    if (next) {
+      // Make sure a bubble is visible so the input has somewhere to live.
+      if (!bubble) setBubble({ text: 'Ask me anything about the farm.', src: 'chat' });
+      setTimeout(() => chatInputRef.current?.focus(), 50);
+    }
   };
 
   if (disabled) return null;
@@ -281,12 +310,42 @@ export function TowelieAssistant() {
               >
                 ×
               </button>
-              <button
-                onClick={disablePermanently}
-                className="block mt-1.5 text-[10px] text-white/40 hover:text-white/70 transition-colors"
-              >
-                Don't show again
-              </button>
+              {chatOpen && (
+                <form onSubmit={submitQuestion} className="mt-2 flex items-center gap-1">
+                  <input
+                    ref={chatInputRef}
+                    type="text"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    placeholder="Ask me anything…"
+                    className="flex-1 min-w-0 bg-black/40 border border-white/15 rounded-md px-2 py-1 text-[12px] text-white placeholder-white/40 focus:outline-none focus:border-purple-400/60"
+                    aria-label="Ask Towelie a question"
+                    maxLength={140}
+                  />
+                  <button
+                    type="submit"
+                    disabled={!chatInput.trim()}
+                    aria-label="Send question"
+                    className="text-[11px] px-2 py-1 rounded-md bg-purple-500/30 hover:bg-purple-500/50 text-white border border-purple-400/30 disabled:opacity-40 transition-colors"
+                  >
+                    ↩
+                  </button>
+                </form>
+              )}
+              <div className="mt-1.5 flex items-center gap-3">
+                <button
+                  onClick={toggleChat}
+                  className="text-[10px] text-purple-300/80 hover:text-purple-200 transition-colors"
+                >
+                  {chatOpen ? 'Close chat' : '💬 Ask me'}
+                </button>
+                <button
+                  onClick={disablePermanently}
+                  className="text-[10px] text-white/40 hover:text-white/70 transition-colors"
+                >
+                  Don't show again
+                </button>
+              </div>
             </div>
             {/* Tail */}
             <div
