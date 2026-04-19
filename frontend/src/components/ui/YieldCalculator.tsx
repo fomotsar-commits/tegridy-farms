@@ -61,7 +61,7 @@ export function YieldCalculator() {
   const [hasJbac, setHasJbac] = useState<boolean>(false);
 
   const amount = Math.max(0, parseFloat(amountStr) || 0);
-  const tier = TIERS[selectedIdx] ?? TIERS[0];
+  const tier = (TIERS[selectedIdx] ?? TIERS[0])!;
 
   const result = useMemo(() => {
     const jbacBonus = hasJbac ? 0.5 : 0;

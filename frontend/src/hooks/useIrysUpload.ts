@@ -121,7 +121,10 @@ export function useIrysUpload(): UseIrysUploadApi {
         const f = files[i]!;
         setProgress({ uploaded: i, total: files.length, currentFile: f.name });
         const buf = new Uint8Array(await f.arrayBuffer());
-        const receipt = await u.upload(buf, {
+        // Irys SDK typings want Buffer|string|Readable; Vite polyfills Buffer at
+        // runtime so Uint8Array works. `as unknown as Buffer` keeps the cast
+        // narrow and avoids `any`-widening the rest of the call.
+        const receipt = await u.upload(buf as unknown as Buffer, {
           tags: [
             { name: 'Content-Type', value: f.type },
             { name: 'File-Name', value: f.name },
@@ -138,7 +141,7 @@ export function useIrysUpload(): UseIrysUploadApi {
         ),
       };
       const manifestReceipt = await u.upload(
-        new TextEncoder().encode(JSON.stringify(manifest)),
+        new TextEncoder().encode(JSON.stringify(manifest)) as unknown as Buffer,
         { tags: [{ name: 'Content-Type', value: 'application/x.arweave-manifest+json' }] }
       );
       setProgress({ uploaded: files.length, total: files.length });
@@ -155,7 +158,7 @@ export function useIrysUpload(): UseIrysUploadApi {
   const uploadJson = useCallback(async (data: object, filename = 'data.json') => {
     const u = await getUploader();
     const body = new TextEncoder().encode(JSON.stringify(data));
-    const receipt = await u.upload(body, {
+    const receipt = await u.upload(body as unknown as Buffer, {
       tags: [
         { name: 'Content-Type', value: 'application/json' },
         { name: 'File-Name', value: filename },
@@ -175,7 +178,7 @@ export function useIrysUpload(): UseIrysUploadApi {
         const item = items[i]!;
         setProgress({ uploaded: i, total: items.length, currentFile: item.filename });
         const body = new TextEncoder().encode(JSON.stringify(item.json));
-        const receipt = await u.upload(body, {
+        const receipt = await u.upload(body as unknown as Buffer, {
           tags: [
             { name: 'Content-Type', value: 'application/json' },
             { name: 'File-Name', value: item.filename },
@@ -191,7 +194,7 @@ export function useIrysUpload(): UseIrysUploadApi {
         ),
       };
       const manifestReceipt = await u.upload(
-        new TextEncoder().encode(JSON.stringify(manifest)),
+        new TextEncoder().encode(JSON.stringify(manifest)) as unknown as Buffer,
         { tags: [{ name: 'Content-Type', value: 'application/x.arweave-manifest+json' }] }
       );
       setProgress({ uploaded: items.length, total: items.length });

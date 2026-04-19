@@ -86,7 +86,7 @@ export function VoteIncentivesSection() {
         ].map(({ label, value }, i) => (
           <div key={label} className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
             <div className="absolute inset-0">
-              <img src={STAT_ARTS[i % STAT_ARTS.length].src} alt="" loading="lazy" className="w-full h-full object-cover" />
+              <img src={STAT_ARTS[i % STAT_ARTS.length]!.src} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-4">
               <p className="text-[11px] text-white/60 uppercase tracking-wider mb-1" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>{label}</p>

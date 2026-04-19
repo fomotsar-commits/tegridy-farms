@@ -8,7 +8,6 @@ import { COMMUNITY_GRANTS_ABI } from '../../lib/contracts';
 import { shortenAddress, formatTokenAmount, formatTimeAgo } from '../../lib/formatting';
 import { ART } from '../../lib/artConfig';
 
-const CARD_BG = 'rgba(13, 21, 48, 0.6)';
 const CARD_BORDER = 'var(--color-purple-12)';
 
 const STATUS_LABELS: Record<number, { label: string; color: string }> = {

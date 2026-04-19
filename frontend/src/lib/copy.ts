@@ -120,7 +120,7 @@ export const TOWELIE_QUOTES = [
 
 export function randomToweliQuote(): string {
   const i = Math.floor(Math.random() * TOWELIE_QUOTES.length);
-  return TOWELIE_QUOTES[i];
+  return TOWELIE_QUOTES[i]!;
 }
 
 // ═══════════════════════════════════════════════════════════════

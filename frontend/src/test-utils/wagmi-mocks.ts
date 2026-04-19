@@ -121,7 +121,7 @@ export const wagmiMock = {
 function findRead(spec: { functionName?: string; address?: string }): ReadStub | undefined {
   // Last match wins — tests can stack overrides.
   for (let i = state.reads.length - 1; i >= 0; i--) {
-    if (state.reads[i].match(spec)) return state.reads[i];
+    if (state.reads[i]!.match(spec)) return state.reads[i];
   }
   return undefined;
 }

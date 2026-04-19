@@ -46,11 +46,7 @@ export function arweaveHttpUrl(txId: string, path = ''): string {
 
 // ─── Window type augmentation ────────────────────────────────────
 
-declare global {
-  interface Window {
-    // EIP-1193 provider injected by MetaMask / browser wallets. Typed as unknown
-    // here because @irys/web-upload-ethereum accepts `any`; we don't need the
-    // detailed interface.
-    ethereum?: unknown;
-  }
-}
+// Note: `window.ethereum` is declared elsewhere in this codebase (wagmi /
+// RainbowKit). We intentionally don't redeclare it here — the Irys SDK accepts
+// `any` at runtime and re-declaring with a stricter type collides with the
+// existing `any`-typed global.

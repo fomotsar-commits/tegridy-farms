@@ -13,7 +13,7 @@
  *   strokeWidth = 1.5
  *   aria-hidden = true (decorative by default; pass aria-label to override)
  */
-import type { SVGProps } from 'react';
+import type { ReactElement, SVGProps } from 'react';
 
 export type IconName =
   | 'dashboard'
@@ -38,7 +38,7 @@ export interface IconProps extends Omit<SVGProps<SVGSVGElement>, 'name'> {
 }
 
 // Inline SVG paths (Lucide-style, 24-unit grid).
-const PATHS: Record<IconName, JSX.Element> = {
+const PATHS: Record<IconName, ReactElement> = {
   dashboard: (
     <>
       <rect x="3" y="3" width="7" height="9" rx="1" />

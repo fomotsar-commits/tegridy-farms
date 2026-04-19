@@ -30,7 +30,6 @@ const BOUNTY_TIERS = [
   { severity: 'Low', reward: '$500', color: '#22c55e' },
 ];
 
-const glass = { background: 'rgba(13, 21, 48, 0.88)', border: '1px solid var(--color-purple-12)' };
 
 // Card-art helper: per-card background image framed by a translucent black
 // content panel so text stays legible without hiding the art.
@@ -194,7 +193,7 @@ export default function SecurityPage() {
             {PROTECTIONS.map((p, i) => {
               const Icon = iconMap[p.icon];
               const arts = [ART.wrestler, ART.porchChill, ART.towelieWindow, ART.smokingDuo, ART.jbacSkeleton, ART.beachSunset];
-              const artPiece = arts[i % arts.length];
+              const artPiece = arts[i % arts.length]!;
               return (
                 <ArtCard key={p.title} art={artPiece} padding="p-5">
                   <div className="mb-3">{Icon && <Icon />}</div>
@@ -212,7 +211,7 @@ export default function SecurityPage() {
           <div className="space-y-3">
             {CONTRACTS.map((c, i) => {
               const arts = [ART.busCrew, ART.mumuBull, ART.bobowelie, ART.poolParty, ART.roseApe, ART.apeHug];
-              const artPiece = arts[i % arts.length];
+              const artPiece = arts[i % arts.length]!;
               return (
                 <div key={c.name} className="rounded-xl relative overflow-hidden" style={{ border: '1px solid var(--color-purple-12)' }}>
                   <div className="absolute inset-0">
@@ -266,7 +265,7 @@ export default function SecurityPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
               {BOUNTY_TIERS.map((t, i) => {
                 const arts = [ART.chaosScene, ART.danceNight, ART.jungleDark, ART.poolParty];
-                const artPiece = arts[i % arts.length];
+                const artPiece = arts[i % arts.length]!;
                 return (
                   <div key={t.severity} className="rounded-xl relative overflow-hidden" style={{ border: '1px solid var(--color-purple-12)' }}>
                     <div className="absolute inset-0">

@@ -8,7 +8,6 @@ import { MEME_BOUNTY_BOARD_ABI } from '../../lib/contracts';
 import { shortenAddress, formatTimeAgo, formatWei } from '../../lib/formatting';
 import { ART } from '../../lib/artConfig';
 
-const CARD_BG = 'rgba(13, 21, 48, 0.6)';
 const CARD_BORDER = 'var(--color-purple-12)';
 const STAT_ARTS = [ART.beachVibes, ART.jbChristmas, ART.beachSunset, ART.poolParty];
 
@@ -98,7 +97,7 @@ export function BountiesSection() {
         ].map(({ label, value, highlight }, i) => (
           <div key={label} className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
             <div className="absolute inset-0">
-              <img src={STAT_ARTS[i % STAT_ARTS.length].src} alt="" loading="lazy" className="w-full h-full object-cover" />
+              <img src={STAT_ARTS[i % STAT_ARTS.length]!.src} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-3">
               <p className="text-[10px] text-white/60 uppercase tracking-wider mb-1" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>{label}</p>
