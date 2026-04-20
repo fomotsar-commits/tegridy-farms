@@ -1473,6 +1473,7 @@ export const tegridyNftLendingAbi = [
       { name: '_aprBps', type: 'uint256' },
       { name: '_duration', type: 'uint256' },
       { name: '_collateralContract', type: 'address' },
+      { name: '_tokenId', type: 'uint256' },
     ],
     name: 'createOffer',
     outputs: [{ name: 'offerId', type: 'uint256' }],
@@ -1487,10 +1488,7 @@ export const tegridyNftLendingAbi = [
   },
   {
     type: 'function',
-    inputs: [
-      { name: '_offerId', type: 'uint256' },
-      { name: '_tokenId', type: 'uint256' },
-    ],
+    inputs: [{ name: '_offerId', type: 'uint256' }],
     name: 'acceptOffer',
     outputs: [{ name: 'loanId', type: 'uint256' }],
     stateMutability: 'nonpayable',
@@ -1519,6 +1517,7 @@ export const tegridyNftLendingAbi = [
       { name: 'aprBps', type: 'uint256' },
       { name: 'duration', type: 'uint256' },
       { name: 'collateralContract', type: 'address' },
+      { name: 'tokenId', type: 'uint256' },
       { name: 'active', type: 'bool' },
     ],
     stateMutability: 'view',
