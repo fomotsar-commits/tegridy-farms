@@ -163,6 +163,12 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     event TreasuryUpdated(address oldTreasury, address newTreasury); // SECURITY FIX #19
     event LockExtended(uint256 indexed tokenId, uint256 newLockDuration, uint256 newLockEnd);
     event BoostRevalidated(uint256 indexed tokenId, bool hasJbacBoost, uint256 newBoostedAmount); // AUDIT FIX #16
+    /// @notice AUDIT FIX M-5 (battle-tested): emitted when a contract other than the
+    ///         registered restakingContract receives a second+ staking NFT. The prior
+    ///         userTokenId is overwritten, so votingPowerOf(holder) reflects only the
+    ///         newest position. Integrators that accept staking NFTs must implement their
+    ///         own voting-power aggregation (see TegridyRestaking for reference).
+    event MultipleNFTsAtAddress(address indexed holder, uint256 newTokenId, uint256 priorTokenId);
     event TreasuryChangeProposed(address newTreasury, uint256 executeAfter); // AUDIT FIX #66
     event TreasuryChangeExecuted(address oldTreasury, address newTreasury); // AUDIT FIX #66
     event RestakingContractChangeProposed(address newRestaking, uint256 executeAfter); // AUDIT FIX C-02
@@ -647,6 +653,17 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             _writeCheckpoint(from);
         }
         if (to != address(0)) {
+            // AUDIT FIX M-5 (battle-tested, Option B from 2026-04-20 audit): emit a loud
+            // event when a contract other than the registered restakingContract receives
+            // a second+ staking NFT. The prior userTokenId is about to be overwritten, so
+            // votingPowerOf(to) will reflect only the new tokenId. Integrators that accept
+            // multiple staking NFTs must aggregate voting power themselves (see
+            // TegridyRestaking for reference). Emitting the event here means off-chain
+            // observers (indexers, alerting) can flag the regression rather than discover
+            // it through silent vote undercounting.
+            if (to.code.length > 0 && to != restakingContract && userTokenId[to] != 0) {
+                emit MultipleNFTsAtAddress(to, tokenId, userTokenId[to]);
+            }
             userTokenId[to] = tokenId;
             _writeCheckpoint(to);
         }
