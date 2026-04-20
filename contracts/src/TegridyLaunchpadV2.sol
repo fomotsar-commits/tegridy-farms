@@ -131,8 +131,12 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
         if (cfg.maxSupply > 100_000) revert MaxSupplyTooLarge();
         if (cfg.mintPrice > 100 ether) revert MintPriceTooHigh();
 
+        // AUDIT FIX (Slither encode-packed-collision, 2026-04-19 / battle-tested):
+        // abi.encodePacked with multiple dynamic strings is collision-prone. abi.encode
+        // ABI-pads each arg with a length prefix, eliminating collisions across the salt
+        // space and closing the CREATE2 front-run window.
         bytes32 salt = keccak256(
-            abi.encodePacked(msg.sender, allCollections.length, cfg.name, cfg.symbol)
+            abi.encode(msg.sender, allCollections.length, cfg.name, cfg.symbol)
         );
 
         collection = Clones.cloneDeterministic(dropTemplate, salt);

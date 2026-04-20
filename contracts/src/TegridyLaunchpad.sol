@@ -128,9 +128,13 @@ contract TegridyLaunchpad is OwnableNoRenounce, Pausable, TimelockAdmin {
         require(_maxSupply <= 100_000, "Max supply too large");
         require(_mintPrice <= 100 ether, "Mint price too high");
 
-        // Deterministic salt: creator + collection count ensures uniqueness
+        // AUDIT FIX (Slither encode-packed-collision, 2026-04-19 / battle-tested):
+        // abi.encodePacked with multiple dynamic strings is collision-prone — two
+        // different (name, symbol) pairs can pack to the same bytes (e.g., "aa"+"bb"
+        // vs "a"+"abb"). abi.encode ABI-pads each arg with a length prefix, eliminating
+        // collisions across the salt space and closing the CREATE2 front-run window.
         bytes32 salt = keccak256(
-            abi.encodePacked(msg.sender, allCollections.length, _name, _symbol)
+            abi.encode(msg.sender, allCollections.length, _name, _symbol)
         );
 
         // Deploy EIP-1167 minimal proxy via CREATE2
