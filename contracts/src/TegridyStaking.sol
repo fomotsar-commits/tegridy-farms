@@ -676,12 +676,28 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             uint256 available = rewardToken.balanceOf(address(this));
             uint256 reserved = _reserved();
             uint256 rewardPool = available > reserved ? available - reserved : 0;
-            if (pending > rewardPool) pending = rewardPool;
-            if (pending > 0) {
-                rewardToken.safeTransfer(recipient, pending);
-                emit RewardPaid(recipient, tokenId, pending);
-                return pending;
+            uint256 cappedPending = pending > rewardPool ? rewardPool : pending;
+
+            if (cappedPending > 0) {
+                rewardToken.safeTransfer(recipient, cappedPending);
+                emit RewardPaid(recipient, tokenId, cappedPending);
             }
+
+            // AUDIT FIX (critique 5.1 / battle-tested): route shortfall through
+            // _settleUnsettled so the user can reclaim once the pool is refunded,
+            // mirroring _settleRewardsOnTransfer semantics. Prior behavior silently
+            // advanced rewardDebt to the full accumulated value while paying only
+            // `rewardPool`, permanently losing the difference.
+            uint256 shortfall = pending - cappedPending;
+            if (shortfall > 0) {
+                uint256 actualSettled = _settleUnsettled(recipient, shortfall);
+                uint256 forfeited = shortfall - actualSettled;
+                if (forfeited > 0) {
+                    emit RewardsForfeited(recipient, forfeited);
+                }
+            }
+
+            return cappedPending;
         }
         return 0;
     }
