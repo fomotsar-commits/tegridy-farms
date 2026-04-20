@@ -151,6 +151,60 @@ the read surface).
   (`SECURITY_FIXES_2026-04-19.md` + `SECURITY_DEFERRED.md`) is the
   interim canonical status for this pass.
 
+## Post-merge audit sweep (2026-04-20) — accepted-risk findings
+
+The 5-agent + Slither audit pass over the merged `bulletproof/batch-1-mechanical`
+branch produced the items below. Each has been triaged and is intentionally NOT
+fixed in the mechanical-fix pass — either because the blocker is external, the
+cost exceeds the benefit, or the mitigation is already in place and can only be
+improved with a larger architectural change.
+
+### `TegridyLending._positionETHValue` spot-price sandwich
+- **Status:** HIGH severity if the lender opts in (`minPositionETHValue > 0`).
+- **Surface:** `acceptOffer` reads `TegridyPair.getReserves()` directly at accept
+  time. Same-block sandwich is possible.
+- **Why accepted:** the lender opts in explicitly; default is 0 (disabled). The
+  2-hour loan-acceptance deadline bounds the exposure window. Migrating to TWAP
+  requires the TegridyTWAP → Chainlink swap already deferred above. In the
+  interim lenders should leave `minPositionETHValue = 0` unless they have a
+  private-mempool RPC or can monitor for sandwich attempts.
+
+### `VoteIncentives` commit-reveal residual see-then-vote
+- **Status:** MEDIUM — economic agent estimated $50-200K/year theoretical capture.
+- **Surface:** commit window (40% of VOTE_DEADLINE = 2.8 days) is fully
+  observable. An attacker can commit at the start, monitor bribes, reveal late
+  with knowledge of the full bribe set and their own proportional share.
+- **Why accepted:** inherent tradeoff of on-chain commit-reveal; fully hiding
+  commit timing would require zk or off-chain sealed-bid. The 10 TOWELI bond
+  per commit + MIN_BRIBE_AMOUNT floor reduce the economic payoff.
+- **Cheap mitigation available:** raise `MIN_BRIBE_AMOUNT` from 0.001 ETH
+  toward 0.1 ETH on L1 (0.01 on L2). Makes dust-bribe filler griefing more
+  expensive and reduces the see-then-vote payoff per observable bribe. Not
+  landed in this pass — single-line constant change, acceptable follow-up.
+
+### `POLAccumulator.accumulate` MEV visibility
+- **Status:** HIGH severity if the operator submits via public mempool.
+- **Surface:** the swap + LP add is visible ≥1 block ahead of inclusion.
+- **Why accepted:** no on-chain mitigation possible for a predictable owner-
+  triggered swap-and-add. The contract already documents Flashbots-Protect as
+  a requirement and caps slippage at 5%. Enforcement is operational, not
+  technical.
+
+### `TegridyTWAP` multi-block price-deviation gaming
+- **Status:** MEDIUM — independent audit flagged the 50% deviation gate only
+  compares against the previous observation, not an absolute floor.
+- **Why accepted:** already captured above under "TegridyTWAP → Chainlink /
+  Uniswap V3 `OracleLibrary`." The fix is the oracle swap, not a patch.
+
+### 50k-gas stipend DoS risk on `distribute()` paths
+- **Status:** MEDIUM — if `revenueDistributor` or `polAccumulator` is ever
+  pointed at a contract whose `receive()` needs >50k gas, `distributeFeesToStakers`
+  reverts on the `require(ok, ...)`.
+- **Why accepted:** both destinations are protocol-governed with 48h timelock
+  changes and minimal `receive()` (event emit only). Raising to 100k doubles the
+  reentrancy surface without meaningful benefit. A future governance migration
+  to a complex router destination would require re-auditing this path.
+
 ### Stray files at repo root
 - **Status:** 25 Markdown files + previously-stray IMG/video files at
   the repo root. The iPhone images and videos were moved into

@@ -118,7 +118,11 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     // ~100k single-position baseline) and protects against push-grief (attacker flooding a
     // target address with stale NFTs to inflate their aggregation cost).
     mapping(address => EnumerableSet.UintSet) private _positionsByOwner;
-    uint256 public constant MAX_POSITIONS_PER_HOLDER = 50;
+    // Batch 8 polish (audit sweep 2026-04-20): raised from 50 → 100 to give Gnosis Safe
+    // multisigs and similar contract wallets more legitimate-use headroom. Worst-case
+    // votingPowerOf cost grows linearly (~260k gas at cap vs ~130k at 50) — still well
+    // under any practical gas limit. Attacker cost for a push-grief doubles.
+    uint256 public constant MAX_POSITIONS_PER_HOLDER = 100;
 
     // AUDIT FIX #1: Checkpointing via OZ Checkpoints.Trace208 (timestamp → votingPower)
     mapping(address => Checkpoints.Trace208) private _checkpoints;
