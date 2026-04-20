@@ -1060,12 +1060,14 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             unsettledRewards[user] += settled;
             totalUnsettledRewards += settled;
         }
-        // M-04 FIX: Redirect forfeited rewards to treasury instead of destroying them
-        uint256 forfeited = amount - settled;
-        if (forfeited > 0) {
-            unsettledRewards[treasury] += forfeited;
-            totalUnsettledRewards += forfeited;
-        }
+        // AUDIT FIX M-3 (battle-tested): forfeit-to-treasury redirect removed.
+        // Previously, overage above maxUnsettledRewards was credited to
+        // unsettledRewards[treasury] and counted against totalUnsettledRewards, letting the
+        // treasury cap-squeeze honest users' claims (owner could then claimUnsettledFor(treasury)
+        // to extract). Under the corrected semantics, the overage remains unreserved in the
+        // reward-pool balance and is re-accrued to all active stakers via the next
+        // _accumulateRewards cycle — the cap is now genuinely honored. Caller-site
+        // RewardsForfeited events remain as-is for off-chain observability.
     }
 
     /// @dev AUDIT FIX: Safe uint256 -> int256 cast. Reverts if value exceeds int256 max,
