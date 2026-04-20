@@ -270,6 +270,37 @@ export default function TradePage() {
                   )}
                 </div>
 
+                {/* AUDIT M-6: Fee-on-Transfer opt-in toggle. Off by default; auto-enabled on
+                    InsufficientOutput reverts via the useSwap error handler. Users can also
+                    flip it manually for known FoT/reflection/deflationary tokens. */}
+                <div className="mt-1 mb-1 px-3 py-2.5 rounded-lg" style={{ background: 'rgba(0,0,0,0.60)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                  <label className="flex items-center justify-between cursor-pointer">
+                    <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+                      Fee-on-transfer support
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={swap.supportsFeeOnTransfer}
+                      onClick={() => swap.setSupportsFeeOnTransfer(!swap.supportsFeeOnTransfer)}
+                      className="relative inline-flex items-center h-5 rounded-full w-10 transition-colors"
+                      style={{
+                        background: swap.supportsFeeOnTransfer ? 'var(--color-stan)' : 'rgba(255,255,255,0.2)',
+                      }}
+                    >
+                      <span
+                        className="inline-block w-3.5 h-3.5 rounded-full bg-white transition-transform"
+                        style={{
+                          transform: swap.supportsFeeOnTransfer ? 'translateX(22px)' : 'translateX(4px)',
+                        }}
+                      />
+                    </button>
+                  </label>
+                  <p className="mt-1 text-[10px] text-white/70" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+                    Enable for tokens with an internal transfer fee (reflection / deflationary). Auto-enabled on retry after insufficient-output reverts.
+                  </p>
+                </div>
+
                 {/* Route Info — dark panel with Stan blue edge for trading-trust signal.
                     Always renders; shows placeholder text when no amount entered so the
                     card never feels empty mid-swap. */}
