@@ -49,6 +49,22 @@ a tagged release will cut from here once Wave 0 redeploys are complete.
   `'pending' | 'deprecated' | 'redeploy' | 'multisig'`, plus an optional
   `note` rendered under the contract label for the two new states.
 
+#### Fixed
+
+- **Liquidity pool-stats card transparent** ([LiquidityTab.tsx](frontend/src/components/swap/LiquidityTab.tsx)) —
+  removed the full-bleed `ArtImg` backdrop and the `rgba(16,185,129,0.05)`
+  emerald tint from the "Your share / Rate / Your LP tokens" card. Border
+  stays, card fill is now transparent so the page background shows through.
+- **Token Lending tab bar** ([LendingSection.tsx `TabNav`](frontend/src/components/nftfinance/LendingSection.tsx)) —
+  `Lend / Borrow / My Loans` were rendered as bare text over the mascot
+  art, with the active tab using `text-black` that vanished against dark
+  backgrounds. Rewrote to match the NFT Lending pattern: solid black
+  container (`rgba(0,0,0,0.85)`), `flex-1` buttons, full-pill `var(--color-stan)`
+  background on the active tab, white text on both states.
+- **NFT Lending tab bar** ([NFTLendingSection.tsx](frontend/src/components/nftfinance/NFTLendingSection.tsx)) —
+  container background bumped from `rgba(13,21,48,0.4)` to
+  `rgba(0,0,0,0.85)` for the same reason.
+
 ### 2026-04-18 — Wave 0 deploys + V2 launchpad build-out
 
 #### Added
