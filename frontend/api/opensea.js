@@ -66,12 +66,14 @@ const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://nakamigos.gallery"
 export default async function handler(req, res) {
   const origin = req.headers.origin || "";
   const ALLOWED_ORIGINS = new Set([
+    "https://tegridyfarms.xyz",
+    "https://www.tegridyfarms.xyz",
     "https://nakamigos.gallery",
     "https://www.nakamigos.gallery",
     "https://tegridyfarms.vercel.app",
   ]);
-  // Only allow localhost origins in non-production environments
-  if (process.env.NODE_ENV !== "production") {
+  // AUDIT API-SEC: fail-closed — only admit localhost when NODE_ENV === "development".
+  if (process.env.NODE_ENV === "development") {
     ALLOWED_ORIGINS.add("http://localhost:8742");
     ALLOWED_ORIGINS.add("http://localhost:3000");
     ALLOWED_ORIGINS.add("http://localhost:5173");

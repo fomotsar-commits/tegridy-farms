@@ -9,6 +9,11 @@ standard-json-farm.json
 .claude/worktrees/
 .vercel/
 
+# Test + build artifacts
+frontend/test-results/
+**/tsconfig.tsbuildinfo
+indexer/nul
+
 # Repo root clutter — images + personal files
 # (allow frontend/public/ and frontend/src/assets/ images)
 /*.jpg

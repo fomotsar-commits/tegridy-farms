@@ -7,11 +7,14 @@ import { jwtVerify } from "jose";
 const JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
 
 const ALLOWED_ORIGINS = new Set([
+  "https://tegridyfarms.xyz",
+  "https://www.tegridyfarms.xyz",
   "https://nakamigos.gallery",
   "https://www.nakamigos.gallery",
   "https://tegridyfarms.vercel.app",
 ]);
-if (process.env.NODE_ENV !== "production") {
+// AUDIT API-SEC: fail-closed — only admit localhost when NODE_ENV === "development".
+if (process.env.NODE_ENV === "development") {
   ALLOWED_ORIGINS.add("http://localhost:8742");
   ALLOWED_ORIGINS.add("http://localhost:3000");
   ALLOWED_ORIGINS.add("http://localhost:5173");

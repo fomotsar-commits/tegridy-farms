@@ -26,11 +26,16 @@ const NONCE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const TOKEN_EXPIRY_HOURS = 24;
 
 const ALLOWED_ORIGINS = new Set([
+  "https://tegridyfarms.xyz",
+  "https://www.tegridyfarms.xyz",
   "https://nakamigos.gallery",
   "https://www.nakamigos.gallery",
   "https://tegridyfarms.vercel.app",
 ]);
-if (process.env.NODE_ENV !== "production") {
+// AUDIT API-SEC: fail-closed — only enable localhost origins when NODE_ENV is
+// explicitly "development". Prevents prod deploys with unset/mistyped NODE_ENV
+// from silently accepting localhost signatures.
+if (process.env.NODE_ENV === "development") {
   ALLOWED_ORIGINS.add("http://localhost:8742");
   ALLOWED_ORIGINS.add("http://localhost:3000");
   ALLOWED_ORIGINS.add("http://localhost:5173");

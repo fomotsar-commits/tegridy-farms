@@ -9,10 +9,13 @@ const ETHERSCAN_BASE = "https://api.etherscan.io/api";
 
 // Shared CORS helpers
 const ALLOWED_ORIGINS = [
+  "https://tegridyfarms.xyz",
+  "https://www.tegridyfarms.xyz",
   "https://tegridyfarms.vercel.app",
   "https://www.tegridyfarms.com",
 ];
-if (process.env.NODE_ENV !== "production") {
+// AUDIT API-SEC: fail-closed — only admit localhost when NODE_ENV === "development".
+if (process.env.NODE_ENV === "development") {
   ALLOWED_ORIGINS.push("http://localhost:5173", "http://localhost:3000");
 }
 

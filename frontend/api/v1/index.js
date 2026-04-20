@@ -42,8 +42,15 @@ function setRateLimitHeaders(res, { limit = 60, remaining = 59, reset = 60 } = {
 
 function setCors(req, res) {
   const origin = req.headers.origin || "";
-  const prodOrigins = ["https://nakamigos.gallery", "https://www.nakamigos.gallery", "https://tegridyfarms.vercel.app"];
-  const devOrigins = process.env.NODE_ENV !== "production"
+  const prodOrigins = [
+    "https://tegridyfarms.xyz",
+    "https://www.tegridyfarms.xyz",
+    "https://nakamigos.gallery",
+    "https://www.nakamigos.gallery",
+    "https://tegridyfarms.vercel.app",
+  ];
+  // AUDIT API-SEC: fail-closed — only admit localhost when NODE_ENV === "development".
+  const devOrigins = process.env.NODE_ENV === "development"
     ? ["http://localhost:8742", "http://localhost:3000", "http://localhost:5173"]
     : [];
   const ALLOWED_ORIGINS = new Set([...prodOrigins, ...devOrigins]);
