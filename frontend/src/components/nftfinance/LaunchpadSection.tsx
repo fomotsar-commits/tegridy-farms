@@ -184,6 +184,29 @@ export function LaunchpadSection() {
         </div>
       </div>
 
+      {/* AUDIT LAUNCHPAD-SEC: V2 factory placeholder banner. Surfaces the fact
+          that deployment goes through the v1 factory until the v2 address is
+          populated, so users aren't surprised when the wizard's final step
+          refuses to broadcast. The banner only renders when v2 is not live. */}
+      {!v2Live && (
+        <div
+          role="status"
+          className="rounded-2xl p-4 md:p-5"
+          style={{ border: '1px solid rgba(245, 158, 11, 0.35)', background: 'rgba(245, 158, 11, 0.08)' }}
+        >
+          <p className="text-amber-300 text-[13px] font-semibold mb-1" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+            Launchpad V2 factory pending deploy
+          </p>
+          <p className="text-white/75 text-[12px] leading-relaxed" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+            The V2 factory (single-tx createCollection + ERC-7572 contractURI) is
+            not yet broadcast on mainnet. Browsing, minting, and managing
+            existing V1 collections works normally; the deploy wizard's final
+            step will show a pending banner until V2 goes live. Tracked in
+            {' '}<code className="px-1 py-0.5 rounded bg-black/40 text-white/90 font-mono text-[11px]">docs/WAVE_0_RUNBOOK.md</code>.
+          </p>
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>

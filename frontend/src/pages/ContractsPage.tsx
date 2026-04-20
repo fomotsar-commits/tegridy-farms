@@ -22,6 +22,7 @@ import {
   VOTE_INCENTIVES_ADDRESS,
   TEGRIDY_LENDING_ADDRESS,
   TEGRIDY_LAUNCHPAD_ADDRESS,
+  TEGRIDY_LAUNCHPAD_V2_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_TOKEN_URI_READER_ADDRESS,
   TEGRIDY_NFT_LENDING_ADDRESS,
@@ -34,6 +35,7 @@ import {
   TREASURY_ADDRESS,
   JBAC_NFT_ADDRESS,
   JBAY_GOLD_ADDRESS,
+  isDeployed,
 } from '../lib/constants';
 
 const GITHUB_BASE = 'https://github.com/tegridyfarms/tegridy-farms/blob/main';
@@ -42,6 +44,9 @@ interface ContractEntry {
   label: string;
   address: string;
   source: string; // relative path under repo root
+  // AUDIT LAUNCHPAD-SEC: optional status surfaces placeholder/deprecated
+  // entries so users aren't presented with a zero address that looks live.
+  status?: 'pending' | 'deprecated';
 }
 
 interface ContractGroup {
@@ -98,7 +103,13 @@ const GROUPS: ContractGroup[] = [
     description: 'NFT-collateralized lending, bonding-curve pools, and launchpad.',
     entries: [
       { label: 'Tegridy Lending', address: TEGRIDY_LENDING_ADDRESS, source: 'contracts/src/TegridyLending.sol' },
-      { label: 'Tegridy Launchpad', address: TEGRIDY_LAUNCHPAD_ADDRESS, source: 'contracts/src/TegridyLaunchpad.sol' },
+      { label: 'Tegridy Launchpad (V1)', address: TEGRIDY_LAUNCHPAD_ADDRESS, source: 'contracts/src/TegridyLaunchpad.sol' },
+      {
+        label: 'Tegridy Launchpad (V2)',
+        address: TEGRIDY_LAUNCHPAD_V2_ADDRESS,
+        source: 'contracts/src/TegridyLaunchpadV2.sol',
+        status: isDeployed(TEGRIDY_LAUNCHPAD_V2_ADDRESS) ? undefined : 'pending',
+      },
       { label: 'NFT Pool Factory', address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS, source: 'contracts/src/TegridyNFTPoolFactory.sol' },
       { label: 'NFT Lending', address: TEGRIDY_NFT_LENDING_ADDRESS, source: 'contracts/src/TegridyNFTLending.sol' },
       { label: 'Token URI Reader', address: TEGRIDY_TOKEN_URI_READER_ADDRESS, source: 'contracts/src/TokenURIReader.sol' },
@@ -122,10 +133,26 @@ const GROUPS: ContractGroup[] = [
 function ContractRow({ entry }: { entry: ContractEntry }) {
   const isExternal = entry.source.startsWith('external');
   const sourceHref = isExternal ? undefined : `${GITHUB_BASE}/${entry.source}`;
+  const isPending = entry.status === 'pending';
+  const isDeprecated = entry.status === 'deprecated';
   return (
-    <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto_auto] items-center gap-2 md:gap-4 py-3 border-b border-white/5 last:border-0">
+    <div
+      className={`grid grid-cols-1 md:grid-cols-[1fr_auto_auto_auto] items-center gap-2 md:gap-4 py-3 border-b border-white/5 last:border-0 ${isPending ? 'opacity-70' : ''}`}
+    >
       <div className="min-w-0">
-        <div className="text-white text-[14px] font-medium truncate">{entry.label}</div>
+        <div className="text-white text-[14px] font-medium truncate flex items-center gap-2 flex-wrap">
+          <span>{entry.label}</span>
+          {isPending && (
+            <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-300">
+              pending deploy
+            </span>
+          )}
+          {isDeprecated && (
+            <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-white/20 bg-white/5 text-white/60">
+              deprecated
+            </span>
+          )}
+        </div>
         {isExternal ? (
           <div className="text-white/40 text-[11px] mt-0.5">{entry.source}</div>
         ) : (
@@ -143,23 +170,38 @@ function ContractRow({ entry }: { entry: ContractEntry }) {
       {/* Mobile: explicit "Address:" label + ≥44px tap target on the copy control. */}
       <div className="flex items-center justify-between md:justify-end gap-3 md:contents">
         <span className="md:hidden text-white/50 text-[11px] uppercase tracking-wider">Address:</span>
-        <CopyButton
-          text={entry.address}
-          display={shortenAddress(entry.address, 6)}
-          className="font-mono text-[12px] text-white/80 min-h-[44px] min-w-[44px] inline-flex items-center justify-end md:min-h-0 md:min-w-0 px-2 md:px-0"
-        />
+        {isPending ? (
+          <span
+            className="font-mono text-[12px] text-white/40 inline-flex items-center justify-end px-2 md:px-0"
+            title="Address not yet assigned — contract awaiting deployment"
+          >
+            {shortenAddress(entry.address, 6)}
+          </span>
+        ) : (
+          <CopyButton
+            text={entry.address}
+            display={shortenAddress(entry.address, 6)}
+            className="font-mono text-[12px] text-white/80 min-h-[44px] min-w-[44px] inline-flex items-center justify-end md:min-h-0 md:min-w-0 px-2 md:px-0"
+          />
+        )}
       </div>
       <div className="flex items-center justify-between md:justify-end gap-3 md:contents">
         <span className="md:hidden text-white/50 text-[11px] uppercase tracking-wider">Explorer:</span>
-        <a
-          href={`https://etherscan.io/address/${entry.address}#code`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[11px] text-white/60 hover:text-white transition-colors whitespace-nowrap inline-flex items-center justify-end min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 px-2 md:px-0"
-          aria-label={`View ${entry.label} on Etherscan (opens in new tab)`}
-        >
-          Etherscan ↗
-        </a>
+        {isPending ? (
+          <span className="text-[11px] text-white/30 whitespace-nowrap inline-flex items-center justify-end px-2 md:px-0">
+            —
+          </span>
+        ) : (
+          <a
+            href={`https://etherscan.io/address/${entry.address}#code`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] text-white/60 hover:text-white transition-colors whitespace-nowrap inline-flex items-center justify-end min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 px-2 md:px-0"
+            aria-label={`View ${entry.label} on Etherscan (opens in new tab)`}
+          >
+            Etherscan ↗
+          </a>
+        )}
       </div>
     </div>
   );
