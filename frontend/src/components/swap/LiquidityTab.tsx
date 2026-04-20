@@ -230,25 +230,20 @@ export function LiquidityTab() {
               </div>
             </div>
 
-            {/* Pool stats w/ pool-party overlay */}
+            {/* Pool stats — transparent so the page background shows through */}
             {liq.pairExists && !liq.isEmptyPool && (
-              <div className="mb-3 relative rounded-lg overflow-hidden" style={{ border: '1px solid rgba(16,185,129,0.18)' }}>
-                <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-                  <ArtImg pageId="liquidity-tab" idx={1} alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
+              <div className="mb-3 rounded-lg p-3 text-[11px]" style={{ background: 'transparent', border: '1px solid rgba(16,185,129,0.18)' }}>
+                <div className="flex justify-between text-white/70 mb-1">
+                  <span>Your share of the pool</span>
+                  <span className="text-emerald-400 font-mono">{poolShare.toFixed(4)}%</span>
                 </div>
-                <div className="relative p-3 text-[11px]" style={{ background: 'rgba(16,185,129,0.05)' }}>
-                  <div className="flex justify-between text-white/70 mb-1">
-                    <span>Your share of the pool</span>
-                    <span className="text-emerald-400 font-mono">{poolShare.toFixed(4)}%</span>
-                  </div>
-                  <div className="flex justify-between text-white/70 mb-1">
-                    <span>Rate</span>
-                    <span className="text-white font-mono">1 {tokenA.symbol} = {liq.priceRatio > 0 ? liq.priceRatio.toFixed(6) : '—'} {tokenB.symbol}</span>
-                  </div>
-                  <div className="flex justify-between text-white/70">
-                    <span>Your LP tokens</span>
-                    <span className="text-white font-mono">{formatTokenAmount(liq.lpBalanceFormatted)}</span>
-                  </div>
+                <div className="flex justify-between text-white/70 mb-1">
+                  <span>Rate</span>
+                  <span className="text-white font-mono">1 {tokenA.symbol} = {liq.priceRatio > 0 ? liq.priceRatio.toFixed(6) : '—'} {tokenB.symbol}</span>
+                </div>
+                <div className="flex justify-between text-white/70">
+                  <span>Your LP tokens</span>
+                  <span className="text-white font-mono">{formatTokenAmount(liq.lpBalanceFormatted)}</span>
                 </div>
               </div>
             )}
