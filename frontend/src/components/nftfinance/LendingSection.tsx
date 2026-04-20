@@ -508,24 +508,31 @@ const TABS: { key: Tab; label: string }[] = [
 
 function TabNav({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   return (
-    <div className="flex gap-6 border-b relative" style={{ borderColor: ROW_BORDER }}>
+    <div
+      className="flex gap-1 rounded-xl p-1 relative"
+      style={{
+        background: 'rgba(0, 0, 0, 0.85)',
+        border: `1px solid ${ROW_BORDER}`,
+      }}
+    >
       {TABS.map((t) => (
         <button
           key={t.key}
           onClick={() => setTab(t.key)}
-          className={`relative pb-3 text-sm font-medium transition-colors duration-300 ${
-            tab === t.key ? 'text-black' : 'text-white hover:text-white'
+          className={`relative flex-1 min-h-[44px] rounded-lg text-[13px] font-medium transition-colors ${
+            tab === t.key ? 'text-white' : 'text-white/75 hover:text-white'
           }`}
           style={{ transitionTimingFunction: `cubic-bezier(${EASE.join(',')})` }}
         >
-          {t.label}
           {tab === t.key && (
             <m.div
               layoutId="lending-tab-indicator"
-              className="absolute bottom-0 left-0 right-0 h-[2px] bg-emerald-400"
-              transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+              className="absolute inset-0 rounded-lg"
+              style={{ background: 'var(--color-stan)', boxShadow: '0 4px 12px var(--color-stan-40)' }}
+              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
             />
           )}
+          <span className="relative z-10">{t.label}</span>
         </button>
       ))}
     </div>
