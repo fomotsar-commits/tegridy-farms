@@ -277,6 +277,30 @@ export function LiquidityTab() {
               </div>
             </div>
 
+            {/* AUDIT LP-UX: impermanent-loss disclosure. The add-liquidity
+                flow used to ship users into an AMM LP position without any
+                mention of IL risk. Only shown once the user has entered
+                non-trivial amounts on an existing pair — first-pool seeders
+                already see a separate "you set the initial price" banner
+                above, and showing two risk callouts stacked is noise. */}
+            {liq.pairExists && !liq.isEmptyPool && amountA && amountB &&
+             parseFloat(amountA) > 0 && parseFloat(amountB) > 0 && (
+              <div
+                role="note"
+                className="mb-4 px-3 py-2.5 rounded-lg text-[11.5px] leading-relaxed"
+                style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}
+              >
+                <p className="text-amber-300 font-semibold mb-0.5">Heads up — impermanent loss</p>
+                <p className="text-white/80">
+                  LP positions lose value vs. just holding the two tokens when their
+                  price ratio diverges. A 2× move one way costs you ~5.7% vs. holding;
+                  a 4× move costs ~20%. Fees earned must outweigh this drift for the
+                  position to be net profitable. Don't LP volatile pairs with funds
+                  you need short-term.
+                </p>
+              </div>
+            )}
+
             {/* Action cascade */}
             {needsApproveA ? (
               <button onClick={() => liq.approveTokenA(amountA)} disabled={liq.isPending || liq.isConfirming}
