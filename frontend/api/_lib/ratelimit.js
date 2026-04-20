@@ -12,9 +12,14 @@
 //   - Configured via two env vars set in Vercel:
 //       UPSTASH_REDIS_REST_URL
 //       UPSTASH_REDIS_REST_TOKEN
-//     If either is missing, the limiter silently disables itself and every
-//     request is allowed — this is deliberate so a config outage doesn't
-//     brick the API. Ops gets a console.warn at first request.
+//     AUDIT API-SEC (2026-04): fail-closed in production, fail-open in dev.
+//     Earlier revisions always failed open on missing env or Upstash errors
+//     — a configuration mistake silently left the API unthrottled. Now:
+//       NODE_ENV === 'production' AND no env vars  → 503 Service Unavailable
+//       NODE_ENV === 'production' AND Upstash error → 503 Service Unavailable
+//       else (dev / preview without Upstash)        → allow with console.warn
+//     This shifts the failure mode toward visibility: a 503 gets noticed,
+//     a silent unthrottled API does not.
 //
 // USAGE
 //   import { withRateLimit } from './_lib/ratelimit.js';
@@ -81,19 +86,36 @@ function extractIp(req) {
   return 'unknown';
 }
 
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
 /**
- * Consume one rate-limit token. If limit exceeded, responds with 429 and
- * returns false. If allowed, returns true. If Upstash isn't configured,
- * returns true (fail-open).
+ * Consume one rate-limit token.
+ *
+ * Returns true (allowed), false (blocked — 429 or 503 already sent).
+ *
+ * Failure modes:
+ *   - Upstash env vars missing:
+ *     - production → 503 + false    (fail closed)
+ *     - non-prod   → true           (fail open, warn once)
+ *   - Upstash request error:
+ *     - production → 503 + false    (fail closed)
+ *     - non-prod   → true           (fail open, warn)
  *
  * @param {import('http').IncomingMessage} req
  * @param {import('http').ServerResponse} res
  * @param {{ limit: number, windowSec: number, identifier: string }} opts
- * @returns {Promise<boolean>} true = allowed, false = blocked (429 already sent)
+ * @returns {Promise<boolean>} true = allowed, false = blocked (response already sent)
  */
 export async function checkRateLimit(req, res, opts) {
   const limiter = getLimiter(opts);
-  if (!limiter) return true; // fail-open when disabled
+  if (!limiter) {
+    // No Upstash configured.
+    if (IS_PRODUCTION) {
+      res.status(503).json({ error: 'Rate limiter unavailable' });
+      return false;
+    }
+    return true; // dev / preview without Upstash — allowed
+  }
 
   const ip = extractIp(req);
   const key = `${ip}`;
@@ -111,8 +133,12 @@ export async function checkRateLimit(req, res, opts) {
     }
     return true;
   } catch (err) {
-    // Upstash hiccup — fail open rather than block legitimate traffic.
-    console.error('[ratelimit] upstash error, failing open:', err?.message ?? err);
+    console.error('[ratelimit] upstash error:', err?.message ?? err);
+    if (IS_PRODUCTION) {
+      res.status(503).json({ error: 'Rate limiter unavailable' });
+      return false;
+    }
+    // Dev / preview — fail open, but loud in logs.
     return true;
   }
 }
