@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount, useBalance, useChainId } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { toast } from 'sonner';
@@ -84,6 +84,16 @@ export function useSwap() {
   // ---- Allowance (delegated to useSwapAllowance) ----
   const allowance = useSwapAllowance(fromToken, parsedAmount, quote.selectedRoute, address, writeContract);
 
+  // AUDIT SWAP-UX: track which action fired the current tx so the receipt
+  // effect can distinguish "swap confirmed" from "approve confirmed" and
+  // fire the right toast + analytics event. Previously every successful tx
+  // — including approvals — triggered "WAGMI! Swap confirmed" + trackSwap.
+  const lastActionRef = useRef<'approve' | 'swap' | null>(null);
+  const approveAndTag = useCallback(() => {
+    lastActionRef.current = 'approve';
+    allowance.approve();
+  }, [allowance]);
+
   // Refetch allowance and balances after successful tx + toast + auto-reset
   const { data: fromTokenBalance, refetch: refetchFromBalance } = useReadContract({
     address: (fromToken && !fromToken.isNative ? fromToken.address : WETH_ADDRESS) as `0x${string}`,
@@ -105,23 +115,37 @@ export function useSwap() {
 
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash });
 
-  // Refetch allowance and balances after successful tx + toast + auto-reset
+  // Refetch allowance and balances after successful tx + toast + auto-reset.
+  // Split approve vs swap outcomes — an approve tx shouldn't claim "Swap confirmed"
+  // or log a trackSwap event, and after approve we want to keep the amount so
+  // the user can proceed to swap without retyping.
   useEffect(() => {
-    if (isSuccess && hash) {
-      allowance.refetchAllowance();
-      refetchFromBalance();
-      toast.success('WAGMI! Swap confirmed', {
-        description: `${fromToken?.symbol} → ${toToken?.symbol}`,
-        action: {
-          label: 'View on Explorer',
-          onClick: () => window.open(getTxUrl(chainId, hash), '_blank'),
-        },
+    if (!isSuccess || !hash) return;
+    allowance.refetchAllowance();
+    refetchFromBalance();
+    const action = lastActionRef.current;
+    if (action === 'approve') {
+      toast.success('Token approved', {
+        description: `${fromToken?.symbol ?? 'Token'} ready — tap Swap when you're set.`,
       });
-      trackSwap(fromToken?.symbol ?? '', toToken?.symbol ?? '', inputAmount, quote.selectedRoute);
-      const t = setTimeout(() => { reset(); setInputAmount(''); }, 4000);
-      return () => clearTimeout(t);
+      lastActionRef.current = null;
+      // Do not reset inputAmount — user is mid-flow and will now hit Swap.
+      return;
     }
-  }, [isSuccess, hash, allowance.refetchAllowance, refetchFromBalance, fromToken, toToken, reset]);
+    // Either 'swap' or null (defensive: treat null as swap — approve path
+    // is the only one that should tag explicitly). Fire the swap UI.
+    toast.success('WAGMI! Swap confirmed', {
+      description: `${fromToken?.symbol} → ${toToken?.symbol}`,
+      action: {
+        label: 'View on Explorer',
+        onClick: () => window.open(getTxUrl(chainId, hash), '_blank'),
+      },
+    });
+    trackSwap(fromToken?.symbol ?? '', toToken?.symbol ?? '', inputAmount, quote.selectedRoute);
+    lastActionRef.current = null;
+    const t = setTimeout(() => { reset(); setInputAmount(''); }, 4000);
+    return () => clearTimeout(t);
+  }, [isSuccess, hash, allowance.refetchAllowance, refetchFromBalance, fromToken, toToken, reset, chainId, inputAmount, quote.selectedRoute]);
 
   // Show user-friendly error toast when a write transaction fails
   useEffect(() => {
@@ -157,6 +181,9 @@ export function useSwap() {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     // Prevent executing swap if approval is still needed
     if (allowance.needsApproval) { toast.error('Please approve the token first'); return; }
+    // Tag the current tx as a swap so the receipt effect knows to fire the
+    // swap toast + analytics (instead of the generic approve toast).
+    lastActionRef.current = 'swap';
     // Prevent swapping a token for itself
     const fromAddr = fromToken.isNative ? WETH_ADDRESS : fromToken.address;
     const toAddr = toToken.isNative ? WETH_ADDRESS : toToken.address;
@@ -295,7 +322,7 @@ export function useSwap() {
     minimumReceived: quote.minimumReceivedFormatted,
     needsApproval: allowance.needsApproval,
     insufficientBalance,
-    approve: allowance.approve,
+    approve: approveAndTag,
     executeSwap,
     flipDirection,
     isPending,
