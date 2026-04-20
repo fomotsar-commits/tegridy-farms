@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { Fragment, useState, useEffect, useMemo, useCallback } from 'react';
 import { m } from 'framer-motion';
 import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -21,13 +21,24 @@ interface TxRecord {
   functionName: string;
   isError: string;
   value: string;
+  // AUDIT HISTORY-UX: Etherscan returns gasUsed + gasPrice on every txlist
+  // entry; we now capture them so users can see what each tx actually cost.
+  // Optional because pre-upgrade caches may omit them (defensive read).
+  gasUsed?: string;
+  gasPrice?: string;
 }
 
 function isValidTxRecord(tx: unknown): tx is TxRecord {
   if (!tx || typeof tx !== 'object') return false;
   const r = tx as Record<string, unknown>;
-  return typeof r.hash === 'string' && typeof r.timeStamp === 'string' && typeof r.to === 'string'
-    && typeof r.functionName === 'string' && typeof r.isError === 'string' && typeof r.value === 'string';
+  if (typeof r.hash !== 'string' || typeof r.timeStamp !== 'string' || typeof r.to !== 'string'
+    || typeof r.functionName !== 'string' || typeof r.isError !== 'string' || typeof r.value !== 'string') {
+    return false;
+  }
+  // gas fields are optional but must be strings when present.
+  if (r.gasUsed !== undefined && typeof r.gasUsed !== 'string') return false;
+  if (r.gasPrice !== undefined && typeof r.gasPrice !== 'string') return false;
+  return true;
 }
 
 function truncateTxFields(tx: TxRecord): TxRecord {
@@ -38,7 +49,48 @@ function truncateTxFields(tx: TxRecord): TxRecord {
     functionName: tx.functionName.slice(0, 128),
     isError: tx.isError,
     value: tx.value.slice(0, 32),
+    gasUsed: tx.gasUsed?.slice(0, 20),
+    gasPrice: tx.gasPrice?.slice(0, 32),
   };
+}
+
+// Compute gas cost in ETH from decimal-string gasUsed * gasPrice (wei).
+// Returns empty string if either field is missing / malformed so the UI can
+// render "—" without special-casing. 6 decimals is enough to see sub-cent
+// tx costs without taking up a column worth of real estate.
+function formatGasEth(gasUsed?: string, gasPrice?: string): string {
+  if (!gasUsed || !gasPrice) return '';
+  try {
+    const cost = BigInt(gasUsed) * BigInt(gasPrice);
+    if (cost === 0n) return '';
+    // Convert wei → ETH with 6-decimal precision, no float precision loss.
+    const whole = cost / 1_000_000_000_000_000_000n;
+    const micro = (cost / 1_000_000_000_000n) % 1_000_000n;
+    const wholeStr = whole.toString();
+    const microStr = micro.toString().padStart(6, '0');
+    const trimmed = (wholeStr + '.' + microStr).replace(/\.?0+$/, '') || '0';
+    return trimmed;
+  } catch {
+    return '';
+  }
+}
+
+// Group by local calendar day. Returns stable sections in input order with
+// the first tx's date used for the label; "Today" / "Yesterday" are promoted
+// on top of the absolute date.
+function dayLabel(unixSec: number, now: number = Date.now()): string {
+  const d = new Date(unixSec * 1000);
+  const nowD = new Date(now);
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((startOfDay(nowD) - startOfDay(d)) / 86_400_000);
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  const sameYear = d.getFullYear() === nowD.getFullYear();
+  return d.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  });
 }
 
 function categorizeTx(tx: TxRecord): { type: string; color: string } {
@@ -234,9 +286,27 @@ export default function HistoryPage() {
   const pageStart = page * PAGE_SIZE;
   const pagedCategorized = categorized.slice(pageStart, pageStart + PAGE_SIZE);
 
+  // AUDIT HISTORY-UX: group the current page's rows by local calendar day
+  // so the user sees a "Today / Yesterday / Apr 14" section header between
+  // stretches of activity. Stable in render order; no sorting changes.
+  const nowMs = useMemo(() => Date.now(), [pagedCategorized]);
+  const groupedPage = useMemo(() => {
+    const groups: Array<{ label: string; txs: typeof pagedCategorized }> = [];
+    let current: { label: string; txs: typeof pagedCategorized } | null = null;
+    for (const tx of pagedCategorized) {
+      const label = dayLabel(parseInt(tx.timeStamp, 10), nowMs);
+      if (!current || current.label !== label) {
+        current = { label, txs: [] };
+        groups.push(current);
+      }
+      current.txs.push(tx);
+    }
+    return groups;
+  }, [pagedCategorized, nowMs]);
+
   const exportCSV = useCallback(() => {
     if (categorized.length === 0) return;
-    const headers = ['Date', 'Type', 'Function', 'Tx Hash', 'To', 'Value (Wei)', 'Status'];
+    const headers = ['Date', 'Type', 'Function', 'Tx Hash', 'To', 'Value (Wei)', 'Gas Cost (ETH)', 'Status'];
     const rows = categorized.map(tx => [
       new Date(parseInt(tx.timeStamp, 10) * 1000).toISOString(),
       tx.type,
@@ -244,6 +314,7 @@ export default function HistoryPage() {
       tx.hash,
       tx.to,
       tx.value || '0',
+      formatGasEth(tx.gasUsed, tx.gasPrice) || '',
       tx.isError === '0' ? 'OK' : 'Failed',
     ]);
     const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -347,55 +418,78 @@ export default function HistoryPage() {
                   <th className="px-4 md:px-5 py-3 text-left font-normal w-20">Type</th>
                   <th className="py-3 text-left font-normal w-24">Function</th>
                   <th className="py-3 text-left font-normal">Tx Hash</th>
+                  <th className="py-3 text-right font-normal w-24">Gas (ETH)</th>
                   <th className="py-3 text-right font-normal w-20">Time</th>
                   <th className="px-4 md:px-5 py-3 text-right font-normal w-16">Status</th>
                 </tr>
               </thead>
               <tbody>
-                {pagedCategorized.map(tx => (
-                  <tr key={tx.hash} className="hover:bg-black/60 transition-colors"
-                    style={{ borderBottom: '1px solid var(--color-purple-75)' }}>
-                    {/* Desktop cells */}
-                    <td className="hidden md:table-cell px-4 md:px-5 py-3">
-                      <a href={getTxUrl(chainId, tx.hash)} target="_blank" rel="noopener noreferrer"
-                        className={`text-[12px] font-semibold ${tx.color}`}>{tx.type}</a>
-                    </td>
-                    <td className="hidden md:table-cell py-3">
-                      <span className="text-[11px] text-white font-mono truncate block w-24">{tx.functionName?.split('(')[0] || '–'}</span>
-                    </td>
-                    <td className="hidden md:table-cell py-3">
-                      <a href={getTxUrl(chainId, tx.hash)} target="_blank" rel="noopener noreferrer"
-                        className="text-[11px] font-mono text-white truncate block">
-                        {shortenAddress(tx.hash, 8)}
-                      </a>
-                    </td>
-                    <td className="hidden md:table-cell py-3 text-right text-[11px] text-white">
-                      {formatTimeAgo(parseInt(tx.timeStamp, 10))}
-                    </td>
-                    <td className="hidden md:table-cell px-4 md:px-5 py-3 text-right">
-                      <span className={`text-[11px] font-medium ${tx.isError === '0' ? 'text-success' : 'text-danger'}`}>
-                        {tx.isError === '0' ? 'OK' : 'Failed'}
-                      </span>
-                    </td>
-                    {/* Mobile cell — single cell spanning full width */}
-                    <td className="md:hidden px-4 py-3" colSpan={5}>
-                      <a href={getTxUrl(chainId, tx.hash)} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className={`text-[12px] font-semibold flex-shrink-0 ${tx.color}`}>{tx.type}</span>
-                          <span className="text-[11px] font-mono text-white truncate">
-                            {shortenAddress(tx.hash, 6)}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <span className="text-[11px] text-white">{formatTimeAgo(parseInt(tx.timeStamp, 10))}</span>
-                          <span className={`text-[11px] font-medium ${tx.isError === '0' ? 'text-success' : 'text-danger'}`}>
-                            {tx.isError === '0' ? 'OK' : 'Fail'}
-                          </span>
-                        </div>
-                      </a>
-                    </td>
-                  </tr>
+                {groupedPage.map(group => (
+                  <Fragment key={group.label}>
+                    {/* Day-header row spans the full table; sticky-ish via
+                        class styling so it pins while scrolling a long day. */}
+                    <tr className="bg-black/50">
+                      <td colSpan={6} className="px-4 md:px-5 py-2 text-[11px] uppercase tracking-wider text-white/60 font-semibold"
+                        style={{ textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
+                        {group.label}
+                        <span className="ml-2 text-white/35 lowercase font-normal">
+                          · {group.txs.length} tx{group.txs.length === 1 ? '' : 's'}
+                        </span>
+                      </td>
+                    </tr>
+                    {group.txs.map(tx => {
+                      const gasEth = formatGasEth(tx.gasUsed, tx.gasPrice);
+                      return (
+                        <tr key={tx.hash} className="hover:bg-black/60 transition-colors"
+                          style={{ borderBottom: '1px solid var(--color-purple-75)' }}>
+                          {/* Desktop cells */}
+                          <td className="hidden md:table-cell px-4 md:px-5 py-3">
+                            <a href={getTxUrl(chainId, tx.hash)} target="_blank" rel="noopener noreferrer"
+                              className={`text-[12px] font-semibold ${tx.color}`}>{tx.type}</a>
+                          </td>
+                          <td className="hidden md:table-cell py-3">
+                            <span className="text-[11px] text-white font-mono truncate block w-24">{tx.functionName?.split('(')[0] || '–'}</span>
+                          </td>
+                          <td className="hidden md:table-cell py-3">
+                            <a href={getTxUrl(chainId, tx.hash)} target="_blank" rel="noopener noreferrer"
+                              className="text-[11px] font-mono text-white truncate block">
+                              {shortenAddress(tx.hash, 8)}
+                            </a>
+                          </td>
+                          <td className="hidden md:table-cell py-3 text-right text-[11px] text-white/70 font-mono" title={gasEth ? `${gasEth} ETH spent on gas` : 'Gas cost unavailable'}>
+                            {gasEth || '—'}
+                          </td>
+                          <td className="hidden md:table-cell py-3 text-right text-[11px] text-white">
+                            {formatTimeAgo(parseInt(tx.timeStamp, 10))}
+                          </td>
+                          <td className="hidden md:table-cell px-4 md:px-5 py-3 text-right">
+                            <span className={`text-[11px] font-medium ${tx.isError === '0' ? 'text-success' : 'text-danger'}`}>
+                              {tx.isError === '0' ? 'OK' : 'Failed'}
+                            </span>
+                          </td>
+                          {/* Mobile cell — single cell spanning full width */}
+                          <td className="md:hidden px-4 py-3" colSpan={6}>
+                            <a href={getTxUrl(chainId, tx.hash)} target="_blank" rel="noopener noreferrer"
+                              className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className={`text-[12px] font-semibold flex-shrink-0 ${tx.color}`}>{tx.type}</span>
+                                <span className="text-[11px] font-mono text-white truncate">
+                                  {shortenAddress(tx.hash, 6)}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                {gasEth && <span className="text-[10px] text-white/60 font-mono">{gasEth} Ξ</span>}
+                                <span className="text-[11px] text-white">{formatTimeAgo(parseInt(tx.timeStamp, 10))}</span>
+                                <span className={`text-[11px] font-medium ${tx.isError === '0' ? 'text-success' : 'text-danger'}`}>
+                                  {tx.isError === '0' ? 'OK' : 'Fail'}
+                                </span>
+                              </div>
+                            </a>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
