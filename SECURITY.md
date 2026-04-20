@@ -98,6 +98,12 @@ If legal action is initiated by a third party against a researcher following thi
 
 We maintain a [Hall of Fame](./HALL_OF_FAME.md) for researchers who have contributed to securing the protocol. With your permission, we'd be glad to add your handle.
 
+## Operational runbooks
+
+- [`docs/SECRET_ROTATION.md`](./docs/SECRET_ROTATION.md) — how to rotate any API key, JWT secret, or service credential; documents actual leak surface per key so you can triage urgency correctly.
+- [`docs/WAVE_0_RUNBOOK.md`](./docs/WAVE_0_RUNBOOK.md) — contract redeploy + ownership transfer procedure.
+- [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md) — end-to-end deploy flow.
+
 ---
 
-Last updated: 2026-04-17
+Last updated: 2026-04-19
