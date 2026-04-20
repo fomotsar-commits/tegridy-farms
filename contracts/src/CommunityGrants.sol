@@ -85,6 +85,13 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     uint256 public constant MAX_ACTIVE_PROPOSALS = 50; // AUDIT FIX M-13: Cap to prevent unbounded storage growth
     // SECURITY FIX H-4: Voting delay before votes can be cast (Compound GovernorBravo pattern)
     uint256 public constant VOTING_DELAY = 1 days;
+    // AUDIT FIX M-1 (battle-tested): snapshot voting power from SNAPSHOT_LOOKBACK before
+    // proposal creation. Prevents proposer-ally pre-positioning — under the prior
+    // `block.timestamp - 1` capture an ally who staked in the block immediately before
+    // createProposal() captured full voting power at the snapshot. 1-hour lookback forces
+    // the coordinating capital to commit far enough in advance that the advantage is
+    // uneconomic relative to the voting outcome.
+    uint256 public constant SNAPSHOT_LOOKBACK = 1 hours;
     // SECURITY FIX H-5: Mandatory execution delay for ALL callers (GovernorBravo timelock pattern)
     uint256 public constant EXECUTION_DELAY = 1 days;
     // SECURITY FIX H-6: Minimum unique voters to prevent whale governance capture (Nouns DAO pattern)
@@ -218,7 +225,7 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             createdAt: block.timestamp,
             deadline: block.timestamp + VOTING_PERIOD,
             status: ProposalStatus.Active,
-            snapshotTimestamp: block.timestamp > 0 ? block.timestamp - 1 : 0,
+            snapshotTimestamp: block.timestamp >= SNAPSHOT_LOOKBACK ? block.timestamp - SNAPSHOT_LOOKBACK : 0,
             snapshotTotalStake: votingEscrow.totalBoostedStake(), // SECURITY FIX: snapshot quorum denominator
             proposerTokenId: votingEscrow.userTokenId(msg.sender) // SECURITY FIX: snapshot proposer's NFT position
         }));

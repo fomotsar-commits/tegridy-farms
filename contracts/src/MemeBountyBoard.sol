@@ -47,6 +47,9 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     uint256 public constant MAX_SUBMISSIONS_PER_BOUNTY = 100; // L-05: cap submissions to prevent griefing
     uint256 public constant MIN_SUBMIT_BALANCE = 500 ether; // A4-M-15: Must hold 500 TOWELI to submit (prevents slot griefing)
     uint256 public constant MAX_DEADLINE_DURATION = 180 days; // AUDIT FIX H-20: prevent indefinite ETH locking (was 365, reduced to 180)
+    // AUDIT FIX M-1 (battle-tested): snapshot voting power from SNAPSHOT_LOOKBACK before
+    // bounty creation. Prevents creator-ally pre-positioning for submission voting.
+    uint256 public constant SNAPSHOT_LOOKBACK = 1 hours;
     // AUDIT FIX M-38: Configurable minimum reward — 0.001 ETH may be too low on L2
     uint256 public minBountyReward = 0.001 ether;
     uint256 public constant MIN_BOUNTY_REWARD_TIMELOCK = 24 hours;
@@ -209,7 +212,7 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             winner: address(0),
             status: BountyStatus.Open,
             submissionCount: 0,
-            snapshotTimestamp: block.timestamp > 0 ? block.timestamp - 1 : 0,
+            snapshotTimestamp: block.timestamp >= SNAPSHOT_LOOKBACK ? block.timestamp - SNAPSHOT_LOOKBACK : 0,
             createdAt: block.timestamp
         }));
 

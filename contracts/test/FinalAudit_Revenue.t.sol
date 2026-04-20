@@ -837,9 +837,9 @@ contract FinalAuditRevenue is Test {
     //  20. COMMUNITY GRANTS — Timestamp snapshot on L2
     // ================================================================
 
-    /// @notice Verify that the voting power snapshot uses block.timestamp - 1
-    ///         to prevent same-block manipulation.
-    ///         Expected: DEFENDED — snapshotTimestamp = block.timestamp - 1.
+    /// @notice Verify that the voting power snapshot uses block.timestamp - SNAPSHOT_LOOKBACK
+    ///         to prevent proposer-ally pre-positioning (AUDIT FIX M-1).
+    ///         Expected: DEFENDED — snapshotTimestamp = block.timestamp - SNAPSHOT_LOOKBACK.
     function test_CommunityGrants_SnapshotTimestamp() public {
         veGrants.setPower(alice, 10000 ether);
 
@@ -849,7 +849,11 @@ contract FinalAuditRevenue is Test {
         grants.createProposal(bob, 1 ether, "Test");
 
         (,,,,,,, , uint256 snapshotTs,) = grants.getProposal(0);
-        assertEq(snapshotTs, block.timestamp - 1, "Snapshot should be block.timestamp - 1");
+        assertEq(
+            snapshotTs,
+            block.timestamp - grants.SNAPSHOT_LOOKBACK(),
+            "Snapshot should be block.timestamp - SNAPSHOT_LOOKBACK"
+        );
     }
 }
 
