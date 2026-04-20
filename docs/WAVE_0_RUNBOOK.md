@@ -6,6 +6,12 @@ Do these in order. Each step is a single command or a single dashboard click.
 
 **Estimated time:** 45–90 minutes + 48h timelock waiting periods if you redeploy anything owner-transferred.
 
+> **Looking for the live checklist?** This runbook is the step-by-step. The
+> condensed, tick-box version of what's still pending — pastable straight
+> into a GitHub issue — lives in [`WAVE_0_TODO.md`](WAVE_0_TODO.md). If you
+> ship something from that list, tick the box there **and** remove the
+> matching badge on [`ContractsPage`](../frontend/src/pages/ContractsPage.tsx).
+
 ---
 
 ## Pre-flight (5 min)

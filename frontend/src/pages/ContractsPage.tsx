@@ -27,6 +27,7 @@ import {
   TEGRIDY_TOKEN_URI_READER_ADDRESS,
   TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_TWAP_ADDRESS,
+  TEGRIDY_FEE_HOOK_ADDRESS,
   UNISWAP_V2_ROUTER,
   WETH_ADDRESS,
   UNISWAP_V2_FACTORY,
@@ -46,7 +47,11 @@ interface ContractEntry {
   source: string; // relative path under repo root
   // AUDIT LAUNCHPAD-SEC: optional status surfaces placeholder/deprecated
   // entries so users aren't presented with a zero address that looks live.
-  status?: 'pending' | 'deprecated';
+  // 'redeploy' marks live addresses whose source has been patched and is
+  // queued for a Wave 0 redeploy; 'multisig' marks live addresses whose
+  // ownership transfer hasn't been accepted yet.
+  status?: 'pending' | 'deprecated' | 'redeploy' | 'multisig';
+  note?: string; // shown under the label when status is redeploy/multisig
 }
 
 interface ContractGroup {
@@ -73,8 +78,21 @@ const GROUPS: ContractGroup[] = [
       { label: 'Tegridy Factory', address: TEGRIDY_FACTORY_ADDRESS, source: 'contracts/src/TegridyFactory.sol' },
       { label: 'Tegridy Router', address: TEGRIDY_ROUTER_ADDRESS, source: 'contracts/src/TegridyRouter.sol' },
       { label: 'Tegridy LP (TOWELI/WETH)', address: TEGRIDY_LP_ADDRESS, source: 'contracts/src/TegridyPair.sol' },
-      { label: 'LP Farming', address: LP_FARMING_ADDRESS, source: 'contracts/src/TegridyLPFarming.sol' },
+      {
+        label: 'LP Farming',
+        address: LP_FARMING_ADDRESS,
+        source: 'contracts/src/TegridyLPFarming.sol',
+        status: 'multisig',
+        note: 'Wave 0 redeploy live. Awaiting multisig acceptOwnership() before admin functions work.',
+      },
       { label: 'Tegridy TWAP Oracle', address: TEGRIDY_TWAP_ADDRESS, source: 'contracts/src/TegridyTWAP.sol' },
+      {
+        label: 'Tegridy Fee Hook (V4)',
+        address: TEGRIDY_FEE_HOOK_ADDRESS,
+        source: 'contracts/src/TegridyFeeHook.sol',
+        status: 'redeploy',
+        note: 'Owner stranded on Arachnid CREATE2 proxy. Constructor patched to accept _owner — redeploy queued.',
+      },
     ],
   },
   {
@@ -90,8 +108,20 @@ const GROUPS: ContractGroup[] = [
     title: 'Governance',
     description: 'Gauge voting, incentives, and community programs.',
     entries: [
-      { label: 'Gauge Controller', address: GAUGE_CONTROLLER_ADDRESS, source: 'contracts/src/GaugeController.sol' },
-      { label: 'Vote Incentives', address: VOTE_INCENTIVES_ADDRESS, source: 'contracts/src/VoteIncentives.sol' },
+      {
+        label: 'Gauge Controller',
+        address: GAUGE_CONTROLLER_ADDRESS,
+        source: 'contracts/src/GaugeController.sol',
+        status: 'multisig',
+        note: 'Wave 0 redeploy live (H-2 commit-reveal). Awaiting multisig acceptOwnership().',
+      },
+      {
+        label: 'Vote Incentives',
+        address: VOTE_INCENTIVES_ADDRESS,
+        source: 'contracts/src/VoteIncentives.sol',
+        status: 'redeploy',
+        note: 'Wave 0 redeploy queued to partner the new commit-reveal GaugeController.',
+      },
       { label: 'Community Grants', address: COMMUNITY_GRANTS_ADDRESS, source: 'contracts/src/CommunityGrants.sol' },
       { label: 'Meme Bounty Board', address: MEME_BOUNTY_BOARD_ADDRESS, source: 'contracts/src/MemeBountyBoard.sol' },
       { label: 'Referral Splitter', address: REFERRAL_SPLITTER_ADDRESS, source: 'contracts/src/ReferralSplitter.sol' },
@@ -102,16 +132,40 @@ const GROUPS: ContractGroup[] = [
     title: 'NFT Finance',
     description: 'NFT-collateralized lending, bonding-curve pools, and launchpad.',
     entries: [
-      { label: 'Tegridy Lending', address: TEGRIDY_LENDING_ADDRESS, source: 'contracts/src/TegridyLending.sol' },
-      { label: 'Tegridy Launchpad (V1)', address: TEGRIDY_LAUNCHPAD_ADDRESS, source: 'contracts/src/TegridyLaunchpad.sol' },
+      {
+        label: 'Tegridy Lending',
+        address: TEGRIDY_LENDING_ADDRESS,
+        source: 'contracts/src/TegridyLending.sol',
+        status: 'redeploy',
+        note: 'Part of the V3Features bundle redeploy (DeployV3Features.s.sol) queued for Wave 0.',
+      },
+      {
+        label: 'Tegridy Launchpad (V1)',
+        address: TEGRIDY_LAUNCHPAD_ADDRESS,
+        source: 'contracts/src/TegridyLaunchpad.sol',
+        status: 'redeploy',
+        note: 'V3Features bundle includes the H-10 refund-flow patch on TegridyDrop template.',
+      },
       {
         label: 'Tegridy Launchpad (V2)',
         address: TEGRIDY_LAUNCHPAD_V2_ADDRESS,
         source: 'contracts/src/TegridyLaunchpadV2.sol',
         status: isDeployed(TEGRIDY_LAUNCHPAD_V2_ADDRESS) ? undefined : 'pending',
       },
-      { label: 'NFT Pool Factory', address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS, source: 'contracts/src/TegridyNFTPoolFactory.sol' },
-      { label: 'NFT Lending', address: TEGRIDY_NFT_LENDING_ADDRESS, source: 'contracts/src/TegridyNFTLending.sol' },
+      {
+        label: 'NFT Pool Factory',
+        address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
+        source: 'contracts/src/TegridyNFTPoolFactory.sol',
+        status: 'redeploy',
+        note: 'Part of the V3Features bundle redeploy queued for Wave 0.',
+      },
+      {
+        label: 'NFT Lending',
+        address: TEGRIDY_NFT_LENDING_ADDRESS,
+        source: 'contracts/src/TegridyNFTLending.sol',
+        status: 'multisig',
+        note: 'Wave 0 redeploy live (C-02 grace period). Awaiting multisig acceptOwnership().',
+      },
       { label: 'Token URI Reader', address: TEGRIDY_TOKEN_URI_READER_ADDRESS, source: 'contracts/src/TokenURIReader.sol' },
       { label: 'JBAC NFT', address: JBAC_NFT_ADDRESS, source: 'external (Jungle Bay Apes)' },
       { label: 'JBAY Gold', address: JBAY_GOLD_ADDRESS, source: 'external (Jungle Bay Gold)' },
@@ -135,6 +189,8 @@ function ContractRow({ entry }: { entry: ContractEntry }) {
   const sourceHref = isExternal ? undefined : `${GITHUB_BASE}/${entry.source}`;
   const isPending = entry.status === 'pending';
   const isDeprecated = entry.status === 'deprecated';
+  const isRedeploy = entry.status === 'redeploy';
+  const isMultisig = entry.status === 'multisig';
   return (
     <div
       className={`grid grid-cols-1 md:grid-cols-[1fr_auto_auto_auto] items-center gap-2 md:gap-4 py-3 border-b border-white/5 last:border-0 ${isPending ? 'opacity-70' : ''}`}
@@ -152,6 +208,22 @@ function ContractRow({ entry }: { entry: ContractEntry }) {
               deprecated
             </span>
           )}
+          {isRedeploy && (
+            <span
+              className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-orange-500/40 bg-orange-500/10 text-orange-300"
+              title="Source patched; live address queued for a Wave 0 redeploy"
+            >
+              redeploy queued
+            </span>
+          )}
+          {isMultisig && (
+            <span
+              className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-sky-500/40 bg-sky-500/10 text-sky-300"
+              title="Deployed; multisig has not yet called acceptOwnership()"
+            >
+              awaiting multisig
+            </span>
+          )}
         </div>
         {isExternal ? (
           <div className="text-white/40 text-[11px] mt-0.5">{entry.source}</div>
@@ -165,6 +237,14 @@ function ContractRow({ entry }: { entry: ContractEntry }) {
           >
             {entry.source} <span className="text-white/15">↗</span>
           </a>
+        )}
+        {entry.note && (isRedeploy || isMultisig) && (
+          <div
+            className={`text-[11px] mt-1 leading-relaxed ${isRedeploy ? 'text-orange-200/75' : 'text-sky-200/75'}`}
+            style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}
+          >
+            {entry.note}
+          </div>
         )}
       </div>
       {/* Mobile: explicit "Address:" label + ≥44px tap target on the copy control. */}
@@ -226,7 +306,7 @@ export default function ContractsPage() {
       >
         <header className="mb-8 md:mb-12">
           <h1 className="heading-luxury text-3xl md:text-5xl text-white mb-3" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.9)' }}>Contract Index</h1>
-          <p className="text-white/75 text-[13px] md:text-[14px] max-w-[720px] leading-relaxed" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
+          <p className="text-white/75 text-[13px] md:text-[14px] max-w-[720px] leading-relaxed mb-5" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
             Canonical, on-chain addresses for every Tegridy Farms contract, grouped by role. All
             contracts are verified on Etherscan. Source mirrored from the repo{' '}
             <a
@@ -239,6 +319,61 @@ export default function ContractsPage() {
             </a>
             .
           </p>
+
+          {/* Wave 0 outstanding-work legend. Mirrors docs/WAVE_0_RUNBOOK.md so
+              readers can map badges below to the remaining deploy queue. */}
+          <div
+            role="status"
+            className="rounded-xl p-4 md:p-5 max-w-[860px]"
+            style={{ border: '1px solid rgba(245, 158, 11, 0.35)', background: 'rgba(245, 158, 11, 0.07)' }}
+          >
+            <p className="text-amber-300 text-[13px] font-semibold mb-2" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+              Wave 0 closure — outstanding deploy work
+            </p>
+            <ul className="text-white/80 text-[12px] leading-relaxed space-y-1.5" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.85)' }}>
+              <li className="flex items-start gap-2">
+                <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-300 mt-0.5 shrink-0">pending deploy</span>
+                <span>Not yet broadcast. Frontend falls back to V1 or reads are gated on <code className="font-mono text-white/90">isDeployed()</code>.</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-orange-500/40 bg-orange-500/10 text-orange-300 mt-0.5 shrink-0">redeploy queued</span>
+                <span>Live on-chain, but source has been patched for an audit finding and a Wave 0 redeploy is queued. Admin-side flows may rely on the newer bytecode.</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-sky-500/40 bg-sky-500/10 text-sky-300 mt-0.5 shrink-0">awaiting multisig</span>
+                <span>Wave 0 address is live, but the multisig <code className="font-mono text-white/90">0x0c41…8bfe</code> still has to call <code className="font-mono text-white/90">acceptOwnership()</code> before any owner-only function works.</span>
+              </li>
+            </ul>
+            <p className="text-white/60 text-[11px] mt-3 leading-relaxed">
+              Full remaining-task checklist:{' '}
+              <a
+                href={`${GITHUB_BASE}/docs/WAVE_0_TODO.md`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-white/80 underline hover:text-white transition-colors"
+              >
+                docs/WAVE_0_TODO.md
+              </a>
+              {' '}·{' '}
+              <a
+                href={`${GITHUB_BASE}/docs/WAVE_0_RUNBOOK.md`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-white/80 underline hover:text-white transition-colors"
+              >
+                runbook
+              </a>
+              {' '}·{' '}
+              <a
+                href="https://github.com/fomotsar-commits/tegriddy-farms/issues?q=is%3Aissue+is%3Aopen+label%3Await-wave0"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-white/80 underline hover:text-white transition-colors"
+              >
+                tracked issues
+              </a>
+            </p>
+          </div>
         </header>
 
         <div className="space-y-8 md:space-y-10">

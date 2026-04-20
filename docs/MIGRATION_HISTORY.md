@@ -98,6 +98,69 @@ For the current canonical set, see [`frontend/src/lib/constants.ts`](../frontend
 | TegridyLaunchpadV2 | 11 Foundry tests pass; placeholder `0x0…0` in `constants.ts` until broadcast. |
 | TegridyDropV2 | Per-clone template deployed alongside v1; V2 clones cleared for deploy once factory lands. |
 
+---
+
+## Wave 0 outstanding work (mirror of /contracts badges)
+
+The `/contracts` page surfaces four badge types that map 1:1 to these
+buckets. This table is the single authoritative list — if you update one,
+update the other.
+
+### `pending deploy` — not broadcast yet
+
+| Contract | Source | Script | Reason |
+|---|---|---|---|
+| `TegridyLaunchpadV2` | `contracts/src/TegridyLaunchpadV2.sol` | `DeployLaunchpadV2.s.sol` | Click-deploy factory with ERC-7572 `contractURI()` — frontend wizard final step gates on `isDeployed()` until broadcast. |
+
+### `redeploy queued` — live, but source patched for an audit finding
+
+| Contract | Current address | Script | Patch |
+|---|---|---|---|
+| `TegridyFeeHook` | `0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044` | `DeployTegridyFeeHook.s.sol` (now consumes `cast create2` salt) | Constructor accepts `_owner` instead of `msg.sender`. Initial deploy stranded ownership on Arachnid CREATE2 proxy `0x4e59b44…`. |
+| `VoteIncentives` | `0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A` | `DeployVoteIncentives.s.sol` | Partner the Wave 0 commit-reveal GaugeController (H-2). Existing bytecode points at the deprecated pre-commit-reveal controller. |
+| `TegridyLending` | `0xd471e5675EaDbD8C192A5dA2fF44372D5713367f` | `DeployV3Features.s.sol` | Bundle redeploy — paired with the H-10 refund-flow patch on the TegridyDrop template. |
+| `TegridyLaunchpad (V1)` | `0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2` | `DeployV3Features.s.sol` | Same V3Features bundle — factory clones the patched TegridyDrop template. |
+| `TegridyNFTPoolFactory` | `0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0` | `DeployV3Features.s.sol` | Same V3Features bundle — factory clones the patched TegridyNFTPool template. |
+| `TegridyDrop` template | `0xd36ada65d8f08de6f7030e0b50b8b2358c2ca0b3` | (side-effect of V3Features) | H-10 refund-flow: adds `MintPhase.CANCELLED`, `cancelSale()`, `refund()`, `paidPerWallet`. |
+| `TegridyNFTPool` template | `0x0728cbcde03d617b26d8c27199436bdfa22d547b` | (side-effect of V3Features) | Factory re-wire; template source is stable. |
+
+**Blockers:** deployer `0xaA0caB9826f714A7be8FAC8fC98e87Fc27A54512` needs an
+ETH top-up (~0.013 ETH across both scripts) before the bundle + incentives
+can broadcast.
+
+### `awaiting multisig` — Wave 0 address is live; owner not yet accepted
+
+Multisig `0x0c41e76D2668143b9Dbe6292D34b7e5dE7b28bfe` must call
+`acceptOwnership()` on each before owner-only functions unlock.
+
+| Contract | Address |
+|---|---|
+| `TegridyLPFarming` | `0xa7EF711Be3662B9557634502032F98944eC69ec1` |
+| `TegridyNFTLending` | `0x05409880aDFEa888F2c93568B8D88c7b4aAdB139` |
+| `GaugeController` | `0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb` |
+
+(Wave 0 `TokenURIReader` and `TegridyTWAP` are stateless and carry no
+owner. `TegridyFeeHook` is in `redeploy queued` — its current owner is the
+Arachnid proxy, not the multisig.)
+
+### Post-deploy wiring (no badge, but required for launch)
+
+- `LPFarming`: `TOWELI.approve(farm, amount)` + `farm.notifyRewardAmount(amount)` — fund first 7-day reward epoch.
+- `TegridyStaking`: `proposeLendingContract(TEGRIDY_NFT_LENDING, true)` → wait 48h → `executeLendingContract()`.
+- `TegridyStaking`: same 2-step for the new `TegridyLending` from V3Features once it redeploys.
+- `GaugeController`: `proposeAddGauge(lpFarmAddress)` → wait 24h → `executeAddGauge()` per gauge.
+- `VoteIncentives` (when redeployed): whitelist TOWELI + WETH via the built-in propose/execute pair (24h per change, one at a time).
+- `SwapFeeRouter`: `proposePremiumAccessChange(PremiumAccess)` + `proposePremiumDiscountChange(5000)` after VoteIncentives lands.
+
+### Etherscan verification follow-up
+
+All six Wave 0 broadcasts on 2026-04-18 failed auto-verify because
+`ETHERSCAN_API_KEY` in `contracts/.env` is `Invalid API Key (#err2)|14`.
+Regenerate at <https://etherscan.io/myapikey> and re-run `forge
+verify-contract <addr> <contract> --etherscan-api-key $KEY` per contract.
+
+---
+
 ## Orphans & abandoned deployments
 
 See [DEPRECATED_CONTRACTS.md](DEPRECATED_CONTRACTS.md) for contracts that have live bytecode on-chain but are **not** part of the canonical protocol (e.g. `TegridyFarm`, `FeeDistributor`, `WithdrawalFee`).
@@ -113,4 +176,4 @@ See [DEPRECATED_CONTRACTS.md](DEPRECATED_CONTRACTS.md) for contracts that have l
 5. Add a row to the table above.
 6. Post a notice in the release changelog ([CHANGELOG.md](../CHANGELOG.md)) pointing to this file.
 
-*Last updated: 2026-04-18 (Wave 0 — 6 contracts redeployed for audit closures; V2 Launchpad pending).*
+*Last updated: 2026-04-19 (Wave 0 outstanding-work section added; contract badges surfaced on /contracts to match).*

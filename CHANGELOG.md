@@ -10,6 +10,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Ongoing investor-polish and audit-closure work. Lands on `main` as it ships;
 a tagged release will cut from here once Wave 0 redeploys are complete.
 
+### 2026-04-19 — Wave 0 status surfaced on /contracts + tracking issue
+
+#### Added
+
+- **Wave 0 status badges** on [`ContractsPage`](frontend/src/pages/ContractsPage.tsx).
+  New `redeploy` (orange) and `multisig` (sky-blue) badge types alongside the
+  existing `pending` (amber) / `deprecated` (grey) pills, each with a
+  one-liner explaining what the user is looking at. A legend block at the
+  top of the page mirrors the runbook.
+  - **`pending deploy`** — `TegridyLaunchpadV2`. Not yet broadcast; placeholder
+    `0x0…0` in `constants.ts`.
+  - **`redeploy queued`** — `TegridyFeeHook` (owner stranded on Arachnid
+    CREATE2 proxy; constructor patched to accept `_owner`),
+    `VoteIncentives` (needs to partner the Wave 0 commit-reveal
+    GaugeController), `TegridyLending`, `TegridyLaunchpad (V1)`,
+    `TegridyNFTPoolFactory` (V3Features bundle with the H-10 refund-flow
+    patch on the TegridyDrop template).
+  - **`awaiting multisig`** — `LP Farming`, `Gauge Controller`, `NFT Lending`
+    (Wave 0 redeploys live, but the multisig
+    `0x0c41e76D2668143b9Dbe6292D34b7e5dE7b28bfe` still has to call
+    `acceptOwnership()` on each).
+- **`TegridyFeeHook`** now surfaced in the DEX group on `/contracts` (was
+  previously only linked from MIGRATION_HISTORY). Constant
+  `TEGRIDY_FEE_HOOK_ADDRESS` imported explicitly.
+- **Wave 0 outstanding-work section** on MIGRATION_HISTORY.md with the same
+  four-bucket breakdown (pending, redeploy-queued, multisig-accept, post-
+  deploy wiring) so the UI and doc can't drift.
+- **`docs/WAVE_0_TODO.md`** — tick-box checklist mirroring the contracts-
+  page badges. Written in GitHub-flavoured Markdown so the body pastes
+  straight into a tracking issue labelled `await-wave0` without
+  reformatting. Referenced from the `/contracts` legend and from
+  `WAVE_0_RUNBOOK.md`.
+
+#### Changed
+
+- `ContractEntry` status union extended from `'pending' | 'deprecated'` to
+  `'pending' | 'deprecated' | 'redeploy' | 'multisig'`, plus an optional
+  `note` rendered under the contract label for the two new states.
+
 ### 2026-04-18 — Wave 0 deploys + V2 launchpad build-out
 
 #### Added
