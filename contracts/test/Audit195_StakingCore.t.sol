@@ -87,19 +87,16 @@ contract Audit195StakingCoreTest is Test {
         assertEq(boostBps, 40000, "MAX boost should be 40000 bps at max lock");
     }
 
-    /// @dev uint16 boostBps with JBAC bonus (40000 + 5000 = 45000) still fits in uint16
+    /// @dev AUDIT H-1 (2026-04-20): uint16 boostBps with JBAC bonus (40000 + 5000 = 45000)
+    ///      still fits in uint16. JBAC boost now requires stakeWithBoost + physical deposit.
     function test_stake_uint16BoostWithJbacFits() public {
-        // This is tested indirectly via toggleAutoMaxLock with JBAC
-        nft.mint(bob);
-        vm.prank(bob);
-        staking.stake(STAKE_AMT, MAX_LOCK);
+        uint256 jbacId = nft.mint(bob);
+        vm.startPrank(bob);
+        nft.approve(address(staking), jbacId);
+        staking.stakeWithBoost(STAKE_AMT, MAX_LOCK, jbacId);
+        vm.stopPrank();
 
         uint256 tokenId = staking.userTokenId(bob);
-        // Bob needs to revalidateBoost to get JBAC bonus applied after stake
-        // Note: JBAC boost is NOT automatically applied at stake time (hasJbacBoost defaults false)
-        vm.prank(bob);
-        staking.revalidateBoost(tokenId);
-
         (, uint256 boostBps,,,,) = staking.getPosition(tokenId);
         assertEq(boostBps, 45000, "MAX boost + JBAC should be 45000, fits in uint16");
     }
@@ -373,20 +370,18 @@ contract Audit195StakingCoreTest is Test {
         assertEq(lockDuration, MAX_LOCK, "lockDuration should be MAX_LOCK after uint32 cast");
     }
 
-    /// @dev extendLock preserves JBAC boost
+    /// @dev AUDIT H-1 (2026-04-20): extendLock preserves JBAC boost.
+    ///      JBAC boost now requires stakeWithBoost + physical deposit.
     function test_extendLock_preservesJbacBoost() public {
-        nft.mint(bob);
-        vm.prank(bob);
-        staking.stake(STAKE_AMT, 30 days);
+        uint256 jbacId = nft.mint(bob);
+        vm.startPrank(bob);
+        nft.approve(address(staking), jbacId);
+        staking.stakeWithBoost(STAKE_AMT, 30 days, jbacId);
         uint256 tokenId = staking.userTokenId(bob);
 
-        // Revalidate to get JBAC boost
-        vm.prank(bob);
-        staking.revalidateBoost(tokenId);
-
         // Extend lock
-        vm.prank(bob);
         staking.extendLock(tokenId, 365 days);
+        vm.stopPrank();
 
         (, uint256 boostAfterExtend,,,,) = staking.getPosition(tokenId);
         // Should have base boost for 365 days + JBAC bonus
@@ -462,20 +457,18 @@ contract Audit195StakingCoreTest is Test {
         assertEq(lockDuration, MAX_LOCK, "lockDuration REMAINS at max after disabling");
     }
 
-    /// @dev autoMaxLock with JBAC: boost should be MAX_BOOST + JBAC
+    /// @dev AUDIT H-1 (2026-04-20): autoMaxLock with JBAC: boost should be MAX_BOOST + JBAC.
+    ///      JBAC boost now requires stakeWithBoost + physical deposit.
     function test_toggleAutoMaxLock_withJbac() public {
-        nft.mint(bob);
-        vm.prank(bob);
-        staking.stake(STAKE_AMT, 30 days);
+        uint256 jbacId = nft.mint(bob);
+        vm.startPrank(bob);
+        nft.approve(address(staking), jbacId);
+        staking.stakeWithBoost(STAKE_AMT, 30 days, jbacId);
         uint256 tokenId = staking.userTokenId(bob);
 
-        // Revalidate JBAC first
-        vm.prank(bob);
-        staking.revalidateBoost(tokenId);
-
         // Enable autoMaxLock
-        vm.prank(bob);
         staking.toggleAutoMaxLock(tokenId);
+        vm.stopPrank();
 
         (, uint256 boostBps,,,,) = staking.getPosition(tokenId);
         assertEq(boostBps, 45000, "boost should be MAX_BOOST + JBAC_BONUS");
@@ -750,19 +743,17 @@ contract Audit195StakingCoreTest is Test {
     // ═══════════════════════════════════════════════════════════════════════════
 
     /// @dev Verify all fields in Position struct are read/written correctly after packing
+    /// @dev AUDIT H-1 (2026-04-20): JBAC boost now requires physical deposit via stakeWithBoost.
     function test_structPacking_allFieldsCorrect() public {
-        nft.mint(bob);
-        vm.prank(bob);
-        staking.stake(STAKE_AMT, 365 days);
+        uint256 jbacId = nft.mint(bob);
+        vm.startPrank(bob);
+        nft.approve(address(staking), jbacId);
+        staking.stakeWithBoost(STAKE_AMT, 365 days, jbacId);
         uint256 tokenId = staking.userTokenId(bob);
 
-        // Revalidate to set hasJbacBoost
-        vm.prank(bob);
-        staking.revalidateBoost(tokenId);
-
         // Enable autoMaxLock
-        vm.prank(bob);
         staking.toggleAutoMaxLock(tokenId);
+        vm.stopPrank();
 
         // Read all fields via the positions mapping
         (
@@ -774,7 +765,8 @@ contract Audit195StakingCoreTest is Test {
             uint32 lockDuration,
             bool autoMaxLock,
             bool hasJbacBoost,
-            uint64 stakeTimestamp
+            uint64 stakeTimestamp,
+            ,
         ) = staking.positions(tokenId);
 
         assertEq(amount, STAKE_AMT, "amount");
@@ -930,7 +922,7 @@ contract Audit195StakingCoreTest is Test {
         staking.stake(STAKE_AMT, 365 days);
 
         uint256 tokenId = staking.userTokenId(bob);
-        (,, int256 rewardDebt,,,,,, ) = staking.positions(tokenId);
+        (,, int256 rewardDebt,,,,,, , ,) = staking.positions(tokenId);
         assertGt(rewardDebt, 0, "rewardDebt should be positive when accRewardPerShare > 0");
     }
 
@@ -942,12 +934,12 @@ contract Audit195StakingCoreTest is Test {
 
         vm.warp(block.timestamp + 5 days);
 
-        (,, int256 debtBefore,,,,,, ) = staking.positions(tokenId);
+        (,, int256 debtBefore,,,,,, , ,) = staking.positions(tokenId);
 
         vm.prank(bob);
         staking.extendLock(tokenId, 365 days);
 
-        (,, int256 debtAfter,,,,,, ) = staking.positions(tokenId);
+        (,, int256 debtAfter,,,,,, , ,) = staking.positions(tokenId);
         // rewardDebt should change because boostedAmount changed
         assertTrue(debtAfter != debtBefore, "rewardDebt should change on extendLock");
     }

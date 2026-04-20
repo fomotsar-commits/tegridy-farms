@@ -10,10 +10,11 @@ import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 /// @dev Minimal interface for TegridyStaking voting power queries.
 interface ITegridyStakingGauge {
     // H-01 FIX: Aligned to actual TegridyStaking.Position struct ABI order
+    // AUDIT H-1 (2026-04-20): Position struct extended with jbacTokenId + jbacDeposited.
     function positions(uint256 tokenId) external view returns (
         uint256 amount, uint256 boostedAmount, int256 rewardDebt, uint256 lockEnd,
         uint256 boostBps, uint256 lockDuration, bool autoMaxLock, bool hasJbacBoost,
-        uint256 stakeTimestamp
+        uint256 stakeTimestamp, uint256 jbacTokenId, bool jbacDeposited
     );
     function ownerOf(uint256 tokenId) external view returns (address);
     // AUDIT TF-04: historical voting-power lookup used for epoch-start snapshot votes.
@@ -198,7 +199,7 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // validity is still checked against live state so expired-lock votes are
         // rejected regardless.
         // H-01 FIX: Updated destructuring to match corrected ABI order
-        (uint256 amount,,, uint256 lockEnd,,,,,) = tegridyStaking.positions(tokenId);
+        (uint256 amount,,, uint256 lockEnd,,,,,,,) = tegridyStaking.positions(tokenId);
         if (amount == 0 || block.timestamp >= lockEnd) revert LockExpired();
         uint256 votingPower = tegridyStaking.votingPowerAtTimestamp(msg.sender, epochStartTime(epoch));
         if (votingPower == 0) revert ZeroVotingPower();
@@ -285,7 +286,7 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
         // Validate the NFT still represents an active lock (cheap pre-check;
         // real voting power is computed at reveal time against epoch-start snapshot).
-        (uint256 amount,,, uint256 lockEnd,,,,,) = tegridyStaking.positions(tokenId);
+        (uint256 amount,,, uint256 lockEnd,,,,,,,) = tegridyStaking.positions(tokenId);
         if (amount == 0 || block.timestamp >= lockEnd) revert LockExpired();
 
         commitmentOf[tokenId][epoch] = commitmentHash;
@@ -328,7 +329,7 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // forfeit the vote, since voting power is scored against the committer.
         if (tegridyStaking.ownerOf(tokenId) != msg.sender) revert NotTokenOwner();
 
-        (uint256 amount,,, uint256 lockEnd,,,,,) = tegridyStaking.positions(tokenId);
+        (uint256 amount,,, uint256 lockEnd,,,,,,,) = tegridyStaking.positions(tokenId);
         if (amount == 0 || block.timestamp >= lockEnd) revert LockExpired();
         uint256 votingPower = tegridyStaking.votingPowerAtTimestamp(msg.sender, epochStartTime(epoch));
         if (votingPower == 0) revert ZeroVotingPower();

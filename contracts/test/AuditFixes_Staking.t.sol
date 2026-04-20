@@ -273,50 +273,41 @@ contract AuditFixesStakingTest is Test {
     // #16 — JBAC Boost Revalidation
     // ═══════════════════════════════════════════════════════════════════
 
-    function test_revalidateBoost_removesBoostWhenNFTSold() public {
-        // Alice has JBAC and stakes
-        vm.prank(alice);
-        staking.stake(100_000 ether, 365 days);
+    /// @dev AUDIT H-1 (2026-04-20): Migrated to deposit-based flow. JBAC is physically held
+    ///      by the staking contract — alice cannot "sell" it until unstake. The test now
+    ///      asserts the JBAC escrow invariant and early-withdraw return.
+    function test_stakeWithBoost_escrowsJbac() public {
+        vm.startPrank(alice);
+        nft.approve(address(staking), 1);
+        staking.stakeWithBoost(100_000 ether, 365 days, 1);
         uint256 aliceTokenId = staking.userTokenId(alice);
-
-        // Revalidate to get JBAC boost
-        vm.prank(alice);
-        staking.revalidateBoost(aliceTokenId);
 
         (,uint256 boostBefore,,,,) = staking.getPosition(aliceTokenId);
         uint256 baseBoost = staking.calculateBoost(365 days);
-        assertEq(boostBefore, baseBoost + 5000, "Should have JBAC bonus");
+        assertEq(boostBefore, baseBoost + 5000, "Should have JBAC bonus from deposit");
+        assertEq(nft.ownerOf(1), address(staking), "JBAC escrowed in staking");
 
-        // Alice "sells" her JBAC NFT to carol
+        // Alice cannot transfer the JBAC to carol — it's no longer hers.
+        vm.expectRevert();
+        nft.transferFrom(alice, carol, 1);
+        vm.stopPrank();
+
+        // Early withdraw returns the JBAC to alice.
         vm.prank(alice);
-        nft.transferFrom(alice, carol, 1); // JBAC token #1
-
-        // Position owner calls revalidateBoost
-        vm.prank(alice);
-        staking.revalidateBoost(aliceTokenId);
-
-        (,uint256 boostAfter,,,,) = staking.getPosition(aliceTokenId);
-        assertEq(boostAfter, baseBoost, "JBAC bonus should be removed");
+        staking.earlyWithdraw(aliceTokenId);
+        assertEq(nft.ownerOf(1), alice, "JBAC returned on early withdraw");
     }
 
-    function test_revalidateBoost_noChangeWhenStillHolding() public {
-        // Alice has JBAC and stakes
-        vm.prank(alice);
-        staking.stake(100_000 ether, 365 days);
+    /// @dev AUDIT H-1 (2026-04-20): revalidateBoost is not useful for deposit-based positions.
+    function test_revalidateBoost_revertsOnDepositBased() public {
+        vm.startPrank(alice);
+        nft.approve(address(staking), 1);
+        staking.stakeWithBoost(100_000 ether, 365 days, 1);
         uint256 aliceTokenId = staking.userTokenId(alice);
 
-        // Revalidate to get JBAC boost
-        vm.prank(alice);
+        vm.expectRevert(TegridyStaking.JbacDeposited.selector);
         staking.revalidateBoost(aliceTokenId);
-
-        (,uint256 boostBefore,,,,) = staking.getPosition(aliceTokenId);
-
-        // Revalidate again while still holding — nothing should change
-        vm.prank(alice);
-        staking.revalidateBoost(aliceTokenId);
-
-        (,uint256 boostAfter,,,,) = staking.getPosition(aliceTokenId);
-        assertEq(boostAfter, boostBefore, "Boost should not change when still holding JBAC");
+        vm.stopPrank();
     }
 
     // ═══════════════════════════════════════════════════════════════════

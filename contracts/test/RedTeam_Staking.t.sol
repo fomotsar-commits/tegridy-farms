@@ -320,49 +320,51 @@ contract RedTeamStaking is Test {
     // 4. MANIPULATE THE BOOST SYSTEM FOR UNFAIR ADVANTAGE
     // ═══════════════════════════════════════════════════════════════════
 
-    /// @notice DEFENDED: JBAC boost is cached at stake time, flash-loan cannot inflate it post-stake
-    function test_DEFENDED_jbacBoostCachedAtStakeTime() public {
-        // Bob stakes without JBAC
+    /// @notice DEFENDED (AUDIT H-1, 2026-04-20): JBAC boost requires physical deposit via
+    ///         stakeWithBoost. Plain stake() never grants JBAC boost; revalidateBoost cannot
+    ///         upgrade a non-deposit position. This fully closes the flash-loan attack vector.
+    function test_DEFENDED_stakeWithBoost_requiresPhysicalDeposit() public {
+        // Bob stakes without JBAC — no boost should be cached.
         uint256 bobTokenId = _stakeAs(bob, STAKE_AMOUNT, 365 days);
 
-        (,,,,,, bool autoMaxLock, bool hasJbac,) = staking.positions(bobTokenId);
-        assertFalse(hasJbac, "Bob should not have JBAC boost cached");
+        (,,,,,, bool autoMaxLock, bool hasJbac,,,) = staking.positions(bobTokenId);
+        assertFalse(hasJbac, "H-1: stake() never caches JBAC boost");
+        assertFalse(autoMaxLock, "autoMaxLock should start false");
 
-        // Even if bob somehow gets a JBAC NFT later, revalidateBoost checks current ownership
-        // but the JBAC bonus was not set at stake time, so revalidate can add it
-        // However, this is the intended behavior — if you acquire a JBAC, you get the bonus
-        jbac.mint(bob);
+        // Even after acquiring a JBAC, revalidateBoost is not allowed to upgrade.
+        uint256 jbacId = jbac.mint(bob);
         vm.prank(bob);
         staking.revalidateBoost(bobTokenId);
 
-        (,,,,,,,bool hasJbacAfter,) = staking.positions(bobTokenId);
-        assertTrue(hasJbacAfter, "Bob should now have JBAC boost after revalidation");
+        (,,,,,,,bool hasJbacAfter,,,) = staking.positions(bobTokenId);
+        assertFalse(hasJbacAfter, "H-1: revalidate cannot upgrade a non-deposit position");
 
-        // NOTE: This is by design — revalidateBoost can only add/remove based on current JBAC ownership
-        // The key defense is that revalidateBoost claims pending rewards BEFORE changing the boost,
-        // so no retroactive reward inflation occurs
+        // The ONLY path to a JBAC boost is stakeWithBoost. Verify it requires the token:
+        address carolAddr = carol;
+        // Carol has no JBAC; stakeWithBoost should revert when she tries to deposit one.
+        vm.prank(carolAddr);
+        vm.expectRevert();
+        staking.stakeWithBoost(STAKE_AMOUNT, 365 days, 12345);
+
+        // Bob owns jbacId — but his existing stake() position prevents another stake.
+        // Assertion: the token is still owned by bob (never pulled by staking).
+        assertEq(jbac.ownerOf(jbacId), bob, "JBAC must still be owned by bob");
     }
 
-    /// @notice DEFENDED: Flash-loan JBAC for boost then return is blocked by reward-debt reset
+    /// @notice DEFENDED (AUDIT H-1, 2026-04-20): Flash-loan JBAC to upgrade boost no longer
+    ///         possible. revalidateBoost cannot upgrade non-deposit positions, so no
+    ///         retroactive reward inflation is possible.
     function test_DEFENDED_flashLoanJbacBoostDoesNotInflateRewards() public {
-        // Bob stakes without JBAC
         uint256 bobTokenId = _stakeAs(bob, STAKE_AMOUNT, 365 days);
         vm.warp(block.timestamp + 7 days);
 
-        uint256 pendingBefore = staking.earned(bobTokenId);
+        // Flash-loan attempt: bob gets JBAC, calls revalidate.
+        jbac.mint(bob);
+        vm.prank(bob);
+        staking.revalidateBoost(bobTokenId); // H-1: no-op, no upgrade
 
-        // Simulate flash-loan: bob gets JBAC, revalidates, then returns JBAC — all in same block
-        jbac.mint(bob); // JBAC id = 2 (alice has id 1)
-        vm.startPrank(bob);
-        staking.revalidateBoost(bobTokenId);
-
-        // Pending should reflect rewards up to this point, not inflated by new boost retroactively
-        uint256 pendingAfter = staking.earned(bobTokenId);
-        vm.stopPrank();
-
-        // The boost increase only affects FUTURE rewards, not past ones
-        // pendingAfter should be very close to 0 because revalidateBoost just claimed everything
-        assertLe(pendingAfter, 1e15, "After revalidation claim, pending should be near zero");
+        (,,,,,,,bool hasJbacAfter,,,) = staking.positions(bobTokenId);
+        assertFalse(hasJbacAfter, "H-1: revalidate did not upgrade non-deposit position");
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -468,7 +470,7 @@ contract RedTeamStaking is Test {
         vm.prank(bob);
         staking.toggleAutoMaxLock(bobTokenId);
 
-        (,,,,,, bool autoMaxBefore,,) = staking.positions(bobTokenId);
+        (,,,,,, bool autoMaxBefore,,,,) = staking.positions(bobTokenId);
         assertTrue(autoMaxBefore, "AutoMaxLock should be enabled");
 
         vm.warp(block.timestamp + 25 hours); // Past cooldown
@@ -477,7 +479,7 @@ contract RedTeamStaking is Test {
         vm.prank(bob);
         staking.transferFrom(bob, carol, bobTokenId);
 
-        (,,,,,, bool autoMaxAfter,,) = staking.positions(bobTokenId);
+        (,,,,,, bool autoMaxAfter,,,,) = staking.positions(bobTokenId);
         assertFalse(autoMaxAfter, "AutoMaxLock should be reset after transfer");
     }
 
@@ -651,57 +653,64 @@ contract RedTeamStaking is Test {
     // 10. FLASH-LOAN ATTACK THE JBAC BOOST (POST E-09 FIX)
     // ═══════════════════════════════════════════════════════════════════
 
-    /// @notice DEFENDED: Flash-loan JBAC NFT to boost then return — rewards already claimed before boost change.
-    ///         The key defense: revalidateBoost claims pending rewards BEFORE updating the boost,
-    ///         then resets rewardDebt. So the higher boost only applies to FUTURE rewards.
+    /// @notice DEFENDED (AUDIT H-1, 2026-04-20): Flash-loan JBAC for boost entirely blocked.
+    ///         revalidateBoost cannot upgrade a non-deposit position. The only way to get the
+    ///         JBAC boost is via stakeWithBoost, which physically locks the JBAC for the
+    ///         lock duration — meaning an attacker would need to lock their flash-loaned JBAC
+    ///         for >= MIN_LOCK_DURATION, which is incompatible with a flash-loan call.
     function test_DEFENDED_flashLoanJbacDoesNotRetroactivelyInflateRewards() public {
-        // Bob stakes without JBAC, accrues rewards
         uint256 bobTokenId = _stakeAs(bob, STAKE_AMOUNT, 365 days);
         vm.warp(block.timestamp + 30 days);
 
         uint256 pendingBeforeFlash = staking.earned(bobTokenId);
 
-        // Simulate flash loan: mint JBAC to bob, revalidate, return JBAC
+        // Flash-loan attempt via revalidate: no-op.
         uint256 jbacId = jbac.mint(bob);
         vm.prank(bob);
         staking.revalidateBoost(bobTokenId);
 
-        // Bob's pending should now be ~0 (claimed during revalidation)
         uint256 pendingAfterRevalidate = staking.earned(bobTokenId);
-        assertLe(pendingAfterRevalidate, 1e15, "Pending should be near zero after revalidation claim");
+        assertEq(pendingAfterRevalidate, pendingBeforeFlash, "H-1: revalidate is no-op, no reward claim");
 
-        // Now return the JBAC (burn it)
+        (,,,,,,,bool hasJbacAfter,,,) = staking.positions(bobTokenId);
+        assertFalse(hasJbacAfter, "H-1: revalidate cannot upgrade");
+
+        // Attacker returns the JBAC (simulated via burn).
         jbac.burnFrom(bob, jbacId);
-        vm.prank(bob);
-        staking.revalidateBoost(bobTokenId);
 
-        // Bob got his fair rewards (pendingBeforeFlash), not inflated by JBAC boost retroactively
+        // Bob never got inflated rewards.
         uint256 bobBal = toweli.balanceOf(bob);
-        // Bob started with 1M - 100k staked = 900k. Plus legitimate rewards.
         emit log_named_uint("Bob balance after flash-loan attempt", bobBal);
-        emit log_named_uint("Legitimate pending before flash", pendingBeforeFlash);
     }
 
     /// @notice DEFENDED: revalidateBoost restricted to owner/restaking — attacker cannot strip JBAC boost
+    /// @notice DEFENDED (AUDIT H-1, 2026-04-20): Deposit-based JBAC boost cannot be revalidated
+    ///         by anyone. Alice's boost is guaranteed for the full lock duration.
     function test_DEFENDED_attackerCannotStripJbacViaRevalidate() public {
-        // Give alice a JBAC NFT
-        jbac.mint(alice);
+        uint256 jbacId = jbac.mint(alice);
 
-        uint256 aliceTokenId = _stakeAs(alice, STAKE_AMOUNT, 365 days);
-        vm.prank(alice);
-        staking.revalidateBoost(aliceTokenId);
+        vm.startPrank(alice);
+        toweli.approve(address(staking), STAKE_AMOUNT);
+        jbac.approve(address(staking), jbacId);
+        staking.stakeWithBoost(STAKE_AMOUNT, 365 days, jbacId);
+        uint256 aliceTokenId = staking.userTokenId(alice);
+        vm.stopPrank();
 
-        (,,,,,,,bool hasJbac,) = staking.positions(aliceTokenId);
-        assertTrue(hasJbac, "Alice should have JBAC boost");
+        (,,,,,,,bool hasJbac,,,) = staking.positions(aliceTokenId);
+        assertTrue(hasJbac, "Alice has deposit-based JBAC boost");
 
-        // Attacker tries to strip alice's boost by calling revalidateBoost
+        // Attacker tries to strip alice's boost via revalidateBoost — reverts (Unauthorized).
         vm.prank(attacker);
         vm.expectRevert(TegridyStaking.Unauthorized.selector);
         staking.revalidateBoost(aliceTokenId);
 
-        // Alice's boost remains
-        (,,,,,,,bool stillHasJbac,) = staking.positions(aliceTokenId);
-        assertTrue(stillHasJbac, "Alice's JBAC boost should be intact");
+        // Alice tries herself — reverts with JbacDeposited.
+        vm.prank(alice);
+        vm.expectRevert(TegridyStaking.JbacDeposited.selector);
+        staking.revalidateBoost(aliceTokenId);
+
+        (,,,,,,,bool stillHasJbac,,,) = staking.positions(aliceTokenId);
+        assertTrue(stillHasJbac, "H-1: deposit-based boost cannot be stripped");
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -827,25 +836,23 @@ contract RedTeamStaking is Test {
         assertLe(pendingAfter, 1e15, "Pending should be near zero after extend");
     }
 
-    /// @notice INVESTIGATE: Can the restaking contract's revalidateBoostForRestaked be used to grief?
-    ///         It is permissionless but revalidateBoost can only downgrade (remove JBAC if not held).
+    /// @notice INVESTIGATE (AUDIT H-1, 2026-04-20): revalidateBoostForRestaked on a non-deposit
+    ///         position is a no-op (H-1 fix: no upgrades via revalidate). On a deposit-based
+    ///         position it reverts with JbacDeposited. Either way, it cannot be griefed.
     function test_DEFENDED_revalidateBoostForRestakedPermissionless() public {
-        // Alice stakes with JBAC and restakes
-        jbac.mint(alice); // JBAC id 1
+        // Alice stakes via stake() and restakes — no JBAC boost cached.
+        jbac.mint(alice);
         uint256 aliceTokenId = _stakeAndRestake(alice, STAKE_AMOUNT, 365 days);
 
-        // Revalidate to add JBAC boost
+        // H-1: revalidate is a no-op for a non-deposit position.
         restaking.revalidateBoostForRestaked(aliceTokenId);
+        (,,,,,,,bool hasJbacBefore,,,) = staking.positions(aliceTokenId);
+        assertFalse(hasJbacBefore, "H-1: revalidate cannot upgrade");
 
-        (,,,,,,,bool hasJbacBefore,) = staking.positions(aliceTokenId);
-        assertTrue(hasJbacBefore, "Alice should have JBAC boost after revalidation");
-
-        // Attacker calls revalidateBoostForRestaked -- alice still holds JBAC so it won't strip
+        // Attacker calls — still a no-op, no state change.
         vm.prank(attacker);
         restaking.revalidateBoostForRestaked(aliceTokenId);
-
-        // Alice's boost should still include JBAC
-        (,,,,,,,bool hasJbac,) = staking.positions(aliceTokenId);
-        assertTrue(hasJbac, "Alice JBAC boost should be intact - she still holds JBAC");
+        (,,,,,,,bool hasJbacAfter,,,) = staking.positions(aliceTokenId);
+        assertFalse(hasJbacAfter, "H-1: permissionless call cannot upgrade either");
     }
 }

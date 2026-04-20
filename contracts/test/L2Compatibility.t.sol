@@ -97,7 +97,7 @@ contract L2CompatibilityTest is Test {
         // Simulate L2 time jump of 15 days (irregular block production)
         vm.warp(1_000_000 + 15 days);
         uint256 tokenId = staking.userTokenId(alice);
-        (, , , uint256 lockEnd, , , , ,) = staking.positions(tokenId);
+        (, , , uint256 lockEnd, , , , ,,,) = staking.positions(tokenId);
         assertEq(lockEnd, 1_000_000 + 30 days, "Lock end should remain stable after time jump");
 
         // After lock expires
@@ -121,7 +121,7 @@ contract L2CompatibilityTest is Test {
         staking.stake(10_000 ether, 7 days);
 
         uint256 tokenId = staking.userTokenId(bob);
-        (, , , uint256 lockEnd, , , , ,) = staking.positions(tokenId);
+        (, , , uint256 lockEnd, , , , ,,,) = staking.positions(tokenId);
         assertEq(lockEnd, farFuture + 7 days, "Lock end should not overflow at uint48-max-range timestamps");
 
         vm.warp(farFuture + 8 days);

@@ -17,6 +17,7 @@ interface ITegridyStaking {
     function unsettledRewards(address user) external view returns (uint256);
     function earned(uint256 tokenId) external view returns (uint256);
     function revalidateBoost(uint256 tokenId) external; // M-26
+    // AUDIT H-1 (2026-04-20): Position struct extended with jbacTokenId + jbacDeposited.
     function positions(uint256 tokenId) external view returns (
         uint256 amount,
         uint256 boostedAmount,
@@ -26,7 +27,9 @@ interface ITegridyStaking {
         uint256 lockDuration,
         bool autoMaxLock,
         bool hasJbacBoost,
-        uint256 stakeTimestamp
+        uint256 stakeTimestamp,
+        uint256 jbacTokenId,
+        bool jbacDeposited
     );
 }
 
@@ -254,7 +257,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         if (stakingNFT.ownerOf(_tokenId) != msg.sender) revert NotNFTOwner();
 
         // Get position data from TegridyStaking
-        (uint256 amount, uint256 boostedAmount,,,,,,, ) = staking.positions(_tokenId);
+        (uint256 amount, uint256 boostedAmount,,,,,,, , ,) = staking.positions(_tokenId);
         if (amount == 0) revert ZeroAmount();
 
         // Transfer NFT to this contract — M-16: safeTransferFrom for safe NFT handling
@@ -305,7 +308,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         uint256 oldBoosted = info.boostedAmount;
 
         // Re-read current position from staking contract
-        (uint256 newAmount, uint256 newBoostedAmount,,,,,,, ) = staking.positions(info.tokenId);
+        (uint256 newAmount, uint256 newBoostedAmount,,,,,,, , ,) = staking.positions(info.tokenId);
 
         // AUDIT FIX: Prevent setting positionAmount to zero (would break bonus calculations)
         if (newAmount == 0) revert ZeroAmount();
@@ -338,7 +341,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // lock extension) even if positionAmount is unchanged. Previously boost-only changes
         // were invisible to auto-refresh, allowing stale bonus accrual.
         {
-            (uint256 currentAmount, uint256 currentBoosted,,,,,,, ) = staking.positions(info.tokenId);
+            (uint256 currentAmount, uint256 currentBoosted,,,,,,, , ,) = staking.positions(info.tokenId);
             if (currentAmount != info.positionAmount || currentBoosted != info.boostedAmount) {
                 // S2-01: Handle currentAmount == 0 — position was fully withdrawn from base staking.
                 // Still need to settle bonus on old amount and update cached value to prevent phantom accrual.
@@ -435,7 +438,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // S2-03: Auto-refresh cached position data before bonus calculation (same as claimAll)
         // AUDIT FIX M-07: Also compare boostedAmount to catch boost-only changes
         {
-            (uint256 currentAmount, uint256 currentBoosted,,,,,,, ) = staking.positions(info.tokenId);
+            (uint256 currentAmount, uint256 currentBoosted,,,,,,, , ,) = staking.positions(info.tokenId);
             if (currentAmount != info.positionAmount || currentBoosted != info.boostedAmount) {
                 // Claim pending bonus on OLD boostedAmount first
                 int256 preAccum = _safeInt256((info.boostedAmount * accBonusPerShare) / ACC_PRECISION);
@@ -465,7 +468,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // AUDIT FIX H-01: Wrapped in try/catch so unrestake() works even if staking is paused
         // (toggleAutoMaxLock has whenNotPaused modifier). Without this, paused staking
         // would force users into emergencyWithdrawNFT() which forfeits bonus rewards.
-        (,,,,,, bool autoMaxLock,, ) = staking.positions(tokenId);
+        (,,,,,, bool autoMaxLock,,,,) = staking.positions(tokenId);
         if (autoMaxLock) {
             try staking.toggleAutoMaxLock(tokenId) {} catch {
                 emit BaseClaimFailed(tokenId, msg.sender);
@@ -647,7 +650,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         require(!hasRecoveredPrincipal[msg.sender], "ALREADY_RECOVERED");
 
         // Verify the underlying position is actually zeroed out (force-closed)
-        (uint256 currentAmount,,,,,,,,) = staking.positions(info.tokenId);
+        (uint256 currentAmount,,,,,,,,, , ) = staking.positions(info.tokenId);
         require(currentAmount == 0, "POSITION_STILL_ACTIVE");
 
         // Calculate how much rewardToken (TOWELI) this contract has beyond tracked obligations.
@@ -945,7 +948,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         }
 
         // Refresh cached boostedAmount from staking contract
-        (, uint256 newBoostedAmount,,,,,,, ) = staking.positions(tokenId);
+        (, uint256 newBoostedAmount,,,,,,, , ,) = staking.positions(tokenId);
         info.boostedAmount = newBoostedAmount;
         totalRestaked = totalRestaked - oldBoosted + newBoostedAmount;
         info.bonusDebt = _safeInt256((newBoostedAmount * accBonusPerShare) / ACC_PRECISION);
@@ -989,7 +992,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         }
 
         // Refresh cached boostedAmount from staking contract
-        (, uint256 newBoostedAmount,,,,,,, ) = staking.positions(tokenId);
+        (, uint256 newBoostedAmount,,,,,,, , ,) = staking.positions(tokenId);
         info.boostedAmount = newBoostedAmount;
         totalRestaked = totalRestaked - oldBoosted + newBoostedAmount;
         info.bonusDebt = _safeInt256((newBoostedAmount * accBonusPerShare) / ACC_PRECISION);
@@ -1010,7 +1013,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         if (info.tokenId == 0) revert NotRestaked();
 
         // Read current position from staking contract (where decay has been applied)
-        (, uint256 currentBoosted,,,,,,, ) = staking.positions(info.tokenId);
+        (, uint256 currentBoosted,,,,,,, , ,) = staking.positions(info.tokenId);
 
         // Only proceed if the cached value differs (i.e., decay happened)
         if (currentBoosted == info.boostedAmount) revert("NO_DECAY");
@@ -1034,7 +1037,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         info.bonusDebt = _safeInt256((currentBoosted * accBonusPerShare) / ACC_PRECISION);
 
         // Also refresh positionAmount
-        (uint256 currentAmount,,,,,,,,) = staking.positions(info.tokenId);
+        (uint256 currentAmount,,,,,,,,, , ) = staking.positions(info.tokenId);
         info.positionAmount = currentAmount;
 
         emit PositionRefreshed(_restaker, info.tokenId, oldBoosted, currentBoosted);

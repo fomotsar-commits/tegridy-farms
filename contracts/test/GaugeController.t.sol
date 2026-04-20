@@ -202,7 +202,7 @@ contract GaugeControllerTest is Test {
 
     function test_votingPower_fromStaking() public {
         uint256 tokenId = staking.userTokenId(alice);
-        (uint256 amount,,,, uint16 boostBps,,,,) = staking.positions(tokenId);
+        (uint256 amount,,,, uint16 boostBps,,,,,,) = staking.positions(tokenId);
         uint256 expectedPower = (amount * uint256(boostBps)) / 10000;
         address[] memory g = new address[](1);
         uint256[] memory w = new uint256[](1);

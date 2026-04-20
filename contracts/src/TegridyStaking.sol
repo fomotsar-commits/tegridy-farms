@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 // Strings import removed — tokenURI simplified to reduce contract size
@@ -40,7 +41,7 @@ interface ITegridyRestakingView {
 ///         - Transferring the NFT transfers the entire staking position
 ///         - Buyer of an NFT inherits the lock, boost, and rewards
 ///         - This means users can sell their locked position instead of paying the 25% penalty
-contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable, TimelockAdmin {
+contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable, TimelockAdmin, IERC721Receiver {
     using SafeERC20 for IERC20;
     using Checkpoints for Checkpoints.Trace208;
     using EnumerableSet for EnumerableSet.UintSet;
@@ -99,6 +100,11 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         bool autoMaxLock;  // If true, lock auto-extends to max on every interaction
         bool hasJbacBoost;
         uint64 stakeTimestamp;
+        // AUDIT H-1 (2026-04-20): Deposit-based JBAC boost (ApeCoin-Staking pattern).
+        // Replaces flash-loan-able `jbacNFT.balanceOf(msg.sender) > 0` cache with a
+        // physical deposit that stays locked for the position's lifetime.
+        uint256 jbacTokenId;   // 0 = none / legacy-grandfathered
+        bool jbacDeposited;    // true = physical deposit (new pattern); false = legacy-grandfathered
     }
 
     mapping(uint256 => Position) public positions; // tokenId => position
@@ -158,6 +164,12 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     address public pendingLendingContract;
     bool public pendingLendingContractApproval;
 
+    // AUDIT H-1 (2026-04-20): Stranded-JBAC reclaim bookkeeping. If the JBAC return transfer
+    // in `_returnJbacIfDeposited` reverts (e.g., JBAC contract paused), we record who is
+    // entitled to reclaim it via `claimStrandedJbac(tokenId)`.
+    mapping(uint256 => address) public strandedJbacOwner;    // tokenId => entitled reclaimer
+    mapping(uint256 => uint256) public strandedJbacTokenId;  // tokenId => JBAC id to return
+
 
     // ─── Events ───────────────────────────────────────────────────────
 
@@ -194,6 +206,8 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     event AmountIncreased(uint256 indexed tokenId, uint256 addedAmount, uint256 newTotal);
     event RewardsForfeited(address indexed user, uint256 amount); // AUDIT FIX C-02: Emitted when cap blocks settlement
     event MaxUnsettledRewardsUpdated(uint256 oldCap, uint256 newCap); // AUDIT FIX C-02
+    event JbacReturned(uint256 indexed tokenId, address indexed to, uint256 indexed jbacTokenId); // AUDIT H-1
+    event JbacStranded(uint256 indexed tokenId, address indexed to, uint256 indexed jbacTokenId); // AUDIT H-1
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -226,6 +240,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     error IntOverflow();
     error CapTooLow();
     error TooManyPositions(); // AUDIT FIX M-5: per-holder position cap (MAX_POSITIONS_PER_HOLDER)
+    error JbacDeposited(); // AUDIT H-1: revalidateBoost not allowed on deposit-based positions
 
     // ─── Constructor ──────────────────────────────────────────────────
 
@@ -410,7 +425,11 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
     // ─── User Functions ───────────────────────────────────────────────
 
-    /// @notice Stake TOWELI. Mints an NFT representing the position.
+    /// @notice Stake TOWELI. Mints an NFT representing the position. No JBAC boost.
+    /// @dev AUDIT H-1 FIX (2026-04-20): Removed `jbacNFT.balanceOf(msg.sender) > 0` cache.
+    ///      That pattern was flash-loan-able (borrow JBAC for one block, stake, return).
+    ///      Users who want the JBAC bonus must call `stakeWithBoost(...)` which physically
+    ///      deposits the JBAC into this contract for the lock duration.
     /// @param _amount Amount of TOWELI to stake (must be >= MIN_STAKE)
     /// @param _lockDuration Lock duration in seconds (MIN_LOCK_DURATION to MAX_LOCK_DURATION)
     function stake(uint256 _amount, uint256 _lockDuration) external nonReentrant whenNotPaused updateReward {
@@ -421,9 +440,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         if (userTokenId[msg.sender] != 0) revert AlreadyStaked();
 
         uint256 boost = calculateBoost(_lockDuration);
-        // M-01 FIX: Apply JBAC boost at stake time so holders don't need a separate revalidateBoost() call
-        bool holdsJbac = jbacNFT.balanceOf(msg.sender) > 0;
-        if (holdsJbac) boost += JBAC_BONUS_BPS;
+        // AUDIT H-1 (2026-04-20): No JBAC boost on stake(). Use stakeWithBoost() for that.
         uint256 boosted = (_amount * boost) / BOOST_PRECISION;
 
         uint256 tokenId = _nextTokenId++;
@@ -435,8 +452,10 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             boostBps: uint16(boost),
             lockDuration: uint32(_lockDuration),
             autoMaxLock: false,
-            hasJbacBoost: holdsJbac,
-            stakeTimestamp: uint64(block.timestamp)
+            hasJbacBoost: false,
+            stakeTimestamp: uint64(block.timestamp),
+            jbacTokenId: 0,
+            jbacDeposited: false
         });
 
         totalStaked += _amount;
@@ -449,6 +468,64 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         _writeCheckpoint(msg.sender); // AUDIT FIX #1
 
         emit Staked(msg.sender, tokenId, _amount, _lockDuration, boost);
+    }
+
+    /// @notice Stake TOWELI with a JBAC-deposit boost. Mints an NFT representing the position.
+    /// @dev AUDIT H-1 FIX (2026-04-20): ApeCoin-Staking pattern — JBAC is physically deposited
+    ///      into this contract and held until the position is unstaked. This replaces the
+    ///      flash-loan-able `balanceOf > 0` check. JBAC is returned on withdraw/earlyWithdraw/
+    ///      emergencyWithdrawPosition/emergencyExitPosition/executeEmergencyExit via
+    ///      `_returnJbacIfDeposited()`. Legacy `hasJbacBoost=true` positions (created before
+    ///      this fix) are NOT migrated — they are grandfathered with `jbacDeposited=false`.
+    /// @param _amount Amount of TOWELI to stake (must be >= MIN_STAKE)
+    /// @param _lockDuration Lock duration in seconds (MIN_LOCK_DURATION to MAX_LOCK_DURATION)
+    /// @param _jbacTokenId The JBAC tokenId to deposit for the boost (must be owned by caller, approved to this contract)
+    function stakeWithBoost(uint256 _amount, uint256 _lockDuration, uint256 _jbacTokenId)
+        external nonReentrant whenNotPaused updateReward
+    {
+        if (_amount == 0) revert ZeroAmount();
+        if (_amount < MIN_STAKE) revert StakeTooSmall();
+        if (_lockDuration < MIN_LOCK_DURATION) revert LockTooShort();
+        if (_lockDuration > MAX_LOCK_DURATION) revert LockTooLong();
+        if (userTokenId[msg.sender] != 0) revert AlreadyStaked();
+
+        uint256 boost = calculateBoost(_lockDuration) + JBAC_BONUS_BPS;
+        uint256 boosted = (_amount * boost) / BOOST_PRECISION;
+
+        uint256 tokenId = _nextTokenId++;
+        positions[tokenId] = Position({
+            amount: _amount,
+            boostedAmount: boosted,
+            rewardDebt: _safeInt256((boosted * rewardPerTokenStored) / ACC_PRECISION),
+            lockEnd: uint64(block.timestamp + _lockDuration),
+            boostBps: uint16(boost),
+            lockDuration: uint32(_lockDuration),
+            autoMaxLock: false,
+            hasJbacBoost: true,
+            stakeTimestamp: uint64(block.timestamp),
+            jbacTokenId: _jbacTokenId,
+            jbacDeposited: true
+        });
+
+        totalStaked += _amount;
+        totalBoostedStake += boosted;
+
+        _mint(msg.sender, tokenId); // _update() sets userTokenId[msg.sender] = tokenId
+        rewardToken.safeTransferFrom(msg.sender, address(this), _amount);
+        // Pull JBAC physically into this contract. onERC721Received gates the sender to jbacNFT.
+        IERC721(address(jbacNFT)).safeTransferFrom(msg.sender, address(this), _jbacTokenId);
+
+        _writeCheckpoint(msg.sender);
+
+        emit Staked(msg.sender, tokenId, _amount, _lockDuration, boost);
+    }
+
+    /// @notice IERC721Receiver — only accepts transfers from the configured JBAC contract.
+    /// @dev AUDIT H-1 FIX (2026-04-20): Restrict to the configured JBAC collection so no
+    ///      other ERC721 can be dumped here.
+    function onERC721Received(address, address, uint256, bytes calldata) external view returns (bytes4) {
+        require(msg.sender == address(jbacNFT), "only JBAC");
+        return IERC721Receiver.onERC721Received.selector;
     }
 
     /// @notice Toggle auto-max-lock. When enabled, lock auto-extends on every claim.
@@ -548,6 +625,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
         _getReward(tokenId, p);
 
+        // AUDIT H-1 (2026-04-20): return physically-deposited JBAC before clearing position.
+        _returnJbacIfDeposited(tokenId, msg.sender);
+
         uint256 amount = _clearPosition(tokenId, p);
 
         rewardToken.safeTransfer(msg.sender, amount);
@@ -566,6 +646,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         if (block.timestamp >= p.lockEnd) revert MustUseWithdraw();
 
         _getReward(tokenId, p);
+
+        // AUDIT H-1 (2026-04-20): return physically-deposited JBAC before clearing position.
+        _returnJbacIfDeposited(tokenId, msg.sender);
 
         uint256 amount = _clearPosition(tokenId, p);
         uint256 penalty = (amount * EARLY_WITHDRAWAL_PENALTY_BPS) / BPS;
@@ -610,6 +693,15 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         Position storage p = positions[tokenId];
         if (p.amount == 0) revert NoPosition();
 
+        // AUDIT H-1 FIX (2026-04-20): Deposit-based positions (created via stakeWithBoost) do
+        // NOT revalidate. The JBAC is physically held by this contract for the lock duration,
+        // so the boost is guaranteed to be valid. Legacy (grandfathered) positions with
+        // hasJbacBoost=true and jbacDeposited=false still allow DOWNGRADE (boost removal)
+        // so that pre-fix users who lose their JBAC can be stripped; but no upgrades are
+        // allowed on non-deposit positions, closing the flash-loan vector for new stake()
+        // positions that never held the boost to begin with.
+        if (p.jbacDeposited) revert JbacDeposited();
+
         // When restaked, the NFT owner is the restaking contract — check the original depositor's JBAC balance
         address jbacHolder = positionOwner;
         if (positionOwner == restakingContract && restakingContract != address(0)) {
@@ -621,21 +713,21 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
         bool currentlyHoldsJbac = jbacNFT.balanceOf(jbacHolder) > 0;
 
-        // Only update if boost status actually changed
-        if (currentlyHoldsJbac != p.hasJbacBoost) {
+        // Only allow DOWNGRADE (true -> false). No new JBAC boost via revalidate for
+        // non-deposit positions (flash-loan mitigation for new stakes).
+        if (p.hasJbacBoost && !currentlyHoldsJbac) {
             // SECURITY FIX: Claim pending rewards BEFORE changing boost to avoid loss
             _getReward(tokenId, p);
 
-            p.hasJbacBoost = currentlyHoldsJbac;
+            p.hasJbacBoost = false;
 
-            // Recalculate boost: base lock boost +/- JBAC bonus
+            // Recalculate boost: base lock boost only
             uint256 newBoost = calculateBoost(p.lockDuration);
-            if (currentlyHoldsJbac) newBoost += JBAC_BONUS_BPS;
             _applyNewBoost(p, newBoost);
 
             _writeCheckpoint(positionOwner); // AUDIT FIX #1
 
-            emit BoostRevalidated(tokenId, currentlyHoldsJbac, p.boostedAmount);
+            emit BoostRevalidated(tokenId, false, p.boostedAmount);
         }
     }
 
@@ -873,6 +965,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         Position storage p = positions[tokenId];
         if (p.amount == 0) revert NoPosition();
 
+        // AUDIT H-1 (2026-04-20): return physically-deposited JBAC before clearing position.
+        _returnJbacIfDeposited(tokenId, msg.sender);
+
         uint256 amount = _clearPosition(tokenId, p);
 
         rewardToken.safeTransfer(msg.sender, amount);
@@ -893,6 +988,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         // AUDIT FIX M-05: Attempt reward claim before exit. If reward transfer reverts
         // (e.g., token blacklist), continue with principal return rather than trapping both.
         _getReward(tokenId, p);
+
+        // AUDIT H-1 (2026-04-20): return physically-deposited JBAC before clearing position.
+        _returnJbacIfDeposited(tokenId, msg.sender);
 
         uint256 amount = _clearPosition(tokenId, p);
 
@@ -937,6 +1035,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         // AUDIT FIX M-06: Attempt reward claim before exit. Rewards are a best-effort bonus;
         // if claim fails, principal return proceeds regardless.
         _getReward(tokenId, p);
+
+        // AUDIT H-1 (2026-04-20): return physically-deposited JBAC before clearing position.
+        _returnJbacIfDeposited(tokenId, msg.sender);
 
         bool earlyExit = block.timestamp < p.lockEnd;
         uint256 amount = _clearPosition(tokenId, p);
@@ -1121,6 +1222,46 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     function cancelMaxUnsettledRewards() external onlyOwner {
         _cancel(UNSETTLED_CAP_CHANGE);
         pendingMaxUnsettledRewards = 0;
+    }
+
+    /// @dev AUDIT H-1 FIX (2026-04-20): Return a deposited JBAC to `to`. Wrapped in try/catch so
+    ///      a paused/reverting JBAC contract cannot brick unstake. If the transfer reverts, the
+    ///      JBAC is left in this contract and the prior owner can reclaim it later via
+    ///      `claimStrandedJbac(tokenId)`. Must be called BEFORE `_clearPosition` since that
+    ///      deletes the Position struct.
+    function _returnJbacIfDeposited(uint256 tokenId, address to) private {
+        Position storage p = positions[tokenId];
+        if (p.jbacDeposited) {
+            uint256 jId = p.jbacTokenId;
+            p.jbacDeposited = false;
+            p.jbacTokenId = 0;
+            strandedJbacOwner[tokenId] = to;
+            try IERC721(address(jbacNFT)).safeTransferFrom(address(this), to, jId) {
+                // transfer ok — clear stranded owner
+                delete strandedJbacOwner[tokenId];
+                delete strandedJbacTokenId[tokenId];
+                emit JbacReturned(tokenId, to, jId);
+            } catch {
+                // JBAC contract reverted (e.g., paused) — record for later reclaim.
+                strandedJbacTokenId[tokenId] = jId;
+                emit JbacStranded(tokenId, to, jId);
+            }
+        }
+    }
+
+    /// @notice Reclaim a JBAC that was stranded when its position was closed because the
+    ///         JBAC contract reverted the return transfer (e.g., during JBAC-contract pause).
+    /// @dev AUDIT H-1 FIX (2026-04-20): Only the recorded prior owner (the address that held
+    ///      the staking position at close time) can reclaim. Wrapped in nonReentrant for safety.
+    /// @param tokenId The staking position tokenId whose JBAC return failed.
+    function claimStrandedJbac(uint256 tokenId) external nonReentrant {
+        address to = strandedJbacOwner[tokenId];
+        uint256 jId = strandedJbacTokenId[tokenId];
+        if (to == address(0) || msg.sender != to) revert Unauthorized();
+        delete strandedJbacOwner[tokenId];
+        delete strandedJbacTokenId[tokenId];
+        IERC721(address(jbacNFT)).safeTransferFrom(address(this), to, jId);
+        emit JbacReturned(tokenId, to, jId);
     }
 
     /// @dev Recalculate boost for a position and update totals + rewardDebt.

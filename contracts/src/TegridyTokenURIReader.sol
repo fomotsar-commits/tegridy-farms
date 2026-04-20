@@ -16,10 +16,12 @@ interface ITegridyStaking {
         bool hasJbacBoost;
         uint64 stakeTimestamp;
     }
+    // AUDIT H-1 (2026-04-20): Position struct extended with jbacTokenId + jbacDeposited.
     function positions(uint256 tokenId) external view returns (
         uint256 amount, uint256 boostedAmount, int256 rewardDebt,
         uint64 lockEnd, uint16 boostBps, uint32 lockDuration,
-        bool autoMaxLock, bool hasJbacBoost, uint64 stakeTimestamp
+        bool autoMaxLock, bool hasJbacBoost, uint64 stakeTimestamp,
+        uint256 jbacTokenId, bool jbacDeposited
     );
     function ownerOf(uint256 tokenId) external view returns (address);
 }
@@ -40,7 +42,7 @@ contract TegridyTokenURIReader {
         (
             uint256 amount, , ,
             uint64 lockEnd, uint16 boostBps, uint32 lockDuration,
-            bool autoMaxLock, bool hasJbacBoost,
+            bool autoMaxLock, bool hasJbacBoost, , ,
         ) = staking.positions(tokenId);
 
         string memory svg = _buildSVG(tokenId, amount, boostBps, lockEnd, lockDuration, autoMaxLock, hasJbacBoost);
