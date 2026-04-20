@@ -420,10 +420,23 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
                       <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                         <span className="text-[11px] font-bold text-white">{(importSymbol as string).slice(0, 2)}</span>
                       </div>
-                      <div>
+                      <div className="flex-1 min-w-0">
                         <p className="text-white text-[13px] font-semibold">{importSymbol as string}</p>
                         <p className="text-white text-[11px] font-mono">{importAddress.slice(0, 8)}...{importAddress.slice(-6)}</p>
                       </div>
+                      {/* AUDIT SWAP-SEC: let the user verify the contract on
+                          Etherscan BEFORE accepting import risk. Previously
+                          the flow hid the full address behind truncation
+                          with no quick way to inspect. */}
+                      <a
+                        href={`https://etherscan.io/token/${importAddress}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] font-semibold text-purple-200 hover:text-white px-2 py-1 rounded transition-colors whitespace-nowrap"
+                        aria-label={`View ${importSymbol as string} contract on Etherscan (opens in new tab)`}
+                      >
+                        View on Etherscan ↗
+                      </a>
                     </div>
                     <div className="px-3 py-2.5" style={{ background: 'rgba(255,178,55,0.06)' }}>
                       <div className="flex items-center gap-1.5 px-2.5 py-1.5 mb-2 rounded-lg" style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.25)' }}>
