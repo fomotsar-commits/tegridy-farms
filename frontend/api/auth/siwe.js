@@ -172,20 +172,31 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Only Ethereum mainnet (chainId 1) is supported" });
     }
 
-    // Check nonce exists and is not expired
-    const { data: nonceRow, error: nonceErr } = await supabase
+    // AUDIT API-SEC-NONCE-RACE: atomically claim the nonce before doing any
+    // signature work. Two concurrent verify requests used to both SELECT the
+    // same row, both verify, and both issue JWTs; now whoever wins the
+    // DELETE claims the nonce and the loser sees an empty result.
+    //
+    // We predicate the DELETE on `expires_at > now` so an expired nonce is
+    // never consumed (the opportunistic cleanup in the nonce endpoint will
+    // sweep it on the next request).
+    //
+    // Note: this consumes the nonce *before* signature verification. If the
+    // signature is bad, the nonce is gone and the user must request a new
+    // one — the standard SIWE single-use semantics.
+    const { data: claimedRows, error: claimErr } = await supabase
       .from("siwe_nonces")
-      .select("nonce, expires_at")
+      .delete()
       .eq("nonce", siweMessage.nonce)
-      .single();
+      .gt("expires_at", new Date().toISOString())
+      .select("nonce, expires_at");
 
-    if (nonceErr || !nonceRow) {
-      return res.status(400).json({ error: "Invalid or expired nonce" });
+    if (claimErr) {
+      console.error("Nonce claim error:", claimErr.message);
+      return res.status(500).json({ error: "Auth service error" });
     }
-    if (new Date(nonceRow.expires_at) < new Date()) {
-      // Delete expired nonce
-      await supabase.from("siwe_nonces").delete().eq("nonce", siweMessage.nonce).catch(() => {});
-      return res.status(400).json({ error: "Nonce expired" });
+    if (!claimedRows || claimedRows.length === 0) {
+      return res.status(400).json({ error: "Invalid or expired nonce" });
     }
 
     // Verify the SIWE signature.
@@ -209,9 +220,6 @@ export default async function handler(req, res) {
     if (!verifyResult.success) {
       return res.status(403).json({ error: "Invalid signature" });
     }
-
-    // Delete used nonce (single-use)
-    await supabase.from("siwe_nonces").delete().eq("nonce", siweMessage.nonce).catch(() => {});
 
     // Issue custom JWT for Supabase
     const wallet = siweMessage.address.toLowerCase();
