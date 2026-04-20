@@ -589,6 +589,218 @@ function BorrowTab({ offerCount }: { offerCount: number }) {
   );
 }
 
+/* ─── NFT Collateral Picker ───────────────────────────────────────
+ * Replaces the former bare "Your NFT Token ID" number input with a
+ * wallet-scoped gallery, so borrowers can pick the NFT they're about
+ * to collateralize instead of having to look up a token ID off-page.
+ *
+ * Data: calls `/api/alchemy?endpoint=getNFTsForOwner` (rate-limited,
+ * API-key-hidden server proxy) filtered to the single collection the
+ * current offer accepts. Thumbnails are drawn from the NFT's `image`
+ * field with a graceful fallback to the collection art + #tokenId
+ * badge when the image link is missing or 404s.
+ *
+ * UX:
+ *   - Loading: a row of 3 skeleton tiles.
+ *   - Success with ≥1 owned NFT: scrollable grid; click to select.
+ *     Selected tile gets a purple ring + checkmark.
+ *   - Success with 0 owned: "You don't own any NFTs in this collection"
+ *     empty state plus the legacy text input as a fallback so the
+ *     borrower isn't blocked (maybe they plan to transfer one in).
+ *   - Fetch error: same fallback input, with a line explaining the
+ *     picker couldn't load.
+ *
+ * Rate-limit aware: ≤1 request per (owner, collection, mount) so the
+ * user switching between offer expansions doesn't hammer the proxy.
+ */
+interface OwnedNft {
+  tokenId: string;
+  name?: string;
+  image?: string;
+}
+
+function NFTCollateralPicker({
+  collectionContract,
+  selectedTokenId,
+  onSelect,
+}: {
+  collectionContract: Address;
+  selectedTokenId: string;
+  onSelect: (tokenId: string) => void;
+}) {
+  const { address } = useAccount();
+  const [nfts, setNfts] = useState<OwnedNft[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [manualEntry, setManualEntry] = useState(false);
+
+  useEffect(() => {
+    if (!address) {
+      setNfts(null);
+      return;
+    }
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+    const url =
+      `/api/alchemy?endpoint=getNFTsForOwner&owner=${address}` +
+      `&contractAddresses%5B%5D=${collectionContract}` +
+      `&pageSize=50&withMetadata=true`;
+    fetch(url, { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const ownedRaw: unknown = data?.ownedNfts ?? [];
+        if (!Array.isArray(ownedRaw)) throw new Error('Unexpected response shape');
+        const parsed: OwnedNft[] = ownedRaw.flatMap((n) => {
+          if (!n || typeof n !== 'object') return [];
+          const row = n as Record<string, unknown>;
+          const tokenId =
+            typeof row.tokenId === 'string' ? row.tokenId :
+            typeof row.id === 'object' && row.id && typeof (row.id as Record<string, unknown>).tokenId === 'string'
+              ? String((row.id as Record<string, unknown>).tokenId)
+              : null;
+          if (!tokenId) return [];
+          const name = typeof row.name === 'string' ? row.name : undefined;
+          const imageObj = row.image as Record<string, unknown> | undefined;
+          const imageUrl =
+            typeof imageObj?.cachedUrl === 'string' ? imageObj.cachedUrl :
+            typeof imageObj?.thumbnailUrl === 'string' ? imageObj.thumbnailUrl :
+            typeof imageObj?.originalUrl === 'string' ? imageObj.originalUrl :
+            typeof row.image === 'string' ? row.image :
+            undefined;
+          return [{ tokenId, name, image: imageUrl }];
+        });
+        setNfts(parsed);
+      })
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setError(err instanceof Error ? err.message : 'Failed to load NFTs');
+        setNfts(null);
+      })
+      .finally(() => setLoading(false));
+    return () => controller.abort();
+  }, [address, collectionContract]);
+
+  const fallbackArt = COLLECTION_ART[collectionName(collectionContract)] ?? '/art/bobowelie.jpg';
+  const hasNfts = !!nfts && nfts.length > 0;
+
+  // Manual entry appears when (a) fetch failed, (b) user has none, or
+  // (c) user toggles it. Keeps the borrower unblocked even if Alchemy
+  // is down or the NFT just landed in their wallet mid-session.
+  const showManual = manualEntry || !!error || (!!nfts && nfts.length === 0);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1.5">
+        <label className="text-white/85 text-[11px] uppercase tracking-wider block">
+          {hasNfts ? 'Pick Your NFT' : 'Your NFT Token ID'}
+        </label>
+        {hasNfts && (
+          <button
+            type="button"
+            onClick={() => setManualEntry((m) => !m)}
+            className="text-[10px] text-white/60 hover:text-white underline underline-offset-2"
+          >
+            {manualEntry ? 'Pick from wallet' : 'Enter ID manually'}
+          </button>
+        )}
+      </div>
+
+      {loading && (
+        <div className="grid grid-cols-4 sm:grid-cols-5 gap-2" aria-label="Loading your NFTs">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div
+              key={i}
+              className="aspect-square rounded-lg bg-white/5 animate-pulse"
+              style={{ border: `1px solid ${CARD_BORDER}` }}
+            />
+          ))}
+        </div>
+      )}
+
+      {!loading && hasNfts && !manualEntry && (
+        <div
+          className="grid grid-cols-4 sm:grid-cols-5 gap-2 max-h-[220px] overflow-y-auto pr-1"
+          role="radiogroup"
+          aria-label={`Your ${collectionName(collectionContract)} NFTs`}
+        >
+          {nfts!.map((nft) => {
+            const active = nft.tokenId === selectedTokenId;
+            return (
+              <button
+                key={nft.tokenId}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => onSelect(nft.tokenId)}
+                title={nft.name ? `${nft.name} · #${nft.tokenId}` : `#${nft.tokenId}`}
+                className={`relative aspect-square rounded-lg overflow-hidden transition-all focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:outline-none`}
+                style={{
+                  border: active
+                    ? '2px solid rgb(139 92 246)'
+                    : `1px solid ${CARD_BORDER}`,
+                  background: 'rgba(13,21,48,0.8)',
+                }}
+              >
+                <img
+                  src={nft.image || fallbackArt}
+                  alt={nft.name ?? `NFT ${nft.tokenId}`}
+                  loading="lazy"
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    const img = e.currentTarget;
+                    if (img.src !== fallbackArt) img.src = fallbackArt;
+                  }}
+                />
+                <span
+                  className="absolute bottom-0 left-0 right-0 px-1.5 py-0.5 text-[10px] font-mono text-white bg-gradient-to-t from-black/85 to-transparent truncate"
+                  style={{ textShadow: '0 1px 3px rgba(0,0,0,0.9)' }}
+                >
+                  #{nft.tokenId}
+                </span>
+                {active && (
+                  <span
+                    aria-hidden
+                    className="absolute top-1 right-1 w-4 h-4 rounded-full bg-purple-500 flex items-center justify-center text-white text-[10px] font-bold"
+                  >
+                    ✓
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {!loading && showManual && (
+        <>
+          {error && (
+            <p className="text-[11px] text-amber-300 mb-1.5" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+              Couldn't load your NFTs from the indexer. Enter a token ID manually — the contract validates ownership anyway.
+            </p>
+          )}
+          {!error && nfts && nfts.length === 0 && !manualEntry && (
+            <p className="text-[11px] text-white/60 mb-1.5" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+              You don't own any {collectionName(collectionContract)} NFTs yet. Enter a token ID below if one is on the way.
+            </p>
+          )}
+          <input
+            type="number"
+            step="1"
+            min="0"
+            placeholder="e.g. 1234"
+            value={selectedTokenId}
+            onChange={(e) => onSelect(e.target.value)}
+            className="w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
+            style={{ background: 'rgba(13,21,48,0.8)', border: `1px solid ${CARD_BORDER}` }}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ─── Offer Card ────────────────────────────────────────────────── */
 function OfferCard({
   offer,
@@ -699,19 +911,11 @@ function OfferCard({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-3 pb-3 md:px-5 md:pb-5 space-y-3 border-t border-white/5 pt-3">
-              <div>
-                <label className="text-white/85 text-[11px] uppercase tracking-wider mb-1 block">Your NFT Token ID</label>
-                <input
-                  type="number"
-                  step="1"
-                  min="0"
-                  placeholder="e.g. 1234"
-                  value={tokenId}
-                  onChange={(e) => setTokenId(e.target.value)}
-                  className="w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
-                  style={{ background: 'rgba(13,21,48,0.8)', border: `1px solid ${CARD_BORDER}` }}
-                />
-              </div>
+              <NFTCollateralPicker
+                collectionContract={offer.collateralContract}
+                selectedTokenId={tokenId}
+                onSelect={setTokenId}
+              />
 
               {/* Repayment Preview */}
               {tokenId && (
