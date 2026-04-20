@@ -229,6 +229,30 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Order already expired" });
       }
 
+      // AUDIT ORDERBOOK-SEC-REPLAY: bind the create signature to a recent
+      // wall-clock time by enforcing that startTime is close to now. The
+      // signed auth message below includes `StartTime: ${startSec}`, so an
+      // attacker who captures a valid signature cannot replay it more than
+      // a few minutes later — startSec no longer falls within the window
+      // and the server rejects before any DB write.
+      //
+      // Why startTime: client sets startSec = Math.floor(Date.now()/1000)
+      // at sign time, so it effectively IS the sign timestamp. If that
+      // changes, add a dedicated `signedAt` field to both the message
+      // and this check.
+      //
+      // Window: 5 min past / 5 min future. Past side absorbs slow network
+      // + retry. Future side absorbs wallet clock skew but stays tight
+      // enough to prevent stockpiling pre-signed orders.
+      const MAX_SIGNATURE_AGE_SEC = 300;
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (startSec < nowSec - MAX_SIGNATURE_AGE_SEC) {
+        return res.status(400).json({ error: "Order signature is stale — resign with a fresh startTime" });
+      }
+      if (startSec > nowSec + MAX_SIGNATURE_AGE_SEC) {
+        return res.status(400).json({ error: "Order startTime is too far in the future" });
+      }
+
       const offerItem = params.offer[0];
       const considerationItem = params.consideration[0];
 
