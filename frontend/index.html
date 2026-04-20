@@ -6,6 +6,31 @@
     <link rel="manifest" href="/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#060c1a">
+    <!--
+      AUDIT THEME-FOUC: pre-hydration theme script. Runs synchronously before
+      CSS parses, reads the same localStorage key (tegridy-theme) the runtime
+      ThemeProvider writes, and sets data-theme on <html> + updates the
+      meta theme-color. Without this, light-mode users got a ~150ms flash of
+      dark styles on every cold load while React booted. Keep the storage
+      key (`tegridy-theme`) and the default (`dark`) in lock-step with
+      frontend/src/contexts/ThemeContext.tsx.
+
+      Requires CSP script-src 'unsafe-inline' (already allowed in vercel.json).
+      Tightening CSP to use a nonce is tracked as future infra work.
+    -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('tegridy-theme');
+          if (t !== 'dark' && t !== 'light') t = 'dark';
+          document.documentElement.setAttribute('data-theme', t);
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute('content', t === 'dark' ? '#060c1a' : '#f5f3ff');
+        } catch (_e) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="Tegridy Farms — DeFi protocol for swapping, staking, farming, and NFT finance on Ethereum">
     <link rel="apple-touch-icon" href="/art/bobowelie.jpg">
