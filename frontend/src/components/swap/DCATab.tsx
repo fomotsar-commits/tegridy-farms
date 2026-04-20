@@ -61,7 +61,7 @@ export function DCATab() {
 
   return (
     <div className="p-5">
-      <p className="text-white text-[11px] mb-2" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Automatically buy TOWELI at regular intervals. Reduce timing risk with dollar-cost averaging.</p>
+      <p className="text-white text-[11px] mb-2" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Set reminders to buy TOWELI at regular intervals. Your wallet signs each swap when it&rsquo;s due &mdash; keep this tab open. (Dollar-cost-averaging pattern, but execution is tab-local, not a keeper.)</p>
       <p className="text-amber-300 text-[10px] mb-4 rounded px-2 py-1.5 border border-amber-500/50" style={{ background: 'rgba(0,0,0,0.70)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>&#9888; Browser-only feature: DCA schedules only run while this tab is open. Closing the browser stops all scheduled swaps. A keeper-based on-chain DCA is planned for v2.</p>
 
       {/* Amount per swap */}

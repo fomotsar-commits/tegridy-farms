@@ -17,11 +17,15 @@ import { useTowelie } from '../hooks/useTowelie';
 
 type Tab = 'swap' | 'liquidity' | 'dca' | 'limit';
 
+// AUDIT FIX H-2 (2026-04-20 / battle-tested Option C): honest-UX labels. The DCA and
+// Limit Order features are not on-chain — they persist in browser localStorage and
+// run only while the tab is open. Renaming to "Recurring Swap" / "Price Alert" makes
+// the actual behaviour legible without falsely implying automated execution.
 const TAB_LABELS: Record<Tab, string> = {
   swap: 'Swap',
   liquidity: 'Liquidity',
-  dca: 'DCA',
-  limit: 'Limit',
+  dca: 'Recurring Swap',
+  limit: 'Price Alert',
 };
 
 const VALID_TABS: Tab[] = ['swap', 'liquidity', 'dca', 'limit'];
@@ -51,8 +55,9 @@ export default function TradePage() {
   const titleByTab: Record<Tab, { title: string; desc: string }> = {
     swap:      { title: 'Swap',      desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.' },
     liquidity: { title: 'Liquidity', desc: 'Add or remove liquidity on Tegridy Farms native pools.' },
-    dca:       { title: 'DCA',       desc: 'Schedule recurring buys to dollar-cost-average into TOWELI.' },
-    limit:     { title: 'Limit Orders', desc: 'Place limit orders that fill when the market hits your price.' },
+    // AUDIT FIX H-2: honest descriptions — these are browser-tab-only tools, not on-chain.
+    dca:       { title: 'Recurring Swap', desc: 'Schedule reminders to buy TOWELI at regular intervals. Your wallet signs each swap \u2014 keep this tab open.' },
+    limit:     { title: 'Price Alert', desc: 'Set a price target and get a signing prompt when the market reaches it. Keep this tab open to see it fire.' },
   };
   usePageTitle(titleByTab[tab].title, titleByTab[tab].desc);
   const [showTokenSelect, setShowTokenSelect] = useState<'from' | 'to' | null>(null);

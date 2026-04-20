@@ -64,7 +64,7 @@ export function LimitOrderTab() {
 
   return (
     <div className="p-5">
-      <p className="text-white text-[11px] mb-3" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Set a price target. When the market price reaches your target, the swap executes automatically &mdash; your wallet will prompt for approval.</p>
+      <p className="text-white text-[11px] mb-3" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Set a price target. When the market price reaches your target, your wallet prompts you to sign the swap &mdash; keep this tab open to see it fire. (Not an on-chain limit order.)</p>
       <p className="text-amber-300 text-[10px] mb-4 rounded px-2 py-1.5 border border-amber-500/50" style={{ background: 'rgba(0,0,0,0.70)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>&#9888; Browser-only feature: Orders only execute while this tab is open. This is not an on-chain limit order &mdash; closing the tab cancels all pending orders. Use for convenience, not reliability.</p>
 
       {/* Amount */}
