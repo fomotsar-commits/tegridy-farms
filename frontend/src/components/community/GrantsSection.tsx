@@ -173,28 +173,30 @@ export function GrantsSection() {
           <h3 className="text-sm font-semibold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>New Grant Proposal</h3>
           <p className="text-[11px] text-white/80" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Requires veTOWELI voting power. Quorum-based approval with 24h execution delay.</p>
           <div>
-            <label className="text-[11px] text-white/40 uppercase tracking-wider block mb-1">Recipient Address</label>
-            <input type="text" value={newRecipient} onChange={(e) => setNewRecipient(e.target.value)}
+            <label htmlFor="grant-recipient" className="text-[11px] text-white/70 uppercase tracking-wider block mb-1">Recipient Address</label>
+            <input id="grant-recipient" type="text" value={newRecipient} onChange={(e) => setNewRecipient(e.target.value)}
               placeholder="0x..."
               aria-invalid={recipientInvalid}
+              aria-describedby={recipientInvalid ? 'grant-recipient-error' : undefined}
               className={`w-full bg-black/30 border rounded-lg px-3 py-2.5 text-white text-sm font-mono focus:border-emerald-500 outline-none transition-colors ${recipientInvalid ? 'border-red-500/60' : 'border-white/10'}`} />
             {recipientInvalid && (
-              <p className="mt-1 text-[11px] text-red-400">Not a valid Ethereum address</p>
+              <p id="grant-recipient-error" role="alert" className="mt-1 text-[11px] text-red-400">Not a valid Ethereum address</p>
             )}
           </div>
           <div>
-            <label className="text-[11px] text-white/40 uppercase tracking-wider block mb-1">Amount (TOWELI)</label>
-            <input type="number" value={newAmount} onChange={(e) => setNewAmount(e.target.value)}
+            <label htmlFor="grant-amount" className="text-[11px] text-white/70 uppercase tracking-wider block mb-1">Amount (TOWELI)</label>
+            <input id="grant-amount" type="number" value={newAmount} onChange={(e) => setNewAmount(e.target.value)}
               placeholder="100000"
               aria-invalid={amountInvalid}
+              aria-describedby={amountInvalid ? 'grant-amount-error' : undefined}
               className={`w-full bg-black/30 border rounded-lg px-3 py-2.5 text-white text-sm font-mono focus:border-emerald-500 outline-none transition-colors ${amountInvalid ? 'border-red-500/60' : 'border-white/10'}`} />
             {amountInvalid && (
-              <p className="mt-1 text-[11px] text-red-400">Enter a positive number</p>
+              <p id="grant-amount-error" role="alert" className="mt-1 text-[11px] text-red-400">Enter a positive number</p>
             )}
           </div>
           <div>
-            <label className="text-[11px] text-white/40 uppercase tracking-wider block mb-1">Description</label>
-            <textarea value={newDescription} onChange={(e) => setNewDescription(e.target.value)}
+            <label htmlFor="grant-description" className="text-[11px] text-white/70 uppercase tracking-wider block mb-1">Description</label>
+            <textarea id="grant-description" value={newDescription} onChange={(e) => setNewDescription(e.target.value)}
               placeholder="Describe what this grant funds..." rows={3}
               className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:border-emerald-500 outline-none transition-colors resize-none" />
           </div>

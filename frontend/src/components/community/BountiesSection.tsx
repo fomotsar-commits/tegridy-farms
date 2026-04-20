@@ -147,20 +147,20 @@ export function BountiesSection() {
           <h3 className="text-sm font-semibold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>New Meme Bounty</h3>
           <p className="text-[11px] text-white/80" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Fund a bounty with ETH. Community votes on submissions. Winner takes the reward.</p>
           <div>
-            <label className="text-[11px] text-white/40 uppercase tracking-wider block mb-1">Description</label>
-            <textarea value={newDescription} onChange={(e) => setNewDescription(e.target.value)}
+            <label htmlFor="bounty-description" className="text-[11px] text-white/70 uppercase tracking-wider block mb-1">Description</label>
+            <textarea id="bounty-description" value={newDescription} onChange={(e) => setNewDescription(e.target.value)}
               placeholder="Create the best Tegridy Farms meme..." rows={2}
               className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:border-emerald-500 outline-none transition-colors resize-none" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-[11px] text-white/40 uppercase tracking-wider block mb-1">Reward (ETH)</label>
-              <input type="number" step="0.01" value={newReward} onChange={(e) => setNewReward(e.target.value)}
+              <label htmlFor="bounty-reward" className="text-[11px] text-white/70 uppercase tracking-wider block mb-1">Reward (ETH)</label>
+              <input id="bounty-reward" type="number" step="0.01" value={newReward} onChange={(e) => setNewReward(e.target.value)}
                 placeholder="0.1" className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm font-mono focus:border-emerald-500 outline-none transition-colors" />
             </div>
             <div>
-              <label className="text-[11px] text-white/40 uppercase tracking-wider block mb-1">Deadline (days)</label>
-              <input type="number" value={newDeadlineDays} onChange={(e) => setNewDeadlineDays(e.target.value)}
+              <label htmlFor="bounty-deadline" className="text-[11px] text-white/70 uppercase tracking-wider block mb-1">Deadline (days)</label>
+              <input id="bounty-deadline" type="number" value={newDeadlineDays} onChange={(e) => setNewDeadlineDays(e.target.value)}
                 placeholder="7" className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm font-mono focus:border-emerald-500 outline-none transition-colors" />
             </div>
           </div>
@@ -225,9 +225,9 @@ export function BountiesSection() {
                   {isExpanded && isOpen && !isPastDeadline && (
                     <m.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
                       className="mt-3 pt-3 border-t border-white/5 space-y-2">
-                      <label className="text-[11px] text-white/40 uppercase tracking-wider block">Submit Your Work</label>
+                      <label htmlFor={`bounty-submit-${bountyId}`} className="text-[11px] text-white/70 uppercase tracking-wider block">Submit Your Work</label>
                       <div className="flex gap-2">
-                        <input type="text" value={submitURI} onChange={(e) => setSubmitURI(e.target.value)}
+                        <input id={`bounty-submit-${bountyId}`} type="text" value={submitURI} onChange={(e) => setSubmitURI(e.target.value)}
                           placeholder="Link to your submission (IPFS, URL, etc.)"
                           className="flex-1 bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:border-emerald-500 outline-none transition-colors" />
                         <button onClick={() => handleSubmit(bountyId)} disabled={!submitURI || isSigning || isConfirming}

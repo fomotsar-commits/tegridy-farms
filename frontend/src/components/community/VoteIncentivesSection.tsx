@@ -730,8 +730,8 @@ function DepositCard({
 
         <div className="p-5 space-y-4">
           <div>
-            <label className="text-[11px] text-white/65 uppercase tracking-wider block mb-1.5">Gauge</label>
-            <select value={selectedPair ?? ''} onChange={(e) => setSelectedPair(e.target.value as Address)}
+            <label htmlFor="deposit-gauge" className="text-[11px] text-white/65 uppercase tracking-wider block mb-1.5">Gauge</label>
+            <select id="deposit-gauge" value={selectedPair ?? ''} onChange={(e) => setSelectedPair(e.target.value as Address)}
               className="w-full bg-black/50 border border-white/15 rounded-lg px-3 py-2.5 text-white text-[13px] font-mono focus:border-purple-500 outline-none transition-colors">
               <option value="" disabled>Select a gauge…</option>
               {gauges.map((g) => (
