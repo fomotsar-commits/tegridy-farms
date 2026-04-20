@@ -21,12 +21,23 @@ const fade = { hidden: { opacity: 0, y: 24 }, visible: { opacity: 1, y: 0 } };
 // the fullbleed page art; the inner ArtImg gives each tile its own accent.
 const glass = { background: 'rgba(13, 21, 48, 0.78)', border: '1px solid var(--color-purple-12)' };
 
-// Distribution split (bps). If pendingStakerShareBps / polShareBps are on-chain, read them; for now use canonical 70/20/10.
-const SPLIT = [
-  { label: 'Stakers', bps: 7000, color: '#22c55e' },
-  { label: 'Protocol-Owned Liquidity', bps: 2000, color: '#8b5cf6' },
-  { label: 'Treasury', bps: 1000, color: '#eab308' },
-];
+// AUDIT TREASURY-FIX: the page used to hardcode a 70/20/10 split that
+// disagreed with the actual on-chain defaults (currently 100/0/0 per
+// SwapFeeRouter.sol; the 50/25/25 ceilings are policy bounds, not the
+// active numbers). Now we read stakerShareBps / polShareBps live and
+// compute treasury as the remainder. If the read fails, the page falls
+// back to the live contract default (100% stakers) which is honest if
+// uninformative — strictly better than the old lie.
+const SHARE_ABI = [
+  { type: 'function', name: 'stakerShareBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'polShareBps',    inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+] as const;
+
+const SPLIT_COLORS = {
+  stakers: '#22c55e',
+  pol: '#8b5cf6',
+  treasury: '#eab308',
+} as const;
 
 const ERC20_BAL_ABI = [
   { type: 'function', name: 'balanceOf', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
@@ -74,6 +85,30 @@ export default function TreasuryPage() {
     functionName: 'totalETHFees',
     query: { refetchInterval: 60_000 },
   });
+
+  // Live revenue split. Defaults match SwapFeeRouter.sol initial state
+  // (stakerShareBps=10_000, polShareBps=0) so the page stays coherent
+  // before the first read resolves.
+  const { data: stakerShareData } = useReadContract({
+    address: SWAP_FEE_ROUTER_ADDRESS,
+    abi: SHARE_ABI,
+    functionName: 'stakerShareBps',
+    query: { refetchInterval: 300_000, staleTime: 60_000 },
+  });
+  const { data: polShareData } = useReadContract({
+    address: SWAP_FEE_ROUTER_ADDRESS,
+    abi: SHARE_ABI,
+    functionName: 'polShareBps',
+    query: { refetchInterval: 300_000, staleTime: 60_000 },
+  });
+  const stakerBps = stakerShareData !== undefined ? Number(stakerShareData as bigint) : 10_000;
+  const polBps = polShareData !== undefined ? Number(polShareData as bigint) : 0;
+  const treasuryBps = Math.max(0, 10_000 - stakerBps - polBps);
+  const split = [
+    { label: 'Stakers', bps: stakerBps, color: SPLIT_COLORS.stakers },
+    { label: 'Protocol-Owned Liquidity', bps: polBps, color: SPLIT_COLORS.pol },
+    { label: 'Treasury', bps: treasuryBps, color: SPLIT_COLORS.treasury },
+  ];
 
   const lifetimeFeesEth = totalFeesWei ? parseFloat(formatEther(totalFeesWei as bigint)) : 0;
   const lifetimeFeesUsd = lifetimeFeesEth * (price.ethUsd || 0);
@@ -148,20 +183,26 @@ export default function TreasuryPage() {
           <span className="text-white/40 text-[11px]">Per swap fee</span>
         </div>
 
-        {/* Stacked bar */}
-        <div className="flex h-3 rounded-full overflow-hidden mb-5" role="img" aria-label="Revenue distribution split">
-          {SPLIT.map((s) => (
+        {/* Stacked bar — rendered from the live on-chain split. Zero-width
+            segments are skipped so the rounded corners stay clean when
+            polBps or treasuryBps is 0. */}
+        <div
+          className="flex h-3 rounded-full overflow-hidden mb-5"
+          role="img"
+          aria-label={`Revenue distribution split: ${split.filter(s => s.bps > 0).map(s => `${(s.bps / 100).toFixed(0)}% ${s.label}`).join(', ')}`}
+        >
+          {split.filter(s => s.bps > 0).map((s) => (
             <div key={s.label} style={{ width: `${s.bps / 100}%`, background: s.color }} />
           ))}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {SPLIT.map((s) => (
-            <div key={s.label} className="flex items-center gap-3">
+          {split.map((s) => (
+            <div key={s.label} className="flex items-center gap-3" style={{ opacity: s.bps === 0 ? 0.45 : 1 }}>
               <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: s.color }} />
               <div>
                 <p className="text-white text-[13px]">{s.label}</p>
-                <p className="text-white/50 text-[11px]">{(s.bps / 100).toFixed(0)}% ({s.bps} bps)</p>
+                <p className="text-white/50 text-[11px]">{(s.bps / 100).toFixed(0)}% ({s.bps} bps){s.bps === 0 ? ' · inactive' : ''}</p>
               </div>
             </div>
           ))}
