@@ -129,4 +129,38 @@ describe('usePriceAlerts', () => {
     expect(result.current.alerts).toHaveLength(1);
     expect(result.current.alerts[0]!.price).toBe(5.0);
   });
+
+  it('deduplicates alerts by (type, price) to 6 decimal places', () => {
+    const { result } = renderHook(() => usePriceAlerts(0));
+    act(() => result.current.addAlert('above', 1.23456789));
+    act(() => result.current.addAlert('above', 1.23456789));
+    // Same direction + same price (rounded to 6dp) is a no-op.
+    expect(result.current.alerts).toHaveLength(1);
+    // A different direction at the same price is still its own alert.
+    act(() => result.current.addAlert('below', 1.23456789));
+    expect(result.current.alerts).toHaveLength(2);
+    // A meaningfully different price (distinct at 6dp) also adds.
+    act(() => result.current.addAlert('above', 1.234570));
+    expect(result.current.alerts).toHaveLength(3);
+  });
+
+  it('caps alerts per wallet at the MAX_ALERTS ceiling', () => {
+    const { result } = renderHook(() => usePriceAlerts(0));
+    // Add exactly MAX_ALERTS unique above-alerts; next one is rejected.
+    act(() => {
+      for (let i = 1; i <= 20; i++) result.current.addAlert('above', i);
+    });
+    expect(result.current.alerts).toHaveLength(20);
+    act(() => result.current.addAlert('above', 999));
+    expect(result.current.alerts).toHaveLength(20);
+  });
+
+  it('rejects non-positive / non-finite price thresholds', () => {
+    const { result } = renderHook(() => usePriceAlerts(0));
+    act(() => result.current.addAlert('above', 0));
+    act(() => result.current.addAlert('above', -1));
+    act(() => result.current.addAlert('above', Number.NaN));
+    act(() => result.current.addAlert('above', Number.POSITIVE_INFINITY));
+    expect(result.current.alerts).toHaveLength(0);
+  });
 });
