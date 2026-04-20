@@ -51,12 +51,38 @@ contract ETHRejecter {
     }
 }
 
+/// @dev Minimal TegridyPair mock used by TegridyLending's optional ETH-floor oracle.
+///      Seeded with deterministic reserves so tests can reason about price deterministically.
+contract MockTegridyPairLending {
+    address public immutable token0;
+    address public immutable token1;
+    uint112 public reserve0;
+    uint112 public reserve1;
+
+    constructor(address _token0, address _token1, uint112 _r0, uint112 _r1) {
+        token0 = _token0;
+        token1 = _token1;
+        reserve0 = _r0;
+        reserve1 = _r1;
+    }
+
+    function getReserves() external view returns (uint112, uint112, uint32) {
+        return (reserve0, reserve1, uint32(block.timestamp));
+    }
+
+    function setReserves(uint112 _r0, uint112 _r1) external {
+        reserve0 = _r0;
+        reserve1 = _r1;
+    }
+}
+
 // ─── Test Suite ─────────────────────────────────────────────────────
 
 contract TegridyLendingTest is Test {
     MockToweli public toweli;
     MockJBAC public jbac;
     MockWETHLending public weth;
+    MockTegridyPairLending public pair;
     TegridyStaking public staking;
     TegridyLending public lending;
 
@@ -80,9 +106,17 @@ contract TegridyLendingTest is Test {
             1e18 // rewardRate
         );
 
-        // 3. Deploy MockWETH and TegridyLending
+        // 3. Deploy MockWETH + mock TegridyPair seeded with a 1 TOWELI = 0.001 ETH price,
+        //    then TegridyLending. The pair price is irrelevant for tests that pass
+        //    `minPositionETHValue = 0` (which is every test in this file by default).
         weth = new MockWETHLending();
-        lending = new TegridyLending(treasury, 500, address(weth)); // 5% protocol fee
+        pair = new MockTegridyPairLending(
+            address(toweli),
+            address(weth),
+            1_000_000 ether, // toweli reserve
+            1_000 ether      // weth reserve → 1 TOWELI = 0.001 ETH
+        );
+        lending = new TegridyLending(treasury, 500, address(weth), address(pair)); // 5% protocol fee
 
         // 4. Fund alice with TOWELI and have her stake to get a position NFT
         toweli.transfer(alice, 100_000 ether);
@@ -117,7 +151,8 @@ contract TegridyLendingTest is Test {
             1000,                   // 10% APR
             30 days,                // duration
             address(staking),       // collateral contract
-            5000 ether              // min position value
+            5000 ether,             // min position value
+            0                       // min position ETH value (0 = disabled)
         );
 
         assertEq(offerId, 0);
@@ -128,6 +163,7 @@ contract TegridyLendingTest is Test {
             uint256 duration,
             address collateralContract,
             uint256 minPositionValue,
+            uint256 minPositionETHValue,
             bool active
         ) = lending.getOffer(0);
 
@@ -137,6 +173,7 @@ contract TegridyLendingTest is Test {
         assertEq(duration, 30 days);
         assertEq(collateralContract, address(staking));
         assertEq(minPositionValue, 5000 ether);
+        assertEq(minPositionETHValue, 0);
         assertTrue(active);
         assertEq(lending.offerCount(), 1);
     }
@@ -145,7 +182,7 @@ contract TegridyLendingTest is Test {
         vm.prank(bob);
         vm.expectRevert(TegridyLending.ZeroPrincipal.selector);
         lending.createLoanOffer{value: 0}(
-            1000, 30 days, address(staking), 5000 ether
+            1000, 30 days, address(staking), 5000 ether, 0
         );
     }
 
@@ -154,7 +191,7 @@ contract TegridyLendingTest is Test {
         vm.prank(bob);
         vm.expectRevert(TegridyLending.PrincipalTooLarge.selector);
         lending.createLoanOffer{value: 1001 ether}(
-            1000, 30 days, address(staking), 5000 ether
+            1000, 30 days, address(staking), 5000 ether, 0
         );
     }
 
@@ -165,7 +202,8 @@ contract TegridyLendingTest is Test {
             50001,                  // exceeds MAX_APR_BPS (50000)
             30 days,
             address(staking),
-            5000 ether
+            5000 ether,
+            0
         );
     }
 
@@ -176,7 +214,8 @@ contract TegridyLendingTest is Test {
             1000,
             12 hours,               // below MIN_DURATION (1 day)
             address(staking),
-            5000 ether
+            5000 ether,
+            0
         );
     }
 
@@ -187,7 +226,8 @@ contract TegridyLendingTest is Test {
             1000,
             366 days,               // exceeds MAX_DURATION (365 days)
             address(staking),
-            5000 ether
+            5000 ether,
+            0
         );
     }
 
@@ -195,7 +235,7 @@ contract TegridyLendingTest is Test {
         vm.prank(bob);
         vm.expectRevert(TegridyLending.ZeroAddress.selector);
         lending.createLoanOffer{value: 1 ether}(
-            1000, 30 days, address(0), 5000 ether
+            1000, 30 days, address(0), 5000 ether, 0
         );
     }
 
@@ -206,7 +246,7 @@ contract TegridyLendingTest is Test {
     function test_cancelOffer_success() public {
         vm.prank(bob);
         lending.createLoanOffer{value: 5 ether}(
-            1000, 30 days, address(staking), 5000 ether
+            1000, 30 days, address(staking), 5000 ether, 0
         );
 
         uint256 bobBalanceBefore = bob.balance;
@@ -217,14 +257,14 @@ contract TegridyLendingTest is Test {
         assertEq(bob.balance, bobBalanceBefore + 5 ether);
 
         // Offer is no longer active
-        (,,,,,, bool active) = lending.getOffer(0);
+        (,,,,,,, bool active) = lending.getOffer(0);
         assertFalse(active);
     }
 
     function test_cancelOffer_revert_notOwner() public {
         vm.prank(bob);
         lending.createLoanOffer{value: 1 ether}(
-            1000, 30 days, address(staking), 5000 ether
+            1000, 30 days, address(staking), 5000 ether, 0
         );
 
         vm.prank(carol);
@@ -235,7 +275,7 @@ contract TegridyLendingTest is Test {
     function test_cancelOffer_revert_alreadyCancelled() public {
         vm.prank(bob);
         lending.createLoanOffer{value: 1 ether}(
-            1000, 30 days, address(staking), 5000 ether
+            1000, 30 days, address(staking), 5000 ether, 0
         );
 
         vm.prank(bob);
@@ -256,7 +296,8 @@ contract TegridyLendingTest is Test {
             1000,                   // 10% APR
             30 days,
             address(staking),
-            1000 ether              // min position value (alice has 10_000)
+            1000 ether,             // min position value (alice has 10_000)
+            0                       // min position ETH value (0 = disabled)
         );
     }
 
@@ -277,7 +318,7 @@ contract TegridyLendingTest is Test {
         assertEq(staking.ownerOf(aliceTokenId), address(lending));
 
         // Offer deactivated
-        (,,,,,, bool active) = lending.getOffer(offerId);
+        (,,,,,,, bool active) = lending.getOffer(offerId);
         assertFalse(active);
 
         // Loan fields populated
@@ -312,7 +353,8 @@ contract TegridyLendingTest is Test {
         vm.prank(bob);
         uint256 offerId = lending.createLoanOffer{value: 1 ether}(
             1000, 30 days, address(staking),
-            50_000 ether            // alice only has 10_000 staked
+            50_000 ether,           // alice only has 10_000 staked
+            0
         );
 
         vm.prank(alice);
@@ -577,7 +619,7 @@ contract TegridyLendingTest is Test {
         vm.prank(bob);
         vm.expectRevert();
         lending.createLoanOffer{value: 1 ether}(
-            1000, 30 days, address(staking), 5000 ether
+            1000, 30 days, address(staking), 5000 ether, 0
         );
     }
 
@@ -609,7 +651,7 @@ contract TegridyLendingTest is Test {
         // Should work again after unpause
         vm.prank(bob);
         uint256 offerId = lending.createLoanOffer{value: 1 ether}(
-            1000, 30 days, address(staking), 5000 ether
+            1000, 30 days, address(staking), 5000 ether, 0
         );
         assertEq(offerId, 0);
     }
@@ -774,14 +816,14 @@ contract TegridyLendingTest is Test {
         vm.deal(bob, 100 ether);
         vm.prank(bob);
         uint256 offer1 = lending.createLoanOffer{value: 1 ether}(
-            1000, 30 days, address(staking), 1000 ether
+            1000, 30 days, address(staking), 1000 ether, 0
         );
 
         address lender2 = makeAddr("lender2");
         vm.deal(lender2, 100 ether);
         vm.prank(lender2);
         uint256 offer2 = lending.createLoanOffer{value: 2 ether}(
-            2000, 60 days, address(staking), 1000 ether
+            2000, 60 days, address(staking), 1000 ether, 0
         );
 
         // Alice accepts offer 1
@@ -832,7 +874,7 @@ contract TegridyLendingTest is Test {
         // Create offer from the rejecter
         vm.prank(address(rejecter));
         uint256 offerId = lending.createLoanOffer{value: 1 ether}(
-            1000, 30 days, address(staking), 1000 ether
+            1000, 30 days, address(staking), 1000 ether, 0
         );
 
         // Alice accepts
@@ -864,7 +906,7 @@ contract TegridyLendingTest is Test {
         // Create offer from the rejecter
         vm.prank(address(rejecter));
         uint256 offerId = lending.createLoanOffer{value: 1 ether}(
-            1000, 30 days, address(staking), 1000 ether
+            1000, 30 days, address(staking), 1000 ether, 0
         );
 
         // Cancel succeeds — lender gets WETH refund instead of ETH (WETHFallbackLib)
@@ -935,7 +977,7 @@ contract TegridyLendingTest is Test {
         for (uint256 i = 0; i < 50; i++) {
             vm.prank(bob);
             lending.createLoanOffer{value: 0.1 ether}(
-                1000, 30 days, address(staking), 1000 ether
+                1000, 30 days, address(staking), 1000 ether, 0
             );
         }
         assertEq(lending.offerCount(), 50);
@@ -958,7 +1000,7 @@ contract TegridyLendingTest is Test {
 
         vm.prank(alice);
         uint256 offerId = lending.createLoanOffer{value: 1 ether}(
-            1000, 30 days, address(staking), 1000 ether
+            1000, 30 days, address(staking), 1000 ether, 0
         );
 
         // Alice re-approves her NFT (it was approved in setUp for lending)
@@ -1116,7 +1158,8 @@ contract TegridyLendingTest is Test {
             100,                    // 1% APR
             1 days,                 // minimum duration
             address(staking),
-            1000 ether
+            1000 ether,
+            0
         );
 
         vm.prank(alice);
@@ -1139,16 +1182,16 @@ contract TegridyLendingTest is Test {
         vm.deal(bob, 2002 ether);
         vm.prank(bob);
         uint256 offerId = lending.createLoanOffer{value: 1000 ether}(
-            1000, 30 days, address(staking), 1000 ether
+            1000, 30 days, address(staking), 1000 ether, 0
         );
-        (,uint256 principal,,,,,) = lending.getOffer(offerId);
+        (,uint256 principal,,,,,,) = lending.getOffer(offerId);
         assertEq(principal, 1000 ether);
 
         // 1001 ether should revert
         vm.prank(bob);
         vm.expectRevert(TegridyLending.PrincipalTooLarge.selector);
         lending.createLoanOffer{value: 1001 ether}(
-            1000, 30 days, address(staking), 1000 ether
+            1000, 30 days, address(staking), 1000 ether, 0
         );
     }
 
@@ -1159,16 +1202,17 @@ contract TegridyLendingTest is Test {
             50000,                  // exactly MAX_APR_BPS
             30 days,
             address(staking),
-            1000 ether
+            1000 ether,
+            0
         );
-        (,,uint256 aprBps,,,,) = lending.getOffer(offerId);
+        (,,uint256 aprBps,,,,,) = lending.getOffer(offerId);
         assertEq(aprBps, 50000);
 
         // 50001 should revert
         vm.prank(bob);
         vm.expectRevert(TegridyLending.AprTooHigh.selector);
         lending.createLoanOffer{value: 1 ether}(
-            50001, 30 days, address(staking), 1000 ether
+            50001, 30 days, address(staking), 1000 ether, 0
         );
     }
 

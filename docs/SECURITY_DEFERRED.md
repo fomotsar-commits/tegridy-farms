@@ -57,15 +57,25 @@ it was deferred and what a follow-up looks like.
   frontend integration. Clean scope for a focused PR.
 
 ### critique 5.4 `TegridyLending.minPositionValue` — USD-denominated floor
-- **Status:** collateral-value floor specified in TOWELI, not USD. A
-  lender who writes "min 5000 TOWELI" has no defense if TOWELI/ETH drops
-  90% between offer creation and acceptance.
-- **Fix:** add an optional ETH-denominated floor (checked via a pair spot
-  price or, ideally, a Chainlink TOWELI/ETH feed once available).
-- **Why deferred:** adds a price dependency. Least invasive path is
-  reading `TegridyPair` reserves at accept time, but that re-opens the
-  oracle-manipulation attack surface the audit is pushing us to avoid.
-  Parked until TWAP / Chainlink is in place.
+- **Status (partial):** `bulletproof/batch-7d-eth-floor` adds an optional
+  ETH-denominated floor (`minPositionETHValue` — 7th field of `LoanOffer`).
+  When non-zero, `acceptOffer` reads `TegridyPair.getReserves()` and
+  revertS `InsufficientCollateralValue` if the position's TOWELI amount
+  valued at spot reserves falls below the threshold. Zero preserves the
+  pre-batch behaviour.
+- **Remaining risk — known, accepted:** spot reserves are manipulable in
+  the same transaction (sandwich). Mitigations: lender opt-in, contract's
+  2h max-manipulation bound via deadline grace window + bounded loan
+  durations; the malicious price has to hold until the borrower fails to
+  repay, which is expensive. `test_sandwich_sameBlockManipulation_succeeds`
+  documents the risk in the test suite.
+- **Full fix:** swap `_positionETHValue` for a TWAP read (TegridyTWAP once
+  it's consulted by any other live integration, or Uniswap V3 OracleLibrary
+  once a V3 pool exists).
+- **Why still deferred:** TWAP / Chainlink dependency blockers listed
+  above. The partial fix is battle-tested (OZ Math.mulDiv + the same
+  reserve interface TegridyTWAP and TegridyRouter already use) and is a
+  strict improvement over the TOWELI-only floor.
 
 ### H-1 JBAC flash-loan boost capture — deposit-based pattern
 - **Status:** JBAC holder status cached at `stake()` via

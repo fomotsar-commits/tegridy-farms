@@ -16,6 +16,10 @@ contract DeployV3FeaturesScript is Script {
     address constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     address constant TREASURY = 0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e;
     address constant TEGRIDY_STAKING = 0x626644523d34B84818df602c991B4a06789C4819;
+    /// @dev TOWELI/WETH TegridyPair — consumed by TegridyLending for the optional
+    ///      ETH-denominated collateral floor (AUDIT critique 5.4). Override via env
+    ///      (TOWELI_WETH_PAIR) when redeploying against a fresh pair.
+    address constant TOWELI_WETH_PAIR = 0x0000000000000000000000000000000000000000;
 
     // ─── Default Fees ───────────────────────────────────────────────
     uint256 constant LENDING_FEE_BPS = 500;     // 5% of interest earned
@@ -47,9 +51,15 @@ contract DeployV3FeaturesScript is Script {
         V3Deployed memory d;
 
         // 1. TegridyLending - P2P NFT-collateralized lending
-        TegridyLending lending = new TegridyLending(TREASURY, LENDING_FEE_BPS, WETH);
+        //    AUDIT critique 5.4: pair address feeds the optional ETH-denominated floor
+        //    in `acceptOffer`. Prefer the env override so the script stays usable as
+        //    the mainnet pair address evolves.
+        address pairAddr = vm.envOr("TOWELI_WETH_PAIR", TOWELI_WETH_PAIR);
+        require(pairAddr != address(0), "TOWELI_WETH_PAIR required");
+        TegridyLending lending = new TegridyLending(TREASURY, LENDING_FEE_BPS, WETH, pairAddr);
         d.lending = address(lending);
         console.log("1. TegridyLending:", d.lending);
+        console.log("   TOWELI/WETH pair:", pairAddr);
 
         // 2. TegridyDrop - Template contract (used by Launchpad clones)
         //    Note: TegridyDrop is deployed automatically inside TegridyLaunchpad constructor
