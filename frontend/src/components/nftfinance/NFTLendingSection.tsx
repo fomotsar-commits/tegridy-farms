@@ -179,10 +179,11 @@ export function NFTLendingSection() {
         ))}
       </m.div>
 
-      {/* Tab Navigation */}
+      {/* Tab Navigation — solid black box so Lend/Borrow/My Loans labels stay
+          readable over the full-bleed mascot art on this section. */}
       <m.div
         className="flex gap-1 rounded-xl p-1"
-        style={{ background: 'rgba(13, 21, 48, 0.4)', border: `1px solid ${CARD_BORDER}` }}
+        style={{ background: 'rgba(0, 0, 0, 0.85)', border: `1px solid ${CARD_BORDER}` }}
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ease: EASE, delay: 0.05 }}
