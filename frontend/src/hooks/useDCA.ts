@@ -40,6 +40,14 @@ const MAX_TOTAL_SWAPS = 365;
 // BroadcastChannel mutex name — used by claimTabLock below
 // const DCA_CHANNEL_NAME = 'tegridy_dca_mutex';
 
+// AUDIT DCA-LOCK: shortened from 60s → 20s. A crashed tab used to leave
+// the lock orphaned for a full minute; 20s is still well above any
+// realistic tx-signing round-trip (wallet sign → broadcast → first
+// confirmation on a fast block) and refreshed inline during long ops
+// via `refreshTabLock` below. Explicit tab-close also releases via the
+// window-level beforeunload hook in the main hook body.
+const LOCK_TTL_MS = 20_000;
+
 function claimTabLock(scheduleId: string): boolean {
   try {
     const key = `tegridy_dca_lock_${scheduleId}`;
@@ -47,14 +55,21 @@ function claimTabLock(scheduleId: string): boolean {
     const existing = localStorage.getItem(key);
     if (existing) {
       const lockTime = parseInt(existing, 10);
-      // Lock is still valid (held for < 60s)
-      if (now - lockTime < 60_000) return false;
+      if (now - lockTime < LOCK_TTL_MS) return false;
     }
     localStorage.setItem(key, String(now));
     return true;
   } catch {
     return true; // If localStorage fails, allow execution
   }
+}
+
+/** Bump the lock timestamp during a long operation so it doesn't expire
+ *  mid-tx while the wallet is waiting for user signature. */
+function refreshTabLock(scheduleId: string) {
+  try {
+    localStorage.setItem(`tegridy_dca_lock_${scheduleId}`, String(Date.now()));
+  } catch {}
 }
 
 function releaseTabLock(scheduleId: string) {
@@ -175,6 +190,19 @@ export function useDCA() {
     return () => DCA_CHANNEL.removeEventListener('message', handler);
   }, [address]);
 
+  // AUDIT DCA-LOCK: release all currently-executing locks on explicit
+  // tab close. beforeunload fires reliably for user-initiated navigation
+  // + close; it does NOT fire on hard crashes (kill -9, power loss) —
+  // for those the 20s TTL is the backstop. Together they collapse the
+  // orphan window from "60s always" to "sub-second on close, 20s on crash."
+  useEffect(() => {
+    const onBeforeUnload = () => {
+      executingRef.current.forEach((id) => releaseTabLock(id));
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
+
   // Keep ref in sync with state
   useEffect(() => { schedulesRef.current = schedules; }, [schedules]);
 
@@ -278,6 +306,13 @@ export function useDCA() {
     if (parsedAmount === 0n) { executingRef.current.delete(schedule.id); releaseTabLock(schedule.id); return; }
     const deadlineTs = BigInt(Math.floor(Date.now() / 1000) + 300);
 
+    // Refresh the lock timestamp at each async boundary so a wallet that
+    // sits on the signing prompt for >20s doesn't lose the lock to another
+    // tab mid-flow. Shorter TTL + refreshes gives us the best of both
+    // worlds: fast orphan recovery without accidentally stomping
+    // legitimate slow signs.
+    refreshTabLock(schedule.id);
+
     // Fetch on-chain quote and apply slippage tolerance
     let minOut = 0n;
     try {
@@ -327,6 +362,10 @@ export function useDCA() {
         return;
       }
     }
+
+    // Second refresh before handing off to writeContract — between the
+    // allowance read and the wallet popup the user may take a moment.
+    refreshTabLock(schedule.id);
 
     const onTxSubmitted = (hash: `0x${string}`) => {
       toast.info('DCA swap submitted, waiting for on-chain confirmation...');

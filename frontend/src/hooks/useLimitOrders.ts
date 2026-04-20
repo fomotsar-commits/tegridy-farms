@@ -23,6 +23,20 @@ interface StoragePayload {
 }
 
 const STORAGE_VERSION = 1;
+
+// AUDIT LIMIT-ORDERS-RPC: wrap readContract in a hard timeout so a hung
+// RPC can't wedge the poller indefinitely. 10s is 5× the median mainnet
+// getAmountsOut latency and well under the 30s poll interval — a miss
+// just drops this tick's check; the next tick retries with fresh state.
+async function readWithTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`[${label}] RPC timeout after ${ms}ms`)), ms),
+    ),
+  ]);
+}
+const RPC_TIMEOUT_MS = 10_000;
 const DEFAULT_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 const PRICE_POLL_INTERVAL = 15_000;
 const SLIPPAGE_BPS = 500n; // 5% slippage tolerance (500 / 10000)
@@ -380,12 +394,16 @@ export function useLimitOrders() {
           if (parsedAmount === 0n) continue;
 
           try {
-            const result = await publicClient.readContract({
-              address: UNISWAP_V2_ROUTER,
-              abi: UNISWAP_V2_ROUTER_ABI,
-              functionName: 'getAmountsOut',
-              args: [parsedAmount, path],
-            });
+            const result = await readWithTimeout(
+              publicClient.readContract({
+                address: UNISWAP_V2_ROUTER,
+                abi: UNISWAP_V2_ROUTER_ABI,
+                functionName: 'getAmountsOut',
+                args: [parsedAmount, path],
+              }),
+              RPC_TIMEOUT_MS,
+              `limit-order ${order.fromToken.symbol}→${order.toToken.symbol}`,
+            );
             const amountsOut = result as bigint[];
             const outputAmount = amountsOut[amountsOut.length - 1] ?? 0n;
             // NOTE: Number() precision risk for very large values (>2^53); acceptable for price comparison heuristic
