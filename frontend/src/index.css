@@ -768,6 +768,27 @@ input, textarea, select {
   text-shadow: none;
 }
 
+/* ─── Full-bleed decorative art dimming ───────────────────────────────
+   ArtImg instances rendered inside an `.absolute.inset-0` wrapper with
+   `object-cover` are the "backdrop" pattern used across Community,
+   Dashboard, Farm, Trade cards etc. Without dimming, the art dominates
+   and text on top becomes hard to read — a pre-existing issue the
+   Phase 8 broken-AVIF regression was accidentally masking.
+
+   Opt out per-callsite by adding `art-bright` next to the existing art
+   classes — some callsites genuinely want the art loud (hero sections,
+   lightbox previews).
+
+   Brightness (not opacity) so the art keeps its saturation + color
+   character; it just doesn't fight the foreground for luminance. */
+.absolute.inset-0 > img.object-cover:not(.art-bright),
+.absolute.inset-0 > picture > img.object-cover:not(.art-bright) {
+  filter: brightness(0.45);
+}
+/* Full-viewport fixed-position art (hero scrims on Home/Lore/etc.) uses
+   `fixed inset-0`, not `absolute inset-0`, and is intentionally
+   unaffected by the rule above. */
+
 /* ─── Print stylesheet ─── */
 @media print {
   body { background: white; color: black; text-shadow: none; }
