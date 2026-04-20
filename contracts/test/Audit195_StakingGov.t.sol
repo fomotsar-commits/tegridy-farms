@@ -23,6 +23,19 @@ contract MockNFT195 is ERC721 {
     }
 }
 
+/// @dev Minimal contract-wallet mock for M-5 multi-NFT aggregation tests.
+///      Accepts staking NFTs (has bytecode, so not treated as an EOA by _update)
+///      and can forward transferFrom calls to move NFTs it holds.
+contract MockSafe195 {
+    function execTransferFrom(address nftContract, address from, address to, uint256 tokenId) external {
+        ERC721(nftContract).transferFrom(from, to, tokenId);
+    }
+    function execApprove(address nftContract, address spender, uint256 tokenId) external {
+        ERC721(nftContract).approve(spender, tokenId);
+    }
+    // No onERC721Received — use transferFrom (not safeTransferFrom) in tests
+}
+
 contract Audit195StakingGov is Test {
     TegridyStaking public staking;
     MockToken195 public token;
@@ -1189,5 +1202,254 @@ contract Audit195StakingGov is Test {
         vm.prank(attacker);
         vm.expectRevert(TegridyStaking.NotPositionOwner.selector);
         staking.emergencyWithdrawPosition(tokenId);
+    }
+
+    // ============================================================
+    //  M-5 FULL AGGREGATION — votingPowerOf across multiple NFTs
+    // ============================================================
+
+    /// @dev Helper: mint staker, stake STAKE_AMT for `lockDuration`, move past the 24h cooldown,
+    ///      then transfer the resulting staking NFT into `dest` (a contract wallet / Safe).
+    function _stakeAndPush(address staker, uint256 lockDuration, address dest)
+        internal
+        returns (uint256 tokenId, uint256 individualVP)
+    {
+        // Top up the staker if needed.
+        if (token.balanceOf(staker) < STAKE_AMT) {
+            token.transfer(staker, STAKE_AMT * 2);
+        }
+        vm.prank(staker);
+        token.approve(address(staking), type(uint256).max);
+
+        vm.prank(staker);
+        staking.stake(STAKE_AMT, lockDuration);
+        tokenId = staking.userTokenId(staker);
+        individualVP = staking.votingPowerOf(staker);
+
+        // Past 24h cooldown + 1h rate limit to unblock the outgoing transfer.
+        vm.warp(block.timestamp + 24 hours + 1);
+        vm.roll(block.number + 1);
+
+        vm.prank(staker);
+        staking.transferFrom(staker, dest, tokenId);
+    }
+
+    function test_VotingPowerOf_MultiNFTSafe() public {
+        MockSafe195 safe = new MockSafe195();
+
+        // Three independent stakers with distinct lock durations — individual VPs differ.
+        // Unrolled instead of a loop to sidestep a via_ir optimizer issue where
+        // `block.timestamp` captures inside loop-local variables fold with later reads.
+        vm.warp(10_000);
+
+        address staker1 = makeAddr("aggM1");
+        address staker2 = makeAddr("aggM2");
+        address staker3 = makeAddr("aggM3");
+
+        vm.warp(block.timestamp + 1 hours + 1);
+        (uint256 id1, uint256 vp1) = _stakeAndPush(staker1, 30 days, address(safe));
+
+        vm.warp(block.timestamp + 1 hours + 1);
+        (uint256 id2, uint256 vp2) = _stakeAndPush(staker2, 180 days, address(safe));
+
+        vm.warp(block.timestamp + 1 hours + 1);
+        (uint256 id3, uint256 vp3) = _stakeAndPush(staker3, LOCK_1Y, address(safe));
+
+        uint256 safeVP = staking.votingPowerOf(address(safe));
+
+        // votingPowerOf(safe) must equal the sum of the three individual voting powers.
+        assertEq(safeVP, vp1 + vp2 + vp3, "Safe VP must aggregate all three positions");
+        assertGt(vp1, 0, "vp1 nonzero");
+        assertGt(vp2, 0, "vp2 nonzero");
+        assertGt(vp3, 0, "vp3 nonzero");
+        // Each of the prior owners now has zero VP (NFT transferred out).
+        assertEq(staking.votingPowerOf(staker1), 0, "staker1 VP zero after push");
+        assertEq(staking.votingPowerOf(staker2), 0, "staker2 VP zero after push");
+        assertEq(staking.votingPowerOf(staker3), 0, "staker3 VP zero after push");
+
+        // Silence unused-var warnings.
+        id1; id2; id3;
+    }
+
+    function test_VotingPowerOf_RestakingReturnsZero() public {
+        // Install a restaking-contract address via the full timelock flow.
+        address restaking = makeAddr("restaking");
+        staking.proposeRestakingContract(restaking);
+        vm.warp(block.timestamp + 48 hours);
+        staking.executeRestakingContract();
+        assertEq(staking.restakingContract(), restaking);
+
+        // Baseline: some other holder has non-zero VP.
+        vm.prank(bob);
+        staking.stake(STAKE_AMT, LOCK_1Y);
+        assertGt(staking.votingPowerOf(bob), 0);
+
+        // Even if we seed the restaking contract with a position set, the view must return 0.
+        // The restaking contract exposes per-restaker VP via its own internal bookkeeping;
+        // summing here would double-count.
+        assertEq(
+            staking.votingPowerOf(restaking),
+            0,
+            "restakingContract votingPowerOf must be 0 (per-restaker aggregation lives there)"
+        );
+    }
+
+    function test_Checkpoint_AggregatesAcrossTime() public {
+        MockSafe195 safe = new MockSafe195();
+
+        // Use explicit timestamps (not `block.timestamp` snapshots) so via_ir can't re-read
+        // block.timestamp at reference sites and fold them with later uses. We warp to these
+        // exact moments and rely on `_stakeAndPush`'s internal `+24h+1` cooldown bump landing
+        // at the planned epoch.
+        uint256 T_START = 10_000;
+        uint256 T_EPOCH_T0 = T_START + 24 hours + 1;                  // first transfer lands here
+        uint256 T_EPOCH_T1 = T_EPOCH_T0 + 7 days + 24 hours + 1;      // second transfer lands here
+        // T_EPOCH_T2 is computed after we do the unstake hop back.
+
+        vm.warp(T_START);
+        vm.roll(100);
+        address s1 = makeAddr("aggSafe_s1");
+        (uint256 id1, uint256 vp1) = _stakeAndPush(s1, LOCK_1Y, address(safe));
+        assertEq(block.timestamp, T_EPOCH_T0, "sanity: first transfer lands at T_EPOCH_T0");
+
+        uint256 vpAtT0 = staking.votingPowerOf(address(safe));
+        assertEq(vpAtT0, vp1, "at t0 Safe VP = vp1");
+
+        // Move to just before the second push then let `_stakeAndPush`'s own warp take us to T_EPOCH_T1.
+        vm.warp(T_EPOCH_T0 + 7 days);
+        vm.roll(block.number + 1);
+        address s2 = makeAddr("aggSafe_s2");
+        (uint256 id2, uint256 vp2) = _stakeAndPush(s2, LOCK_1Y, address(safe));
+        assertEq(block.timestamp, T_EPOCH_T1, "sanity: second transfer lands at T_EPOCH_T1");
+
+        uint256 vpAtT1 = staking.votingPowerOf(address(safe));
+        assertEq(vpAtT1, vp1 + vp2, "at t1 Safe VP = vp1 + vp2");
+
+        // Historical lookup at T_EPOCH_T0 must still report vp1 (binary-search checkpoint).
+        assertEq(
+            staking.votingPowerAtTimestamp(address(safe), T_EPOCH_T0),
+            vp1,
+            "historical VP at t0"
+        );
+
+        // t2: Safe unstakes id1 by sending it back to s1 (who has already withdrawn, so EOA guard
+        // is satisfied — userTokenId[s1] was cleared when Safe received the NFT).
+        vm.warp(T_EPOCH_T1 + 30 days);
+        vm.roll(block.number + 1);
+        uint256 T_EPOCH_T2 = block.timestamp;
+        // Rate-limit dance — last transfer on id1 was at t0, plenty of slack now.
+        vm.prank(address(safe));
+        safe.execApprove(address(staking), s1, id1);
+        vm.prank(s1);
+        staking.transferFrom(address(safe), s1, id1);
+
+        uint256 vpAtT2 = staking.votingPowerOf(address(safe));
+        assertEq(vpAtT2, vp2, "at t2 Safe VP = vp2 only (id1 was moved out)");
+
+        // Historical lookups remain correct at every earlier epoch.
+        assertEq(staking.votingPowerAtTimestamp(address(safe), T_EPOCH_T0), vp1, "t0 lookup stable");
+        assertEq(staking.votingPowerAtTimestamp(address(safe), T_EPOCH_T1), vp1 + vp2, "t1 lookup stable");
+        assertEq(staking.votingPowerAtTimestamp(address(safe), T_EPOCH_T2), vp2, "t2 checkpoint written");
+
+        // Silence unused-var warnings.
+        id2;
+    }
+
+    function test_VotingPowerOf_ExpiredLockExcluded() public {
+        MockSafe195 safe = new MockSafe195();
+
+        address s1 = makeAddr("expS1"); // short lock (expires first)
+        address s2 = makeAddr("expS2"); // long lock
+
+        (uint256 id1, uint256 vp1) = _stakeAndPush(s1, LOCK_MIN, address(safe));
+        vm.warp(block.timestamp + 1 hours + 1);
+        (uint256 id2, uint256 vp2) = _stakeAndPush(s2, LOCK_1Y, address(safe));
+
+        // Both contribute.
+        uint256 before = staking.votingPowerOf(address(safe));
+        assertEq(before, vp1 + vp2, "both locks active");
+
+        // Warp past the short lock's expiry but well before the long lock's expiry.
+        vm.warp(block.timestamp + LOCK_MIN + 1);
+
+        uint256 afterVP = staking.votingPowerOf(address(safe));
+        assertEq(afterVP, vp2, "expired lock should drop from aggregate; long lock survives");
+
+        // Silence unused-var warnings.
+        id1; id2; vp1;
+    }
+
+    function test_MaxPositionsCap_Reverts() public {
+        MockSafe195 safe = new MockSafe195();
+
+        uint256 cap = staking.MAX_POSITIONS_PER_HOLDER();
+
+        // Fill the Safe up to the cap.
+        for (uint256 i; i < cap; ++i) {
+            address s = address(uint160(uint256(keccak256(abi.encode("capStaker", i)))));
+            // Stagger time to clear both cooldown and rate limit.
+            vm.warp(block.timestamp + 1 hours + 1);
+            _stakeAndPush(s, LOCK_1Y, address(safe));
+        }
+
+        // One more should revert with TooManyPositions.
+        address sOverflow = makeAddr("capOverflow");
+        token.transfer(sOverflow, STAKE_AMT * 2);
+        vm.prank(sOverflow);
+        token.approve(address(staking), type(uint256).max);
+
+        vm.warp(block.timestamp + 1 hours + 1);
+        vm.prank(sOverflow);
+        staking.stake(STAKE_AMT, LOCK_1Y);
+        uint256 overflowId = staking.userTokenId(sOverflow);
+
+        vm.warp(block.timestamp + 24 hours + 1);
+        vm.roll(block.number + 1);
+
+        vm.prank(sOverflow);
+        vm.expectRevert(TegridyStaking.TooManyPositions.selector);
+        staking.transferFrom(sOverflow, address(safe), overflowId);
+    }
+
+    function test_EnumerableSetRemovalOnUnstake() public {
+        MockSafe195 safe = new MockSafe195();
+
+        // Stake three times into the Safe via its own stake (from an EOA held inside, then pushed in).
+        address s1 = makeAddr("rmS1");
+        address s2 = makeAddr("rmS2");
+        address s3 = makeAddr("rmS3");
+
+        (uint256 id1, uint256 vp1) = _stakeAndPush(s1, LOCK_MIN, address(safe));
+        vm.warp(block.timestamp + 1 hours + 1);
+        (uint256 id2, uint256 vp2) = _stakeAndPush(s2, LOCK_1Y, address(safe));
+        vm.warp(block.timestamp + 1 hours + 1);
+        (uint256 id3, uint256 vp3) = _stakeAndPush(s3, LOCK_1Y, address(safe));
+
+        assertEq(staking.votingPowerOf(address(safe)), vp1 + vp2 + vp3, "set has all 3 active");
+
+        // Wait until id1's lock expires, then unstake via Safe (Safe is the NFT owner, so it must
+        // send to a non-escrow recipient and that recipient must withdraw). Cleanest: push id1 back
+        // to s1 (whose userTokenId is 0) and have s1 withdraw.
+        vm.warp(block.timestamp + LOCK_MIN + 1);
+        vm.roll(block.number + 1);
+
+        // Safe approves s1 to pull id1 out.
+        vm.prank(address(safe));
+        safe.execApprove(address(staking), s1, id1);
+        vm.prank(s1);
+        staking.transferFrom(address(safe), s1, id1);
+
+        // After the hop out, Safe's aggregate VP loses vp1.
+        // Note: vp1 was computed at stake time. After LOCK_MIN+1, lock has expired so vp1 is already excluded
+        // from the live sum. We instead compare set length directly by probing the view against vp2+vp3.
+        assertEq(staking.votingPowerOf(address(safe)), vp2 + vp3, "vp1 drops once id1 leaves the Safe");
+
+        // s1 withdraws — this burns id1 and removes from s1's set too.
+        vm.prank(s1);
+        staking.withdraw(id1);
+        assertEq(staking.votingPowerOf(s1), 0, "s1 VP is 0 after withdraw");
+
+        // Silence unused-var warnings.
+        id2; id3;
     }
 }

@@ -10,6 +10,7 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 // Strings import removed — tokenURI simplified to reduce contract size
 // Base64 import removed — SVG on-chain generation moved out to reduce contract size
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
@@ -42,6 +43,7 @@ interface ITegridyRestakingView {
 contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable, TimelockAdmin {
     using SafeERC20 for IERC20;
     using Checkpoints for Checkpoints.Trace208;
+    using EnumerableSet for EnumerableSet.UintSet;
 
     // ─── Constants ────────────────────────────────────────────────────
 
@@ -101,6 +103,16 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
     mapping(uint256 => Position) public positions; // tokenId => position
     mapping(address => uint256) public userTokenId; // user => their tokenId (0 = no position)
+
+    // AUDIT FIX M-5 (full aggregation): track every staking NFT owned by a given address.
+    // Prior implementation overwrote userTokenId on each transfer, so votingPowerOf(holder)
+    // silently undercounted multi-NFT holders (contract wallets, Safes, aggregating vaults).
+    // Now votingPowerOf iterates the full set, summing active voting power across all positions.
+    // Cap at MAX_POSITIONS_PER_HOLDER bounds checkpoint-write gas (~130k worst case at cap vs
+    // ~100k single-position baseline) and protects against push-grief (attacker flooding a
+    // target address with stale NFTs to inflate their aggregation cost).
+    mapping(address => EnumerableSet.UintSet) private _positionsByOwner;
+    uint256 public constant MAX_POSITIONS_PER_HOLDER = 50;
 
     // AUDIT FIX #1: Checkpointing via OZ Checkpoints.Trace208 (timestamp → votingPower)
     mapping(address => Checkpoints.Trace208) private _checkpoints;
@@ -213,6 +225,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     error ZeroBalance();
     error IntOverflow();
     error CapTooLow();
+    error TooManyPositions(); // AUDIT FIX M-5: per-holder position cap (MAX_POSITIONS_PER_HOLDER)
 
     // ─── Constructor ──────────────────────────────────────────────────
 
@@ -266,15 +279,48 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         return MIN_BOOST_BPS + (elapsed * boostRange) / range;
     }
 
-    /// @notice Voting power for governance = amount x boost (including JBAC bonus)
+    /// @notice Voting power for governance = amount x boost (including JBAC bonus),
+    ///         aggregated across every staking NFT currently owned by `user`.
+    /// @dev AUDIT FIX M-5 (full aggregation): prior implementation consulted only
+    ///      `userTokenId[user]`, which is overwritten on every inbound transfer. Holders
+    ///      with multiple staking NFTs (contract wallets, Safes, aggregating vaults) had
+    ///      their voting power silently undercounted — only the most recently received
+    ///      position was visible. We now iterate `_positionsByOwner[user]` (an
+    ///      EnumerableSet.UintSet maintained in `_update`) and sum the active voting
+    ///      power of every position owned. The per-holder cap of MAX_POSITIONS_PER_HOLDER
+    ///      bounds the O(n) iteration; in practice checkpoint writes on the push side cost
+    ///      ~130k at the cap vs ~100k for a single-position holder.
+    ///
+    ///      Special case: the restakingContract aggregates per-restaker voting power via
+    ///      its own internal bookkeeping (see TegridyRestaking). Summing the raw positions
+    ///      it holds would double-count with that per-restaker aggregation, so this path
+    ///      returns 0 and leaves restaked voting power to the restaking contract to expose.
+    ///
+    ///      Integrators that accept multiple staking NFTs now DO receive correct aggregate
+    ///      voting power from this view — the `MultipleNFTsAtAddress` event remains emitted
+    ///      as a convenience signal for indexers, not a regression warning.
     /// @param user The address to query voting power for
-    /// @return Voting power (amount * boostBps / BOOST_PRECISION), 0 if no position or lock expired
-    function votingPowerOf(address user) public view returns (uint256) {
-        uint256 tokenId = userTokenId[user];
-        if (tokenId == 0) return 0;
-        Position memory p = positions[tokenId];
-        if (p.amount == 0 || block.timestamp >= p.lockEnd) return 0;
-        return (p.amount * p.boostBps) / BOOST_PRECISION;
+    /// @return total Aggregated voting power (sum of amount * boostBps / BOOST_PRECISION)
+    ///         across all active, non-expired positions held by `user`.
+    function votingPowerOf(address user) public view returns (uint256 total) {
+        // AUDIT FIX M-5: the restaking contract exposes per-restaker voting power via
+        // its own aggregation; a raw sum here would double-count. Force 0 for the
+        // restaking contract so governance consumers route through the restaking path.
+        if (user == restakingContract) return 0;
+
+        EnumerableSet.UintSet storage set = _positionsByOwner[user];
+        uint256 len = set.length();
+        uint256 nowTs = block.timestamp;
+        for (uint256 i; i < len; ++i) {
+            // Reach into storage per-field rather than copying the full Position struct —
+            // avoids loading `boostedAmount`, `rewardDebt`, `lockDuration`, `autoMaxLock`,
+            // `hasJbacBoost`, `stakeTimestamp` slots that voting power doesn't need.
+            Position storage p = positions[set.at(i)];
+            uint256 amount = p.amount;
+            if (amount == 0) continue;
+            if (nowTs >= p.lockEnd) continue;
+            total += (amount * p.boostBps) / BOOST_PRECISION;
+        }
     }
 
     // votingPowerAt() removed — use votingPowerAtTimestamp() instead
@@ -625,13 +671,33 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
         from = super._update(to, tokenId, auth);
 
+        // AUDIT FIX M-5 (full aggregation): maintain the per-owner position set so
+        // votingPowerOf can correctly aggregate multi-NFT holders. The set is the
+        // source of truth for voting power; userTokenId is retained below only for
+        // legacy single-position consumers (views, test fixtures).
+        //
+        // DECISION (M-5 spec): keep the EOA-only guard below that prevents a second
+        // inbound NFT for externally-owned accounts. Aggregation now handles multi-NFT
+        // holders correctly for contract wallets (Safes, vaults), but preventing EOA
+        // double-ownership avoids a user footgun — if they want multiple positions,
+        // they can use a Safe, which is fully supported.
+        if (from != address(0)) {
+            _positionsByOwner[from].remove(tokenId);
+        }
+        if (to != address(0)) {
+            // Enforce the per-holder cap BEFORE the EOA AlreadyHasPosition guard so
+            // either error can fire depending on the receiver's existing balance.
+            if (_positionsByOwner[to].length() >= MAX_POSITIONS_PER_HOLDER) revert TooManyPositions();
+            _positionsByOwner[to].add(tokenId);
+        }
+
         // AUDIT FIX #2: Prevent overwriting an existing position for EOAs.
         // Contracts (e.g. TegridyRestaking) may hold multiple position NFTs,
         // so the guard only applies to externally-owned accounts.
-        // AUDIT NOTE M-04: Contracts holding multiple NFTs will only have the LATEST tokenId
-        // tracked in userTokenId. Address-based lookups (votingPowerOf, locks) only reflect
-        // the last received position. Contracts that hold multiple positions must use their
-        // own internal tracking (as TegridyRestaking does via restakers/tokenIdToRestaker).
+        // AUDIT FIX M-5: Contracts holding multiple NFTs now get correct aggregate
+        // voting power via `_positionsByOwner`. The legacy `userTokenId[holder]` still
+        // reflects only the most recently received position for single-position
+        // integrators; for aggregate-aware integrators use votingPowerOf / the event.
         if (to != address(0) && userTokenId[to] != 0 && to.code.length == 0) revert AlreadyHasPosition();
 
         // Reset autoMaxLock, clear emergency exit, update ownership, write checkpoint.
