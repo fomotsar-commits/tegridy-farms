@@ -1,5 +1,5 @@
 import { createConfig } from "ponder";
-import { http } from "viem";
+import { fallback, http } from "viem";
 
 // ─── Inline ABIs (event-only) ────────────────────────────────────────────────
 
@@ -318,13 +318,43 @@ const MemeBountyBoardAbi = [
 // responses over a slow connection; 3 retries handles transient flakes.
 const RPC_TRANSPORT_OPTS = { timeout: 30_000, retryCount: 3 } as const;
 
+// AUDIT INDEXER-SEC: RPC fallback list. The previous config read a single
+// PONDER_RPC_URL_1 env var and stalled hard if that one provider had an
+// outage. Now we accept up to four URLs (PONDER_RPC_URL_1..4) and wrap them
+// in viem's `fallback` transport so Ponder transparently rotates to the
+// next when one fails. If no URLs are configured we fall back to viem's
+// default public-node transport (only safe for local dev — public nodes
+// rate-limit eth_getLogs aggressively).
+const RPC_URLS = [
+  process.env.PONDER_RPC_URL_1,
+  process.env.PONDER_RPC_URL_2,
+  process.env.PONDER_RPC_URL_3,
+  process.env.PONDER_RPC_URL_4,
+].filter((u): u is string => typeof u === "string" && u.length > 0);
+
+if (RPC_URLS.length === 0 && process.env.NODE_ENV === "production") {
+  console.warn(
+    "[ponder] No PONDER_RPC_URL_1..4 configured; falling back to public RPC. " +
+    "Set at least one authenticated RPC endpoint in your deploy env to avoid " +
+    "rate-limit stalls on historical sync."
+  );
+}
+
+const rpcTransport = RPC_URLS.length > 0
+  ? fallback(RPC_URLS.map((url) => http(url, RPC_TRANSPORT_OPTS)))
+  : http(undefined, RPC_TRANSPORT_OPTS);
+
+// AUDIT INDEXER-OBS: Ponder's built-in HTTP server already exposes /health
+// and /ready endpoints for liveness/readiness probes — no need to add our
+// own. GraphQL is served on the same port (default 42069); lock it down at
+// the reverse-proxy layer if running in a multi-tenant VPC. See
+// https://ponder.sh/docs/advanced/self-hosting for the full surface.
+
 export default createConfig({
   chains: {
     mainnet: {
       id: 1,
-      rpc: process.env.PONDER_RPC_URL_1
-        ? http(process.env.PONDER_RPC_URL_1, RPC_TRANSPORT_OPTS)
-        : http(undefined, RPC_TRANSPORT_OPTS),
+      rpc: rpcTransport,
     },
   },
   contracts: {
