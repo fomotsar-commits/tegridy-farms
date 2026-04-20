@@ -1,5 +1,5 @@
 import { useMemo, useEffect, useState } from 'react';
-import { useAccount, useChainId, useChains, useReadContract, useReadContracts, useSwitchChain, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useChainId, useChains, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
 import { toast } from 'sonner';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -12,6 +12,7 @@ import {
   TEGRIDY_STAKING_ABI, SWAP_FEE_ROUTER_ABI, PREMIUM_ACCESS_ABI, LP_FARMING_ABI,
 } from '../lib/contracts';
 import { ArtImg } from '../components/ArtImg';
+import { WrongChainScreen } from '../components/ui/WrongChainGuard';
 
 // Minimal ABI fragments for owner/admin reads not in the shared ABIs
 const OWNER_ABI = [
@@ -180,7 +181,6 @@ export default function AdminPage() {
   usePageTitle('Admin');
   const { address, isConnected } = useAccount();
   const walletChainId = useChainId();
-  const { switchChain, isPending: isSwitching } = useSwitchChain();
   const onCorrectChain = walletChainId === CHAIN_ID;
 
   // AUDIT ADMIN-SEC: read owner() from the canonical chain and refetch on an
@@ -312,34 +312,15 @@ export default function AdminPage() {
     );
   }
 
-  // AUDIT ADMIN-SEC: fail-closed on chain mismatch. Previously owner() was
-  // read from *whichever* chain the wallet was on; a wallet on Sepolia with
-  // a deployer-test contract at the same address would have passed the
-  // owner check and enabled real writes that then went to mainnet.
+  // AUDIT ADMIN-SEC: fail-closed on chain mismatch via the shared
+  // WrongChainScreen primitive. Replaces the inlined screen added in
+  // the AdminPage chain-guard PR — behavior identical; ~30 lines removed.
   if (!onCorrectChain) {
-    const expectedName = canonicalChain?.name ?? 'Ethereum Mainnet';
     return (
-      <div className="-mt-14 relative min-h-screen">
-        <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-          <ArtImg pageId="admin" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
-        </div>
-        <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
-          <div className="glass-card p-8 rounded-2xl text-center max-w-md">
-            <h1 className="heading-luxury text-2xl text-white mb-3">Wrong Network</h1>
-            <p className="text-white/85 text-sm mb-5">
-              Admin controls are only available on <span className="font-semibold">{expectedName}</span>.
-              Your wallet is on a different network.
-            </p>
-            <button
-              onClick={() => switchChain({ chainId: CHAIN_ID })}
-              disabled={isSwitching}
-              className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-white text-black hover:bg-white/90 transition-all disabled:opacity-60"
-            >
-              {isSwitching ? 'Switching…' : `Switch to ${expectedName}`}
-            </button>
-          </div>
-        </div>
-      </div>
+      <WrongChainScreen
+        pageId="admin"
+        message="Admin controls are only available on the canonical chain. Your wallet is on a different network."
+      />
     );
   }
 
