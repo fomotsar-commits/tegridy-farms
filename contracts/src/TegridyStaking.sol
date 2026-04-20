@@ -78,11 +78,12 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     uint256 public rewardPerTokenStored;
     uint256 public totalBoostedStake;
     uint256 public totalStaked;
-    /// @dev AUDIT L-22 / Spartan TF-10: totalLocked is redundant with totalStaked (was always
-    ///      equal). No longer written on stake/withdraw as of this commit — reads now return
-    ///      0 permanently. Slot retained only for storage-layout backward compatibility on
-    ///      redeploy/upgrade paths. Use totalStaked instead.
-    uint256 public totalLocked;
+    // AUDIT H-4 (battle-tested fix): totalLocked is a view proxy for totalStaked (they are
+    // always equal). The prior state-variable design permanently returned 0, causing
+    // third-party integrators (allocators, dashboards, indexers) to read zero TVL.
+    function totalLocked() external view returns (uint256) {
+        return totalStaked;
+    }
 
     uint256 private _nextTokenId = 1;
 

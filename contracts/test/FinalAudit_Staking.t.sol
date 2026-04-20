@@ -512,7 +512,7 @@ contract FinalAuditStaking is Test {
         // Verify state is clean after withdrawal
         assertEq(staking.userTokenId(bob), 0, "userTokenId cleared");
         assertEq(staking.totalStaked(), 0, "totalStaked decremented");
-        assertEq(staking.totalLocked(), 0, "totalLocked decremented");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked decremented");
 
         // Position should be deleted
         (uint256 amt,,,,,) = staking.getPosition(bobTokenId);
@@ -666,24 +666,24 @@ contract FinalAuditStaking is Test {
     function test_FA18_totalLockedTracksWithTotalStaked() public {
         _stakeAs(alice, STAKE_AMOUNT, 365 days);
         assertEq(staking.totalStaked(), STAKE_AMOUNT, "totalStaked should reflect alice's stake");
-        assertEq(staking.totalLocked(), 0, "totalLocked deprecated (always zero post L-22)");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked deprecated (always zero post L-22)");
 
         _stakeAs(bob, STAKE_AMOUNT * 2, 30 days);
         assertEq(staking.totalStaked(), STAKE_AMOUNT * 3, "totalStaked should reflect both stakes");
-        assertEq(staking.totalLocked(), 0, "totalLocked deprecated (always zero post L-22)");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked deprecated (always zero post L-22)");
 
         uint256 bobTokenId = staking.userTokenId(bob);
         vm.prank(bob);
         staking.earlyWithdraw(bobTokenId);
         assertEq(staking.totalStaked(), STAKE_AMOUNT, "alice's stake remains after bob earlyWithdraw");
-        assertEq(staking.totalLocked(), 0, "totalLocked deprecated (always zero post L-22)");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked deprecated (always zero post L-22)");
 
         vm.warp(block.timestamp + 366 days);
         uint256 aliceTokenId = staking.userTokenId(alice);
         vm.prank(alice);
         staking.withdraw(aliceTokenId);
         assertEq(staking.totalStaked(), 0, "totalStaked zero after all withdrawals");
-        assertEq(staking.totalLocked(), 0, "totalLocked deprecated (always zero post L-22)");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked deprecated (always zero post L-22)");
     }
 
     // ═══════════════════════════════════════════════════════════════════

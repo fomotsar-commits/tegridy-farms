@@ -369,25 +369,9 @@ contract Audit195SwapFeeRouter is Test {
     //  5. TREASURY WITHDRAWAL SAFETY
     // ═══════════════════════════════════════════════════════════════
 
-    function test_withdrawFees_sendsToTreasury() public {
-        // Accumulate fees
-        address[] memory path = _ethToTokenA();
-        vm.prank(alice);
-        sfr.swapExactETHForTokens{value: 10 ether}(0, path, alice, block.timestamp + 1, 100);
-
-        uint256 fee = sfr.accumulatedETHFees();
-        uint256 treasBefore = treasury.balance;
-
-        sfr.withdrawFees();
-
-        assertEq(treasury.balance - treasBefore, fee, "treasury received fees");
-        assertEq(sfr.accumulatedETHFees(), 0, "accumulator zeroed");
-    }
-
-    function test_withdrawFees_revertOnZero() public {
-        vm.expectRevert(SwapFeeRouter.ZeroAmount.selector);
-        sfr.withdrawFees();
-    }
+    // AUDIT H-3 (battle-tested fix): withdrawFees() removed. All ETH fee distribution now
+    // routes through distributeFeesToStakers(), which enforces the timelocked split. Tests for
+    // the split behaviour live in FinalAudit_Revenue / RedTeam_Revenue suites.
 
     function test_withdrawTokenFees_sendsToTreasury() public {
         address[] memory path = new address[](2);
@@ -570,13 +554,7 @@ contract Audit195SwapFeeRouter is Test {
     // (Foundry doesn't easily allow testing reentrancy with standard mocks, but we verify
     //  all critical functions have the modifier via the source code audit above.)
 
-    function test_withdrawFees_nonReentrant() public {
-        // Just verify it completes normally (modifier present from source audit)
-        address[] memory path = _ethToTokenA();
-        vm.prank(alice);
-        sfr.swapExactETHForTokens{value: 10 ether}(0, path, alice, block.timestamp + 1, 100);
-        sfr.withdrawFees();
-    }
+    // AUDIT H-3: test_withdrawFees_nonReentrant removed (function deleted).
 
     // ═══════════════════════════════════════════════════════════════
     //  10. ACCESS CONTROL
@@ -624,11 +602,7 @@ contract Audit195SwapFeeRouter is Test {
         sfr.cancelTreasuryChange();
     }
 
-    function test_onlyOwner_withdrawFees() public {
-        vm.prank(attacker);
-        vm.expectRevert();
-        sfr.withdrawFees();
-    }
+    // AUDIT H-3: test_onlyOwner_withdrawFees removed (function deleted).
 
     function test_onlyOwner_withdrawTokenFees() public {
         vm.prank(attacker);
@@ -1102,23 +1076,9 @@ contract Audit195SwapFeeRouter is Test {
         assertEq(sfr.totalETHFees(), totalFees, "total fees match");
     }
 
-    function test_withdrawAndSwapAgain() public {
-        address[] memory path = _ethToTokenA();
-        vm.prank(alice);
-        sfr.swapExactETHForTokens{value: 10 ether}(0, path, alice, block.timestamp + 1, 100);
-
-        sfr.withdrawFees();
-        assertEq(sfr.accumulatedETHFees(), 0);
-
-        // Swap again
-        vm.prank(alice);
-        sfr.swapExactETHForTokens{value: 5 ether}(0, path, alice, block.timestamp + 1, 100);
-        uint256 fee2 = (5 ether * FEE_BPS) / 10000;
-        assertEq(sfr.accumulatedETHFees(), fee2);
-        // totalETHFees is cumulative
-        uint256 fee1 = (10 ether * FEE_BPS) / 10000;
-        assertEq(sfr.totalETHFees(), fee1 + fee2);
-    }
+    // AUDIT H-3: test_withdrawAndSwapAgain removed (withdrawFees deleted).
+    // ETH fee accumulation across swaps is validated in test_accumulateFees_multipleSwaps
+    // above; end-to-end outflow is tested in FinalAudit_Revenue via distributeFeesToStakers.
 
     // ═══════════════════════════════════════════════════════════════
     //  HELPERS

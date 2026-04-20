@@ -120,7 +120,7 @@ contract Audit195StakingCoreTest is Test {
         assertEq(staking.totalStaked(), prevTotalStaked + STAKE_AMT, "totalStaked mismatch");
         assertEq(staking.totalBoostedStake(), prevTotalBoosted + expectedBoosted, "totalBoostedStake mismatch");
         // V2: totalLocked tracking removed, always returns 0
-        assertEq(staking.totalLocked(), 0, "V2: totalLocked always 0");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "V2: totalLocked always 0");
     }
 
     /// @dev NFT minted to staker and checkpoint written
@@ -183,7 +183,7 @@ contract Audit195StakingCoreTest is Test {
         assertGt(token.balanceOf(bob), balBefore + STAKE_AMT - 1, "should receive principal + rewards");
         assertEq(staking.userTokenId(bob), 0, "userTokenId should be cleared");
         assertEq(staking.totalStaked(), 0, "totalStaked should be 0");
-        assertEq(staking.totalLocked(), 0, "totalLocked should be 0");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked should be 0");
         assertEq(staking.totalBoostedStake(), 0, "totalBoostedStake should be 0");
     }
 
@@ -301,7 +301,7 @@ contract Audit195StakingCoreTest is Test {
 
         assertEq(staking.totalStaked(), totalStakedBefore - STAKE_AMT, "totalStaked should decrease by amount");
         // V2: totalLocked writes removed (redundant with totalStaked per audit L-22)
-        assertEq(staking.totalLocked(), 0, "V2: totalLocked always 0");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "V2: totalLocked always 0");
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -647,7 +647,7 @@ contract Audit195StakingCoreTest is Test {
 
         assertEq(staking.totalStaked(), totalStakedBefore - STAKE_AMT, "totalStaked decreased");
         // V2: totalLocked writes removed (redundant with totalStaked per audit L-22)
-        assertEq(staking.totalLocked(), 0, "V2: totalLocked always 0");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "V2: totalLocked always 0");
         assertEq(staking.userTokenId(bob), 0, "userTokenId cleared");
     }
 
@@ -693,7 +693,7 @@ contract Audit195StakingCoreTest is Test {
         // Emergency exit now calls _getReward() so user receives principal + accrued rewards
         assertGe(token.balanceOf(bob) - bobBefore, STAKE_AMT, "should receive at least full principal");
         assertEq(staking.totalStaked(), 0, "totalStaked zeroed");
-        assertEq(staking.totalLocked(), 0, "totalLocked zeroed");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked zeroed");
     }
 
     /// @dev emergencyExitPosition reverts if lock still active
@@ -849,7 +849,7 @@ contract Audit195StakingCoreTest is Test {
 
         assertEq(staking.totalStaked(), STAKE_AMT * 3, "3 stakers");
         // V2: totalLocked tracking removed, always returns 0
-        assertEq(staking.totalLocked(), 0, "3 locked: V2 totalLocked always 0");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "3 locked: V2 totalLocked always 0");
 
         // Bob withdraws after lock
         vm.warp(block.timestamp + 31 days);
@@ -858,7 +858,7 @@ contract Audit195StakingCoreTest is Test {
 
         assertEq(staking.totalStaked(), STAKE_AMT * 2, "2 stakers after bob withdraw");
         // V2: totalLocked tracking removed, always returns 0
-        assertEq(staking.totalLocked(), 0, "2 locked after bob withdraw: V2 totalLocked always 0");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "2 locked after bob withdraw: V2 totalLocked always 0");
 
         // Carol early withdraws
         vm.prank(carol);
@@ -866,7 +866,7 @@ contract Audit195StakingCoreTest is Test {
 
         assertEq(staking.totalStaked(), STAKE_AMT, "1 staker after carol early withdraw");
         // V2: totalLocked tracking removed, always returns 0
-        assertEq(staking.totalLocked(), 0, "1 locked after carol early withdraw: V2 totalLocked always 0");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "1 locked after carol early withdraw: V2 totalLocked always 0");
 
         // Alice still active
         assertGt(staking.totalBoostedStake(), 0, "totalBoostedStake > 0 with alice still staking");

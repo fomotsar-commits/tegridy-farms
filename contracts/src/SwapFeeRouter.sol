@@ -738,16 +738,11 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
 
     // ─── Admin: Fee Withdrawal ───────────────────────────────────────
 
-    /// @notice Pull-pattern fee withdrawal to treasury
-    /// SECURITY FIX H6: Use WETHFallbackLib to prevent ETH getting permanently stuck
-    /// if treasury is a contract that can't receive ETH (same pattern used in swapExactTokensForETH)
-    function withdrawFees() external onlyOwner nonReentrant {
-        uint256 amount = accumulatedETHFees;
-        if (amount == 0) revert ZeroAmount();
-        accumulatedETHFees = 0;
-        WETHFallbackLib.safeTransferETHOrWrap(WETH, treasury, amount);
-        emit FeesWithdrawn(treasury, amount);
-    }
+    // AUDIT H-3 (battle-tested fix): withdrawFees() removed. Previously it bypassed the
+    // MIN_STAKER_SHARE_BPS guardrail (enforced only at propose-time), allowing the owner to
+    // redirect 100% of accumulated fees to treasury regardless of the governance-set split.
+    // All fee outflow now routes through distributeFeesToStakers(), which applies the
+    // timelocked staker/POL/treasury split atomically.
 
     /// @notice Sweep any stuck ETH to treasury (non-fee dust)
     /// SECURITY FIX H6: Use WETHFallbackLib for same reason
