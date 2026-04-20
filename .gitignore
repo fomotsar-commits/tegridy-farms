@@ -22,6 +22,8 @@ indexer/nul
 /*.gif
 /*.bmp
 /*.xlsx
+/*.avif
+/*.webp
 CODEBASE_FULL.txt
 CODEBASE_OVERVIEW.txt
 
