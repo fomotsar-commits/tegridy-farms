@@ -611,9 +611,15 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///      AUDIT FIX H-04: If WETH transfer fails after wrapping, unwrap back to ETH to prevent
     ///      WETH from being permanently stuck in the contract (no WETH sweep function).
     function _transferETHOrWETH(address recipient, uint256 amount) internal returns (bool) {
-        // M-02 FIX: Increased from 10k to 100k gas to support Gnosis Safe and smart contract
-        // treasury recipients. Reentrancy is already prevented by nonReentrant on executeProposal.
-        (bool success,) = recipient.call{value: amount, gas: 100_000}("");
+        // AUDIT FIX M-2 (battle-tested, 2026-04-20 audit): reduced from 100_000 back to
+        // 10_000 gas. 100k allowed the recipient contract to make a full external call during
+        // the payout, widening the cross-contract reentrancy surface (each sibling contract
+        // has its own nonReentrant guard, but cross-contract invariant violations are
+        // observable). 10k is the Solmate/Seaport stipend — enough for receive() + event emit
+        // but not for arbitrary external calls. Smart-account recipients (Safe, Argent,
+        // EIP-4337) fall into the WETH-wrap branch below and receive WETH instead of ETH —
+        // an acceptable degradation for a one-way payout.
+        (bool success,) = recipient.call{value: amount, gas: 10_000}("");
         if (success) return true;
         // ETH transfer failed — try WETH fallback
         try IWETH(weth).deposit{value: amount}() {
