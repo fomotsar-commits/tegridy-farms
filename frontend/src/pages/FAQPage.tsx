@@ -179,10 +179,19 @@ export default function FAQPage() {
               {section.items.map((item, qIdx) => {
                 const key = `${sIdx}-${qIdx}`;
                 const isOpen = openIndex === key;
+                const panelId = `faq-panel-${key}`;
+                const buttonId = `faq-q-${key}`;
                 return (
                   <div key={key}>
+                    {/* AUDIT FAQ-A11Y: accordion-button pattern. aria-expanded
+                        announces open/closed to screen readers; aria-controls
+                        + matching panel id ties the button to its content so
+                        SR users can navigate to the revealed text directly. */}
                     <button
+                      id={buttonId}
                       onClick={() => toggle(key)}
+                      aria-expanded={isOpen}
+                      aria-controls={panelId}
                       className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left hover:bg-white/[0.03] transition-colors"
                     >
                       <span className="text-white text-sm font-medium leading-snug">{item.q}</span>
@@ -193,6 +202,7 @@ export default function FAQPage() {
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
+                        aria-hidden="true"
                       >
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                       </m.svg>
@@ -200,6 +210,9 @@ export default function FAQPage() {
                     <AnimatePresence initial={false}>
                       {isOpen && (
                         <m.div
+                          id={panelId}
+                          role="region"
+                          aria-labelledby={buttonId}
                           initial={{ height: 0, opacity: 0 }}
                           animate={{ height: 'auto', opacity: 1 }}
                           exit={{ height: 0, opacity: 0 }}

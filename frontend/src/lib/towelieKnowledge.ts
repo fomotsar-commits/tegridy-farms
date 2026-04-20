@@ -79,7 +79,13 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['math', 'calculation', 'formula'],
-    answer: "Reward = (your_stake × boost) / (total_stake × avg_boost) × pool_emissions. Boost = 1 + 3 × (lock_remaining / max_lock).",
+    // AUDIT COPY-FIX: the prior "Boost = 1 + 3 × (lock/max)" implied a 1x–4x
+    // range and a linear floor of 1x at 0 lock. Actual on-chain constants:
+    // MIN_BOOST_BPS = 4000 (0.4x, anything below MIN_LOCK_DURATION),
+    // MAX_BOOST_BPS = 40000 (4.0x, at MAX_LOCK_DURATION = 4 years), with
+    // linear interpolation between MIN_LOCK and MAX_LOCK. See
+    // lib/boostCalculations.ts for the authoritative math.
+    answer: "Reward = (your_stake × boost) / (total_stake × avg_boost) × pool_emissions. Boost = 0.4 + 3.6 × (lock_remaining / max_lock), clamped to 0.4x–4.0x between 7-day and 4-year locks.",
   },
 
   // ── Swap / trade ─────────────────────────────────────────────

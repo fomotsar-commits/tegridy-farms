@@ -198,24 +198,71 @@ export default function TradePage() {
 
                 {/* Slippage tolerance — always visible so users can see + adjust
                     before a quote loads. Fills the empty mid-card space.
-                    swap.slippage is a percent (0-20), not bps. */}
+                    swap.slippage is a percent (0-20), not bps.
+                    AUDIT TRADE-UX: added a Custom input so users who need 0.3%
+                    or 3.5% aren't forced to pick one of 4 presets. The input
+                    is highlighted whenever the current value doesn't match a
+                    preset, so "custom" isn't a separate mode — it's just a
+                    free-form override. Clamped to 0-20% to match useSwap. */}
                 <div className="mt-1 mb-1 px-3 py-2.5 rounded-lg" style={{ background: 'rgba(0,0,0,0.60)', border: '1px solid rgba(255,255,255,0.12)' }}>
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Slippage tolerance</span>
+                    <label htmlFor="slippage-custom" className="text-white text-[11px] cursor-pointer" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Slippage tolerance</label>
                     <span className="text-white/80 text-[10px] font-mono">{swap.slippage.toFixed(2)}%</span>
                   </div>
-                  <div className="flex gap-1.5">
-                    {[0.1, 0.5, 1.0, 2.0].map(pct => (
-                      <button key={pct} onClick={() => swap.setSlippage(pct)} aria-pressed={Math.abs(swap.slippage - pct) < 0.001}
-                        className="flex-1 py-1.5 min-h-[34px] rounded-lg text-[11px] font-medium transition-all text-white"
-                        style={{
-                          background: Math.abs(swap.slippage - pct) < 0.001 ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
-                          border: Math.abs(swap.slippage - pct) < 0.001 ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
-                        }}>
-                        {pct < 1 ? pct.toFixed(1) : pct.toFixed(1)}%
-                      </button>
-                    ))}
+                  <div className="flex items-center gap-1.5">
+                    {[0.1, 0.5, 1.0, 2.0].map(pct => {
+                      const active = Math.abs(swap.slippage - pct) < 0.001;
+                      return (
+                        <button key={pct} onClick={() => swap.setSlippage(pct)} aria-pressed={active}
+                          className="flex-1 py-1.5 min-h-[34px] rounded-lg text-[11px] font-medium transition-all text-white"
+                          style={{
+                            background: active ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
+                            border: active ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
+                          }}>
+                          {pct.toFixed(1)}%
+                        </button>
+                      );
+                    })}
+                    {(() => {
+                      const isPreset = [0.1, 0.5, 1.0, 2.0].some(p => Math.abs(swap.slippage - p) < 0.001);
+                      return (
+                        <div className="flex items-center gap-1 py-1.5 px-2 min-h-[34px] rounded-lg"
+                          style={{
+                            background: isPreset ? 'rgba(0,0,0,0.45)' : 'var(--color-stan)',
+                            border: isPreset ? '1px solid rgba(255,255,255,0.12)' : '1px solid var(--color-stan)',
+                          }}
+                        >
+                          <input
+                            id="slippage-custom"
+                            type="number"
+                            inputMode="decimal"
+                            step="0.1"
+                            min={0}
+                            max={20}
+                            value={isPreset ? '' : swap.slippage.toFixed(2)}
+                            placeholder="Custom"
+                            aria-label="Custom slippage tolerance percent"
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              if (raw === '') return;
+                              const n = parseFloat(raw);
+                              if (Number.isFinite(n)) {
+                                // Clamp to useSwap's own 0-20% envelope.
+                                swap.setSlippage(Math.max(0, Math.min(20, n)));
+                              }
+                            }}
+                            className="w-14 bg-transparent text-center text-[11px] text-white font-mono outline-none"
+                          />
+                          <span className="text-[11px] text-white/80">%</span>
+                        </div>
+                      );
+                    })()}
                   </div>
+                  {swap.slippage >= 5 && (
+                    <p className="mt-1.5 text-[10px] text-amber-300" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+                      High slippage tolerance — you may receive significantly less than quoted.
+                    </p>
+                  )}
                 </div>
 
                 {/* Route Info — dark panel with Stan blue edge for trading-trust signal.
