@@ -1,10 +1,11 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { m } from 'framer-motion';
-import { useAccount } from 'wagmi';
+import { useAccount, useChainId, useChains, useSwitchChain } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
+import { CHAIN_ID } from '../lib/constants';
 
 import { GaugeVoting } from '../components/GaugeVoting';
 import { GrantsSection } from '../components/community/GrantsSection';
@@ -33,6 +34,14 @@ function sectionFromQuery(v: string | null): Section | null {
 export default function CommunityPage() {
   usePageTitle('Community', 'Governance, grants, bounties, and community initiatives.');
   const { isConnected } = useAccount();
+  const walletChainId = useChainId();
+  const chains = useChains();
+  const { switchChain, isPending: isSwitching } = useSwitchChain();
+  // AUDIT BRIBES-UX: connected but on wrong chain = all contract writes revert
+  // in-wallet with no explanation. Surface a persistent banner so users can
+  // self-correct instead of silently failing.
+  const onWrongChain = isConnected && walletChainId !== CHAIN_ID;
+  const canonicalChainName = chains.find(c => c.id === CHAIN_ID)?.name ?? 'Ethereum Mainnet';
   const [searchParams, setSearchParams] = useSearchParams();
   const [section, setSection] = useState<Section>(
     () => sectionFromQuery(searchParams.get('section')) ?? 'grants',
@@ -72,6 +81,35 @@ export default function CommunityPage() {
             Governance, bounties, and vote incentives — powered by the community.
           </p>
         </m.div>
+
+        {/* AUDIT BRIBES-UX: wrong-chain banner. Community actions (vote, bribe,
+            claim, propose) all revert in-wallet if the user is on the wrong
+            chain. Banner + switch button lets them self-correct in one click. */}
+        {onWrongChain && (
+          <m.div
+            role="alert"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap"
+            style={{ background: 'rgba(245, 158, 11, 0.10)', border: '1px solid rgba(245, 158, 11, 0.35)' }}
+          >
+            <div className="min-w-0">
+              <p className="text-amber-300 text-[13px] font-semibold" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+                Wrong network
+              </p>
+              <p className="text-white/75 text-[12px]" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+                Community contracts live on <span className="font-semibold">{canonicalChainName}</span>. Your wallet is on a different network — voting, bribing, and claiming will revert until you switch.
+              </p>
+            </div>
+            <button
+              onClick={() => switchChain({ chainId: CHAIN_ID })}
+              disabled={isSwitching}
+              className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-white text-black hover:bg-white/90 transition-colors disabled:opacity-60 whitespace-nowrap"
+            >
+              {isSwitching ? 'Switching…' : `Switch to ${canonicalChainName}`}
+            </button>
+          </m.div>
+        )}
 
         {/* Section Toggle — always visible so users can see what's available */}
         <m.div

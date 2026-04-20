@@ -438,14 +438,29 @@ function ClaimablesPanel({ claimables, gauges, onClaim, isBusy, isConnected, cur
           const g = gaugeByAddr.get(c.pair.toLowerCase());
           const first = c.epochs[0]!;
           const last = c.epochs[c.epochs.length - 1]!;
-          const epochRange = first === last ? `Epoch #${first}` : `Epochs #${first}–#${last}`;
+          // AUDIT BRIBES-UX: if the user voted on this pair in epochs 5, 7, 9,
+          // the old UI displayed "Epochs #5–#9", implying claims in 6 and 8
+          // too. Detect non-contiguous sequences and list them explicitly.
+          const contiguous = c.epochs.every((e, i, arr) => i === 0 || e === arr[i - 1]! + 1);
+          const epochRange = first === last
+            ? `Epoch #${first}`
+            : contiguous
+              ? `Epochs #${first}–#${last}`
+              : c.epochs.length <= 4
+                ? `Epochs ${c.epochs.map(e => `#${e}`).join(', ')}`
+                : `${c.epochs.length} epochs (${c.epochs.slice(0, 2).map(e => `#${e}`).join(', ')}, …, #${last})`;
           const buttonLabel = first === last ? 'Claim' : `Claim ${c.epochs.length} epochs`;
           return (
             <div key={c.pair} className="rounded-lg p-3 flex items-center justify-between gap-3 flex-wrap" style={{ background: 'rgba(13,21,48,0.7)', border: '1px solid rgba(255,255,255,0.08)' }}>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="text-white text-[13px] font-medium">{g?.label ?? shortenAddress(c.pair)}</p>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-200 border border-purple-500/35 font-mono">{epochRange}</span>
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-200 border border-purple-500/35 font-mono"
+                    title={c.epochs.length > 1 ? `Claimable in epochs: ${c.epochs.map(e => `#${e}`).join(', ')}` : undefined}
+                  >
+                    {epochRange}
+                  </span>
                 </div>
                 <div className="flex flex-wrap gap-2 mt-1">
                   {c.tokens.map((tok, i) => (
@@ -523,9 +538,25 @@ function GaugeRow({
     ? (voteWei * summary.ethAmount) / (totalVotes + voteWei)
     : 0n;
 
+  // AUDIT BRIBES-UX: surface the per-vote earning rate without requiring the
+  // user to type a vote amount first. At 1000 TOWELI voted the share is
+  // 1000 / (totalVotes + 1000) * ethAmount. This is "marginal earn" — what
+  // a typical new voter would get — and tracks closely with the real rate as
+  // long as totalVotes >> 1000.
+  const PROJECTION_UNIT = parseEther('1000');
+  const marginalEthPer1k = summary.ethAmount > 0n && totalVotes > 0n
+    ? (PROJECTION_UNIT * summary.ethAmount) / (totalVotes + PROJECTION_UNIT)
+    : 0n;
+
   return (
     <div className={`px-5 py-3 transition-colors ${selected ? 'bg-purple-500/12' : 'hover:bg-white/3'}`}>
-      <button onClick={onSelect} type="button" className="w-full text-left">
+      <button
+        onClick={onSelect}
+        type="button"
+        className="w-full text-left"
+        aria-expanded={selected}
+        aria-label={`${gauge.label} gauge — tap to ${selected ? 'collapse' : 'select and expand vote input'}`}
+      >
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
@@ -534,6 +565,14 @@ function GaugeRow({
               {userVotes > 0n && (
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
                   Your vote: {formatTokenAmount(formatEther(userVotes), 2)}
+                </span>
+              )}
+              {marginalEthPer1k > 0n && (
+                <span
+                  className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-200 border border-amber-500/35 font-mono"
+                  title="Projected ETH earn if you voted 1,000 TOWELI on this gauge right now. Scales ~linearly for small additions."
+                >
+                  ≈ {formatTokenAmount(formatEther(marginalEthPer1k), 5)} ETH / 1k voted
                 </span>
               )}
               {deadlineSeconds > 0 && deadlineSeconds < 86400 && (
@@ -1369,7 +1408,28 @@ export function VoteIncentivesSection() {
             <InfoTooltip text="Each row is a whitelisted gauge. Tap a row to select it; if voting is open and you have power, a vote input appears inline." />
           </div>
 
-          {gauges.length === 0 ? (
+          {gaugesLoading && gauges.length === 0 ? (
+            /* AUDIT BRIBES-UX: shape-matching skeleton so the leaderboard
+               doesn't collapse to a thin "Loading gauges…" line before
+               the first read returns. Three rows at the expected row
+               height keep layout stable. */
+            <div className="divide-y divide-white/5" role="status" aria-label="Loading gauges">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="h-4 w-36 rounded bg-white/10 animate-pulse" />
+                    <div className="h-3 w-24 rounded bg-white/5 animate-pulse" />
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="h-8 w-20 rounded bg-white/10 animate-pulse" />
+                    <div className="h-8 w-24 rounded bg-white/10 animate-pulse" />
+                    <div className="h-8 w-16 rounded bg-white/10 animate-pulse" />
+                  </div>
+                </div>
+              ))}
+              <span className="sr-only">Loading gauges…</span>
+            </div>
+          ) : gauges.length === 0 ? (
             <div className="p-8 text-center">
               <p className="text-white/70 text-[13px] mb-1">No gauges deployed yet.</p>
               <p className="text-white/45 text-[11.5px]">Governance whitelists gauges. Follow updates in Community → Governance.</p>
@@ -1418,9 +1478,8 @@ export function VoteIncentivesSection() {
               )}
             </>
           )}
-          {gaugesLoading && gauges.length === 0 && (
-            <div className="p-6 text-center"><p className="text-white/50 text-[12px]">Loading gauges…</p></div>
-          )}
+          {/* Skeleton loader moved above into the primary branch so the old
+              "Loading gauges…" tail no longer renders below the empty-state. */}
         </div>
       </div>
 
