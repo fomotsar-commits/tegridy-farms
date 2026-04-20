@@ -104,6 +104,32 @@ export function StakingCard({
                 <p className="stat-value text-[14px] text-white">
                   {pos.autoMaxLock ? 'Auto-Max' : pos.isLocked ? new Date(pos.lockEnd * 1000).toLocaleDateString() : 'Unlocked'}
                 </p>
+                {/* AUDIT FARM-UX: boost-expiry countdown. Without this, users
+                    only saw the absolute date and missed impending unlock
+                    → sudden boost collapse surprise. `daysLeft ≤ 5` flips
+                    the chip to red; 6-30 days flips amber; >30 days is
+                    neutral. Updates on every render which is fine since
+                    the parent refetches position every 30s. */}
+                {pos.hasPosition && pos.isLocked && !pos.autoMaxLock && (() => {
+                  const secondsLeft = Math.max(0, pos.lockEnd - Math.floor(Date.now() / 1000));
+                  const daysLeft = Math.floor(secondsLeft / 86400);
+                  const hoursLeft = Math.floor((secondsLeft % 86400) / 3600);
+                  const soon = daysLeft <= 5;
+                  const warn = !soon && daysLeft <= 30;
+                  const label = daysLeft > 0
+                    ? `${daysLeft}d ${hoursLeft}h left`
+                    : hoursLeft > 0
+                      ? `${hoursLeft}h left`
+                      : 'expires soon';
+                  return (
+                    <p
+                      className={`text-[10px] mt-0.5 font-mono ${soon ? 'text-red-300 font-semibold' : warn ? 'text-amber-300' : 'text-white/60'}`}
+                      aria-label={soon ? `Lock expires in ${label} — consider extending` : `Lock expires in ${label}`}
+                    >
+                      {soon ? '⚠ ' : ''}{label}
+                    </p>
+                  );
+                })()}
                 {pos.hasPosition && pos.isLocked && !confirms.extendLock && (
                   <button
                     onClick={() => setConfirm('extendLock', true)}

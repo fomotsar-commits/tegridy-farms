@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { m } from 'framer-motion';
-import { useAccount } from 'wagmi';
+import { useAccount, useChains, useSwitchChain } from 'wagmi';
 import { Link } from 'react-router-dom';
-import { JBAC_BONUS_BPS, CURRENT_SEASON } from '../lib/constants';
+import { CHAIN_ID, JBAC_BONUS_BPS, CURRENT_SEASON } from '../lib/constants';
 import { calculateBoost } from '../lib/boostCalculations';
 import { useFarmStats } from '../hooks/useFarmStats';
 import { usePoolData } from '../hooks/usePoolData';
@@ -50,6 +50,9 @@ export default function FarmPage() {
   usePageTitle('Farm');
   const { isConnected } = useAccount();
   const { isWrongNetwork } = useNetworkCheck();
+  const chains = useChains();
+  const { switchChain, isPending: isSwitching } = useSwitchChain();
+  const canonicalChainName = chains.find(c => c.id === CHAIN_ID)?.name ?? 'Ethereum Mainnet';
   const stats = useFarmStats();
   const pool = usePoolData();
   const pos = useUserPosition();
@@ -188,11 +191,23 @@ export default function FarmPage() {
 
       <ErrorBoundary>
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
-        {/* Wrong network banner (#82 audit) */}
+        {/* Wrong network banner (#82 audit; switch-CTA added per Phase 4.3 —
+            previously this was a passive warning with no way to act on it,
+            so users stared at it, clicked Stake, got a wallet revert, and
+            learned nothing. Now the same banner offers one-click recovery. */}
         {isWrongNetwork && (
-          <div role="alert" aria-live="assertive" className="mb-4 px-5 py-4 rounded-xl text-[14px] font-semibold text-yellow-200 flex items-center gap-3" style={{ background: 'rgba(234,179,8,0.18)', border: '2px solid rgba(234,179,8,0.4)' }}>
-            <span className="text-[20px]" aria-hidden="true">&#9888;</span>
-            Wrong network detected &mdash; please switch to Ethereum Mainnet to use this app.
+          <div role="alert" aria-live="assertive" className="mb-4 px-5 py-4 rounded-xl text-[14px] font-semibold text-yellow-200 flex items-center justify-between gap-3 flex-wrap" style={{ background: 'rgba(234,179,8,0.18)', border: '2px solid rgba(234,179,8,0.4)' }}>
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="text-[20px]" aria-hidden="true">&#9888;</span>
+              <span>Wrong network detected &mdash; switch to {canonicalChainName} to stake, claim, or withdraw.</span>
+            </div>
+            <button
+              onClick={() => switchChain({ chainId: CHAIN_ID })}
+              disabled={isSwitching}
+              className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-white text-black hover:bg-white/90 transition-colors disabled:opacity-60 whitespace-nowrap"
+            >
+              {isSwitching ? 'Switching…' : `Switch to ${canonicalChainName}`}
+            </button>
           </div>
         )}
         <m.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
