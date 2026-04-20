@@ -1,9 +1,9 @@
-import { useMemo, useEffect } from 'react';
+import { useMemo, useEffect, useState } from 'react';
 import { m } from 'framer-motion';
 import { useAccount, useBalance, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, isDeployed } from '../lib/constants';
 import { ERC20_ABI, REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
@@ -34,10 +34,41 @@ import { PriceAlertWidget } from '../components/PriceAlertWidget';
 import { ArtImg } from '../components/ArtImg';
 import { useTowelie } from '../hooks/useTowelie';
 
+// AUDIT DASH-UX: tabbed view promised by commit b21fed0 but never shipped.
+// Header + summary stats stay above the tabs so at-a-glance portfolio value
+// is always in view; the rest of the page is split by concern.
+type DashTab = 'overview' | 'positions' | 'loans' | 'rewards';
+const DASH_TABS: { key: DashTab; label: string }[] = [
+  { key: 'overview',  label: 'Overview' },
+  { key: 'positions', label: 'Positions' },
+  { key: 'loans',     label: 'Loans' },
+  { key: 'rewards',   label: 'Rewards' },
+];
+const VALID_DASH_TABS: DashTab[] = ['overview', 'positions', 'loans', 'rewards'];
+function dashTabFromQuery(v: string | null): DashTab | null {
+  if (!v) return null;
+  return (VALID_DASH_TABS as string[]).includes(v) ? (v as DashTab) : null;
+}
+
 export default function DashboardPage() {
   usePageTitle('Dashboard', 'Real-time protocol analytics, TVL, and TOWELI token metrics.');
   const { isConnected, address } = useAccount();
   const { isWrongNetwork } = useNetworkCheck();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [tab, setTab] = useState<DashTab>(
+    () => dashTabFromQuery(searchParams.get('tab')) ?? 'overview',
+  );
+  useEffect(() => {
+    const next = dashTabFromQuery(searchParams.get('tab'));
+    if (next && next !== tab) setTab(next);
+  }, [searchParams, tab]);
+  const handleTabChange = (next: DashTab) => {
+    setTab(next);
+    const params = new URLSearchParams(searchParams);
+    if (next === 'overview') params.delete('tab');
+    else params.set('tab', next);
+    setSearchParams(params, { replace: true });
+  };
   const { data: ethBalance, isLoading: isEthLoading, error: ethError } = useBalance({ address });
   // useToweliPrice already fetches from GeckoTerminal as fallback — no duplicate fetch needed
   const price = useTOWELIPrice();
@@ -214,185 +245,268 @@ export default function DashboardPage() {
           ))}
         </m.div>
 
-        {/* Tegridy Score */}
-        <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
-          initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-          <div className="absolute inset-0">
-            <ArtImg pageId="dashboard" idx={6} alt="" loading="lazy" className="w-full h-full object-cover" />
-          </div>
-          <div className="relative z-10 m-2 md:m-3 rounded-lg p-3 md:p-4 flex items-center justify-between flex-wrap gap-2" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
-            <TegridyScoreMini />
-            <Link to="/leaderboard" className="text-[11px] text-white hover:text-white transition-colors">
-              View Breakdown &#8594;
-            </Link>
-          </div>
-        </m.div>
-
-        {/* Claim Button */}
-        {pendingTotal >= 0.01 && pos.hasPosition && (
-          <m.div className="mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <button onClick={handleClaim}
-              disabled={farmActions.isPending || farmActions.isConfirming}
-              className="btn-primary px-6 py-2.5 text-[13px] disabled:opacity-70 disabled:cursor-not-allowed">
-              {farmActions.isPending || farmActions.isConfirming
-                ? 'Claiming...'
-                : `Claim Rewards (${formatTokenAmount(pendingTotal.toString(), 2)} TOWELI)`}
+        {/* AUDIT DASH-UX: tab bar — Header + Summary Stats above the bar stay
+            visible on every tab so portfolio value is always in frame; tabs
+            partition the rest of the page by concern. ?tab= deep-links come
+            from Dashboard → History link and from external pages. */}
+        <div
+          className="flex gap-1.5 mb-6 p-1 rounded-2xl overflow-x-auto"
+          style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
+          role="tablist"
+          aria-label="Dashboard sections"
+        >
+          {DASH_TABS.map(({ key, label }) => (
+            <button
+              key={key}
+              role="tab"
+              aria-selected={tab === key}
+              onClick={() => handleTabChange(key)}
+              className={`flex-1 px-3 md:px-4 py-2.5 min-h-[44px] rounded-xl text-[13px] md:text-sm font-medium transition-all whitespace-nowrap ${
+                tab === key ? 'text-white' : 'text-white/70 hover:text-white'
+              }`}
+              style={tab === key ? {
+                background: 'var(--color-stan)',
+                boxShadow: '0 4px 12px var(--color-stan-40)',
+              } : undefined}
+            >
+              {label}
             </button>
-          </m.div>
-        )}
+          ))}
+        </div>
 
-        {/* ETH Revenue Sharing */}
-        {address && <ETHRevenueClaim address={address} isWrongNetwork={isWrongNetwork} />}
-
-        {/* POL Accumulator */}
-        {!isDeployed(POL_ACCUMULATOR_ADDRESS) && (
-          <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <div className="absolute inset-0">
-              <ArtImg pageId="dashboard" idx={8} alt="" loading="lazy" className="w-full h-full object-cover" />
-            </div>
-            <div className="relative z-10 p-5">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-white text-[15px] font-medium">POL Accumulator</span>
-                <span className="px-2 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase" style={{ background: 'var(--color-purple-75)', color: '#000000', border: '1px solid var(--color-purple-20)' }}>Coming Soon</span>
+        {/* Overview */}
+        {tab === 'overview' && (
+          <m.div role="tabpanel" aria-label="Overview" key="overview"
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+            {/* Tegridy Score */}
+            <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
+              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+              <div className="absolute inset-0">
+                <ArtImg pageId="dashboard" idx={6} alt="" loading="lazy" className="w-full h-full object-cover" />
               </div>
-              <p className="text-white text-[12px] leading-relaxed max-w-lg">
-                Protocol-Owned Liquidity will automatically accumulate LP positions from a share of swap fees, deepening TOWELI liquidity permanently and reducing reliance on external LPs.
-              </p>
-            </div>
-          </m.div>
-        )}
-
-        {/* DCA Due Alerts */}
-        {dca.dueSchedules.length > 0 && (
-          <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <div className="absolute inset-0">
-              <ArtImg pageId="dashboard" idx={9} alt="" loading="lazy" className="w-full h-full object-cover" />
-            </div>
-            <div className="relative z-10 p-4 flex items-center justify-between flex-wrap gap-2">
-              <div>
-                <p className="text-warning text-[13px] font-medium">{dca.dueSchedules.length} DCA swap{dca.dueSchedules.length > 1 ? 's' : ''} due</p>
-                <p className="text-white text-[11px]">Go to Swap to execute</p>
-              </div>
-              <Link to="/swap" className="btn-secondary px-4 py-2 text-[12px]">Execute &#8594;</Link>
-            </div>
-          </m.div>
-        )}
-
-        {/* Active Limit Orders */}
-        {limitOrders.activeOrders.length > 0 && (
-          <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <div className="absolute inset-0">
-              <ArtImg pageId="dashboard" idx={10} alt="" loading="lazy" className="w-full h-full object-cover" />
-            </div>
-            <div className="relative z-10 p-4">
-              <p className="text-white text-[13px] font-medium mb-1">{limitOrders.activeOrders.length} active price alert{limitOrders.activeOrders.length > 1 ? 's' : ''}</p>
-              <p className="text-white text-[11px]">Check Swap for details</p>
-            </div>
-          </m.div>
-        )}
-
-        {/* Outstanding Loans */}
-        {myLoans.loans.length > 0 && (
-          <OutstandingLoans loans={myLoans.loans} />
-        )}
-
-        {/* Position */}
-        <h2 className="heading-luxury text-[16px] text-white mb-4">Your Position</h2>
-        {pos.hasPosition ? (
-          <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10 card-hover" style={{ border: '1px solid var(--color-purple-75)' }}
-            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-            <div className="absolute inset-0">
-              <ArtImg pageId="dashboard" idx={12} alt="" loading="lazy" className="w-full h-full object-cover" />
-            </div>
-            <div className="relative z-10 p-5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                <div>
-                  <p className="text-white text-[10px] mb-0.5">Staked</p>
-                  <AnimatedCounter value={stakedTotal} decimals={2} className="stat-value text-[16px] text-white" />
-                </div>
-                <div>
-                  <p className="text-white text-[10px] mb-0.5">Boost</p>
-                  <AnimatedCounter value={pos.boostMultiplier} decimals={2} suffix="x" className="stat-value text-[16px] text-white" />
-                </div>
-                <div>
-                  <p className="text-white text-[10px] mb-0.5">Lock Expires</p>
-                  <p className="stat-value text-[14px] text-white">
-                    {pos.autoMaxLock ? 'Auto-Max (Forever)' : pos.isLocked ? new Date(pos.lockEnd * 1000).toLocaleDateString() : 'Unlocked'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-white text-[10px] mb-0.5">Voting Power</p>
-                  <AnimatedCounter value={pos.isLocked ? stakedTotal * pos.boostMultiplier : 0} decimals={0} className="stat-value text-[14px] text-white" />
-                </div>
-              </div>
-              <div className="flex items-center gap-2 mt-4 flex-wrap">
-                {pos.isLocked && (
-                  <span className="badge badge-warning text-[10px]">
-                    {pos.autoMaxLock ? 'Auto-Max Lock' : `Locked until ${new Date(pos.lockEnd * 1000).toLocaleDateString()}`}
-                  </span>
-                )}
-                {nft.boostLabel && (
-                  <span className="badge badge-primary text-[10px]">{nft.boostLabel}</span>
-                )}
-                <Link to="/restake" className="text-[11px] text-white hover:text-white transition-colors ml-auto">
-                  Restake for bonus yield &#8594;
+              <div className="relative z-10 m-2 md:m-3 rounded-lg p-3 md:p-4 flex items-center justify-between flex-wrap gap-2" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <TegridyScoreMini />
+                <Link to="/leaderboard" className="text-[11px] text-white hover:text-white transition-colors">
+                  View Breakdown &#8594;
                 </Link>
               </div>
-            </div>
-          </m.div>
-        ) : (
-          <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <div className="absolute inset-0">
-              <ArtImg pageId="dashboard" idx={13} fallbackPosition="center 20%" alt="" loading="lazy" className="w-full h-full object-cover" />
-            </div>
-            <div className="relative z-10 p-8 py-12 text-center">
-              <p className="text-white text-[15px] mb-4">No staking position yet</p>
-              <Link to="/farm" className="btn-primary px-8 py-3 text-[14px]">Start Staking &#8594;</Link>
-            </div>
+            </m.div>
+
+            {/* DCA Due Alerts */}
+            {dca.dueSchedules.length > 0 && (
+              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <div className="absolute inset-0">
+                  <ArtImg pageId="dashboard" idx={9} alt="" loading="lazy" className="w-full h-full object-cover" />
+                </div>
+                <div className="relative z-10 p-4 flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <p className="text-warning text-[13px] font-medium">{dca.dueSchedules.length} DCA swap{dca.dueSchedules.length > 1 ? 's' : ''} due</p>
+                    <p className="text-white text-[11px]">Go to Swap to execute</p>
+                  </div>
+                  <Link to="/swap" className="btn-secondary px-4 py-2 text-[12px]">Execute &#8594;</Link>
+                </div>
+              </m.div>
+            )}
+
+            {/* Active Limit Orders */}
+            {limitOrders.activeOrders.length > 0 && (
+              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <div className="absolute inset-0">
+                  <ArtImg pageId="dashboard" idx={10} alt="" loading="lazy" className="w-full h-full object-cover" />
+                </div>
+                <div className="relative z-10 p-4">
+                  <p className="text-white text-[13px] font-medium mb-1">{limitOrders.activeOrders.length} active price alert{limitOrders.activeOrders.length > 1 ? 's' : ''}</p>
+                  <p className="text-white text-[11px]">Check Swap for details</p>
+                </div>
+              </m.div>
+            )}
+
+            {/* Price Alerts */}
+            <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+              <PriceAlertWidget />
+            </m.div>
+
+            {/* Chart */}
+            <m.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+              <h3 className="heading-luxury text-[16px] text-white mb-3">Price Chart</h3>
+              <div className="relative rounded-xl overflow-hidden glass-card-animated h-[280px] md:h-[400px]" style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}>
+                <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}><PriceChart /></ErrorBoundary>
+              </div>
+            </m.div>
           </m.div>
         )}
 
-        {/* Referral Widget */}
-        {address && (
-          <ReferralWidget
-            address={address}
-            referredCount={revenueStats.referredCount}
-            referralEarned={revenueStats.referralEarned}
-            referralPending={revenueStats.referralPending}
-            referralPendingBig={revenueStats.referralPendingBig}
-            hasReferrer={revenueStats.hasReferrer}
-            referrer={revenueStats.referrer}
-            onClaim={revenueStats.claimReferralRewards}
-            onSetReferrer={revenueStats.setReferrer}
-            isPending={revenueStats.isPending}
-            isConfirming={revenueStats.isConfirming}
-          />
-        )}
+        {/* Positions */}
+        {tab === 'positions' && (
+          <m.div role="tabpanel" aria-label="Positions" key="positions"
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+            {/* Claim Button */}
+            {pendingTotal >= 0.01 && pos.hasPosition && (
+              <m.div className="mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <button onClick={handleClaim}
+                  disabled={farmActions.isPending || farmActions.isConfirming}
+                  className="btn-primary px-6 py-2.5 text-[13px] disabled:opacity-70 disabled:cursor-not-allowed">
+                  {farmActions.isPending || farmActions.isConfirming
+                    ? 'Claiming...'
+                    : `Claim Rewards (${formatTokenAmount(pendingTotal.toString(), 2)} TOWELI)`}
+                </button>
+              </m.div>
+            )}
 
-        {/* Projections */}
-        {pos.hasPosition && (
-          <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
-            <h3 className="heading-luxury text-[16px] text-white mb-4">Earnings Projection</h3>
-            <Projections staked={stakedTotal} apr={parseFloat(pool.apr) || 0} price={price.priceInUsd} boost={pos.boostMultiplier} />
+            {/* POL Accumulator */}
+            {!isDeployed(POL_ACCUMULATOR_ADDRESS) && (
+              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <div className="absolute inset-0">
+                  <ArtImg pageId="dashboard" idx={8} alt="" loading="lazy" className="w-full h-full object-cover" />
+                </div>
+                <div className="relative z-10 p-5">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-white text-[15px] font-medium">POL Accumulator</span>
+                    <span className="px-2 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase" style={{ background: 'var(--color-purple-75)', color: '#000000', border: '1px solid var(--color-purple-20)' }}>Coming Soon</span>
+                  </div>
+                  <p className="text-white text-[12px] leading-relaxed max-w-lg">
+                    Protocol-Owned Liquidity will automatically accumulate LP positions from a share of swap fees, deepening TOWELI liquidity permanently and reducing reliance on external LPs.
+                  </p>
+                </div>
+              </m.div>
+            )}
+
+            {/* Position */}
+            <h2 className="heading-luxury text-[16px] text-white mb-4">Your Position</h2>
+            {pos.hasPosition ? (
+              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10 card-hover" style={{ border: '1px solid var(--color-purple-75)' }}
+                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                <div className="absolute inset-0">
+                  <ArtImg pageId="dashboard" idx={12} alt="" loading="lazy" className="w-full h-full object-cover" />
+                </div>
+                <div className="relative z-10 p-5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    <div>
+                      <p className="text-white text-[10px] mb-0.5">Staked</p>
+                      <AnimatedCounter value={stakedTotal} decimals={2} className="stat-value text-[16px] text-white" />
+                    </div>
+                    <div>
+                      <p className="text-white text-[10px] mb-0.5">Boost</p>
+                      <AnimatedCounter value={pos.boostMultiplier} decimals={2} suffix="x" className="stat-value text-[16px] text-white" />
+                    </div>
+                    <div>
+                      <p className="text-white text-[10px] mb-0.5">Lock Expires</p>
+                      <p className="stat-value text-[14px] text-white">
+                        {pos.autoMaxLock ? 'Auto-Max (Forever)' : pos.isLocked ? new Date(pos.lockEnd * 1000).toLocaleDateString() : 'Unlocked'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-white text-[10px] mb-0.5">Voting Power</p>
+                      <AnimatedCounter value={pos.isLocked ? stakedTotal * pos.boostMultiplier : 0} decimals={0} className="stat-value text-[14px] text-white" />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 mt-4 flex-wrap">
+                    {pos.isLocked && (
+                      <span className="badge badge-warning text-[10px]">
+                        {pos.autoMaxLock ? 'Auto-Max Lock' : `Locked until ${new Date(pos.lockEnd * 1000).toLocaleDateString()}`}
+                      </span>
+                    )}
+                    {nft.boostLabel && (
+                      <span className="badge badge-primary text-[10px]">{nft.boostLabel}</span>
+                    )}
+                    <Link to="/restake" className="text-[11px] text-white hover:text-white transition-colors ml-auto">
+                      Restake for bonus yield &#8594;
+                    </Link>
+                  </div>
+                </div>
+              </m.div>
+            ) : (
+              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <div className="absolute inset-0">
+                  <ArtImg pageId="dashboard" idx={13} fallbackPosition="center 20%" alt="" loading="lazy" className="w-full h-full object-cover" />
+                </div>
+                <div className="relative z-10 p-8 py-12 text-center">
+                  <p className="text-white text-[15px] mb-4">No staking position yet</p>
+                  <Link to="/farm" className="btn-primary px-8 py-3 text-[14px]">Start Staking &#8594;</Link>
+                </div>
+              </m.div>
+            )}
+
+            {/* Projections */}
+            {pos.hasPosition && (
+              <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+                <h3 className="heading-luxury text-[16px] text-white mb-4">Earnings Projection</h3>
+                <Projections staked={stakedTotal} apr={parseFloat(pool.apr) || 0} price={price.priceInUsd} boost={pos.boostMultiplier} />
+              </m.div>
+            )}
           </m.div>
         )}
 
-        {/* Price Alerts */}
-        <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
-          <PriceAlertWidget />
-        </m.div>
+        {/* Loans */}
+        {tab === 'loans' && (
+          <m.div role="tabpanel" aria-label="Loans" key="loans"
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+            {myLoans.loans.length > 0 ? (
+              <OutstandingLoans loans={myLoans.loans} />
+            ) : (
+              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <div className="absolute inset-0">
+                  <ArtImg pageId="dashboard" idx={11} fallbackPosition="center 30%" alt="" loading="lazy" className="w-full h-full object-cover" />
+                </div>
+                <div className="relative z-10 p-8 py-12 text-center">
+                  <p className="text-white text-[15px] mb-2">No outstanding loans</p>
+                  <p className="text-white/70 text-[12px] mb-4 max-w-sm mx-auto">
+                    Borrow ETH against staking positions or NFTs, or lend to earn interest.
+                  </p>
+                  <div className="flex items-center justify-center gap-3 flex-wrap">
+                    <Link to="/nft-finance?section=nftlending" className="btn-primary px-5 py-2.5 text-[13px]">NFT Lending &#8594;</Link>
+                    <Link to="/nft-finance?section=lending" className="btn-secondary px-5 py-2.5 text-[13px]">Token Lending &#8594;</Link>
+                  </div>
+                </div>
+              </m.div>
+            )}
+          </m.div>
+        )}
 
-        {/* Chart */}
-        <m.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
-          <h3 className="heading-luxury text-[16px] text-white mb-3">Price Chart</h3>
-          <div className="relative rounded-xl overflow-hidden glass-card-animated h-[280px] md:h-[400px]" style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}>
-            <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}><PriceChart /></ErrorBoundary>
-          </div>
-        </m.div>
+        {/* Rewards */}
+        {tab === 'rewards' && (
+          <m.div role="tabpanel" aria-label="Rewards" key="rewards"
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+            {/* Claim staking rewards — primary action if pending */}
+            {pendingTotal >= 0.01 && pos.hasPosition && (
+              <m.div className="mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <button onClick={handleClaim}
+                  disabled={farmActions.isPending || farmActions.isConfirming}
+                  className="btn-primary px-6 py-2.5 text-[13px] disabled:opacity-70 disabled:cursor-not-allowed">
+                  {farmActions.isPending || farmActions.isConfirming
+                    ? 'Claiming...'
+                    : `Claim Staking Rewards (${formatTokenAmount(pendingTotal.toString(), 2)} TOWELI)`}
+                </button>
+              </m.div>
+            )}
+
+            {/* ETH Revenue Sharing (only renders when pending > 0) */}
+            {address && <ETHRevenueClaim address={address} isWrongNetwork={isWrongNetwork} />}
+
+            {/* Referral Widget */}
+            {address && (
+              <ReferralWidget
+                address={address}
+                referredCount={revenueStats.referredCount}
+                referralEarned={revenueStats.referralEarned}
+                referralPending={revenueStats.referralPending}
+                referralPendingBig={revenueStats.referralPendingBig}
+                hasReferrer={revenueStats.hasReferrer}
+                referrer={revenueStats.referrer}
+                onClaim={revenueStats.claimReferralRewards}
+                onSetReferrer={revenueStats.setReferrer}
+                isPending={revenueStats.isPending}
+                isConfirming={revenueStats.isConfirming}
+              />
+            )}
+          </m.div>
+        )}
+
       </div>
       </ErrorBoundary>
     </div>
