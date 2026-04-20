@@ -24,13 +24,13 @@ const ARTIFACT_DIR = join(REPO_ROOT, 'contracts', 'out');
 const OUTPUT_FILE = join(REPO_ROOT, 'frontend', 'src', 'lib', 'abi-supplement.ts');
 
 // Map: contract source filename -> export constant name.
-// These are the 8 flagged as missing in AUDIT_FINDINGS.md H1.
-// Note: TEGRIDY_DROP_ABI and TEGRIDY_NFT_POOL_ABI already exist as hand-written
-// partial ABIs in contracts.ts. Suffixed with _FULL here to avoid export
-// collision. Adopt them progressively by migrating imports from *_ABI → *_ABI_FULL.
+// These are the contracts flagged as missing in AUDIT_FINDINGS.md H1.
+// TegridyDrop V1 entry removed 2026-04-19 with the V1 deletion pass; the V2 ABI
+// covers V1 clones as a strict read-surface superset.
+// TEGRIDY_NFT_POOL_ABI already exists as a hand-written partial ABI in contracts.ts;
+// the `_FULL` suffix avoids export collision — adopt by migrating imports.
 const MISSING = [
   { sol: 'POLAccumulator.sol',        name: 'POL_ACCUMULATOR_ABI' },
-  { sol: 'TegridyDrop.sol',           name: 'TEGRIDY_DROP_ABI_FULL' },
   { sol: 'TegridyFeeHook.sol',        name: 'TEGRIDY_FEE_HOOK_ABI' },
   { sol: 'TegridyLPFarming.sol',      name: 'TEGRIDY_LP_FARMING_ABI' },
   { sol: 'TegridyNFTPool.sol',        name: 'TEGRIDY_NFT_POOL_ABI_FULL' },

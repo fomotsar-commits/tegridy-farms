@@ -29,7 +29,7 @@ Every admin-controlled contract in the protocol inherits from two custom base co
 | GaugeController | Gauge addition/removal, emission budget | 24h |
 | TegridyLending | Oracle, LTV, fee recipient | 48h |
 | TegridyNFTLending | Collection allowlist, grace period | 48h |
-| TegridyLaunchpad | Protocol fee bps (capped ≤ 100%) | 24h |
+| TegridyLaunchpadV2 | Protocol fee bps (capped ≤ 100%) | 24h |
 | PremiumAccess | Subscription price | 24h |
 | VoteIncentives | Sweep recipient | 48h |
 

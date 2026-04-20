@@ -104,7 +104,7 @@ This is the big one.
    - RevenueDistributor, ReferralSplitter, PremiumAccess
    - CommunityGrants, MemeBountyBoard
    - TegridyLending, TegridyNFTLending, TegridyNFTPoolFactory
-   - TegridyLaunchpad
+   - TegridyLaunchpadV2 (V1 TegridyLaunchpad source deleted 2026-04-19 — clones remain live on-chain)
 4. Once ownership migrates, the old EOA is effectively idle. Rotate `PRIVATE_KEY` in `contracts/.env` to the NEW key.
 
 **If the old EOA was "cold" (never actually compromised, no treasury):**
@@ -163,30 +163,35 @@ If you still get 500, the RLS policy may be wrong. Check `frontend/api/_lib/supa
 
 ---
 
-## Step 3 — Redeploy the three patched contracts (20 min + ~0.02 ETH gas)
+## Step 3 — Redeploy the two remaining patched contracts (20 min + ~0.02 ETH gas)
 
-Three contracts have working-tree patches that aren't on mainnet yet:
+> **Historical note (2026-04-19):** this step originally covered three contracts
+> including the V1 `TegridyDrop` template. V1 `TegridyDrop` + `TegridyLaunchpad`
+> source was deleted with the V1 deletion pass; the H-10 refund surface now
+> lives on `TegridyDropV2` and ships with the V2 factory. The `redeploy-patched-3.sh`
+> helper was also deleted — run the two remaining contract scripts by hand.
+
+Two contracts have working-tree patches that aren't on mainnet yet:
 
 | Contract | Patch | Source |
 |---|---|---|
 | `TegridyLPFarming` | `exit()` convenience function + stake-time boost refresh | [commit 0468faf](https://github.com/fomotsar-commits/tegridy-farms/commit/0468faf) |
 | `TegridyNFTLending` | `GRACE_PERIOD = 1 hours` gating repayLoan + claimDefault | [commit 0468faf](https://github.com/fomotsar-commits/tegridy-farms/commit/0468faf) |
-| `TegridyDrop` (template) | `MintPhase.CANCELLED`, `cancelSale()`, `refund()`, `paidPerWallet` | [commit 0468faf](https://github.com/fomotsar-commits/tegridy-farms/commit/0468faf) |
 
-### 3.1 Run the helper script
+### 3.1 Run the per-contract deploy scripts
 
 ```bash
-cd "C:/Users/jimbo/OneDrive/Desktop/tegriddy farms"
-./scripts/redeploy-patched-3.sh
+cd "C:/Users/jimbo/OneDrive/Desktop/tegriddy farms/contracts"
+forge script script/DeployLPFarming.s.sol --broadcast --verify
+forge script script/DeployNFTLending.s.sol --broadcast --verify
 ```
 
-The script runs `forge script` for each of the three contracts in sequence with `--broadcast --verify`, echoes the broadcast JSON paths, and exits non-zero if any step fails.
+Each writes a broadcast JSON under `broadcast/<Script>.s.sol/1/`.
 
-**Expected output tail:**
+**Expected output tail per script:**
 ```
 ✓ TegridyLPFarming       deployed at 0x...
 ✓ TegridyNFTLending      deployed at 0x...
-✓ TegridyDrop template   deployed at 0x...
 ```
 
 If any deploy fails with "insufficient funds" — fund the deployer and retry.
@@ -206,7 +211,6 @@ npx tsx scripts/diff-addresses.ts
 + export const LP_FARMING_ADDRESS = '0xNEW...' as const;
 - export const TEGRIDY_NFT_LENDING_ADDRESS = '0x63baD...' as const;
 + export const TEGRIDY_NFT_LENDING_ADDRESS = '0xNEW...' as const;
-- (TegridyDrop is the per-Drop clone template — likely NOT in constants.ts; leave as template reference)
 ```
 
 ### 3.3 Apply the patch

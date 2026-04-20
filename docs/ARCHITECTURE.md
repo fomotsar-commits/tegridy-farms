@@ -41,8 +41,8 @@ flowchart LR
         VI[VoteIncentives]
         LND[TegridyLending]
         NFTL[TegridyNFTLending]
-        LP[TegridyLaunchpad]
-        DRP[TegridyDrop template]
+        LP[TegridyLaunchpadV2]
+        DRP[TegridyDropV2 template]
     end
 
     RPC --> MC
@@ -226,7 +226,7 @@ Design trade-off: no oracle means no fair-value liquidation — the lender takes
 
 ### Launchpad drops
 
-Factory-deploys clones of `TegridyDrop` template per collection. Clones support merkle-allowlist, public mint, Dutch auction phases, and a **CANCELLED** terminal phase with pull-pattern refunds (audit H10 closure).
+Factory-deploys clones of `TegridyDropV2` template per collection. Clones support merkle-allowlist, public mint, Dutch auction phases, and a **CANCELLED** terminal phase with pull-pattern refunds (audit H10 closure). V1 source was deleted 2026-04-19; V1 clones on mainnet remain live.
 
 ```mermaid
 stateDiagram-v2

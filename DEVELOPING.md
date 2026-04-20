@@ -20,7 +20,7 @@ tegriddy-farms/
 │   ├── supabase/         # SQL migrations for the Supabase backing store
 │   └── tests/            # Playwright e2e specs
 ├── contracts/         # Foundry project — Solidity 0.8.26
-│   ├── src/              # Production contracts (TegridyLPFarming, TegridyNFTLending, TegridyDrop, ...)
+│   ├── src/              # Production contracts (TegridyLPFarming, TegridyNFTLending, TegridyDropV2, ...)
 │   ├── script/           # Forge deploy / wire scripts
 │   └── test/             # Forge unit + integration tests
 ├── indexer/           # Ponder indexer — onchain event sync to Supabase
@@ -175,7 +175,7 @@ Supporting hooks that are worth knowing:
 
 - `useLPFarming` — low-level read layer for pool APR + emission rate.
 - `useNFTLending` — opens / repays loans against `TegridyNFTLending`.
-- `useTegridyDrop` — claim flow for the seasonal airdrop contract.
+- `useNFTDrop` — mint + refund flow for the V2 launchpad drops (reads via the V2 ABI, which is a strict superset of V1 at the read surface).
 
 ---
 

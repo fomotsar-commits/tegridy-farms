@@ -50,7 +50,7 @@ After channels exist, update README's "Community" section + `FUNDING.yml` + `Foo
 ### 🟣 Multisig migration — "last thing to cover" per your earlier decision
 Skeleton in [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md). When ready, ask me to write:
 - `docs/MULTISIG_MIGRATION.md` — full runbook
-- `contracts/script/TransferOwnershipToMultisig.s.sol` — one script that fires `transferOwnership(safe)` on every owner-controlled contract (TegridyStaking, TegridyLPFarming, SwapFeeRouter, POLAccumulator, GaugeController, VoteIncentives, RevenueDistributor, ReferralSplitter, PremiumAccess, CommunityGrants, MemeBountyBoard, TegridyLending, TegridyNFTLending, TegridyNFTPoolFactory, TegridyLaunchpad)
+- `contracts/script/TransferOwnershipToMultisig.s.sol` — one script that fires `transferOwnership(safe)` on every owner-controlled contract (TegridyStaking, TegridyLPFarming, SwapFeeRouter, POLAccumulator, GaugeController, VoteIncentives, RevenueDistributor, ReferralSplitter, PremiumAccess, CommunityGrants, MemeBountyBoard, TegridyLending, TegridyNFTLending, TegridyNFTPoolFactory, TegridyLaunchpadV2). V1 `TegridyLaunchpad` source was deleted 2026-04-19 — V1 clones on mainnet remain ownable but are not in scope for this sweep.
 - Pre-flight: deploy a Safe with your signer set, decide threshold (3-of-5 recommended)
 
 ---
@@ -150,7 +150,7 @@ enhancements in the order listed.
 - [`frontend/e2e/fixtures/wallet.ts`](frontend/e2e/fixtures/wallet.ts) — Playwright wallet fixture. See `ANVIL_BACKEND` block for the real-RPC upgrade path
 
 ### Operational scripts
-- [`scripts/redeploy-patched-3.sh`](scripts/redeploy-patched-3.sh) — redeploy TegridyLPFarming + TegridyNFTLending + TegridyDrop
+- ~~[`scripts/redeploy-patched-3.sh`](scripts/redeploy-patched-3.sh)~~ — deleted 2026-04-19 with V1 `TegridyDrop` source. Use per-contract `forge script` runs for `TegridyLPFarming` + `TegridyNFTLending`; V2 drop template auto-deploys with the V2 factory.
 - [`scripts/diff-addresses.ts`](scripts/diff-addresses.ts) — print the constants.ts patch after redeploy
 - [`scripts/extract-missing-abis.mjs`](scripts/extract-missing-abis.mjs) — pull ABIs from forge artifacts into `frontend/src/lib/abi-supplement.ts`
 - [`scripts/render-og-png.mjs`](scripts/render-og-png.mjs) — SVG → PNG (requires `@resvg/resvg-js`, already devDep'd)

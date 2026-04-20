@@ -93,10 +93,23 @@ forge script script/DeployFinal.s.sol \
 - Resolve **Gap A** (sed or env refactor)
 
 ### Step 3 — V3 features
-Deploys: `TegridyLending`, `TegridyDrop`, `TegridyLaunchpad`, `TegridyNFTPool` (template), `TegridyNFTPoolFactory`.
+
+> **Note (2026-04-19):** the original `DeployV3Features.s.sol` bundle script was
+> deleted when the V1 `TegridyLaunchpad` + `TegridyDrop` source was retired. Use
+> per-contract scripts instead — `TegridyDropV2` deploys implicitly via the V2
+> factory constructor.
+
+Deploys: `TegridyLending`, `TegridyLaunchpadV2` (auto-deploys `TegridyDropV2` template),
+`TegridyNFTPool` (template), `TegridyNFTPoolFactory`.
 
 ```bash
-forge script script/DeployV3Features.s.sol \
+forge script script/DeployLending.s.sol \
+  --rpc-url "$ETH_RPC_URL" --broadcast --verify \
+  --etherscan-api-key "$ETHERSCAN_API_KEY" --slow
+forge script script/DeployLaunchpadV2.s.sol \
+  --rpc-url "$ETH_RPC_URL" --broadcast --verify \
+  --etherscan-api-key "$ETHERSCAN_API_KEY" --slow
+forge script script/DeployNFTPoolFactory.s.sol \
   --rpc-url "$ETH_RPC_URL" --broadcast --verify \
   --etherscan-api-key "$ETHERSCAN_API_KEY" --slow
 ```
@@ -197,7 +210,7 @@ After every broadcast completes, update `frontend/src/lib/constants.ts`. The aff
 | 28 | `PREMIUM_ACCESS_ADDRESS` | Step 2 output |
 | 29 | `VOTE_INCENTIVES_ADDRESS` | Step 6 output |
 | 32 | `TEGRIDY_LENDING_ADDRESS` | Step 3 output |
-| 33 | `TEGRIDY_LAUNCHPAD_ADDRESS` | Step 3 output |
+| 33 | ~~`TEGRIDY_LAUNCHPAD_ADDRESS`~~ | Removed 2026-04-19 (V1 source deleted). Use `TEGRIDY_LAUNCHPAD_V2_ADDRESS` from Step 3 output. |
 | 34 | `TEGRIDY_NFT_POOL_FACTORY_ADDRESS` | Step 3 output |
 | 35 | `TEGRIDY_TOKEN_URI_READER_ADDRESS` | Step 7 output |
 | 36 | `TEGRIDY_NFT_LENDING_ADDRESS` | Step 4 output |
@@ -232,17 +245,20 @@ npm run start                # fresh re-sync, 30–60 min
 
 ---
 
-## 6. Merkle tree re-issuance (TegridyDrop allowlists)
+## 6. Merkle tree re-issuance (V2 drop allowlists)
 
-If any TegridyDrop allowlisted drops are active, their Merkle proofs are now invalid. The leaf format changed from `keccak256(msg.sender)` to `keccak256(abi.encodePacked(address(this), msg.sender))`.
+`TegridyDropV2` uses the domain-separated leaf format
+`keccak256(abi.encodePacked(address(this), msg.sender))`. Historical V1 `TegridyDrop`
+clones (source deleted 2026-04-19) use the unprefixed `keccak256(msg.sender)` leaf —
+their existing Merkle roots stay valid; do not re-issue.
 
-For each drop:
-1. Compute new leaves with `address(drop)` prefix
+For each V2 drop with an active allowlist:
+1. Compute leaves as `keccak256(abi.encodePacked(address(drop), wallet))`
 2. Build new Merkle tree
-3. Call `TegridyDrop.setMerkleRoot(newRoot)` via multisig
+3. Call `TegridyDropV2.setMerkleRoot(newRoot)` via multisig
 4. Publish new proofs to the allowlist distribution channel
 
-If no drops are active yet, skip.
+If no V2 drops are active yet, skip.
 
 ---
 

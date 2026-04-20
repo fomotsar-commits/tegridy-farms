@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { TEGRIDY_DROP_ABI } from '../../lib/contracts';
+import { TEGRIDY_DROP_V2_ABI } from '../../lib/contracts';
 import { ART } from '../../lib/artConfig';
 import { toast } from 'sonner';
 import { INPUT, LABEL, BTN_EMERALD, PHASE_LABELS } from './launchpadConstants';
@@ -22,7 +22,7 @@ export function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string
   // MintPhase enum: 0=CLOSED, 1=ALLOWLIST, 2=PUBLIC, 3=DUTCH_AUCTION, 4=CLOSED_AGAIN, 5=CANCELLED.
   const { data: onchainPhase, refetch: refetchPhase } = useReadContract({
     address: contractAddr,
-    abi: TEGRIDY_DROP_ABI,
+    abi: TEGRIDY_DROP_V2_ABI,
     functionName: 'mintPhase',
     query: { enabled: deployed, refetchInterval: 30_000 },
   });
@@ -36,7 +36,7 @@ export function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string
     (fn: string, args?: unknown[], opts?: { onSuccess?: () => void }) => {
       if (!deployed) return;
       writeContract(
-        { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: fn, args: args as never[] } as never,
+        { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: fn, args: args as never[] } as never,
         {
           onSuccess: () => {
             toast.success(`${fn} succeeded`);

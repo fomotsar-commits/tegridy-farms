@@ -45,7 +45,9 @@ Keep-a-Changelog view see [CHANGELOG.md](CHANGELOG.md).
 - **TegridyDrop ABI fix** ([contracts.ts](frontend/src/lib/contracts.ts)) —
   pre-existing bug: `currentPhase()` doesn't exist on the contract (it's
   `mintPhase()`). Every ABI call was reverting. Fixed + added
-  `cancelSale`/`refund`/`paidPerWallet`.
+  `cancelSale`/`refund`/`paidPerWallet`. (V1 TEGRIDY_DROP_ABI block was later
+  deleted 2026-04-19 and all readers migrated to TEGRIDY_DROP_V2_ABI, which
+  carries the same surface as a strict superset.)
 - **[useToweliPrice](frontend/src/hooks/useToweliPrice.ts)** — `TegridyTWAP`
   wired as third oracle leg. 30-minute TWAP cross-checks pair-reserve spot
   price; divergence > 2% flips to TWAP for manipulation-resistant pricing.
@@ -125,13 +127,15 @@ effect on-chain.
 - `contracts/src/TegridyNFTLending.sol` — added `GRACE_PERIOD = 1 hours` and gated
   `repayLoan` (`deadline + GRACE_PERIOD`) and `claimDefault` (`deadline + GRACE_PERIOD`) so
   NFT borrowers get the same safety buffer as ERC-20 borrowers.
-- `contracts/src/TegridyDrop.sol` — added `MintPhase.CANCELLED`, `paidPerWallet` tracking,
-  `cancelSale()` (irreversible, owner-only), `refund()` (pull-pattern, nonReentrant),
-  events `SaleCancelledEvent` + `Refunded`. `withdraw()` blocked when CANCELLED;
-  `setMintPhase()` cannot transition in OR out of CANCELLED.
+- ~~`contracts/src/TegridyDrop.sol`~~ — H-10 refund-flow (`MintPhase.CANCELLED`,
+  `paidPerWallet` tracking, `cancelSale()` irreversible owner-only, pull-pattern
+  `refund()`, events `SaleCancelledEvent` + `Refunded`, `withdraw()` blocked when
+  CANCELLED, `setMintPhase()` cannot enter/exit CANCELLED). **V1 source deleted
+  2026-04-19**; the same surface lives on `contracts/src/TegridyDropV2.sol`,
+  which is the canonical drop template going forward.
 - `contracts/script/DeployGaugeController.s.sol`,
   `contracts/script/DeployTokenURIReader.s.sol`,
-  `contracts/script/DeployV3Features.s.sol`,
+  ~~`contracts/script/DeployV3Features.s.sol`~~ (deleted 2026-04-19),
   `contracts/script/WireV2.s.sol` — replaced stale staking address
   `0x65D8...` with the new `0x6266...` (Gap A sed).
 
