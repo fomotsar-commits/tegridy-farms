@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, memo, useCallback } from 'react';
 import { createChart, type IChartApi, type ISeriesApi, ColorType, type CandlestickData, type Time, CandlestickSeries } from 'lightweight-charts';
 import { TOWELI_WETH_LP_ADDRESS, GECKOTERMINAL_URL } from '../../lib/constants';
+import { useTheme } from '../../contexts/ThemeContext';
 
 type Timeframe = '1h' | '4h' | '1d' | '1w';
 
@@ -92,6 +93,17 @@ function PriceChartInner() {
   const [error, setError] = useState<string | null>(null);
   const [useEmbed, setUseEmbed] = useState(false);
   const retryCountRef = useRef(0);
+  const { isDark } = useTheme();
+
+  // AUDIT THEME: chart chrome (text, grid lines, axis borders) was hardcoded
+  // to white + purple, making light mode a near-illegible light-on-light
+  // chart. Candlestick semantic colors (green/red) stay fixed across themes
+  // since they encode direction, not brand. We rebuild the chart on theme
+  // toggle so lightweight-charts picks up the new palette (its options
+  // accept a partial update via applyOptions, but only for some fields).
+  const chartTextColor = isDark ? 'rgba(255,255,255,1)' : 'rgba(26,26,26,0.88)';
+  const chartGridColor = isDark ? 'rgba(139,92,246,0.1)' : 'rgba(26,26,26,0.08)';
+  const chartAxisColor = isDark ? 'rgba(139,92,246,0.1)' : 'rgba(26,26,26,0.14)';
 
   // Create chart once
   useEffect(() => {
@@ -100,23 +112,23 @@ function PriceChartInner() {
     const chart = createChart(containerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: 'rgba(255,255,255,1)',
+        textColor: chartTextColor,
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: 'rgba(139,92,246,0.1)' },
-        horzLines: { color: 'rgba(139,92,246,0.1)' },
+        vertLines: { color: chartGridColor },
+        horzLines: { color: chartGridColor },
       },
       crosshair: {
         vertLine: { color: 'rgba(139,92,246,0.3)', labelBackgroundColor: '#7c3aed' },
         horzLine: { color: 'rgba(139,92,246,0.3)', labelBackgroundColor: '#7c3aed' },
       },
       rightPriceScale: {
-        borderColor: 'rgba(139,92,246,0.1)',
+        borderColor: chartAxisColor,
         scaleMargins: { top: 0.15, bottom: 0.15 },
       },
       timeScale: {
-        borderColor: 'rgba(139,92,246,0.1)',
+        borderColor: chartAxisColor,
         timeVisible: true,
         secondsVisible: false,
       },
@@ -163,7 +175,11 @@ function PriceChartInner() {
       chartRef.current = null;
       seriesRef.current = null;
     };
-  }, [useEmbed]);
+    // Recreate the chart when the theme changes so the new text / grid
+    // / axis palette takes effect. lightweight-charts has applyOptions,
+    // but it doesn't propagate every chrome field — a remount is the
+    // safe, small fix.
+  }, [useEmbed, chartTextColor, chartGridColor, chartAxisColor]);
 
   const requestIdRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
