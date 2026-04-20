@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
@@ -556,22 +557,16 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ) public pure returns (uint256 interest) {
         if (_currentTime <= _startTime) return 0;
         uint256 elapsed = _currentTime - _startTime;
-        // AUDIT H-05: overflow safety. The numerator `_principal * _aprBps * elapsed`
-        // is bounded by the lending caps in effect at any moment. At maximum cap
-        // values (maxPrincipal ≤ MAX_PRINCIPAL_CEILING = 100k ETH = 1e23 wei;
-        // maxAprBps ≤ MAX_APR_BPS_CEILING = 1e5; elapsed ≤ maxDuration ≤
-        // MAX_DURATION_CEILING = 10 years ≈ 3.15e8 seconds) the worst-case product
-        // is ~3.15e36 — comfortably within uint256 (max ≈ 1.15e77). Solidity 0.8
-        // auto-reverts on any overflow, so this is safe by construction up to the
-        // ceilings declared in state. If cap ceilings are ever raised above these
-        // bounds in a future upgrade, this arithmetic must be re-validated or
-        // switched to OZ Math.mulDiv with 512-bit intermediate.
-        interest = _ceilDiv(_principal * _aprBps * elapsed, BPS * SECONDS_PER_YEAR);
-    }
-
-    /// @dev Ceiling division: returns ceil(a / b) for positive a, b.
-    function _ceilDiv(uint256 a, uint256 b) private pure returns (uint256) {
-        return (a + b - 1) / b;
+        // AUDIT FIX (300-agent #3 / battle-tested): OZ Math.mulDiv with Ceil rounding.
+        // 512-bit intermediate removes the cap-ceiling overflow constraint that the
+        // prior naive multiplication relied on. Ceil rounding preserves the
+        // protocol-favoring invariant for ragged sub-second pro-rata fractions.
+        interest = Math.mulDiv(
+            _principal * _aprBps,
+            elapsed,
+            BPS * SECONDS_PER_YEAR,
+            Math.Rounding.Ceil
+        );
     }
 
     /// @notice Get the total repayment amount for a loan at the current time.
