@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { m } from 'framer-motion';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { getTxUrl } from '../lib/explorer';
@@ -24,12 +24,29 @@ const TAB_LABELS: Record<Tab, string> = {
   limit: 'Limit',
 };
 
+const VALID_TABS: Tab[] = ['swap', 'liquidity', 'dca', 'limit'];
+
+function tabFromQuery(v: string | null): Tab | null {
+  if (!v) return null;
+  return (VALID_TABS as string[]).includes(v) ? (v as Tab) : null;
+}
+
+// Resolve the active tab. ?tab= is the canonical knob; the legacy
+// /liquidity path is treated as a synonym for ?tab=liquidity, overridden
+// by an explicit ?tab= when both are present.
+function resolveInitialTab(pathname: string, searchParams: URLSearchParams): Tab {
+  const q = tabFromQuery(searchParams.get('tab'));
+  if (q) return q;
+  if (pathname.startsWith('/liquidity')) return 'liquidity';
+  return 'swap';
+}
+
 export default function TradePage() {
   const { isConnected } = useAccount();
   const chainId = useChainId();
   const location = useLocation();
-  // Initialize tab from the pathname — /liquidity lands on the Liquidity tab.
-  const [tab, setTab] = useState<Tab>(() => (location.pathname.startsWith('/liquidity') ? 'liquidity' : 'swap'));
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [tab, setTab] = useState<Tab>(() => resolveInitialTab(location.pathname, searchParams));
   // Title follows the active tab so /liquidity reads "Liquidity" not "Trade".
   const titleByTab: Record<Tab, { title: string; desc: string }> = {
     swap:      { title: 'Swap',      desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.' },
@@ -42,10 +59,25 @@ export default function TradePage() {
   const [showRouteDetails, setShowRouteDetails] = useState(false);
 
   useEffect(() => { trackPageView('trade'); }, []);
+
+  // Keep state in sync when the URL changes (Back/Forward, external links).
+  // ?tab= wins; path is only consulted when ?tab= is absent.
   useEffect(() => {
-    if (location.pathname.startsWith('/liquidity')) setTab('liquidity');
-    else if (location.pathname.startsWith('/swap')) setTab(prev => (prev === 'liquidity' ? 'swap' : prev));
-  }, [location.pathname]);
+    const next = resolveInitialTab(location.pathname, searchParams);
+    if (next !== tab) setTab(next);
+  }, [location.pathname, searchParams, tab]);
+
+  const handleTabChange = (next: Tab) => {
+    setTab(next);
+    const params = new URLSearchParams(searchParams);
+    // Default tab (swap) uses the bare URL; others set ?tab= so the URL
+    // is shareable. When the path is /liquidity (legacy deep-link), still
+    // write ?tab= so the canonical query knob stays authoritative and
+    // Back/Forward + sharing continues to work intuitively.
+    if (next === 'swap') params.delete('tab');
+    else params.set('tab', next);
+    setSearchParams(params, { replace: true });
+  };
 
   const swap = useSwap();
 
@@ -82,7 +114,7 @@ export default function TradePage() {
         {/* Tab Toggle */}
         <div className="flex gap-1.5 mb-6 p-1 rounded-2xl overflow-x-auto" style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}>
           {(['swap', 'liquidity', 'dca', 'limit'] as Tab[]).map((t) => (
-            <button key={t} onClick={() => setTab(t)} aria-pressed={tab === t}
+            <button key={t} onClick={() => handleTabChange(t)} aria-pressed={tab === t}
               className="flex-1 px-3 md:px-4 py-2.5 min-h-[44px] rounded-xl text-[13px] md:text-sm font-medium transition-all whitespace-nowrap text-white"
               style={tab === t ? {
                 background: 'var(--color-stan)',

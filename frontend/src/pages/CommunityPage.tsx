@@ -1,4 +1,5 @@
-import { useState, Suspense } from 'react';
+import { useEffect, useState, Suspense } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -20,10 +21,37 @@ const SECTIONS: { key: Section; label: string }[] = [
   { key: 'gauges', label: 'Gauge Voting' },
 ];
 
+const VALID_SECTIONS: Section[] = ['grants', 'bounties', 'bribes', 'gauges'];
+
+// Mirror LendingPage's ?section= pattern so cross-page deep-links
+// (Dashboard → /community?section=bribes, etc.) land on the right tab.
+function sectionFromQuery(v: string | null): Section | null {
+  if (!v) return null;
+  return (VALID_SECTIONS as string[]).includes(v) ? (v as Section) : null;
+}
+
 export default function CommunityPage() {
   usePageTitle('Community', 'Governance, grants, bounties, and community initiatives.');
   const { isConnected } = useAccount();
-  const [section, setSection] = useState<Section>('grants');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [section, setSection] = useState<Section>(
+    () => sectionFromQuery(searchParams.get('section')) ?? 'grants',
+  );
+
+  // Keep state in sync with ?section= so Back/Forward and deep-links behave.
+  useEffect(() => {
+    const fromQuery = sectionFromQuery(searchParams.get('section'));
+    if (fromQuery && fromQuery !== section) setSection(fromQuery);
+  }, [searchParams, section]);
+
+  const handleSectionChange = (next: Section) => {
+    setSection(next);
+    const params = new URLSearchParams(searchParams);
+    // Default section uses the bare URL; others set ?section= so it's shareable.
+    if (next === 'grants') params.delete('section');
+    else params.set('section', next);
+    setSearchParams(params, { replace: true });
+  };
 
   return (
     <div className="-mt-14 relative min-h-screen">
@@ -62,7 +90,7 @@ export default function CommunityPage() {
               className={`relative px-3 py-2 md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 ${
                 section === key ? 'text-white' : 'text-white hover:text-white'
               }`}
-              onClick={() => setSection(key)}
+              onClick={() => handleSectionChange(key)}
             >
               {section === key && (
                 <m.div
