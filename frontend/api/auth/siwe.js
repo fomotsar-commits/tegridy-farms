@@ -10,7 +10,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { SiweMessage } from "siwe";
-import { SignJWT } from "jose";
+import { SignJWT, decodeJwt } from "jose";
 import { randomUUID } from "crypto";
 import { checkRateLimit } from "../_lib/ratelimit.js";
 
@@ -221,10 +221,15 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: "Invalid signature" });
     }
 
-    // Issue custom JWT for Supabase
+    // Issue custom JWT for Supabase.
+    // AUDIT API-SEC-LOGOUT: every token now carries a random `jti` so we
+    // can revoke individual sessions server-side on logout. Without jti
+    // the logout endpoint could only clear the cookie — a stolen copy of
+    // the token stayed valid for the remainder of its 24h lifetime.
     const wallet = siweMessage.address.toLowerCase();
     const now = Math.floor(Date.now() / 1000);
     const exp = now + TOKEN_EXPIRY_HOURS * 3600;
+    const jti = randomUUID();
 
     const secret = new TextEncoder().encode(JWT_SECRET);
     const token = await new SignJWT({
@@ -232,6 +237,7 @@ export default async function handler(req, res) {
       wallet,
       role: "authenticated",
       aud: "authenticated",
+      jti,
     })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setIssuedAt(now)
@@ -250,8 +256,38 @@ export default async function handler(req, res) {
     });
   }
 
-  // ── DELETE: Logout — clear the auth cookie ──
+  // ── DELETE: Logout — clear the auth cookie AND revoke the JWT ──
+  // AUDIT API-SEC-LOGOUT: on logout we decode (not verify) the cookie,
+  // pull the `jti` + `exp`, and insert into revoked_jwts. /auth/me
+  // rejects any token whose jti is in that table, so a copy of the
+  // token captured pre-logout can't be used post-logout.
+  //
+  // We decode rather than verify because the point is to revoke a
+  // session the client already holds. If the signature is invalid, the
+  // token was never usable; if it's expired, revocation is redundant.
+  // Both cases fall through silently to the clear-cookie response.
   if (req.method === "DELETE") {
+    const token = parseSiweJwt(req);
+    if (token && supabase) {
+      try {
+        const claims = decodeJwt(token);
+        if (claims?.jti && claims?.exp && Number(claims.exp) > Math.floor(Date.now() / 1000)) {
+          await supabase.from("revoked_jwts").insert({
+            jti: String(claims.jti),
+            exp: new Date(Number(claims.exp) * 1000).toISOString(),
+          }).then((r) => {
+            // ON CONFLICT DO NOTHING — double-logout is idempotent.
+            if (r.error && !/duplicate key/i.test(r.error.message)) {
+              console.error("Revoke insert error:", r.error.message);
+            }
+          });
+        }
+        // Opportunistic cleanup; ignore errors.
+        void supabase.rpc("prune_revoked_jwts").catch(() => {});
+      } catch {
+        // Invalid/expired token — nothing to revoke.
+      }
+    }
     res.setHeader("Set-Cookie", buildClearAuthCookie());
     return res.json({ ok: true });
   }
