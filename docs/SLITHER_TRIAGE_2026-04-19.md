@@ -15,11 +15,11 @@ Slither 0.11.5 against `contracts/src` (excluding `lib/` and `test/`).
 
 ### `encode-packed-collision` — **FIXED in this pass**
 `abi.encodePacked(msg.sender, allCollections.length, _name, _symbol)` in
-`TegridyLaunchpad.createCollection` and `TegridyLaunchpadV2.createCollection`
-was collision-prone across `(name, symbol)` pairs — two different pairs could
-pack to identical bytes and yield the same CREATE2 salt. Attacker could
-front-run a creator's clone address. Swapped to `abi.encode` (length-prefixed)
-to eliminate the ambiguity.
+`TegridyLaunchpadV2.createCollection` (and the V1 `TegridyLaunchpad` before
+its source was deleted 2026-04-19) was collision-prone across `(name, symbol)`
+pairs — two different pairs could pack to identical bytes and yield the same
+CREATE2 salt. Attacker could front-run a creator's clone address. Swapped to
+`abi.encode` (length-prefixed) to eliminate the ambiguity.
 
 ### `arbitrary-send-eth` — false positive
 Flagged `CommunityGrants._transferETHOrWETH` because it sends ETH to a

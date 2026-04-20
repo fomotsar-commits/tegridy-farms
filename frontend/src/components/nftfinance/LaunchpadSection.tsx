@@ -2,15 +2,18 @@ import { useState, useMemo } from 'react';
 import { useReadContract, useReadContracts } from 'wagmi';
 import { m } from 'framer-motion';
 import { type Address } from 'viem';
-import { TEGRIDY_LAUNCHPAD_ADDRESS, TEGRIDY_LAUNCHPAD_V2_ADDRESS, isDeployed } from '../../lib/constants';
-import { TEGRIDY_LAUNCHPAD_ABI, TEGRIDY_LAUNCHPAD_V2_ABI } from '../../lib/contracts';
+import { TEGRIDY_LAUNCHPAD_V2_ADDRESS, isDeployed } from '../../lib/constants';
+import { TEGRIDY_LAUNCHPAD_V2_ABI } from '../../lib/contracts';
 import { shortenAddress } from '../../lib/formatting';
-import { CreateCollectionForm } from '../launchpad/CreateCollectionForm';
 import { CreateWizard } from '../launchpad/wizard/CreateWizard';
-import { CollectionDetail } from '../launchpad/CollectionDetail';
 import { CollectionDetailV2 } from '../launchpad/CollectionDetailV2';
 import { FEATURE_BULLETS } from '../launchpad/launchpadConstants';
 import { ArtImg } from '../ArtImg';
+
+// V1 factory is deprecated as of 2026-04-19. Mainnet clones created via V1 remain
+// live and browseable on Etherscan, but the frontend no longer reads from it.
+// Historical V1 factory: 0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2 (see docs/MIGRATION_HISTORY.md).
+const V1_FACTORY_ETHERSCAN = 'https://etherscan.io/address/0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2';
 
 const CARD_BG = 'rgba(6, 12, 26, 0.80)';
 const CARD_BORDER = 'var(--color-purple-12)';
@@ -21,7 +24,6 @@ const PANEL_STYLE: React.CSSProperties = {
 };
 
 type CollectionRow = {
-  version: 'v1' | 'v2';
   id: bigint;
   address: Address;
   creator: Address;
@@ -30,38 +32,9 @@ type CollectionRow = {
 };
 
 export function LaunchpadSection() {
-  const deployed = isDeployed(TEGRIDY_LAUNCHPAD_ADDRESS);
   const v2Live = isDeployed(TEGRIDY_LAUNCHPAD_V2_ADDRESS);
   const [showCreate, setShowCreate] = useState(false);
-  const [selectedCollection, setSelectedCollection] = useState<{
-    address: string;
-    version: 'v1' | 'v2';
-  } | null>(null);
-
-  // ─── V1 factory reads (always attempted) ───────────────────────
-  const { data: v1Count, refetch: refetchV1 } = useReadContract({
-    address: TEGRIDY_LAUNCHPAD_ADDRESS as Address,
-    abi: TEGRIDY_LAUNCHPAD_ABI,
-    functionName: 'getCollectionCount',
-    query: { enabled: deployed },
-  });
-
-  const v1CountNum = v1Count !== undefined ? Number(v1Count) : 0;
-
-  const v1Contracts = useMemo(() => {
-    const limit = Math.min(v1CountNum, 20);
-    return Array.from({ length: limit }, (_, i) => ({
-      address: TEGRIDY_LAUNCHPAD_ADDRESS as Address,
-      abi: TEGRIDY_LAUNCHPAD_ABI,
-      functionName: 'getCollection' as const,
-      args: [BigInt(i)],
-    }));
-  }, [v1CountNum]);
-
-  const { data: v1Results } = useReadContracts({
-    contracts: v1Contracts,
-    query: { enabled: v1CountNum > 0 },
-  });
+  const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
 
   // ─── V2 factory reads (gated on non-zero address) ─────────────
   // The query.enabled guard stops wagmi from hitting a zero-address while
@@ -91,8 +64,6 @@ export function LaunchpadSection() {
     query: { enabled: v2Live && v2CountNum > 0 },
   });
 
-  // Merge V1 + V2 rows. V2 shown first so the newer flow leads visually;
-  // otherwise maintain factory-order within each version.
   const rows: CollectionRow[] = useMemo(() => {
     const out: CollectionRow[] = [];
     if (v2Results) {
@@ -107,7 +78,6 @@ export function LaunchpadSection() {
           symbol: string;
         };
         out.push({
-          version: 'v2',
           id: struct.id,
           address: struct.collection,
           creator: struct.creator,
@@ -116,49 +86,35 @@ export function LaunchpadSection() {
         });
       });
     }
-    if (v1Results) {
-      v1Results.forEach((r) => {
-        if (!r?.result) return;
-        // V1 returns a flat tuple: (id, collection, creator, name, symbol)
-        const [id, collection, creator, name, symbol] =
-          r.result as [bigint, Address, Address, string, string];
-        out.push({ version: 'v1', id, address: collection, creator, name, symbol });
-      });
-    }
     return out;
-  }, [v1Results, v2Results]);
+  }, [v2Results]);
 
   const totalCount = rows.length;
 
   const refetch = () => {
-    void refetchV1();
     if (v2Live) void refetchV2();
   };
 
-  if (!deployed) {
+  if (!v2Live) {
     return (
       <div className="rounded-2xl p-8 text-center" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-        <p className="text-white/70 text-sm">Launchpad contract not deployed yet.</p>
+        <p className="text-white/70 text-sm">Launchpad V2 factory not deployed yet.</p>
+        <p className="text-white/40 text-[11px] mt-2">
+          Historical V1 collections remain live — browse the{' '}
+          <a href={V1_FACTORY_ETHERSCAN} target="_blank" rel="noopener noreferrer"
+            className="text-purple-300 hover:text-purple-200 underline">V1 factory on Etherscan</a>.
+        </p>
       </div>
     );
   }
 
-  // If viewing a specific collection detail — route by version tag
+  // If viewing a specific collection detail — V2 only
   if (selectedCollection) {
-    if (selectedCollection.version === 'v2') {
-      return (
-        <CollectionDetailV2
-          dropAddress={selectedCollection.address}
-          onClose={() => setSelectedCollection(null)}
-          deployed={v2Live}
-        />
-      );
-    }
     return (
-      <CollectionDetail
-        dropAddress={selectedCollection.address}
+      <CollectionDetailV2
+        dropAddress={selectedCollection}
         onClose={() => setSelectedCollection(null)}
-        deployed={deployed}
+        deployed={v2Live}
       />
     );
   }
@@ -184,42 +140,14 @@ export function LaunchpadSection() {
         </div>
       </div>
 
-      {/* AUDIT LAUNCHPAD-SEC: V2 factory placeholder banner. Surfaces the fact
-          that deployment goes through the v1 factory until the v2 address is
-          populated, so users aren't surprised when the wizard's final step
-          refuses to broadcast. The banner only renders when v2 is not live. */}
-      {!v2Live && (
-        <div
-          role="status"
-          className="rounded-2xl p-4 md:p-5"
-          style={{ border: '1px solid rgba(245, 158, 11, 0.35)', background: 'rgba(245, 158, 11, 0.08)' }}
-        >
-          <p className="text-amber-300 text-[13px] font-semibold mb-1" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
-            Launchpad V2 factory pending deploy
-          </p>
-          <p className="text-white/75 text-[12px] leading-relaxed" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
-            The V2 factory (single-tx createCollection + ERC-7572 contractURI) is
-            not yet broadcast on mainnet. Browsing, minting, and managing
-            existing V1 collections works normally; the deploy wizard's final
-            step will show a pending banner until V2 goes live. Tracked in
-            {' '}<code className="px-1 py-0.5 rounded bg-black/40 text-white/90 font-mono text-[11px]">docs/WAVE_0_RUNBOOK.md</code>.
-          </p>
-        </div>
-      )}
-
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
           <ArtImg pageId="launchpad-section" idx={1} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
           <div className="relative z-10 m-2 rounded-lg p-3 md:p-4" style={PANEL_STYLE}>
-            <p className="text-[11px] uppercase tracking-wider mb-1" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Collections Deployed</p>
+            <p className="text-[11px] uppercase tracking-wider mb-1" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Collections Deployed (V2)</p>
             <p className="text-lg font-semibold" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
               {totalCount}
-              {v2Live && v2CountNum > 0 && (
-                <span className="text-[11px] text-white/60 ml-2">
-                  ({v2CountNum} v2 {'\u00B7'} {v1CountNum} v1)
-                </span>
-              )}
             </p>
           </div>
         </div>
@@ -227,9 +155,9 @@ export function LaunchpadSection() {
           <ArtImg pageId="launchpad-section" idx={2} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
           <div className="relative z-10 m-2 rounded-lg p-3 md:p-4" style={PANEL_STYLE}>
             <p className="text-[11px] uppercase tracking-wider mb-1" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Contract</p>
-            <a href={`https://etherscan.io/address/${v2Live ? TEGRIDY_LAUNCHPAD_V2_ADDRESS : TEGRIDY_LAUNCHPAD_ADDRESS}`} target="_blank" rel="noopener noreferrer"
+            <a href={`https://etherscan.io/address/${TEGRIDY_LAUNCHPAD_V2_ADDRESS}`} target="_blank" rel="noopener noreferrer"
               className="text-sm font-mono text-purple-200 hover:text-purple-100 transition-colors" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>
-              {shortenAddress(v2Live ? TEGRIDY_LAUNCHPAD_V2_ADDRESS : TEGRIDY_LAUNCHPAD_ADDRESS)}
+              {shortenAddress(TEGRIDY_LAUNCHPAD_V2_ADDRESS)}
             </a>
           </div>
         </div>
@@ -247,22 +175,12 @@ export function LaunchpadSection() {
         {showCreate ? 'Cancel' : 'Deploy New Collection'}
       </button>
 
-      {/* Create flow — always the V2 wizard (image upload + Arweave + CSV + preview).
-          Step 5 shows an amber "factory pending" banner until `TEGRIDY_LAUNCHPAD_V2_ADDRESS`
-          is populated post-deploy, but every step before deploy (Connect → Upload →
-          Preview → Fund+Upload) works end-to-end. The legacy name/symbol-only form
-          is kept on disk for reference via `?legacy=1` but no longer the default. */}
-      {showCreate && (() => {
-        const legacyOverride =
-          typeof window !== 'undefined' &&
-          new URLSearchParams(window.location.search).get('legacy') === '1';
-        return legacyOverride
-          ? <CreateCollectionForm
-              onCreated={() => { setShowCreate(false); refetch(); }}
-              deployed={deployed}
-            />
-          : <CreateWizard onCreated={() => { setShowCreate(false); refetch(); }} />;
-      })()}
+      {/* Create flow — the V2 wizard (image upload + Arweave + CSV + preview).
+          Step 5 deploys via the V2 factory. The V1 factory wrapper was removed
+          2026-04-19 as part of the V1 deletion pass. */}
+      {showCreate && (
+        <CreateWizard onCreated={() => { setShowCreate(false); refetch(); }} />
+      )}
 
       {/* Collection List */}
       <div className="rounded-2xl overflow-hidden" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
@@ -275,8 +193,8 @@ export function LaunchpadSection() {
           <div className="divide-y divide-white/[0.04]">
             {rows.map((row, i) => (
               <m.button
-                key={`${row.version}-${row.address}`}
-                onClick={() => setSelectedCollection({ address: row.address, version: row.version })}
+                key={row.address}
+                onClick={() => setSelectedCollection(row.address)}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: i * 0.05 }}
@@ -287,10 +205,7 @@ export function LaunchpadSection() {
                     {row.symbol.slice(0, 3)}
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
-                      <p className="text-[13px] font-semibold text-white">{row.name}</p>
-                      <VersionChip version={row.version} />
-                    </div>
+                    <p className="text-[13px] font-semibold text-white">{row.name}</p>
                     <p className="text-[11px] text-white/70">{row.symbol} {'\u00B7'} by {shortenAddress(row.creator)}</p>
                   </div>
                 </div>
@@ -303,34 +218,5 @@ export function LaunchpadSection() {
         )}
       </div>
     </div>
-  );
-}
-
-function VersionChip({ version }: { version: 'v1' | 'v2' }) {
-  if (version === 'v2') {
-    return (
-      <span
-        className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider"
-        style={{
-          background: 'rgba(16, 185, 129, 0.15)',
-          border: '1px solid rgba(16, 185, 129, 0.45)',
-          color: '#6ee7b7',
-        }}
-      >
-        V2
-      </span>
-    );
-  }
-  return (
-    <span
-      className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider"
-      style={{
-        background: 'rgba(168, 85, 247, 0.15)',
-        border: '1px solid rgba(168, 85, 247, 0.45)',
-        color: '#d8b4fe',
-      }}
-    >
-      V1
-    </span>
   );
 }

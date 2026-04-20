@@ -7,7 +7,7 @@ TOWELI is the native utility and governance token of the Tegridy Farms ecosystem
 TOWELI can be acquired by swapping on the native AMM, earned through LP farming rewards, staking boosts, creator royalties, or referral rebates. Airdrops and grant distributions also seed initial supply to early participants.
 
 ## Is it audited?
-Yes. The core contracts (TegridyLPFarming, TegridyNFTLending, GaugeController, TegridyDrop) have been reviewed internally and findings are tracked in AUDIT_FINDINGS.md and SPARTAN_AUDIT.txt. External audits are scheduled pre-mainnet with a public report release.
+Yes. The core contracts (TegridyLPFarming, TegridyNFTLending, GaugeController, TegridyDropV2) have been reviewed internally and findings are tracked in AUDIT_FINDINGS.md and SPARTAN_AUDIT.txt. External audits are scheduled pre-mainnet with a public report release.
 
 ## How are fees distributed (70/20/10)?
 Protocol fees split as: 70% to stakers and LP providers as real yield, 20% to the treasury multisig for operations and grants, and 10% to a burn/buyback address that permanently reduces circulating supply.
@@ -31,7 +31,7 @@ Not yet. The web app is fully responsive and optimized for iPhone 14+ and iPad. 
 Yes. Base deployment is planned after Ethereum mainnet launch stabilizes. Canonical bridge support, native AMM liquidity, and cross-chain gauge voting are all in scope for the Base rollout phase.
 
 ## How do I become a creator?
-Creators apply via the in-app creator portal with a sample collection, social links, and a short pitch. Approved creators can mint drops via TegridyDrop, earn royalties, and qualify for grant matching from the treasury.
+Creators apply via the in-app creator portal with a sample collection, social links, and a short pitch. Approved creators can mint drops via the V2 launchpad (TegridyDropV2), earn royalties, and qualify for grant matching from the treasury.
 
 ## How do I refer?
 Generate a referral link from your profile page. Referees who stake, farm, or mint earn you a share of protocol fees from their activity for a fixed term. Referral rebates are claimable weekly from the dashboard.

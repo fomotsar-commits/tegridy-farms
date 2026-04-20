@@ -115,13 +115,15 @@ it was deferred and what a follow-up looks like.
   balance-delta accounting in the SwapFeeRouter fee-take path. Clean
   follow-up batch.
 
-### Delete V1 duplicate contracts (`TegridyLaunchpad`, `TegridyDrop`)
-- **Status:** 39 reference sites across the repo
-  (frontend/generated.ts, wagmi.config.ts, scripts, docs).
-- **Scope:** delete V1 `.sol`, remove from V3Features deploy script,
-  update all frontend + docs references.
-- **Why deferred:** high-touch change; belongs in its own PR with a
-  clean `git mv` + find-replace sweep.
+### ~~Delete V1 duplicate contracts (`TegridyLaunchpad`, `TegridyDrop`)~~ — **DONE 2026-04-19**
+Completed on branch `bulletproof/v1-deletion`. V1 `.sol` sources deleted
+(`TegridyLaunchpad.sol`, `TegridyDrop.sol`, `TegridyLaunchpad.t.sol`),
+`DeployV3Features.s.sol` + `scripts/redeploy-patched-3.sh` removed,
+V1 ABI / address / factory wiring stripped from `frontend/src/lib/contracts.ts`,
+`constants.ts`, `wagmi.config.ts`, `abi-supplement.ts`, `ContractsPage.tsx`,
+`LaunchpadSection.tsx`, `useNFTDrop.ts`, `OwnerAdminPanel.tsx`. V1 mainnet
+clones remain live and readable through the V2 Drop ABI (strict superset at
+the read surface).
 
 ## Docs / operational hygiene
 

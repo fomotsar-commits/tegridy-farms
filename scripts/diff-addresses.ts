@@ -55,12 +55,6 @@ const TARGETS: Target[] = [
     contractName: 'TegridyNFTLending',
     constantName: 'TEGRIDY_NFT_LENDING_ADDRESS',
   },
-  {
-    label: 'TegridyLaunchpad (TegridyDrop template is redeployed with it)',
-    scriptFile: 'DeployV3Features.s.sol',
-    contractName: 'TegridyLaunchpad',
-    constantName: 'TEGRIDY_LAUNCHPAD_ADDRESS',
-  },
 ];
 
 interface BroadcastTx {

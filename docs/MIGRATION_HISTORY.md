@@ -72,7 +72,7 @@ For the current canonical set, see [`frontend/src/lib/constants.ts`](../frontend
 | Address | Contract | Status |
 |---|---|---|
 | `0xd471e5675EaDbD8C192A5dA2fF44372D5713367f` | TegridyLending | CANONICAL |
-| `0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2` | TegridyLaunchpad (v1) | CANONICAL |
+| `0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2` | TegridyLaunchpad (v1) | **DEPRECATED 2026-04-19** — source deleted; V1 clones remain live on-chain, readable via V2 Drop ABI (strict superset). Use `TegridyLaunchpadV2` going forward. |
 | `0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0` | TegridyNFTPoolFactory | CANONICAL |
 | `0x05409880aDFEa888F2c93568B8D88c7b4aAdB139` | TegridyNFTLending | CANONICAL (Wave 0 redeploy 2026-04-18 — C-02 grace period) |
 | `0x63baD13f89186E0769F636D4Cd736eB26E2968aD` | TegridyNFTLending (pre-C-02) | Deprecated |
@@ -80,7 +80,7 @@ For the current canonical set, see [`frontend/src/lib/constants.ts`](../frontend
 | `0x0f165D012fA46E267Bd846BdAFf9Fd4607fdD702` | TegridyTokenURIReader (pre-Wave 0) | Deprecated |
 | `0xddbe4cd58faf4b0b93e4e03a2493327ee3bb4995` | TegridyTWAP | CANONICAL (Wave 0 redeploy 2026-04-18) |
 | `0x1394A256e127814B52244Bbd0CCB94f0007dBe25` | TegridyTWAP (pre-Wave 0) | Deprecated |
-| `0xd36ada65d8f08de6f7030e0b50b8b2358c2ca0b3` | TegridyDrop template (cloned per collection) | CANONICAL |
+| `0xd36ada65d8f08de6f7030e0b50b8b2358c2ca0b3` | TegridyDrop template (cloned per collection) | **DEPRECATED 2026-04-19** — V1 source deleted. V2 drop template (`TegridyDropV2`) auto-deploys with the V2 factory constructor. |
 | `0x0728cbcde03d617b26d8c27199436bdfa22d547b` | TegridyNFTPool template (cloned per collection) | CANONICAL |
 
 ## Farming & fees (Wave 0)
@@ -93,10 +93,14 @@ For the current canonical set, see [`frontend/src/lib/constants.ts`](../frontend
 
 ## V2 Launchpad (compiled, not yet deployed)
 
+> **Update 2026-04-19:** V1 TegridyLaunchpad + TegridyDrop source was deleted.
+> V2 is now the only launchpad source tree; V1 clones on mainnet remain live
+> and readable via the V2 Drop ABI (strict superset at the read surface).
+
 | Contract | Status |
 |---|---|
-| TegridyLaunchpadV2 | 11 Foundry tests pass; placeholder `0x0…0` in `constants.ts` until broadcast. |
-| TegridyDropV2 | Per-clone template deployed alongside v1; V2 clones cleared for deploy once factory lands. |
+| TegridyLaunchpadV2 | Foundry tests pass; placeholder `0x0…0` in `constants.ts` until broadcast. |
+| TegridyDropV2 | Per-clone template auto-deployed by the V2 factory constructor. |
 
 ---
 
@@ -118,11 +122,11 @@ update the other.
 |---|---|---|---|
 | `TegridyFeeHook` | `0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044` | `DeployTegridyFeeHook.s.sol` (now consumes `cast create2` salt) | Constructor accepts `_owner` instead of `msg.sender`. Initial deploy stranded ownership on Arachnid CREATE2 proxy `0x4e59b44…`. |
 | `VoteIncentives` | `0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A` | `DeployVoteIncentives.s.sol` | Partner the Wave 0 commit-reveal GaugeController (H-2). Existing bytecode points at the deprecated pre-commit-reveal controller. |
-| `TegridyLending` | `0xd471e5675EaDbD8C192A5dA2fF44372D5713367f` | `DeployV3Features.s.sol` | Bundle redeploy — paired with the H-10 refund-flow patch on the TegridyDrop template. |
-| `TegridyLaunchpad (V1)` | `0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2` | `DeployV3Features.s.sol` | Same V3Features bundle — factory clones the patched TegridyDrop template. |
-| `TegridyNFTPoolFactory` | `0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0` | `DeployV3Features.s.sol` | Same V3Features bundle — factory clones the patched TegridyNFTPool template. |
-| `TegridyDrop` template | `0xd36ada65d8f08de6f7030e0b50b8b2358c2ca0b3` | (side-effect of V3Features) | H-10 refund-flow: adds `MintPhase.CANCELLED`, `cancelSale()`, `refund()`, `paidPerWallet`. |
-| `TegridyNFTPool` template | `0x0728cbcde03d617b26d8c27199436bdfa22d547b` | (side-effect of V3Features) | Factory re-wire; template source is stable. |
+| `TegridyLending` | `0xd471e5675EaDbD8C192A5dA2fF44372D5713367f` | Per-contract deploy script | Redeploy (formerly paired with V1 refund-flow bundle; V1 retired 2026-04-19). |
+| ~~`TegridyLaunchpad (V1)`~~ | ~~`0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2`~~ | ~~`DeployV3Features.s.sol`~~ | **RETIRED 2026-04-19.** V1 launchpad + drop template source deleted; `TegridyLaunchpadV2` and `TegridyDropV2` now carry the refund-flow surface. |
+| `TegridyNFTPoolFactory` | `0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0` | Per-contract deploy script | Factory redeploy queued (formerly in V3Features bundle). |
+| ~~`TegridyDrop` template~~ | ~~`0xd36ada65d8f08de6f7030e0b50b8b2358c2ca0b3`~~ | ~~(side-effect of V3Features)~~ | **RETIRED 2026-04-19** — replaced by `TegridyDropV2`, which already carries the H-10 refund-flow surface (`MintPhase.CANCELLED`, `cancelSale()`, `refund()`, `paidPerWallet`). |
+| `TegridyNFTPool` template | `0x0728cbcde03d617b26d8c27199436bdfa22d547b` | Per-contract deploy script | Factory re-wire; template source is stable. |
 
 **Blockers:** deployer `0xaA0caB9826f714A7be8FAC8fC98e87Fc27A54512` needs an
 ETH top-up (~0.013 ETH across both scripts) before the bundle + incentives

@@ -60,10 +60,8 @@ All addresses are EIP-55 checksummed. Etherscan links use `https://etherscan.io/
 | **TegridyNFTLending** — NFT-backed peer-to-pool loans against JBAC/Gold and approved collections (C-02 grace period). | [`0x05409880aDFEa888F2c93568B8D88c7b4aAdB139`](https://etherscan.io/address/0x05409880aDFEa888F2c93568B8D88c7b4aAdB139) | `contracts/src/TegridyNFTLending.sol` | Live (Wave 0 redeploy 2026-04-18) |
 | **TegridyNFTPoolFactory** — Deploys isolated NFT lending pools per collection. | [`0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0`](https://etherscan.io/address/0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0) | `contracts/src/TegridyNFTPoolFactory.sol` | Live |
 | **TegridyTokenURIReader** — Fallback tokenURI resolver for non-standard ERC721s. | [`0xfec9aea42ea966c9382eeb03f63a784579841eb2`](https://etherscan.io/address/0xfec9aea42ea966c9382eeb03f63a784579841eb2) | `contracts/src/TegridyTokenURIReader.sol` | Live (Wave 0 redeploy 2026-04-18) |
-| **TegridyDrop** — Per-drop ERC721 template deployed by the Launchpad. | _per-drop clones_ | `contracts/src/TegridyDrop.sol` | Live (template) |
-| **TegridyDropV2** — V2 drop template with `contractURI` (ERC-7572) + atomic InitParams. | _per-drop clones_ | `contracts/src/TegridyDropV2.sol` | Compiled + tested; factory deploy pending. |
-| **TegridyLaunchpad** — V1 NFT launch factory that clones TegridyDrop. | [`0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2`](https://etherscan.io/address/0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2) | `contracts/src/TegridyLaunchpad.sol` | Live |
-| **TegridyLaunchpadV2** — Click-deploy factory for V2 drops with single `CollectionConfig` struct. | _pending (placeholder `0x0…0` in constants)_ | `contracts/src/TegridyLaunchpadV2.sol` | Compiled + 11 tests pass; broadcast pending. |
+| **TegridyDropV2** — Per-drop ERC721 template with `contractURI` (ERC-7572) + atomic InitParams + H-10 refund-flow. Successor to V1 `TegridyDrop`. | _per-drop clones_ | `contracts/src/TegridyDropV2.sol` | Compiled + tested; factory deploy pending. |
+| **TegridyLaunchpadV2** — Click-deploy factory for V2 drops with single `CollectionConfig` struct. Successor to V1 `TegridyLaunchpad`. | _pending (placeholder `0x0…0` in constants)_ | `contracts/src/TegridyLaunchpadV2.sol` | Compiled + tests pass; broadcast pending. V1 source deleted 2026-04-19 — V1 clones remain live on-chain, readable via the V2 Drop ABI (strict superset). |
 
 ---
 

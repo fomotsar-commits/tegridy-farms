@@ -4,7 +4,6 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 import "../src/TegridyLaunchpadV2.sol";
 import "../src/TegridyDropV2.sol";
-import "../src/TegridyLaunchpad.sol";
 
 contract TegridyLaunchpadV2Test is Test {
     TegridyLaunchpadV2 public launchpad;
@@ -142,36 +141,9 @@ contract TegridyLaunchpadV2Test is Test {
         assertEq(drop.contractURI(), "ar://updated");
     }
 
-    /// @notice Test 7: v1 and v2 factories coexist at different addresses, each
-    ///         maintains independent state, clones are different templates.
-    function test_coexistence_v1_and_v2_factories() public {
-        TegridyLaunchpad v1 = new TegridyLaunchpad(admin, PROTOCOL_FEE_BPS, platform, weth);
-
-        vm.prank(creator);
-        (uint256 v1id, address v1drop) = v1.createCollection(
-            "V1Drop",
-            "V1",
-            MAX_SUPPLY,
-            MINT_PRICE,
-            MAX_PER_WALLET,
-            ROYALTY_BPS
-        );
-
-        vm.prank(creator);
-        (uint256 v2id, address v2drop) = launchpad.createCollection(_defaultConfig());
-
-        assertEq(v1id, 0);
-        assertEq(v2id, 0); // each factory starts at 0 independently
-        assertTrue(v1drop != v2drop);
-        assertTrue(v1.dropTemplate() != launchpad.dropTemplate());
-
-        // v1 clone has no contractURI function; staticcall returns 0 bytes or reverts.
-        (bool ok, ) = v1drop.staticcall(abi.encodeWithSignature("contractURI()"));
-        assertFalse(ok, "v1 should not expose contractURI");
-
-        // v2 clone has contractURI
-        assertEq(TegridyDropV2(v2drop).contractURI(), SAMPLE_CONTRACT_URI);
-    }
+    // NOTE: Test 7 (v1/v2 coexistence) was removed when V1 TegridyLaunchpad source
+    // was deleted 2026-04-19. V1 clones on mainnet remain live and readable through
+    // the V2 Drop ABI (strict superset at the read surface).
 
     /// @notice Test 8: PUBLIC initial phase allows immediate mint in the same block.
     function test_initialPhase_public_allowsMint_immediately() public {

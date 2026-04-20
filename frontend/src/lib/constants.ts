@@ -31,7 +31,8 @@ export const VOTE_INCENTIVES_ADDRESS = '0x417F44aee21Cc709262e71A7fdF6028cc17eCf
 
 // V3 Features — Deployed 2026-04-14
 export const TEGRIDY_LENDING_ADDRESS = '0xd471e5675EaDbD8C192A5dA2fF44372D5713367f' as const;
-export const TEGRIDY_LAUNCHPAD_ADDRESS = '0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2' as const;
+// V1 TegridyLaunchpad (0x5d5976...FF3C2) deleted from source 2026-04-19; existing
+// V1 clones remain browseable on Etherscan. Use TEGRIDY_LAUNCHPAD_V2_ADDRESS.
 export const TEGRIDY_NFT_POOL_FACTORY_ADDRESS = '0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0' as const;
 // Wave 0 2026-04-18: redeployed pointing at current staking (0x6266...)
 export const TEGRIDY_TOKEN_URI_READER_ADDRESS = '0xfec9aea42ea966c9382eeb03f63a784579841eb2' as const;

@@ -21,7 +21,6 @@ import {
   PREMIUM_ACCESS_ADDRESS,
   VOTE_INCENTIVES_ADDRESS,
   TEGRIDY_LENDING_ADDRESS,
-  TEGRIDY_LAUNCHPAD_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_TOKEN_URI_READER_ADDRESS,
@@ -140,14 +139,7 @@ const GROUPS: ContractGroup[] = [
         note: 'Part of the V3Features bundle redeploy (DeployV3Features.s.sol) queued for Wave 0.',
       },
       {
-        label: 'Tegridy Launchpad (V1)',
-        address: TEGRIDY_LAUNCHPAD_ADDRESS,
-        source: 'contracts/src/TegridyLaunchpad.sol',
-        status: 'redeploy',
-        note: 'V3Features bundle includes the H-10 refund-flow patch on TegridyDrop template.',
-      },
-      {
-        label: 'Tegridy Launchpad (V2)',
+        label: 'Tegridy Launchpad',
         address: TEGRIDY_LAUNCHPAD_V2_ADDRESS,
         source: 'contracts/src/TegridyLaunchpadV2.sol',
         status: isDeployed(TEGRIDY_LAUNCHPAD_V2_ADDRESS) ? undefined : 'pending',

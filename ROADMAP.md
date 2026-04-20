@@ -17,8 +17,8 @@ Ship the last of the architectural fixes so the core stack (farming, lending, dr
    - Scope: Add a fixed grace window between loan expiry and liquidation so borrowers have a chance to repay before collateral is seized.
    - Metric: Zero liquidations executed inside the grace window and <5% of loans liquidated overall across the first full month.
 
-3. **TegridyDrop cancelSale / refund**
-   - Scope: Ship `cancelSale()` and buyer-side refund paths so a failed or paused drop returns ETH cleanly.
+3. **TegridyDropV2 cancelSale / refund**
+   - Scope: Ship `cancelSale()` and buyer-side refund paths so a failed or paused drop returns ETH cleanly. (Lives on `TegridyDropV2` — V1 `TegridyDrop` source was deleted 2026-04-19.)
    - Metric: All refunds settle in a single tx with 100% of deposited ETH accounted for in automated invariant tests.
 
 4. **Commit-reveal gauge UI**
@@ -50,7 +50,7 @@ Turn the protocol on as a revenue-generating machine. Fee plumbing, pair-level t
 Push the product out. Marketing, automation, and a credible L2 story.
 
 8. **Launchpad bundle marketing**
-   - Scope: Coordinated campaign packaging TegridyDrop + LP farming + lending as a one-stop launchpad for new tokens, with case studies and paid creator content.
+   - Scope: Coordinated campaign packaging TegridyDropV2 + LP farming + lending as a one-stop launchpad for new tokens, with case studies and paid creator content.
    - Metric: At least 5 external projects launch via the bundle in Q4, with a combined drop TVL of $1M+.
 
 9. **Keeper for DCA / LimitOrders**

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useAccount, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { toast } from 'sonner';
-import { TEGRIDY_DROP_ABI } from '../lib/contracts';
+import { TEGRIDY_DROP_V2_ABI } from '../lib/contracts';
 import { formatWei } from '../lib/formatting';
 
 export function useNFTDrop(dropAddress: string) {
@@ -15,13 +15,13 @@ export function useNFTDrop(dropAddress: string) {
 
   const { data, refetch } = useReadContracts({
     contracts: [
-      { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'mintPhase' },
-      { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'currentPrice' },
-      { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'totalMinted' },
-      { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'maxSupply' },
-      { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'owner' },
-      { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'maxPerWallet' },
-      { address: contractAddr, abi: TEGRIDY_DROP_ABI, functionName: 'paidPerWallet', args: address ? [address] : undefined },
+      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'mintPhase' },
+      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'currentPrice' },
+      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'totalSupply' },
+      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'maxSupply' },
+      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'owner' },
+      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'maxPerWallet' },
+      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'paidPerWallet', args: address ? [address] : undefined },
     ],
     query: { enabled, refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
@@ -64,7 +64,7 @@ export function useNFTDrop(dropAddress: string) {
     const totalCost = mintPrice * BigInt(quantity);
     writeContract({
       address: contractAddr,
-      abi: TEGRIDY_DROP_ABI,
+      abi: TEGRIDY_DROP_V2_ABI,
       functionName: 'mint',
       args: [BigInt(quantity), proof],
       value: totalCost,
@@ -82,7 +82,7 @@ export function useNFTDrop(dropAddress: string) {
     }
     writeContract({
       address: contractAddr,
-      abi: TEGRIDY_DROP_ABI,
+      abi: TEGRIDY_DROP_V2_ABI,
       functionName: 'refund',
     });
   }
