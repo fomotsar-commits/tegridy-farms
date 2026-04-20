@@ -850,6 +850,47 @@ export const swapFeeRouterAbi = [
   },
   {
     type: 'function',
+    inputs: [
+      { name: 'amountOutMin', type: 'uint256' },
+      { name: 'path', type: 'address[]' },
+      { name: 'to', type: 'address' },
+      { name: 'deadline', type: 'uint256' },
+      { name: 'maxFeeBps', type: 'uint256' },
+    ],
+    name: 'swapExactETHForTokensSupportingFeeOnTransferTokens',
+    outputs: [],
+    stateMutability: 'payable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'amountIn', type: 'uint256' },
+      { name: 'amountOutMin', type: 'uint256' },
+      { name: 'path', type: 'address[]' },
+      { name: 'to', type: 'address' },
+      { name: 'deadline', type: 'uint256' },
+      { name: 'maxFeeBps', type: 'uint256' },
+    ],
+    name: 'swapExactTokensForETHSupportingFeeOnTransferTokens',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'amountIn', type: 'uint256' },
+      { name: 'amountOutMin', type: 'uint256' },
+      { name: 'path', type: 'address[]' },
+      { name: 'to', type: 'address' },
+      { name: 'deadline', type: 'uint256' },
+      { name: 'maxFeeBps', type: 'uint256' },
+    ],
+    name: 'swapExactTokensForTokensSupportingFeeOnTransferTokens',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
     inputs: [],
     name: 'feeBps',
     outputs: [{ name: '', type: 'uint256' }],
@@ -3988,6 +4029,36 @@ export const useWriteSwapFeeRouterSwapExactTokensForTokens =
   })
 
 /**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link swapFeeRouterAbi}__ and `functionName` set to `"swapExactETHForTokensSupportingFeeOnTransferTokens"`
+ */
+export const useWriteSwapFeeRouterSwapExactEthForTokensSupportingFeeOnTransferTokens =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: swapFeeRouterAbi,
+    address: swapFeeRouterAddress,
+    functionName: 'swapExactETHForTokensSupportingFeeOnTransferTokens',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link swapFeeRouterAbi}__ and `functionName` set to `"swapExactTokensForETHSupportingFeeOnTransferTokens"`
+ */
+export const useWriteSwapFeeRouterSwapExactTokensForEthSupportingFeeOnTransferTokens =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: swapFeeRouterAbi,
+    address: swapFeeRouterAddress,
+    functionName: 'swapExactTokensForETHSupportingFeeOnTransferTokens',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link swapFeeRouterAbi}__ and `functionName` set to `"swapExactTokensForTokensSupportingFeeOnTransferTokens"`
+ */
+export const useWriteSwapFeeRouterSwapExactTokensForTokensSupportingFeeOnTransferTokens =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: swapFeeRouterAbi,
+    address: swapFeeRouterAddress,
+    functionName: 'swapExactTokensForTokensSupportingFeeOnTransferTokens',
+  })
+
+/**
  * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link swapFeeRouterAbi}__
  */
 export const useSimulateSwapFeeRouter = /*#__PURE__*/ createUseSimulateContract(
@@ -4022,6 +4093,36 @@ export const useSimulateSwapFeeRouterSwapExactTokensForTokens =
     abi: swapFeeRouterAbi,
     address: swapFeeRouterAddress,
     functionName: 'swapExactTokensForTokens',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link swapFeeRouterAbi}__ and `functionName` set to `"swapExactETHForTokensSupportingFeeOnTransferTokens"`
+ */
+export const useSimulateSwapFeeRouterSwapExactEthForTokensSupportingFeeOnTransferTokens =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: swapFeeRouterAbi,
+    address: swapFeeRouterAddress,
+    functionName: 'swapExactETHForTokensSupportingFeeOnTransferTokens',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link swapFeeRouterAbi}__ and `functionName` set to `"swapExactTokensForETHSupportingFeeOnTransferTokens"`
+ */
+export const useSimulateSwapFeeRouterSwapExactTokensForEthSupportingFeeOnTransferTokens =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: swapFeeRouterAbi,
+    address: swapFeeRouterAddress,
+    functionName: 'swapExactTokensForETHSupportingFeeOnTransferTokens',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link swapFeeRouterAbi}__ and `functionName` set to `"swapExactTokensForTokensSupportingFeeOnTransferTokens"`
+ */
+export const useSimulateSwapFeeRouterSwapExactTokensForTokensSupportingFeeOnTransferTokens =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: swapFeeRouterAbi,
+    address: swapFeeRouterAddress,
+    functionName: 'swapExactTokensForTokensSupportingFeeOnTransferTokens',
   })
 
 /**

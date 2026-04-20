@@ -42,6 +42,10 @@ export function useSwap() {
     setSlippageRaw(Math.min(Math.max(val, 0), 20));
   }, []);
   const [deadline, setDeadline] = useState(5);
+  // AUDIT M-6: opt-in toggle for Fee-on-Transfer swap variants. Off by default —
+  // auto-enabled on an InsufficientOutput retry (see the post-error effect below).
+  // Users can also toggle manually via the swap settings drawer for known FoT tokens.
+  const [supportsFeeOnTransfer, setSupportsFeeOnTransfer] = useState(false);
   const [customTokens, setCustomTokens] = useState<TokenInfo[]>(() => {
     try {
       const stored = localStorage.getItem('tegridy_custom_tokens');
@@ -115,6 +119,10 @@ export function useSwap() {
 
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash });
 
+  // AUDIT M-6: Track whether the last failed swap already attempted the FoT variants.
+  // Prevents infinite retry loops if both variants also fail. Reset on successful tx.
+  const [fotRetryAttempted, setFotRetryAttempted] = useState(false);
+
   // Refetch allowance and balances after successful tx + toast + auto-reset.
   // Split approve vs swap outcomes — an approve tx shouldn't claim "Swap confirmed"
   // or log a trackSwap event, and after approve we want to keep the amount so
@@ -143,16 +151,36 @@ export function useSwap() {
     });
     trackSwap(fromToken?.symbol ?? '', toToken?.symbol ?? '', inputAmount, quote.selectedRoute);
     lastActionRef.current = null;
+    // AUDIT M-6: reset FoT retry guard so future swaps can auto-detect again.
+    setFotRetryAttempted(false);
     const t = setTimeout(() => { reset(); setInputAmount(''); }, 4000);
     return () => clearTimeout(t);
   }, [isSuccess, hash, allowance.refetchAllowance, refetchFromBalance, fromToken, toToken, reset, chainId, inputAmount, quote.selectedRoute]);
 
-  // Show user-friendly error toast when a write transaction fails
+  // Show user-friendly error toast when a write transaction fails.
+  // AUDIT M-6: auto-detect fee-on-transfer pairs — on an InsufficientOutput revert from
+  // the non-FoT path, silently flip `supportsFeeOnTransfer` and suggest a retry. A real
+  // FoT token will fail the legacy path every time; this gives users a one-click recovery.
   useEffect(() => {
-    if (writeError) {
-      toast.error(decodeRevertReason(writeError));
+    if (!writeError) return;
+    const msg = decodeRevertReason(writeError);
+    const raw = (writeError as { message?: string })?.message ?? String(writeError);
+    // Match on the custom error selector OR the legacy Uniswap string.
+    const looksLikeFoT =
+      !supportsFeeOnTransfer &&
+      !fotRetryAttempted &&
+      (raw.includes('InsufficientOutput') || raw.includes('INSUFFICIENT_OUTPUT_AMOUNT'));
+    if (looksLikeFoT) {
+      setFotRetryAttempted(true);
+      setSupportsFeeOnTransfer(true);
+      toast.info('Looks like a fee-on-transfer token', {
+        description: 'Enabled FoT mode — tap Swap again to retry with the matching router path.',
+        duration: 7000,
+      });
+      return;
     }
-  }, [writeError]);
+    toast.error(msg);
+  }, [writeError, supportsFeeOnTransfer, fotRetryAttempted]);
 
   // ---- Balances ----
   const fromBalance = useMemo(() => {
@@ -259,7 +287,33 @@ export function useSwap() {
       // Route through SwapFeeRouter (wraps Uniswap V2 with 0.3% fee to treasury)
       // maxFeeBps = 100 (1%) protects against fee frontrunning during timelock changes
       const maxFeeBps = 100n;
-      if (swapType === 'ethForTokens') {
+      // AUDIT M-6: when FoT support is enabled, call the FeeOnTransfer variants.
+      // These have identical args but no return value — they measure output via balance delta.
+      if (supportsFeeOnTransfer) {
+        if (swapType === 'ethForTokens') {
+          writeContract({
+            address: SWAP_FEE_ROUTER_ADDRESS,
+            abi: SWAP_FEE_ROUTER_ABI,
+            functionName: 'swapExactETHForTokensSupportingFeeOnTransferTokens',
+            args: [minReceivedRaw, path, address, deadlineTs, maxFeeBps],
+            value: parsedAmount,
+          });
+        } else if (swapType === 'tokensForEth') {
+          writeContract({
+            address: SWAP_FEE_ROUTER_ADDRESS,
+            abi: SWAP_FEE_ROUTER_ABI,
+            functionName: 'swapExactTokensForETHSupportingFeeOnTransferTokens',
+            args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
+          });
+        } else {
+          writeContract({
+            address: SWAP_FEE_ROUTER_ADDRESS,
+            abi: SWAP_FEE_ROUTER_ABI,
+            functionName: 'swapExactTokensForTokensSupportingFeeOnTransferTokens',
+            args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
+          });
+        }
+      } else if (swapType === 'ethForTokens') {
         writeContract({
           address: SWAP_FEE_ROUTER_ADDRESS,
           abi: SWAP_FEE_ROUTER_ABI,
@@ -283,7 +337,7 @@ export function useSwap() {
         });
       }
     }
-  }, [address, chainId, fromToken, toToken, parsedAmount, insufficientBalance, swapType, deadline, quote, slippage, writeContract]);
+  }, [address, chainId, fromToken, toToken, parsedAmount, insufficientBalance, swapType, deadline, quote, slippage, writeContract, supportsFeeOnTransfer]);
 
   const flipDirection = useCallback(() => {
     const prev = fromToken;
@@ -356,5 +410,8 @@ export function useSwap() {
     bestAggregatorName: quote.bestAggregatorName,
     allAggQuotes: quote.allAggQuotes,
     txHash: hash,
+    // AUDIT M-6: Fee-on-Transfer opt-in toggle for the swap settings drawer.
+    supportsFeeOnTransfer,
+    setSupportsFeeOnTransfer,
   };
 }
