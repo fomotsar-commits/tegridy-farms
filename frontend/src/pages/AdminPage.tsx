@@ -1,12 +1,12 @@
 import { useMemo, useEffect, useState } from 'react';
-import { useAccount, useChains, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useChainId, useChains, useReadContract, useReadContracts, useSwitchChain, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
 import { toast } from 'sonner';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { formatTokenAmount, formatNumber } from '../lib/formatting';
 import {
   TEGRIDY_STAKING_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, PREMIUM_ACCESS_ADDRESS,
-  LP_FARMING_ADDRESS,
+  LP_FARMING_ADDRESS, CHAIN_ID,
 } from '../lib/constants';
 import {
   TEGRIDY_STAKING_ABI, SWAP_FEE_ROUTER_ABI, PREMIUM_ACCESS_ABI, LP_FARMING_ABI,
@@ -88,10 +88,14 @@ function PauseControls({ isPaused }: { isPaused: boolean }) {
 
   const handleConfirm = () => {
     if (typed.trim().toUpperCase() !== expected) return;
+    // AUDIT ADMIN-SEC: pin chainId on every write so a mid-session chain
+    // switch cannot silently send the tx to the wrong network. wagmi will
+    // prompt the user to switch if the wallet is on a different chain.
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: PAUSE_ABI,
       functionName: isPaused ? 'unpause' : 'pause',
+      chainId: CHAIN_ID,
     });
   };
 
@@ -175,12 +179,25 @@ function PauseControls({ isPaused }: { isPaused: boolean }) {
 export default function AdminPage() {
   usePageTitle('Admin');
   const { address, isConnected } = useAccount();
+  const walletChainId = useChainId();
+  const { switchChain, isPending: isSwitching } = useSwitchChain();
+  const onCorrectChain = walletChainId === CHAIN_ID;
 
-  // Check ownership via TegridyStaking.owner()
-  const { data: owner, isLoading: ownerLoading } = useReadContract({
+  // AUDIT ADMIN-SEC: read owner() from the canonical chain and refetch on an
+  // interval so mid-session ownership transfers are picked up. Previously a
+  // user who had been OWNER when the page mounted would keep seeing admin
+  // controls even after a transferOwnership + acceptOwnership to a new
+  // wallet — writes would revert in-wallet, but the UI stayed authorized.
+  const { data: owner, isLoading: ownerLoading, refetch: refetchOwner } = useReadContract({
     address: TEGRIDY_STAKING_ADDRESS,
     abi: OWNER_ABI,
     functionName: 'owner',
+    chainId: CHAIN_ID,
+    query: {
+      enabled: isConnected && onCorrectChain,
+      refetchInterval: 30_000,
+      refetchOnWindowFocus: true,
+    },
   });
 
   const isOwner = useMemo(() => {
@@ -188,11 +205,13 @@ export default function AdminPage() {
     return address.toLowerCase() === owner.toLowerCase();
   }, [address, owner]);
 
-  // Chain-aware block explorer URL
+  // Chain-aware block explorer URL — pinned to the canonical chain, not the
+  // wallet's current chain (which could be anything post-switch).
   const chains = useChains();
-  const explorerBaseUrl = chains[0]?.blockExplorers?.default?.url ?? 'https://etherscan.io';
+  const canonicalChain = chains.find((c) => c.id === CHAIN_ID);
+  const explorerBaseUrl = canonicalChain?.blockExplorers?.default?.url ?? 'https://etherscan.io';
 
-  // Read contract data (only when owner)
+  // Read contract data (only when owner AND on the correct chain)
   const { data: contractReads, error: contractReadsError } = useReadContracts({
     contracts: [
       // SwapFeeRouter
@@ -213,7 +232,7 @@ export default function AdminPage() {
       { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'rewardRate' },
       { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'totalSupply' },
     ],
-    query: { enabled: isOwner },
+    query: { enabled: isOwner && onCorrectChain },
   });
 
   const safe = (index: number) => contractReads?.[index]?.result;
@@ -293,6 +312,37 @@ export default function AdminPage() {
     );
   }
 
+  // AUDIT ADMIN-SEC: fail-closed on chain mismatch. Previously owner() was
+  // read from *whichever* chain the wallet was on; a wallet on Sepolia with
+  // a deployer-test contract at the same address would have passed the
+  // owner check and enabled real writes that then went to mainnet.
+  if (!onCorrectChain) {
+    const expectedName = canonicalChain?.name ?? 'Ethereum Mainnet';
+    return (
+      <div className="-mt-14 relative min-h-screen">
+        <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
+          <ArtImg pageId="admin" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
+        </div>
+        <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
+          <div className="glass-card p-8 rounded-2xl text-center max-w-md">
+            <h1 className="heading-luxury text-2xl text-white mb-3">Wrong Network</h1>
+            <p className="text-white/85 text-sm mb-5">
+              Admin controls are only available on <span className="font-semibold">{expectedName}</span>.
+              Your wallet is on a different network.
+            </p>
+            <button
+              onClick={() => switchChain({ chainId: CHAIN_ID })}
+              disabled={isSwitching}
+              className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-white text-black hover:bg-white/90 transition-all disabled:opacity-60"
+            >
+              {isSwitching ? 'Switching…' : `Switch to ${expectedName}`}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Loading
   if (ownerLoading) {
     return (
@@ -343,6 +393,28 @@ export default function AdminPage() {
           <p className="text-white text-sm">
             Timelock overview for all Tegridy Farms contracts.
           </p>
+          {/* AUDIT ADMIN-SEC: surface current role + chain + wallet so the operator
+              always sees exactly which identity is authorized. Stale owner state
+              (e.g. after a mid-session transferOwnership) is detected by the
+              30s refetch; Refresh forces it immediately. */}
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-mono">
+            <span className="px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+              OWNER
+            </span>
+            <span className="px-2 py-1 rounded-md bg-white/5 text-white/80 border border-white/10">
+              {canonicalChain?.name ?? `chain ${CHAIN_ID}`}
+            </span>
+            <span className="px-2 py-1 rounded-md bg-white/5 text-white/80 border border-white/10">
+              {address ? shortenAddress(address) : '—'}
+            </span>
+            <button
+              onClick={() => refetchOwner()}
+              className="px-2 py-1 rounded-md bg-white/5 text-white/70 border border-white/10 hover:text-white hover:bg-white/10 transition-colors"
+              title="Re-read owner() to detect mid-session ownership transfers"
+            >
+              Refresh role
+            </button>
+          </div>
         </div>
 
         {contractReadsError && (
