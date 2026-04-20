@@ -1,5 +1,6 @@
 import { useId, useState } from 'react';
 import { pageArt, artStyle } from '../../lib/artConfig';
+import { useTheme } from '../../contexts/ThemeContext';
 
 /**
  * Lightweight hover tooltip with a "?" icon for explaining DeFi terms.
@@ -22,6 +23,16 @@ export function InfoTooltip({
 }) {
   const [show, setShow] = useState(false);
   const tipId = useId();
+  const { isDark } = useTheme();
+  // AUDIT THEME: background was hardcoded rgba(10,16,40,0.95) in both
+  // the bubble and the arrow; light-mode users got a near-black tooltip
+  // on a cream page. Branching on isDark keeps the brand contrast in
+  // dark mode and gives light mode a soft ink-on-paper feel.
+  const bubbleBg = isDark ? 'rgba(10, 16, 40, 0.95)' : 'rgba(26, 26, 26, 0.95)';
+  const textColor = isDark ? 'text-white' : 'text-white';
+  // Note: in both themes the tooltip body stays dark so the contrast
+  // against the light page is loud enough to read at a glance — a light
+  // tooltip on a light page disappears.
 
   return (
     <span
@@ -49,13 +60,13 @@ export function InfoTooltip({
         <span
           id={tipId}
           role="tooltip"
-          className={`absolute z-50 w-56 px-3 py-2.5 rounded-lg text-[11px] leading-relaxed text-white font-normal pointer-events-none ${
+          className={`absolute z-50 w-56 px-3 py-2.5 rounded-lg text-[11px] leading-relaxed ${textColor} font-normal pointer-events-none ${
             position === 'top'
               ? 'bottom-full mb-2 left-1/2 -translate-x-1/2'
               : 'top-full mt-2 left-1/2 -translate-x-1/2'
           }`}
           style={{
-            background: 'rgba(10, 16, 40, 0.95)',
+            background: bubbleBg,
             border: '1px solid var(--color-purple-25)',
             backdropFilter: 'blur(12px)',
             boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
@@ -67,7 +78,7 @@ export function InfoTooltip({
               position === 'top' ? '-bottom-1' : '-top-1'
             }`}
             style={{
-              background: 'rgba(10, 16, 40, 0.95)',
+              background: bubbleBg,
               borderRight: position === 'top' ? '1px solid var(--color-purple-25)' : 'none',
               borderBottom: position === 'top' ? '1px solid var(--color-purple-25)' : 'none',
               borderLeft: position === 'bottom' ? '1px solid var(--color-purple-25)' : 'none',

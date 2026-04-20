@@ -1,15 +1,22 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner } from './InfoTooltip';
+import { ThemeProvider } from '../../contexts/ThemeContext';
+
+// InfoTooltip now reads useTheme() so it can swap its bubble background
+// for light mode; the hook throws outside a provider. Tests wrap in
+// <ThemeProvider> to mirror the real app tree.
+const renderWithTheme = (ui: React.ReactElement) =>
+  render(<ThemeProvider>{ui}</ThemeProvider>);
 
 describe('InfoTooltip', () => {
   it('renders the ? icon', () => {
-    render(<InfoTooltip text="Test tooltip" />);
+    renderWithTheme(<InfoTooltip text="Test tooltip" />);
     expect(screen.getByText('?')).toBeInTheDocument();
   });
 
   it('shows tooltip text on hover', () => {
-    render(<InfoTooltip text="Helpful info" />);
+    renderWithTheme(<InfoTooltip text="Helpful info" />);
     fireEvent.mouseEnter(screen.getByText('?').parentElement!);
     expect(screen.getByText('Helpful info')).toBeInTheDocument();
   });
