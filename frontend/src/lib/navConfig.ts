@@ -40,7 +40,7 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/community',   label: 'Community' },
       { to: '/gallery',     label: 'Gallery' },
-      { to: '/leaderboard', label: 'Leaderboard' },
+      { to: '/leaderboard', label: 'Tegridy Score' },
     ],
   },
   {

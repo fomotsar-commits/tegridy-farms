@@ -12,7 +12,16 @@ import { PageSkeleton } from '../components/PageSkeleton';
 import { ArtImg } from '../components/ArtImg';
 
 export default function LeaderboardPage() {
-  usePageTitle('Leaderboard', 'Top TOWELI stakers ranked by points, boost multipliers, and protocol participation.');
+  // AUDIT LEADERBOARD-HONEST: prior title + meta said "Top stakers ranked
+  // by points" — the page has never had a multi-user ranking table, only
+  // the connected wallet's own stats. Retitling this page to "Your Tegridy
+  // Score" so search engines + social-preview hovers stop promising what
+  // the UI doesn't deliver. Multi-user ranking waits on the Ponder indexer
+  // being publicly queryable; until then the personal profile is honest.
+  usePageTitle(
+    'Your Tegridy Score',
+    'Your Tegridy Score — on-chain points, tier progress, streak multipliers, and badges.',
+  );
   const { isConnected } = useAccount();
   const points = usePoints();
   const nft = useNFTBoost();
@@ -34,10 +43,10 @@ export default function LeaderboardPage() {
         </div>
 
         <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Leaderboard</h1>
+          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Your Tegridy Score</h1>
           <div className="rounded-lg p-3 inline-block max-w-full" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <p className="text-[14px] font-medium" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{CURRENT_SEASON.name} — Earn points by using the protocol</p>
-            <p className="text-[11px] mt-1" style={{ color: '#22c55e', opacity: 0.85, textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Points are tracked locally for fun. Any future rewards will be based on on-chain activity only.</p>
+            <p className="text-[11px] mt-1" style={{ color: '#22c55e', opacity: 0.85, textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Points verified on-chain per wallet. A cross-wallet ranking goes live when the Ponder indexer is publicly queryable.</p>
           </div>
         </m.div>
 
