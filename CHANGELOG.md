@@ -10,6 +10,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Ongoing investor-polish and audit-closure work. Lands on `main` as it ships;
 a tagged release will cut from here once Wave 0 redeploys are complete.
 
+### 2026-04-19 — Batch 7d: ETH-denominated collateral floor on `TegridyLending`
+
+#### Added
+
+- **`LoanOffer.minPositionETHValue`** — optional ETH floor alongside the
+  existing TOWELI floor (addresses audit critique 5.4). `createLoanOffer`
+  takes a 5th arg; zero preserves the pre-batch behaviour. `acceptOffer`
+  reads `TegridyPair.getReserves()` and reverts `InsufficientCollateralValue`
+  when the borrower's position values below the threshold.
+- **`ITegridyPair` interface + `pair` / `toweli` immutables** on
+  `TegridyLending`. Constructor takes a 4th `_pair` arg; TOWELI orientation
+  is resolved at deploy time.
+- **`contracts/test/TegridyLending_ETHFloor.t.sol`** — zero-floor no-op,
+  floor-met, floor-breached-reverts, same-block sandwich documentation test,
+  and a token0/token1 orientation test.
+- **`DeployV3Features.s.sol`** — reads `TOWELI_WETH_PAIR` env override for
+  the new constructor arg.
+
+#### Notes
+
+- V3Features redeploy is still pending per `docs/WAVE_0_TODO.md`, so the
+  breaking ABI change is acceptable and `docs/SECURITY_DEFERRED.md` now
+  marks critique 5.4 as partially addressed (spot-reserve risk acknowledged,
+  TWAP upgrade still pending).
+
 ### 2026-04-19 — Wave 0 status surfaced on /contracts + tracking issue
 
 #### Added

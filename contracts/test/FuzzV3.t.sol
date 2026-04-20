@@ -20,6 +20,21 @@ contract MockWETHV3 {
     receive() external payable { balanceOf[msg.sender] += msg.value; }
 }
 
+/// @dev Minimal TegridyPair stub for the Lending fuzz suite. Fuzz paths never
+///      opt into the ETH-floor check (minPositionETHValue = 0), so stored reserves
+///      are never read — it's only here for constructor orientation resolution.
+contract MockPairV3 {
+    address public immutable token0;
+    address public immutable token1;
+    constructor(address _t0, address _t1) {
+        token0 = _t0;
+        token1 = _t1;
+    }
+    function getReserves() external view returns (uint112, uint112, uint32) {
+        return (1e24, 1e21, uint32(block.timestamp));
+    }
+}
+
 contract MockNFTV3 is ERC721 {
     uint256 private _nextId = 1;
     constructor() ERC721("MockApes", "MAPE") {}
@@ -371,6 +386,8 @@ contract TegridyNFTPoolFuzzTest is Test {
 contract TegridyLendingFuzzTest is Test {
     TegridyLending public lending;
     MockWETHV3 public weth;
+    MockPairV3 public pair;
+    MockToweliV3 public toweli;
     address public treasury = makeAddr("treasury");
 
     uint256 public constant BPS = 10_000;
@@ -378,7 +395,9 @@ contract TegridyLendingFuzzTest is Test {
 
     function setUp() public {
         weth = new MockWETHV3();
-        lending = new TegridyLending(treasury, 500, address(weth)); // 5% protocol fee
+        toweli = new MockToweliV3();
+        pair = new MockPairV3(address(toweli), address(weth));
+        lending = new TegridyLending(treasury, 500, address(weth), address(pair)); // 5% protocol fee
     }
 
     // ─── Fuzz: Interest calculation correctness ─────────────────────────
@@ -495,7 +514,7 @@ contract TegridyLendingFuzzTest is Test {
         vm.prank(bob);
         vm.expectRevert(TegridyLending.PrincipalTooLarge.selector);
         lending.createLoanOffer{value: overMaxPrincipal}(
-            1000, 30 days, makeAddr("staking"), 1 ether
+            1000, 30 days, makeAddr("staking"), 1 ether, 0
         );
 
         // Test APR > MAX_APR_BPS (50000)
@@ -503,14 +522,14 @@ contract TegridyLendingFuzzTest is Test {
         vm.prank(bob);
         vm.expectRevert(TegridyLending.AprTooHigh.selector);
         lending.createLoanOffer{value: 1 ether}(
-            overMaxApr, 30 days, makeAddr("staking"), 1 ether
+            overMaxApr, 30 days, makeAddr("staking"), 1 ether, 0
         );
 
         // Test duration < MIN_DURATION (1 day)
         vm.prank(bob);
         vm.expectRevert(TegridyLending.DurationTooShort.selector);
         lending.createLoanOffer{value: 1 ether}(
-            1000, 0, makeAddr("staking"), 1 ether
+            1000, 0, makeAddr("staking"), 1 ether, 0
         );
 
         // Test duration > MAX_DURATION (365 days)
@@ -518,7 +537,7 @@ contract TegridyLendingFuzzTest is Test {
         vm.prank(bob);
         vm.expectRevert(TegridyLending.DurationTooLong.selector);
         lending.createLoanOffer{value: 1 ether}(
-            1000, overMaxDuration, makeAddr("staking"), 1 ether
+            1000, overMaxDuration, makeAddr("staking"), 1 ether, 0
         );
     }
 }
