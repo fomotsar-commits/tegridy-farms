@@ -297,11 +297,18 @@ contract TegridyLending_ReentrancyTest is Test {
         vm.prank(address(attacker));
         attacker.acceptOffer(offer1, attackerTokenId);
 
-        // Attacker got the principal from offer1
-        assertEq(address(attacker).balance, 1 ether);
+        // AUDIT FIX M-7 (battle-tested): acceptOffer now routes through WETHFallbackLib
+        // (10k stipend + WETH fallback). The attacker's receive() OOGs attempting reentry,
+        // the direct ETH call fails, and WETH fallback delivers the principal as WETH.
+        // Attacker still gets paid — just in WETH form.
+        uint256 received = address(attacker).balance + weth.balanceOf(address(attacker));
+        assertEq(received, 1 ether, "attacker received principal (ETH or WETH via fallback)");
 
-        // Attack was attempted
-        assertEq(attacker.attackCount(), 1);
+        // attackCount stays at 0: the reentrant call OOGs, which reverts the callee's
+        // state changes (including `attackCount++`). The nonReentrant guard was never
+        // the bottleneck here — the 10k gas stipend alone prevents the attempt from
+        // persisting any state. Offer2 activity below is the load-bearing assertion.
+        assertEq(attacker.attackCount(), 0, "attempted reentry OOGed on 10k stipend");
 
         // Offer2 is still active (re-entry was blocked)
         (,,,,,, bool active) = lending.getOffer(offer2);

@@ -363,9 +363,10 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // Transfer NFT from borrower to this contract (collateral escrow)
         staking.transferFrom(msg.sender, address(this), _tokenId);
 
-        // Send principal ETH to borrower
-        (bool success,) = msg.sender.call{value: principal}("");
-        if (!success) revert ETHTransferFailed();
+        // AUDIT FIX M-7 (battle-tested): unlimited-gas .call replaced with WETHFallbackLib
+        // (10k stipend + WETH wrap). Matches TegridyNFTLending.acceptOffer pattern and closes
+        // the asymmetric reentrancy surface.
+        WETHFallbackLib.safeTransferETHOrWrap(weth, msg.sender, principal);
 
         emit LoanAccepted(
             loanId,
