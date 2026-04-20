@@ -25,6 +25,7 @@ import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 ///        uint64  stakeTimestamp
 interface ITegridyStakingBoost {
     function userTokenId(address user) external view returns (uint256);
+    // AUDIT H-1 (2026-04-20): Position struct extended with jbacTokenId + jbacDeposited.
     function positions(uint256 tokenId) external view returns (
         uint256 amount,
         uint256 boostedAmount,
@@ -34,7 +35,9 @@ interface ITegridyStakingBoost {
         uint32 lockDuration,
         bool autoMaxLock,
         bool hasJbacBoost,
-        uint64 stakeTimestamp
+        uint64 stakeTimestamp,
+        uint256 jbacTokenId,
+        bool jbacDeposited
     );
 }
 
@@ -186,7 +189,7 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
         if (tokenId != 0) {
             // Audit C-01: destructure matches TegridyStaking.Position struct order exactly.
             // We only need `amount`, `lockEnd`, and `boostBps` — ignore the rest.
-            (uint256 amt,, , uint64 lockEnd, uint16 bps,,,,) = tegridyStaking.positions(tokenId);
+            (uint256 amt,, , uint64 lockEnd, uint16 bps,,,,,,) = tegridyStaking.positions(tokenId);
             // Only apply boost if the staking position is active (has amount and lock not expired)
             if (amt > 0 && block.timestamp < lockEnd && bps > BASE_BOOST_BPS) {
                 // Defence-in-depth: clamp to the ceiling before applying.

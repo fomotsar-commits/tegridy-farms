@@ -350,74 +350,66 @@ contract TegridyRestakingTest is Test {
     }
 
     function test_revalidateBoost_retainsJbacForRestakedPosition() public {
-        // Link restaking contract to staking
+        // AUDIT H-1 (2026-04-20): JBAC boost now requires physical deposit via stakeWithBoost.
+        // After restaking, the JBAC is held by TegridyStaking, and the deposit-based boost
+        // cannot be revalidated (revalidateBoost reverts for jbacDeposited=true).
         _linkRestakingContract();
 
-        // Give alice a JBAC NFT
-        jbac.mint(alice);
-        assertGt(jbac.balanceOf(alice), 0);
+        uint256 jbacId = jbac.mint(alice);
 
-        // Alice stakes (JBAC boost not granted at stake time — must revalidate)
         vm.startPrank(alice);
         toweli.approve(address(staking), STAKE_AMOUNT);
-        staking.stake(STAKE_AMOUNT, 30 days);
+        jbac.approve(address(staking), jbacId);
+        staking.stakeWithBoost(STAKE_AMOUNT, 30 days, jbacId);
         uint256 tokenId = staking.userTokenId(alice);
 
-        // Revalidate to activate JBAC boost
-        staking.revalidateBoost(tokenId);
+        (,uint256 boostedBefore,,,,,,bool hasJbacBefore,,,) = staking.positions(tokenId);
+        assertTrue(hasJbacBefore, "should have JBAC boost from stakeWithBoost");
+        assertGt(boostedBefore, 0, "boostedAmount should be positive");
 
-        (,uint256 boostedBefore,,,,,,bool hasJbacBefore,) = staking.positions(tokenId);
-        assertTrue(hasJbacBefore, "should have JBAC boost after revalidation");
-
-        // Wait for transfer cooldown before restaking
         vm.warp(block.timestamp + 24 hours + 1);
 
-        // Restake the position (NFT transfers to restaking contract)
         staking.approve(address(restaking), tokenId);
         restaking.restake(tokenId);
         vm.stopPrank();
 
-        // Verify NFT is now owned by restaking contract
         assertEq(staking.ownerOf(tokenId), address(restaking));
-
-        // Revalidate boost — should retain JBAC since alice still holds JBAC NFT
+        // Deposit-based positions cannot be revalidated (H-1): expect revert.
+        vm.expectRevert(TegridyStaking.JbacDeposited.selector);
         restaking.revalidateBoostForRestaked(tokenId);
 
-        // Verify JBAC boost is still active
-        (,uint256 boostedAfter,,,,,,bool hasJbacAfter,) = staking.positions(tokenId);
-        assertTrue(hasJbacAfter, "should retain JBAC boost after restake + revalidation");
+        (,uint256 boostedAfter,,,,,,bool hasJbacAfter,,,) = staking.positions(tokenId);
+        assertTrue(hasJbacAfter, "H-1: deposit-based JBAC boost is guaranteed for the lock duration");
+        assertEq(boostedAfter, boostedBefore, "boosted amount unchanged");
     }
 
     function test_revalidateBoost_stripsJbacWhenUserSellsNFT() public {
+        // AUDIT H-1 (2026-04-20): With physical deposit, alice cannot transfer the JBAC
+        // (it's held by staking). This test validates the new invariant: once JBAC is
+        // deposited, it cannot be "sold" until the stake position is unwound.
         _linkRestakingContract();
 
-        // Give alice a JBAC NFT
         uint256 jbacId = jbac.mint(alice);
 
-        // Alice stakes and revalidates to get JBAC boost, then restakes
         vm.startPrank(alice);
         toweli.approve(address(staking), STAKE_AMOUNT);
-        staking.stake(STAKE_AMOUNT, 30 days);
+        jbac.approve(address(staking), jbacId);
+        staking.stakeWithBoost(STAKE_AMOUNT, 30 days, jbacId);
         uint256 tokenId = staking.userTokenId(alice);
-        staking.revalidateBoost(tokenId);
 
-        // Wait for transfer cooldown before restaking
         vm.warp(block.timestamp + 24 hours + 1);
-
         staking.approve(address(restaking), tokenId);
         restaking.restake(tokenId);
 
-        // Alice sells her JBAC NFT
+        // Attempt to transfer the JBAC — alice no longer owns it, so this reverts.
+        vm.expectRevert();
         jbac.transferFrom(alice, bob, jbacId);
         vm.stopPrank();
 
-        assertEq(jbac.balanceOf(alice), 0);
-
-        // Revalidate — should strip JBAC boost since alice no longer holds one
-        restaking.revalidateBoostForRestaked(tokenId);
-
-        (,,,,,,,bool hasJbacAfter,) = staking.positions(tokenId);
-        assertFalse(hasJbacAfter, "should lose JBAC boost after selling NFT");
+        // JBAC is safely held by staking contract.
+        assertEq(jbac.ownerOf(jbacId), address(staking), "JBAC escrowed in staking");
+        (,,,,,,,bool hasJbacAfter,,,) = staking.positions(tokenId);
+        assertTrue(hasJbacAfter, "H-1: JBAC boost remains - physically deposited");
     }
 
     // ===== H-01 (Balance-Delta): MEV sandwich cannot inflate base rewards =====

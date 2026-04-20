@@ -38,9 +38,9 @@ contract MockVE {
     }
 
     function positions(uint256) external view returns (
-        uint256, uint256, uint256, uint256, uint256, bool, int256, uint256, bool
+        uint256, uint256, uint256, uint256, uint256, bool, int256, uint256, bool, uint256, bool
     ) {
-        return (100e18, 100e18, 10000, block.timestamp + 365 days, 365 days, false, 0, block.timestamp, false);
+        return (100e18, 100e18, 10000, block.timestamp + 365 days, 365 days, false, 0, block.timestamp, false, 0, false);
     }
 
     function paused() external view returns (bool) { return isPaused; }
