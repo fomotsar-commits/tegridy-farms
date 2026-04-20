@@ -613,10 +613,15 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         uint256 polAmount = (amount * polShareBps) / BPS;
         uint256 treasuryAmount = amount - stakerAmount - polAmount;
 
-        // Staker path: direct .call{} preserves the existing behaviour / gas profile
-        // that RevenueDistributor expects (it's the receiver for the ETH deposit).
+        // AUDIT FIX M-4 (battle-tested): bound the gas forwarded to protocol-internal
+        // destinations at 50_000. Unlimited `.call{}` gas widened the cross-contract
+        // reentrancy surface for no benefit — both RevenueDistributor.receive() and
+        // POLAccumulator.receive() are minimal (event emission) and fit comfortably under
+        // 50k. Full WETHFallbackLib would switch to a 10k ETH stipend + WETH wrap, but a
+        // WETH wrap on RevenueDistributor would strand the slice (distribute() reads
+        // address(this).balance), so the middle-ground 50k stipend is the correct choice.
         if (stakerAmount > 0) {
-            (bool okStaker,) = revenueDistributor.call{value: stakerAmount}("");
+            (bool okStaker,) = revenueDistributor.call{value: stakerAmount, gas: 50_000}("");
             require(okStaker, "STAKER_TRANSFER_FAILED");
         }
 
@@ -626,7 +631,7 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         // forgetting to set the address.
         if (polAmount > 0) {
             if (polAccumulator != address(0)) {
-                (bool okPol,) = polAccumulator.call{value: polAmount}("");
+                (bool okPol,) = polAccumulator.call{value: polAmount, gas: 50_000}("");
                 require(okPol, "POL_TRANSFER_FAILED");
             } else {
                 treasuryAmount += polAmount;
