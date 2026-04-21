@@ -2,6 +2,51 @@ import { m } from 'framer-motion';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ArtImg } from '../components/ArtImg';
 
+// Protocol-specific risks that reflect the actual current state of Tegridy Farms
+// (as of the last RisksPage refresh). Distinct from the generic DeFi risks
+// below. Each item names the specific exposure and the honest mitigation status.
+const PROTOCOL_RISKS: Array<{
+  title: string;
+  status: 'Active' | 'In progress' | 'Mitigated';
+  body: string;
+}> = [
+  {
+    title: 'Single-operator admin key (no multisig yet)',
+    status: 'Active',
+    body: 'Administrative functions are held by one EOA today. A 24–48 hour timelock delays every parameter change, but one key loss or compromise still puts those parameters at risk after the delay elapses. A multisig migration is the next operational milestone; until it lands, size deposits as if the single-key assumption holds.',
+  },
+  {
+    title: 'Patched contracts not yet redeployed on-chain',
+    status: 'In progress',
+    body: 'Several contracts have fixes merged in the repository but are still running the older bytecode on mainnet: VoteIncentives, TegridyLending, TegridyNFTPool (template + factory), TegridyFeeHook (with the patched constructor), and TegridyLaunchpadV2. Until the redeploys broadcast, the on-chain surfaces carry the pre-fix behaviour — see FIX_STATUS.md for the exact list and blast radius.',
+  },
+  {
+    title: 'No paid human audit by a recognised firm',
+    status: 'Active',
+    body: 'The protocol has one external review (Spartan, April 2026) and one pre-release external doc (March 2026). Everything else is internal AI-agent sweeps. We do not claim those substitute for a paid audit by OpenZeppelin / Trail of Bits / Spearbit / Cyfrin / Code4rena. Engaging one is on the roadmap and not yet scheduled.',
+  },
+  {
+    title: 'Thin market / low on-chain liquidity',
+    status: 'Active',
+    body: 'TOWELI is a low-cap token with modest trading volume and a shallow native pair. Anyone entering or exiting a large staking or LP position will experience measurable slippage, and rewards accrue off a revenue base that tracks DEX volume. Treat the APR numbers as estimates on a volume base that does not yet exist at scale.',
+  },
+  {
+    title: 'Satirical brand exposure',
+    status: 'Active',
+    body: 'The "Tegridy Farms" / "Towelie" brand is a parody reference to a third-party IP (South Park). The NOTICE.md file invokes fair-use and parody defences, but the protocol has not sought or received any clearance. A takedown request or rebrand instruction from the IP holder at any point would affect domain, branding, and front-end surfaces.',
+  },
+  {
+    title: 'Single maintainer',
+    status: 'Active',
+    body: 'The protocol is maintained by one developer. Response to incidents, emergency pauses, and bug-bounty triage is bounded by that person being online. SECURITY.md documents the disclosure channel; realistic expectations on turnaround should reflect the maintainer count.',
+  },
+  {
+    title: 'NFT collateral concentration',
+    status: 'Active',
+    body: 'The staking boost multiplier and NFT lending surface tie into specific collections (JBAC, JBAY Gold, GNSS). If any of those collections become illiquid or lose marketplace support, the boost ceiling and NFT-loan market depth degrade silently — positions still function, but the economic assumptions behind them thin out.',
+  },
+];
+
 const RISKS = [
   {
     title: '1. Smart Contract Risk',
@@ -103,6 +148,112 @@ export default function RisksPage() {
           </div>
         </m.div>
 
+        <m.section
+          aria-labelledby="protocol-risks-heading"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.1 }}
+          className="mb-10"
+        >
+          <div className="mb-4">
+            <h2
+              id="protocol-risks-heading"
+              className="text-2xl font-semibold text-white mb-1"
+            >
+              What can actually go wrong — as of today
+            </h2>
+            <p className="text-white/60 text-sm">
+              Protocol-specific risks that reflect the current state of Tegridy Farms. Not legalese — read them.
+            </p>
+          </div>
+
+          <ul className="space-y-4 list-none p-0 m-0">
+            {PROTOCOL_RISKS.map((risk, i) => (
+              <m.li
+                key={risk.title}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, delay: 0.12 + i * 0.04 }}
+                className="rounded-2xl p-6 md:p-7 backdrop-blur-md"
+                style={{
+                  background: 'rgba(48, 12, 16, 0.82)',
+                  border: '1px solid rgba(248, 113, 113, 0.32)',
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <span className="text-red-400 text-lg mt-0.5 shrink-0" aria-hidden="true">&#9888;</span>
+                  <div className="flex-1">
+                    <div className="flex items-center flex-wrap gap-2 mb-3">
+                      <h3 className="text-lg font-semibold text-white">
+                        {risk.title}
+                      </h3>
+                      <span
+                        className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full"
+                        style={{
+                          background:
+                            risk.status === 'Mitigated'
+                              ? 'rgba(34, 197, 94, 0.18)'
+                              : risk.status === 'In progress'
+                                ? 'rgba(234, 179, 8, 0.2)'
+                                : 'rgba(248, 113, 113, 0.22)',
+                          color:
+                            risk.status === 'Mitigated'
+                              ? '#4ade80'
+                              : risk.status === 'In progress'
+                                ? '#fde047'
+                                : '#fca5a5',
+                          border:
+                            risk.status === 'Mitigated'
+                              ? '1px solid rgba(74, 222, 128, 0.4)'
+                              : risk.status === 'In progress'
+                                ? '1px solid rgba(253, 224, 71, 0.4)'
+                                : '1px solid rgba(252, 165, 165, 0.4)',
+                        }}
+                      >
+                        {risk.status}
+                      </span>
+                    </div>
+                    <p className="text-white/75 text-sm leading-relaxed">
+                      {risk.body}
+                    </p>
+                  </div>
+                </div>
+              </m.li>
+            ))}
+          </ul>
+
+          <p className="text-white/55 text-xs mt-4 leading-relaxed">
+            Rolling status is tracked in{' '}
+            <a
+              href="https://github.com/fomotsar-commits/tegridy-farms/blob/main/FIX_STATUS.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline text-white/70 hover:text-white"
+            >
+              FIX_STATUS.md
+            </a>{' '}
+            and{' '}
+            <a
+              href="https://github.com/fomotsar-commits/tegridy-farms/blob/main/AUDITS.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline text-white/70 hover:text-white"
+            >
+              AUDITS.md
+            </a>
+            .
+          </p>
+        </m.section>
+
+        <div className="mb-4">
+          <h2 className="text-xl font-semibold text-white mb-1">
+            General DeFi risk disclosure
+          </h2>
+          <p className="text-white/60 text-sm">
+            These risks apply to any DeFi protocol, including this one.
+          </p>
+        </div>
+
         <div className="space-y-6">
           {RISKS.map((risk, i) => (
             <m.div
@@ -117,11 +268,11 @@ export default function RisksPage() {
               }}
             >
               <div className="flex items-start gap-3">
-                <span className="text-amber-400 text-lg mt-0.5 shrink-0">&#9888;</span>
+                <span className="text-amber-400 text-lg mt-0.5 shrink-0" aria-hidden="true">&#9888;</span>
                 <div>
-                  <h2 className="text-lg font-semibold text-white mb-3">
+                  <h3 className="text-lg font-semibold text-white mb-3">
                     {risk.title}
-                  </h2>
+                  </h3>
                   <p className="text-white/70 text-sm leading-relaxed">
                     {risk.body}
                   </p>
