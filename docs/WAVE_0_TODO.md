@@ -45,12 +45,14 @@ no `--private-key` flag needed.
       `0x417F44aee2…7eCf1A` still points at the deprecated pre-commit-reveal
       controller.
       Script: [`contracts/script/DeployVoteIncentives.s.sol`](../contracts/script/DeployVoteIncentives.s.sol)
-- [ ] **Run `DeployV3Features.s.sol`** — bundle redeploy of
-      `TegridyLending`, `TegridyDrop template`, `TegridyLaunchpad (V1)`,
-      `TegridyNFTPool template`, `TegridyNFTPoolFactory`. Includes the H-10
-      refund-flow patch on the `TegridyDrop` template (`MintPhase.CANCELLED`,
-      `cancelSale()`, `refund()`, `paidPerWallet`).
-      Script: [`contracts/script/DeployV3Features.s.sol`](../contracts/script/DeployV3Features.s.sol)
+- [x] ~~**Run `DeployV3Features.s.sol`** — bundle redeploy of V1 launchpad + drop
+      template.~~ **Obsoleted 2026-04-19:** V1 `TegridyLaunchpad` + `TegridyDrop`
+      source was deleted; the V3Features bundle is retired. Redeploy track for
+      `TegridyLending` + `TegridyNFTPool template` + `TegridyNFTPoolFactory` is
+      now owned by the individual per-contract deploy scripts. `TegridyDropV2`
+      already carries the H-10 refund-flow surface (`MintPhase.CANCELLED`,
+      `cancelSale()`, `refund()`, `paidPerWallet`) and ships as the V2 factory's
+      drop template.
 
 ## 3. Awaiting multisig `acceptOwnership()`
 

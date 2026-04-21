@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 
@@ -262,11 +263,14 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // AUDIT FIX H-13: Enforce configurable maxSlippageBps (default 5%) as sandwich protection.
         // The LP add minimums are derived from actual amounts minus max allowed slippage.
         uint256 remainingETH = ethBalance - halfETH;
-        uint256 slippageMinToken = (toweliAmount * (10000 - maxSlippageBps)) / 10000;
-        uint256 slippageMinETH = (remainingETH * (10000 - maxSlippageBps)) / 10000;
+        // AUDIT FIX (300-agent #12 / battle-tested): OZ Math.mulDiv for the slippage and
+        // backstop floors. 512-bit intermediate + consistent rounding (floor is correct
+        // here — slippageMin should not exceed the actual expected output).
+        uint256 slippageMinToken = Math.mulDiv(toweliAmount, 10000 - maxSlippageBps, 10000);
+        uint256 slippageMinETH = Math.mulDiv(remainingETH, 10000 - maxSlippageBps, 10000);
 
-        uint256 backstopMinToken = (toweliAmount * backstopBps) / 10000;
-        uint256 backstopMinETH = (remainingETH * backstopBps) / 10000;
+        uint256 backstopMinToken = Math.mulDiv(toweliAmount, backstopBps, 10000);
+        uint256 backstopMinETH = Math.mulDiv(remainingETH, backstopBps, 10000);
 
         uint256 minToken = _minLPTokens;
         if (slippageMinToken > minToken) minToken = slippageMinToken;

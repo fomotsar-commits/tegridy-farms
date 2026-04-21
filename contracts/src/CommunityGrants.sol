@@ -85,6 +85,13 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     uint256 public constant MAX_ACTIVE_PROPOSALS = 50; // AUDIT FIX M-13: Cap to prevent unbounded storage growth
     // SECURITY FIX H-4: Voting delay before votes can be cast (Compound GovernorBravo pattern)
     uint256 public constant VOTING_DELAY = 1 days;
+    // AUDIT FIX M-1 (battle-tested): snapshot voting power from SNAPSHOT_LOOKBACK before
+    // proposal creation. Prevents proposer-ally pre-positioning — under the prior
+    // `block.timestamp - 1` capture an ally who staked in the block immediately before
+    // createProposal() captured full voting power at the snapshot. 1-hour lookback forces
+    // the coordinating capital to commit far enough in advance that the advantage is
+    // uneconomic relative to the voting outcome.
+    uint256 public constant SNAPSHOT_LOOKBACK = 1 hours;
     // SECURITY FIX H-5: Mandatory execution delay for ALL callers (GovernorBravo timelock pattern)
     uint256 public constant EXECUTION_DELAY = 1 days;
     // SECURITY FIX H-6: Minimum unique voters to prevent whale governance capture (Nouns DAO pattern)
@@ -218,7 +225,7 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             createdAt: block.timestamp,
             deadline: block.timestamp + VOTING_PERIOD,
             status: ProposalStatus.Active,
-            snapshotTimestamp: block.timestamp > 0 ? block.timestamp - 1 : 0,
+            snapshotTimestamp: block.timestamp >= SNAPSHOT_LOOKBACK ? block.timestamp - SNAPSHOT_LOOKBACK : 0,
             snapshotTotalStake: votingEscrow.totalBoostedStake(), // SECURITY FIX: snapshot quorum denominator
             proposerTokenId: votingEscrow.userTokenId(msg.sender) // SECURITY FIX: snapshot proposer's NFT position
         }));
@@ -604,9 +611,15 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///      AUDIT FIX H-04: If WETH transfer fails after wrapping, unwrap back to ETH to prevent
     ///      WETH from being permanently stuck in the contract (no WETH sweep function).
     function _transferETHOrWETH(address recipient, uint256 amount) internal returns (bool) {
-        // M-02 FIX: Increased from 10k to 100k gas to support Gnosis Safe and smart contract
-        // treasury recipients. Reentrancy is already prevented by nonReentrant on executeProposal.
-        (bool success,) = recipient.call{value: amount, gas: 100_000}("");
+        // AUDIT FIX M-2 (battle-tested, 2026-04-20 audit): reduced from 100_000 back to
+        // 10_000 gas. 100k allowed the recipient contract to make a full external call during
+        // the payout, widening the cross-contract reentrancy surface (each sibling contract
+        // has its own nonReentrant guard, but cross-contract invariant violations are
+        // observable). 10k is the Solmate/Seaport stipend — enough for receive() + event emit
+        // but not for arbitrary external calls. Smart-account recipients (Safe, Argent,
+        // EIP-4337) fall into the WETH-wrap branch below and receive WETH instead of ETH —
+        // an acceptable degradation for a one-way payout.
+        (bool success,) = recipient.call{value: amount, gas: 10_000}("");
         if (success) return true;
         // ETH transfer failed — try WETH fallback
         try IWETH(weth).deposit{value: amount}() {

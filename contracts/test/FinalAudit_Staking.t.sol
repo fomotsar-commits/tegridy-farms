@@ -395,12 +395,14 @@ contract FinalAuditStaking is Test {
         assertEq(maxBoost, 45000, "Max boost is 45000");
         assertTrue(maxBoost <= type(uint16).max, "45000 fits in uint16 (max 65535)");
 
-        // Verify: stake with max lock + JBAC gives correct boostBps
-        jbac.mint(alice);
-        uint256 aliceTokenId = _stakeAs(alice, STAKE_AMOUNT, 4 * 365 days);
-
-        vm.prank(alice);
-        staking.revalidateBoost(aliceTokenId);
+        // AUDIT H-1 (2026-04-20): stake with max lock + JBAC via stakeWithBoost gives 45000 boostBps.
+        uint256 jbacId = jbac.mint(alice);
+        vm.startPrank(alice);
+        toweli.approve(address(staking), STAKE_AMOUNT);
+        jbac.approve(address(staking), jbacId);
+        staking.stakeWithBoost(STAKE_AMOUNT, 4 * 365 days, jbacId);
+        uint256 aliceTokenId = staking.userTokenId(alice);
+        vm.stopPrank();
 
         (,uint256 boostBps,,,,) = staking.getPosition(aliceTokenId);
         assertEq(boostBps, 45000, "Max boost with JBAC = 45000, stored correctly in uint16");
@@ -441,7 +443,7 @@ contract FinalAuditStaking is Test {
 
         // Verify stakeTimestamp stored correctly
         uint256 bobTokenId = _stakeAs(bob, STAKE_AMOUNT, 30 days);
-        (,,,,,,,, uint64 stakeTs) = staking.positions(bobTokenId);
+        (,,,,,,,, uint64 stakeTs,,) = staking.positions(bobTokenId);
         assertEq(uint256(stakeTs), block.timestamp, "stakeTimestamp stored correctly");
     }
 
@@ -512,7 +514,7 @@ contract FinalAuditStaking is Test {
         // Verify state is clean after withdrawal
         assertEq(staking.userTokenId(bob), 0, "userTokenId cleared");
         assertEq(staking.totalStaked(), 0, "totalStaked decremented");
-        assertEq(staking.totalLocked(), 0, "totalLocked decremented");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked decremented");
 
         // Position should be deleted
         (uint256 amt,,,,,) = staking.getPosition(bobTokenId);
@@ -666,24 +668,24 @@ contract FinalAuditStaking is Test {
     function test_FA18_totalLockedTracksWithTotalStaked() public {
         _stakeAs(alice, STAKE_AMOUNT, 365 days);
         assertEq(staking.totalStaked(), STAKE_AMOUNT, "totalStaked should reflect alice's stake");
-        assertEq(staking.totalLocked(), 0, "totalLocked deprecated (always zero post L-22)");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked deprecated (always zero post L-22)");
 
         _stakeAs(bob, STAKE_AMOUNT * 2, 30 days);
         assertEq(staking.totalStaked(), STAKE_AMOUNT * 3, "totalStaked should reflect both stakes");
-        assertEq(staking.totalLocked(), 0, "totalLocked deprecated (always zero post L-22)");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked deprecated (always zero post L-22)");
 
         uint256 bobTokenId = staking.userTokenId(bob);
         vm.prank(bob);
         staking.earlyWithdraw(bobTokenId);
         assertEq(staking.totalStaked(), STAKE_AMOUNT, "alice's stake remains after bob earlyWithdraw");
-        assertEq(staking.totalLocked(), 0, "totalLocked deprecated (always zero post L-22)");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked deprecated (always zero post L-22)");
 
         vm.warp(block.timestamp + 366 days);
         uint256 aliceTokenId = staking.userTokenId(alice);
         vm.prank(alice);
         staking.withdraw(aliceTokenId);
         assertEq(staking.totalStaked(), 0, "totalStaked zero after all withdrawals");
-        assertEq(staking.totalLocked(), 0, "totalLocked deprecated (always zero post L-22)");
+        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked deprecated (always zero post L-22)");
     }
 
     // ═══════════════════════════════════════════════════════════════════

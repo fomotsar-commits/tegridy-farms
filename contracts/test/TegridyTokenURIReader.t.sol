@@ -64,13 +64,15 @@ contract MockStaking {
     function positions(uint256 tokenId) external view returns (
         uint256 amount, uint256 boostedAmount, int256 rewardDebt,
         uint64 lockEnd, uint16 boostBps, uint32 lockDuration,
-        bool autoMaxLock, bool hasJbacBoost, uint64 stakeTimestamp
+        bool autoMaxLock, bool hasJbacBoost, uint64 stakeTimestamp,
+        uint256 jbacTokenId, bool jbacDeposited
     ) {
         Position memory p = positionOf[tokenId];
         return (
             p.amount, p.boostedAmount, p.rewardDebt,
             p.lockEnd, p.boostBps, p.lockDuration,
-            p.autoMaxLock, p.hasJbacBoost, p.stakeTimestamp
+            p.autoMaxLock, p.hasJbacBoost, p.stakeTimestamp,
+            0, false
         );
     }
 

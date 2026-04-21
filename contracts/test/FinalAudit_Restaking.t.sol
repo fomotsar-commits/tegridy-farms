@@ -115,33 +115,27 @@ contract FinalAuditRestaking is Test {
     //  totalRestaked, causing bonus reward accounting drift
     // =========================================================================
 
+    /// @dev AUDIT H-1 (2026-04-20): After the JBAC-deposit migration, revalidateBoost
+    ///      cannot UPGRADE a non-deposit position (flash-loan mitigation). The original
+    ///      scenario (stake then revalidate to add boost) is no longer reachable; the
+    ///      test now documents this invariant and keeps totalRestaked-consistency coverage.
     function test_CRITICAL_revalidateBoost_totalRestaked_drift() public {
-        // Alice stakes WITHOUT JBAC (hasJbacBoost=false at stake time)
-        jbac.mint(alice); // Alice holds JBAC
+        jbac.mint(alice);
         uint256 aliceToken = _stakeAndRestake(alice, STAKE_AMOUNT, 365 days);
-
-        // Bob stakes without JBAC
         uint256 bobToken = _stakeAndRestake(bob, STAKE_AMOUNT, 365 days);
 
-        // Step 1: Revalidate to ADD JBAC boost (hasJbacBoost false -> true)
-        // This changes boostedAmount in the staking contract
+        // H-1: revalidateBoost on a non-deposit position is a no-op.
         restaking.revalidateBoostForRestaked(aliceToken);
 
-        // Verify the boost was added in staking
-        (,uint256 boostedInStaking,,,,,, bool hasJbac,) = staking.positions(aliceToken);
-        assertTrue(hasJbac, "JBAC boost should be added");
+        (,uint256 boostedInStaking,,,,,, bool hasJbac,,,) = staking.positions(aliceToken);
+        assertFalse(hasJbac, "H-1: revalidate cannot upgrade a non-deposit position");
 
-        // Now the restaking contract has cached the new boostedAmount
-        (, , uint256 aliceBoostedWithJbac, ,,) = restaking.restakers(alice);
-        uint256 totalRestakedAfterAdd = restaking.totalRestaked();
-
-        // FIX VERIFIED: totalRestaked IS now updated after adding JBAC boost
+        (, , uint256 aliceBoosted, ,,) = restaking.restakers(alice);
         (, , uint256 bobBoosted, ,,) = restaking.restakers(bob);
-        uint256 expectedTotal = aliceBoostedWithJbac + bobBoosted;
-
-        emit log_named_uint("Expected totalRestaked after JBAC add", expectedTotal);
-        emit log_named_uint("Actual totalRestaked after JBAC add", totalRestakedAfterAdd);
-        assertEq(totalRestakedAfterAdd, expectedTotal, "FIX VERIFIED: totalRestaked updated correctly after boost add");
+        uint256 expectedTotal = aliceBoosted + bobBoosted;
+        assertEq(restaking.totalRestaked(), expectedTotal, "totalRestaked consistent after revalidate no-op");
+        bobToken; // silence unused
+        boostedInStaking; // silence unused
     }
 
     // =========================================================================
@@ -149,34 +143,22 @@ contract FinalAuditRestaking is Test {
     //  causing inflated or deflated bonus claims after boost change
     // =========================================================================
 
+    /// @dev AUDIT H-1 (2026-04-20): revalidateBoost no longer supports upgrade. Flash-loan
+    ///      vector closed. The bonusDebt-reset invariant that this test originally covered
+    ///      is preserved in the downgrade path, which is not reachable under new stakes.
+    ///      Kept as a no-op trip-wire for invariant drift.
     function test_HIGH_revalidateBoost_bonusDebt_not_reset() public {
-        // Alice stakes, holds JBAC
         jbac.mint(alice);
         uint256 aliceToken = _stakeAndRestake(alice, STAKE_AMOUNT, 365 days);
 
-        // Step 1: Revalidate to ADD JBAC boost first (hasJbacBoost: false -> true)
+        // H-1: revalidateBoost on non-deposit position is a no-op for boost state.
         restaking.revalidateBoostForRestaked(aliceToken);
-
-        // Let time pass to accrue significant accBonusPerShare
         vm.warp(block.timestamp + 30 days);
 
-        // Record state before removing JBAC
-        (, , uint256 aliceBoostedBefore, int256 debtBefore,,) = restaking.restakers(alice);
-        uint256 pendingBonusBefore = restaking.pendingBonus(alice);
-
-        // Alice loses JBAC → revalidate to REMOVE boost
-        vm.prank(alice);
-        jbac.transferFrom(alice, charlie, 1);
-
+        (, , uint256 aliceBoostedBefore,,,) = restaking.restakers(alice);
         restaking.revalidateBoostForRestaked(aliceToken);
-
-        (, , uint256 aliceBoostedAfter, int256 debtAfter,,) = restaking.restakers(alice);
-
-        // Boost should have changed (JBAC removed)
-        assertTrue(aliceBoostedBefore > aliceBoostedAfter, "Boost should have decreased");
-
-        // FIX VERIFIED: bonusDebt IS now recalculated for the new boostedAmount
-        assertTrue(debtBefore != debtAfter, "FIX VERIFIED: bonusDebt was reset after boost change");
+        (, , uint256 aliceBoostedAfter,,,) = restaking.restakers(alice);
+        assertEq(aliceBoostedAfter, aliceBoostedBefore, "H-1: boost unchanged by revalidate");
     }
 
     // =========================================================================
@@ -184,38 +166,23 @@ contract FinalAuditRestaking is Test {
     //  (totalRestaked not updated + bonusDebt not reset)
     // =========================================================================
 
+    /// @dev AUDIT H-1 (2026-04-20): Same as above — upgrade path closed. Kept as a trip-wire.
     function test_CRITICAL_revalidateBoostForRestaker_same_bugs() public {
-        // Alice stakes, holds JBAC
         jbac.mint(alice);
         _stakeAndRestake(alice, STAKE_AMOUNT, 365 days);
 
-        // First: add JBAC boost via revalidate
         restaking.revalidateBoostForRestaker(alice);
-
         vm.warp(block.timestamp + 7 days);
 
         uint256 totalRestakedBefore = restaking.totalRestaked();
-        (, , uint256 aliceBoostedBefore, int256 debtBefore,,) = restaking.restakers(alice);
+        (, , uint256 aliceBoostedBefore,,,) = restaking.restakers(alice);
 
-        // Alice loses JBAC
-        vm.prank(alice);
-        jbac.transferFrom(alice, charlie, 1);
-
-        // Revalidate via user address variant to remove boost
         restaking.revalidateBoostForRestaker(alice);
 
         uint256 totalRestakedAfter = restaking.totalRestaked();
-        (, , uint256 aliceBoostedAfter, int256 debtAfter,,) = restaking.restakers(alice);
-
-        assertTrue(aliceBoostedBefore > aliceBoostedAfter, "Boost should have decreased");
-
-        // FIX VERIFIED 1: totalRestaked IS now updated
-        assertTrue(totalRestakedAfter != totalRestakedBefore, "FIX VERIFIED: totalRestaked updated after boost change");
-        uint256 expectedTotal = aliceBoostedAfter;
-        assertEq(totalRestakedAfter, expectedTotal, "FIX VERIFIED: totalRestaked matches new boostedAmount");
-
-        // FIX VERIFIED 2: bonusDebt IS now reset
-        assertTrue(debtBefore != debtAfter, "FIX VERIFIED: bonusDebt reset after boost change");
+        (, , uint256 aliceBoostedAfter,,,) = restaking.restakers(alice);
+        assertEq(aliceBoostedAfter, aliceBoostedBefore, "H-1: boost unchanged");
+        assertEq(totalRestakedAfter, totalRestakedBefore, "H-1: totalRestaked unchanged");
     }
 
     // =========================================================================
@@ -424,51 +391,30 @@ contract FinalAuditRestaking is Test {
     //  Shows that after revalidateBoost, bonus rewards are mis-distributed
     // =========================================================================
 
+    /// @dev AUDIT H-1 (2026-04-20): totalRestaked drift from revalidate-downgrade is no longer
+    ///      reachable via normal UX. The JBAC-deposit pattern locks the boost for the lock
+    ///      duration, so there is no "lose JBAC mid-lock" scenario for new positions.
     function test_CRITICAL_totalRestaked_drift_causes_reward_theft() public {
-        // Alice gets JBAC for higher boost
         jbac.mint(alice);
         uint256 aliceToken = _stakeAndRestake(alice, STAKE_AMOUNT, 365 days);
         uint256 bobToken = _stakeAndRestake(bob, STAKE_AMOUNT, 365 days);
 
-        // First add JBAC boost to Alice
+        // Revalidate no-ops under H-1.
         restaking.revalidateBoostForRestaked(aliceToken);
-
-        (, , uint256 aliceBoostedWithJbac, ,,) = restaking.restakers(alice);
+        uint256 totalBefore = restaking.totalRestaked();
+        (, , uint256 aliceBoostedBefore, ,,) = restaking.restakers(alice);
         (, , uint256 bobBoosted, ,,) = restaking.restakers(bob);
+        assertEq(totalBefore, aliceBoostedBefore + bobBoosted, "totalRestaked consistent pre-revalidate");
 
-        // Alice loses JBAC -> revalidate drops her boost
+        // Lose JBAC, revalidate (still no-op under H-1).
         vm.prank(alice);
         jbac.transferFrom(alice, charlie, 1);
-
-        uint256 totalRestakedBefore = restaking.totalRestaked();
         restaking.revalidateBoostForRestaked(aliceToken);
 
         (, , uint256 aliceBoostedAfter, ,,) = restaking.restakers(alice);
-        uint256 totalRestakedAfterRevalidate = restaking.totalRestaked();
-
-        assertTrue(aliceBoostedWithJbac > aliceBoostedAfter, "Boost should have decreased");
-
-        // BUG: totalRestaked still includes the OLD boosted amount
-        uint256 actualSum = aliceBoostedAfter + bobBoosted;
-        uint256 staleTotal = totalRestakedAfterRevalidate;
-
-        emit log_named_uint("Actual sum of boostedAmounts", actualSum);
-        emit log_named_uint("Stale totalRestaked (not updated)", staleTotal);
-        emit log_named_uint("Phantom stake in totalRestaked", staleTotal - actualSum);
-
-        // The phantom stake means bonus rewards are distributed to "nobody"
-        // effectively reducing everyone's share.
-
-        // Let time pass and check reward distribution
-        vm.warp(block.timestamp + 30 days);
-
-        uint256 alicePending = restaking.pendingBonus(alice);
-        uint256 bobPending = restaking.pendingBonus(bob);
-
-        emit log_named_uint("Alice pending bonus (with stale totalRestaked)", alicePending);
-        emit log_named_uint("Bob pending bonus (with stale totalRestaked)", bobPending);
-
-        // Both users get LESS than they should because totalRestaked is inflated
-        // The "phantom" portion of rewards goes unclaimed forever (locked in contract)
+        uint256 totalAfter = restaking.totalRestaked();
+        assertEq(aliceBoostedAfter, aliceBoostedBefore, "H-1: boost unchanged by revalidate on non-deposit position");
+        assertEq(totalAfter, totalBefore, "H-1: totalRestaked invariant holds");
+        bobToken; // silence
     }
 }

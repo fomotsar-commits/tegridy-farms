@@ -64,6 +64,7 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         uint256 aprBps;
         uint256 duration;
         address collateralContract;
+        uint256 tokenId;
         bool active;
     }
 
@@ -105,7 +106,8 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         uint256 principal,
         uint256 aprBps,
         uint256 duration,
-        address collateralContract
+        address collateralContract,
+        uint256 tokenId
     );
     event LoanOfferCancelled(uint256 indexed offerId, address indexed lender);
     event LoanAccepted(
@@ -214,12 +216,14 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     /// @param _aprBps Annual percentage rate in basis points
     /// @param _duration Loan duration in seconds
     /// @param _collateralContract Address of the whitelisted ERC-721 collection
+    /// @param _tokenId The specific NFT tokenId the lender is willing to accept as collateral
     /// @return offerId The ID of the created offer
     function createOffer(
         uint256 _principal,
         uint256 _aprBps,
         uint256 _duration,
-        address _collateralContract
+        address _collateralContract,
+        uint256 _tokenId
     ) external payable nonReentrant whenNotPaused returns (uint256 offerId) {
         if (msg.value == 0) revert ZeroPrincipal();
         if (msg.value != _principal) revert MsgValueMismatch();
@@ -230,6 +234,11 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         if (_collateralContract == address(0)) revert ZeroAddress();
         if (!whitelistedCollections[_collateralContract]) revert CollectionNotWhitelisted();
 
+        // Existence check — the tokenId must exist on the collection. We do NOT
+        // require the lender to own it (borrower may own a different wallet).
+        // ownerOf reverts if the tokenId has never been minted or has been burned.
+        IERC721(_collateralContract).ownerOf(_tokenId);
+
         offerId = offers.length;
         offers.push(Offer({
             lender: msg.sender,
@@ -237,6 +246,7 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
             aprBps: _aprBps,
             duration: _duration,
             collateralContract: _collateralContract,
+            tokenId: _tokenId,
             active: true
         }));
 
@@ -246,7 +256,8 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
             _principal,
             _aprBps,
             _duration,
-            _collateralContract
+            _collateralContract,
+            _tokenId
         );
     }
 
@@ -270,14 +281,13 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
 
     // ─── Borrowing ───────────────────────────────────────────────────
 
-    /// @notice Accept a loan offer by escrowing a whitelisted ERC-721 NFT.
+    /// @notice Accept a loan offer by escrowing the specific ERC-721 NFT the lender asked for.
     ///         The borrower receives the principal ETH. NFT is held by this contract.
+    ///         The tokenId is fixed at offer creation — borrower cannot swap in a different one.
     /// @param _offerId The ID of the offer to accept
-    /// @param _tokenId The NFT token ID to use as collateral
     /// @return loanId The ID of the created loan
     function acceptOffer(
-        uint256 _offerId,
-        uint256 _tokenId
+        uint256 _offerId
     ) external nonReentrant whenNotPaused returns (uint256 loanId) {
         if (_offerId >= offers.length) revert InvalidOfferId();
         Offer storage offer = offers[_offerId];
@@ -290,6 +300,7 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         address lender = offer.lender;
         uint256 duration = offer.duration;
         address collateralContract = offer.collateralContract;
+        uint256 _tokenId = offer.tokenId;
 
         // Verify collection is still whitelisted
         if (!whitelistedCollections[collateralContract]) revert CollectionNotWhitelisted();
@@ -438,11 +449,12 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         uint256 aprBps,
         uint256 duration,
         address collateralContract,
+        uint256 tokenId,
         bool active
     ) {
         if (_offerId >= offers.length) revert InvalidOfferId();
         Offer memory o = offers[_offerId];
-        return (o.lender, o.principal, o.aprBps, o.duration, o.collateralContract, o.active);
+        return (o.lender, o.principal, o.aprBps, o.duration, o.collateralContract, o.tokenId, o.active);
     }
 
     /// @notice Get a loan by ID.

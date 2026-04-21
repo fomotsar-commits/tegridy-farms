@@ -17,11 +17,15 @@ import { useTowelie } from '../hooks/useTowelie';
 
 type Tab = 'swap' | 'liquidity' | 'dca' | 'limit';
 
+// AUDIT FIX H-2 (2026-04-20 / battle-tested Option C): honest-UX labels. The DCA and
+// Limit Order features are not on-chain — they persist in browser localStorage and
+// run only while the tab is open. Renaming to "Recurring Swap" / "Price Alert" makes
+// the actual behaviour legible without falsely implying automated execution.
 const TAB_LABELS: Record<Tab, string> = {
   swap: 'Swap',
   liquidity: 'Liquidity',
-  dca: 'DCA',
-  limit: 'Limit',
+  dca: 'Recurring Swap',
+  limit: 'Price Alert',
 };
 
 const VALID_TABS: Tab[] = ['swap', 'liquidity', 'dca', 'limit'];
@@ -51,8 +55,9 @@ export default function TradePage() {
   const titleByTab: Record<Tab, { title: string; desc: string }> = {
     swap:      { title: 'Swap',      desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.' },
     liquidity: { title: 'Liquidity', desc: 'Add or remove liquidity on Tegridy Farms native pools.' },
-    dca:       { title: 'DCA',       desc: 'Schedule recurring buys to dollar-cost-average into TOWELI.' },
-    limit:     { title: 'Limit Orders', desc: 'Place limit orders that fill when the market hits your price.' },
+    // AUDIT FIX H-2: honest descriptions — these are browser-tab-only tools, not on-chain.
+    dca:       { title: 'Recurring Swap', desc: 'Schedule reminders to buy TOWELI at regular intervals. Your wallet signs each swap \u2014 keep this tab open.' },
+    limit:     { title: 'Price Alert', desc: 'Set a price target and get a signing prompt when the market reaches it. Keep this tab open to see it fire.' },
   };
   usePageTitle(titleByTab[tab].title, titleByTab[tab].desc);
   const [showTokenSelect, setShowTokenSelect] = useState<'from' | 'to' | null>(null);
@@ -263,6 +268,37 @@ export default function TradePage() {
                       High slippage tolerance — you may receive significantly less than quoted.
                     </p>
                   )}
+                </div>
+
+                {/* AUDIT M-6: Fee-on-Transfer opt-in toggle. Off by default; auto-enabled on
+                    InsufficientOutput reverts via the useSwap error handler. Users can also
+                    flip it manually for known FoT/reflection/deflationary tokens. */}
+                <div className="mt-1 mb-1 px-3 py-2.5 rounded-lg" style={{ background: 'rgba(0,0,0,0.60)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                  <label className="flex items-center justify-between cursor-pointer">
+                    <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+                      Fee-on-transfer support
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={swap.supportsFeeOnTransfer}
+                      onClick={() => swap.setSupportsFeeOnTransfer(!swap.supportsFeeOnTransfer)}
+                      className="relative inline-flex items-center h-5 rounded-full w-10 transition-colors"
+                      style={{
+                        background: swap.supportsFeeOnTransfer ? 'var(--color-stan)' : 'rgba(255,255,255,0.2)',
+                      }}
+                    >
+                      <span
+                        className="inline-block w-3.5 h-3.5 rounded-full bg-white transition-transform"
+                        style={{
+                          transform: swap.supportsFeeOnTransfer ? 'translateX(22px)' : 'translateX(4px)',
+                        }}
+                      />
+                    </button>
+                  </label>
+                  <p className="mt-1 text-[10px] text-white/70" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+                    Enable for tokens with an internal transfer fee (reflection / deflationary). Auto-enabled on retry after insufficient-output reverts.
+                  </p>
                 </div>
 
                 {/* Route Info — dark panel with Stan blue edge for trading-trust signal.

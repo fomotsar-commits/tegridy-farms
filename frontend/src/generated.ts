@@ -850,6 +850,47 @@ export const swapFeeRouterAbi = [
   },
   {
     type: 'function',
+    inputs: [
+      { name: 'amountOutMin', type: 'uint256' },
+      { name: 'path', type: 'address[]' },
+      { name: 'to', type: 'address' },
+      { name: 'deadline', type: 'uint256' },
+      { name: 'maxFeeBps', type: 'uint256' },
+    ],
+    name: 'swapExactETHForTokensSupportingFeeOnTransferTokens',
+    outputs: [],
+    stateMutability: 'payable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'amountIn', type: 'uint256' },
+      { name: 'amountOutMin', type: 'uint256' },
+      { name: 'path', type: 'address[]' },
+      { name: 'to', type: 'address' },
+      { name: 'deadline', type: 'uint256' },
+      { name: 'maxFeeBps', type: 'uint256' },
+    ],
+    name: 'swapExactTokensForETHSupportingFeeOnTransferTokens',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'amountIn', type: 'uint256' },
+      { name: 'amountOutMin', type: 'uint256' },
+      { name: 'path', type: 'address[]' },
+      { name: 'to', type: 'address' },
+      { name: 'deadline', type: 'uint256' },
+      { name: 'maxFeeBps', type: 'uint256' },
+    ],
+    name: 'swapExactTokensForTokensSupportingFeeOnTransferTokens',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
     inputs: [],
     name: 'feeBps',
     outputs: [{ name: '', type: 'uint256' }],
@@ -1178,58 +1219,6 @@ export const tegridyFactoryConfig = {
 } as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// TegridyLaunchpad
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-export const tegridyLaunchpadAbi = [
-  {
-    type: 'function',
-    inputs: [
-      { name: '_name', type: 'string' },
-      { name: '_symbol', type: 'string' },
-      { name: '_maxSupply', type: 'uint256' },
-      { name: '_mintPrice', type: 'uint256' },
-      { name: '_maxPerWallet', type: 'uint256' },
-      { name: '_royaltyBps', type: 'uint16' },
-    ],
-    name: 'createCollection',
-    outputs: [
-      { name: 'id', type: 'uint256' },
-      { name: 'collection', type: 'address' },
-    ],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    inputs: [{ name: 'id', type: 'uint256' }],
-    name: 'getCollection',
-    outputs: [
-      { name: 'id', type: 'uint256' },
-      { name: 'collection', type: 'address' },
-      { name: 'creator', type: 'address' },
-      { name: 'name', type: 'string' },
-      { name: 'symbol', type: 'string' },
-    ],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    inputs: [],
-    name: 'getCollectionCount',
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-  },
-] as const
-
-export const tegridyLaunchpadAddress =
-  '0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2' as const
-
-export const tegridyLaunchpadConfig = {
-  address: tegridyLaunchpadAddress,
-  abi: tegridyLaunchpadAbi,
-} as const
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // TegridyLaunchpadV2
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -1358,6 +1347,7 @@ export const tegridyLendingAbi = [
       { name: '_duration', type: 'uint256' },
       { name: '_collateralContract', type: 'address' },
       { name: '_minPositionValue', type: 'uint256' },
+      { name: '_minPositionETHValue', type: 'uint256' },
     ],
     name: 'createLoanOffer',
     outputs: [{ name: 'offerId', type: 'uint256' }],
@@ -1405,6 +1395,7 @@ export const tegridyLendingAbi = [
       { name: 'duration', type: 'uint256' },
       { name: 'collateralContract', type: 'address' },
       { name: 'minPositionValue', type: 'uint256' },
+      { name: 'minPositionETHValue', type: 'uint256' },
       { name: 'active', type: 'bool' },
     ],
     stateMutability: 'view',
@@ -1484,6 +1475,7 @@ export const tegridyNftLendingAbi = [
       { name: '_aprBps', type: 'uint256' },
       { name: '_duration', type: 'uint256' },
       { name: '_collateralContract', type: 'address' },
+      { name: '_tokenId', type: 'uint256' },
     ],
     name: 'createOffer',
     outputs: [{ name: 'offerId', type: 'uint256' }],
@@ -1498,10 +1490,7 @@ export const tegridyNftLendingAbi = [
   },
   {
     type: 'function',
-    inputs: [
-      { name: '_offerId', type: 'uint256' },
-      { name: '_tokenId', type: 'uint256' },
-    ],
+    inputs: [{ name: '_offerId', type: 'uint256' }],
     name: 'acceptOffer',
     outputs: [{ name: 'loanId', type: 'uint256' }],
     stateMutability: 'nonpayable',
@@ -1530,6 +1519,7 @@ export const tegridyNftLendingAbi = [
       { name: 'aprBps', type: 'uint256' },
       { name: 'duration', type: 'uint256' },
       { name: 'collateralContract', type: 'address' },
+      { name: 'tokenId', type: 'uint256' },
       { name: 'active', type: 'bool' },
     ],
     stateMutability: 'view',
@@ -1656,6 +1646,20 @@ export const tegridyNftPoolFactoryAbi = [
     name: 'getPoolCount',
     outputs: [{ name: '', type: 'uint256' }],
     stateMutability: 'view',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'pool', type: 'address', indexed: true },
+      { name: 'nftCollection', type: 'address', indexed: true },
+      { name: 'poolType', type: 'uint8', indexed: false },
+      { name: 'spotPrice', type: 'uint256', indexed: false },
+      { name: 'delta', type: 'uint256', indexed: false },
+      { name: 'feeBps', type: 'uint256', indexed: false },
+      { name: 'owner', type: 'address', indexed: true },
+    ],
+    name: 'PoolCreated',
   },
 ] as const
 
@@ -1995,6 +1999,16 @@ export const tegridyStakingAbi = [
   },
   {
     type: 'function',
+    inputs: [
+      { name: 'user', type: 'address' },
+      { name: 'ts', type: 'uint256' },
+    ],
+    name: 'votingPowerAtTimestamp',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [{ name: 'tokenId', type: 'uint256' }],
     name: 'earned',
     outputs: [{ name: '', type: 'uint256' }],
@@ -2259,6 +2273,7 @@ export const voteIncentivesAbi = [
     outputs: [
       { name: 'totalPower', type: 'uint256' },
       { name: 'timestamp', type: 'uint256' },
+      { name: 'usesCommitReveal', type: 'bool' },
     ],
     stateMutability: 'view',
   },
@@ -2353,6 +2368,20 @@ export const voteIncentivesAbi = [
   {
     type: 'function',
     inputs: [],
+    name: 'pendingFeeBps',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'feeChangeTime',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
     name: 'getWhitelistedTokens',
     outputs: [{ name: '', type: 'address[]' }],
     stateMutability: 'view',
@@ -2362,6 +2391,34 @@ export const voteIncentivesAbi = [
     inputs: [{ name: 'token', type: 'address' }],
     name: 'whitelistedTokens',
     outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'token', type: 'address' }],
+    name: 'minBribeAmounts',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'MIN_BRIBE_AMOUNT',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'BRIBE_RESCUE_DELAY',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'epoch', type: 'uint256' }],
+    name: 'epochBribeFirstDeposit',
+    outputs: [{ name: '', type: 'uint256' }],
     stateMutability: 'view',
   },
   {
@@ -2376,6 +2433,169 @@ export const voteIncentivesAbi = [
     inputs: [{ name: 'user', type: 'address' }],
     name: 'pendingETHWithdrawals',
     outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'token', type: 'address' }],
+    name: 'withdrawPendingToken',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'user', type: 'address' },
+      { name: 'token', type: 'address' },
+    ],
+    name: 'pendingTokenWithdrawals',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'epoch', type: 'uint256' },
+      { name: 'pair', type: 'address' },
+      { name: 'power', type: 'uint256' },
+    ],
+    name: 'vote',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'user', type: 'address' },
+      { name: 'epoch', type: 'uint256' },
+      { name: 'pair', type: 'address' },
+    ],
+    name: 'gaugeVotes',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'epoch', type: 'uint256' },
+      { name: 'pair', type: 'address' },
+    ],
+    name: 'totalGaugeVotes',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'user', type: 'address' },
+      { name: 'epoch', type: 'uint256' },
+    ],
+    name: 'userTotalVotes',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'VOTE_DEADLINE',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'commitRevealEnabled',
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'COMMIT_BOND',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'COMMIT_RATIO_BPS',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'epoch', type: 'uint256' }],
+    name: 'commitDeadline',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'epoch', type: 'uint256' }],
+    name: 'revealDeadline',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'user', type: 'address' },
+      { name: 'epoch', type: 'uint256' },
+      { name: 'pair', type: 'address' },
+      { name: 'power', type: 'uint256' },
+      { name: 'salt', type: 'bytes32' },
+    ],
+    name: 'computeCommitHash',
+    outputs: [{ name: '', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'epoch', type: 'uint256' },
+      { name: 'commitHash', type: 'bytes32' },
+    ],
+    name: 'commitVote',
+    outputs: [{ name: 'commitIndex', type: 'uint256' }],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'epoch', type: 'uint256' },
+      { name: 'commitIndex', type: 'uint256' },
+      { name: 'pair', type: 'address' },
+      { name: 'power', type: 'uint256' },
+      { name: 'salt', type: 'bytes32' },
+    ],
+    name: 'revealVote',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'user', type: 'address' },
+      { name: 'epoch', type: 'uint256' },
+      { name: 'commitIndex', type: 'uint256' },
+    ],
+    name: 'sweepForfeitedBond',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: '', type: 'address' },
+      { name: '', type: 'uint256' },
+      { name: '', type: 'uint256' },
+    ],
+    name: 'voterCommits',
+    outputs: [
+      { name: 'commitHash', type: 'bytes32' },
+      { name: 'bond', type: 'uint96' },
+      { name: 'revealed', type: 'bool' },
+    ],
     stateMutability: 'view',
   },
 ] as const
@@ -3810,6 +4030,36 @@ export const useWriteSwapFeeRouterSwapExactTokensForTokens =
   })
 
 /**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link swapFeeRouterAbi}__ and `functionName` set to `"swapExactETHForTokensSupportingFeeOnTransferTokens"`
+ */
+export const useWriteSwapFeeRouterSwapExactEthForTokensSupportingFeeOnTransferTokens =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: swapFeeRouterAbi,
+    address: swapFeeRouterAddress,
+    functionName: 'swapExactETHForTokensSupportingFeeOnTransferTokens',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link swapFeeRouterAbi}__ and `functionName` set to `"swapExactTokensForETHSupportingFeeOnTransferTokens"`
+ */
+export const useWriteSwapFeeRouterSwapExactTokensForEthSupportingFeeOnTransferTokens =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: swapFeeRouterAbi,
+    address: swapFeeRouterAddress,
+    functionName: 'swapExactTokensForETHSupportingFeeOnTransferTokens',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link swapFeeRouterAbi}__ and `functionName` set to `"swapExactTokensForTokensSupportingFeeOnTransferTokens"`
+ */
+export const useWriteSwapFeeRouterSwapExactTokensForTokensSupportingFeeOnTransferTokens =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: swapFeeRouterAbi,
+    address: swapFeeRouterAddress,
+    functionName: 'swapExactTokensForTokensSupportingFeeOnTransferTokens',
+  })
+
+/**
  * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link swapFeeRouterAbi}__
  */
 export const useSimulateSwapFeeRouter = /*#__PURE__*/ createUseSimulateContract(
@@ -3844,6 +4094,36 @@ export const useSimulateSwapFeeRouterSwapExactTokensForTokens =
     abi: swapFeeRouterAbi,
     address: swapFeeRouterAddress,
     functionName: 'swapExactTokensForTokens',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link swapFeeRouterAbi}__ and `functionName` set to `"swapExactETHForTokensSupportingFeeOnTransferTokens"`
+ */
+export const useSimulateSwapFeeRouterSwapExactEthForTokensSupportingFeeOnTransferTokens =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: swapFeeRouterAbi,
+    address: swapFeeRouterAddress,
+    functionName: 'swapExactETHForTokensSupportingFeeOnTransferTokens',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link swapFeeRouterAbi}__ and `functionName` set to `"swapExactTokensForETHSupportingFeeOnTransferTokens"`
+ */
+export const useSimulateSwapFeeRouterSwapExactTokensForEthSupportingFeeOnTransferTokens =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: swapFeeRouterAbi,
+    address: swapFeeRouterAddress,
+    functionName: 'swapExactTokensForETHSupportingFeeOnTransferTokens',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link swapFeeRouterAbi}__ and `functionName` set to `"swapExactTokensForTokensSupportingFeeOnTransferTokens"`
+ */
+export const useSimulateSwapFeeRouterSwapExactTokensForTokensSupportingFeeOnTransferTokens =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: swapFeeRouterAbi,
+    address: swapFeeRouterAddress,
+    functionName: 'swapExactTokensForTokensSupportingFeeOnTransferTokens',
   })
 
 /**
@@ -4351,71 +4631,6 @@ export const useSimulateTegridyFactoryCreatePair =
     abi: tegridyFactoryAbi,
     address: tegridyFactoryAddress,
     functionName: 'createPair',
-  })
-
-/**
- * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyLaunchpadAbi}__
- */
-export const useReadTegridyLaunchpad = /*#__PURE__*/ createUseReadContract({
-  abi: tegridyLaunchpadAbi,
-  address: tegridyLaunchpadAddress,
-})
-
-/**
- * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyLaunchpadAbi}__ and `functionName` set to `"getCollection"`
- */
-export const useReadTegridyLaunchpadGetCollection =
-  /*#__PURE__*/ createUseReadContract({
-    abi: tegridyLaunchpadAbi,
-    address: tegridyLaunchpadAddress,
-    functionName: 'getCollection',
-  })
-
-/**
- * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyLaunchpadAbi}__ and `functionName` set to `"getCollectionCount"`
- */
-export const useReadTegridyLaunchpadGetCollectionCount =
-  /*#__PURE__*/ createUseReadContract({
-    abi: tegridyLaunchpadAbi,
-    address: tegridyLaunchpadAddress,
-    functionName: 'getCollectionCount',
-  })
-
-/**
- * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyLaunchpadAbi}__
- */
-export const useWriteTegridyLaunchpad = /*#__PURE__*/ createUseWriteContract({
-  abi: tegridyLaunchpadAbi,
-  address: tegridyLaunchpadAddress,
-})
-
-/**
- * Wraps __{@link useWriteContract}__ with `abi` set to __{@link tegridyLaunchpadAbi}__ and `functionName` set to `"createCollection"`
- */
-export const useWriteTegridyLaunchpadCreateCollection =
-  /*#__PURE__*/ createUseWriteContract({
-    abi: tegridyLaunchpadAbi,
-    address: tegridyLaunchpadAddress,
-    functionName: 'createCollection',
-  })
-
-/**
- * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyLaunchpadAbi}__
- */
-export const useSimulateTegridyLaunchpad =
-  /*#__PURE__*/ createUseSimulateContract({
-    abi: tegridyLaunchpadAbi,
-    address: tegridyLaunchpadAddress,
-  })
-
-/**
- * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link tegridyLaunchpadAbi}__ and `functionName` set to `"createCollection"`
- */
-export const useSimulateTegridyLaunchpadCreateCollection =
-  /*#__PURE__*/ createUseSimulateContract({
-    abi: tegridyLaunchpadAbi,
-    address: tegridyLaunchpadAddress,
-    functionName: 'createCollection',
   })
 
 /**
@@ -5019,6 +5234,25 @@ export const useSimulateTegridyNftPoolFactoryCreatePool =
   })
 
 /**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link tegridyNftPoolFactoryAbi}__
+ */
+export const useWatchTegridyNftPoolFactoryEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: tegridyNftPoolFactoryAbi,
+    address: tegridyNftPoolFactoryAddress,
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link tegridyNftPoolFactoryAbi}__ and `eventName` set to `"PoolCreated"`
+ */
+export const useWatchTegridyNftPoolFactoryPoolCreatedEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: tegridyNftPoolFactoryAbi,
+    address: tegridyNftPoolFactoryAddress,
+    eventName: 'PoolCreated',
+  })
+
+/**
  * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyRestakingAbi}__
  */
 export const useReadTegridyRestaking = /*#__PURE__*/ createUseReadContract({
@@ -5409,6 +5643,16 @@ export const useReadTegridyStakingVotingPowerOf =
     abi: tegridyStakingAbi,
     address: tegridyStakingAddress,
     functionName: 'votingPowerOf',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyStakingAbi}__ and `functionName` set to `"votingPowerAtTimestamp"`
+ */
+export const useReadTegridyStakingVotingPowerAtTimestamp =
+  /*#__PURE__*/ createUseReadContract({
+    abi: tegridyStakingAbi,
+    address: tegridyStakingAddress,
+    functionName: 'votingPowerAtTimestamp',
   })
 
 /**
@@ -5971,6 +6215,26 @@ export const useReadVoteIncentivesBribeFeeBps =
   })
 
 /**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"pendingFeeBps"`
+ */
+export const useReadVoteIncentivesPendingFeeBps =
+  /*#__PURE__*/ createUseReadContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'pendingFeeBps',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"feeChangeTime"`
+ */
+export const useReadVoteIncentivesFeeChangeTime =
+  /*#__PURE__*/ createUseReadContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'feeChangeTime',
+  })
+
+/**
  * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"getWhitelistedTokens"`
  */
 export const useReadVoteIncentivesGetWhitelistedTokens =
@@ -5991,6 +6255,46 @@ export const useReadVoteIncentivesWhitelistedTokens =
   })
 
 /**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"minBribeAmounts"`
+ */
+export const useReadVoteIncentivesMinBribeAmounts =
+  /*#__PURE__*/ createUseReadContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'minBribeAmounts',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"MIN_BRIBE_AMOUNT"`
+ */
+export const useReadVoteIncentivesMinBribeAmount =
+  /*#__PURE__*/ createUseReadContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'MIN_BRIBE_AMOUNT',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"BRIBE_RESCUE_DELAY"`
+ */
+export const useReadVoteIncentivesBribeRescueDelay =
+  /*#__PURE__*/ createUseReadContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'BRIBE_RESCUE_DELAY',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"epochBribeFirstDeposit"`
+ */
+export const useReadVoteIncentivesEpochBribeFirstDeposit =
+  /*#__PURE__*/ createUseReadContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'epochBribeFirstDeposit',
+  })
+
+/**
  * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"pendingETHWithdrawals"`
  */
 export const useReadVoteIncentivesPendingEthWithdrawals =
@@ -5998,6 +6302,126 @@ export const useReadVoteIncentivesPendingEthWithdrawals =
     abi: voteIncentivesAbi,
     address: voteIncentivesAddress,
     functionName: 'pendingETHWithdrawals',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"pendingTokenWithdrawals"`
+ */
+export const useReadVoteIncentivesPendingTokenWithdrawals =
+  /*#__PURE__*/ createUseReadContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'pendingTokenWithdrawals',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"gaugeVotes"`
+ */
+export const useReadVoteIncentivesGaugeVotes =
+  /*#__PURE__*/ createUseReadContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'gaugeVotes',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"totalGaugeVotes"`
+ */
+export const useReadVoteIncentivesTotalGaugeVotes =
+  /*#__PURE__*/ createUseReadContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'totalGaugeVotes',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"userTotalVotes"`
+ */
+export const useReadVoteIncentivesUserTotalVotes =
+  /*#__PURE__*/ createUseReadContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'userTotalVotes',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"VOTE_DEADLINE"`
+ */
+export const useReadVoteIncentivesVoteDeadline =
+  /*#__PURE__*/ createUseReadContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'VOTE_DEADLINE',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"commitRevealEnabled"`
+ */
+export const useReadVoteIncentivesCommitRevealEnabled =
+  /*#__PURE__*/ createUseReadContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'commitRevealEnabled',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"COMMIT_BOND"`
+ */
+export const useReadVoteIncentivesCommitBond =
+  /*#__PURE__*/ createUseReadContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'COMMIT_BOND',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"COMMIT_RATIO_BPS"`
+ */
+export const useReadVoteIncentivesCommitRatioBps =
+  /*#__PURE__*/ createUseReadContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'COMMIT_RATIO_BPS',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"commitDeadline"`
+ */
+export const useReadVoteIncentivesCommitDeadline =
+  /*#__PURE__*/ createUseReadContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'commitDeadline',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"revealDeadline"`
+ */
+export const useReadVoteIncentivesRevealDeadline =
+  /*#__PURE__*/ createUseReadContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'revealDeadline',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"computeCommitHash"`
+ */
+export const useReadVoteIncentivesComputeCommitHash =
+  /*#__PURE__*/ createUseReadContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'computeCommitHash',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"voterCommits"`
+ */
+export const useReadVoteIncentivesVoterCommits =
+  /*#__PURE__*/ createUseReadContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'voterCommits',
   })
 
 /**
@@ -6069,6 +6493,55 @@ export const useWriteVoteIncentivesWithdrawPendingEth =
   })
 
 /**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"withdrawPendingToken"`
+ */
+export const useWriteVoteIncentivesWithdrawPendingToken =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'withdrawPendingToken',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"vote"`
+ */
+export const useWriteVoteIncentivesVote = /*#__PURE__*/ createUseWriteContract({
+  abi: voteIncentivesAbi,
+  address: voteIncentivesAddress,
+  functionName: 'vote',
+})
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"commitVote"`
+ */
+export const useWriteVoteIncentivesCommitVote =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'commitVote',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"revealVote"`
+ */
+export const useWriteVoteIncentivesRevealVote =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'revealVote',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"sweepForfeitedBond"`
+ */
+export const useWriteVoteIncentivesSweepForfeitedBond =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'sweepForfeitedBond',
+  })
+
+/**
  * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link voteIncentivesAbi}__
  */
 export const useSimulateVoteIncentives =
@@ -6135,4 +6608,54 @@ export const useSimulateVoteIncentivesWithdrawPendingEth =
     abi: voteIncentivesAbi,
     address: voteIncentivesAddress,
     functionName: 'withdrawPendingETH',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"withdrawPendingToken"`
+ */
+export const useSimulateVoteIncentivesWithdrawPendingToken =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'withdrawPendingToken',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"vote"`
+ */
+export const useSimulateVoteIncentivesVote =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'vote',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"commitVote"`
+ */
+export const useSimulateVoteIncentivesCommitVote =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'commitVote',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"revealVote"`
+ */
+export const useSimulateVoteIncentivesRevealVote =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'revealVote',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link voteIncentivesAbi}__ and `functionName` set to `"sweepForfeitedBond"`
+ */
+export const useSimulateVoteIncentivesSweepForfeitedBond =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    functionName: 'sweepForfeitedBond',
   })

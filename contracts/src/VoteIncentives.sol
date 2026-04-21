@@ -18,10 +18,11 @@ interface IVotingEscrow {
     function totalBoostedStake() external view returns (uint256);
     function userTokenId(address user) external view returns (uint256);
     // H-01 FIX: Aligned to actual TegridyStaking.Position struct ABI order
+    // AUDIT H-1 (2026-04-20): Position struct extended with jbacTokenId + jbacDeposited.
     function positions(uint256 tokenId) external view returns (
         uint256 amount, uint256 boostedAmount, int256 rewardDebt, uint256 lockEnd,
         uint256 boostBps, uint256 lockDuration, bool autoMaxLock, bool hasJbacBoost,
-        uint256 stakeTimestamp
+        uint256 stakeTimestamp, uint256 jbacTokenId, bool jbacDeposited
     );
     function paused() external view returns (bool);
 }
@@ -483,8 +484,11 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             }
 
             if (token == address(0)) {
-                // ETH bribe — try direct transfer, fallback to pending
-                (bool ok,) = msg.sender.call{value: share, gas: 10000}("");
+                // ETH bribe — try direct transfer, fallback to pending.
+                // AUDIT FIX (critique 5.7 / battle-tested): raised from 10000 to 50000 to
+                // handle Safe, Argent, and EIP-4337 smart accounts in the direct path.
+                // Pending fallback retained as belt-and-suspenders for non-standard receivers.
+                (bool ok,) = msg.sender.call{value: share, gas: 50000}("");
                 if (!ok) {
                     pendingETHWithdrawals[msg.sender] += share;
                     totalPendingETH += share;
@@ -564,7 +568,10 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
                 require(totalIterations <= MAX_BATCH_ITERATIONS, "TOO_MANY_ITERATIONS");
 
                 if (token == address(0)) {
-                    (bool ok,) = msg.sender.call{value: share, gas: 10000}("");
+                    // AUDIT FIX (critique 5.7 / battle-tested): raised from 10000 to 50000 to
+                    // handle Safe, Argent, and EIP-4337 smart accounts in the direct path.
+                    // Pending fallback retained as belt-and-suspenders for non-standard receivers.
+                    (bool ok,) = msg.sender.call{value: share, gas: 50000}("");
                     if (!ok) {
                         pendingETHWithdrawals[msg.sender] += share;
                         totalPendingETH += share;

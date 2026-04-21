@@ -159,7 +159,7 @@ contract Audit195StakingRewards is Test {
         uint256 acc = staking.rewardPerTokenStored();
 
         // Compute expected: use the actual boostedAmount from the position struct
-        (uint256 posAmount, uint256 posBoostedAmt, int256 posDebt,,,,,, ) = staking.positions(tokenId);
+        (uint256 posAmount, uint256 posBoostedAmt, int256 posDebt,,,,,,,,) = staking.positions(tokenId);
         int256 expected = int256((posBoostedAmt * acc) / ACC_PRECISION);
         assertEq(posDebt, expected, "rewardDebt must match boostedAmount * acc / PRECISION");
     }
@@ -176,7 +176,7 @@ contract Audit195StakingRewards is Test {
         staking.getReward(tokenId);
 
         // After claim, rewardDebt should equal accumulated
-        (,uint256 boostedAmt, int256 debtAfter,,,,,,) = staking.positions(tokenId);
+        (,uint256 boostedAmt, int256 debtAfter,,,,,,,,) = staking.positions(tokenId);
         uint256 acc = staking.rewardPerTokenStored();
         int256 expectedDebt = int256((boostedAmt * acc) / ACC_PRECISION);
         assertEq(debtAfter, expectedDebt, "rewardDebt should be reset after claim");
@@ -434,7 +434,7 @@ contract Audit195StakingRewards is Test {
         vm.prank(bob); staking.toggleAutoMaxLock(tokenId);
 
         // After toggle, rewardDebt should match new boostedAmount * current acc
-        (uint256 amount, uint256 boostedAmt, int256 debt,,,,,,) = staking.positions(tokenId);
+        (uint256 amount, uint256 boostedAmt, int256 debt,,,,,,,,) = staking.positions(tokenId);
         uint256 acc = staking.rewardPerTokenStored();
         int256 expectedDebt = int256((boostedAmt * acc) / ACC_PRECISION);
         assertEq(debt, expectedDebt, "rewardDebt must reset to new boostedAmt * acc");
@@ -444,43 +444,20 @@ contract Audit195StakingRewards is Test {
     // 7. revalidateBoost DEBT RESET
     // =========================================================================
 
-    /// @notice revalidateBoost should claim rewards, recalculate boost, reset debt when
-    ///         the user's JBAC status actually changed since stake.
-    /// @dev Post audit-fix M-01 the JBAC boost is applied at stake time, so calling
-    ///      revalidateBoost on a user whose JBAC status hasn't changed is correctly a
-    ///      no-op (gas-optimal) — see test_revalidateBoost_noopWhenUnchanged for that
-    ///      path. This test exercises the real state-change branch: alice stakes with
-    ///      JBAC, then transfers her JBAC away, so revalidate observes the delta, emits
-    ///      the claim, and resets the debt.
+    /// @dev AUDIT H-1 (2026-04-20): stake() no longer grants JBAC boost. The test now
+    ///      asserts that revalidateBoost is a no-op for a non-deposit stake() position.
     function test_revalidateBoost_claimsAndResetsDebt() public {
-        // Alice starts with JBAC (minted in setUp) — boost applied at stake time.
         vm.prank(alice); staking.stake(10000 ether, 365 days);
         uint256 tokenId = staking.userTokenId(alice);
-        (,,,,,,, bool hasJbac,) = staking.positions(tokenId);
-        assertTrue(hasJbac, "JBAC boost applied at stake time");
+        (,,,,,,, bool hasJbac,,,) = staking.positions(tokenId);
+        assertFalse(hasJbac, "H-1: stake() does not grant JBAC boost");
 
-        // Alice transfers her JBAC away — now the real revalidate path has work to do.
-        vm.prank(alice); nft.transferFrom(alice, bob, 1);
-
-        // Advance time so there are pending rewards to claim on revalidate.
         vm.warp(block.timestamp + 100);
 
         uint256 aliceBefore = token.balanceOf(alice);
         vm.prank(alice); staking.revalidateBoost(tokenId);
         uint256 aliceClaimed = token.balanceOf(alice) - aliceBefore;
-
-        // Should have claimed pending rewards (alice is sole staker for 100s at 1 TOWELI/s).
-        assertGt(aliceClaimed, 0, "Should claim on revalidate when JBAC status changed");
-
-        // JBAC boost should now be cleared (alice no longer holds).
-        (,,,,,,, bool hasJbacAfter,) = staking.positions(tokenId);
-        assertFalse(hasJbacAfter, "Should no longer have JBAC boost after transfer");
-
-        // Debt should be reset to new boostedAmount * acc
-        (,uint256 boostedAmt, int256 debt,,,,,,) = staking.positions(tokenId);
-        uint256 acc = staking.rewardPerTokenStored();
-        int256 expectedDebt = int256((boostedAmt * acc) / ACC_PRECISION);
-        assertEq(debt, expectedDebt, "Debt must be reset after revalidateBoost");
+        assertEq(aliceClaimed, 0, "H-1: revalidate is no-op, no claim");
     }
 
     /// @notice revalidateBoost should not change anything if JBAC status unchanged
@@ -491,7 +468,7 @@ contract Audit195StakingRewards is Test {
         vm.warp(block.timestamp + 100);
 
         // Bob doesn't have JBAC, and hasJbacBoost is false — no change needed
-        (,uint256 boostedBefore, int256 debtBefore,,,,,,) = staking.positions(tokenId);
+        (,uint256 boostedBefore, int256 debtBefore,,,,,,,,) = staking.positions(tokenId);
 
         uint256 bobBefore = token.balanceOf(bob);
         vm.prank(bob); staking.revalidateBoost(tokenId);
@@ -501,35 +478,23 @@ contract Audit195StakingRewards is Test {
         assertEq(bobAfter, bobBefore, "No claim when boost status unchanged");
 
         // boostedAmount and debt should remain the same
-        (,uint256 boostedAfter, int256 debtAfter,,,,,,) = staking.positions(tokenId);
+        (,uint256 boostedAfter, int256 debtAfter,,,,,,,,) = staking.positions(tokenId);
         assertEq(boostedAfter, boostedBefore, "boostedAmount unchanged");
         assertEq(debtAfter, debtBefore, "debt unchanged when no boost change");
     }
 
-    /// @notice revalidateBoost: removing JBAC (transferred away) should reduce boost
+    /// @dev AUDIT H-1 (2026-04-20): revalidateBoost is no-op for stake() positions. The
+    ///      downgrade path is only reachable for legacy-grandfathered positions, which are
+    ///      not produced by the current code paths. Kept as trip-wire.
     function test_revalidateBoost_removesJbacBoost() public {
-        // Alice has JBAC, stakes
         vm.startPrank(alice);
         staking.stake(10000 ether, 365 days);
         uint256 tokenId = staking.userTokenId(alice);
-
-        // First revalidate to add JBAC boost (same tx is fine, no rewards expected)
-        staking.revalidateBoost(tokenId);
+        staking.revalidateBoost(tokenId); // no-op
         vm.stopPrank();
 
-        (,uint256 boostedWith,,,,,,bool hasJbac,) = staking.positions(tokenId);
-        assertTrue(hasJbac, "Should have JBAC boost");
-
-        // Alice transfers JBAC NFT away
-        vm.prank(alice); nft.transferFrom(alice, dan, 1);
-
-        vm.warp(block.timestamp + 100);
-
-        // Revalidate — should remove JBAC boost
-        vm.prank(alice); staking.revalidateBoost(tokenId);
-        (,uint256 boostedWithout,,,,,,bool hasJbacAfter,) = staking.positions(tokenId);
-        assertFalse(hasJbacAfter, "JBAC boost should be removed");
-        assertLt(boostedWithout, boostedWith, "boostedAmount should decrease");
+        (,,,,,,,bool hasJbac,,,) = staking.positions(tokenId);
+        assertFalse(hasJbac, "H-1: stake() does not grant JBAC boost");
     }
 
     // =========================================================================
@@ -680,7 +645,7 @@ contract Audit195StakingRewards is Test {
         vm.prank(alice); staking.transferFrom(alice, bob, tokenId);
 
         // New owner's rewardDebt should be set to current accumulated
-        (,uint256 boostedAmt, int256 debt,,,,,,) = staking.positions(tokenId);
+        (,uint256 boostedAmt, int256 debt,,,,,,,,) = staking.positions(tokenId);
         uint256 acc = staking.rewardPerTokenStored();
         int256 expected = int256((boostedAmt * acc) / ACC_PRECISION);
         assertEq(debt, expected, "New owner debt should be reset on transfer");
@@ -742,7 +707,7 @@ contract Audit195StakingRewards is Test {
         assertGt(claimed, 0, "Should claim on extendLock");
 
         // Debt should match new boosted * acc
-        (,uint256 boostedAmt, int256 debt,,,,,,) = staking.positions(tokenId);
+        (,uint256 boostedAmt, int256 debt,,,,,,,,) = staking.positions(tokenId);
         uint256 acc = staking.rewardPerTokenStored();
         int256 expected = int256((boostedAmt * acc) / ACC_PRECISION);
         assertEq(debt, expected, "Debt must be reset after extendLock");

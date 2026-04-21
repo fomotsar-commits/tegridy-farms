@@ -54,6 +54,7 @@ interface Offer {
   duration: bigint;
   collateralContract: string;
   minPositionValue: bigint;
+  minPositionETHValue: bigint;
   active: boolean;
 }
 
@@ -650,6 +651,9 @@ function LendTab({ deployed }: { deployed: boolean }) {
   const [aprBps, setAprBps] = useState('');
   const [durationDays, setDurationDays] = useState(30);
   const [minCollateral, setMinCollateral] = useState('');
+  // AUDIT critique 5.4: optional ETH-denominated collateral floor. Empty or '0' leaves
+  // the check disabled — the contract treats zero as a no-op.
+  const [minCollateralETH, setMinCollateralETH] = useState('');
 
   const { writeContract, data: txHash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
@@ -660,6 +664,7 @@ function LendTab({ deployed }: { deployed: boolean }) {
       setPrincipal('');
       setAprBps('');
       setMinCollateral('');
+      setMinCollateralETH('');
     }
   }, [isSuccess]);
 
@@ -700,12 +705,14 @@ function LendTab({ deployed }: { deployed: boolean }) {
         BigInt(durationDays * 86400),
         TEGRIDY_STAKING_ADDRESS as Address,
         parseEther(minCollateral),
+        // Optional ETH floor (AUDIT critique 5.4) — 0 means the check is skipped.
+        parseEther(minCollateralETH || '0'),
       ],
       value: principalWei,
     }, {
       onError: (err) => toast.error(err.message?.slice(0, 120) ?? 'Transaction failed'),
     });
-  }, [principal, aprBps, durationDays, minCollateral, writeContract, deployed]);
+  }, [principal, aprBps, durationDays, minCollateral, minCollateralETH, writeContract, deployed]);
 
   const loading = isPending || isConfirming;
 
@@ -790,11 +797,11 @@ function LendTab({ deployed }: { deployed: boolean }) {
           />
         </div>
 
-        {/* Min Collateral */}
+        {/* Min Collateral (TOWELI amount floor) */}
         <div>
           <label className="text-[11px] uppercase tracking-wider label-pill text-white mb-1.5 flex items-center gap-1.5">
-            Min Collateral Value (ETH)
-            <InfoTooltip text="Minimum ETH value of the staking position you'll accept as collateral. Higher values mean safer loans with lower LTV ratios." />
+            Min Collateral (TOWELI)
+            <InfoTooltip text="Minimum staked TOWELI amount inside the collateral NFT. Borrower's position amount must be at least this much." />
           </label>
           <input
             type="number"
@@ -802,6 +809,24 @@ function LendTab({ deployed }: { deployed: boolean }) {
             value={minCollateral}
             onChange={(e) => setMinCollateral(e.target.value)}
             placeholder="0.0"
+            min="0"
+            step="0.01"
+            className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-0 py-2.5 border-b border-white/10 focus:border-purple-400/40 transition-colors duration-300"
+          />
+        </div>
+
+        {/* Min Collateral ETH value (optional — AUDIT critique 5.4) */}
+        <div>
+          <label className="text-[11px] uppercase tracking-wider label-pill text-white mb-1.5 flex items-center gap-1.5">
+            Min Collateral ETH Value (optional)
+            <InfoTooltip text="Protects against TOWELI price drops. The borrower's position, valued at the current TOWELI/ETH pair price, must be worth at least this much ETH. Leave 0 to disable." />
+          </label>
+          <input
+            type="number"
+            inputMode="decimal"
+            value={minCollateralETH}
+            onChange={(e) => setMinCollateralETH(e.target.value)}
+            placeholder="0 (disabled)"
             min="0"
             step="0.01"
             className="w-full bg-transparent font-mono text-[16px] text-white outline-none px-0 py-2.5 border-b border-white/10 focus:border-purple-400/40 transition-colors duration-300"
@@ -970,7 +995,12 @@ function OfferRow({
       </td>
       <td className="py-3 pr-4 text-white text-sm">{daysFromSeconds(offer.duration)}d</td>
       <td className="py-3 pr-4 font-mono text-white text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
-        {formatTokenAmount(formatEther(offer.minPositionValue))} ETH
+        <div>{formatTokenAmount(formatEther(offer.minPositionValue))} TOWELI</div>
+        {offer.minPositionETHValue > 0n && (
+          <div className="text-[10px] text-white/70 mt-0.5">
+            + {formatTokenAmount(formatEther(offer.minPositionETHValue))} ETH floor
+          </div>
+        )}
       </td>
       <td className="py-3 pr-4 font-mono text-white text-sm">{shortenAddress(offer.lender)}</td>
       <td className="py-3 text-sm">
@@ -1027,8 +1057,13 @@ function OfferRow({
             <div>
               <span className="text-[10px] uppercase tracking-wider label-pill text-white">Min Collateral</span>
               <div className="font-mono text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                {formatTokenAmount(formatEther(offer.minPositionValue))} ETH
+                {formatTokenAmount(formatEther(offer.minPositionValue))} TOWELI
               </div>
+              {offer.minPositionETHValue > 0n && (
+                <div className="font-mono text-white/70 text-[10px] mt-0.5" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  + {formatTokenAmount(formatEther(offer.minPositionETHValue))} ETH floor
+                </div>
+              )}
             </div>
           </div>
           <div className="mt-1 font-mono text-[10px] text-white">{shortenAddress(offer.lender)}</div>
@@ -1659,7 +1694,8 @@ function useAllOffers() {
     for (let i = 0; i < offerResults.length; i++) {
       const result = offerResults[i]!;
       if (result.status !== 'success' || !result.result) continue;
-      const o = result.result as readonly [string, bigint, bigint, bigint, string, bigint, boolean];
+      // AUDIT critique 5.4: `minPositionETHValue` is the 7th field (index 6) — 0 = disabled.
+      const o = result.result as readonly [string, bigint, bigint, bigint, string, bigint, bigint, boolean];
       parsed.push({
         id: i,
         lender: o[0],
@@ -1668,7 +1704,8 @@ function useAllOffers() {
         duration: o[3],
         collateralContract: o[4],
         minPositionValue: o[5],
-        active: o[6],
+        minPositionETHValue: o[6],
+        active: o[7],
       });
     }
     return parsed;

@@ -20,8 +20,8 @@ This runbook is the authoritative deploy plan for shipping the audit-remediation
 | TegridyNFTPoolFactory | HIGH (CREATE2 cloneDeterministic) | unchanged | Redeploy; pool address scheme changes |
 | TegridyNFTPool | MEDIUM (delta cap 100→10 ETH) | unchanged | Redeploy |
 | TegridyRestaking | HIGH (unsettled-delta race fix, principal-reservation in recoverStuckPrincipal) | **new field in RestakeInfo** | Redeploy (fresh restakers table) |
-| TegridyLaunchpad | MEDIUM (fee cap 100% → 10%) | unchanged | Redeploy |
-| TegridyDrop | HIGH (Dutch auction precision, Merkle leaf domain separator) | unchanged | Redeploy; re-issue Merkle trees with new leaf format |
+| ~~TegridyLaunchpad~~ | ~~MEDIUM (fee cap 100% → 10%)~~ | ~~unchanged~~ | **RETIRED 2026-04-19** — V1 source deleted, patched fixes carried forward in `TegridyLaunchpadV2`. |
+| ~~TegridyDrop~~ | ~~HIGH (Dutch auction precision, Merkle leaf domain separator)~~ | ~~unchanged~~ | **RETIRED 2026-04-19** — V1 source deleted. `TegridyDropV2` already applies the Merkle leaf domain separator + Dutch auction precision fixes. Re-issue Merkle trees with the new leaf format when deploying V2 drops. |
 | TegridyRouter | LOW (natspec-only + MAX_DEADLINE 30m→2h) | unchanged | Redeploy |
 | SwapFeeRouter | MEDIUM (MAX_DEADLINE 30m→2h, isPremiumAccessHealthy view) | unchanged | Redeploy |
 | GaugeController | CRITICAL (epoch-0 vote collision bug fix), HIGH (TF-04 epoch-snapshot voting) | **new mapping added** | Redeploy |
@@ -68,7 +68,7 @@ Contracts must be deployed in this order because later contracts reference earli
 4. TegridyLending              (reads TegridyStaking)
 5. TegridyNFTLending           (standalone)
 6. TegridyNFTPool + Factory    (redeploy pair; Pool implementation → Factory)
-7. TegridyLaunchpad + Drop     (Drop template → Launchpad)
+7. TegridyLaunchpadV2 + DropV2 (DropV2 template auto-deployed by V2 factory constructor)
 8. TegridyRouter + SwapFeeRouter (no new deps)
 9. ReferralSplitter            (standalone)
 10. TegridyLPFarming           (reads TegridyStaking via corrected interface)
@@ -111,7 +111,7 @@ The frontend (`frontend/src/lib/constants.ts`) hardcodes contract addresses. Aft
 | `TEGRIDY_LENDING_ADDRESS` | new lending address |
 | `TEGRIDY_NFT_LENDING_ADDRESS` | new NFT lending |
 | `TEGRIDY_NFT_POOL_FACTORY_ADDRESS` | new factory |
-| `TEGRIDY_LAUNCHPAD_ADDRESS` | new launchpad |
+| `TEGRIDY_LAUNCHPAD_V2_ADDRESS` | new launchpad V2 (V1 `TEGRIDY_LAUNCHPAD_ADDRESS` retired 2026-04-19) |
 | `TEGRIDY_ROUTER_ADDRESS` | new router |
 | `SWAP_FEE_ROUTER_ADDRESS` | new SwapFeeRouter |
 | `REFERRAL_SPLITTER_ADDRESS` | new referral |
@@ -119,7 +119,7 @@ The frontend (`frontend/src/lib/constants.ts`) hardcodes contract addresses. Aft
 
 Then run `npm run wagmi:generate` to refresh `src/generated.ts` — without this, wagmi calls will hit the old addresses and silently fail or revert. CI should block merge if `generated.ts` diff is non-empty (audit M-7 follow-up).
 
-Additionally, re-generate any Merkle trees used for TegridyDrop allowlists. The leaf format changed from `keccak256(msg.sender)` to `keccak256(abi.encodePacked(address(this), msg.sender))`. Old proofs will not verify against new drops.
+Additionally, re-generate any Merkle trees used for `TegridyDropV2` allowlists. The leaf format changed from `keccak256(msg.sender)` to `keccak256(abi.encodePacked(address(this), msg.sender))`. Old proofs will not verify against new drops. (V1 `TegridyDrop` source was deleted 2026-04-19; historical V1 clones remain live and use the original leaf format.)
 
 ---
 
@@ -150,7 +150,7 @@ Run through this list before announcing the migration complete.
 - [ ] `TegridyLending.GRACE_PERIOD() == 1 hours`
 - [ ] `TegridyLending.maxPrincipal()` is readable and equal to 1000 ether (state var, not constant)
 - [ ] `TegridyNFTPoolFactory.createPool(...)` with identical args from two different senders produces different pool addresses (CREATE2 salt works)
-- [ ] `TegridyDrop` allowlist mint with a proof generated from the old leaf format reverts with `InvalidProof`
+- [ ] `TegridyDropV2` allowlist mint with a proof generated from the old (V1) leaf format reverts with `InvalidProof`
 - [ ] `GaugeController.vote(tokenId, gauges, weights)` succeeds on epoch 0 (C-01 of batch 6 regression)
 
 ### Frontend integration

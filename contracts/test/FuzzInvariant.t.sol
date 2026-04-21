@@ -68,7 +68,7 @@ contract MockVotingEscrow {
 
     function positions(uint256 tokenId) external view returns (
         uint256 amount, uint256, uint256, uint256 lockEndVal,
-        uint256, bool, int256, uint256, bool
+        uint256, bool, int256, uint256, bool, uint256, bool
     ) {
         address user = address(uint160(tokenId));
         Lock memory l = _locks[user];

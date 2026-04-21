@@ -691,7 +691,7 @@ contract RedTeamCrossContract is Test {
         restaking.restake(aliceTokenId);
 
         // Verify: position data via positions() directly
-        (uint256 lockAmount,,, uint256 lockEnd,,,,,) = staking.positions(aliceTokenId);
+        (uint256 lockAmount,,, uint256 lockEnd,,,,,,,) = staking.positions(aliceTokenId);
         assertEq(lockAmount, 1_000_000 ether, "Should return restaked position amount");
         assertGt(lockEnd, block.timestamp, "Lock should still be active");
 

@@ -25,7 +25,7 @@ Please do NOT open public GitHub issues for security vulnerabilities. Use email 
 - TegridyToken (ERC-20)
 - TegridyLPFarming
 - TegridyNFTLending
-- TegridyDrop
+- TegridyDropV2 (V2 template; V1 `TegridyDrop` source deleted 2026-04-19, live V1 clones remain in scope)
 - GaugeController
 - Governance / voting contracts
 - Any contract address marked "mainnet" in CONTRACTS.md

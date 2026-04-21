@@ -57,8 +57,8 @@ contract DeployLaunchpadV2Script is Script {
         console.log("=== NEXT STEPS ===");
         console.log("1. Multisig: acceptOwnership() on TegridyLaunchpadV2");
         console.log("2. Update frontend/src/lib/constants.ts:");
-        console.log("   - Add TEGRIDY_LAUNCHPAD_V2_ADDRESS");
-        console.log("   - Keep existing TEGRIDY_LAUNCHPAD_ADDRESS (v1) for back-compat");
+        console.log("   - Set TEGRIDY_LAUNCHPAD_V2_ADDRESS");
+        console.log("   - (V1 TEGRIDY_LAUNCHPAD_ADDRESS was retired 2026-04-19)");
         console.log("3. Update frontend/wagmi.config.ts with v2 ABI + address");
         console.log("4. Regenerate: cd frontend && npm run wagmi:generate");
         console.log("5. Verify on Etherscan:");

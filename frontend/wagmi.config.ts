@@ -14,7 +14,6 @@ import {
   VOTE_INCENTIVES_ABI,
   LP_FARMING_ABI,
   TEGRIDY_LENDING_ABI,
-  TEGRIDY_LAUNCHPAD_ABI,
   TEGRIDY_LAUNCHPAD_V2_ABI,
   TEGRIDY_DROP_V2_ABI,
   TEGRIDY_NFT_POOL_FACTORY_ABI,
@@ -35,7 +34,6 @@ import {
   VOTE_INCENTIVES_ADDRESS,
   LP_FARMING_ADDRESS,
   TEGRIDY_LENDING_ADDRESS,
-  TEGRIDY_LAUNCHPAD_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_NFT_LENDING_ADDRESS,
@@ -61,7 +59,6 @@ export default defineConfig({
     { name: 'VoteIncentives', abi: VOTE_INCENTIVES_ABI, address: VOTE_INCENTIVES_ADDRESS },
     { name: 'LPFarming', abi: LP_FARMING_ABI, address: LP_FARMING_ADDRESS },
     { name: 'TegridyLending', abi: TEGRIDY_LENDING_ABI, address: TEGRIDY_LENDING_ADDRESS },
-    { name: 'TegridyLaunchpad', abi: TEGRIDY_LAUNCHPAD_ABI, address: TEGRIDY_LAUNCHPAD_ADDRESS },
     { name: 'TegridyLaunchpadV2', abi: TEGRIDY_LAUNCHPAD_V2_ABI, address: TEGRIDY_LAUNCHPAD_V2_ADDRESS },
     // V2 Drop is a per-clone contract — no single address, each deployed collection
     // has its own. Wagmi generates typed read/write hooks from the ABI alone.

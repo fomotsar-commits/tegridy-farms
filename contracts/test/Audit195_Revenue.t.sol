@@ -79,7 +79,7 @@ contract MockVE195 {
     function positions(uint256 tokenId) external view returns (
         uint256 amount, uint256 boostedAmount, uint256 boostBps, uint256 lockEnd,
         uint256 lockDuration, bool autoMaxLock, int256 rewardDebt, uint256 lastStakeTime,
-        bool jbacBoosted
+        bool jbacBoosted, uint256 jbacTokenId, bool jbacDeposited
     ) {
         // Find user by tokenId (reverse lookup)
         // For simplicity in mock, we iterate; tests have few users
@@ -90,7 +90,7 @@ contract MockVE195 {
     function _positionsForTokenId(uint256 tokenId) internal view returns (
         uint256 amount, uint256 boostedAmount, uint256 boostBps, uint256 lockEnd,
         uint256 lockDuration, bool autoMaxLock, int256 rewardDebt, uint256 lastStakeTime,
-        bool jbacBoosted
+        bool jbacBoosted, uint256 jbacTokenId, bool jbacDeposited
     ) {
         address user = tokenIdToUser[tokenId];
         amount = lockedAmounts[user];
@@ -102,6 +102,8 @@ contract MockVE195 {
         rewardDebt = 0;
         lastStakeTime = 0;
         jbacBoosted = false;
+        jbacTokenId = 0;
+        jbacDeposited = false;
     }
 
     function setShouldRevert(bool _val) external { shouldRevert = _val; }

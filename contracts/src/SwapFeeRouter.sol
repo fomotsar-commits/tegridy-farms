@@ -16,6 +16,29 @@ interface IUniswapV2Router02 {
         external returns (uint256[] memory amounts);
     function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] calldata path, address to, uint256 deadline)
         external returns (uint256[] memory amounts);
+    // AUDIT M-6: Fee-on-transfer variants. Mirrors Uniswap V2 Router02 signatures exactly.
+    // These return no amounts array — the canonical Uniswap impl relies on balance deltas
+    // measured by the caller. We do the same in the wrapper below.
+    function swapExactETHForTokensSupportingFeeOnTransferTokens(
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external payable;
+    function swapExactTokensForETHSupportingFeeOnTransferTokens(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external;
+    function swapExactTokensForTokensSupportingFeeOnTransferTokens(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external;
     function WETH() external pure returns (address);
 }
 
@@ -416,6 +439,185 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         emit SwapExecuted(msg.sender, path[0], path[path.length - 1], amountIn, fee);
     }
 
+    // ─── Fee-on-Transfer Swap Variants (AUDIT M-6) ────────────────────
+    //
+    // These mirror Uniswap V2 Router02's *SupportingFeeOnTransferTokens helpers so users can
+    // trade tokens with internal transfer fees (rebase / reflection / deflationary tokens).
+    //
+    // Pattern: pull input -> measure balance delta -> approve router -> have the router send
+    // output back to THIS contract -> measure output delta -> take protocol fee from the
+    // output side -> forward net to `to`.
+    //
+    // Why output-side fee on the FoT variants:
+    //   With FoT input tokens, a fee on the input side gets hit twice by the FoT transfer
+    //   (once when the user transfers in, again when we transfer to the router) which is both
+    //   lossy and hard to account for. Taking the fee from the output delta is cleaner and
+    //   avoids the critique 5.8 double-accounting concern. NOTE: this is an intentional
+    //   asymmetry with the legacy non-FoT variants above, which keep their existing input-side
+    //   (for token->token) or output-side (for token->ETH) fee treatment. Do NOT unify without
+    //   a dedicated migration — that would change fee accounting mid-flight for all users.
+
+    /// @notice ETH -> FoT token swap with protocol fee deducted from output tokens.
+    /// @dev    Calls router.swapExactETHForTokensSupportingFeeOnTransferTokens with amountOutMin=0
+    ///         internally; our own slippage check compares (received - fee) >= amountOutMin.
+    function swapExactETHForTokensSupportingFeeOnTransferTokens(
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline,
+        uint256 maxFeeBps
+    ) external payable nonReentrant whenNotPaused {
+        if (msg.value == 0) revert ZeroAmount();
+        uint256 effectiveFee = _getEffectiveFeeBps(path[0], msg.sender);
+        if (effectiveFee > maxFeeBps) revert FeeExceedsMax();
+        if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
+        if (path.length < 2 || path.length > 10) revert InvalidPath();
+        if (path[0] != router.WETH()) revert PathStartMismatch();
+        _validateNoDuplicates(path);
+        if (to == address(0) || to == address(this)) revert InvalidRecipient();
+
+        address outToken = path[path.length - 1];
+
+        // Route output to THIS contract so we can measure the actual received amount
+        // after the FoT token's internal transfer hook and take the protocol fee from it.
+        uint256 balBefore = IERC20(outToken).balanceOf(address(this));
+        router.swapExactETHForTokensSupportingFeeOnTransferTokens{value: msg.value}(
+            0, path, address(this), deadline
+        );
+        uint256 received = IERC20(outToken).balanceOf(address(this)) - balBefore;
+
+        uint256 fee = (received * effectiveFee) / BPS;
+        if (fee == 0 && effectiveFee > 0) fee = 1;
+        uint256 userAmount = received - fee;
+
+        // Slippage check on the post-fee user amount (Uniswap's internal check was disabled
+        // by passing 0 above; we do the real check here with full knowledge of fee + FoT haircut).
+        if (userAmount < amountOutMin) revert SlippageExceeded();
+
+        if (fee > 0) {
+            // AUDIT M-6: book the fee on the OUTPUT token — that's what accumulated in this
+            // contract. Using path[0] (WETH) here would misaccount against WETH balances the
+            // contract never received, which was critique 5.8's concern.
+            accumulatedTokenFees[outToken] += fee;
+            totalTokenFees[outToken] += fee;
+        }
+
+        // Forward the user's share. Uses safeTransfer — outToken may apply its own
+        // FoT haircut again here; the user receives the post-haircut amount which is
+        // the expected behaviour for FoT tokens. (Uniswap's own Router02 has the same
+        // observable behaviour.)
+        IERC20(outToken).safeTransfer(to, userAmount);
+
+        emit SwapExecuted(msg.sender, address(0), outToken, msg.value, fee);
+    }
+
+    /// @notice FoT token -> ETH swap with protocol fee deducted from output ETH.
+    /// @dev    Pulls input, measures the actual-received delta (so FoT input is handled
+    ///         correctly), has the router send unwrapped ETH back to us, takes fee in ETH,
+    ///         forwards the remainder via WETHFallbackLib.
+    function swapExactTokensForETHSupportingFeeOnTransferTokens(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline,
+        uint256 maxFeeBps
+    ) external nonReentrant whenNotPaused {
+        if (amountIn == 0) revert ZeroAmount();
+        uint256 effectiveFee = _getEffectiveFeeBps(path[0], msg.sender);
+        if (effectiveFee > maxFeeBps) revert FeeExceedsMax();
+        if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
+        if (path.length < 2 || path.length > 10) revert InvalidPath();
+        if (path[path.length - 1] != router.WETH()) revert PathEndMismatch();
+        _validateNoDuplicates(path);
+        if (to == address(0) || to == address(this)) revert InvalidRecipient();
+
+        // Pull input, measure balance delta to handle FoT input tokens correctly.
+        uint256 tokenBalBefore = IERC20(path[0]).balanceOf(address(this));
+        IERC20(path[0]).safeTransferFrom(msg.sender, address(this), amountIn);
+        uint256 actualReceived = IERC20(path[0]).balanceOf(address(this)) - tokenBalBefore;
+        IERC20(path[0]).forceApprove(address(router), actualReceived);
+
+        uint256 ethBefore = address(this).balance;
+        router.swapExactTokensForETHSupportingFeeOnTransferTokens(
+            actualReceived, 0, path, address(this), deadline
+        );
+        uint256 ethReceived = address(this).balance - ethBefore;
+
+        IERC20(path[0]).forceApprove(address(router), 0);
+
+        uint256 fee = (ethReceived * effectiveFee) / BPS;
+        if (fee == 0 && effectiveFee > 0) fee = 1;
+        uint256 userAmount = ethReceived - fee;
+
+        if (userAmount < amountOutMin) revert SlippageExceeded();
+
+        if (fee > 0) {
+            totalETHFees += fee;
+            if (!_recordReferralFee(msg.sender, fee)) {
+                accumulatedETHFees += fee;
+            }
+        }
+
+        // Safe ETH transfer with WETH fallback for contract recipients.
+        WETHFallbackLib.safeTransferETHOrWrap(WETH, to, userAmount);
+
+        emit SwapExecuted(msg.sender, path[0], address(0), amountIn, fee);
+    }
+
+    /// @notice FoT token -> FoT token (or any token) swap with protocol fee deducted from output.
+    /// @dev    Routes output to this contract so we can meter the received delta, take fee,
+    ///         then forward remainder to `to`.
+    function swapExactTokensForTokensSupportingFeeOnTransferTokens(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline,
+        uint256 maxFeeBps
+    ) external nonReentrant whenNotPaused {
+        if (amountIn == 0) revert ZeroAmount();
+        uint256 effectiveFee = _getEffectiveFeeBps(path[0], msg.sender);
+        if (effectiveFee > maxFeeBps) revert FeeExceedsMax();
+        if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
+        if (path.length < 2 || path.length > 10) revert InvalidPath();
+        _validateNoDuplicates(path);
+        if (to == address(0) || to == address(this)) revert InvalidRecipient();
+
+        address outToken = path[path.length - 1];
+
+        // Pull input, measure delta (handles FoT on the input side).
+        uint256 inBalBefore = IERC20(path[0]).balanceOf(address(this));
+        IERC20(path[0]).safeTransferFrom(msg.sender, address(this), amountIn);
+        uint256 actualReceived = IERC20(path[0]).balanceOf(address(this)) - inBalBefore;
+        IERC20(path[0]).forceApprove(address(router), actualReceived);
+
+        // Route output to this contract so we can measure the delta after any FoT
+        // hooks fire along the swap path.
+        uint256 outBalBefore = IERC20(outToken).balanceOf(address(this));
+        router.swapExactTokensForTokensSupportingFeeOnTransferTokens(
+            actualReceived, 0, path, address(this), deadline
+        );
+        uint256 received = IERC20(outToken).balanceOf(address(this)) - outBalBefore;
+
+        IERC20(path[0]).forceApprove(address(router), 0);
+
+        uint256 fee = (received * effectiveFee) / BPS;
+        if (fee == 0 && effectiveFee > 0) fee = 1;
+        uint256 userAmount = received - fee;
+
+        if (userAmount < amountOutMin) revert SlippageExceeded();
+
+        if (fee > 0) {
+            accumulatedTokenFees[outToken] += fee;
+            totalTokenFees[outToken] += fee;
+        }
+
+        IERC20(outToken).safeTransfer(to, userAmount);
+
+        emit SwapExecuted(msg.sender, path[0], outToken, amountIn, fee);
+    }
+
     // ─── Deprecated Stubs (revert with helpful error) ─────────────
     function setFee(uint256) external pure { revert UseProposeFeeChange(); }
     function setTreasury(address) external pure { revert UseProposeTreasuryChange(); }
@@ -613,10 +815,15 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         uint256 polAmount = (amount * polShareBps) / BPS;
         uint256 treasuryAmount = amount - stakerAmount - polAmount;
 
-        // Staker path: direct .call{} preserves the existing behaviour / gas profile
-        // that RevenueDistributor expects (it's the receiver for the ETH deposit).
+        // AUDIT FIX M-4 (battle-tested): bound the gas forwarded to protocol-internal
+        // destinations at 50_000. Unlimited `.call{}` gas widened the cross-contract
+        // reentrancy surface for no benefit — both RevenueDistributor.receive() and
+        // POLAccumulator.receive() are minimal (event emission) and fit comfortably under
+        // 50k. Full WETHFallbackLib would switch to a 10k ETH stipend + WETH wrap, but a
+        // WETH wrap on RevenueDistributor would strand the slice (distribute() reads
+        // address(this).balance), so the middle-ground 50k stipend is the correct choice.
         if (stakerAmount > 0) {
-            (bool okStaker,) = revenueDistributor.call{value: stakerAmount}("");
+            (bool okStaker,) = revenueDistributor.call{value: stakerAmount, gas: 50_000}("");
             require(okStaker, "STAKER_TRANSFER_FAILED");
         }
 
@@ -626,7 +833,7 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         // forgetting to set the address.
         if (polAmount > 0) {
             if (polAccumulator != address(0)) {
-                (bool okPol,) = polAccumulator.call{value: polAmount}("");
+                (bool okPol,) = polAccumulator.call{value: polAmount, gas: 50_000}("");
                 require(okPol, "POL_TRANSFER_FAILED");
             } else {
                 treasuryAmount += polAmount;
@@ -738,16 +945,11 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
 
     // ─── Admin: Fee Withdrawal ───────────────────────────────────────
 
-    /// @notice Pull-pattern fee withdrawal to treasury
-    /// SECURITY FIX H6: Use WETHFallbackLib to prevent ETH getting permanently stuck
-    /// if treasury is a contract that can't receive ETH (same pattern used in swapExactTokensForETH)
-    function withdrawFees() external onlyOwner nonReentrant {
-        uint256 amount = accumulatedETHFees;
-        if (amount == 0) revert ZeroAmount();
-        accumulatedETHFees = 0;
-        WETHFallbackLib.safeTransferETHOrWrap(WETH, treasury, amount);
-        emit FeesWithdrawn(treasury, amount);
-    }
+    // AUDIT H-3 (battle-tested fix): withdrawFees() removed. Previously it bypassed the
+    // MIN_STAKER_SHARE_BPS guardrail (enforced only at propose-time), allowing the owner to
+    // redirect 100% of accumulated fees to treasury regardless of the governance-set split.
+    // All fee outflow now routes through distributeFeesToStakers(), which applies the
+    // timelocked staker/POL/treasury split atomically.
 
     /// @notice Sweep any stuck ETH to treasury (non-fee dust)
     /// SECURITY FIX H6: Use WETHFallbackLib for same reason

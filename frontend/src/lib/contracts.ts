@@ -149,6 +149,10 @@ export const SWAP_FEE_ROUTER_ABI = [
   { type: 'function', name: 'swapExactETHForTokens', inputs: [{ name: 'amountOutMin', type: 'uint256' }, { name: 'path', type: 'address[]' }, { name: 'to', type: 'address' }, { name: 'deadline', type: 'uint256' }, { name: 'maxFeeBps', type: 'uint256' }], outputs: [{ name: 'amounts', type: 'uint256[]' }], stateMutability: 'payable' },
   { type: 'function', name: 'swapExactTokensForETH', inputs: [{ name: 'amountIn', type: 'uint256' }, { name: 'amountOutMin', type: 'uint256' }, { name: 'path', type: 'address[]' }, { name: 'to', type: 'address' }, { name: 'deadline', type: 'uint256' }, { name: 'maxFeeBps', type: 'uint256' }], outputs: [{ name: 'amounts', type: 'uint256[]' }], stateMutability: 'nonpayable' },
   { type: 'function', name: 'swapExactTokensForTokens', inputs: [{ name: 'amountIn', type: 'uint256' }, { name: 'amountOutMin', type: 'uint256' }, { name: 'path', type: 'address[]' }, { name: 'to', type: 'address' }, { name: 'deadline', type: 'uint256' }, { name: 'maxFeeBps', type: 'uint256' }], outputs: [{ name: 'amounts', type: 'uint256[]' }], stateMutability: 'nonpayable' },
+  // AUDIT M-6: Fee-on-transfer variants. No outputs (mirror Uniswap V2 Router02 behaviour).
+  { type: 'function', name: 'swapExactETHForTokensSupportingFeeOnTransferTokens', inputs: [{ name: 'amountOutMin', type: 'uint256' }, { name: 'path', type: 'address[]' }, { name: 'to', type: 'address' }, { name: 'deadline', type: 'uint256' }, { name: 'maxFeeBps', type: 'uint256' }], outputs: [], stateMutability: 'payable' },
+  { type: 'function', name: 'swapExactTokensForETHSupportingFeeOnTransferTokens', inputs: [{ name: 'amountIn', type: 'uint256' }, { name: 'amountOutMin', type: 'uint256' }, { name: 'path', type: 'address[]' }, { name: 'to', type: 'address' }, { name: 'deadline', type: 'uint256' }, { name: 'maxFeeBps', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'swapExactTokensForTokensSupportingFeeOnTransferTokens', inputs: [{ name: 'amountIn', type: 'uint256' }, { name: 'amountOutMin', type: 'uint256' }, { name: 'path', type: 'address[]' }, { name: 'to', type: 'address' }, { name: 'deadline', type: 'uint256' }, { name: 'maxFeeBps', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'feeBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalETHFees', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalSwaps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
@@ -305,12 +309,12 @@ export const lpFarmingConfig = {
 
 // ─── TegridyLending (P2P NFT-Collateralized Lending) ───────────
 export const TEGRIDY_LENDING_ABI = [
-  { type: 'function', name: 'createLoanOffer', inputs: [{ name: '_aprBps', type: 'uint256' }, { name: '_duration', type: 'uint256' }, { name: '_collateralContract', type: 'address' }, { name: '_minPositionValue', type: 'uint256' }], outputs: [{ name: 'offerId', type: 'uint256' }], stateMutability: 'payable' },
+  { type: 'function', name: 'createLoanOffer', inputs: [{ name: '_aprBps', type: 'uint256' }, { name: '_duration', type: 'uint256' }, { name: '_collateralContract', type: 'address' }, { name: '_minPositionValue', type: 'uint256' }, { name: '_minPositionETHValue', type: 'uint256' }], outputs: [{ name: 'offerId', type: 'uint256' }], stateMutability: 'payable' },
   { type: 'function', name: 'cancelOffer', inputs: [{ name: '_offerId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'acceptOffer', inputs: [{ name: '_offerId', type: 'uint256' }, { name: '_tokenId', type: 'uint256' }], outputs: [{ name: 'loanId', type: 'uint256' }], stateMutability: 'nonpayable' },
   { type: 'function', name: 'repayLoan', inputs: [{ name: '_loanId', type: 'uint256' }], outputs: [], stateMutability: 'payable' },
   { type: 'function', name: 'claimDefaultedCollateral', inputs: [{ name: '_loanId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'getOffer', inputs: [{ name: '_offerId', type: 'uint256' }], outputs: [{ name: 'lender', type: 'address' }, { name: 'principal', type: 'uint256' }, { name: 'aprBps', type: 'uint256' }, { name: 'duration', type: 'uint256' }, { name: 'collateralContract', type: 'address' }, { name: 'minPositionValue', type: 'uint256' }, { name: 'active', type: 'bool' }], stateMutability: 'view' },
+  { type: 'function', name: 'getOffer', inputs: [{ name: '_offerId', type: 'uint256' }], outputs: [{ name: 'lender', type: 'address' }, { name: 'principal', type: 'uint256' }, { name: 'aprBps', type: 'uint256' }, { name: 'duration', type: 'uint256' }, { name: 'collateralContract', type: 'address' }, { name: 'minPositionValue', type: 'uint256' }, { name: 'minPositionETHValue', type: 'uint256' }, { name: 'active', type: 'bool' }], stateMutability: 'view' },
   { type: 'function', name: 'getLoan', inputs: [{ name: '_loanId', type: 'uint256' }], outputs: [{ name: 'borrower', type: 'address' }, { name: 'lender', type: 'address' }, { name: 'offerId', type: 'uint256' }, { name: 'tokenId', type: 'uint256' }, { name: 'principal', type: 'uint256' }, { name: 'aprBps', type: 'uint256' }, { name: 'startTime', type: 'uint256' }, { name: 'deadline', type: 'uint256' }, { name: 'repaid', type: 'bool' }, { name: 'defaultClaimed', type: 'bool' }], stateMutability: 'view' },
   { type: 'function', name: 'getRepaymentAmount', inputs: [{ name: '_loanId', type: 'uint256' }], outputs: [{ name: 'total', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'isDefaulted', inputs: [{ name: '_loanId', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
@@ -319,17 +323,10 @@ export const TEGRIDY_LENDING_ABI = [
   { type: 'function', name: 'protocolFeeBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
 ] as const;
 
-// ─── TegridyLaunchpad (NFT Collection Factory) ────────────────
-export const TEGRIDY_LAUNCHPAD_ABI = [
-  { type: 'function', name: 'createCollection', inputs: [{ name: '_name', type: 'string' }, { name: '_symbol', type: 'string' }, { name: '_maxSupply', type: 'uint256' }, { name: '_mintPrice', type: 'uint256' }, { name: '_maxPerWallet', type: 'uint256' }, { name: '_royaltyBps', type: 'uint16' }], outputs: [{ name: 'id', type: 'uint256' }, { name: 'collection', type: 'address' }], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'getCollection', inputs: [{ name: 'id', type: 'uint256' }], outputs: [{ name: 'id', type: 'uint256' }, { name: 'collection', type: 'address' }, { name: 'creator', type: 'address' }, { name: 'name', type: 'string' }, { name: 'symbol', type: 'string' }], stateMutability: 'view' },
-  { type: 'function', name: 'getCollectionCount', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-] as const;
-
 // ─── TegridyLaunchpadV2 (Click-Deploy Factory — CollectionConfig struct input) ──
-// Lives alongside v1. Not exclusive — the frontend lists collections from both
-// factories and tags each by origin. v2 fires both the legacy CollectionCreated
-// event and a richer CollectionCreatedV2.
+// V1 TegridyLaunchpad was deleted 2026-04-19. Historical clones created by the V1
+// factory remain live and readable through the V2 Drop ABI (strict superset at the
+// read surface). See docs/MIGRATION_HISTORY.md for address ledger.
 export const TEGRIDY_LAUNCHPAD_V2_ABI = [
   { type: 'function', name: 'createCollection', inputs: [{ name: 'cfg', type: 'tuple', components: [
     { name: 'name', type: 'string' },
@@ -419,28 +416,6 @@ export const TEGRIDY_DROP_V2_ABI = [
   { type: 'function', name: 'tokenURI', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ name: '', type: 'string' }], stateMutability: 'view' },
 ] as const;
 
-// ─── TegridyDrop (NFT Collection Instance) ────────────────────
-export const TEGRIDY_DROP_ABI = [
-  { type: 'function', name: 'mint', inputs: [{ name: 'quantity', type: 'uint256' }, { name: 'proof', type: 'bytes32[]' }], outputs: [], stateMutability: 'payable' },
-  { type: 'function', name: 'currentPrice', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'totalMinted', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'maxSupply', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  // mintPhase is the contract-canonical getter (public MintPhase storage var).
-  // The old `currentPhase` entry was a stale label that reverted on-chain.
-  { type: 'function', name: 'mintPhase', inputs: [], outputs: [{ name: '', type: 'uint8' }], stateMutability: 'view' },
-  { type: 'function', name: 'merkleRoot', inputs: [], outputs: [{ name: '', type: 'bytes32' }], stateMutability: 'view' },
-  { type: 'function', name: 'setMintPhase', inputs: [{ name: 'phase', type: 'uint8' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'setMerkleRoot', inputs: [{ name: 'root', type: 'bytes32' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'reveal', inputs: [{ name: 'revealURI', type: 'string' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'withdraw', inputs: [], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'owner', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
-  { type: 'function', name: 'maxPerWallet', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  // Cancel-sale + refund surface (added with the H10 closure patch).
-  { type: 'function', name: 'cancelSale', inputs: [], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'refund', inputs: [], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'paidPerWallet', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-] as const;
-
 // ─── TegridyNFTPool (Sudoswap-style NFT AMM Pool) ─────────────
 export const TEGRIDY_NFT_POOL_ABI = [
   // ─── Trading (public) ──────────────────────────────────────────
@@ -527,12 +502,12 @@ export const toweliConfig = {
 
 // ─── TegridyNFTLending (P2P NFT Lending) ─────────────────────
 export const TEGRIDY_NFT_LENDING_ABI = [
-  { type: 'function', name: 'createOffer', inputs: [{ name: '_principal', type: 'uint256' }, { name: '_aprBps', type: 'uint256' }, { name: '_duration', type: 'uint256' }, { name: '_collateralContract', type: 'address' }], outputs: [{ name: 'offerId', type: 'uint256' }], stateMutability: 'payable' },
+  { type: 'function', name: 'createOffer', inputs: [{ name: '_principal', type: 'uint256' }, { name: '_aprBps', type: 'uint256' }, { name: '_duration', type: 'uint256' }, { name: '_collateralContract', type: 'address' }, { name: '_tokenId', type: 'uint256' }], outputs: [{ name: 'offerId', type: 'uint256' }], stateMutability: 'payable' },
   { type: 'function', name: 'cancelOffer', inputs: [{ name: '_offerId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'acceptOffer', inputs: [{ name: '_offerId', type: 'uint256' }, { name: '_tokenId', type: 'uint256' }], outputs: [{ name: 'loanId', type: 'uint256' }], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'acceptOffer', inputs: [{ name: '_offerId', type: 'uint256' }], outputs: [{ name: 'loanId', type: 'uint256' }], stateMutability: 'nonpayable' },
   { type: 'function', name: 'repayLoan', inputs: [{ name: '_loanId', type: 'uint256' }], outputs: [], stateMutability: 'payable' },
   { type: 'function', name: 'claimDefault', inputs: [{ name: '_loanId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'getOffer', inputs: [{ name: '_offerId', type: 'uint256' }], outputs: [{ name: 'lender', type: 'address' }, { name: 'principal', type: 'uint256' }, { name: 'aprBps', type: 'uint256' }, { name: 'duration', type: 'uint256' }, { name: 'collateralContract', type: 'address' }, { name: 'active', type: 'bool' }], stateMutability: 'view' },
+  { type: 'function', name: 'getOffer', inputs: [{ name: '_offerId', type: 'uint256' }], outputs: [{ name: 'lender', type: 'address' }, { name: 'principal', type: 'uint256' }, { name: 'aprBps', type: 'uint256' }, { name: 'duration', type: 'uint256' }, { name: 'collateralContract', type: 'address' }, { name: 'tokenId', type: 'uint256' }, { name: 'active', type: 'bool' }], stateMutability: 'view' },
   { type: 'function', name: 'getLoan', inputs: [{ name: '_loanId', type: 'uint256' }], outputs: [{ name: 'borrower', type: 'address' }, { name: 'lender', type: 'address' }, { name: 'offerId', type: 'uint256' }, { name: 'tokenId', type: 'uint256' }, { name: 'collateralContract', type: 'address' }, { name: 'principal', type: 'uint256' }, { name: 'aprBps', type: 'uint256' }, { name: 'startTime', type: 'uint256' }, { name: 'deadline', type: 'uint256' }, { name: 'repaid', type: 'bool' }, { name: 'defaultClaimed', type: 'bool' }], stateMutability: 'view' },
   { type: 'function', name: 'getRepaymentAmount', inputs: [{ name: '_loanId', type: 'uint256' }], outputs: [{ name: 'total', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'offerCount', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },

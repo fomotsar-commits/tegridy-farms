@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
@@ -19,6 +20,13 @@ interface ITegridyStaking {
     );
     function ownerOf(uint256 tokenId) external view returns (address);
     function transferFrom(address from, address to, uint256 tokenId) external;
+}
+
+/// @dev Minimal interface for TegridyPair reserve queries (used by the ETH-floor check).
+interface ITegridyPair {
+    function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
+    function token0() external view returns (address);
+    function token1() external view returns (address);
 }
 
 /// @title TegridyLending — P2P NFT-Collateralized Lending Protocol
@@ -94,6 +102,14 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     // ─── WETH Fallback ──────────────────────────────────────────────
     address public immutable weth; // WETH for fallback payout to revert-on-receive lenders
 
+    // ─── Pair / TOWELI references (ETH-floor oracle) ────────────────
+    // AUDIT critique 5.4: TegridyPair provides the spot reserves used by the optional
+    // ETH-denominated collateral floor (see `_positionETHValue`). The `toweli` address
+    // is snapshotted at construction so `_positionETHValue` knows which reserve slot
+    // represents TOWELI and which represents WETH.
+    address public immutable pair;
+    address public immutable toweli;
+
     // ─── Timelock Delays ─────────────────────────────────────────────
     uint256 public constant PROTOCOL_FEE_TIMELOCK = 48 hours;
     uint256 public constant TREASURY_TIMELOCK = 48 hours;
@@ -107,6 +123,11 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 duration;
         address collateralContract;
         uint256 minPositionValue;
+        /// @notice AUDIT critique 5.4: Optional ETH-denominated collateral floor. When
+        ///         non-zero, `acceptOffer` additionally requires that the position's TOWELI
+        ///         amount valued at the current TegridyPair spot reserves >= this threshold.
+        ///         Zero = disabled (backward-compatible default — no ETH-floor check applied).
+        uint256 minPositionETHValue;
         bool active;
     }
 
@@ -144,7 +165,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 aprBps,
         uint256 duration,
         address collateralContract,
-        uint256 minPositionValue
+        uint256 minPositionValue,
+        uint256 minPositionETHValue
     );
     event LoanOfferCancelled(uint256 indexed offerId, address indexed lender);
     event LoanAccepted(
@@ -228,18 +250,37 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @param _treasury Address to receive protocol fees
     /// @param _protocolFeeBps Initial protocol fee in basis points (applied to interest)
     /// @param _weth Canonical WETH address (e.g., 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 on mainnet)
+    /// @param _pair TegridyPair (TOWELI/WETH) used by the optional ETH-denominated
+    ///              collateral floor in `acceptOffer`. Reserve-slot orientation is resolved
+    ///              at deploy time via `token0()` / `token1()`.
     constructor(
         address _treasury,
         uint256 _protocolFeeBps,
-        address _weth
+        address _weth,
+        address _pair
     ) OwnableNoRenounce(msg.sender) {
         if (_treasury == address(0)) revert ZeroAddress();
         if (_weth == address(0)) revert ZeroAddress();
+        if (_pair == address(0)) revert ZeroAddress();
         if (_protocolFeeBps > MAX_PROTOCOL_FEE_BPS) revert FeeTooHigh();
 
         treasury = _treasury;
         protocolFeeBps = _protocolFeeBps;
         weth = _weth;
+        pair = _pair;
+
+        // Snapshot the TOWELI side of the pair at construction so we don't depend
+        // on an externally passed address later. Whichever slot isn't WETH is TOWELI.
+        address t0 = ITegridyPair(_pair).token0();
+        address t1 = ITegridyPair(_pair).token1();
+        if (t0 == _weth) {
+            toweli = t1;
+        } else if (t1 == _weth) {
+            toweli = t0;
+        } else {
+            // Pair does not contain WETH — misconfiguration.
+            revert ZeroAddress();
+        }
     }
 
     // ─── Loan Offers ─────────────────────────────────────────────────
@@ -248,13 +289,18 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @param _aprBps Annual percentage rate in basis points
     /// @param _duration Loan duration in seconds
     /// @param _collateralContract Address of the TegridyStaking contract (ERC721)
-    /// @param _minPositionValue Minimum staked amount in the NFT position
+    /// @param _minPositionValue Minimum staked TOWELI amount in the NFT position
+    /// @param _minPositionETHValue Optional ETH-denominated collateral floor. Zero disables
+    ///        the check (backward-compatible default); non-zero enforces the floor inside
+    ///        `acceptOffer` using current TegridyPair spot reserves. See `_positionETHValue`
+    ///        for the caveats on spot-reserve reliance.
     /// @return offerId The ID of the created offer
     function createLoanOffer(
         uint256 _aprBps,
         uint256 _duration,
         address _collateralContract,
-        uint256 _minPositionValue
+        uint256 _minPositionValue,
+        uint256 _minPositionETHValue
     ) external payable whenNotPaused returns (uint256 offerId) {
         if (msg.value == 0) revert ZeroPrincipal();
         if (msg.value > maxPrincipal) revert PrincipalTooLarge();
@@ -271,6 +317,7 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             duration: _duration,
             collateralContract: _collateralContract,
             minPositionValue: _minPositionValue,
+            minPositionETHValue: _minPositionETHValue,
             active: true
         }));
 
@@ -281,7 +328,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             _aprBps,
             _duration,
             _collateralContract,
-            _minPositionValue
+            _minPositionValue,
+            _minPositionETHValue
         );
     }
 
@@ -327,11 +375,20 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 duration = offer.duration;
         address collateralContract = offer.collateralContract;
         uint256 minPositionValue = offer.minPositionValue;
+        uint256 minPositionETHValue = offer.minPositionETHValue;
 
         // Validate collateral: check position value meets minimum
         ITegridyStaking staking = ITegridyStaking(collateralContract);
         (uint256 positionAmount,, uint256 lockEnd,,,) = staking.getPosition(_tokenId);
         if (positionAmount < minPositionValue) revert InsufficientCollateralValue();
+
+        // AUDIT critique 5.4: Optional ETH-denominated collateral floor. Only applied
+        // when the lender opts in (non-zero threshold). Uses TegridyPair spot reserves
+        // — see `_positionETHValue` for the sandwich-manipulation caveat.
+        if (minPositionETHValue > 0) {
+            uint256 ethValue = _positionETHValue(positionAmount);
+            if (ethValue < minPositionETHValue) revert InsufficientCollateralValue();
+        }
 
         // Ensure position lock doesn't expire before loan deadline
         // Prevents lender from receiving worthless unlocked collateral on default
@@ -363,9 +420,10 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // Transfer NFT from borrower to this contract (collateral escrow)
         staking.transferFrom(msg.sender, address(this), _tokenId);
 
-        // Send principal ETH to borrower
-        (bool success,) = msg.sender.call{value: principal}("");
-        if (!success) revert ETHTransferFailed();
+        // AUDIT FIX M-7 (battle-tested): unlimited-gas .call replaced with WETHFallbackLib
+        // (10k stipend + WETH wrap). Matches TegridyNFTLending.acceptOffer pattern and closes
+        // the asymmetric reentrancy surface.
+        WETHFallbackLib.safeTransferETHOrWrap(weth, msg.sender, principal);
 
         emit LoanAccepted(
             loanId,
@@ -496,7 +554,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @return aprBps The annual percentage rate in basis points
     /// @return duration The loan duration in seconds
     /// @return collateralContract The TegridyStaking contract address
-    /// @return minPositionValue The minimum collateral position value
+    /// @return minPositionValue The minimum collateral position value (TOWELI)
+    /// @return minPositionETHValue Optional ETH-denominated collateral floor (0 = disabled)
     /// @return active Whether the offer is still active
     function getOffer(uint256 _offerId) external view returns (
         address lender,
@@ -505,11 +564,21 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 duration,
         address collateralContract,
         uint256 minPositionValue,
+        uint256 minPositionETHValue,
         bool active
     ) {
         if (_offerId >= offers.length) revert InvalidOfferId();
         LoanOffer memory o = offers[_offerId];
-        return (o.lender, o.principal, o.aprBps, o.duration, o.collateralContract, o.minPositionValue, o.active);
+        return (
+            o.lender,
+            o.principal,
+            o.aprBps,
+            o.duration,
+            o.collateralContract,
+            o.minPositionValue,
+            o.minPositionETHValue,
+            o.active
+        );
     }
 
     /// @notice Get a loan by ID.
@@ -555,22 +624,16 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ) public pure returns (uint256 interest) {
         if (_currentTime <= _startTime) return 0;
         uint256 elapsed = _currentTime - _startTime;
-        // AUDIT H-05: overflow safety. The numerator `_principal * _aprBps * elapsed`
-        // is bounded by the lending caps in effect at any moment. At maximum cap
-        // values (maxPrincipal ≤ MAX_PRINCIPAL_CEILING = 100k ETH = 1e23 wei;
-        // maxAprBps ≤ MAX_APR_BPS_CEILING = 1e5; elapsed ≤ maxDuration ≤
-        // MAX_DURATION_CEILING = 10 years ≈ 3.15e8 seconds) the worst-case product
-        // is ~3.15e36 — comfortably within uint256 (max ≈ 1.15e77). Solidity 0.8
-        // auto-reverts on any overflow, so this is safe by construction up to the
-        // ceilings declared in state. If cap ceilings are ever raised above these
-        // bounds in a future upgrade, this arithmetic must be re-validated or
-        // switched to OZ Math.mulDiv with 512-bit intermediate.
-        interest = _ceilDiv(_principal * _aprBps * elapsed, BPS * SECONDS_PER_YEAR);
-    }
-
-    /// @dev Ceiling division: returns ceil(a / b) for positive a, b.
-    function _ceilDiv(uint256 a, uint256 b) private pure returns (uint256) {
-        return (a + b - 1) / b;
+        // AUDIT FIX (300-agent #3 / battle-tested): OZ Math.mulDiv with Ceil rounding.
+        // 512-bit intermediate removes the cap-ceiling overflow constraint that the
+        // prior naive multiplication relied on. Ceil rounding preserves the
+        // protocol-favoring invariant for ragged sub-second pro-rata fractions.
+        interest = Math.mulDiv(
+            _principal * _aprBps,
+            elapsed,
+            BPS * SECONDS_PER_YEAR,
+            Math.Rounding.Ceil
+        );
     }
 
     /// @notice Get the total repayment amount for a loan at the current time.
@@ -595,6 +658,28 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @notice Get the total number of offers created.
     function offerCount() external view returns (uint256) {
         return offers.length;
+    }
+
+    /// @notice Value a TOWELI amount in ETH at the TegridyPair's current spot reserves.
+    /// @dev AUDIT critique 5.4 / SECURITY_DEFERRED: this reads instantaneous AMM
+    ///      reserves — it IS sandwich-manipulable inside the same transaction. The
+    ///      primary mitigations are the 2-hour min-loan-duration bound on how long
+    ///      a manipulated price can persist before the position unlock matures, plus
+    ///      the fact that the floor is lender-elected (zero = disabled). We will
+    ///      replace this with a TWAP read once the V3 pool / oracle is live (see
+    ///      docs/SECURITY_DEFERRED.md).
+    /// @param toweliAmount Amount of TOWELI to value (18-decimal fixed-point).
+    /// @return ETH-equivalent value, computed via `mulDiv(toweliAmount, wethReserve, toweliReserve)`.
+    ///         Returns 0 if the TOWELI reserve is 0 (avoid division-by-zero).
+    function _positionETHValue(uint256 toweliAmount) internal view returns (uint256) {
+        (uint112 reserve0, uint112 reserve1, ) = ITegridyPair(pair).getReserves();
+        // Resolve which reserve corresponds to TOWELI vs WETH. Orientation was fixed
+        // at deploy time via `toweli` / `weth` immutables.
+        (uint256 toweliReserve, uint256 wethReserve) = ITegridyPair(pair).token0() == toweli
+            ? (uint256(reserve0), uint256(reserve1))
+            : (uint256(reserve1), uint256(reserve0));
+        if (toweliReserve == 0) return 0;
+        return Math.mulDiv(toweliAmount, wethReserve, toweliReserve);
     }
 
     /// @notice Get the total number of loans created.

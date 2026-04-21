@@ -67,10 +67,10 @@ contract MockVotingEscrowRT {
     /// @dev Returns position data matching TegridyStaking.positions() signature
     function positions(uint256 tokenId) external view returns (
         uint256 amount, uint256, uint256, uint256 lockEnd,
-        uint256, bool, int256, uint256, bool
+        uint256, bool, int256, uint256, bool, uint256, bool
     ) {
         address user = tokenOwners[tokenId];
-        return (lockedAmounts[user], 0, 0, lockEnds[user], 0, false, 0, 0, false);
+        return (lockedAmounts[user], 0, 0, lockEnds[user], 0, false, 0, 0, false, 0, false);
     }
 
     function votingPowerOf(address user) external view returns (uint256) {

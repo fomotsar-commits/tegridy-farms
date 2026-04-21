@@ -60,10 +60,10 @@ contract MockVotingEscrow {
     function positions(uint256 tokenId) external view returns (
         uint256 amount, uint256 boostedAmount, uint256 boostBps, uint256 lockEnd,
         uint256 lockDuration, bool autoMaxLock, int256 rewardDebt, uint256 lastStakeTime,
-        bool jbacBoosted
+        bool jbacBoosted, uint256 jbacTokenId, bool jbacDeposited
     ) {
         address user = tokenOwner[tokenId];
-        return (lockedAmounts[user], lockedAmounts[user], 10000, lockEnds[user], 0, false, int256(0), 0, false);
+        return (lockedAmounts[user], lockedAmounts[user], 10000, lockEnds[user], 0, false, int256(0), 0, false, 0, false);
     }
 
     function paused() external pure returns (bool) {

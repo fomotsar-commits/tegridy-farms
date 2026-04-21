@@ -5,11 +5,13 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 // Strings import removed — tokenURI simplified to reduce contract size
 // Base64 import removed — SVG on-chain generation moved out to reduce contract size
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
@@ -39,9 +41,10 @@ interface ITegridyRestakingView {
 ///         - Transferring the NFT transfers the entire staking position
 ///         - Buyer of an NFT inherits the lock, boost, and rewards
 ///         - This means users can sell their locked position instead of paying the 25% penalty
-contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable, TimelockAdmin {
+contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable, TimelockAdmin, IERC721Receiver {
     using SafeERC20 for IERC20;
     using Checkpoints for Checkpoints.Trace208;
+    using EnumerableSet for EnumerableSet.UintSet;
 
     // ─── Constants ────────────────────────────────────────────────────
 
@@ -78,11 +81,12 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     uint256 public rewardPerTokenStored;
     uint256 public totalBoostedStake;
     uint256 public totalStaked;
-    /// @dev AUDIT L-22 / Spartan TF-10: totalLocked is redundant with totalStaked (was always
-    ///      equal). No longer written on stake/withdraw as of this commit — reads now return
-    ///      0 permanently. Slot retained only for storage-layout backward compatibility on
-    ///      redeploy/upgrade paths. Use totalStaked instead.
-    uint256 public totalLocked;
+    // AUDIT H-4 (battle-tested fix): totalLocked is a view proxy for totalStaked (they are
+    // always equal). The prior state-variable design permanently returned 0, causing
+    // third-party integrators (allocators, dashboards, indexers) to read zero TVL.
+    function totalLocked() external view returns (uint256) {
+        return totalStaked;
+    }
 
     uint256 private _nextTokenId = 1;
 
@@ -96,10 +100,29 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         bool autoMaxLock;  // If true, lock auto-extends to max on every interaction
         bool hasJbacBoost;
         uint64 stakeTimestamp;
+        // AUDIT H-1 (2026-04-20): Deposit-based JBAC boost (ApeCoin-Staking pattern).
+        // Replaces flash-loan-able `jbacNFT.balanceOf(msg.sender) > 0` cache with a
+        // physical deposit that stays locked for the position's lifetime.
+        uint256 jbacTokenId;   // 0 = none / legacy-grandfathered
+        bool jbacDeposited;    // true = physical deposit (new pattern); false = legacy-grandfathered
     }
 
     mapping(uint256 => Position) public positions; // tokenId => position
     mapping(address => uint256) public userTokenId; // user => their tokenId (0 = no position)
+
+    // AUDIT FIX M-5 (full aggregation): track every staking NFT owned by a given address.
+    // Prior implementation overwrote userTokenId on each transfer, so votingPowerOf(holder)
+    // silently undercounted multi-NFT holders (contract wallets, Safes, aggregating vaults).
+    // Now votingPowerOf iterates the full set, summing active voting power across all positions.
+    // Cap at MAX_POSITIONS_PER_HOLDER bounds checkpoint-write gas (~130k worst case at cap vs
+    // ~100k single-position baseline) and protects against push-grief (attacker flooding a
+    // target address with stale NFTs to inflate their aggregation cost).
+    mapping(address => EnumerableSet.UintSet) private _positionsByOwner;
+    // Batch 8 polish (audit sweep 2026-04-20): raised from 50 → 100 to give Gnosis Safe
+    // multisigs and similar contract wallets more legitimate-use headroom. Worst-case
+    // votingPowerOf cost grows linearly (~260k gas at cap vs ~130k at 50) — still well
+    // under any practical gas limit. Attacker cost for a push-grief doubles.
+    uint256 public constant MAX_POSITIONS_PER_HOLDER = 100;
 
     // AUDIT FIX #1: Checkpointing via OZ Checkpoints.Trace208 (timestamp → votingPower)
     mapping(address => Checkpoints.Trace208) private _checkpoints;
@@ -145,6 +168,12 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     address public pendingLendingContract;
     bool public pendingLendingContractApproval;
 
+    // AUDIT H-1 (2026-04-20): Stranded-JBAC reclaim bookkeeping. If the JBAC return transfer
+    // in `_returnJbacIfDeposited` reverts (e.g., JBAC contract paused), we record who is
+    // entitled to reclaim it via `claimStrandedJbac(tokenId)`.
+    mapping(uint256 => address) public strandedJbacOwner;    // tokenId => entitled reclaimer
+    mapping(uint256 => uint256) public strandedJbacTokenId;  // tokenId => JBAC id to return
+
 
     // ─── Events ───────────────────────────────────────────────────────
 
@@ -162,6 +191,12 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     event TreasuryUpdated(address oldTreasury, address newTreasury); // SECURITY FIX #19
     event LockExtended(uint256 indexed tokenId, uint256 newLockDuration, uint256 newLockEnd);
     event BoostRevalidated(uint256 indexed tokenId, bool hasJbacBoost, uint256 newBoostedAmount); // AUDIT FIX #16
+    /// @notice AUDIT FIX M-5 (battle-tested): emitted when a contract other than the
+    ///         registered restakingContract receives a second+ staking NFT. The prior
+    ///         userTokenId is overwritten, so votingPowerOf(holder) reflects only the
+    ///         newest position. Integrators that accept staking NFTs must implement their
+    ///         own voting-power aggregation (see TegridyRestaking for reference).
+    event MultipleNFTsAtAddress(address indexed holder, uint256 newTokenId, uint256 priorTokenId);
     event TreasuryChangeProposed(address newTreasury, uint256 executeAfter); // AUDIT FIX #66
     event TreasuryChangeExecuted(address oldTreasury, address newTreasury); // AUDIT FIX #66
     event RestakingContractChangeProposed(address newRestaking, uint256 executeAfter); // AUDIT FIX C-02
@@ -175,6 +210,8 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     event AmountIncreased(uint256 indexed tokenId, uint256 addedAmount, uint256 newTotal);
     event RewardsForfeited(address indexed user, uint256 amount); // AUDIT FIX C-02: Emitted when cap blocks settlement
     event MaxUnsettledRewardsUpdated(uint256 oldCap, uint256 newCap); // AUDIT FIX C-02
+    event JbacReturned(uint256 indexed tokenId, address indexed to, uint256 indexed jbacTokenId); // AUDIT H-1
+    event JbacStranded(uint256 indexed tokenId, address indexed to, uint256 indexed jbacTokenId); // AUDIT H-1
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -206,6 +243,8 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     error ZeroBalance();
     error IntOverflow();
     error CapTooLow();
+    error TooManyPositions(); // AUDIT FIX M-5: per-holder position cap (MAX_POSITIONS_PER_HOLDER)
+    error JbacDeposited(); // AUDIT H-1: revalidateBoost not allowed on deposit-based positions
 
     // ─── Constructor ──────────────────────────────────────────────────
 
@@ -259,15 +298,48 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         return MIN_BOOST_BPS + (elapsed * boostRange) / range;
     }
 
-    /// @notice Voting power for governance = amount x boost (including JBAC bonus)
+    /// @notice Voting power for governance = amount x boost (including JBAC bonus),
+    ///         aggregated across every staking NFT currently owned by `user`.
+    /// @dev AUDIT FIX M-5 (full aggregation): prior implementation consulted only
+    ///      `userTokenId[user]`, which is overwritten on every inbound transfer. Holders
+    ///      with multiple staking NFTs (contract wallets, Safes, aggregating vaults) had
+    ///      their voting power silently undercounted — only the most recently received
+    ///      position was visible. We now iterate `_positionsByOwner[user]` (an
+    ///      EnumerableSet.UintSet maintained in `_update`) and sum the active voting
+    ///      power of every position owned. The per-holder cap of MAX_POSITIONS_PER_HOLDER
+    ///      bounds the O(n) iteration; in practice checkpoint writes on the push side cost
+    ///      ~130k at the cap vs ~100k for a single-position holder.
+    ///
+    ///      Special case: the restakingContract aggregates per-restaker voting power via
+    ///      its own internal bookkeeping (see TegridyRestaking). Summing the raw positions
+    ///      it holds would double-count with that per-restaker aggregation, so this path
+    ///      returns 0 and leaves restaked voting power to the restaking contract to expose.
+    ///
+    ///      Integrators that accept multiple staking NFTs now DO receive correct aggregate
+    ///      voting power from this view — the `MultipleNFTsAtAddress` event remains emitted
+    ///      as a convenience signal for indexers, not a regression warning.
     /// @param user The address to query voting power for
-    /// @return Voting power (amount * boostBps / BOOST_PRECISION), 0 if no position or lock expired
-    function votingPowerOf(address user) public view returns (uint256) {
-        uint256 tokenId = userTokenId[user];
-        if (tokenId == 0) return 0;
-        Position memory p = positions[tokenId];
-        if (p.amount == 0 || block.timestamp >= p.lockEnd) return 0;
-        return (p.amount * p.boostBps) / BOOST_PRECISION;
+    /// @return total Aggregated voting power (sum of amount * boostBps / BOOST_PRECISION)
+    ///         across all active, non-expired positions held by `user`.
+    function votingPowerOf(address user) public view returns (uint256 total) {
+        // AUDIT FIX M-5: the restaking contract exposes per-restaker voting power via
+        // its own aggregation; a raw sum here would double-count. Force 0 for the
+        // restaking contract so governance consumers route through the restaking path.
+        if (user == restakingContract) return 0;
+
+        EnumerableSet.UintSet storage set = _positionsByOwner[user];
+        uint256 len = set.length();
+        uint256 nowTs = block.timestamp;
+        for (uint256 i; i < len; ++i) {
+            // Reach into storage per-field rather than copying the full Position struct —
+            // avoids loading `boostedAmount`, `rewardDebt`, `lockDuration`, `autoMaxLock`,
+            // `hasJbacBoost`, `stakeTimestamp` slots that voting power doesn't need.
+            Position storage p = positions[set.at(i)];
+            uint256 amount = p.amount;
+            if (amount == 0) continue;
+            if (nowTs >= p.lockEnd) continue;
+            total += (amount * p.boostBps) / BOOST_PRECISION;
+        }
     }
 
     // votingPowerAt() removed — use votingPowerAtTimestamp() instead
@@ -357,7 +429,11 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
     // ─── User Functions ───────────────────────────────────────────────
 
-    /// @notice Stake TOWELI. Mints an NFT representing the position.
+    /// @notice Stake TOWELI. Mints an NFT representing the position. No JBAC boost.
+    /// @dev AUDIT H-1 FIX (2026-04-20): Removed `jbacNFT.balanceOf(msg.sender) > 0` cache.
+    ///      That pattern was flash-loan-able (borrow JBAC for one block, stake, return).
+    ///      Users who want the JBAC bonus must call `stakeWithBoost(...)` which physically
+    ///      deposits the JBAC into this contract for the lock duration.
     /// @param _amount Amount of TOWELI to stake (must be >= MIN_STAKE)
     /// @param _lockDuration Lock duration in seconds (MIN_LOCK_DURATION to MAX_LOCK_DURATION)
     function stake(uint256 _amount, uint256 _lockDuration) external nonReentrant whenNotPaused updateReward {
@@ -368,9 +444,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         if (userTokenId[msg.sender] != 0) revert AlreadyStaked();
 
         uint256 boost = calculateBoost(_lockDuration);
-        // M-01 FIX: Apply JBAC boost at stake time so holders don't need a separate revalidateBoost() call
-        bool holdsJbac = jbacNFT.balanceOf(msg.sender) > 0;
-        if (holdsJbac) boost += JBAC_BONUS_BPS;
+        // AUDIT H-1 (2026-04-20): No JBAC boost on stake(). Use stakeWithBoost() for that.
         uint256 boosted = (_amount * boost) / BOOST_PRECISION;
 
         uint256 tokenId = _nextTokenId++;
@@ -382,8 +456,10 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             boostBps: uint16(boost),
             lockDuration: uint32(_lockDuration),
             autoMaxLock: false,
-            hasJbacBoost: holdsJbac,
-            stakeTimestamp: uint64(block.timestamp)
+            hasJbacBoost: false,
+            stakeTimestamp: uint64(block.timestamp),
+            jbacTokenId: 0,
+            jbacDeposited: false
         });
 
         totalStaked += _amount;
@@ -396,6 +472,64 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         _writeCheckpoint(msg.sender); // AUDIT FIX #1
 
         emit Staked(msg.sender, tokenId, _amount, _lockDuration, boost);
+    }
+
+    /// @notice Stake TOWELI with a JBAC-deposit boost. Mints an NFT representing the position.
+    /// @dev AUDIT H-1 FIX (2026-04-20): ApeCoin-Staking pattern — JBAC is physically deposited
+    ///      into this contract and held until the position is unstaked. This replaces the
+    ///      flash-loan-able `balanceOf > 0` check. JBAC is returned on withdraw/earlyWithdraw/
+    ///      emergencyWithdrawPosition/emergencyExitPosition/executeEmergencyExit via
+    ///      `_returnJbacIfDeposited()`. Legacy `hasJbacBoost=true` positions (created before
+    ///      this fix) are NOT migrated — they are grandfathered with `jbacDeposited=false`.
+    /// @param _amount Amount of TOWELI to stake (must be >= MIN_STAKE)
+    /// @param _lockDuration Lock duration in seconds (MIN_LOCK_DURATION to MAX_LOCK_DURATION)
+    /// @param _jbacTokenId The JBAC tokenId to deposit for the boost (must be owned by caller, approved to this contract)
+    function stakeWithBoost(uint256 _amount, uint256 _lockDuration, uint256 _jbacTokenId)
+        external nonReentrant whenNotPaused updateReward
+    {
+        if (_amount == 0) revert ZeroAmount();
+        if (_amount < MIN_STAKE) revert StakeTooSmall();
+        if (_lockDuration < MIN_LOCK_DURATION) revert LockTooShort();
+        if (_lockDuration > MAX_LOCK_DURATION) revert LockTooLong();
+        if (userTokenId[msg.sender] != 0) revert AlreadyStaked();
+
+        uint256 boost = calculateBoost(_lockDuration) + JBAC_BONUS_BPS;
+        uint256 boosted = (_amount * boost) / BOOST_PRECISION;
+
+        uint256 tokenId = _nextTokenId++;
+        positions[tokenId] = Position({
+            amount: _amount,
+            boostedAmount: boosted,
+            rewardDebt: _safeInt256((boosted * rewardPerTokenStored) / ACC_PRECISION),
+            lockEnd: uint64(block.timestamp + _lockDuration),
+            boostBps: uint16(boost),
+            lockDuration: uint32(_lockDuration),
+            autoMaxLock: false,
+            hasJbacBoost: true,
+            stakeTimestamp: uint64(block.timestamp),
+            jbacTokenId: _jbacTokenId,
+            jbacDeposited: true
+        });
+
+        totalStaked += _amount;
+        totalBoostedStake += boosted;
+
+        _mint(msg.sender, tokenId); // _update() sets userTokenId[msg.sender] = tokenId
+        rewardToken.safeTransferFrom(msg.sender, address(this), _amount);
+        // Pull JBAC physically into this contract. onERC721Received gates the sender to jbacNFT.
+        IERC721(address(jbacNFT)).safeTransferFrom(msg.sender, address(this), _jbacTokenId);
+
+        _writeCheckpoint(msg.sender);
+
+        emit Staked(msg.sender, tokenId, _amount, _lockDuration, boost);
+    }
+
+    /// @notice IERC721Receiver — only accepts transfers from the configured JBAC contract.
+    /// @dev AUDIT H-1 FIX (2026-04-20): Restrict to the configured JBAC collection so no
+    ///      other ERC721 can be dumped here.
+    function onERC721Received(address, address, uint256, bytes calldata) external view returns (bytes4) {
+        require(msg.sender == address(jbacNFT), "only JBAC");
+        return IERC721Receiver.onERC721Received.selector;
     }
 
     /// @notice Toggle auto-max-lock. When enabled, lock auto-extends on every claim.
@@ -495,6 +629,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
         _getReward(tokenId, p);
 
+        // AUDIT H-1 (2026-04-20): return physically-deposited JBAC before clearing position.
+        _returnJbacIfDeposited(tokenId, msg.sender);
+
         uint256 amount = _clearPosition(tokenId, p);
 
         rewardToken.safeTransfer(msg.sender, amount);
@@ -513,6 +650,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         if (block.timestamp >= p.lockEnd) revert MustUseWithdraw();
 
         _getReward(tokenId, p);
+
+        // AUDIT H-1 (2026-04-20): return physically-deposited JBAC before clearing position.
+        _returnJbacIfDeposited(tokenId, msg.sender);
 
         uint256 amount = _clearPosition(tokenId, p);
         uint256 penalty = (amount * EARLY_WITHDRAWAL_PENALTY_BPS) / BPS;
@@ -557,6 +697,15 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         Position storage p = positions[tokenId];
         if (p.amount == 0) revert NoPosition();
 
+        // AUDIT H-1 FIX (2026-04-20): Deposit-based positions (created via stakeWithBoost) do
+        // NOT revalidate. The JBAC is physically held by this contract for the lock duration,
+        // so the boost is guaranteed to be valid. Legacy (grandfathered) positions with
+        // hasJbacBoost=true and jbacDeposited=false still allow DOWNGRADE (boost removal)
+        // so that pre-fix users who lose their JBAC can be stripped; but no upgrades are
+        // allowed on non-deposit positions, closing the flash-loan vector for new stake()
+        // positions that never held the boost to begin with.
+        if (p.jbacDeposited) revert JbacDeposited();
+
         // When restaked, the NFT owner is the restaking contract — check the original depositor's JBAC balance
         address jbacHolder = positionOwner;
         if (positionOwner == restakingContract && restakingContract != address(0)) {
@@ -568,21 +717,21 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
         bool currentlyHoldsJbac = jbacNFT.balanceOf(jbacHolder) > 0;
 
-        // Only update if boost status actually changed
-        if (currentlyHoldsJbac != p.hasJbacBoost) {
+        // Only allow DOWNGRADE (true -> false). No new JBAC boost via revalidate for
+        // non-deposit positions (flash-loan mitigation for new stakes).
+        if (p.hasJbacBoost && !currentlyHoldsJbac) {
             // SECURITY FIX: Claim pending rewards BEFORE changing boost to avoid loss
             _getReward(tokenId, p);
 
-            p.hasJbacBoost = currentlyHoldsJbac;
+            p.hasJbacBoost = false;
 
-            // Recalculate boost: base lock boost +/- JBAC bonus
+            // Recalculate boost: base lock boost only
             uint256 newBoost = calculateBoost(p.lockDuration);
-            if (currentlyHoldsJbac) newBoost += JBAC_BONUS_BPS;
             _applyNewBoost(p, newBoost);
 
             _writeCheckpoint(positionOwner); // AUDIT FIX #1
 
-            emit BoostRevalidated(tokenId, currentlyHoldsJbac, p.boostedAmount);
+            emit BoostRevalidated(tokenId, false, p.boostedAmount);
         }
     }
 
@@ -618,13 +767,33 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
         from = super._update(to, tokenId, auth);
 
+        // AUDIT FIX M-5 (full aggregation): maintain the per-owner position set so
+        // votingPowerOf can correctly aggregate multi-NFT holders. The set is the
+        // source of truth for voting power; userTokenId is retained below only for
+        // legacy single-position consumers (views, test fixtures).
+        //
+        // DECISION (M-5 spec): keep the EOA-only guard below that prevents a second
+        // inbound NFT for externally-owned accounts. Aggregation now handles multi-NFT
+        // holders correctly for contract wallets (Safes, vaults), but preventing EOA
+        // double-ownership avoids a user footgun — if they want multiple positions,
+        // they can use a Safe, which is fully supported.
+        if (from != address(0)) {
+            _positionsByOwner[from].remove(tokenId);
+        }
+        if (to != address(0)) {
+            // Enforce the per-holder cap BEFORE the EOA AlreadyHasPosition guard so
+            // either error can fire depending on the receiver's existing balance.
+            if (_positionsByOwner[to].length() >= MAX_POSITIONS_PER_HOLDER) revert TooManyPositions();
+            _positionsByOwner[to].add(tokenId);
+        }
+
         // AUDIT FIX #2: Prevent overwriting an existing position for EOAs.
         // Contracts (e.g. TegridyRestaking) may hold multiple position NFTs,
         // so the guard only applies to externally-owned accounts.
-        // AUDIT NOTE M-04: Contracts holding multiple NFTs will only have the LATEST tokenId
-        // tracked in userTokenId. Address-based lookups (votingPowerOf, locks) only reflect
-        // the last received position. Contracts that hold multiple positions must use their
-        // own internal tracking (as TegridyRestaking does via restakers/tokenIdToRestaker).
+        // AUDIT FIX M-5: Contracts holding multiple NFTs now get correct aggregate
+        // voting power via `_positionsByOwner`. The legacy `userTokenId[holder]` still
+        // reflects only the most recently received position for single-position
+        // integrators; for aggregate-aware integrators use votingPowerOf / the event.
         if (to != address(0) && userTokenId[to] != 0 && to.code.length == 0) revert AlreadyHasPosition();
 
         // Reset autoMaxLock, clear emergency exit, update ownership, write checkpoint.
@@ -646,6 +815,17 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             _writeCheckpoint(from);
         }
         if (to != address(0)) {
+            // AUDIT FIX M-5 (battle-tested, Option B from 2026-04-20 audit): emit a loud
+            // event when a contract other than the registered restakingContract receives
+            // a second+ staking NFT. The prior userTokenId is about to be overwritten, so
+            // votingPowerOf(to) will reflect only the new tokenId. Integrators that accept
+            // multiple staking NFTs must aggregate voting power themselves (see
+            // TegridyRestaking for reference). Emitting the event here means off-chain
+            // observers (indexers, alerting) can flag the regression rather than discover
+            // it through silent vote undercounting.
+            if (to.code.length > 0 && to != restakingContract && userTokenId[to] != 0) {
+                emit MultipleNFTsAtAddress(to, tokenId, userTokenId[to]);
+            }
             userTokenId[to] = tokenId;
             _writeCheckpoint(to);
         }
@@ -675,12 +855,28 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             uint256 available = rewardToken.balanceOf(address(this));
             uint256 reserved = _reserved();
             uint256 rewardPool = available > reserved ? available - reserved : 0;
-            if (pending > rewardPool) pending = rewardPool;
-            if (pending > 0) {
-                rewardToken.safeTransfer(recipient, pending);
-                emit RewardPaid(recipient, tokenId, pending);
-                return pending;
+            uint256 cappedPending = pending > rewardPool ? rewardPool : pending;
+
+            if (cappedPending > 0) {
+                rewardToken.safeTransfer(recipient, cappedPending);
+                emit RewardPaid(recipient, tokenId, cappedPending);
             }
+
+            // AUDIT FIX (critique 5.1 / battle-tested): route shortfall through
+            // _settleUnsettled so the user can reclaim once the pool is refunded,
+            // mirroring _settleRewardsOnTransfer semantics. Prior behavior silently
+            // advanced rewardDebt to the full accumulated value while paying only
+            // `rewardPool`, permanently losing the difference.
+            uint256 shortfall = pending - cappedPending;
+            if (shortfall > 0) {
+                uint256 actualSettled = _settleUnsettled(recipient, shortfall);
+                uint256 forfeited = shortfall - actualSettled;
+                if (forfeited > 0) {
+                    emit RewardsForfeited(recipient, forfeited);
+                }
+            }
+
+            return cappedPending;
         }
         return 0;
     }
@@ -773,6 +969,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         Position storage p = positions[tokenId];
         if (p.amount == 0) revert NoPosition();
 
+        // AUDIT H-1 (2026-04-20): return physically-deposited JBAC before clearing position.
+        _returnJbacIfDeposited(tokenId, msg.sender);
+
         uint256 amount = _clearPosition(tokenId, p);
 
         rewardToken.safeTransfer(msg.sender, amount);
@@ -793,6 +992,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         // AUDIT FIX M-05: Attempt reward claim before exit. If reward transfer reverts
         // (e.g., token blacklist), continue with principal return rather than trapping both.
         _getReward(tokenId, p);
+
+        // AUDIT H-1 (2026-04-20): return physically-deposited JBAC before clearing position.
+        _returnJbacIfDeposited(tokenId, msg.sender);
 
         uint256 amount = _clearPosition(tokenId, p);
 
@@ -837,6 +1039,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         // AUDIT FIX M-06: Attempt reward claim before exit. Rewards are a best-effort bonus;
         // if claim fails, principal return proceeds regardless.
         _getReward(tokenId, p);
+
+        // AUDIT H-1 (2026-04-20): return physically-deposited JBAC before clearing position.
+        _returnJbacIfDeposited(tokenId, msg.sender);
 
         bool earlyExit = block.timestamp < p.lockEnd;
         uint256 amount = _clearPosition(tokenId, p);
@@ -1023,6 +1228,46 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         pendingMaxUnsettledRewards = 0;
     }
 
+    /// @dev AUDIT H-1 FIX (2026-04-20): Return a deposited JBAC to `to`. Wrapped in try/catch so
+    ///      a paused/reverting JBAC contract cannot brick unstake. If the transfer reverts, the
+    ///      JBAC is left in this contract and the prior owner can reclaim it later via
+    ///      `claimStrandedJbac(tokenId)`. Must be called BEFORE `_clearPosition` since that
+    ///      deletes the Position struct.
+    function _returnJbacIfDeposited(uint256 tokenId, address to) private {
+        Position storage p = positions[tokenId];
+        if (p.jbacDeposited) {
+            uint256 jId = p.jbacTokenId;
+            p.jbacDeposited = false;
+            p.jbacTokenId = 0;
+            strandedJbacOwner[tokenId] = to;
+            try IERC721(address(jbacNFT)).safeTransferFrom(address(this), to, jId) {
+                // transfer ok — clear stranded owner
+                delete strandedJbacOwner[tokenId];
+                delete strandedJbacTokenId[tokenId];
+                emit JbacReturned(tokenId, to, jId);
+            } catch {
+                // JBAC contract reverted (e.g., paused) — record for later reclaim.
+                strandedJbacTokenId[tokenId] = jId;
+                emit JbacStranded(tokenId, to, jId);
+            }
+        }
+    }
+
+    /// @notice Reclaim a JBAC that was stranded when its position was closed because the
+    ///         JBAC contract reverted the return transfer (e.g., during JBAC-contract pause).
+    /// @dev AUDIT H-1 FIX (2026-04-20): Only the recorded prior owner (the address that held
+    ///      the staking position at close time) can reclaim. Wrapped in nonReentrant for safety.
+    /// @param tokenId The staking position tokenId whose JBAC return failed.
+    function claimStrandedJbac(uint256 tokenId) external nonReentrant {
+        address to = strandedJbacOwner[tokenId];
+        uint256 jId = strandedJbacTokenId[tokenId];
+        if (to == address(0) || msg.sender != to) revert Unauthorized();
+        delete strandedJbacOwner[tokenId];
+        delete strandedJbacTokenId[tokenId];
+        IERC721(address(jbacNFT)).safeTransferFrom(address(this), to, jId);
+        emit JbacReturned(tokenId, to, jId);
+    }
+
     /// @dev Recalculate boost for a position and update totals + rewardDebt.
     function _applyNewBoost(Position storage p, uint256 newBoost) private {
         totalBoostedStake -= p.boostedAmount;
@@ -1059,12 +1304,14 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             unsettledRewards[user] += settled;
             totalUnsettledRewards += settled;
         }
-        // M-04 FIX: Redirect forfeited rewards to treasury instead of destroying them
-        uint256 forfeited = amount - settled;
-        if (forfeited > 0) {
-            unsettledRewards[treasury] += forfeited;
-            totalUnsettledRewards += forfeited;
-        }
+        // AUDIT FIX M-3 (battle-tested): forfeit-to-treasury redirect removed.
+        // Previously, overage above maxUnsettledRewards was credited to
+        // unsettledRewards[treasury] and counted against totalUnsettledRewards, letting the
+        // treasury cap-squeeze honest users' claims (owner could then claimUnsettledFor(treasury)
+        // to extract). Under the corrected semantics, the overage remains unreserved in the
+        // reward-pool balance and is re-accrued to all active stakers via the next
+        // _accumulateRewards cycle — the cap is now genuinely honored. Caller-site
+        // RewardsForfeited events remain as-is for off-chain observability.
     }
 
     /// @dev AUDIT FIX: Safe uint256 -> int256 cast. Reverts if value exceeds int256 max,

@@ -13,9 +13,13 @@
  *   - match: (optional) filter for UPDATE/DELETE, e.g. { wallet: "0x..." }
  */
 
+import { jwtVerify } from "jose";
 import { checkRateLimit } from "./_lib/ratelimit.js";
+import { validateBody } from "./_lib/proxy-schemas.js";
 
 const ALLOWED_TABLES = ["messages", "user_profiles", "user_favorites", "user_watchlist", "votes"];
+
+const JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
 
 function parseCookie(cookieHeader, name) {
   if (!cookieHeader) return null;
@@ -42,7 +46,8 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: "Not authenticated" });
   }
 
-  const { table, method, body, match } = req.body || {};
+  const { table, method, match } = req.body || {};
+  let body = req.body?.body;
 
   // Validate table name (prevent injection)
   if (!table || !ALLOWED_TABLES.includes(table)) {
@@ -51,6 +56,33 @@ export default async function handler(req, res) {
 
   if (!method || !["INSERT", "UPDATE", "DELETE", "UPSERT"].includes(method)) {
     return res.status(400).json({ error: "Invalid method" });
+  }
+
+  // AUDIT API-M8: decode the SIWE JWT so we can enforce wallet/author match
+  // on write-bodies below. Signature verification lives here — we don't want
+  // to trust an unverified wallet claim from a tampered cookie. On failure
+  // return the same 401 shape we return for a missing cookie.
+  let jwtClaims = null;
+  if (JWT_SECRET) {
+    try {
+      const secret = new TextEncoder().encode(JWT_SECRET);
+      const { payload } = await jwtVerify(jwt, secret, {
+        issuer: "supabase",
+        audience: "authenticated",
+        algorithms: ["HS256"],
+      });
+      jwtClaims = { wallet: payload.wallet || payload.sub };
+    } catch {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+  }
+
+  // AUDIT API-M8: shape-validate write bodies before we ever touch upstream.
+  // DELETE has no body and is skipped; reads don't hit this endpoint at all.
+  if (method === "INSERT" || method === "UPSERT" || method === "UPDATE") {
+    const result = validateBody(table, method, body, jwtClaims);
+    if (!result.ok) return res.status(400).json({ error: result.error });
+    body = result.data;
   }
 
   const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;

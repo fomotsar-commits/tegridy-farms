@@ -40,6 +40,21 @@ contract MockWETH_LendReentry {
     receive() external payable {}
 }
 
+/// @dev Minimal TegridyPair stub used only so TegridyLending's constructor can resolve
+///      token0/token1 orientation. These reentrancy tests always use `minPositionETHValue = 0`,
+///      so the stored reserves are never consulted.
+contract MockPair_LendReentry {
+    address public immutable token0;
+    address public immutable token1;
+    constructor(address _t0, address _t1) {
+        token0 = _t0;
+        token1 = _t1;
+    }
+    function getReserves() external view returns (uint112, uint112, uint32) {
+        return (1e24, 1e21, uint32(block.timestamp));
+    }
+}
+
 // ─── Attacker Contracts ────────────────────────────────────────────
 
 /// @dev Attacker that acts as a borrower and tries to re-enter acceptOffer
@@ -109,7 +124,7 @@ contract ReentrantLender {
         uint256 minPositionValue
     ) external payable returns (uint256) {
         return lending.createLoanOffer{value: msg.value}(
-            aprBps, duration, collateralContract, minPositionValue
+            aprBps, duration, collateralContract, minPositionValue, 0
         );
     }
 
@@ -159,7 +174,7 @@ contract ReentrantRepayLender {
         uint256 minPositionValue
     ) external payable returns (uint256) {
         return lending.createLoanOffer{value: msg.value}(
-            aprBps, duration, collateralContract, minPositionValue
+            aprBps, duration, collateralContract, minPositionValue, 0
         );
     }
 
@@ -195,6 +210,7 @@ contract TegridyLending_ReentrancyTest is Test {
     MockToweli_Reentry public toweli;
     MockJBAC_Reentry public jbac;
     MockWETH_LendReentry public weth;
+    MockPair_LendReentry public pair;
     TegridyStaking public staking;
     TegridyLending public lending;
 
@@ -217,9 +233,10 @@ contract TegridyLending_ReentrancyTest is Test {
             1e18
         );
 
-        // Deploy WETH and lending
+        // Deploy WETH, pair stub, and lending
         weth = new MockWETH_LendReentry();
-        lending = new TegridyLending(treasury, 500, address(weth));
+        pair = new MockPair_LendReentry(address(toweli), address(weth));
+        lending = new TegridyLending(treasury, 500, address(weth), address(pair));
 
         // Fund alice and have her stake
         toweli.transfer(alice, 100_000 ether);
@@ -249,7 +266,8 @@ contract TegridyLending_ReentrancyTest is Test {
             1000,              // 10% APR
             30 days,
             address(staking),
-            1000 ether
+            1000 ether,
+            0
         );
     }
 
@@ -281,10 +299,10 @@ contract TegridyLending_ReentrancyTest is Test {
         // Create two offers from bob
         vm.startPrank(bob);
         uint256 offer1 = lending.createLoanOffer{value: 1 ether}(
-            1000, 30 days, address(staking), 1000 ether
+            1000, 30 days, address(staking), 1000 ether, 0
         );
         uint256 offer2 = lending.createLoanOffer{value: 1 ether}(
-            1000, 30 days, address(staking), 1000 ether
+            1000, 30 days, address(staking), 1000 ether, 0
         );
         vm.stopPrank();
 
@@ -297,14 +315,21 @@ contract TegridyLending_ReentrancyTest is Test {
         vm.prank(address(attacker));
         attacker.acceptOffer(offer1, attackerTokenId);
 
-        // Attacker got the principal from offer1
-        assertEq(address(attacker).balance, 1 ether);
+        // AUDIT FIX M-7 (battle-tested): acceptOffer now routes through WETHFallbackLib
+        // (10k stipend + WETH fallback). The attacker's receive() OOGs attempting reentry,
+        // the direct ETH call fails, and WETH fallback delivers the principal as WETH.
+        // Attacker still gets paid — just in WETH form.
+        uint256 received = address(attacker).balance + weth.balanceOf(address(attacker));
+        assertEq(received, 1 ether, "attacker received principal (ETH or WETH via fallback)");
 
-        // Attack was attempted
-        assertEq(attacker.attackCount(), 1);
+        // attackCount stays at 0: the reentrant call OOGs, which reverts the callee's
+        // state changes (including `attackCount++`). The nonReentrant guard was never
+        // the bottleneck here — the 10k gas stipend alone prevents the attempt from
+        // persisting any state. Offer2 activity below is the load-bearing assertion.
+        assertEq(attacker.attackCount(), 0, "attempted reentry OOGed on 10k stipend");
 
         // Offer2 is still active (re-entry was blocked)
-        (,,,,,, bool active) = lending.getOffer(offer2);
+        (,,,,,,, bool active) = lending.getOffer(offer2);
         assertTrue(active, "Offer2 should still be active - re-entry was blocked");
     }
 
@@ -342,7 +367,7 @@ contract TegridyLending_ReentrancyTest is Test {
         assertEq(wethBalance, 1 ether, "Refund should be wrapped as WETH due to re-entry attempt");
 
         // Offer2 is still active (re-entry was blocked)
-        (,,,,,, bool active) = lending.getOffer(offer2);
+        (,,,,,,, bool active) = lending.getOffer(offer2);
         assertTrue(active, "Offer2 should still be active - re-entry was blocked");
     }
 
@@ -430,7 +455,7 @@ contract TegridyLending_ReentrancyTest is Test {
     function test_normalEOA_cancelOffer_works() public {
         vm.prank(bob);
         uint256 offerId = lending.createLoanOffer{value: 5 ether}(
-            1000, 30 days, address(staking), 1000 ether
+            1000, 30 days, address(staking), 1000 ether, 0
         );
 
         uint256 bobBalanceBefore = bob.balance;

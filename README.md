@@ -49,7 +49,7 @@ Tegridy Farms is six DeFi primitives that share one token and one revenue stream
 | **LP Farming** | Synthetix-style boosted LP staking. Deposit LP tokens, earn TOWELI rewards. Your boost comes from your existing TegridyStaking NFT — lock longer, farm harder. | `TegridyLPFarming` |
 | **NFT Finance** | ERC-20 lending against TOWELI, peer-to-peer NFT lending using JBAC / Nakamigos / GNSS as collateral (1-hour grace period, no liquidation auctions), and a Sudoswap-style NFT AMM. | `TegridyLending`, `TegridyNFTLending`, `TegridyNFTPoolFactory` |
 | **Governance** | Curve-style gauge voting. TOWELI stakers vote on where LP farming emissions flow; bribers ("Cartman's Market") pay stakers to direct voting power to their pools. Commit-reveal voting (H-2 fix) is live on-chain. | `GaugeController`, `VoteIncentives` |
-| **NFT Launchpad** | Click-deploy ERC-721 collections with built-in allowlists (Merkle), public mint, Dutch auction, delayed reveal, ERC-2981 royalties, ERC-7572 `contractURI`, and one-shot `createCollection(CollectionConfig)`. Artists upload art + traits CSV; the wizard handles Arweave via Irys (~$10–15, artist pays in ETH) and the on-chain deploy. | `TegridyLaunchpad`, `TegridyLaunchpadV2`, `TegridyDrop`, `TegridyDropV2` |
+| **NFT Launchpad** | Click-deploy ERC-721 collections with built-in allowlists (Merkle), public mint, Dutch auction, delayed reveal, ERC-2981 royalties, ERC-7572 `contractURI`, and one-shot `createCollection(CollectionConfig)`. Artists upload art + traits CSV; the wizard handles Arweave via Irys (~$10–15, artist pays in ETH) and the on-chain deploy. | `TegridyLaunchpadV2`, `TegridyDropV2` |
 
 **Why this over Curve / Aave / Yearn?**
 
@@ -280,7 +280,7 @@ Plus **27+ audit-derived Foundry test files** under [`contracts/test/`](contract
 ### What's true as of the latest commit on `main`
 
 - **Wave 0 audit-fix redeploys are live on mainnet** (2026-04-18): TegridyLPFarming C-01 fix, TegridyNFTLending C-02 grace period, GaugeController H-2 commit-reveal, TokenURIReader pointing at v2 staking, TegridyTWAP oracle, TegridyFeeHook at `…0044`. See [docs/MIGRATION_HISTORY.md](docs/MIGRATION_HISTORY.md) for the deprecated→canonical pairs.
-- **Still pending broadcast**: VoteIncentives + V3Features (5 contracts); TegridyFeeHook redeploy with patched `_owner` constructor (source ready, first deploy's ownership was stranded on the Arachnid CREATE2 proxy); TegridyLaunchpadV2 (click-deploy factory, 11 tests passing). See [FIX_STATUS.md](FIX_STATUS.md) + [AUDITS.md § blocker table](AUDITS.md#cross-reference-known-blockers-on-main).
+- **Still pending broadcast**: VoteIncentives redeploy; TegridyLending + NFTPool template + NFTPoolFactory redeploy; TegridyFeeHook redeploy with patched `_owner` constructor (source ready, first deploy's ownership was stranded on the Arachnid CREATE2 proxy); TegridyLaunchpadV2 (click-deploy factory, tests passing). V1 TegridyLaunchpad + TegridyDrop source was deleted 2026-04-19 — V1 clones on mainnet remain live. See [FIX_STATUS.md](FIX_STATUS.md) + [AUDITS.md § blocker table](AUDITS.md#cross-reference-known-blockers-on-main).
 - The contracts use `OpenZeppelin` primitives (SafeERC20, ReentrancyGuard, Pausable), a custom `TimelockAdmin` (24–48 hour delays on parameter changes), and `OwnableNoRenounce` (prevents accidental brick).
 - The frontend has **403+ passing unit tests** (wagmi hooks, formatting, CSV parsing, wizard reducer) + **20+ Playwright E2E specs** covering trust surfaces, wallet integration, and the major flows.
 
@@ -338,7 +338,7 @@ All contracts are verified on Etherscan; click any address to view source.
 |---|---|
 | GaugeController (H-2 commit-reveal) | [`0xb9326…0Fdb`](https://etherscan.io/address/0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb#code) |
 | VoteIncentives | [`0x417F4…Cf1A`](https://etherscan.io/address/0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A#code) |
-| TegridyLaunchpad (v1) | [`0x5d597…FF3C2`](https://etherscan.io/address/0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2#code) |
+| TegridyLaunchpad (v1, deprecated 2026-04-19) | [`0x5d597…FF3C2`](https://etherscan.io/address/0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2#code) |
 | TegridyLaunchpadV2 (click-deploy w/ ERC-7572 contractURI) | _pending broadcast — placeholder `0x0…0` until deploy_ |
 | TegridyNFTPoolFactory | [`0x1C0e1…04f0`](https://etherscan.io/address/0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0#code) |
 
@@ -389,10 +389,10 @@ See [ROADMAP.md](ROADMAP.md) for the full roadmap and [CHANGELOG.md](CHANGELOG.m
 
 Near-term priorities (abridged):
 
-- ~~Redeploy three patched contracts (LP farming `exit()`, NFT lending grace period, Drop refund/cancel)~~ — ✅ **LPFarming + NFTLending live on mainnet 2026-04-18**; TegridyDrop H10 refund lives in V3Features redeploy (pending ETH top-up).
+- ~~Redeploy three patched contracts (LP farming `exit()`, NFT lending grace period, Drop refund/cancel)~~ — ✅ **LPFarming + NFTLending live on mainnet 2026-04-18**. The V1 Drop H-10 refund surface is now carried by `TegridyDropV2` (V1 source deleted 2026-04-19).
 - ~~Commit-reveal gauge voting at the contract layer~~ — ✅ **live on mainnet** at `0xb93264aB…0Fdb`.
 - Broadcast `TegridyLaunchpadV2` + redeploy `TegridyFeeHook` with patched `_owner` constructor
-- Broadcast `VoteIncentives` + `V3Features` (5-contract wave for TegridyLending / TegridyDrop / TegridyLaunchpad / NFTPool template / NFTPoolFactory)
+- Broadcast `VoteIncentives` + redeploy `TegridyLending` / `TegridyNFTPool template` / `TegridyNFTPoolFactory` (per-contract scripts; V1 V3Features bundle retired 2026-04-19)
 - Multisig `acceptOwnership()` on all transferred Wave 0 contracts; fund LPFarming reward epoch
 - Keeper infrastructure for DCA / limit orders (today these require the user's tab to stay open)
 - Wire Leaderboard & History pages to the indexer instead of Etherscan proxy

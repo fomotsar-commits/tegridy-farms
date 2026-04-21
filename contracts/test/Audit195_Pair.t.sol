@@ -706,17 +706,18 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 22 (Info): getReserves() returns 0 for blockTimestampLast
+    // FINDING 22 (FIXED — critique 5.6): getReserves() returns
+    // blockTimestampLast of the last _update() call (Uniswap V2 parity).
     // ================================================================
 
-    function test_F22_getReserves_timestampAlwaysZero() public {
+    function test_F22_getReserves_timestampTracksLastUpdate() public {
         _addLiquidity(alice, 10_000 ether, 10_000 ether);
 
         vm.warp(block.timestamp + 365 days);
         _swapExact0For1(bob, 100 ether);
 
         (,, uint32 ts) = pair.getReserves();
-        assertEq(ts, 0, "blockTimestampLast always 0 (TWAP not implemented)");
+        assertEq(ts, uint32(block.timestamp), "blockTimestampLast tracks last _update()");
     }
 
     // ================================================================

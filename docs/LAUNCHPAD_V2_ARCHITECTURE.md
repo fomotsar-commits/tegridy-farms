@@ -15,7 +15,7 @@ Developer-facing reference for the v2 NFT launchpad: contract layout, frontend w
 
 ## V1 vs V2 diff
 
-V1 (`TegridyLaunchpad` + `TegridyDrop`) was shipped in an earlier wave and is frozen for existing collections. V2 replaces it with:
+V1 (`TegridyLaunchpad` + `TegridyDrop`) was shipped in an earlier wave and is frozen for existing collections. V1 source was deleted 2026-04-19; V1 clones on mainnet remain live and readable through the V2 Drop ABI (strict superset at the read surface). V2 replaces V1 with:
 
 | Change                                | Why                                                                                                                                   |
 |---------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|

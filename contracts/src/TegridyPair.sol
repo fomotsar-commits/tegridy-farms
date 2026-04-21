@@ -26,7 +26,11 @@ import {FixedPointMathLib} from "solmate/utils/FixedPointMathLib.sol";
 /// @dev AUDIT FIX C-01/C-02: Removed decimal normalization entirely. K-invariant now uses raw
 ///      reserves exactly like Uniswap V2, eliminating normalization inconsistency between swap()
 ///      and mint()/burn().
-/// @dev AUDIT FIX L-03/G-03: Removed unused blockTimestampLast since TWAP is not implemented.
+/// @dev AUDIT FIX (critique 5.6 / battle-tested): blockTimestampLast is now written on every
+///      _update() for Uniswap V2 interface parity. Third-party integrators performing freshness
+///      checks against this timestamp work correctly. Cumulative price accumulators
+///      (price0CumulativeLast, price1CumulativeLast) remain out of scope — consumers requiring
+///      TWAP should use TegridyTWAP or Chainlink.
 /// @dev SECURITY NOTE: ERC-777 tokens and tokens with transfer callbacks are NOT supported.
 ///      The swap() function follows the Uniswap V2 pattern of transferring tokens out before
 ///      updating reserves. While nonReentrant prevents re-entering THIS pair, tokens with
@@ -46,6 +50,9 @@ contract TegridyPair is ERC20, ReentrancyGuard {
 
     uint112 private reserve0;
     uint112 private reserve1;
+    /// @dev AUDIT FIX (critique 5.6): tracks the last _update() timestamp for Uniswap V2
+    ///      interface parity. Updated on every mint/burn/swap/sync.
+    uint32 public blockTimestampLast;
 
     uint256 public kLast; // reserve0 * reserve1, as of immediately after the most recent liquidity event
 
@@ -75,15 +82,15 @@ contract TegridyPair is ERC20, ReentrancyGuard {
     }
 
     /// @notice Returns the current reserve balances and last update timestamp.
-    /// @dev AUDIT FIX I-01: _blockTimestampLast is intentionally zero. This pair does NOT support
-    ///      TWAP (time-weighted average price) oracles. The field is retained solely for interface
-    ///      compatibility with the Uniswap V2 IUniswapV2Pair interface. Third-party contracts
-    ///      relying on cumulative price accumulators (price0CumulativeLast, price1CumulativeLast)
-    ///      will NOT work with this pair. Use Chainlink or another oracle for price data.
+    /// @dev AUDIT FIX (critique 5.6 / battle-tested): _blockTimestampLast is the timestamp of
+    ///      the last _update() call (Uniswap V2 parity). Integrators performing freshness checks
+    ///      against this value work correctly. Cumulative price accumulators
+    ///      (price0CumulativeLast, price1CumulativeLast) are NOT implemented — use TegridyTWAP
+    ///      or Chainlink for TWAP data.
     function getReserves() public view returns (uint112 _reserve0, uint112 _reserve1, uint32 _blockTimestampLast) {
         _reserve0 = reserve0;
         _reserve1 = reserve1;
-        _blockTimestampLast = 0;
+        _blockTimestampLast = blockTimestampLast;
     }
 
     // ─── Mint LP tokens ───────────────────────────────────────────────
@@ -244,11 +251,13 @@ contract TegridyPair is ERC20, ReentrancyGuard {
 
     /// @dev Update reserves. Balances are truncated to uint112 (max ~5.19e33).
     ///      Tokens with supply exceeding uint112.max are not supported.
-    /// @dev AUDIT FIX L-03/G-03: Removed blockTimestampLast assignment (TWAP not implemented).
+    /// @dev AUDIT FIX (critique 5.6 / battle-tested): blockTimestampLast is written on every
+    ///      update for Uniswap V2 interface parity.
     function _update(uint256 balance0, uint256 balance1) private {
         require(balance0 <= type(uint112).max && balance1 <= type(uint112).max, "OVERFLOW");
         reserve0 = uint112(balance0);
         reserve1 = uint112(balance1);
+        blockTimestampLast = uint32(block.timestamp);
         emit Sync(reserve0, reserve1);
     }
 
