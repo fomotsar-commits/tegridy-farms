@@ -12,6 +12,10 @@ on:
       - "contracts/**"
       - ".github/workflows/contracts-ci.yml"
 
+# Least-privilege default — contracts CI only reads source and caches.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

@@ -12,6 +12,11 @@ on:
       - "contracts/**"
       - ".github/workflows/slither.yml"
 
+# Least-privilege default — the analyze job augments below with
+# security-events: write to upload the SARIF.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+# Least-privilege default — jobs may not write to the repo, PRs, issues, or
+# publish anything. Any job that needs more scope must opt in explicitly.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-typecheck-test:
     name: Lint, Type Check & Test
