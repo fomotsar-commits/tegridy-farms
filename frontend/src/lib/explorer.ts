@@ -41,3 +41,7 @@ export function getAddressUrl(chainId: number | undefined, address: string): str
 export function getBlockUrl(chainId: number | undefined, block: number | bigint): string {
   return `${getExplorerBase(chainId)}/block/${block.toString()}`;
 }
+
+export function getTokenUrl(chainId: number | undefined, tokenAddress: string): string {
+  return `${getExplorerBase(chainId)}/token/${tokenAddress}`;
+}

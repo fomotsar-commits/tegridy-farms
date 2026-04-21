@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import type { Dispatch } from 'react';
 import { parseEther } from 'viem';
-import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { TEGRIDY_LAUNCHPAD_V2_ADDRESS } from '../../../lib/constants';
 import { TEGRIDY_LAUNCHPAD_V2_ABI } from '../../../lib/contracts';
+import { getAddressUrl } from '../../../lib/explorer';
 import { arweaveUri } from '../../../lib/irysClient';
 import type { WizardState, WizardAction } from './wizardReducer';
 import { BTN_EMERALD, LABEL } from '../launchpadConstants';
@@ -23,6 +24,7 @@ export function Step5_Deploy({
   const { isLoading: isConfirming, isSuccess, data: receipt } =
     useWaitForTransactionReceipt({ hash: txHash });
   const [localErr, setLocalErr] = useState<string | null>(null);
+  const chainId = useChainId();
 
   const factoryDeployed = TEGRIDY_LAUNCHPAD_V2_ADDRESS !== ZERO_ADDRESS;
 
@@ -139,7 +141,7 @@ export function Step5_Deploy({
             {deployedCollection}
           </p>
           <a
-            href={`https://etherscan.io/address/${deployedCollection}`}
+            href={getAddressUrl(chainId, deployedCollection)}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-block mt-2 text-[12px] text-emerald-400 hover:text-emerald-300 underline"

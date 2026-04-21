@@ -2,7 +2,7 @@ import { Fragment, useState, useEffect, useMemo, useCallback } from 'react';
 import { m } from 'framer-motion';
 import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { getTxUrl } from '../lib/explorer';
+import { getTxUrl, getAddressUrl } from '../lib/explorer';
 import {
   TEGRIDY_STAKING_ADDRESS, TEGRIDY_RESTAKING_ADDRESS, UNISWAP_V2_ROUTER,
   SWAP_FEE_ROUTER_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS,
@@ -395,7 +395,7 @@ export default function HistoryPage() {
                 <button onClick={handleRetry} className="btn-primary px-5 py-1.5 text-[12px]">Retry</button>
                 {address && (
                   <a
-                    href={`https://etherscan.io/address/${address}`}
+                    href={getAddressUrl(chainId, address)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-[12px] text-purple-300 hover:text-purple-200 underline underline-offset-2"

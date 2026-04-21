@@ -1,10 +1,11 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useReadContract } from 'wagmi';
+import { useReadContract, useChainId } from 'wagmi';
 import { toast } from 'sonner';
 import { ERC20_ABI } from '../../lib/contracts';
 import { DEFAULT_TOKENS, isValidAddress, validateAddress, type TokenInfo } from '../../lib/tokenList';
+import { getTokenUrl } from '../../lib/explorer';
 
 function FallbackIcon({ symbol, size, bg }: { symbol: string; size: string; bg: string }) {
   return (
@@ -48,6 +49,7 @@ function saveRecentToken(address: string) {
 }
 
 export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, customTokens, onAddCustomToken }: TokenSelectModalProps) {
+  const chainId = useChainId();
   const [search, setSearch] = useState('');
   const [importAddress, setImportAddress] = useState('');
   const [importRiskAccepted, setImportRiskAccepted] = useState(false);
@@ -429,7 +431,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
                           the flow hid the full address behind truncation
                           with no quick way to inspect. */}
                       <a
-                        href={`https://etherscan.io/token/${importAddress}`}
+                        href={getTokenUrl(chainId, importAddress)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-[11px] font-semibold text-purple-200 hover:text-white px-2 py-1 rounded transition-colors whitespace-nowrap"

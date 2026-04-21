@@ -9,7 +9,9 @@ import {
   useWaitForTransactionReceipt,
   usePublicClient,
   useBlockNumber,
+  useChainId,
 } from 'wagmi';
+import { getTxUrl } from '../../lib/explorer';
 import { parseEther, formatEther, decodeEventLog } from 'viem';
 import type { Address } from 'viem';
 import { toast } from 'sonner';
@@ -1278,6 +1280,7 @@ interface TradeRow {
 
 function PoolTradeHistory({ poolAddress }: { poolAddress: Address }) {
   const publicClient = usePublicClient();
+  const chainId = useChainId();
   const { data: blockNumber } = useBlockNumber({ watch: true, query: { refetchInterval: 30_000 } });
   const [trades, setTrades] = useState<TradeRow[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1357,7 +1360,7 @@ function PoolTradeHistory({ poolAddress }: { poolAddress: Address }) {
           {visible.map((t) => (
             <a
               key={`${t.txHash}-${t.kind}`}
-              href={`https://etherscan.io/tx/${t.txHash}`}
+              href={getTxUrl(chainId, t.txHash)}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-between gap-2 py-1.5 px-2 rounded-md hover:bg-white/5 transition-colors"
