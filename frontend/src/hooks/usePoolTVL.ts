@@ -12,6 +12,10 @@ export function usePoolTVL() {
   const price = useTOWELIPrice();
   const hasFeeRouter = checkDeployed(SWAP_FEE_ROUTER_ADDRESS);
 
+  // wagmi's useReadContracts narrows the contracts array's type to the first
+  // entry's ABI, which breaks heterogeneous tuples (pair + ERC20 + FeeRouter).
+  // The `as any` is a wagmi-typing limitation, not unsafe data — every
+  // `result` we read is individually typed at the call site below.
   const { data } = useReadContracts({
     contracts: [
       { address: TOWELI_WETH_LP_ADDRESS, abi: UNISWAP_V2_PAIR_ABI, functionName: 'getReserves' } as const,

@@ -292,8 +292,12 @@ function LendTab() {
         args: [parseEther(principal), BigInt(aprBps), BigInt(duration), selectedCollection, tokenIdBig],
         value: parseEther(principal),
       });
-    } catch (err: any) {
-      toast.error(err?.shortMessage || 'Transaction failed');
+    } catch (err: unknown) {
+      const short =
+        err && typeof err === 'object' && 'shortMessage' in err && typeof err.shortMessage === 'string'
+          ? err.shortMessage
+          : undefined;
+      toast.error(short || 'Transaction failed');
     }
   };
 
