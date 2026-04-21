@@ -170,7 +170,7 @@ export default function SecurityPage() {
                 300-agent review
               </a>
               <a
-                href="https://github.com/fomotsar-commits/tegridy-farms/blob/main/SECURITY_AUDIT_OPUS.md"
+                href="https://github.com/fomotsar-commits/tegridy-farms/blob/main/docs/audits/archive/SECURITY_AUDIT_OPUS.md"
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white/90 border border-white/15 hover:border-white/30 transition-colors"
               >

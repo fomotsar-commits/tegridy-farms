@@ -206,19 +206,12 @@ tegriddy-farms/
 ├── indexer/             Ponder — event indexer & GraphQL API
 ├── scripts/             Operations helpers (redeploy, address diff, etc.)
 ├── docs/                Architecture, deployment runbooks, developer docs, launchpad guides
-├── AUDITS.md            🟢 Audit index — every review in this repo, which is canonical, which are archived
-├── SECURITY_AUDIT_300_AGENT.md   Canonical 300-agent full-stack review (Apr 16, 2026)
+├── AUDITS.md            🟢 Audit index — every review, canonical vs archived, honest methodology labels
+├── SECURITY_AUDIT_300_AGENT.md   Canonical 300-agent internal review (Apr 16, 2026)
 ├── AUDIT_FINDINGS.md    Current main-branch blocker list (35 detectives, Apr 17, 2026)
 ├── SPARTAN_AUDIT.txt    External Spartan audit (Apr 16, 2026)
-├── SECURITY_AUDIT_200_AGENT.md   150-agent round (Apr 4)
-├── SECURITY_AUDIT_OPUS.md        38-agent round (Mar 30)
-├── SECURITY_AUDIT_40_AGENT.md    40-agent round (Mar 29)
-├── SECURITY_AUDIT_FINAL.md       200-manual fix-verification (Mar 29)
-├── SECURITY_AUDIT_REPORT.md      100-agent baseline (Mar 29)
-├── API_INDEXER_AUDIT.md          Serverless + Ponder domain audit
-├── findings_clean.txt / findings_text.txt  Plaintext mirrors of 100-finding doc (Mar 26)
-├── tegridy_100_findings.docx     Source 100-finding line-by-line (Mar 26)
-├── tegridy_farms_audit.docx      Earliest external review (Mar 25)
+├── API_INDEXER_AUDIT.md          Serverless + Ponder domain audit (Apr 17, 2026)
+├── docs/audits/archive/          Historical reviews (Mar 25 – Apr 4) — 9 files preserved for provenance
 ├── FIX_STATUS.md        Rolling remediation tracker
 ├── CHANGELOG.md         Release notes (Keep a Changelog)
 ├── ROADMAP.md           What's next
@@ -252,7 +245,7 @@ tegriddy-farms/
 
 ## Security & audits
 
-Tegridy Farms has undergone **7 distinct rounds of review** producing **14+ audit artifacts** — every one of them tracked in this repo. Nothing is buried. The protocol is running on-chain with real TVL; treat it seriously.
+Tegridy Farms has undergone **2 external reviews** (Spartan + a pre-release third-party review) plus **7 internal AI-agent sweeps**. Every artifact is tracked in this repo under [`AUDITS.md`](AUDITS.md); historical reviews have been archived under [`docs/audits/archive/`](docs/audits/archive/). Nothing is buried. The protocol is running on-chain with real TVL; treat it seriously.
 
 - **Complete audit index:** [AUDITS.md](AUDITS.md) — every file, every methodology, every chronological pass, plus a cross-reference table showing which blockers have patches and which need on-chain redeploys.
 - **Current fix status:** [FIX_STATUS.md](FIX_STATUS.md) — rolling tracker of what's landed on `main` and what's deferred. **Read this before depositing significant capital.** Items are open; we don't hide them.
@@ -260,20 +253,17 @@ Tegridy Farms has undergone **7 distinct rounds of review** producing **14+ audi
 
 ### Audit artifact summary
 
-| Audit | Date | Methodology | Headline severity | Role |
+Methodology is labelled honestly. **Internal AI agents** are parallel Claude/GPT sweeps — a breadth tool, not a substitute for a human audit firm. **External** means a third-party conducted the review.
+
+| Audit | Date | Type | Headline severity | Role |
 |---|---|---|---|---|
-| [SECURITY_AUDIT_300_AGENT.md](SECURITY_AUDIT_300_AGENT.md) | 2026-04-16 | 300 agents, 10 waves + external ingest | 5 C / 12 H / many M+L | **🟢 Canonical severity** |
-| [AUDIT_FINDINGS.md](AUDIT_FINDINGS.md) | 2026-04-17 | 35 parallel detectives vs `main` | 4 ship-blockers (B1–B4) + H/M/L | **🟢 Current working-tree state** |
-| [SPARTAN_AUDIT.txt](SPARTAN_AUDIT.txt) | 2026-04-16 | **External** (Spartan methodology) | 1 C / 1 H / 7 M / 9 L | Ingested into 300-agent |
-| [SECURITY_AUDIT_200_AGENT.md](SECURITY_AUDIT_200_AGENT.md) | 2026-04-04 | 150+ agents | 3 C / 12 H | Superseded |
-| [SECURITY_AUDIT_OPUS.md](SECURITY_AUDIT_OPUS.md) | 2026-03-30 | 38 agents | 0 C / H+M inventory | Historical |
-| [SECURITY_AUDIT_40_AGENT.md](SECURITY_AUDIT_40_AGENT.md) | 2026-03-29 | 40 agents, test-coverage focus | 0 C / 15 H / 83 M / 95 L / 49 I | Historical |
-| [SECURITY_AUDIT_FINAL.md](SECURITY_AUDIT_FINAL.md) | 2026-03-29 | 200 + manual | Fix-verification pass | Historical |
-| [SECURITY_AUDIT_REPORT.md](SECURITY_AUDIT_REPORT.md) | 2026-03-29 | 100 agents | 7 C / 32 H / 85+ M | Historical baseline |
-| [tegridy_100_findings.docx](tegridy_100_findings.docx) | 2026-03-26 | Line-by-line manual | 12 C / 18 H / 30 M / 40 L | First comprehensive pass |
-| [findings_clean.txt](findings_clean.txt) / [findings_text.txt](findings_text.txt) | 2026-03-26 | Plaintext of 100-finding doc | Same | grep-friendly mirrors |
-| [tegridy_farms_audit.docx](tegridy_farms_audit.docx) | 2026-03-25 | External, pre-release | Baseline | Earliest artifact |
-| [API_INDEXER_AUDIT.md](API_INDEXER_AUDIT.md) | 2026-04-17 | Domain-specific | H + M triage | `frontend/api/**` + `indexer/` |
+| [SECURITY_AUDIT_300_AGENT.md](SECURITY_AUDIT_300_AGENT.md) | 2026-04-16 | Internal AI, 300 agents + Spartan ingest | 5 C / 12 H / many M+L | **🟢 Canonical severity** |
+| [AUDIT_FINDINGS.md](AUDIT_FINDINGS.md) | 2026-04-17 | Internal AI, 35 detectives vs `main` | 4 ship-blockers (B1–B4) + H/M/L | **🟢 Current working-tree state** |
+| [SPARTAN_AUDIT.txt](SPARTAN_AUDIT.txt) | 2026-04-16 | **External** (Spartan) | 1 C / 1 H / 7 M / 9 L | Ingested into 300-agent |
+| [API_INDEXER_AUDIT.md](API_INDEXER_AUDIT.md) | 2026-04-17 | Internal AI, domain-specific | H + M triage | `frontend/api/**` + `indexer/` |
+| *9 earlier reviews, Mar 25 – Apr 4* | — | Archived | — | See [docs/audits/archive/](docs/audits/archive/) |
+
+A paid human audit by a recognised firm (OpenZeppelin / Trail of Bits / Spearbit / Cyfrin / Code4rena) is on the roadmap and **not yet scheduled**. Size deposits accordingly.
 
 Plus **27+ audit-derived Foundry test files** under [`contracts/test/`](contracts/test/) — every finding that could be expressed as a regression test has one. Current pass rate: **1,933 / 1,933**.
 

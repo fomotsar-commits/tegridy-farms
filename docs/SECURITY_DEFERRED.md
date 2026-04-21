@@ -137,19 +137,15 @@ the read surface).
 
 ## Docs / operational hygiene
 
-### Consolidate 7+ audit files into a single canonical source
-- **Status:** `SECURITY_AUDIT_OPUS.md`, `SECURITY_AUDIT_40_AGENT.md`,
-  `SECURITY_AUDIT_200_AGENT.md`, `SECURITY_AUDIT_300_AGENT.md`,
-  `SECURITY_AUDIT_FINAL.md`, `SECURITY_AUDIT_REPORT.md`,
-  `SPARTAN_AUDIT.txt`, `AUDIT_FINDINGS.md`, `AUDITS.md`,
-  `tegridy_100_findings.docx`, `findings_text.txt`, `findings_clean.txt`
-  all coexist with no canonical ID space.
-- **Fix:** keep one `AUDIT_FINDINGS.md`, normalise to a single ID
-  scheme (H-xx / M-xx / L-xx), mark each finding as
-  `open | fixed | accepted-risk | deferred`, delete the rest.
-- **Why deferred:** doc refactor — not security work per se; this file
-  (`SECURITY_FIXES_2026-04-19.md` + `SECURITY_DEFERRED.md`) is the
-  interim canonical status for this pass.
+### Consolidate 7+ audit files into a single canonical source — ✅ RESOLVED 2026-04-20
+- **Resolution:** Root-level audit files reduced to 4 canonical artifacts
+  (`AUDITS.md`, `SECURITY_AUDIT_300_AGENT.md`, `AUDIT_FINDINGS.md`,
+  `SPARTAN_AUDIT.txt`, `API_INDEXER_AUDIT.md`). 9 historical reviews moved to
+  [`docs/audits/archive/`](./audits/archive/) (Mar 25 – Apr 4 2026).
+- `AUDITS.md` rewritten to label methodology honestly — distinguishes
+  **external** (2) from **internal AI-agent sweeps** (7) and calls out that a
+  paid human audit by a recognised firm is not yet scheduled.
+- Per-finding ID normalisation (H-xx / M-xx / L-xx) remains a smaller follow-up.
 
 ## Post-merge audit sweep (2026-04-20) — accepted-risk findings
 
