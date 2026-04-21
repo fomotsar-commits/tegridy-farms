@@ -78,6 +78,18 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///         the first vote in epoch 0 because both sides default to 0.
     mapping(uint256 => mapping(uint256 => bool)) public hasVotedInEpoch;
 
+    /// @notice AUDIT C2: Per-USER epoch vote flag. Closes the multi-NFT amplification
+    ///         vector where a contract holder with N staking NFTs could vote N times
+    ///         per epoch, each time applying the OWNER-AGGREGATED voting power
+    ///         (TegridyStaking.votingPowerOf returns the sum across all positions).
+    ///         With this flag, a user can vote at most once per epoch regardless of
+    ///         how many NFTs they hold; their full aggregate power is applied once.
+    ///
+    ///         EOAs were already protected by the per-EOA single-NFT guard in
+    ///         TegridyStaking._update; this flag closes the equivalent gap for
+    ///         contract wallets (Safes, vaults, multi-position aggregators).
+    mapping(address => mapping(uint256 => bool)) public hasUserVotedInEpoch;
+
     /// @notice Stores each tokenId's vote allocations for the epoch they voted in
     mapping(uint256 => VoteAllocation[]) internal _tokenVotes;
 
@@ -134,6 +146,7 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error NotCommitter();
     error AlreadyCommitted();
     error ZeroCommitment();
+    error UserAlreadyVotedThisEpoch(); // AUDIT C2: per-user epoch guard
 
     // ─── Constructor ────────────────────────────────────────────────
     constructor(
@@ -186,6 +199,11 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // (default mapping value == default epoch value), rejecting legitimate first votes.
         uint256 epoch = currentEpoch();
         if (hasVotedInEpoch[tokenId][epoch]) revert AlreadyVotedThisEpoch();
+        // AUDIT C2: per-user epoch guard. Closes the multi-NFT amplification vector
+        // where a contract holding N staking NFTs could vote N times per epoch, each
+        // applying the owner-aggregated voting power. With this guard the user gets
+        // exactly one vote per epoch with their full aggregate power.
+        if (hasUserVotedInEpoch[msg.sender][epoch]) revert UserAlreadyVotedThisEpoch();
 
         // Compute voting power from staking position.
         // AUDIT TF-04 (Spartan MEDIUM): voting power is now pinned to the EPOCH-START
@@ -216,6 +234,7 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         delete _tokenVotes[tokenId];
         lastVotedEpoch[tokenId] = epoch;
         hasVotedInEpoch[tokenId][epoch] = true;
+        hasUserVotedInEpoch[msg.sender][epoch] = true; // AUDIT C2
 
         // Apply weighted voting power to each gauge
         for (uint256 i; i < gauges.length; ++i) {
@@ -283,6 +302,11 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (block.timestamp >= revealOpens) revert CommitWindowClosed();
         if (hasVotedInEpoch[tokenId][epoch]) revert AlreadyVotedThisEpoch();
         if (commitmentOf[tokenId][epoch] != bytes32(0)) revert AlreadyCommitted();
+        // AUDIT C2: per-user epoch guard. If the user already revealed (hence applied) a
+        // vote earlier in this epoch via another NFT they own, no further commits accepted.
+        // Stale unrevealed commits don't trip this guard — only successful reveals do —
+        // so a user can still rotate which tokenId they ultimately reveal with.
+        if (hasUserVotedInEpoch[msg.sender][epoch]) revert UserAlreadyVotedThisEpoch();
 
         // Validate the NFT still represents an active lock (cheap pre-check;
         // real voting power is computed at reveal time against epoch-start snapshot).
@@ -324,6 +348,9 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // Validate arrays / lock / power with the same rigour as legacy vote().
         if (gauges.length != weights.length) revert ArrayLengthMismatch();
         if (gauges.length > MAX_GAUGES_PER_VOTER) revert TooManyGauges();
+        // AUDIT C2: per-user epoch guard at reveal time too. If the user already revealed
+        // a vote in this epoch via another NFT, refuse to apply a second one.
+        if (hasUserVotedInEpoch[msg.sender][epoch]) revert UserAlreadyVotedThisEpoch();
 
         // Ownership check at reveal time — NFT transfers between commit and reveal
         // forfeit the vote, since voting power is scored against the committer.
@@ -347,6 +374,7 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         delete _tokenVotes[tokenId];
         lastVotedEpoch[tokenId] = epoch;
         hasVotedInEpoch[tokenId][epoch] = true;
+        hasUserVotedInEpoch[msg.sender][epoch] = true; // AUDIT C2
 
         for (uint256 i; i < gauges.length; ++i) {
             uint256 allocatedPower = (votingPower * weights[i]) / BPS;

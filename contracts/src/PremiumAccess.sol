@@ -244,7 +244,9 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     /// @notice SECURITY FIX #17: Cancel subscription and receive pro-rata refund for unused time.
     ///         AUDIT FIX M-43: Refund uses userEscrow (actual amount paid at subscription-time fee rate),
     ///         not the current monthlyFeeToweli, so fee changes after subscription don't affect refunds.
-    function cancelSubscription() external nonReentrant whenNotPaused {
+    /// @notice AUDIT M10: cancelSubscription is intentionally callable while paused so
+    ///         subscribers can always recover their pro-rata refund during emergencies.
+    function cancelSubscription() external nonReentrant {
         Subscription storage sub = subscriptions[msg.sender];
         if (sub.expiresAt <= block.timestamp) revert NoActiveSubscription();
         // AUDIT FIX M-18: Prevent same-block subscribe+cancel to avoid free premium window exploit

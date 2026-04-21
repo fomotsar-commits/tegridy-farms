@@ -145,6 +145,18 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     uint256 public pendingPolShareBps;
     address public pendingPolAccumulator;
 
+    /// @notice AUDIT C4: pull-pattern queue for distributeFeesToStakers legs that fail
+    ///         the direct .call (recipient out of gas, paused, mid-upgrade, etc).
+    ///         Without this queue, a failing staker or POL receiver would brick the
+    ///         entire distribute() call via require(), trapping ETH in
+    ///         accumulatedETHFees and blocking all subsequent distributions until the
+    ///         destination recovered. With this queue, the slice is parked here and the
+    ///         recipient (or anyone, on their behalf) can pull it later.
+    mapping(address => uint256) public pendingDistribution;
+    /// @notice AUDIT C4: aggregate of all pendingDistribution entries. sweepETH must
+    ///         exclude this so the queued ETH cannot be swept to treasury.
+    uint256 public totalPendingDistribution;
+
     // ─── Pending Values (for timelocked changes) ─────────────────────
     uint256 public pendingFeeBps;
     address public pendingTreasury;
@@ -189,6 +201,16 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     event PolAccumulatorChangeProposed(address indexed newAccumulator, uint256 executeAfter);
     event PolAccumulatorChangeCancelled(address indexed cancelled);
     event FeesDistributedSplit(uint256 stakerAmount, uint256 treasuryAmount, uint256 polAmount);
+    /// @notice AUDIT C4: emitted when a staker or POL transfer fails the direct .call and
+    ///         is parked in pendingDistribution for later pull. Off-chain monitors should
+    ///         alert so the recipient (or owner) can drain via withdrawPendingDistribution.
+    event DistributionDeferred(address indexed recipient, uint256 amount);
+    event PendingDistributionWithdrawn(address indexed recipient, uint256 amount);
+    /// @notice AUDIT C1: emitted when accumulated token fees are converted to ETH and folded
+    ///         into accumulatedETHFees so they flow through the timelocked staker/POL/treasury
+    ///         split. Without this conversion path, token-only swap fees (USDC↔TOWELI etc)
+    ///         silently bypassed the staker share and went 100% to treasury via withdrawTokenFees.
+    event TokenFeesConverted(address indexed token, uint256 tokenAmount, uint256 ethReceived);
 
     // ─── Errors ──────────────────────────────────────────────────────
     error FeeTooHigh();
@@ -822,9 +844,16 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         // 50k. Full WETHFallbackLib would switch to a 10k ETH stipend + WETH wrap, but a
         // WETH wrap on RevenueDistributor would strand the slice (distribute() reads
         // address(this).balance), so the middle-ground 50k stipend is the correct choice.
+        // AUDIT C4: on failure, queue the slice in pendingDistribution instead of
+        // reverting the whole distribute() call. A failing destination (paused, OOG,
+        // mid-upgrade) used to brick all subsequent distributions; now it's a pull.
         if (stakerAmount > 0) {
             (bool okStaker,) = revenueDistributor.call{value: stakerAmount, gas: 50_000}("");
-            require(okStaker, "STAKER_TRANSFER_FAILED");
+            if (!okStaker) {
+                pendingDistribution[revenueDistributor] += stakerAmount;
+                totalPendingDistribution += stakerAmount;
+                emit DistributionDeferred(revenueDistributor, stakerAmount);
+            }
         }
 
         // POL path: only run if we have a configured accumulator AND a non-zero slice.
@@ -834,7 +863,12 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         if (polAmount > 0) {
             if (polAccumulator != address(0)) {
                 (bool okPol,) = polAccumulator.call{value: polAmount, gas: 50_000}("");
-                require(okPol, "POL_TRANSFER_FAILED");
+                if (!okPol) {
+                    // AUDIT C4: same pull-pattern fallback for the POL leg.
+                    pendingDistribution[polAccumulator] += polAmount;
+                    totalPendingDistribution += polAmount;
+                    emit DistributionDeferred(polAccumulator, polAmount);
+                }
             } else {
                 treasuryAmount += polAmount;
                 polAmount = 0;
@@ -953,10 +987,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
 
     /// @notice Sweep any stuck ETH to treasury (non-fee dust)
     /// SECURITY FIX H6: Use WETHFallbackLib for same reason
+    /// AUDIT C4: also reserve totalPendingDistribution so the deferred-distribution queue
+    ///          cannot be swept to treasury before recipients pull their slices.
     function sweepETH() external onlyOwner nonReentrant {
         uint256 balance = address(this).balance;
         if (balance == 0) revert ZeroAmount();
-        uint256 sweepable = balance > accumulatedETHFees ? balance - accumulatedETHFees : 0;
+        uint256 reserved = accumulatedETHFees + totalPendingDistribution;
+        uint256 sweepable = balance > reserved ? balance - reserved : 0;
         if (sweepable == 0) revert ZeroAmount();
         WETHFallbackLib.safeTransferETHOrWrap(WETH, treasury, sweepable);
         emit FeesWithdrawn(treasury, sweepable);
@@ -966,6 +1003,11 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     ///         AUDIT FIX M-04: Zero out accounting before transfer to prevent phantom balance
     ///         with fee-on-transfer tokens. Previous approach left permanent non-zero dust
     ///         in accumulatedTokenFees when transfer fee caused actualTransferred < amount.
+    /// @dev    AUDIT C1: this remains an owner-only path that sends 100% to treasury for
+    ///         tokens that cannot be swapped to ETH (no liquid pair, exotic FoT mechanics
+    ///         that defeat both convertTokenFeesToETH variants, etc). For routine token
+    ///         fees, the keeper should call convertTokenFeesToETH so the value flows through
+    ///         the timelocked staker/POL/treasury split.
     function withdrawTokenFees(address token) external onlyOwner nonReentrant {
         if (token == address(0)) revert ZeroAddress();
         uint256 amount = accumulatedTokenFees[token];
@@ -975,6 +1017,89 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         accumulatedTokenFees[token] = 0;
         IERC20(token).safeTransfer(treasury, amount);
         emit FeesWithdrawn(treasury, amount);
+    }
+
+    /// @notice AUDIT C1 (CRITICAL silent-killer fix): convert accumulated token fees to ETH
+    ///         via the underlying Uniswap V2 router so they flow into accumulatedETHFees.
+    ///         Without this path, token-only swaps (USDC↔TOWELI, USDT↔WBTC, …) accumulated
+    ///         fees per-token that could only exit via withdrawTokenFees → 100% treasury.
+    ///         Stakers and POL earned 0% on every token-only swap.
+    ///
+    ///         Permissionless so any keeper or staker can trigger the conversion. Caller
+    ///         provides minETHOut so they can defend against MEV sandwich on the conversion
+    ///         leg. The resulting ETH is added to accumulatedETHFees and distributed by the
+    ///         next distributeFeesToStakers() call under the same timelocked split.
+    ///
+    ///         For fee-on-transfer tokens, use convertTokenFeesToETHFoT instead — this
+    ///         variant uses the standard router path which reverts on FoT mismatch.
+    /// @param  token        ERC20 token to convert (must have a token/WETH liquid pair)
+    /// @param  minETHOut    Minimum ETH the caller will accept (slippage protection)
+    /// @param  deadline     Standard Uniswap deadline (capped at MAX_DEADLINE)
+    function convertTokenFeesToETH(address token, uint256 minETHOut, uint256 deadline)
+        external nonReentrant whenNotPaused
+    {
+        if (token == address(0) || token == WETH) revert ZeroAddress();
+        if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
+
+        uint256 amount = accumulatedTokenFees[token];
+        if (amount == 0) revert ZeroAmount();
+        // CEI: zero accounting BEFORE the swap so a malicious token's transfer hook can't
+        // re-enter and double-spend the same accumulated balance.
+        accumulatedTokenFees[token] = 0;
+
+        IERC20(token).forceApprove(address(router), amount);
+        address[] memory path = new address[](2);
+        path[0] = token;
+        path[1] = WETH;
+
+        uint256 ethBefore = address(this).balance;
+        router.swapExactTokensForETH(amount, minETHOut, path, address(this), deadline);
+        uint256 ethReceived = address(this).balance - ethBefore;
+        if (ethReceived < minETHOut) revert InsufficientOutput();
+
+        IERC20(token).forceApprove(address(router), 0);
+
+        // Fold the converted ETH into the staker/POL/treasury fee pool.
+        accumulatedETHFees += ethReceived;
+        emit TokenFeesConverted(token, amount, ethReceived);
+    }
+
+    /// @notice AUDIT C1: fee-on-transfer variant of convertTokenFeesToETH.
+    ///         Uses the router's *SupportingFeeOnTransferTokens helper so FoT-token
+    ///         conversions don't revert on the K-invariant check. Measures the actual
+    ///         received ETH delta and folds it into accumulatedETHFees.
+    function convertTokenFeesToETHFoT(address token, uint256 minETHOut, uint256 deadline)
+        external nonReentrant whenNotPaused
+    {
+        if (token == address(0) || token == WETH) revert ZeroAddress();
+        if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
+
+        uint256 amount = accumulatedTokenFees[token];
+        if (amount == 0) revert ZeroAmount();
+        accumulatedTokenFees[token] = 0;
+
+        // For FoT tokens we approve the actual on-hand balance because the contract may
+        // hold less than `amount` after the input-side FoT haircut on prior accumulation.
+        uint256 actualOnHand = IERC20(token).balanceOf(address(this));
+        uint256 swapAmount = amount > actualOnHand ? actualOnHand : amount;
+        if (swapAmount == 0) revert ZeroAmount();
+
+        IERC20(token).forceApprove(address(router), swapAmount);
+        address[] memory path = new address[](2);
+        path[0] = token;
+        path[1] = WETH;
+
+        uint256 ethBefore = address(this).balance;
+        router.swapExactTokensForETHSupportingFeeOnTransferTokens(
+            swapAmount, minETHOut, path, address(this), deadline
+        );
+        uint256 ethReceived = address(this).balance - ethBefore;
+        if (ethReceived < minETHOut) revert InsufficientOutput();
+
+        IERC20(token).forceApprove(address(router), 0);
+
+        accumulatedETHFees += ethReceived;
+        emit TokenFeesConverted(token, swapAmount, ethReceived);
     }
 
     /// @notice Sweep any stuck ERC20 tokens to treasury (non-fee dust)
@@ -987,21 +1112,51 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         IERC20(token).safeTransfer(treasury, sweepable);
     }
 
-    /// @notice Recover stranded callerCredit ETH from the current ReferralSplitter
-    function recoverCallerCredit() external onlyOwner nonReentrant {
+    /// @notice AUDIT C4: Pull deferred distribution slice. Permissionless — anyone can
+    ///         drain a recipient's queue back to that recipient, so a buggy receiver can't
+    ///         hold the slice hostage. ETH is sent via WETHFallbackLib so even a contract
+    ///         that reverts on raw ETH receive (the original failure cause) gets WETH
+    ///         instead — guaranteed delivery on the second hop.
+    /// @param  recipient The original distribution destination whose queue to drain.
+    function withdrawPendingDistribution(address recipient) external nonReentrant {
+        if (recipient == address(0)) revert ZeroAddress();
+        uint256 amount = pendingDistribution[recipient];
+        if (amount == 0) revert ZeroAmount();
+        pendingDistribution[recipient] = 0;
+        totalPendingDistribution -= amount;
+        WETHFallbackLib.safeTransferETHOrWrap(WETH, recipient, amount);
+        emit PendingDistributionWithdrawn(recipient, amount);
+    }
+
+    /// @notice Recover stranded callerCredit ETH from the current ReferralSplitter.
+    ///         AUDIT L2 / C1-extended: now permissionless and folds the recovered ETH
+    ///         into accumulatedETHFees so it flows through the timelocked staker/POL/treasury
+    ///         split via distributeFeesToStakers. Previously the recovered ETH landed as
+    ///         orphan balance that only sweepETH (treasury-only) could move.
+    function recoverCallerCredit() external nonReentrant {
         require(address(referralSplitter) != address(0), "NO_SPLITTER");
         uint256 balBefore = address(this).balance;
         referralSplitter.withdrawCallerCredit();
         uint256 recovered = address(this).balance - balBefore;
+        if (recovered > 0) {
+            accumulatedETHFees += recovered;
+        }
         emit CallerCreditRecovered(address(referralSplitter), recovered);
     }
 
-    /// @notice Recover stranded callerCredit ETH from an old ReferralSplitter
+    /// @notice Recover stranded callerCredit ETH from an old ReferralSplitter.
+    ///         AUDIT L2 / C1-extended: same accumulator routing as recoverCallerCredit.
+    ///         Kept onlyOwner because the caller specifies an arbitrary external splitter
+    ///         address — the pull is a trusted external call and we don't want a malicious
+    ///         caller to direct the contract at arbitrary addresses for griefing.
     function recoverCallerCreditFrom(address oldSplitter) external onlyOwner nonReentrant {
         if (oldSplitter == address(0)) revert ZeroAddress();
         uint256 balBefore = address(this).balance;
         IReferralSplitter(oldSplitter).withdrawCallerCredit();
         uint256 recovered = address(this).balance - balBefore;
+        if (recovered > 0) {
+            accumulatedETHFees += recovered;
+        }
         emit CallerCreditRecovered(oldSplitter, recovered);
     }
 

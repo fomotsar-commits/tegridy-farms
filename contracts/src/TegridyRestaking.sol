@@ -136,6 +136,11 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     event UnsettledRecovered(address indexed user, uint256 amount); // AUDIT FIX: recover unsettled from NFT transfer
     event EmergencyForceReturn(address indexed restaker, uint256 indexed tokenId, bool nftReturned); // H-05
     event BoostRevalidated(address indexed restaker, uint256 indexed tokenId, uint256 oldBoosted, uint256 newBoosted); // M-26
+    /// @notice AUDIT H13: emitted when the bonus reward pool cannot cover the expected
+    ///         elapsed * bonusRewardPerSecond accrual. Restakers silently earn less than
+    ///         the advertised rate; off-chain monitors must surface this so the pool can
+    ///         be refunded before users notice their APR drift.
+    event BonusShortfall(uint256 elapsed, uint256 shortfall);
 
     // ─── Errors ─────────────────────────────────────────────────────
     error NotRestaked();
@@ -197,7 +202,13 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             } catch {
                 available = 0;
             }
-            if (reward > available) reward = available;
+            // AUDIT H13: surface bonus-pool drought so off-chain monitors can refund the
+            // pool before restakers see APR drift. The truncation behavior itself is
+            // preserved (reward = available) — this only adds observability.
+            if (reward > available) {
+                emit BonusShortfall(elapsed, reward - available);
+                reward = available;
+            }
             if (reward > 0) {
                 accBonusPerShare += (reward * ACC_PRECISION) / totalRestaked;
             }

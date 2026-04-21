@@ -844,15 +844,23 @@ contract TegridyNFTPoolTest is Test {
         address pool = _createTradePool(SPOT_PRICE, DELTA, LP_FEE_BPS, ids, 5 ether);
         TegridyNFTPool p = TegridyNFTPool(payable(pool));
 
-        // Owner changes fee on TRADE pool
+        // AUDIT M9: changeFee is now timelocked. Owner proposes, waits, then executes.
         vm.prank(alice);
-        p.changeFee(1000); // 10%
+        p.proposeFeeChange(1000); // 10%
+        // Pre-timelock execute reverts
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTPool.TimelockNotElapsed.selector);
+        p.executeFeeChange();
+        // Wait for timelock and execute
+        vm.warp(block.timestamp + p.PARAMETER_TIMELOCK());
+        vm.prank(alice);
+        p.executeFeeChange();
         assertEq(p.feeBps(), 1000);
 
-        // Exceeds MAX_FEE_BPS reverts
+        // Exceeds MAX_FEE_BPS reverts at propose-time
         vm.prank(alice);
         vm.expectRevert(TegridyNFTPool.InvalidFee.selector);
-        p.changeFee(9001);
+        p.proposeFeeChange(9001);
 
         // Non-TRADE pool fee change reverts
         uint256[] memory ids2 = _tokenIdArray(4, 2);
@@ -861,7 +869,12 @@ contract TegridyNFTPoolTest is Test {
 
         vm.prank(alice);
         vm.expectRevert(TegridyNFTPool.PoolTypeMismatch.selector);
-        sp.changeFee(100);
+        sp.proposeFeeChange(100);
+
+        // Legacy changeFee selector reverts cleanly (deprecation guard)
+        vm.prank(alice);
+        vm.expectRevert(bytes("USE_PROPOSE_FEE_CHANGE"));
+        p.changeFee(500);
     }
 
     // ===== WITHDRAW ETH RESPECTS PROTOCOL FEES =====

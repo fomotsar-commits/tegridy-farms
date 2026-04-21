@@ -542,10 +542,33 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     }
 
     /// @dev Get a user's lock state, with try/catch fallback for paused votingEscrow.
+    ///      AUDIT C3 / H11: now uses votingEscrow.votingPowerOf(user) — which aggregates
+    ///      across all NFTs the user owns — as the primary "active" signal. Multi-NFT
+    ///      contract holders (Safes, vaults) were previously locked out of claims because
+    ///      `userTokenId` only points to the most-recently-received NFT. The aggregated
+    ///      power check returns true if ANY of their positions is still active.
+    ///
+    ///      The `lockEnd` return value is preserved for the grace-period path (single-NFT
+    ///      users about to expire). For aggregate-active users we return type(uint64).max
+    ///      so the grace check is effectively a no-op (always > block.timestamp).
     function _getUserLockState(address user) internal view returns (uint256 currentLocked, uint256 lockEnd) {
+        // AUDIT C3 / H11: prefer aggregate voting power. Returns the SUM across all the
+        // user's positions, so a multi-NFT contract holder with at least one active lock
+        // is correctly recognised as active.
+        try votingEscrow.votingPowerOf(user) returns (uint256 power) {
+            if (power > 0) {
+                // Active via aggregate. Sentinel lockEnd suppresses the grace-period gate.
+                return (power, type(uint64).max);
+            }
+        } catch {
+            // votingPowerOf can revert if staking is paused / mid-upgrade. Fall through to
+            // the legacy single-pointer path so users with a single NFT can still claim
+            // through the grace-period door.
+        }
+
+        // No aggregate power → fall back to single-pointer for grace-period semantics.
         try votingEscrow.userTokenId(user) returns (uint256 tokenId) {
             if (tokenId == 0) return (0, 0);
-            // H-01 FIX: Updated destructuring to match corrected ABI order
             try votingEscrow.positions(tokenId) returns (
                 uint256 amount, uint256, int256, uint256 _lockEnd,
                 uint256, uint256, bool, bool, uint256, uint256, bool

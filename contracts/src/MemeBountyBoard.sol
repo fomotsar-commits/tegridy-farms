@@ -212,7 +212,12 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             winner: address(0),
             status: BountyStatus.Open,
             submissionCount: 0,
-            snapshotTimestamp: block.timestamp >= SNAPSHOT_LOOKBACK ? block.timestamp - SNAPSHOT_LOOKBACK : 0,
+            // AUDIT H10: same fallback as CommunityGrants — avoid timestamp 0 snapshot on
+            // test/fork environments by using (block.timestamp - 1) when SNAPSHOT_LOOKBACK
+            // hasn't elapsed yet. Mirrors RevenueDistributor's `block.timestamp - 1` pattern.
+            snapshotTimestamp: block.timestamp >= SNAPSHOT_LOOKBACK
+                ? block.timestamp - SNAPSHOT_LOOKBACK
+                : (block.timestamp > 0 ? block.timestamp - 1 : 0),
             createdAt: block.timestamp
         }));
 

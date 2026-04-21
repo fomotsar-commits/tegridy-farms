@@ -89,6 +89,13 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     uint256 public totalRawSupply;       // Sum of actual LP deposited
     uint256 public totalEffectiveSupply; // Sum of boosted balances (used for reward math)
 
+    /// @notice AUDIT M11: Tally of reward tokens forfeited by emergencyWithdraw users.
+    ///         Without this counter the forfeited tokens accumulate as unrecoverable dust
+    ///         (recoverERC20 blocks rewardToken sweeps, and the leftover formula in
+    ///         notifyRewardAmount only carries the active rewardRate × remaining time).
+    ///         Owner can sweep this dust to treasury via reclaimForfeitedRewards.
+    uint256 public forfeitedRewards;
+
     mapping(address => uint256) public rawBalanceOf;       // Actual LP deposited
     mapping(address => uint256) public effectiveBalanceOf; // Boosted balance
 
@@ -110,6 +117,7 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     event TreasuryProposed(address newTreasury, uint256 executeAfter);
     event TreasuryUpdated(address oldTreasury, address newTreasury);
     event Recovered(address token, uint256 amount);
+    event ForfeitedRewardsReclaimed(address indexed treasury, uint256 amount); // AUDIT M11
 
     // ─── Errors ─────────────────────────────────────────────────────
     error ZeroAmount();
@@ -289,6 +297,10 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     }
 
     /// @notice Emergency withdraw — return LP tokens, forfeit ALL pending rewards
+    /// @dev AUDIT M11: forfeited reward total is tracked in `forfeitedRewards` so the
+    ///      stranded tokens can later be swept to treasury via reclaimForfeitedRewards.
+    ///      Without this, the forfeited amount silted up as unrecoverable dust
+    ///      (recoverERC20 blocks rewardToken).
     function emergencyWithdraw() external nonReentrant {
         uint256 amount = rawBalanceOf[msg.sender];
         if (amount == 0) revert ZeroAmount();
@@ -303,8 +315,34 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
         rewards[msg.sender] = 0;
         userRewardPerTokenPaid[msg.sender] = rewardPerTokenStored;
 
+        // AUDIT M11: track forfeited reward dust for later treasury reclaim.
+        if (forfeited > 0) {
+            forfeitedRewards += forfeited;
+        }
+
         stakingToken.safeTransfer(msg.sender, amount);
         emit EmergencyWithdraw(msg.sender, amount, forfeited);
+    }
+
+    /// @notice AUDIT M11: Sweep accumulated forfeitedRewards dust to treasury.
+    ///         Capped at the unencumbered balance (balance minus the active period's
+    ///         remaining rewardRate × time) so this can never drain rewards owed to
+    ///         active stakers. Treasury can re-fund via notifyRewardAmount.
+    function reclaimForfeitedRewards() external onlyOwner nonReentrant {
+        uint256 amount = forfeitedRewards;
+        if (amount == 0) revert ZeroAmount();
+
+        uint256 owedFutureRewards = block.timestamp < periodFinish
+            ? (periodFinish - block.timestamp) * rewardRate
+            : 0;
+        uint256 balance = rewardToken.balanceOf(address(this));
+        uint256 cap = balance > owedFutureRewards ? balance - owedFutureRewards : 0;
+        if (amount > cap) amount = cap;
+        if (amount == 0) revert ZeroAmount();
+
+        forfeitedRewards -= amount;
+        rewardToken.safeTransfer(treasury, amount);
+        emit ForfeitedRewardsReclaimed(treasury, amount);
     }
 
     // ═══════════════════════════════════════════════════════════════

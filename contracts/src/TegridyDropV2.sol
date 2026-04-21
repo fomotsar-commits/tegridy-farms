@@ -114,6 +114,12 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     mapping(address => uint256) public mintedPerWallet;
     mapping(address => uint256) public paidPerWallet;
 
+    /// @notice AUDIT H9: one-way flag set by withdraw(). Once funds have been withdrawn,
+    ///         cancelSale() is disabled — the creator has committed to delivery and minters
+    ///         can no longer be refunded. Conversely, a sale that is cancelled before
+    ///         withdraw() runs guarantees every minter their refund.
+    bool public withdrawn;
+
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
         _;
@@ -146,12 +152,17 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         MintPhase initialPhase;
     }
 
+    /// @notice AUDIT M8: cap platform fee at 10% to match LaunchpadV2.MAX_PROTOCOL_FEE_BPS.
+    ///         The prior 100% cap allowed direct-clone deployments to siphon all creator share.
+    uint16 public constant MAX_PLATFORM_FEE_BPS = 1000;
+
     function initialize(InitParams calldata p) external initializer {
         if (p.creator == address(0)) revert ZeroAddress();
         if (p.platformFeeRecipient == address(0)) revert ZeroAddress();
         if (p.weth == address(0)) revert ZeroAddress();
         if (p.maxSupply == 0) revert InvalidMaxSupply();
-        if (p.platformFeeBps > 10000) revert InvalidFeeBps();
+        // AUDIT M8: tightened from 10000 (100%) to MAX_PLATFORM_FEE_BPS (10%).
+        if (p.platformFeeBps > MAX_PLATFORM_FEE_BPS) revert InvalidFeeBps();
         if (p.royaltyBps > 10000) revert InvalidRoyaltyBps();
         if (uint8(p.initialPhase) > uint8(MintPhase.DUTCH_AUCTION)) revert InvalidInitialPhase();
 
@@ -369,10 +380,19 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
 
+    /// @notice Withdraw mint proceeds to creator + platform.
+    ///         AUDIT H9: sets `withdrawn = true` (one-way) which permanently disables
+    ///         cancelSale(). The creator/platform commit to delivery the moment they
+    ///         take funds — minters can no longer be refunded after withdraw runs.
+    ///         Counterpart guarantee: a sale that is cancelled BEFORE withdraw is called
+    ///         still has its full ETH balance available for refund().
     function withdraw() external onlyOwner nonReentrant {
         if (mintPhase == MintPhase.CANCELLED) revert SaleCancelled();
         uint256 balance = address(this).balance;
         if (balance == 0) revert WithdrawFailed();
+
+        // AUDIT H9: lock out cancelSale() going forward.
+        withdrawn = true;
 
         uint256 platformAmount = (balance * platformFeeBps) / 10000;
         uint256 creatorAmount = balance - platformAmount;
@@ -387,8 +407,13 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         emit Withdrawn(creator, creatorAmount, platformFeeRecipient, platformAmount);
     }
 
+    /// @notice Cancel the sale and enable refund() for all minters.
+    ///         AUDIT H9: blocked once withdraw() has run — the creator can no longer
+    ///         "cancel after extracting funds" to leave minters unable to refund.
     function cancelSale() external onlyOwner {
         if (mintPhase == MintPhase.CANCELLED) revert SaleCancelled();
+        // AUDIT H9: cancellation must precede withdraw, never follow it.
+        if (withdrawn) revert WithdrawFailed();
         mintPhase = MintPhase.CANCELLED;
         emit MintPhaseChanged(MintPhase.CANCELLED);
         emit SaleCancelledEvent(totalSupply, address(this).balance);

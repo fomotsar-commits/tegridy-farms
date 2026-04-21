@@ -47,6 +47,9 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     uint256 public pendingSpotPriceExecuteAfter;
     uint256 public pendingDelta;
     uint256 public pendingDeltaExecuteAfter;
+    // ─── AUDIT M9: Timelock for feeBps changes (TRADE pools only) ───────
+    uint256 public pendingFeeBps;
+    uint256 public pendingFeeBpsExecuteAfter;
 
     // ─── Constants ──────────────────────────────────────────────────────
     uint256 public constant MAX_FEE_BPS = 9000;       // 90% max LP fee
@@ -89,6 +92,8 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     event DeltaChanged(uint256 oldDelta, uint256 newDelta);
     event DeltaChangeCancelled(uint256 cancelledDelta);
     event FeeChanged(uint256 oldFee, uint256 newFee);
+    event FeeChangeProposed(uint256 currentFee, uint256 proposedFee, uint256 executeAfter);
+    event FeeChangeCancelled(uint256 cancelledFee);
     event ETHWithdrawn(address indexed to, uint256 amount);
     event NFTsWithdrawn(address indexed to, uint256[] tokenIds);
     event ProtocolFeePaid(address indexed factory, uint256 amount);
@@ -359,13 +364,45 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         emit DeltaChangeCancelled(cancelled);
     }
 
-    /// @notice Change the LP fee (owner only, TRADE pools only)
-    function changeFee(uint256 newFee) external onlyOwner {
+    // ─── AUDIT M9: Timelocked LP Fee Changes (TRADE pools only, 24h) ─────
+
+    /// @notice Propose an LP fee change. Takes effect after PARAMETER_TIMELOCK (24h).
+    ///         AUDIT M9: instant changeFee was sandwich-MEV vulnerable — owner could
+    ///         spike feeBps to MAX_FEE_BPS right before a victim swap, forcing the buyer
+    ///         to pay 90% fee or revert on slippage. The 24h timelock matches the
+    ///         spotPrice / delta change pattern and removes that vector.
+    function proposeFeeChange(uint256 newFee) external onlyOwner {
         if (poolType != PoolType.TRADE) revert PoolTypeMismatch();
         if (newFee > MAX_FEE_BPS) revert InvalidFee();
+        pendingFeeBps = newFee;
+        pendingFeeBpsExecuteAfter = block.timestamp + PARAMETER_TIMELOCK;
+        emit FeeChangeProposed(feeBps, newFee, pendingFeeBpsExecuteAfter);
+    }
+
+    /// @notice Execute the pending LP fee change after timelock has elapsed.
+    function executeFeeChange() external onlyOwner {
+        if (pendingFeeBpsExecuteAfter == 0) revert NoPendingChange();
+        if (block.timestamp < pendingFeeBpsExecuteAfter) revert TimelockNotElapsed();
         uint256 oldFee = feeBps;
-        feeBps = newFee;
-        emit FeeChanged(oldFee, newFee);
+        feeBps = pendingFeeBps;
+        pendingFeeBps = 0;
+        pendingFeeBpsExecuteAfter = 0;
+        emit FeeChanged(oldFee, feeBps);
+    }
+
+    /// @notice Cancel a pending LP fee change.
+    function cancelFeeChange() external onlyOwner {
+        if (pendingFeeBpsExecuteAfter == 0) revert NoPendingChange();
+        uint256 cancelled = pendingFeeBps;
+        pendingFeeBps = 0;
+        pendingFeeBpsExecuteAfter = 0;
+        emit FeeChangeCancelled(cancelled);
+    }
+
+    /// @notice DEPRECATED: Use proposeFeeChange() + executeFeeChange().
+    ///         AUDIT M9: instant fee changes removed to prevent sandwich-MEV against swappers.
+    function changeFee(uint256) external pure {
+        revert("USE_PROPOSE_FEE_CHANGE");
     }
 
     /// @notice Withdraw ETH from the pool (owner only)

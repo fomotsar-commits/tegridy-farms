@@ -225,7 +225,14 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             createdAt: block.timestamp,
             deadline: block.timestamp + VOTING_PERIOD,
             status: ProposalStatus.Active,
-            snapshotTimestamp: block.timestamp >= SNAPSHOT_LOOKBACK ? block.timestamp - SNAPSHOT_LOOKBACK : 0,
+            // AUDIT H10: when block.timestamp < SNAPSHOT_LOOKBACK (test/fork environments,
+            // genesis), fall back to block.timestamp - 1 instead of 0. votingPowerAtTimestamp(_, 0)
+            // returns the very first checkpoint OR the default zero, which silently breaks voting
+            // power resolution. The (block.timestamp - 1) fallback matches RevenueDistributor's
+            // proven pattern and excludes same-block flash stakes the same way.
+            snapshotTimestamp: block.timestamp >= SNAPSHOT_LOOKBACK
+                ? block.timestamp - SNAPSHOT_LOOKBACK
+                : (block.timestamp > 0 ? block.timestamp - 1 : 0),
             snapshotTotalStake: votingEscrow.totalBoostedStake(), // SECURITY FIX: snapshot quorum denominator
             proposerTokenId: votingEscrow.userTokenId(msg.sender) // SECURITY FIX: snapshot proposer's NFT position
         }));
