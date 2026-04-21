@@ -21,7 +21,40 @@ interface ITegridyPair {
 ///   - MAX_STALENESS of 2 hours ensures consult() rejects stale data.
 ///   - Price deviation check rejects observations that deviate >50% from the previous,
 ///     mitigating flash-loan manipulation of reserves.
-contract TegridyTWAP {
+/// @dev Minimal Ownable2Step + timelock-style admin for the optional update fee.
+abstract contract TWAPAdmin {
+    address public owner;
+    address public pendingOwner;
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    error NotOwner();
+    error TWAPZeroAddress();
+    constructor() {
+        owner = msg.sender;
+        emit OwnershipTransferred(address(0), msg.sender);
+    }
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert NotOwner();
+        _;
+    }
+    function transferOwnership(address newOwner) external onlyOwner {
+        if (newOwner == address(0)) revert TWAPZeroAddress();
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner, newOwner);
+    }
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotOwner();
+        address prev = owner;
+        owner = pendingOwner;
+        pendingOwner = address(0);
+        emit OwnershipTransferred(prev, owner);
+    }
+    function renounceOwnership() external pure {
+        revert("RENOUNCE_DISABLED");
+    }
+}
+
+contract TegridyTWAP is TWAPAdmin {
     // ─── Types ───────────────────────────────────────────────────────
 
     struct Observation {
@@ -46,9 +79,22 @@ contract TegridyTWAP {
     mapping(address => uint8) public observationIndex;
     mapping(address => uint256) public observationCount;
 
+    // ─── AUDIT L7: optional update fee ───────────────────────────────
+    /// @notice Fee in wei required from the caller of update(). Default 0 (free,
+    ///         backward-compatible). Owner can set non-zero to capture revenue from
+    ///         oracle consumers — protocol pays gas to record TWAP, fee offsets that.
+    ///         Capped at MAX_UPDATE_FEE (0.01 ETH) to prevent griefing.
+    uint256 public updateFee;
+    uint256 public constant MAX_UPDATE_FEE = 0.01 ether;
+    uint256 public accumulatedFees;
+    address public feeRecipient;
+
     // ─── Events ──────────────────────────────────────────────────────
 
     event Updated(address indexed pair, uint256 price0Cumulative, uint256 price1Cumulative, uint32 timestamp);
+    event UpdateFeeChanged(uint256 oldFee, uint256 newFee);
+    event FeeRecipientChanged(address indexed oldRecipient, address indexed newRecipient);
+    event FeesWithdrawn(address indexed to, uint256 amount);
 
     // ─── Errors ──────────────────────────────────────────────────────
 
@@ -60,11 +106,29 @@ contract TegridyTWAP {
     error PeriodTooLong();
     error StaleOracle();
     error PriceDeviationTooLarge();
+    error InsufficientFee();           // AUDIT L7
+    error FeeTooHigh();                // AUDIT L7
+    error NoFees();                    // AUDIT L7
 
     // ─── External ────────────────────────────────────────────────────
 
     /// @notice Record a new price observation for a pair.
-    function update(address pair) external {
+    /// @dev    AUDIT L7: when updateFee > 0, the caller must send at least updateFee wei.
+    ///         Excess is refunded to caller. Fees accumulate in the contract for owner withdrawal.
+    function update(address pair) external payable {
+        if (updateFee > 0) {
+            if (msg.value < updateFee) revert InsufficientFee();
+            accumulatedFees += updateFee;
+            // Refund overpayment
+            uint256 excess = msg.value - updateFee;
+            if (excess > 0) {
+                (bool ok,) = msg.sender.call{value: excess}("");
+                if (!ok) revert InsufficientFee(); // refund must succeed
+            }
+        } else {
+            // No fee → reject any sent value to prevent accidental ETH lock-in.
+            require(msg.value == 0, "FEE_NOT_SET");
+        }
         if (!canUpdate(pair)) revert PeriodNotElapsed();
 
         (uint112 reserve0, uint112 reserve1,) = ITegridyPair(pair).getReserves();
@@ -182,6 +246,35 @@ contract TegridyTWAP {
     }
 
     // ─── Internal ────────────────────────────────────────────────────
+
+    // ─── AUDIT L7: Fee admin ─────────────────────────────────────────
+
+    /// @notice Set the per-update fee. Capped at MAX_UPDATE_FEE.
+    function setUpdateFee(uint256 _newFee) external onlyOwner {
+        if (_newFee > MAX_UPDATE_FEE) revert FeeTooHigh();
+        uint256 old = updateFee;
+        updateFee = _newFee;
+        emit UpdateFeeChanged(old, _newFee);
+    }
+
+    /// @notice Set the fee recipient. Defaults to owner if unset.
+    function setFeeRecipient(address _recipient) external onlyOwner {
+        if (_recipient == address(0)) revert TWAPZeroAddress();
+        address old = feeRecipient;
+        feeRecipient = _recipient;
+        emit FeeRecipientChanged(old, _recipient);
+    }
+
+    /// @notice Withdraw accumulated update fees to feeRecipient (or owner if unset).
+    function withdrawFees() external {
+        uint256 amount = accumulatedFees;
+        if (amount == 0) revert NoFees();
+        accumulatedFees = 0;
+        address to = feeRecipient == address(0) ? owner : feeRecipient;
+        (bool ok,) = to.call{value: amount}("");
+        require(ok, "WITHDRAW_FAILED");
+        emit FeesWithdrawn(to, amount);
+    }
 
     function _getCumulativePricesOverPeriod(address pair, bool isToken0, uint256 period)
         internal

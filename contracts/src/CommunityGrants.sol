@@ -16,6 +16,8 @@ interface IVotingEscrowGrants {
     function totalLocked() external view returns (uint256);
     function totalBoostedStake() external view returns (uint256);
     function userTokenId(address user) external view returns (uint256); // SECURITY FIX C1: Track proposer's NFT
+    // AUDIT M13: per-owner set membership check used to detect multi-NFT self-vote bypass.
+    function holdsToken(address user, uint256 tokenId) external view returns (bool);
 }
 
 /// @title CommunityGrants
@@ -260,8 +262,20 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // SECURITY FIX: Check by staking position NFT, not just address — prevents
         // bypass via transferring NFT to sybil address (Compound Governor Bravo pattern)
         require(msg.sender != proposal.proposer, "PROPOSER_CANNOT_VOTE");
+        // AUDIT M13: prefer the per-owner set membership check (holdsToken) which works
+        // for multi-NFT contract holders (Safes, vaults). Single-pointer userTokenId can be
+        // overwritten by a later inbound NFT, silently letting the original proposer vote
+        // with a different "current" tokenId while still holding the snapshotted one.
+        // try/catch falls back to the legacy single-pointer check if the staking contract
+        // is mid-upgrade and doesn't yet expose holdsToken.
         if (proposal.proposerTokenId != 0) {
-            require(votingEscrow.userTokenId(msg.sender) != proposal.proposerTokenId, "PROPOSER_POSITION_CANNOT_VOTE");
+            bool holds;
+            try votingEscrow.holdsToken(msg.sender, proposal.proposerTokenId) returns (bool h) {
+                holds = h;
+            } catch {
+                holds = (votingEscrow.userTokenId(msg.sender) == proposal.proposerTokenId);
+            }
+            require(!holds, "PROPOSER_POSITION_CANNOT_VOTE");
         }
 
         uint256 power = votingEscrow.votingPowerAtTimestamp(msg.sender, proposal.snapshotTimestamp);

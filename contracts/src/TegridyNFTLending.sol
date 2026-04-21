@@ -34,6 +34,8 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     bytes32 public constant TREASURY_CHANGE = keccak256("TREASURY_CHANGE");
     bytes32 public constant WHITELIST_ADD = keccak256("WHITELIST_ADD");
     bytes32 public constant WHITELIST_REMOVE = keccak256("WHITELIST_REMOVE");
+    bytes32 public constant ORIGINATION_FEE_CHANGE = keccak256("NFT_LENDING_ORIGINATION_FEE_CHANGE"); // AUDIT C7
+    bytes32 public constant MIN_APR_CHANGE = keccak256("NFT_LENDING_MIN_APR_CHANGE"); // AUDIT H5
 
     // ─── Safety Caps ─────────────────────────────────────────────────
     uint256 public constant MAX_PRINCIPAL = 1000 ether;
@@ -55,6 +57,21 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     uint256 public constant PROTOCOL_FEE_TIMELOCK = 48 hours;
     uint256 public constant TREASURY_TIMELOCK = 48 hours;
     uint256 public constant WHITELIST_TIMELOCK = 24 hours;
+    uint256 public constant ECONOMICS_TIMELOCK = 48 hours;       // AUDIT C7 / H5
+
+    // ─── AUDIT C7: origination fee charged on createOffer ────────────
+    /// @notice Fee in BPS deducted from the lender's deposited principal at offer creation.
+    ///         Default 0 — backward-compatible. Capped at MAX_ORIGINATION_FEE_BPS (200 = 2%).
+    uint256 public originationFeeBps;
+    uint256 public constant MAX_ORIGINATION_FEE_BPS = 200;
+    uint256 public pendingOriginationFeeBps;
+
+    // ─── AUDIT H5: minimum APR enforced on createOffer ───────────────
+    /// @notice Minimum acceptable APR in BPS. Default 0 — backward-compatible.
+    ///         Capped at MAX_MIN_APR_BPS (1000 = 10%).
+    uint256 public minAprBps;
+    uint256 public constant MAX_MIN_APR_BPS = 1000;
+    uint256 public pendingMinAprBps;
 
     // ─── Structs ─────────────────────────────────────────────────────
 
@@ -144,6 +161,12 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     event TreasuryChangeProposed(address indexed current, address indexed proposed, uint256 readyAt);
     event TreasuryChanged(address indexed oldTreasury, address indexed newTreasury);
     event TreasuryChangeCancelled(address indexed cancelled);
+    // AUDIT C7 / H5
+    event OriginationFeeProposed(uint256 newBps, uint256 readyAt);
+    event OriginationFeeChanged(uint256 oldBps, uint256 newBps);
+    event OriginationFeeCollected(address indexed lender, uint256 amount);
+    event MinAprProposed(uint256 newBps, uint256 readyAt);
+    event MinAprChanged(uint256 oldBps, uint256 newBps);
 
     // ─── Errors ──────────────────────────────────────────────────────
 
@@ -151,6 +174,9 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     error ZeroPrincipal();
     error PrincipalTooLarge();
     error AprTooHigh();
+    error AprTooLow();                  // AUDIT H5
+    error OriginationFeeTooHigh();      // AUDIT C7
+    error MinAprTooHigh();              // AUDIT H5
     error DurationTooShort();
     error DurationTooLong();
     error FeeTooHigh();
@@ -229,6 +255,8 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         if (msg.value != _principal) revert MsgValueMismatch();
         if (_principal > MAX_PRINCIPAL) revert PrincipalTooLarge();
         if (_aprBps > MAX_APR_BPS) revert AprTooHigh();
+        // AUDIT H5: enforce minimum APR. Closes the 0% APR free-collateral acquisition channel.
+        if (_aprBps < minAprBps) revert AprTooLow();
         if (_duration < MIN_DURATION) revert DurationTooShort();
         if (_duration > MAX_DURATION) revert DurationTooLong();
         if (_collateralContract == address(0)) revert ZeroAddress();
@@ -239,10 +267,19 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         // ownerOf reverts if the tokenId has never been minted or has been burned.
         IERC721(_collateralContract).ownerOf(_tokenId);
 
+        // AUDIT C7: deduct origination fee at offer creation. Borrower receives
+        // (msg.value - origination fee) when accepting; protocol always captures revenue.
+        uint256 originationFee = (msg.value * originationFeeBps) / BPS;
+        uint256 effectivePrincipal = _principal - originationFee;
+        if (originationFee > 0) {
+            WETHFallbackLib.safeTransferETHOrWrap(weth, treasury, originationFee);
+            emit OriginationFeeCollected(msg.sender, originationFee);
+        }
+
         offerId = offers.length;
         offers.push(Offer({
             lender: msg.sender,
-            principal: _principal,
+            principal: effectivePrincipal,
             aprBps: _aprBps,
             duration: _duration,
             collateralContract: _collateralContract,
@@ -253,7 +290,7 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         emit LoanOfferCreated(
             offerId,
             msg.sender,
-            _principal,
+            effectivePrincipal,
             _aprBps,
             _duration,
             _collateralContract,
@@ -658,5 +695,56 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
 
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    // ─── AUDIT C7: Timelocked Origination Fee ────────────────────────
+    function proposeOriginationFee(uint256 _newBps) external onlyOwner {
+        if (_newBps > MAX_ORIGINATION_FEE_BPS) revert OriginationFeeTooHigh();
+        pendingOriginationFeeBps = _newBps;
+        _propose(ORIGINATION_FEE_CHANGE, ECONOMICS_TIMELOCK);
+        emit OriginationFeeProposed(_newBps, _executeAfter[ORIGINATION_FEE_CHANGE]);
+    }
+
+    function executeOriginationFeeChange() external onlyOwner {
+        _execute(ORIGINATION_FEE_CHANGE);
+        uint256 old = originationFeeBps;
+        originationFeeBps = pendingOriginationFeeBps;
+        pendingOriginationFeeBps = 0;
+        emit OriginationFeeChanged(old, originationFeeBps);
+    }
+
+    function cancelOriginationFeeChange() external onlyOwner {
+        _cancel(ORIGINATION_FEE_CHANGE);
+        pendingOriginationFeeBps = 0;
+    }
+
+    function originationFeeChangeReadyAt() external view returns (uint256) {
+        return _executeAfter[ORIGINATION_FEE_CHANGE];
+    }
+
+    // ─── AUDIT H5: Timelocked Min APR ────────────────────────────────
+    function proposeMinApr(uint256 _newBps) external onlyOwner {
+        if (_newBps > MAX_MIN_APR_BPS) revert MinAprTooHigh();
+        require(_newBps <= MAX_APR_BPS, "MIN_EXCEEDS_MAX");
+        pendingMinAprBps = _newBps;
+        _propose(MIN_APR_CHANGE, ECONOMICS_TIMELOCK);
+        emit MinAprProposed(_newBps, _executeAfter[MIN_APR_CHANGE]);
+    }
+
+    function executeMinAprChange() external onlyOwner {
+        _execute(MIN_APR_CHANGE);
+        uint256 old = minAprBps;
+        minAprBps = pendingMinAprBps;
+        pendingMinAprBps = 0;
+        emit MinAprChanged(old, minAprBps);
+    }
+
+    function cancelMinAprChange() external onlyOwner {
+        _cancel(MIN_APR_CHANGE);
+        pendingMinAprBps = 0;
+    }
+
+    function minAprChangeReadyAt() external view returns (uint256) {
+        return _executeAfter[MIN_APR_CHANGE];
     }
 }

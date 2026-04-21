@@ -17,6 +17,11 @@ interface IUniswapV2Router {
         address token, uint256 amountTokenDesired, uint256 amountTokenMin,
         uint256 amountETHMin, address to, uint256 deadline
     ) external payable returns (uint256 amountToken, uint256 amountETH, uint256 liquidity);
+    // AUDIT M12: removeLiquidityETH for the harvest path.
+    function removeLiquidityETH(
+        address token, uint256 liquidity, uint256 amountTokenMin,
+        uint256 amountETHMin, address to, uint256 deadline
+    ) external returns (uint256 amountToken, uint256 amountETH);
     function WETH() external pure returns (address);
 }
 
@@ -41,6 +46,7 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     bytes32 public constant BACKSTOP_CHANGE = keccak256("BACKSTOP_CHANGE");
     bytes32 public constant SWEEP_ETH_CHANGE = keccak256("SWEEP_ETH_CHANGE");
     bytes32 public constant TREASURY_CHANGE = keccak256("POL_TREASURY_CHANGE");
+    bytes32 public constant POL_HARVEST = keccak256("POL_HARVEST"); // AUDIT M12
 
     // ─── State ────────────────────────────────────────────────────────
 
@@ -410,6 +416,83 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @dev DEPRECATED: Use proposeSweepETH() + executeSweepETH()
     function sweepETH() external pure {
         revert("Use proposeSweepETH()");
+    }
+
+    // ─── AUDIT M12: POL Harvest ──────────────────────────────────────────
+    /// @notice Pull a fraction of accumulated POL liquidity back as TOWELI + ETH and forward
+    ///         to treasury. Closes the "LP locked forever" silent killer where the protocol
+    ///         deposited liquidity but had no way to realize fees from the position.
+    ///         Strict 30-day timelock and a 10% per-call cap (relative to totalLPCreated)
+    ///         prevent governance abuse / sudden liquidity removal that would crash the pair.
+    uint256 public constant POL_HARVEST_DELAY = 30 days;
+    uint256 public constant MAX_HARVEST_BPS = 1000; // 10% of totalLPCreated per harvest
+    uint256 public pendingHarvestLpAmount;
+
+    event POLHarvestProposed(uint256 lpAmount, uint256 readyAt);
+    event POLHarvestExecuted(uint256 lpAmount, uint256 tokenOut, uint256 ethOut);
+    event POLHarvestCancelled();
+
+    /// @notice Propose a harvest of `lpAmount` LP tokens from the protocol-owned position.
+    /// @param  lpAmount LP tokens to remove (capped at MAX_HARVEST_BPS of totalLPCreated)
+    function proposeHarvestLP(uint256 lpAmount) external onlyOwner {
+        require(lpAmount > 0, "ZERO_LP");
+        require(totalLPCreated > 0, "NO_POL");
+        uint256 cap = (totalLPCreated * MAX_HARVEST_BPS) / 10000;
+        require(lpAmount <= cap, "EXCEEDS_HARVEST_CAP");
+        pendingHarvestLpAmount = lpAmount;
+        _propose(POL_HARVEST, POL_HARVEST_DELAY);
+        emit POLHarvestProposed(lpAmount, _executeAfter[POL_HARVEST]);
+    }
+
+    /// @notice Execute the pending POL harvest. Caller provides slippage minimums.
+    /// @dev    Uses a tight MAX_DEADLINE consistent with accumulate(); recovered TOWELI
+    ///         and ETH both go to treasury (reduces TWAP impact concentration).
+    function executeHarvestLP(uint256 minToken, uint256 minETH, uint256 deadline)
+        external onlyOwner nonReentrant
+    {
+        _execute(POL_HARVEST);
+        uint256 lpAmount = pendingHarvestLpAmount;
+        pendingHarvestLpAmount = 0;
+        require(deadline >= block.timestamp, "EXPIRED");
+        if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
+
+        IERC20(lpToken).forceApprove(address(router), lpAmount);
+        uint256 ethBefore = address(this).balance;
+        (uint256 tokenOut, uint256 ethOut) = router.removeLiquidityETH(
+            address(toweli), lpAmount, minToken, minETH, address(this), deadline
+        );
+        IERC20(lpToken).forceApprove(address(router), 0);
+
+        // Sanity: confirm we actually received the ETH the router claims.
+        require(address(this).balance - ethBefore >= ethOut, "ETH_NOT_RECEIVED");
+
+        // Bookkeeping.
+        if (lpAmount <= totalLPCreated) {
+            totalLPCreated -= lpAmount;
+        } else {
+            totalLPCreated = 0;
+        }
+
+        // Forward ETH to treasury via gas-bounded call (matches sweepETH pattern).
+        if (ethOut > 0) {
+            (bool ok,) = treasury.call{value: ethOut}("");
+            require(ok, "ETH_TRANSFER_FAILED");
+        }
+        if (tokenOut > 0) {
+            toweli.safeTransfer(treasury, tokenOut);
+        }
+
+        emit POLHarvestExecuted(lpAmount, tokenOut, ethOut);
+    }
+
+    function cancelHarvestLP() external onlyOwner {
+        _cancel(POL_HARVEST);
+        pendingHarvestLpAmount = 0;
+        emit POLHarvestCancelled();
+    }
+
+    function harvestLPReadyAt() external view returns (uint256) {
+        return _executeAfter[POL_HARVEST];
     }
 
     /// @notice SECURITY FIX: Sweep leftover token dust (e.g., unused TOWELI from addLiquidityETH)

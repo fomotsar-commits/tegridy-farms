@@ -69,6 +69,8 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     bytes32 public constant RESTAKING_CHANGE = keccak256("RESTAKING_CHANGE");
     bytes32 public constant UNSETTLED_CAP_CHANGE = keccak256("UNSETTLED_CAP_CHANGE"); // AUDIT FIX C-02
     bytes32 public constant LENDING_CONTRACT_CHANGE = keccak256("LENDING_CONTRACT_CHANGE"); // AUDIT H-01 / Spartan TF-02
+    bytes32 public constant EXTEND_FEE_CHANGE = keccak256("EXTEND_FEE_CHANGE"); // AUDIT C5
+    bytes32 public constant PENALTY_RECYCLE_CHANGE = keccak256("PENALTY_RECYCLE_CHANGE"); // AUDIT C6
 
     // ─── State ────────────────────────────────────────────────────────
 
@@ -174,6 +176,26 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     mapping(uint256 => address) public strandedJbacOwner;    // tokenId => entitled reclaimer
     mapping(uint256 => uint256) public strandedJbacTokenId;  // tokenId => JBAC id to return
 
+    // ─── AUDIT C5: extend-lock / autoMaxLock-enable fee ──────────────────
+    /// @notice Fee in BPS charged on extendLock and on toggleAutoMaxLock when enabling.
+    ///         Default 0 — governance must propose/execute a non-zero value via 48h
+    ///         timelock to activate. Capped at EXTEND_FEE_BPS_CEILING (200 = 2%).
+    ///         Pulled from the caller via TOWELI safeTransferFrom (caller must approve);
+    ///         routed to treasury so the protocol captures value when boost is increased.
+    uint256 public extendFeeBps;
+    uint256 public constant EXTEND_FEE_BPS_CEILING = 200;
+    uint256 public constant EXTEND_FEE_TIMELOCK = 48 hours;
+    uint256 public pendingExtendFeeBps;
+
+    // ─── AUDIT C6: penalty recycle to active stakers ─────────────────────
+    /// @notice BPS of early-withdrawal penalty that is recycled into the staker reward
+    ///         pool (rewardPerTokenStored is credited immediately). Remainder goes to
+    ///         treasury (current behaviour). Default 0 — backward-compatible. Capped at
+    ///         BPS (10000 = 100%). Governance can shift via 48h timelock.
+    uint256 public penaltyRecycleBps;
+    uint256 public constant PENALTY_RECYCLE_TIMELOCK = 48 hours;
+    uint256 public pendingPenaltyRecycleBps;
+
 
     // ─── Events ───────────────────────────────────────────────────────
 
@@ -212,6 +234,14 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     event MaxUnsettledRewardsUpdated(uint256 oldCap, uint256 newCap); // AUDIT FIX C-02
     event JbacReturned(uint256 indexed tokenId, address indexed to, uint256 indexed jbacTokenId); // AUDIT H-1
     event JbacStranded(uint256 indexed tokenId, address indexed to, uint256 indexed jbacTokenId); // AUDIT H-1
+    /// @notice AUDIT C5: emitted when an extend-lock / autoMaxLock fee is collected to treasury.
+    event ExtendFeeCollected(uint256 indexed tokenId, address indexed payer, uint256 amount);
+    event ExtendFeeProposed(uint256 newBps, uint256 executeAfter);
+    event ExtendFeeUpdated(uint256 oldBps, uint256 newBps);
+    /// @notice AUDIT C6: emitted on early-withdrawal penalty distribution.
+    event PenaltySplit(uint256 indexed tokenId, uint256 toTreasury, uint256 recycledToStakers);
+    event PenaltyRecycleProposed(uint256 newBps, uint256 executeAfter);
+    event PenaltyRecycleUpdated(uint256 oldBps, uint256 newBps);
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -245,6 +275,8 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     error CapTooLow();
     error TooManyPositions(); // AUDIT FIX M-5: per-holder position cap (MAX_POSITIONS_PER_HOLDER)
     error JbacDeposited(); // AUDIT H-1: revalidateBoost not allowed on deposit-based positions
+    error ExtendFeeTooHigh(); // AUDIT C5
+    error PenaltyRecycleTooHigh(); // AUDIT C6
 
     // ─── Constructor ──────────────────────────────────────────────────
 
@@ -355,6 +387,44 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     /// @notice Number of checkpoints for a user
     function numCheckpoints(address user) external view returns (uint256) {
         return _checkpoints[user].length();
+    }
+
+    /// @notice AUDIT H12: amount-weighted average active boost across all of `user`'s
+    ///         positions. Returns 0 if no active positions. Used by integrators (e.g.,
+    ///         TegridyLPFarming) that need a single boost ratio per user — bypasses the
+    ///         single-pointer `userTokenId` undercount for multi-NFT contract holders.
+    /// @return weightedBps amount-weighted boostBps in [MIN_BOOST_BPS, MAX_BOOST_BPS+JBAC_BONUS_BPS]
+    function aggregateActiveBoostBps(address user) external view returns (uint256 weightedBps) {
+        if (user == restakingContract) return 0;
+        EnumerableSet.UintSet storage set = _positionsByOwner[user];
+        uint256 len = set.length();
+        uint256 nowTs = block.timestamp;
+        uint256 totalAmount;
+        uint256 totalBoosted;
+        for (uint256 i; i < len; ++i) {
+            Position storage p = positions[set.at(i)];
+            uint256 amt = p.amount;
+            if (amt == 0) continue;
+            if (nowTs >= p.lockEnd) continue;
+            totalAmount += amt;
+            totalBoosted += amt * p.boostBps;
+        }
+        if (totalAmount == 0) return 0;
+        weightedBps = totalBoosted / totalAmount;
+    }
+
+    /// @notice AUDIT M13: returns true iff `user` currently owns `tokenId` per the
+    ///         per-owner position set (the source of truth for multi-NFT holders).
+    ///         Closes the bypass where a contract receiver overwrites userTokenId on
+    ///         transfer but still holds the prior NFT — prior `userTokenId` checks
+    ///         silently passed even when the NFT was still in the user's possession.
+    function holdsToken(address user, uint256 tokenId) external view returns (bool) {
+        return _positionsByOwner[user].contains(tokenId);
+    }
+
+    /// @notice AUDIT H12 / M13: number of staking NFTs `user` currently holds.
+    function userPositionCount(address user) external view returns (uint256) {
+        return _positionsByOwner[user].length();
     }
 
     /// @notice Pending rewards for a position
@@ -533,13 +603,20 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     }
 
     /// @notice Toggle auto-max-lock. When enabled, lock auto-extends on every claim.
+    /// @dev    AUDIT C5: enabling autoMaxLock charges the extendFeeBps fee (default 0)
+    ///         since it permanently maximises boost. Disabling is free.
     function toggleAutoMaxLock(uint256 tokenId) external nonReentrant whenNotPaused updateReward {
         if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
         Position storage p = positions[tokenId];
-        p.autoMaxLock = !p.autoMaxLock;
+        bool wasOn = p.autoMaxLock;
+        p.autoMaxLock = !wasOn;
 
         // If enabling, extend lock to max immediately
         if (p.autoMaxLock) {
+            // AUDIT C5: charge fee on enable (boost is being increased to max). No fee on
+            // disable (boost is being relinquished). Pulls TOWELI from caller; user must
+            // approve. Default extendFeeBps == 0 means no transfer attempted.
+            _chargeExtendFee(tokenId, p.amount);
             // SECURITY FIX: Claim pending rewards BEFORE changing boost to avoid loss
             _getReward(tokenId, p);
             p.lockEnd = uint64(block.timestamp + MAX_LOCK_DURATION);
@@ -557,6 +634,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     }
 
     /// @notice Extend the lock duration of an existing position
+    /// @dev    AUDIT C5: charges extendFeeBps fee (default 0). Caller must approve TOWELI
+    ///         before calling. The fee covers the protocol's exposure to dilution that
+    ///         this extension creates for other stakers.
     /// @param tokenId The NFT token ID of the staking position
     /// @param _newLockDuration New lock duration in seconds (must be longer than current)
     function extendLock(uint256 tokenId, uint256 _newLockDuration) external nonReentrant whenNotPaused updateReward {
@@ -565,6 +645,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         if (p.amount == 0) revert NoPosition();
         if (_newLockDuration <= p.lockDuration) revert LockNotExtended();
         if (_newLockDuration > MAX_LOCK_DURATION) revert LockTooLong();
+
+        // AUDIT C5: charge extend fee before any state changes. No-op when extendFeeBps == 0.
+        _chargeExtendFee(tokenId, p.amount);
 
         // SECURITY FIX: Claim pending rewards BEFORE changing boost to avoid loss
         _getReward(tokenId, p);
@@ -659,9 +742,14 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         uint256 userReceives = amount - penalty;
         totalPenaltiesCollected += penalty;
 
-        rewardToken.safeTransfer(treasury, penalty);
+        // AUDIT C6: split penalty between treasury and active stakers per penaltyRecycleBps.
+        // Default 0 = full amount to treasury (status quo). Owner can shift via timelock.
+        (uint256 toTreasury, uint256 recycled) = _splitPenalty(penalty);
+        if (toTreasury > 0) rewardToken.safeTransfer(treasury, toTreasury);
+        if (recycled > 0) _creditRewardPool(recycled);
         rewardToken.safeTransfer(msg.sender, userReceives);
-        emit PenaltySentToTreasury(tokenId, penalty);
+        emit PenaltySplit(tokenId, toTreasury, recycled);
+        emit PenaltySentToTreasury(tokenId, toTreasury); // legacy event for compatibility
         emit EarlyWithdrawn(msg.sender, tokenId, userReceives, penalty);
     }
 
@@ -1052,7 +1140,11 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             penalty = (amount * EARLY_WITHDRAWAL_PENALTY_BPS) / BPS;
             userReceives = amount - penalty;
             totalPenaltiesCollected += penalty;
-            rewardToken.safeTransfer(treasury, penalty);
+            // AUDIT C6: same penalty split as earlyWithdraw.
+            (uint256 toTreasury, uint256 recycled) = _splitPenalty(penalty);
+            if (toTreasury > 0) rewardToken.safeTransfer(treasury, toTreasury);
+            if (recycled > 0) _creditRewardPool(recycled);
+            emit PenaltySplit(tokenId, toTreasury, recycled);
         } else {
             userReceives = amount;
         }
@@ -1328,4 +1420,93 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
     // tokenURI: uses base ERC721 (returns "" when no baseURI set).
     // Full SVG metadata available via TegridyTokenURIReader contract.
+
+    // ─── AUDIT C5: Extend-fee helper + timelocked setter ─────────────────
+
+    /// @dev Pull extendFeeBps × positionAmount of TOWELI from the caller and forward to
+    ///      treasury. Caller must approve this contract for the fee amount. No-op when
+    ///      extendFeeBps == 0 (default), preserving backward-compatible behaviour.
+    function _chargeExtendFee(uint256 tokenId, uint256 positionAmount) internal {
+        uint256 bps = extendFeeBps;
+        if (bps == 0) return;
+        uint256 fee = (positionAmount * bps) / BPS;
+        if (fee == 0) return;
+        rewardToken.safeTransferFrom(msg.sender, treasury, fee);
+        emit ExtendFeeCollected(tokenId, msg.sender, fee);
+    }
+
+    /// @notice Propose a new extendFeeBps. 48h timelock; capped at EXTEND_FEE_BPS_CEILING.
+    function proposeExtendFee(uint256 _newBps) external onlyOwner {
+        if (_newBps > EXTEND_FEE_BPS_CEILING) revert ExtendFeeTooHigh();
+        pendingExtendFeeBps = _newBps;
+        _propose(EXTEND_FEE_CHANGE, EXTEND_FEE_TIMELOCK);
+        emit ExtendFeeProposed(_newBps, _executeAfter[EXTEND_FEE_CHANGE]);
+    }
+
+    function executeExtendFeeChange() external onlyOwner {
+        _execute(EXTEND_FEE_CHANGE);
+        uint256 old = extendFeeBps;
+        extendFeeBps = pendingExtendFeeBps;
+        pendingExtendFeeBps = 0;
+        emit ExtendFeeUpdated(old, extendFeeBps);
+    }
+
+    function cancelExtendFeeChange() external onlyOwner {
+        _cancel(EXTEND_FEE_CHANGE);
+        pendingExtendFeeBps = 0;
+    }
+
+    function extendFeeChangeReadyAt() external view returns (uint256) {
+        return _executeAfter[EXTEND_FEE_CHANGE];
+    }
+
+    // ─── AUDIT C6: Penalty-recycle helpers + timelocked setter ───────────
+
+    /// @dev Split a penalty into (toTreasury, recycled) per penaltyRecycleBps. If
+    ///      totalBoostedStake == 0 there is no one to recycle to, so the recycled
+    ///      portion is rebated to treasury for safekeeping.
+    function _splitPenalty(uint256 penalty) internal view returns (uint256 toTreasury, uint256 recycled) {
+        if (penalty == 0) return (0, 0);
+        recycled = (penalty * penaltyRecycleBps) / BPS;
+        if (recycled > 0 && totalBoostedStake == 0) {
+            // Nothing to credit — fall back to treasury so funds aren't stranded.
+            recycled = 0;
+        }
+        toTreasury = penalty - recycled;
+    }
+
+    /// @dev Credit `amount` of TOWELI directly into rewardPerTokenStored, distributing
+    ///      it pro-rata to all current stakers immediately. The TOWELI must already be
+    ///      in this contract's balance (i.e., not transferred elsewhere) — the recycled
+    ///      portion of a penalty is simply not transferred out, naturally satisfying this.
+    function _creditRewardPool(uint256 amount) internal {
+        if (amount == 0 || totalBoostedStake == 0) return;
+        rewardPerTokenStored += (amount * ACC_PRECISION) / totalBoostedStake;
+        totalRewardsFunded += amount;
+    }
+
+    /// @notice Propose a new penaltyRecycleBps. 48h timelock; capped at BPS (10000 = 100%).
+    function proposePenaltyRecycle(uint256 _newBps) external onlyOwner {
+        if (_newBps > BPS) revert PenaltyRecycleTooHigh();
+        pendingPenaltyRecycleBps = _newBps;
+        _propose(PENALTY_RECYCLE_CHANGE, PENALTY_RECYCLE_TIMELOCK);
+        emit PenaltyRecycleProposed(_newBps, _executeAfter[PENALTY_RECYCLE_CHANGE]);
+    }
+
+    function executePenaltyRecycleChange() external onlyOwner {
+        _execute(PENALTY_RECYCLE_CHANGE);
+        uint256 old = penaltyRecycleBps;
+        penaltyRecycleBps = pendingPenaltyRecycleBps;
+        pendingPenaltyRecycleBps = 0;
+        emit PenaltyRecycleUpdated(old, penaltyRecycleBps);
+    }
+
+    function cancelPenaltyRecycleChange() external onlyOwner {
+        _cancel(PENALTY_RECYCLE_CHANGE);
+        pendingPenaltyRecycleBps = 0;
+    }
+
+    function penaltyRecycleChangeReadyAt() external view returns (uint256) {
+        return _executeAfter[PENALTY_RECYCLE_CHANGE];
+    }
 }

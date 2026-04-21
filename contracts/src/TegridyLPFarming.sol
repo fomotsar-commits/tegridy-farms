@@ -39,6 +39,8 @@ interface ITegridyStakingBoost {
         uint256 jbacTokenId,
         bool jbacDeposited
     );
+    // AUDIT H12: amount-weighted active boost across all of user's positions.
+    function aggregateActiveBoostBps(address user) external view returns (uint256);
 }
 
 /// @title TegridyLPFarming — Boosted Synthetix-style LP staking with TegridyStaking integration
@@ -189,19 +191,30 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     // ═══════════════════════════════════════════════════════════════
 
     /// @notice Compute the effective (boosted) balance for a user given their raw LP amount.
-    /// @dev If the user has an active TegridyStaking position, applies boostBps / BOOST_PRECISION.
-    ///      Otherwise, uses BASE_BOOST_BPS (1.0x).
+    /// @dev AUDIT H12: switched from single-pointer `userTokenId` to
+    ///      `aggregateActiveBoostBps(user)`, which returns the amount-weighted average
+    ///      boost across ALL of the user's active staking positions. Multi-NFT contract
+    ///      holders (Safes, vaults) were previously undercounted because userTokenId
+    ///      points only to the most-recently-received NFT. The aggregate view returns
+    ///      the correct effective boost; the boost ceiling clamp is preserved as
+    ///      defence-in-depth.
+    ///
+    ///      Falls back to the old single-pointer path via try/catch in case the staking
+    ///      contract is mid-upgrade and doesn't yet expose aggregateActiveBoostBps.
     function _getEffectiveBalance(address user, uint256 rawAmount) internal view returns (uint256) {
         uint256 boostBps = BASE_BOOST_BPS;
-        uint256 tokenId = tegridyStaking.userTokenId(user);
-        if (tokenId != 0) {
-            // Audit C-01: destructure matches TegridyStaking.Position struct order exactly.
-            // We only need `amount`, `lockEnd`, and `boostBps` — ignore the rest.
-            (uint256 amt,, , uint64 lockEnd, uint16 bps,,,,,,) = tegridyStaking.positions(tokenId);
-            // Only apply boost if the staking position is active (has amount and lock not expired)
-            if (amt > 0 && block.timestamp < lockEnd && bps > BASE_BOOST_BPS) {
-                // Defence-in-depth: clamp to the ceiling before applying.
-                boostBps = bps > MAX_BOOST_BPS_CEILING ? MAX_BOOST_BPS_CEILING : bps;
+        try tegridyStaking.aggregateActiveBoostBps(user) returns (uint256 aggBps) {
+            if (aggBps > BASE_BOOST_BPS) {
+                boostBps = aggBps > MAX_BOOST_BPS_CEILING ? MAX_BOOST_BPS_CEILING : aggBps;
+            }
+        } catch {
+            // Legacy fallback: single-pointer behaviour.
+            uint256 tokenId = tegridyStaking.userTokenId(user);
+            if (tokenId != 0) {
+                (uint256 amt,, , uint64 lockEnd, uint16 bps,,,,,,) = tegridyStaking.positions(tokenId);
+                if (amt > 0 && block.timestamp < lockEnd && bps > BASE_BOOST_BPS) {
+                    boostBps = bps > MAX_BOOST_BPS_CEILING ? MAX_BOOST_BPS_CEILING : bps;
+                }
             }
         }
         return (rawAmount * boostBps) / BOOST_PRECISION;
