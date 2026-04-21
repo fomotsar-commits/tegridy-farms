@@ -31,6 +31,12 @@ interface ITegridyRestaking {
     function restakers(address user) external view returns (
         uint256 tokenId, uint256 positionAmount, uint256 boostedAmount, int256 bonusDebt, uint256 depositTime
     );
+    /// @notice AUDIT NEW-S1 (CRITICAL): returns user's restaker boostedAmount at a given
+    ///         timestamp, or 0 if they had no active restaked position at that time.
+    ///         Used as a fallback voting-power source when the staking checkpoint
+    ///         reads 0 (always the case for restakers, because the NFT is held by
+    ///         the restaking contract, not the user).
+    function boostedAmountAt(address user, uint256 timestamp) external view returns (uint256);
 }
 
 /// @title RevenueDistributor
@@ -380,6 +386,25 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         }
     }
 
+    /// @dev AUDIT NEW-S1 (CRITICAL): fallback voting-power source for restakers.
+    ///      TegridyStaking zeroes a user's checkpoint when their NFT is transferred to
+    ///      the restaking contract, so votingPowerAtTimestamp reads 0 for every epoch
+    ///      during the restake window. Restakers were silently paid $0 of protocol
+    ///      revenue. This view pulls the restaker's boostedAmount (gated by depositTime)
+    ///      so _calculateClaim can credit them correctly.
+    ///
+    ///      Safety: the current boostedAmount is a lower bound for historical power
+    ///      (boost only decays over time), so this never over-credits. Bounded above
+    ///      by `epoch.totalLocked` in _calculateClaim.
+    function _restakedPowerAt(address _user, uint256 _ts) internal view returns (uint256) {
+        if (address(restakingContract) == address(0)) return 0;
+        try restakingContract.boostedAmountAt(_user, _ts) returns (uint256 p) {
+            return p;
+        } catch {
+            return 0;
+        }
+    }
+
     /// @notice Pause user-facing functions
     function pause() external onlyOwner {
         _pause();
@@ -509,6 +534,13 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
 
             if (epoch.totalLocked > 0) {
                 uint256 userPower = votingEscrow.votingPowerAtTimestamp(user, epoch.timestamp);
+                // AUDIT NEW-S1 (CRITICAL): if staking checkpoint reads 0, fall through
+                // to the restaking contract's historical boostedAmount. Restakers' NFTs
+                // are held by the restaking contract, so their staking checkpoint is
+                // zeroed on transfer-in — without this fallback they silently earn $0.
+                if (userPower == 0) {
+                    userPower = _restakedPowerAt(user, epoch.timestamp);
+                }
                 if (userPower > 0) {
                     // Cap userPower to epoch.totalLocked to prevent over-payment
                     uint256 effectivePower = userPower > epoch.totalLocked ? epoch.totalLocked : userPower;
@@ -755,6 +787,11 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
             if (inGracePeriod && epoch.timestamp >= lockEnd) break;
             if (epoch.totalLocked > 0) {
                 uint256 userPower = votingEscrow.votingPowerAtTimestamp(user, epoch.timestamp);
+                // AUDIT NEW-S1: restaker fallback — mirror _calculateClaim so the UI shows
+                // non-zero pendingETH for restakers.
+                if (userPower == 0) {
+                    userPower = _restakedPowerAt(user, epoch.timestamp);
+                }
                 if (userPower > 0) {
                     uint256 effectivePower = userPower > epoch.totalLocked ? epoch.totalLocked : userPower;
                     uint256 share = (epoch.totalETH * effectivePower) / epoch.totalLocked;

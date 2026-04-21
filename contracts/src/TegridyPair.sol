@@ -221,6 +221,18 @@ contract TegridyPair is ERC20, ReentrancyGuard {
         if (amount0Out > 0) IERC20(token0).safeTransfer(to, amount0Out);
         if (amount1Out > 0) IERC20(token1).safeTransfer(to, amount1Out);
 
+        // AUDIT NEW-A1 (CRITICAL): reject fee-on-transfer output tokens that would
+        // desync reserves from actual balances. Prior to this check, an FoT output
+        // token could deduct an extra internal fee during the safeTransfer above, so
+        // actual balance < predicted reserve. Every subsequent swap would then compute
+        // `amount_In = balance > reserve ? balance - reserve : 0 = 0` while the K-check
+        // used the inflated `_reserve`, undercharging the input side and letting
+        // arbitrage bots slow-drain the pair. Factory's _rejectERC777 is a best-effort
+        // creation-time gate only; post-creation token upgrades can flip a token to FoT
+        // mode. This per-swap balance check catches that case and reverts cleanly.
+        require(IERC20(token0).balanceOf(address(this)) == postBalance0, "FOT_OUTPUT_0");
+        require(IERC20(token1).balanceOf(address(this)) == postBalance1, "FOT_OUTPUT_1");
+
         emit Swap(msg.sender, amount0In, amount1In, amount0Out, amount1Out, to);
     }
 

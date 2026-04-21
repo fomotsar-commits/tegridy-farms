@@ -274,12 +274,60 @@ contract TegridyDropV2Test is Test {
         uint256 expectPlatform = (total * PLATFORM_FEE_BPS) / 10000;
         uint256 expectCreator = total - expectPlatform;
 
+        // AUDIT NEW-L1: creator must explicitly end the sale before withdrawing.
+        // Prior to this guard, withdraw() was callable mid-mint, allowing the creator
+        // to drain batches and then block cancel (H9 bypass).
+        vm.prank(creator);
+        drop.setMintPhase(TegridyDropV2.MintPhase.CLOSED);
+
         vm.prank(creator);
         drop.withdraw();
 
         // WETHFallbackLib should transfer ETH to both EOAs (cleanly).
         assertEq(platform.balance, expectPlatform);
         assertEq(creator.balance, expectCreator);
+    }
+
+    /// @notice AUDIT NEW-L1: withdraw must revert if the sale is still live (not CLOSED,
+    ///         not sold out). Prior to the fix, withdraw() was unconditional — creator
+    ///         could drain batch 1, accept batch 2 mints, drain batch 2; batch-2 minters
+    ///         were then trapped because cancelSale() is blocked by `withdrawn=true`.
+    function test_withdraw_revertsDuringActiveMint() public {
+        _init(_defaults());
+        bytes32[] memory proof;
+        vm.prank(alice);
+        drop.mint{value: MINT_PRICE * 4}(4, proof);
+
+        // Phase is still PUBLIC — withdraw must revert.
+        vm.prank(creator);
+        vm.expectRevert(TegridyDropV2.WithdrawFailed.selector);
+        drop.withdraw();
+
+        // Closing the sale unlocks withdraw.
+        vm.prank(creator);
+        drop.setMintPhase(TegridyDropV2.MintPhase.CLOSED);
+        vm.prank(creator);
+        drop.withdraw();
+        assertTrue(drop.withdrawn());
+    }
+
+    /// @notice AUDIT NEW-L1: once withdraw has run, the sale cannot be re-opened —
+    ///         else a second wave of minters would pay into a contract whose cancel
+    ///         path is permanently blocked, reproducing the H9 bypass.
+    function test_setMintPhase_revertsWhenReopeningAfterWithdraw() public {
+        _init(_defaults());
+        bytes32[] memory proof;
+        vm.prank(alice);
+        drop.mint{value: MINT_PRICE * 2}(2, proof);
+
+        vm.prank(creator);
+        drop.setMintPhase(TegridyDropV2.MintPhase.CLOSED);
+        vm.prank(creator);
+        drop.withdraw();
+
+        vm.prank(creator);
+        vm.expectRevert(TegridyDropV2.WithdrawFailed.selector);
+        drop.setMintPhase(TegridyDropV2.MintPhase.PUBLIC);
     }
 
     function test_withdraw_revertsWhenCancelled() public {

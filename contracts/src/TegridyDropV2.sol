@@ -315,6 +315,11 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     function setMintPhase(MintPhase phase) external onlyOwner {
         if (mintPhase == MintPhase.CANCELLED) revert SaleCancelled();
         if (phase == MintPhase.CANCELLED) revert SaleNotCancelled();
+        // AUDIT NEW-L1: once withdraw has run, the creator has committed to delivery
+        // on current minters. Re-opening to ALLOWLIST/PUBLIC/DUTCH would accept fresh
+        // mints whose cancel path is already permanently blocked by `withdrawn=true`,
+        // reproducing the H9 bypass. Lock phase to CLOSED after withdraw.
+        if (withdrawn && phase != MintPhase.CLOSED) revert WithdrawFailed();
         if (phase == MintPhase.DUTCH_AUCTION && dutchDuration == 0) {
             revert DutchAuctionNotActive();
         }
@@ -386,8 +391,22 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///         take funds — minters can no longer be refunded after withdraw runs.
     ///         Counterpart guarantee: a sale that is cancelled BEFORE withdraw is called
     ///         still has its full ETH balance available for refund().
+    ///
+    ///         AUDIT NEW-L1 (CRITICAL): the H9 design assumed withdraw runs once, after
+    ///         the creator commits. But the prior code was callable repeatedly during an
+    ///         active mint — creator could drain batch 1, accept batch 2 mints (cancel
+    ///         now blocked by `withdrawn=true`), drain batch 2, and leave batch-2 minters
+    ///         with no refund path. This now requires the sale to be explicitly ended
+    ///         (mintPhase == CLOSED) OR sold out (totalSupply == maxSupply) before any
+    ///         withdraw is allowed, matching the Thirdweb / Manifold drop pattern.
     function withdraw() external onlyOwner nonReentrant {
         if (mintPhase == MintPhase.CANCELLED) revert SaleCancelled();
+        // AUDIT NEW-L1: only permit withdraw after the sale is formally ended.
+        // `mintPhase == CLOSED` is the owner's explicit commit-to-delivery signal;
+        // sold-out (totalSupply == maxSupply) is the same signal implied by supply.
+        bool soldOut = maxSupply > 0 && totalSupply >= maxSupply;
+        if (mintPhase != MintPhase.CLOSED && !soldOut) revert WithdrawFailed();
+
         uint256 balance = address(this).balance;
         if (balance == 0) revert WithdrawFailed();
 

@@ -257,6 +257,30 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         bonus = pendingBonus(_user);
     }
 
+    /// @notice AUDIT NEW-S1 (CRITICAL): voting-power source for RevenueDistributor.
+    ///         When an NFT is transferred into this contract, TegridyStaking zeroes the
+    ///         user's voting-power checkpoint (the NFT no longer belongs to them on the
+    ///         staking side). RevenueDistributor.votingPowerAtTimestamp(user, ts) therefore
+    ///         reads 0 for every epoch during the user's restake window, silently paying
+    ///         them $0 of protocol revenue — the exact opposite of the intent.
+    ///
+    ///         This view exposes the restaker's boosted-amount at a given timestamp so the
+    ///         distributor can fall through when the staking checkpoint is zero. Returns
+    ///         the current `boostedAmount` if the user held a restaked position at or
+    ///         before `_timestamp` (i.e., `depositTime <= _timestamp`), zero otherwise.
+    ///
+    ///         Note: the current boostedAmount is a lower bound for the power the user
+    ///         actually held at `_timestamp` (boost can only decay between then and now),
+    ///         so this is a safe proxy — never over-credits. Users who unrestake without
+    ///         claiming first will forfeit their share for epochs distributed during the
+    ///         restake window; frontends should surface a "claim before unrestake" hint.
+    function boostedAmountAt(address _user, uint256 _timestamp) external view returns (uint256) {
+        RestakeInfo memory info = restakers[_user];
+        if (info.tokenId == 0) return 0;
+        if (info.depositTime > _timestamp) return 0;
+        return info.boostedAmount;
+    }
+
     // ─── User Functions ─────────────────────────────────────────────
 
     /// @notice Deposit your tsTOWELI NFT to earn bonus yield

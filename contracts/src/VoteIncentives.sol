@@ -168,6 +168,16 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     mapping(uint256 => uint256) public epochBribeFirstDeposit; // epoch => first deposit timestamp
     uint256 public constant BRIBE_RESCUE_DELAY = 30 days;
 
+    // AUDIT NEW-G2 (CRITICAL): per-depositor bookkeeping so orphaned bribes refund to
+    // their original depositors instead of sweeping to treasury. The prior design
+    // let a compromised owner delay `advanceEpoch` for 30 days and then drain every
+    // user's un-snapshotted bribe. The rescue delay now runs from the LATEST deposit
+    // (so a dust bribe can't trigger premature sweep of later deposits), and the
+    // rescue path is a permissionless per-depositor pull rather than an owner push
+    // to treasury.
+    mapping(uint256 => mapping(address => mapping(address => mapping(address => uint256)))) public bribeDeposits;
+    mapping(uint256 => uint256) public epochBribeLastDeposit; // epoch => latest deposit timestamp
+
     // H-03 FIX: Accumulated treasury ETH fees (pull pattern)
     uint256 public accumulatedTreasuryETH;
 
@@ -391,6 +401,10 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (epochBribeFirstDeposit[epoch] == 0) {
             epochBribeFirstDeposit[epoch] = block.timestamp;
         }
+        // AUDIT NEW-G2: track per-depositor amount + latest deposit timestamp so orphan
+        // refunds go back to the original depositor, keyed off the freshest activity.
+        bribeDeposits[epoch][pair][token][msg.sender] += netBribe;
+        epochBribeLastDeposit[epoch] = block.timestamp;
 
         emit BribeDeposited(epoch, pair, token, msg.sender, netBribe, fee);
     }
@@ -430,6 +444,9 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (epochBribeFirstDeposit[epoch] == 0) {
             epochBribeFirstDeposit[epoch] = block.timestamp;
         }
+        // AUDIT NEW-G2: track per-depositor amount + latest deposit timestamp.
+        bribeDeposits[epoch][pair][address(0)][msg.sender] += netBribe;
+        epochBribeLastDeposit[epoch] = block.timestamp;
 
         emit BribeDepositedETH(epoch, pair, msg.sender, netBribe, fee);
     }
@@ -773,27 +790,62 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         WETHFallbackLib.safeTransferETHOrWrap(address(weth), treasury, amount);
     }
 
-    // ─── C-02 FIX: Orphaned Bribe Rescue ────────────────────────────
+    // ─── Orphaned Bribe Refund (per-depositor pull) ─────────────────
 
-    /// @notice Rescue bribes from an un-snapshotted epoch after BRIBE_RESCUE_DELAY.
-    ///         Only callable if the epoch has NOT been snapshotted (i.e., epoch >= epochs.length).
-    function rescueOrphanedBribes(uint256 epoch, address pair, address token) external onlyOwner nonReentrant {
+    event OrphanedBribeRefunded(
+        uint256 indexed epoch,
+        address indexed pair,
+        address indexed token,
+        address depositor,
+        uint256 amount
+    );
+
+    /// @notice AUDIT NEW-G2 (CRITICAL): refund your OWN bribe from an epoch that was
+    ///         never snapshotted after BRIBE_RESCUE_DELAY since the latest deposit.
+    ///
+    ///         The prior `rescueOrphanedBribes` was owner-only and sent everything to
+    ///         treasury. That let a compromised owner (or one willing to delay
+    ///         `advanceEpoch` — permissionless but not keeper-incentivised) drain
+    ///         every user's pending bribe to themselves. The delay also ran from the
+    ///         FIRST deposit, so a dust bribe could enable early sweep of fresh
+    ///         deposits stacked on top.
+    ///
+    ///         Now: permissionless, pull-pattern, per-depositor. Each depositor
+    ///         reclaims exactly what they put in (net of fee, which was already
+    ///         treasuried at deposit time). Delay runs from the LATEST deposit in
+    ///         the epoch, so fresh bribes always get the full window.
+    ///
+    ///         Battle-tested against Curve FeeDistributor's refund-to-origin pattern.
+    function refundOrphanedBribe(uint256 epoch, address pair, address token) external nonReentrant {
         require(epoch >= epochs.length, "EPOCH_ALREADY_SNAPSHOTTED");
-        require(epochBribeFirstDeposit[epoch] != 0, "NO_BRIBES_IN_EPOCH");
-        require(block.timestamp >= epochBribeFirstDeposit[epoch] + BRIBE_RESCUE_DELAY, "RESCUE_TOO_EARLY");
+        uint256 lastDeposit = epochBribeLastDeposit[epoch];
+        require(lastDeposit != 0, "NO_BRIBES_IN_EPOCH");
+        require(block.timestamp >= lastDeposit + BRIBE_RESCUE_DELAY, "RESCUE_TOO_EARLY");
 
-        uint256 amount = epochBribes[epoch][pair][token];
-        require(amount > 0, "NO_BRIBE");
+        uint256 amount = bribeDeposits[epoch][pair][token][msg.sender];
+        require(amount > 0, "NOTHING_TO_REFUND");
 
-        epochBribes[epoch][pair][token] = 0;
+        bribeDeposits[epoch][pair][token][msg.sender] = 0;
+        uint256 remaining = epochBribes[epoch][pair][token];
+        epochBribes[epoch][pair][token] = remaining > amount ? remaining - amount : 0;
+
         if (token == address(0)) {
             totalUnclaimedETHBribes = totalUnclaimedETHBribes > amount ? totalUnclaimedETHBribes - amount : 0;
-            (bool ok,) = treasury.call{value: amount}("");
-            require(ok, "ETH_TRANSFER_FAILED");
+            WETHFallbackLib.safeTransferETHOrWrap(address(weth), msg.sender, amount);
         } else {
             totalUnclaimedBribes[token] = totalUnclaimedBribes[token] > amount ? totalUnclaimedBribes[token] - amount : 0;
-            IERC20(token).safeTransfer(treasury, amount);
+            IERC20(token).safeTransfer(msg.sender, amount);
         }
+
+        emit OrphanedBribeRefunded(epoch, pair, token, msg.sender, amount);
+    }
+
+    /// @notice DEPRECATED: the owner drain path has been replaced by the permissionless
+    ///         per-depositor `refundOrphanedBribe`. Reverts by design so any tooling
+    ///         still calling the old signature surfaces a clear error instead of
+    ///         sending user funds to treasury.
+    function rescueOrphanedBribes(uint256, address, address) external pure {
+        revert("USE_REFUND_ORPHANED_BRIBE");
     }
 
     // ─── Admin: Emergency Sweep ──────────────────────────────────────
