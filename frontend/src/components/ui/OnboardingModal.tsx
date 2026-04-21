@@ -63,7 +63,7 @@ export function OnboardingModal() {
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
       role="dialog"
       aria-modal="true"
-      aria-label="Welcome to Tegridy Farms"
+      aria-labelledby="onboarding-title"
       onClick={close}
     >
       <div
@@ -78,7 +78,7 @@ export function OnboardingModal() {
         <button
           onClick={close}
           className="absolute top-3 right-3 text-gray-400 hover:text-white transition-colors text-xl leading-none"
-          aria-label="Close"
+          aria-label="Close onboarding"
         >
           &times;
         </button>
@@ -96,7 +96,9 @@ export function OnboardingModal() {
               transition={{ duration: 0.25 }}
               className="w-full text-center"
             >
-              <h2 className="text-xl font-bold text-white mb-3">{steps[step]!.title}</h2>
+              <h2 id="onboarding-title" className="text-xl font-bold text-white mb-3">
+                {steps[step]!.title}
+              </h2>
               <p className="text-sm text-gray-300 whitespace-pre-line leading-relaxed">
                 {steps[step]!.body}
               </p>
@@ -105,10 +107,17 @@ export function OnboardingModal() {
         </div>
 
         {/* Dots */}
-        <div className="flex justify-center gap-2 mt-4 mb-5">
+        <div
+          className="flex justify-center gap-2 mt-4 mb-5"
+          role="tablist"
+          aria-label={`Onboarding step ${step + 1} of ${steps.length}`}
+        >
           {steps.map((_, i) => (
             <span
               key={i}
+              role="tab"
+              aria-selected={i === step}
+              aria-label={`Step ${i + 1} of ${steps.length}`}
               className={`w-2 h-2 rounded-full transition-colors ${
                 i === step ? 'bg-purple-500' : 'bg-gray-600'
               }`}

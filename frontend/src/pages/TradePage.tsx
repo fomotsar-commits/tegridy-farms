@@ -117,9 +117,20 @@ export default function TradePage() {
         </m.div>
 
         {/* Tab Toggle */}
-        <div className="flex gap-1.5 mb-6 p-1 rounded-2xl overflow-x-auto" style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}>
+        <div
+          role="tablist"
+          aria-label="Trade view — swap, liquidity, DCA, or limit order"
+          className="flex gap-1.5 mb-6 p-1 rounded-2xl overflow-x-auto"
+          style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
+        >
           {(['swap', 'liquidity', 'dca', 'limit'] as Tab[]).map((t) => (
-            <button key={t} onClick={() => handleTabChange(t)} aria-pressed={tab === t}
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={tab === t}
+              onClick={() => handleTabChange(t)}
+              aria-pressed={tab === t}
               className="flex-1 px-3 md:px-4 py-2.5 min-h-[44px] rounded-xl text-[13px] md:text-sm font-medium transition-all whitespace-nowrap text-white"
               style={tab === t ? {
                 background: 'var(--color-stan)',
@@ -152,13 +163,20 @@ export default function TradePage() {
                     <span className="text-white text-[10px] font-mono" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Balance: {Number(swap.fromBalance).toFixed(4)}</span>
                   </div>
                   <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
-                    <button onClick={() => setShowTokenSelect('from')} className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors">
+                    <button
+                      type="button"
+                      onClick={() => setShowTokenSelect('from')}
+                      aria-label={`Change token to pay with (currently ${swap.fromToken?.symbol ?? 'none selected'})`}
+                      aria-haspopup="dialog"
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors"
+                    >
                       {swap.fromToken?.logoURI && <img src={swap.fromToken.logoURI} alt="" className="w-5 h-5 rounded-full" />}
                       <span className="text-white font-medium text-[14px]">{swap.fromToken?.symbol ?? 'Select'}</span>
-                      <span className="text-white/80">▾</span>
+                      <span className="text-white/80" aria-hidden="true">▾</span>
                     </button>
                     <input
                       type="number" inputMode="decimal" placeholder="0.0"
+                      aria-label={`Amount of ${swap.fromToken?.symbol ?? 'selected token'} to pay`}
                       value={swap.inputAmount} onChange={(e) => swap.setInputAmount(e.target.value)}
                       className="flex-1 bg-transparent text-right text-white text-[20px] font-mono outline-none min-w-0"
                     />
@@ -190,10 +208,16 @@ export default function TradePage() {
                     <span className="text-white text-[10px] font-mono" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Balance: {Number(swap.toBalance).toFixed(4)}</span>
                   </div>
                   <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
-                    <button onClick={() => setShowTokenSelect('to')} className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors">
+                    <button
+                      type="button"
+                      onClick={() => setShowTokenSelect('to')}
+                      aria-label={`Change token to receive (currently ${swap.toToken?.symbol ?? 'none selected'})`}
+                      aria-haspopup="dialog"
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors"
+                    >
                       {swap.toToken?.logoURI && <img src={swap.toToken.logoURI} alt="" className="w-5 h-5 rounded-full" />}
                       <span className="text-white font-medium text-[14px]">{swap.toToken?.symbol ?? 'Select'}</span>
-                      <span className="text-white/80">▾</span>
+                      <span className="text-white/80" aria-hidden="true">▾</span>
                     </button>
                     <div className="flex-1 text-right text-white text-[20px] font-mono font-medium">
                       {swap.isQuoteLoading ? '...' : swap.outputFormatted ? formatTokenAmount(swap.outputFormatted) : '0.0'}

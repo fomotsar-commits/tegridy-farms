@@ -235,7 +235,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
         ref={modalRef}
         key="token-select-modal"
         className="fixed inset-0 z-[100] flex items-center justify-center p-4"
-        role="dialog" aria-modal="true" aria-label="Select Token"
+        role="dialog" aria-modal="true" aria-labelledby="token-select-title"
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       >
         {/* Backdrop */}
@@ -257,7 +257,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
         >
           {/* Header */}
           <div className="flex items-center justify-between p-4 pb-0">
-            <h3 className="text-white text-[15px] font-semibold">Select Token</h3>
+            <h3 id="token-select-title" className="text-white text-[15px] font-semibold">Select Token</h3>
             <button onClick={onClose} aria-label="Close token selector" className="text-white hover:text-white transition-colors p-1 cursor-pointer">
               <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M4 4l8 8M12 4l-8 8" />

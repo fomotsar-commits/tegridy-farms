@@ -268,8 +268,8 @@ export const TopNav = React.memo(function TopNav() {
                 <button
                   onClick={() => setKebabOpen(!kebabOpen)}
                   aria-expanded={kebabOpen}
-                  aria-haspopup="true"
-                  aria-label="Profile menu"
+                  aria-haspopup="menu"
+                  aria-label="Admin menu"
                   className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:text-primary transition-colors"
                   style={{ background: 'var(--color-purple-10)', border: '1px solid var(--color-purple-15)' }}
                 >
@@ -282,6 +282,8 @@ export const TopNav = React.memo(function TopNav() {
                 <AnimatePresence>
                   {kebabOpen && (
                     <m.div
+                      role="menu"
+                      aria-label="Admin actions"
                       className="absolute top-full right-0 mt-1 py-1 rounded-lg min-w-[140px]"
                       style={{
                         background: isDark ? 'rgba(10,10,20,0.95)' : 'rgba(255,255,255,0.97)',
@@ -292,8 +294,11 @@ export const TopNav = React.memo(function TopNav() {
                       initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}
                       transition={{ duration: 0.15 }}
                     >
-                      <NavLink to="/admin"
-                        className={({ isActive }) => `nav-link block px-4 py-2 text-[13px] transition-colors ${isActive ? 'active' : ''}`}>
+                      <NavLink
+                        to="/admin"
+                        role="menuitem"
+                        className={({ isActive }) => `nav-link block px-4 py-2 text-[13px] transition-colors ${isActive ? 'active' : ''}`}
+                      >
                         Admin
                       </NavLink>
                     </m.div>
