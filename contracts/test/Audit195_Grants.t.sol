@@ -51,8 +51,14 @@ contract MockVE195 {
         return totalLocked;
     }
 
-    function userTokenId(address) external pure returns (uint256) {
-        return 0;
+    function userTokenId(address user) external pure returns (uint256) {
+        // AUDIT NEW-G7 mock convenience: non-zero per-address default so proposers
+        // automatically satisfy the new ProposerMissingStakingPointer guard.
+        return uint256(uint160(user));
+    }
+
+    function holdsToken(address user, uint256 tokenId) external pure returns (bool) {
+        return uint256(uint160(user)) == tokenId;
     }
 }
 

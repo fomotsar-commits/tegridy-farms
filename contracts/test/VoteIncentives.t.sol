@@ -593,7 +593,11 @@ contract VoteIncentivesTest is Test {
     // give them enough balance to cover bonds (10 TOWELI each).
 
     function _enableCommitReveal() internal returns (uint256 epochId) {
-        vi.enableCommitReveal();
+        // AUDIT NEW-G5: the instant owner flip was replaced with a 24h timelock
+        // (propose → wait → execute). Mirror the real governance flow here.
+        vi.proposeEnableCommitReveal();
+        vm.warp(block.timestamp + 24 hours + 1);
+        vi.executeEnableCommitReveal();
         vi.advanceEpoch();
         epochId = vi.epochCount() - 1;
         // epochs[epochId].timestamp = block.timestamp - 1 (set in advanceEpoch).

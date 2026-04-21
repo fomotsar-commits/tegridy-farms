@@ -141,6 +141,9 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     // ─── Errors ───────────────────────────────────────────────────────
 
     error AmountTooSmall();
+    /// @notice AUDIT NEW-G7: proposer must have a non-zero userTokenId pointer at
+    ///         proposal creation time so the self-vote check can't be silently bypassed.
+    error ProposerMissingStakingPointer();
     error ZeroAddress();
     error InsufficientFunds();
     error ProposalNotActive();
@@ -217,6 +220,19 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         totalFeesCollected += PROPOSAL_FEE;
         totalRefundableDeposits += refundable;
 
+        // AUDIT NEW-G7 (CRITICAL): snapshot proposer's NFT pointer and REQUIRE it is
+        // non-zero. The existing self-vote check at voteOnProposal is gated on
+        // `if (proposal.proposerTokenId != 0)`; when userTokenId == 0 (multi-NFT Safe
+        // whose pointer was overwritten, fully-restaked address, or unstaked proposer),
+        // the entire check is silently skipped — opening a sybil-vote path where the
+        // proposer routes one of their NFTs to a second controlled address that votes
+        // on their behalf. Forcing a non-zero pointer at creation time means the
+        // tokenId check always runs. Proposers who are multi-NFT holders can refresh
+        // their pointer by (re)receiving any of their staking NFTs before proposing,
+        // or by staking a new position.
+        uint256 _proposerTokenId = votingEscrow.userTokenId(msg.sender);
+        if (_proposerTokenId == 0) revert ProposerMissingStakingPointer();
+
         proposals.push(Proposal({
             proposer: msg.sender,
             recipient: _recipient,
@@ -236,7 +252,7 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
                 ? block.timestamp - SNAPSHOT_LOOKBACK
                 : (block.timestamp > 0 ? block.timestamp - 1 : 0),
             snapshotTotalStake: votingEscrow.totalBoostedStake(), // SECURITY FIX: snapshot quorum denominator
-            proposerTokenId: votingEscrow.userTokenId(msg.sender) // SECURITY FIX: snapshot proposer's NFT position
+            proposerTokenId: _proposerTokenId // AUDIT NEW-G7: non-zero pointer guaranteed
         }));
 
         activeProposalCount++;

@@ -72,8 +72,16 @@ contract MockVotingEscrow {
         return _totalBoostedStake;
     }
 
-    function userTokenId(address user) external view returns (uint256) {
-        return _lockAmount[user] > 0 ? uint256(uint160(user)) : 0;
+    function userTokenId(address user) external pure returns (uint256) {
+        // AUDIT NEW-G7 mock convenience: non-zero per-address default so proposers
+        // satisfy the new ProposerMissingStakingPointer guard without every test
+        // having to pre-stake the proposer. Real deployments force a genuine stake;
+        // this mock stand-in is sufficient for unit-test flow coverage.
+        return uint256(uint160(user));
+    }
+
+    function holdsToken(address user, uint256 tokenId) external pure returns (bool) {
+        return uint256(uint160(user)) == tokenId;
     }
 
     function positions(uint256 tokenId) external view returns (

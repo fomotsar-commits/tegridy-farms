@@ -111,7 +111,18 @@ contract MockVEGrantsRT {
     }
 
     function userTokenId(address user) external view returns (uint256) {
-        return tokenIds[user];
+        // AUDIT NEW-G7 mock convenience: when unset, return uint160(user) as a
+        // per-address-unique non-zero default. Lets tests that create proposals
+        // from addresses never passed to setPower still satisfy the
+        // ProposerMissingStakingPointer guard. Explicitly-assigned tokenIds win.
+        uint256 id = tokenIds[user];
+        return id == 0 ? uint256(uint160(user)) : id;
+    }
+
+    function holdsToken(address user, uint256 tokenId) external view returns (bool) {
+        uint256 id = tokenIds[user];
+        uint256 effective = id == 0 ? uint256(uint160(user)) : id;
+        return effective == tokenId;
     }
 
     function votingPowerOf(address user) external view returns (uint256) {

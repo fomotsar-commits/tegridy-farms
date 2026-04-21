@@ -43,7 +43,19 @@ contract MockVEGrants {
     }
 
     function userTokenId(address user) external view returns (uint256) {
-        return _userTokenId[user];
+        // AUDIT NEW-G7 mock convenience: when unset, return uint160(user) as a
+        // per-address-unique non-zero default. Tests that never call setUserTokenId
+        // still get a deterministic, collision-free tokenId, while explicitly-set
+        // values continue to win.
+        uint256 id = _userTokenId[user];
+        return id == 0 ? uint256(uint160(user)) : id;
+    }
+
+    /// @notice Mock: emulate TegridyStaking.holdsToken for the NEW-G7 self-vote check.
+    function holdsToken(address user, uint256 tokenId) external view returns (bool) {
+        uint256 id = _userTokenId[user];
+        uint256 effective = id == 0 ? uint256(uint160(user)) : id;
+        return effective == tokenId;
     }
 }
 
@@ -84,6 +96,16 @@ contract CommunityGrantsTest is Test {
         ve.setPower(bob, 10_000 ether);
         ve.setPower(carol, 30_000 ether);
         ve.setPower(dave, 5_000 ether);
+
+        // AUDIT NEW-G7: proposers must have a non-zero userTokenId pointer at proposal
+        // creation time (mirrors the post-fix real-world constraint: proposer must hold a
+        // staking NFT pointed to by userTokenId). Assign unique synthetic token IDs to
+        // every user that might propose in this suite.
+        ve.setUserTokenId(alice, 1);
+        ve.setUserTokenId(bob, 2);
+        ve.setUserTokenId(carol, 3);
+        ve.setUserTokenId(dave, 4);
+        ve.setUserTokenId(address(this), 99);
 
         token.transfer(alice, 200_000 ether);
         token.transfer(bob, 200_000 ether);

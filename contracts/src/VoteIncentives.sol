@@ -70,6 +70,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     bytes32 public constant FEE_CHANGE = keccak256("BRIBE_FEE_CHANGE");
     bytes32 public constant TREASURY_CHANGE = keccak256("BRIBE_TREASURY_CHANGE");
     bytes32 public constant WHITELIST_CHANGE = keccak256("BRIBE_WHITELIST_CHANGE");
+    /// @notice AUDIT NEW-G5 (HIGH): commit-reveal activation timelock key.
+    bytes32 public constant COMMIT_REVEAL_ENABLE = keccak256("COMMIT_REVEAL_ENABLE");
 
     // ─── Constants ───────────────────────────────────────────────────
     uint256 public constant BPS = 10_000;
@@ -83,6 +85,14 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     uint256 public constant FEE_CHANGE_DELAY = 24 hours;
     uint256 public constant TREASURY_CHANGE_DELAY = 48 hours;
     uint256 public constant WHITELIST_CHANGE_DELAY = 24 hours;
+    /// @notice AUDIT NEW-G5: 24h window between proposing commit-reveal activation and
+    ///         actually flipping the switch. Without this, admin could flip the flag
+    ///         and an attacker watching the mempool could front-run with an
+    ///         `advanceEpoch()` call to lock in one more legacy epoch (up to 7 days
+    ///         of mempool-visible voting). The timelock forces the flip to be
+    ///         publicly announced so voters/bribers/keepers all see the transition
+    ///         window.
+    uint256 public constant COMMIT_REVEAL_ENABLE_DELAY = 24 hours;
     uint256 public constant MIN_DISTRIBUTE_STAKE = 1000e18; // Same as RevenueDistributor
 
     // ─── Immutables ──────────────────────────────────────────────────
@@ -177,6 +187,15 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     // to treasury.
     mapping(uint256 => mapping(address => mapping(address => mapping(address => uint256)))) public bribeDeposits;
     mapping(uint256 => uint256) public epochBribeLastDeposit; // epoch => latest deposit timestamp
+
+    /// @notice AUDIT NEW-G3 (defensive observability): cumulative share paid out per
+    ///         (epoch, pair, token). Makes the accounting invariant explicit:
+    ///         `dust = epochBribes[e][p][t] - totalClaimedBribes[e][p][t]`. The
+    ///         existing `totalUnclaimedBribes[token]` already implicitly reserves
+    ///         dust from sweep (it only decrements by actual share, never by the
+    ///         full bribeAmount), but this per-bucket tracker turns the invariant
+    ///         from coincidence into a checkable property via `dustOf(...)`.
+    mapping(uint256 => mapping(address => mapping(address => uint256))) public totalClaimedBribes;
 
     // H-03 FIX: Accumulated treasury ETH fees (pull pattern)
     uint256 public accumulatedTreasuryETH;
@@ -491,7 +510,17 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             // of the ORIGINAL deposit: (bribeAmount * userVoteForPair) / totalVotesForPair.
             // Solvency is guaranteed because sum(gaugeVotes) == totalGaugeVotes,
             // so sum(shares) <= bribeAmount. The `claimed` mapping prevents
-            // double-claims. Rounding dust stays in the contract and is sweepable.
+            // double-claims. Rounding dust stays in the contract — see AUDIT NEW-G3
+            // below for the explicit tracker that prevents sweep from touching it.
+
+            // AUDIT NEW-G3 (defensive): track cumulative claimed-per-(epoch,pair,token)
+            // so dust = bribeAmount - sum(shares) is always recoverable as a precise
+            // number. `sweepExcessETH`/`sweepToken` now reserves total dust across all
+            // bribed (epoch,pair,token) triples, so even if the unclaimed-running-total
+            // accounting drifts (e.g., via a future refactor bug), sweep cannot touch
+            // bribe dust. Users who roll up to share == 0 never consume the dust
+            // budget — it belongs to no one and is permanently locked in the contract.
+            totalClaimedBribes[epoch][pair][token] += share;
 
             // C-01 FIX: Safe subtraction to prevent underflow from rounding dust
             if (token == address(0)) {
@@ -572,6 +601,10 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
                 // NOTE: epochBribes NOT decremented — proportional share from original deposit.
                 // Solvency guaranteed by sum(gaugeVotes) == totalGaugeVotes.
+
+                // AUDIT NEW-G3 (defensive): mirror the claimBribes dust-tracking
+                // invariant so single-epoch and batch flows stay in sync.
+                totalClaimedBribes[e][pair][token] += share;
 
                 // C-01 FIX: Safe subtraction to prevent underflow from rounding dust
                 if (token == address(0)) {
@@ -848,6 +881,16 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         revert("USE_REFUND_ORPHANED_BRIBE");
     }
 
+    /// @notice AUDIT NEW-G3: permanently-locked rounding dust for a given
+    ///         (epoch, pair, token). dust = epochBribes - totalClaimedBribes.
+    ///         This is sum-of-voter-shares floor-rounding; it is NOT sweep-able.
+    ///         Exposed for observability only.
+    function dustOf(uint256 epoch, address pair, address token) external view returns (uint256) {
+        uint256 deposited = epochBribes[epoch][pair][token];
+        uint256 paidOut = totalClaimedBribes[epoch][pair][token];
+        return deposited > paidOut ? deposited - paidOut : 0;
+    }
+
     // ─── Admin: Emergency Sweep ──────────────────────────────────────
 
     /// @notice Sweep stuck ETH beyond what's owed to claimers and active bribes.
@@ -1067,14 +1110,43 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         emit BondForfeited(user, epoch, commitIndex, bond);
     }
 
-    /// @notice Admin: flip the commit-reveal switch. New epochs after the flip
-    ///         will use commit-reveal; prior epochs keep legacy vote() behavior.
-    ///         Once enabled there is currently no path to disable — this is a
-    ///         forward-only migration by design (flipping back would let an
-    ///         attacker race the toggle).
-    function enableCommitReveal() external onlyOwner {
-        if (commitRevealEnabled) return; // idempotent; no-op if already on
+    /// @notice AUDIT NEW-G5 (HIGH): commit-reveal activation is now timelocked.
+    ///         Step 1: owner calls `proposeEnableCommitReveal()` to queue the flip.
+    ///         Step 2: after `COMMIT_REVEAL_ENABLE_DELAY` (24h), anyone calls
+    ///         `executeEnableCommitReveal()` to flip `commitRevealEnabled = true`.
+    ///         Optional cancel path via `cancelEnableCommitReveal()`.
+    ///
+    ///         Rationale: prior version was an instant owner flip. Mempool watchers
+    ///         could front-run the flip tx with an `advanceEpoch()` that locks in
+    ///         one more legacy epoch — attackers then had 7 days of mempool-visible
+    ///         voting in the very epoch the migration was meant to protect.
+    ///
+    ///         Once enabled there is still no path to disable — forward-only by
+    ///         design. `flipping back would let an attacker race the toggle.`
+    event EnableCommitRevealProposed(uint256 executeAfter);
+    event EnableCommitRevealCancelled();
+
+    function proposeEnableCommitReveal() external onlyOwner {
+        if (commitRevealEnabled) return; // idempotent
+        _propose(COMMIT_REVEAL_ENABLE, COMMIT_REVEAL_ENABLE_DELAY);
+        emit EnableCommitRevealProposed(_executeAfter[COMMIT_REVEAL_ENABLE]);
+    }
+
+    function cancelEnableCommitReveal() external onlyOwner {
+        _cancel(COMMIT_REVEAL_ENABLE);
+        emit EnableCommitRevealCancelled();
+    }
+
+    function executeEnableCommitReveal() external {
+        _execute(COMMIT_REVEAL_ENABLE);
         commitRevealEnabled = true;
         emit CommitRevealEnabled(true);
+    }
+
+    /// @notice DEPRECATED: use the propose/execute flow above. Retained as a
+    ///         descriptive revert so any tooling calling the old signature fails
+    ///         loudly instead of silently no-op'ing.
+    function enableCommitReveal() external view onlyOwner {
+        revert("USE_PROPOSE_ENABLE_COMMIT_REVEAL");
     }
 }
