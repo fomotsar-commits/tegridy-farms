@@ -802,4 +802,61 @@ contract TegridyNFTLendingTest is Test {
         (,,,,,,,,,bool repaid,) = lending.getLoan(loanId);
         assertTrue(repaid);
     }
+
+    // ─── AUDIT NEW-L3: whitelist removal blocked by active loans ────────
+
+    /// @notice AUDIT NEW-L3: while an active loan has a collection as its
+    ///         collateral, `executeRemoveCollection` must revert. The proposal
+    ///         stays queued; once the loan concludes (repay or default), the
+    ///         owner can execute.
+    function test_NEWL3_removeCollectionBlockedByActiveLoan() public {
+        // Alice creates offer, bob accepts — active loan created against nft.
+        vm.prank(alice);
+        uint256 offerId = lending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(nft), bobTokenId
+        );
+        vm.prank(bob);
+        lending.acceptOffer(offerId);
+
+        assertEq(lending.activeLoansOfCollection(address(nft)), 1);
+
+        // Propose removal — OK; execute must REVERT while loan is active.
+        lending.proposeRemoveCollection(address(nft));
+        vm.warp(block.timestamp + 25 hours);
+        vm.expectRevert(bytes("ACTIVE_LOANS_PRESENT"));
+        lending.executeRemoveCollection();
+
+        // Borrower repays the loan — now removal can proceed.
+        // NFT lives in the lending contract during the loan; repayLoan moves
+        // it back to bob, no approve needed.
+        uint256 repayAmount = 1.01 ether; // approx principal + a bit of interest
+        vm.deal(bob, repayAmount);
+        vm.warp(block.timestamp + 1); // avoid LoanTooRecent (same-block repay)
+        vm.prank(bob);
+        lending.repayLoan{value: repayAmount}(0);
+        assertEq(lending.activeLoansOfCollection(address(nft)), 0);
+
+        lending.executeRemoveCollection();
+        assertFalse(lending.whitelistedCollections(address(nft)));
+    }
+
+    /// @notice AUDIT NEW-L3: active-loan counter decrements on defaulted claim
+    ///         too (not only repay), so whitelist removal unblocks after either
+    ///         terminal state.
+    function test_NEWL3_defaultAlsoDecrementsActiveLoans() public {
+        vm.prank(alice);
+        uint256 offerId = lending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(nft), bobTokenId
+        );
+        vm.prank(bob);
+        lending.acceptOffer(offerId);
+        assertEq(lending.activeLoansOfCollection(address(nft)), 1);
+
+        // Warp past deadline + GRACE_PERIOD so default is claimable.
+        vm.warp(block.timestamp + 30 days + 2 hours);
+        vm.prank(alice);
+        lending.claimDefault(0);
+
+        assertEq(lending.activeLoansOfCollection(address(nft)), 0);
+    }
 }

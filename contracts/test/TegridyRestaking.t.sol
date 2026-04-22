@@ -545,4 +545,82 @@ contract TegridyRestakingTest is Test {
             0.01e18 // 1% tolerance for rounding
         );
     }
+
+    // ─── AUDIT NEW-S1: boostedAmountAt view for RevenueDistributor ─────
+
+    /// @notice AUDIT NEW-S1 (CRITICAL): the view returns the user's restaker
+    ///         boostedAmount when their restake depositTime is at or before
+    ///         the queried timestamp, and zero otherwise. Used by
+    ///         RevenueDistributor to credit restakers (whose staking
+    ///         checkpoint would otherwise read 0).
+    function test_NEWS1_boostedAmountAtReturnsCurrentWhenEligible() public {
+        _stakeAndRestake(alice);
+        (, , uint256 cachedBoost, , uint256 depositTime, ) = restaking.restakers(alice);
+
+        // Same-timestamp query returns the current boosted amount.
+        assertEq(restaking.boostedAmountAt(alice, depositTime), cachedBoost, "eligible at depositTime");
+
+        // Later timestamp also returns (boost only decays, never grows, so
+        // current is a lower-bound for historical — safe for claim math).
+        vm.warp(depositTime + 10 days);
+        assertEq(restaking.boostedAmountAt(alice, block.timestamp), cachedBoost, "eligible after depositTime");
+    }
+
+    /// @notice AUDIT NEW-S1: earlier-than-depositTime queries return zero —
+    ///         the user didn't have this restaked position at the queried
+    ///         epoch, so RevenueDistributor must not credit them for it.
+    function test_NEWS1_boostedAmountAtZeroBeforeDeposit() public {
+        _stakeAndRestake(alice);
+        (, , , , uint256 depositTime, ) = restaking.restakers(alice);
+
+        if (depositTime >= 1) {
+            assertEq(restaking.boostedAmountAt(alice, depositTime - 1), 0, "ineligible pre-deposit");
+        }
+    }
+
+    /// @notice AUDIT NEW-S1: non-restakers always return zero regardless of
+    ///         timestamp. Prevents phantom credit on EOAs that never restaked.
+    function test_NEWS1_boostedAmountAtZeroForNonRestaker() public view {
+        assertEq(restaking.boostedAmountAt(bob, block.timestamp), 0);
+        assertEq(restaking.boostedAmountAt(address(0xdead), block.timestamp), 0);
+    }
+
+    // ─── AUDIT NEW-S2: revalidate-boost auth gate ──────────────────────
+
+    /// @notice AUDIT NEW-S2 (HIGH): a random attacker can no longer call
+    ///         revalidateBoostForRestaker(victim) to strip the victim's
+    ///         legacy JBAC boost during a JBAC-transfer window.
+    function test_NEWS2_revalidateByRandomReverts() public {
+        _stakeAndRestake(alice);
+        address attacker = makeAddr("attacker");
+        vm.prank(attacker);
+        vm.expectRevert(TegridyRestaking.Unauthorized.selector);
+        restaking.revalidateBoostForRestaker(alice);
+    }
+
+    /// @notice AUDIT NEW-S2: the restaker themselves can still trigger
+    ///         revalidation on their own position.
+    function test_NEWS2_restakerCanSelfRevalidate() public {
+        _stakeAndRestake(alice);
+        vm.prank(alice);
+        restaking.revalidateBoostForRestaker(alice);
+    }
+
+    /// @notice AUDIT NEW-S2: the owner retains admin access even when the
+    ///         restaker is someone else. Useful for emergency response.
+    function test_NEWS2_ownerCanRevalidate() public {
+        _stakeAndRestake(alice);
+        // Test contract deployed restaking so it owns it.
+        restaking.revalidateBoostForRestaker(alice);
+    }
+
+    /// @notice AUDIT NEW-S2: the tokenId-indexed variant
+    ///         revalidateBoostForRestaked is gated identically.
+    function test_NEWS2_revalidateByTokenIdByRandomReverts() public {
+        uint256 tokenId = _stakeAndRestake(alice);
+        address attacker = makeAddr("attacker");
+        vm.prank(attacker);
+        vm.expectRevert(TegridyRestaking.Unauthorized.selector);
+        restaking.revalidateBoostForRestaked(tokenId);
+    }
 }

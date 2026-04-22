@@ -1032,4 +1032,89 @@ contract TegridyNFTPoolTest is Test {
         vm.expectRevert(TegridyNFTPool.NotOwner.selector);
         p.withdrawNFTs(moreIds);
     }
+
+    // ─── AUDIT NEW-L4: syncNFTs recovery for non-safe deposits ──────────
+
+    /// @notice AUDIT NEW-L4: If someone deposits via non-safe `transferFrom`
+    ///         (not safeTransferFrom), `onERC721Received` is never called so
+    ///         `_idToIndex` stays 0 — the pool OWNS the NFT but withdrawNFTs /
+    ///         swapETHForNFTs revert with NFTNotHeld, stranding the NFT.
+    ///         Owner-only `syncNFTs(tokenIds)` reconciles by adding IDs the
+    ///         pool actually owns but that aren't tracked.
+    function test_NEWL4_syncNFTsRecoversUnsafeTransfer() public {
+        uint256[] memory initialIds = new uint256[](2);
+        initialIds[0] = 1;
+        initialIds[1] = 2;
+        address pool = _createSellPool(SPOT_PRICE, DELTA, initialIds);
+        TegridyNFTPool p = TegridyNFTPool(payable(pool));
+
+        // Alice mints a fresh NFT #11 then sends it via UNSAFE transferFrom.
+        uint256 strandedId = nft.mint(alice);
+        vm.prank(alice);
+        nft.transferFrom(alice, pool, strandedId);
+
+        // Pool owns it but doesn't track it.
+        assertEq(nft.ownerOf(strandedId), pool);
+        assertFalse(p.isTokenHeld(strandedId), "not tracked until sync");
+
+        // withdraw fails pre-sync.
+        uint256[] memory missingIds = new uint256[](1);
+        missingIds[0] = strandedId;
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(TegridyNFTPool.NFTNotHeld.selector, strandedId));
+        p.withdrawNFTs(missingIds);
+
+        // Sync picks it up; withdraw now works.
+        vm.prank(alice);
+        p.syncNFTs(missingIds);
+        assertTrue(p.isTokenHeld(strandedId), "tracked after sync");
+
+        vm.prank(alice);
+        p.withdrawNFTs(missingIds);
+        assertEq(nft.ownerOf(strandedId), alice, "withdrawn cleanly");
+    }
+
+    /// @notice AUDIT NEW-L4: syncNFTs is idempotent — calling twice on the
+    ///         same ID doesn't double-add or revert. IDs the pool does NOT
+    ///         own are silently skipped (no need to prefilter off-chain).
+    function test_NEWL4_syncNFTsIdempotent() public {
+        uint256[] memory initialIds = new uint256[](1);
+        initialIds[0] = 1;
+        address pool = _createSellPool(SPOT_PRICE, DELTA, initialIds);
+        TegridyNFTPool p = TegridyNFTPool(payable(pool));
+
+        uint256 strandedId = nft.mint(alice);
+        vm.prank(alice);
+        nft.transferFrom(alice, pool, strandedId);
+
+        // First sync adds. Second sync is a no-op.
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = strandedId;
+        vm.prank(alice);
+        p.syncNFTs(ids);
+        vm.prank(alice);
+        p.syncNFTs(ids);
+        assertTrue(p.isTokenHeld(strandedId), "still tracked, only once");
+
+        // Syncing an ID the pool doesn't own is a silent no-op.
+        uint256[] memory ghost = new uint256[](1);
+        ghost[0] = 999;
+        vm.prank(alice);
+        p.syncNFTs(ghost); // does not revert
+        assertFalse(p.isTokenHeld(999));
+    }
+
+    /// @notice AUDIT NEW-L4: only the pool owner can call syncNFTs.
+    function test_NEWL4_syncNFTsOnlyOwner() public {
+        uint256[] memory initialIds = new uint256[](1);
+        initialIds[0] = 1;
+        address pool = _createSellPool(SPOT_PRICE, DELTA, initialIds);
+        TegridyNFTPool p = TegridyNFTPool(payable(pool));
+
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = 999;
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTPool.NotOwner.selector);
+        p.syncNFTs(ids);
+    }
 }

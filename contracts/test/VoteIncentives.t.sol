@@ -796,5 +796,178 @@ contract VoteIncentivesTest is Test {
         assertEq(got, expected);
     }
 
+    // ─── AUDIT NEW-G2: refundOrphanedBribe (pull-pattern depositor refund) ──
+
+    /// @notice AUDIT NEW-G2: a depositor can reclaim their own bribe after the
+    ///         rescue-delay window elapses since the LATEST deposit in the
+    ///         epoch (not the first — which would have let a dust bribe at T-0
+    ///         trigger premature sweep of fresh deposits later).
+    function test_NEWG2_refundOrphanedBribe_returnsToDepositor() public {
+        uint256 amount = 1 ether;
+        uint256 epoch = vi.currentEpoch();
+
+        vm.deal(alice, amount);
+        vm.prank(alice);
+        vi.depositBribeETH{value: amount}(pair);
+        uint256 expectedNet = amount - (amount * 300 / 10000);
+
+        // Epoch is NEVER advanced. After rescue-delay since latest deposit,
+        // alice should be able to pull her own bribe back.
+        vm.warp(block.timestamp + 30 days + 1);
+
+        uint256 aliceBefore = alice.balance;
+        vm.prank(alice);
+        vi.refundOrphanedBribe(epoch, pair, address(0));
+
+        assertEq(alice.balance - aliceBefore, expectedNet, "alice reclaims her own net bribe");
+    }
+
+    /// @notice AUDIT NEW-G2: the rescue delay now runs from the LATEST deposit.
+    ///         After alice+bob both deposit with bob's last at T+15d, at T+30d+1
+    ///         the gate (T+45d) has not yet elapsed — refund must revert.
+    function test_NEWG2_rescueDelayBlocksEarlyRefund() public {
+        uint256 epoch = vi.currentEpoch();
+
+        vm.deal(alice, 1 ether);
+        vm.prank(alice);
+        vi.depositBribeETH{value: 1 ether}(pair);
+
+        // Bob's deposit sets epochBribeLastDeposit to this timestamp.
+        uint256 bobDepositTs = 2_000_000;
+        vm.warp(bobDepositTs);
+        vm.deal(bob, 1 ether);
+        vm.prank(bob);
+        vi.depositBribeETH{value: 1 ether}(pair);
+
+        // At bobDepositTs + 30 days - 1, the gate (bobDepositTs + 30 days) has NOT
+        // elapsed yet — refund must revert. BRIBE_RESCUE_DELAY = 30 days = 2_592_000s.
+        vm.warp(bobDepositTs + 2_592_000 - 1);
+        vm.prank(alice);
+        vm.expectRevert(bytes("RESCUE_TOO_EARLY"));
+        vi.refundOrphanedBribe(epoch, pair, address(0));
+    }
+
+    /// @notice AUDIT NEW-G2: at T+45d+1 (bob's deposit + 30d), both depositors
+    ///         pass the gate and can pull their own bribes.
+    function test_NEWG2_rescueDelayAllowsLateRefund() public {
+        uint256 epoch = vi.currentEpoch();
+        uint256 t0 = block.timestamp;
+
+        vm.deal(alice, 1 ether);
+        vm.prank(alice);
+        vi.depositBribeETH{value: 1 ether}(pair);
+
+        vm.warp(t0 + 15 days);
+        vm.deal(bob, 1 ether);
+        vm.prank(bob);
+        vi.depositBribeETH{value: 1 ether}(pair);
+
+        // Jump straight past the gate.
+        vm.warp(t0 + 45 days + 1);
+        vm.prank(alice);
+        vi.refundOrphanedBribe(epoch, pair, address(0));
+        vm.prank(bob);
+        vi.refundOrphanedBribe(epoch, pair, address(0));
+    }
+
+    /// @notice AUDIT NEW-G2: the old owner-only rescueOrphanedBribes signature
+    ///         now reverts, preventing stale tooling from silently draining
+    ///         user funds to treasury.
+    function test_NEWG2_oldRescueSignatureReverts() public {
+        uint256 epoch = vi.currentEpoch();
+        vm.deal(alice, 1 ether);
+        vm.prank(alice);
+        vi.depositBribeETH{value: 1 ether}(pair);
+        vm.warp(block.timestamp + 30 days + 1);
+
+        vm.expectRevert(bytes("USE_REFUND_ORPHANED_BRIBE"));
+        vi.rescueOrphanedBribes(epoch, pair, address(0));
+    }
+
+    /// @notice AUDIT NEW-G2: depositor who didn't fund THIS specific bucket
+    ///         can't refund it. Prevents griefers from claiming others' funds.
+    function test_NEWG2_refundOnlyForDepositor() public {
+        uint256 epoch = vi.currentEpoch();
+        vm.deal(alice, 1 ether);
+        vm.prank(alice);
+        vi.depositBribeETH{value: 1 ether}(pair);
+        vm.warp(block.timestamp + 30 days + 1);
+
+        vm.prank(bob);
+        vm.expectRevert(bytes("NOTHING_TO_REFUND"));
+        vi.refundOrphanedBribe(epoch, pair, address(0));
+    }
+
+    // ─── AUDIT NEW-G5: propose/execute commit-reveal timelock ──────────────
+
+    /// @notice AUDIT NEW-G5: old instant `enableCommitReveal()` now reverts
+    ///         with USE_PROPOSE_ENABLE_COMMIT_REVEAL.
+    function test_NEWG5_oldEnableRevertsWithDirection() public {
+        vm.expectRevert(bytes("USE_PROPOSE_ENABLE_COMMIT_REVEAL"));
+        vi.enableCommitReveal();
+    }
+
+    /// @notice AUDIT NEW-G5: proposing sets the 24h timer; executing before
+    ///         the delay elapses must revert.
+    function test_NEWG5_proposeThenExecuteTooEarlyReverts() public {
+        vi.proposeEnableCommitReveal();
+        vm.expectRevert();
+        vi.executeEnableCommitReveal();
+    }
+
+    /// @notice AUDIT NEW-G5: happy path — propose, wait 24h, execute flips
+    ///         `commitRevealEnabled = true`. Subsequent proposal is idempotent.
+    function test_NEWG5_proposeThenExecuteAfterDelayFlipsFlag() public {
+        assertFalse(vi.commitRevealEnabled());
+        vi.proposeEnableCommitReveal();
+        vm.warp(block.timestamp + 24 hours + 1);
+        vi.executeEnableCommitReveal();
+        assertTrue(vi.commitRevealEnabled());
+
+        // Idempotent — second propose returns without scheduling a new op.
+        vi.proposeEnableCommitReveal();
+        assertTrue(vi.commitRevealEnabled());
+    }
+
+    /// @notice AUDIT NEW-G5: proposal can be cancelled before execute.
+    function test_NEWG5_cancelBeforeExecute() public {
+        vi.proposeEnableCommitReveal();
+        vi.cancelEnableCommitReveal();
+        vm.warp(block.timestamp + 24 hours + 1);
+        vm.expectRevert();
+        vi.executeEnableCommitReveal();
+    }
+
+    // ─── AUDIT NEW-G9: sweepToken(toweli) reserves in-flight commit bonds ──
+
+    /// @notice AUDIT NEW-G9: owner cannot sweep TOWELI while commit bonds are
+    ///         locked pending reveal. Prior behaviour drained bonds of every
+    ///         committer.
+    function test_NEWG9_sweepTokenReservesCommitBonds() public {
+        uint256 epochId = _enableCommitReveal();
+
+        // Alice commits; 10 TOWELI bond is locked.
+        uint256 aliceStartBalance = bribeToken.balanceOf(alice);
+        vm.startPrank(alice);
+        bribeToken.approve(address(vi), 10e18);
+        vi.commitVote(epochId, bytes32(uint256(0xdeadbeef)));
+        vm.stopPrank();
+
+        assertEq(vi.totalCommitBonds(), 10e18, "bond reserved");
+        assertEq(bribeToken.balanceOf(alice), aliceStartBalance - 10e18);
+
+        // Send extra TOWELI dust directly to contract so the sweep has
+        // something legitimate to sweep.
+        bribeToken.mint(address(vi), 5e18);
+
+        // Sweep should only pull the 5e18 dust, NEVER the 10e18 reserved bond.
+        uint256 treasuryBefore = bribeToken.balanceOf(treasury);
+        vi.sweepToken(address(bribeToken));
+        uint256 swept = bribeToken.balanceOf(treasury) - treasuryBefore;
+
+        assertEq(swept, 5e18, "sweep only takes dust, not committed bond");
+        assertEq(bribeToken.balanceOf(address(vi)), 10e18, "bond still held");
+    }
+
     receive() external payable {}
 }

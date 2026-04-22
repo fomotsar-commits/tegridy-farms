@@ -1097,5 +1097,66 @@ contract TegridyStakingTest is Test {
         vm.stopPrank();
     }
 
+    // ─── AUDIT NEW-S5: notifyRewardAmount notifier gate ────────────────
+
+    /// @notice AUDIT NEW-S5 (MEDIUM): notifyRewardAmount is no longer
+    ///         permissionless. A random attacker cannot fund the contract
+    ///         in a way that sandwich-attacks their own next getReward.
+    function test_NEWS5_notifyByRandomReverts() public {
+        address attacker = makeAddr("attacker");
+        vm.prank(attacker);
+        vm.expectRevert(bytes("NOT_NOTIFIER"));
+        staking.notifyRewardAmount(1000 ether);
+    }
+
+    /// @notice AUDIT NEW-S5: the contract owner (this test contract, which
+    ///         deployed staking in setUp) is always a valid notifier.
+    function test_NEWS5_ownerCanNotify() public {
+        uint256 before = staking.totalRewardsFunded();
+        token.approve(address(staking), 1000 ether);
+        staking.notifyRewardAmount(1000 ether);
+        assertEq(staking.totalRewardsFunded(), before + 1000 ether, "owner funding succeeded");
+    }
+
+    /// @notice AUDIT NEW-S5: allowlisted notifiers can fund.
+    function test_NEWS5_allowlistedNotifierCanFund() public {
+        address treasuryOp = makeAddr("treasuryOp");
+        staking.setRewardNotifier(treasuryOp, true);
+
+        // Fund the notifier with TOWELI + approval.
+        token.transfer(treasuryOp, 1000 ether);
+        vm.prank(treasuryOp);
+        token.approve(address(staking), 1000 ether);
+
+        uint256 before = staking.totalRewardsFunded();
+        vm.prank(treasuryOp);
+        staking.notifyRewardAmount(1000 ether);
+        assertEq(staking.totalRewardsFunded(), before + 1000 ether);
+    }
+
+    /// @notice AUDIT NEW-S5: removing a notifier reverts their future calls.
+    function test_NEWS5_notifierCanBeRevoked() public {
+        address treasuryOp = makeAddr("treasuryOp");
+        staking.setRewardNotifier(treasuryOp, true);
+        token.transfer(treasuryOp, 2000 ether);
+        vm.prank(treasuryOp);
+        token.approve(address(staking), 2000 ether);
+        vm.prank(treasuryOp);
+        staking.notifyRewardAmount(1000 ether);
+
+        staking.setRewardNotifier(treasuryOp, false);
+        vm.prank(treasuryOp);
+        vm.expectRevert(bytes("NOT_NOTIFIER"));
+        staking.notifyRewardAmount(1000 ether);
+    }
+
+    /// @notice AUDIT NEW-S5: setRewardNotifier is onlyOwner.
+    function test_NEWS5_setNotifier_onlyOwner() public {
+        address random = makeAddr("random");
+        vm.prank(random);
+        vm.expectRevert();
+        staking.setRewardNotifier(random, true);
+    }
+
     receive() external payable {}
 }

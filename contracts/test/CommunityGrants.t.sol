@@ -520,5 +520,52 @@ contract CommunityGrantsTest is Test {
         assertEq(grants.totalGranted(), 40 ether);
     }
 
+    // ─── AUDIT NEW-G7: proposerTokenId=0 rejected at creation ──────────
+
+    /// @notice AUDIT NEW-G7: if the proposer has no userTokenId pointer (e.g.
+    ///         multi-NFT Safe whose pointer was overwritten, fully-restaked
+    ///         address, or unstaked proposer), createProposal reverts with
+    ///         `ProposerMissingStakingPointer`. The check closes the silent
+    ///         self-vote bypass where a proposer could route an NFT to a
+    ///         second controlled address and vote for their own grant.
+    function test_NEWG7_createProposalRevertsOnZeroPointer() public {
+        // Mock-convenience in this suite auto-fills userTokenId with
+        // uint160(user) when unset, so every test address passes the new
+        // guard by default. To trigger the revert we force the call to
+        // return 0 via vm.mockCall, simulating a multi-NFT Safe whose
+        // userTokenId pointer was overwritten to 0 by a later transfer-out.
+        address noPointer = makeAddr("noPointer");
+        ve.setPower(noPointer, 50_000 ether);
+        vm.mockCall(
+            address(ve),
+            abi.encodeWithSelector(MockVEGrants.userTokenId.selector, noPointer),
+            abi.encode(uint256(0))
+        );
+
+        token.transfer(noPointer, 100_000 ether);
+        vm.prank(noPointer);
+        token.approve(address(grants), type(uint256).max);
+
+        vm.prank(noPointer);
+        vm.expectRevert(CommunityGrants.ProposerMissingStakingPointer.selector);
+        grants.createProposal(artist, 1 ether, "no-pointer attempt");
+    }
+
+    /// @notice AUDIT NEW-G7: happy path — a proposer WITH a non-zero pointer
+    ///         can create proposals, and the stored `proposerTokenId`
+    ///         matches what the self-vote check will compare against.
+    function test_NEWG7_createProposalWithValidPointerSucceeds() public {
+        vm.prank(alice); // alice's pointer was set to 1 in setUp
+        grants.createProposal(artist, 1 ether, "with-pointer");
+        uint256 id = 0; // first proposal — no other createProposal calls in this test
+        // Proposal struct has 12 fields (address, address, uint256, string,
+        // uint256, uint256, uint256, uint256, ProposalStatus, uint256, uint256,
+        // uint256). Unpack all and assert the snapshotted pointer.
+        (
+            ,,,,,,,,,,, uint256 proposerTokenId
+        ) = grants.proposals(id);
+        assertEq(proposerTokenId, 1, "snapshotted pointer matches setUp value");
+    }
+
     receive() external payable {}
 }

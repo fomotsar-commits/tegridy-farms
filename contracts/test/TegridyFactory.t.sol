@@ -279,6 +279,80 @@ contract TegridyFactoryTest is Test {
         factory.proposePairDisabled(pair, true);
     }
 
+    // ─── AUDIT NEW-A2: guardian emergency-pause lane ────────────────────
+
+    /// @notice AUDIT NEW-A2: only feeToSetter can set the guardian role.
+    function test_NEWA2_setGuardian_onlySetter() public {
+        vm.prank(random);
+        vm.expectRevert("FORBIDDEN");
+        factory.setGuardian(random);
+
+        vm.prank(admin);
+        factory.setGuardian(random);
+        assertEq(factory.guardian(), random);
+    }
+
+    /// @notice AUDIT NEW-A2: guardian can INSTANTLY disable a pair, no timelock.
+    function test_NEWA2_guardianEmergencyDisableInstant() public {
+        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address guardian = makeAddr("guardian");
+        vm.prank(admin);
+        factory.setGuardian(guardian);
+
+        assertFalse(factory.disabledPairs(pair));
+        vm.prank(guardian);
+        factory.emergencyDisablePair(pair);
+        assertTrue(factory.disabledPairs(pair));
+    }
+
+    /// @notice AUDIT NEW-A2: feeToSetter can also call emergencyDisablePair
+    ///         directly as a fallback when the guardian role is empty.
+    function test_NEWA2_setterCanEmergencyDisable() public {
+        address pair = factory.createPair(address(tokenA), address(tokenB));
+        vm.prank(admin);
+        factory.emergencyDisablePair(pair);
+        assertTrue(factory.disabledPairs(pair));
+    }
+
+    /// @notice AUDIT NEW-A2: random address cannot emergencyDisablePair —
+    ///         emergency instant-pause is strictly guardian/setter-gated.
+    function test_NEWA2_randomCannotEmergencyDisable() public {
+        address pair = factory.createPair(address(tokenA), address(tokenB));
+        vm.prank(random);
+        vm.expectRevert("NOT_GUARDIAN");
+        factory.emergencyDisablePair(pair);
+    }
+
+    /// @notice AUDIT NEW-A2: if a re-enable proposal is queued, guardian's
+    ///         emergencyDisablePair force-cancels it so the attacker can't
+    ///         race the circuit-breaker.
+    function test_NEWA2_emergencyDisableCancelsPendingReEnable() public {
+        address pair = factory.createPair(address(tokenA), address(tokenB));
+        vm.prank(admin);
+        factory.proposePairDisabled(pair, true);
+        vm.warp(block.timestamp + 48 hours);
+        vm.prank(admin);
+        factory.executePairDisabled(pair);
+
+        // Queue a re-enable (`disabled = false`) that would pass in 48h.
+        vm.prank(admin);
+        factory.proposePairDisabled(pair, false);
+        bytes32 key = keccak256(abi.encodePacked(factory.PAIR_DISABLE_CHANGE(), pair));
+        assertTrue(factory.pendingPairDisableTime(pair) != 0, "proposal queued");
+
+        // Guardian triggers emergency — re-enable proposal is wiped.
+        address guardian = makeAddr("guardian");
+        vm.prank(admin);
+        factory.setGuardian(guardian);
+        vm.prank(guardian);
+        factory.emergencyDisablePair(pair);
+        assertTrue(factory.disabledPairs(pair), "still disabled");
+        assertEq(factory.pendingPairDisableTime(pair), 0, "pending re-enable force-cancelled");
+        assertFalse(factory.pendingPairDisableValue(pair), "pending value cleared");
+        // Key unused — silence unused-variable warning
+        key;
+    }
+
     receive() external payable {}
 }
 

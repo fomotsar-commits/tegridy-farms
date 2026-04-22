@@ -437,8 +437,15 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint256 tokenId = tokenIds[i];
             if (_idToIndex[tokenId] != 0) continue; // already tracked
-            if (nftCollection.ownerOf(tokenId) == address(this)) {
-                _addHeldId(tokenId);
+            // try/catch so non-existent token IDs are silently skipped rather
+            // than reverting the whole batch — callers can pass a superset of
+            // IDs from off-chain indexers without pre-filtering.
+            try nftCollection.ownerOf(tokenId) returns (address current) {
+                if (current == address(this)) {
+                    _addHeldId(tokenId);
+                }
+            } catch {
+                // Token doesn't exist / collection reverts — skip.
             }
         }
     }
