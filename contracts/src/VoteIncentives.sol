@@ -80,7 +80,19 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     uint256 public constant MIN_BRIBE_AMOUNT = 0.001 ether; // SECURITY FIX: Prevent dust spam DoS (Velodrome pattern)
     uint256 public constant MAX_CLAIM_EPOCHS = 500;     // Same as RevenueDistributor
     uint256 public constant MAX_BATCH_ITERATIONS = 200;  // SECURITY FIX H-8: Prevent block gas limit DoS
-    uint256 public constant MIN_EPOCH_INTERVAL = 1 hours;
+    /// @notice AUDIT NEW-G8 (HIGH): previously 1 hour. Per-hour cadence let an attacker
+    ///         spam `advanceEpoch` 168x/week, splitting a week's bribe pool into dust
+    ///         buckets each of which rounded a voter's share to zero — siphoning the
+    ///         protocol's bribe flow. Weekly cadence matches Aerodrome / Velodrome and
+    ///         makes bribe economics stable for voters.
+    uint256 public constant MIN_EPOCH_INTERVAL = 7 days;
+    /// @notice AUDIT NEW-G4 (HIGH): snapshot-lookback (matches CommunityGrants /
+    ///         MemeBountyBoard). A staker who mints at T cannot influence an epoch
+    ///         advanced at T — their checkpoint is at T, lookup at T - SNAPSHOT_LOOKBACK
+    ///         returns the checkpoint from 1h earlier (before they staked). Without
+    ///         this, an attacker could stake-max-boost, trigger permissionless
+    ///         `advanceEpoch`, and capture the new epoch's full voting weight + bribes.
+    uint256 public constant SNAPSHOT_LOOKBACK = 1 hours;
     uint256 public constant VOTE_DEADLINE = 7 days;     // SECURITY FIX: Voting deadline after epoch snapshot (Aerodrome pattern)
     uint256 public constant FEE_CHANGE_DELAY = 24 hours;
     uint256 public constant TREASURY_CHANGE_DELAY = 48 hours;
@@ -310,7 +322,15 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (totalPower == 0) revert NoStakers();
         if (totalPower < MIN_DISTRIBUTE_STAKE) revert NoStakers();
 
-        uint256 snapshotTime = block.timestamp > 0 ? block.timestamp - 1 : 0;
+        // AUDIT NEW-G4 (HIGH): snap the epoch timestamp back by SNAPSHOT_LOOKBACK so
+        // same-block / near-block flash-stakes cannot influence THIS epoch's voting
+        // power or bribe shares. `votingPowerAtTimestamp(user, snapshotTime)` reads
+        // the checkpoint strictly before snapshotTime; the 1h lookback enforces a
+        // cooling-off between stake and advance. Fallback to (timestamp - 1) on early
+        // genesis/fork conditions.
+        uint256 snapshotTime = block.timestamp > SNAPSHOT_LOOKBACK
+            ? block.timestamp - SNAPSHOT_LOOKBACK
+            : (block.timestamp > 0 ? block.timestamp - 1 : 0);
 
         epochs.push(EpochInfo({
             totalPower: totalPower,

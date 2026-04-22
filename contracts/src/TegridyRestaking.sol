@@ -164,6 +164,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     error OnlyStakingNFT(); // L-03: Custom error for onERC721Received
     error Int256Overflow(); // M-27: Safe int256 cast guard
     error NotRestakedToken(); // M-26: Token not restaked in this contract
+    error Unauthorized(); // AUDIT NEW-S2: restrict revalidate-boost helpers to owner/restaker
 
     // ─── Constructor ────────────────────────────────────────────────
     constructor(
@@ -944,13 +945,22 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
     // ─── M-26: Revalidate Boost Proxy ───────────────────────────────
 
-    /// @notice M-26: Revalidate the JBAC boost for a restaked position.
-    /// @dev Permissionless — revalidateBoost can only downgrade, so anyone can call.
-    ///      Refreshes the cached boostedAmount after revalidation.
+    /// @notice M-26 + AUDIT NEW-S2: Revalidate the JBAC boost for a restaked position.
+    /// @dev AUDIT NEW-S2 (HIGH): TegridyStaking.revalidateBoost is restricted to
+    ///      owner/restakingContract to prevent permissionless boost-strip griefing
+    ///      of legacy positions (a user whose JBAC is temporarily in a different
+    ///      wallet). The prior permissionless wrapper in this contract punched
+    ///      straight through that gate — an attacker could watch the JBAC market
+    ///      and call this during any transfer-window to permanently strip a
+    ///      victim's legacy JBAC boost. Now restricted to the restaker themselves
+    ///      or the owner. Refreshes the cached boostedAmount after revalidation.
     /// @param tokenId The tsTOWELI NFT token ID to revalidate
     function revalidateBoostForRestaked(uint256 tokenId) external nonReentrant updateBonus {
         address restaker = tokenIdToRestaker[tokenId];
         if (restaker == address(0)) revert NotRestakedToken();
+        // AUDIT NEW-S2: match Staking's auth model — only the position owner or
+        // the restaking-contract owner can revalidate. Previously permissionless.
+        if (msg.sender != restaker && msg.sender != owner()) revert Unauthorized();
 
         RestakeInfo storage info = restakers[restaker];
 
@@ -991,13 +1001,18 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         emit BoostRevalidated(restaker, tokenId, oldBoosted, newBoostedAmount);
     }
 
-    /// @notice #23/M-26: Revalidate the JBAC boost for a restaked position by user address.
-    /// @dev Looks up the user's restaked tokenId and calls revalidateBoost via the staking contract.
-    ///      Permissionless — revalidateBoost can only downgrade, so anyone can call.
+    /// @notice #23/M-26 + AUDIT NEW-S2: Revalidate the JBAC boost for a restaked
+    ///         position by user address.
+    /// @dev Looks up the user's restaked tokenId and calls revalidateBoost via the
+    ///      staking contract. AUDIT NEW-S2 (HIGH): restricted to the user themselves
+    ///      or the owner — see revalidateBoostForRestaked above for the full
+    ///      grief rationale.
     /// @param _user The restaker address whose boost should be revalidated
     function revalidateBoostForRestaker(address _user) external nonReentrant updateBonus {
         RestakeInfo storage info = restakers[_user];
         if (info.tokenId == 0) revert NotRestaked();
+        // AUDIT NEW-S2: only the restaker or owner may trigger revalidation.
+        if (msg.sender != _user && msg.sender != owner()) revert Unauthorized();
 
         uint256 tokenId = info.tokenId;
 
@@ -1043,7 +1058,23 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      This function reads the current position from TegridyStaking (where boostedAmount
     ///      is decayed to 0 on expiry) and syncs the cached values here.
     /// @param _restaker The restaker address to decay
-    function decayExpiredRestaker(address _restaker) external nonReentrant updateBonus {
+    ///
+    /// @dev AUDIT NEW-S3 (HIGH): the `updateBonus` modifier accrues bonus based on
+    ///      the current `totalRestaked` BEFORE this function body runs. When a
+    ///      restaker's lock expires, their cached `boostedAmount` stays inflated
+    ///      until someone calls this helper — during which time `totalRestaked`
+    ///      overstates the true denominator. Accrual against the inflated
+    ///      denominator mints less `accBonusPerShare` per unit, so honest
+    ///      restakers earn less, and the expired restaker's own pending bonus at
+    ///      settlement is computed against the inflated cached amount — they
+    ///      siphon the delta from honest users.
+    ///
+    ///      Fix: settle the expired restaker and update totalRestaked FIRST, then
+    ///      run the bonus accrual against the corrected denominator. The period
+    ///      immediately before this call still used the stale denominator (that
+    ///      part of the past is sunk), but every future elapsed unit from now on
+    ///      accrues fairly.
+    function decayExpiredRestaker(address _restaker) external nonReentrant {
         RestakeInfo storage info = restakers[_restaker];
         if (info.tokenId == 0) revert NotRestaked();
 
@@ -1052,6 +1083,13 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
         // Only proceed if the cached value differs (i.e., decay happened)
         if (currentBoosted == info.boostedAmount) revert("NO_DECAY");
+
+        // AUDIT NEW-S3 step 1 — run pending accrual against the STALE denominator one
+        // last time. This finalises the expired restaker's prior share under the
+        // accounting that was actually in effect, so their bonusDebt advances to
+        // `oldBoosted × accBonusPerShare_now`. We'll pay out below, then correct
+        // totalRestaked, then subsequent calls use the fixed denominator.
+        _accrueBonus();
 
         // Settle pending bonus on old (stale) boostedAmount before updating
         uint256 oldBoosted = info.boostedAmount;
@@ -1066,7 +1104,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             }
         }
 
-        // Update cached boostedAmount and totalRestaked
+        // AUDIT NEW-S3 step 2 — update cached boostedAmount and totalRestaked. All
+        // future accrual (next caller's updateBonus) reads the corrected denominator.
         info.boostedAmount = currentBoosted;
         totalRestaked = totalRestaked - oldBoosted + currentBoosted;
         info.bonusDebt = _safeInt256((currentBoosted * accBonusPerShare) / ACC_PRECISION);
@@ -1076,6 +1115,33 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         info.positionAmount = currentAmount;
 
         emit PositionRefreshed(_restaker, info.tokenId, oldBoosted, currentBoosted);
+    }
+
+    /// @dev AUDIT NEW-S3: extract the `updateBonus` modifier body into a reusable
+    ///      internal function so `decayExpiredRestaker` can run accrual at a
+    ///      specific step of the decay workflow instead of at the modifier's
+    ///      fixed always-first position.
+    function _accrueBonus() internal {
+        if (block.timestamp > lastBonusRewardTime && totalRestaked > 0) {
+            uint256 elapsed = block.timestamp - lastBonusRewardTime;
+            uint256 reward = elapsed * bonusRewardPerSecond;
+            uint256 available;
+            try bonusRewardToken.balanceOf(address(this)) returns (uint256 bal) {
+                available = bal;
+            } catch {
+                available = 0;
+            }
+            if (reward > available) {
+                emit BonusShortfall(elapsed, reward - available);
+                reward = available;
+            }
+            if (reward > 0) {
+                accBonusPerShare += (reward * ACC_PRECISION) / totalRestaked;
+            }
+            lastBonusRewardTime = block.timestamp;
+        } else if (totalRestaked == 0) {
+            lastBonusRewardTime = block.timestamp;
+        }
     }
 
     // ─── M-27: Safe Int256 Helper ───────────────────────────────────

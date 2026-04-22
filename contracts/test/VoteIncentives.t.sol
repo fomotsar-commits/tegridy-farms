@@ -141,6 +141,12 @@ contract VoteIncentivesTest is Test {
         vm.warp(block.timestamp + 24 hours + 1);
         vi.executeWhitelistChange();
 
+        // AUDIT NEW-G8: MIN_EPOCH_INTERVAL raised from 1h to 7 days. The default
+        // `lastEpochTime == 0` plus a 24h-warped timestamp would land tests inside
+        // the first epoch's cooldown. Warp past one full epoch duration so the
+        // very first test-level `advanceEpoch()` succeeds.
+        vm.warp(block.timestamp + 7 days);
+
         // Fund alice and bob
         bribeToken.transfer(alice, 100_000e18);
         bribeToken.transfer(bob, 100_000e18);
@@ -179,7 +185,7 @@ contract VoteIncentivesTest is Test {
 
     function test_advanceEpoch_after_cooldown() public {
         vi.advanceEpoch();
-        vm.warp(block.timestamp + 1 hours + 1);
+        vm.warp(block.timestamp + 7 days + 1);
         vi.advanceEpoch();
         assertEq(vi.epochCount(), 2);
     }
@@ -187,6 +193,9 @@ contract VoteIncentivesTest is Test {
     function test_advanceEpoch_reverts_no_stakers() public {
         MockVE emptyVE = new MockVE();
         VoteIncentives vi2 = new VoteIncentives(address(emptyVE), treasury, address(weth), address(factory), address(bribeToken), 300);
+        // AUDIT NEW-G8: fresh contract's lastEpochTime=0 would trip EpochTooSoon before
+        // NoStakers. Warp past MIN_EPOCH_INTERVAL so the NoStakers path actually runs.
+        vm.warp(block.timestamp + 7 days + 1);
         vm.expectRevert(VoteIncentives.NoStakers.selector);
         vi2.advanceEpoch();
     }
@@ -337,7 +346,7 @@ contract VoteIncentivesTest is Test {
         vm.prank(alice);
         vi.vote(0, pair, 7000e18);
 
-        vm.warp(block.timestamp + 1 hours + 1);
+        vm.warp(block.timestamp + 7 days + 1);
 
         vm.startPrank(alice);
         vi.depositBribe(pair, address(bribeToken), amount);

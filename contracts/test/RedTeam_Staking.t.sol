@@ -844,15 +844,19 @@ contract RedTeamStaking is Test {
         jbac.mint(alice);
         uint256 aliceTokenId = _stakeAndRestake(alice, STAKE_AMOUNT, 365 days);
 
-        // H-1: revalidate is a no-op for a non-deposit position.
+        // AUDIT NEW-S2 (HIGH): the wrapper used to be permissionless on the assumption
+        // that revalidate could only DOWNGRADE. But a legacy-JBAC holder whose token is
+        // temporarily in a different wallet would have their boost permanently stripped
+        // by any griefer watching the JBAC market. Wrapper is now auth-gated: only the
+        // restaker themselves or the restaking-contract owner may trigger revalidation.
+        vm.prank(alice);
         restaking.revalidateBoostForRestaked(aliceTokenId);
         (,,,,,,,bool hasJbacBefore,,,) = staking.positions(aliceTokenId);
         assertFalse(hasJbacBefore, "H-1: revalidate cannot upgrade");
 
-        // Attacker calls — still a no-op, no state change.
+        // Attacker call — now reverts with Unauthorized() instead of being a no-op.
         vm.prank(attacker);
+        vm.expectRevert(TegridyRestaking.Unauthorized.selector);
         restaking.revalidateBoostForRestaked(aliceTokenId);
-        (,,,,,,,bool hasJbacAfter,,,) = staking.positions(aliceTokenId);
-        assertFalse(hasJbacAfter, "H-1: permissionless call cannot upgrade either");
     }
 }

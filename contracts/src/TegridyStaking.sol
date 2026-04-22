@@ -882,7 +882,22 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         // voting power via `_positionsByOwner`. The legacy `userTokenId[holder]` still
         // reflects only the most recently received position for single-position
         // integrators; for aggregate-aware integrators use votingPowerOf / the event.
-        if (to != address(0) && userTokenId[to] != 0 && to.code.length == 0) revert AlreadyHasPosition();
+        //
+        // AUDIT NEW-L2 (HIGH): when the NFT is RETURNING to its original owner from a
+        // whitelisted lending contract (repayLoan or claimDefaultedCollateral), the
+        // borrower may have re-staked in the meantime — their `userTokenId` now points
+        // to a fresh position. The EOA guard would then brick repay AND claimDefault,
+        // trapping the collateral in the lending contract forever. Relax the guard
+        // when `from` is a registered lending contract, mirroring the restakingContract
+        // exemption that's always been implicit via `to.code.length == 0` (only EOAs
+        // ever re-stake; lending is the only path that returns NFTs to EOAs after an
+        // escrow round-trip).
+        if (
+            to != address(0) &&
+            userTokenId[to] != 0 &&
+            to.code.length == 0 &&
+            !isLendingContract[from]
+        ) revert AlreadyHasPosition();
 
         // Reset autoMaxLock, clear emergency exit, update ownership, write checkpoint.
         // AUDIT TF-07 (Spartan MEDIUM): only reset autoMaxLock on a genuine ownership

@@ -25,6 +25,15 @@ contract TegridyFactory is TimelockAdmin {
     // AUDIT FIX #34: 2-step feeToSetter transfer to prevent accidental loss of admin control
     address public pendingFeeToSetter;
 
+    /// @notice AUDIT NEW-A2 (HIGH): guardian role for INSTANT emergency pair disable.
+    ///         The normal disable path is timelocked (48h) so governance can be audited.
+    ///         But if a malicious token (e.g. an upgradeable ERC-20 that flips to FoT /
+    ///         transfer-hook mode post-listing) is actively draining a pair, a 48h delay
+    ///         is game-over. This lets a separately-signed guardian multisig circuit-break
+    ///         instantly. Only disables — no re-enable shortcut. Re-enable still needs
+    ///         the 48h timelock. Guardian is set by feeToSetter.
+    address public guardian;
+
     // AUDIT FIX: Timelock for feeTo changes to prevent instant fee redirection
     uint256 public constant FEE_TO_CHANGE_DELAY = 48 hours;
     address public pendingFeeTo;
@@ -316,5 +325,42 @@ contract TegridyFactory is TimelockAdmin {
     function pendingPairDisableTime(address pair) external view returns (uint256) {
         bytes32 key = keccak256(abi.encodePacked(PAIR_DISABLE_CHANGE, pair));
         return _executeAfter[key];
+    }
+
+    // ─── AUDIT NEW-A2: Emergency Pair Disable (guardian) ──────────────
+
+    event GuardianSet(address indexed oldGuardian, address indexed newGuardian);
+    event PairEmergencyDisabled(address indexed pair, address indexed by);
+
+    /// @notice Set the guardian address. Only feeToSetter may call. Can be zero to
+    ///         disable emergency powers entirely.
+    function setGuardian(address _guardian) external {
+        require(msg.sender == feeToSetter, "FORBIDDEN");
+        address old = guardian;
+        guardian = _guardian;
+        emit GuardianSet(old, _guardian);
+    }
+
+    /// @notice INSTANT pair disable — no timelock. Callable only by guardian or
+    ///         feeToSetter. Intended for active-exploit response. Re-enabling a
+    ///         disabled pair still requires the normal 48h timelocked propose path.
+    ///         If any proposal was pending to re-enable the pair, it is force-cancelled
+    ///         so the attacker can't race the guardian.
+    function emergencyDisablePair(address pair) external {
+        require(pair != address(0), "ZERO_ADDRESS");
+        require(
+            msg.sender == guardian || msg.sender == feeToSetter,
+            "NOT_GUARDIAN"
+        );
+        disabledPairs[pair] = true;
+
+        // Force-cancel any pending re-enable proposal so a benign-looking "re-enable"
+        // queued before the incident can't execute and unwind the circuit breaker.
+        bytes32 key = keccak256(abi.encodePacked(PAIR_DISABLE_CHANGE, pair));
+        if (_executeAfter[key] != 0) {
+            _cancel(key);
+            delete pendingPairDisableValue[pair];
+        }
+        emit PairEmergencyDisabled(pair, msg.sender);
     }
 }

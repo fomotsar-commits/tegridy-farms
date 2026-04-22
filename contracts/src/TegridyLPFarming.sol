@@ -285,12 +285,24 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     function _withdrawInternal(address user, uint256 amount) internal {
         if (amount == 0) revert ZeroAmount();
         if (amount > rawBalanceOf[user]) revert InsufficientBalance();
-        // Proportionally reduce effective balance
-        uint256 effectiveReduction = (effectiveBalanceOf[user] * amount) / rawBalanceOf[user];
-        rawBalanceOf[user] -= amount;
-        effectiveBalanceOf[user] -= effectiveReduction;
+
+        // AUDIT NEW-S4 (HIGH): recompute the user's effective balance from scratch on
+        // the remaining raw amount instead of applying a proportional reduction.
+        // The prior proportional-reduction path `(effective * amount) / raw` truncated
+        // down each call, compressing the effective-per-raw ratio UPWARD on partial
+        // withdraws. A whale doing many 1-wei withdraws could push their ratio past
+        // the MAX_BOOST_BPS_CEILING clamp (because the clamp only applies inside
+        // `_getEffectiveBalance`, not in the withdraw arithmetic). Result:
+        // over-credited rewards on the retained LP + diluted pool for honest stakers.
+        // Matches the stake() / refreshBoost() pattern already used elsewhere
+        // (Curve LiquidityGaugeV4 model).
+        uint256 oldEff = effectiveBalanceOf[user];
+        uint256 newRaw = rawBalanceOf[user] - amount;
+        uint256 newEff = _getEffectiveBalance(user, newRaw);
+        rawBalanceOf[user] = newRaw;
+        effectiveBalanceOf[user] = newEff;
         totalRawSupply -= amount;
-        totalEffectiveSupply -= effectiveReduction;
+        totalEffectiveSupply = totalEffectiveSupply - oldEff + newEff;
         stakingToken.safeTransfer(user, amount);
         emit Withdrawn(user, amount);
     }
