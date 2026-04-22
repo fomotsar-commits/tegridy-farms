@@ -100,6 +100,14 @@ contract TegridyPair is ERC20, ReentrancyGuard {
         // Without this, users can add liquidity to dead pairs and lose their tokens.
         require(!ITegridyFactory(factory).disabledPairs(address(this)), "PAIR_DISABLED");
         require(!ITegridyFactory(factory).blockedTokens(token0) && !ITegridyFactory(factory).blockedTokens(token1), "TOKEN_BLOCKED");
+        // AUDIT NEW-A10 (MEDIUM): refuse mint-to-self. Historically Uniswap V2 left
+        // this unchecked, creating a known footgun: a caller who passes the pair's
+        // own address as `to` deposits LP tokens into the pair itself, which any
+        // attacker can then drain via `burn(attacker)` (since `burn` reads the
+        // pair's own LP balance). Router always supplies `to = msg.sender` or an
+        // EOA, but direct-pair integrators can footgun themselves. Matches the
+        // existing `burn(to)` INVALID_TO guard for symmetry.
+        require(to != address(0) && to != address(this), "INVALID_TO");
         (uint112 _reserve0, uint112 _reserve1,) = getReserves();
         uint256 balance0 = IERC20(token0).balanceOf(address(this));
         uint256 balance1 = IERC20(token1).balanceOf(address(this));
@@ -257,6 +265,22 @@ contract TegridyPair is ERC20, ReentrancyGuard {
     /// @notice AUDIT FIX H-02: Force reserves to match balances.
     function sync() external nonReentrant {
         _update(IERC20(token0).balanceOf(address(this)), IERC20(token1).balanceOf(address(this)));
+    }
+
+    /// @notice AUDIT NEW-A7 (MEDIUM): permissionless mint-fee harvest. `_mintFee` runs
+    ///         only inside `mint()` / `burn()`. On a hot pair with heavy swap volume
+    ///         but no LP churn, the 1/6th mint-fee share accrues as K growth that
+    ///         never materialises as protocol LP tokens — the treasury earns $0
+    ///         despite the fee being built into the K-invariant. This permissionless
+    ///         helper runs `_mintFee` + updates `kLast` so the protocol's LP share
+    ///         materialises without waiting for a liquidity event. Balancer V2 /
+    ///         Curve both use the same pattern (`claim_admin_fees()`).
+    function harvest() external nonReentrant {
+        (uint112 _reserve0, uint112 _reserve1,) = getReserves();
+        bool feeOn = _mintFee(_reserve0, _reserve1);
+        if (feeOn) {
+            kLast = uint256(_reserve0) * uint256(_reserve1);
+        }
     }
 
     // ─── Internal ─────────────────────────────────────────────────────

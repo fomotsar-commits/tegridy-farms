@@ -1019,9 +1019,17 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     }
 
     /// @notice Write a checkpoint for the user's current voting power (OZ Checkpoints.Trace208).
+    /// @dev AUDIT NEW-S7 (MEDIUM): skip the push when power is unchanged. The previous
+    ///      unconditional push wrote ~5-20k gas of SSTORE on every no-op transfer /
+    ///      lending round-trip, and grew `_checkpoints[user]` forever for users near
+    ///      the MAX_POSITIONS_PER_HOLDER cap. Compound / OZ Governor both compare
+    ///      against the latest checkpoint before pushing.
     function _writeCheckpoint(address user) internal {
         uint256 power = votingPowerOf(user);
-        _checkpoints[user].push(SafeCast.toUint48(block.timestamp), SafeCast.toUint208(power));
+        uint208 newPower = SafeCast.toUint208(power);
+        uint208 last = _checkpoints[user].latest();
+        if (last == newPower) return;
+        _checkpoints[user].push(SafeCast.toUint48(block.timestamp), newPower);
     }
 
     event UnsettledClaimed(address indexed user, uint256 amount);
@@ -1170,10 +1178,31 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
     // ─── Admin ────────────────────────────────────────────────────────
 
-    /// @notice Fund the staking contract with reward tokens. Permissionless but requires minimum amount.
+    // AUDIT NEW-S5 (MEDIUM): notifyRewardAmount is now restricted to owner or a
+    // whitelisted notifier set (see rewardNotifiers mapping + setRewardNotifier).
+    // Prior version was permissionless with only MIN_NOTIFY_AMOUNT as the bar —
+    // an attacker could time a large deposit immediately before their own
+    // `getReward` tx, capturing a disproportionate slice of the just-funded
+    // pool via the instantaneous `rewardPerTokenStored` bump in the next
+    // `_accumulateRewards` cycle. Matches Synthetix `RewardsDistributionRecipient`
+    // pattern where only a dedicated role can fund the contract. The treasury /
+    // POLAccumulator / operations multisig can be added as notifiers.
+    mapping(address => bool) public rewardNotifiers;
+
+    event RewardNotifierSet(address indexed notifier, bool enabled);
+
+    function setRewardNotifier(address notifier, bool enabled) external onlyOwner {
+        rewardNotifiers[notifier] = enabled;
+        emit RewardNotifierSet(notifier, enabled);
+    }
+
+    /// @notice Fund the staking contract with reward tokens.
+    /// @dev AUDIT FIX H-06: nonReentrant. AUDIT NEW-S5: caller must be owner or notifier.
     /// @param _amount Amount of reward tokens to deposit (must be >= MIN_NOTIFY_AMOUNT)
-    /// @dev AUDIT FIX H-06: Added nonReentrant to protect reward funding path
     function notifyRewardAmount(uint256 _amount) external nonReentrant {
+        if (msg.sender != owner() && !rewardNotifiers[msg.sender]) {
+            revert("NOT_NOTIFIER");
+        }
         if (_amount < MIN_NOTIFY_AMOUNT) revert FundAmountTooSmall(); // AUDIT FIX #61
         rewardToken.safeTransferFrom(msg.sender, address(this), _amount);
         totalRewardsFunded += _amount;

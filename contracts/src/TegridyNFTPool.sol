@@ -424,6 +424,25 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         emit NFTsWithdrawn(msg.sender, tokenIds);
     }
 
+    /// @notice AUDIT NEW-L4 (MEDIUM): reconcile on-chain ERC721 ownership with this
+    ///         pool's `_heldIds` tracking. `onERC721Received` is the only path that
+    ///         adds a tokenId to `_heldIds`. If someone deposits via the non-safe
+    ///         `transferFrom` (not `safeTransferFrom`), the pool OWNS the NFT but
+    ///         `_idToIndex` stays 0 — every subsequent `withdrawNFTs` /
+    ///         `swapETHForNFTs` reverts with NFTNotHeld, stranding the NFT forever.
+    ///         This owner-only recovery walks the supplied tokenIds and adds any
+    ///         that are actually owned by this pool but missing from `_heldIds`.
+    ///         Cannot over-register (per-id guard in `_addHeldId`).
+    function syncNFTs(uint256[] calldata tokenIds) external onlyOwner {
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            uint256 tokenId = tokenIds[i];
+            if (_idToIndex[tokenId] != 0) continue; // already tracked
+            if (nftCollection.ownerOf(tokenId) == address(this)) {
+                _addHeldId(tokenId);
+            }
+        }
+    }
+
     // ─── Pause (owner only) ─────────────────────────────────────────────
 
     function pause() external onlyOwner {

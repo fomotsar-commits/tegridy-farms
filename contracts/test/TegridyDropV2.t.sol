@@ -187,11 +187,15 @@ contract TegridyDropV2Test is Test {
     }
 
     function test_allowlistMint_acceptsValidProof() public {
-        // Single-leaf merkle tree: root is just the hash of (this, alice).
-        // Proof is an empty array — the leaf IS the root.
+        // AUDIT NEW-L5 (MEDIUM): drop now double-hashes leaves (OpenZeppelin v4.9+
+        // recommendation against second-preimage attacks). The tree construction
+        // must apply the same double-hash shape:
+        //   leaf = keccak256( bytes.concat( keccak256( abi.encode(drop, minter) ) ) )
         TegridyDropV2.InitParams memory p = _defaults();
         address dropAddr = address(drop);
-        bytes32 leaf = keccak256(abi.encodePacked(dropAddr, alice));
+        bytes32 leaf = keccak256(
+            bytes.concat(keccak256(abi.encode(dropAddr, alice)))
+        );
         p.merkleRoot = leaf;
         p.initialPhase = TegridyDropV2.MintPhase.ALLOWLIST;
         _init(p);
@@ -204,9 +208,11 @@ contract TegridyDropV2Test is Test {
 
     function test_allowlistMint_crossUserLeafRejected() public {
         // alice's leaf as root — bob tries to mint with the same (empty)
-        // proof; the hash doesn't match his address so verification fails.
+        // proof; the double-hashed leaf doesn't match his address so verification fails.
         TegridyDropV2.InitParams memory p = _defaults();
-        p.merkleRoot = keccak256(abi.encodePacked(address(drop), alice));
+        p.merkleRoot = keccak256(
+            bytes.concat(keccak256(abi.encode(address(drop), alice)))
+        );
         p.initialPhase = TegridyDropV2.MintPhase.ALLOWLIST;
         _init(p);
 

@@ -326,7 +326,13 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     ///      stranded tokens can later be swept to treasury via reclaimForfeitedRewards.
     ///      Without this, the forfeited amount silted up as unrecoverable dust
     ///      (recoverERC20 blocks rewardToken).
-    function emergencyWithdraw() external nonReentrant {
+    /// @dev AUDIT NEW-S6 (MEDIUM): added `updateReward(msg.sender)` modifier so
+    ///      `rewardPerTokenStored` + `lastUpdateTime` are synced to `now` BEFORE
+    ///      `totalEffectiveSupply` shrinks. Otherwise, the next claimer's
+    ///      `rewardPerToken()` divides the elapsed × rewardRate by the NEW smaller
+    ///      denominator, over-crediting rewards for the pre-emergency-withdraw
+    ///      period (during which this user was still in the denominator).
+    function emergencyWithdraw() external nonReentrant updateReward(msg.sender) {
         uint256 amount = rawBalanceOf[msg.sender];
         if (amount == 0) revert ZeroAmount();
         uint256 forfeited = earned(msg.sender);

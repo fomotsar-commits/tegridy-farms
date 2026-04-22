@@ -230,8 +230,13 @@ contract FinalAuditStaking is Test {
             staking.toggleAutoMaxLock(tokenId); // toggle off
         }
 
+        // AUDIT NEW-S7 (MEDIUM): _writeCheckpoint skips pushes when voting power is
+        // unchanged vs the latest stored value. toggleAutoMaxLock flips power between
+        // two distinct values, so after 50 flips the array settles at ≤ 3 entries
+        // rather than the previous 51. This test now verifies the no-op-write
+        // optimisation instead of asserting the prior unbounded growth.
         uint256 numCkpts = staking.numCheckpoints(bob);
-        assertEq(numCkpts, 51, "Should have 51 checkpoints (1 from stake + 50 from toggles)");
+        assertLe(numCkpts, 3, "NEW-S7: checkpoint writes skip identical values");
 
         // Binary search still works efficiently — use timestamp-based lookup
         // currentTime has been advanced 50 times by 1 hour each (25 iterations * 2)
@@ -825,14 +830,23 @@ contract FinalAuditStaking is Test {
     function test_FA23_fundIsPermissionless() public {
         uint256 contractBalBefore = toweli.balanceOf(address(staking));
 
-        // Random attacker can fund
+        // AUDIT NEW-S5 (MEDIUM): notifyRewardAmount is no longer permissionless — an
+        // attacker could time a large deposit immediately before their own getReward
+        // to sandwich the reward-rate distribution. Now owner or whitelisted notifier
+        // only. A random attacker reverts with NOT_NOTIFIER, but the owner (test
+        // contract) can still fund freely.
         vm.prank(attacker);
+        vm.expectRevert(bytes("NOT_NOTIFIER"));
+        staking.notifyRewardAmount(1000 ether);
+
+        // Owner funding still works (this test contract is the deployer).
+        toweli.approve(address(staking), 1000 ether);
         staking.notifyRewardAmount(1000 ether);
 
         assertEq(
             toweli.balanceOf(address(staking)),
             contractBalBefore + 1000 ether,
-            "Anyone can fund the contract"
+            "Owner / notifier can fund; random attacker cannot"
         );
     }
 

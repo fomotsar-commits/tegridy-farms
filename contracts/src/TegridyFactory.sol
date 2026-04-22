@@ -240,18 +240,27 @@ contract TegridyFactory is TimelockAdmin {
             revert("ERC777_NOT_SUPPORTED");
         }
 
+        // AUDIT NEW-A9 (MEDIUM): ERC-1820 has MULTIPLE hook interfaces — `ERC777Token`,
+        // `ERC777TokensRecipient`, and `ERC777TokensSender`. The prior check covered
+        // only the first. A token could register `ERC777TokensSender` alone (which
+        // fires on outgoing transfers from holders — including pairs transferring
+        // output tokens) without registering the full `ERC777Token` interface. Check
+        // all three to close the gap.
         address ERC1820_REGISTRY = 0x1820a4B7618BdE71Dce8cdc73aAB6C95905faD24;
         if (ERC1820_REGISTRY.code.length > 0) {
-            (bool regOk, bytes memory regResult) = ERC1820_REGISTRY.staticcall(
-                abi.encodeWithSelector(
-                    0xaabbb8ca,
-                    token,
-                    keccak256("ERC777Token")
-                )
-            );
-            if (regOk && regResult.length >= 32) {
-                address implementer = abi.decode(regResult, (address));
-                require(implementer == address(0), "ERC777_NOT_SUPPORTED");
+            bytes32[3] memory hashes = [
+                keccak256("ERC777Token"),
+                keccak256("ERC777TokensRecipient"),
+                keccak256("ERC777TokensSender")
+            ];
+            for (uint256 i = 0; i < 3; i++) {
+                (bool regOk, bytes memory regResult) = ERC1820_REGISTRY.staticcall(
+                    abi.encodeWithSelector(0xaabbb8ca, token, hashes[i])
+                );
+                if (regOk && regResult.length >= 32) {
+                    address implementer = abi.decode(regResult, (address));
+                    require(implementer == address(0), "ERC777_NOT_SUPPORTED");
+                }
             }
         }
     }

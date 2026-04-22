@@ -276,7 +276,16 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         if (msg.value < totalCost) revert InsufficientPayment();
 
         if (mintPhase == MintPhase.ALLOWLIST) {
-            bytes32 leaf = keccak256(abi.encodePacked(address(this), msg.sender));
+            // AUDIT NEW-L5 (MEDIUM): double-hashed leaf per OpenZeppelin MerkleTree
+            // recommendation (since OZ v4.9). The single-hash variant is vulnerable to
+            // the "second preimage attack" where an attacker presents an intermediate
+            // Merkle node as a leaf-proof. Double hashing makes leaf and internal-node
+            // hash domains disjoint. Off-chain tree construction must apply the same
+            // double-hash shape:
+            //   leaf = keccak256( bytes.concat( keccak256( abi.encode(drop, minter) ) ) )
+            bytes32 leaf = keccak256(
+                bytes.concat(keccak256(abi.encode(address(this), msg.sender)))
+            );
             if (!MerkleProof.verify(proof, merkleRoot, leaf)) revert InvalidProof();
         }
 
