@@ -566,8 +566,10 @@ contract TegridyNFTPoolFactoryFuzzTest is Test {
     // ─── Fuzz: Protocol fee range is enforced (0–1000 bps) ──────────────
 
     function testFuzz_protocolFeeRange(uint256 feeBps) public {
-        // Test valid range: 0 to MAX_PROTOCOL_FEE_BPS (1000)
-        uint256 validFee = bound(feeBps, 0, 1000);
+        // AUDIT NEW-L8 (LOW): factory constructor now rejects fee=0 to prevent
+        // deploying a whole factory whose pools earn the protocol nothing. Valid
+        // range tightened from [0, 1000] to [1, 1000].
+        uint256 validFee = bound(feeBps, 1, 1000);
 
         // Creating factory with valid fee should succeed
         TegridyNFTPoolFactory validFactory = new TegridyNFTPoolFactory(
@@ -584,7 +586,8 @@ contract TegridyNFTPoolFactoryFuzzTest is Test {
     // ─── Fuzz: Protocol fee propagates to pool clones ───────────────────
 
     function testFuzz_protocolFeePropagation(uint256 feeBps) public {
-        feeBps = bound(feeBps, 0, 1000);
+        // AUDIT NEW-L8: fee=0 is now rejected at construction.
+        feeBps = bound(feeBps, 1, 1000);
 
         // Create factory with specific fee
         TegridyNFTPoolFactory testFactory = new TegridyNFTPoolFactory(

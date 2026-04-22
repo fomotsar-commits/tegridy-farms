@@ -187,7 +187,9 @@ contract TegridyPair is ERC20, ReentrancyGuard {
         // AUDIT FIX: Flash swaps are not supported — reject non-empty callback data
         require(data.length == 0, "NO_FLASH_SWAPS");
         require(amount0Out > 0 || amount1Out > 0, "INSUFFICIENT_OUTPUT_AMOUNT");
-        require(to != address(0) && to != address(this), "INVALID_TO");
+        // AUDIT NEW-I4 (INFO): distinct error messages so off-chain indexers can tell
+        // which branch tripped without pattern-matching revert data.
+        require(to != address(0) && to != address(this), "INVALID_TO_ZERO_OR_SELF");
         (uint112 _reserve0, uint112 _reserve1,) = getReserves();
         require(amount0Out < _reserve0 && amount1Out < _reserve1, "INSUFFICIENT_LIQUIDITY");
 
@@ -195,7 +197,7 @@ contract TegridyPair is ERC20, ReentrancyGuard {
         // Read balances to compute amountIn from pre-transfer state, validate K-invariant,
         // and update reserves BEFORE any outbound transfers (checks-effects-interactions).
         // This prevents ERC-777 / callback tokens from reading stale reserves via getReserves().
-        require(to != token0 && to != token1, "INVALID_TO");
+        require(to != token0 && to != token1, "INVALID_TO_IS_TOKEN");
 
         // Compute expected post-swap balances to derive input amounts
         uint256 balance0 = IERC20(token0).balanceOf(address(this));

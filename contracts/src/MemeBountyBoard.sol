@@ -212,12 +212,13 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             winner: address(0),
             status: BountyStatus.Open,
             submissionCount: 0,
-            // AUDIT H10: same fallback as CommunityGrants — avoid timestamp 0 snapshot on
-            // test/fork environments by using (block.timestamp - 1) when SNAPSHOT_LOOKBACK
-            // hasn't elapsed yet. Mirrors RevenueDistributor's `block.timestamp - 1` pattern.
+            // AUDIT H10 + NEW-I1: fallback to (block.timestamp - 1) when
+            // SNAPSHOT_LOOKBACK hasn't elapsed, to avoid the 0-timestamp
+            // checkpoint-default trap on test/fork environments. The dead
+            // `block.timestamp > 0` guard was removed — always ≥1 in real blocks.
             snapshotTimestamp: block.timestamp >= SNAPSHOT_LOOKBACK
                 ? block.timestamp - SNAPSHOT_LOOKBACK
-                : (block.timestamp > 0 ? block.timestamp - 1 : 0),
+                : block.timestamp - 1,
             createdAt: block.timestamp
         }));
 

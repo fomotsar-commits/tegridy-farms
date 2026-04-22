@@ -283,8 +283,15 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         uint256[] calldata weights,
         bytes32 salt,
         uint256 epoch
-    ) public pure returns (bytes32) {
-        return keccak256(abi.encode(voter, tokenId, gauges, weights, salt, epoch));
+    ) public view returns (bytes32) {
+        // AUDIT NEW-I2 (INFO): bind to (chainid, address(this)) so commitments are
+        // unique per deployment. A fork that happens to deploy this contract at
+        // the same address (deterministic factory, test environment) would otherwise
+        // allow cross-chain commitment replay for matching gauge/weight sets.
+        // Matches VoteIncentives.computeCommitment hash shape for consistency.
+        return keccak256(
+            abi.encode(block.chainid, address(this), voter, tokenId, gauges, weights, salt, epoch)
+        );
     }
 
     /// @notice Commit a hidden vote for the current epoch.

@@ -243,14 +243,15 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             createdAt: block.timestamp,
             deadline: block.timestamp + VOTING_PERIOD,
             status: ProposalStatus.Active,
-            // AUDIT H10: when block.timestamp < SNAPSHOT_LOOKBACK (test/fork environments,
-            // genesis), fall back to block.timestamp - 1 instead of 0. votingPowerAtTimestamp(_, 0)
-            // returns the very first checkpoint OR the default zero, which silently breaks voting
-            // power resolution. The (block.timestamp - 1) fallback matches RevenueDistributor's
-            // proven pattern and excludes same-block flash stakes the same way.
+            // AUDIT H10 + NEW-I1: when block.timestamp < SNAPSHOT_LOOKBACK
+            // (test/fork environments, genesis), fall back to block.timestamp - 1.
+            // votingPowerAtTimestamp(_, 0) returns the very first checkpoint OR the
+            // default zero, which silently breaks voting-power resolution. The dead
+            // `block.timestamp > 0` branch from the original H10 fix has been
+            // removed — block.timestamp is always ≥1 in a real EVM block.
             snapshotTimestamp: block.timestamp >= SNAPSHOT_LOOKBACK
                 ? block.timestamp - SNAPSHOT_LOOKBACK
-                : (block.timestamp > 0 ? block.timestamp - 1 : 0),
+                : block.timestamp - 1,
             snapshotTotalStake: votingEscrow.totalBoostedStake(), // SECURITY FIX: snapshot quorum denominator
             proposerTokenId: _proposerTokenId // AUDIT NEW-G7: non-zero pointer guaranteed
         }));

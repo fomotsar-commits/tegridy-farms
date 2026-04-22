@@ -149,6 +149,13 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     uint256 public constant COMMIT_RATIO_BPS = 4000;      // 40% of VOTE_DEADLINE
     uint256 public constant COMMIT_BOND = 10e18;          // 10 TOWELI per commit
 
+    /// @notice AUDIT NEW-G9 (LOW): aggregate TOWELI bond reservation — sum of all
+    ///         in-flight commit bonds. `sweepToken(toweli)` now subtracts this from
+    ///         the sweepable balance so a malicious owner can't drain bonds pending
+    ///         reveal/refund. Incremented on commitVote, decremented on bond
+    ///         refund (revealVote path) or forfeit (sweepForfeitedBond).
+    uint256 public totalCommitBonds;
+
     /// @notice Admin switch. Flip to true; next `advanceEpoch()` will flag
     /// the new epoch `usesCommitReveal = true`. Epochs created before the
     /// flip keep their legacy behaviour. Once flipped, leave it on.
@@ -925,11 +932,17 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     }
 
     /// @notice Sweep stuck ERC20 tokens beyond what's reserved as active bribes.
-    ///         Only excess tokens (accidentally sent) can be swept — active bribes are protected.
+    ///         Only excess tokens (accidentally sent) can be swept — active bribes
+    ///         and in-flight commit bonds (AUDIT NEW-G9, for TOWELI) are protected.
     function sweepToken(address token) external onlyOwner nonReentrant {
         if (token == address(0)) revert ZeroAddress();
         uint256 balance = IERC20(token).balanceOf(address(this));
         uint256 reserved = totalUnclaimedBribes[token] + totalPendingTokens[token];
+        // AUDIT NEW-G9 (LOW): reserve active commit bonds so a malicious owner
+        // can't drain bonds pending reveal or forfeit.
+        if (token == address(toweli)) {
+            reserved += totalCommitBonds;
+        }
         uint256 sweepable = balance > reserved ? balance - reserved : 0;
         if (sweepable == 0) revert ZeroAmount();
         IERC20(token).safeTransfer(treasury, sweepable);
@@ -1044,6 +1057,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             bond: uint96(COMMIT_BOND),
             revealed: false
         }));
+        // AUDIT NEW-G9: reserve this bond from sweep.
+        totalCommitBonds += COMMIT_BOND;
         emit VoteCommitted(msg.sender, epoch, commitIndex, commitHash);
     }
 
@@ -1101,6 +1116,10 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         emit GaugeVoted(msg.sender, epoch, pair, power);
 
         if (bond > 0) {
+            // AUDIT NEW-G9: release bond reservation before refund.
+            if (totalCommitBonds >= bond) {
+                totalCommitBonds -= bond;
+            }
             toweli.safeTransfer(msg.sender, bond);
             emit BondRefunded(msg.sender, epoch, commitIndex, bond);
         }
@@ -1126,6 +1145,10 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (bond == 0) revert BondAlreadyClaimed();
 
         c.bond = 0;
+        // AUDIT NEW-G9: release bond reservation before forfeit transfer.
+        if (totalCommitBonds >= bond) {
+            totalCommitBonds -= bond;
+        }
         toweli.safeTransfer(treasury, bond);
         emit BondForfeited(user, epoch, commitIndex, bond);
     }

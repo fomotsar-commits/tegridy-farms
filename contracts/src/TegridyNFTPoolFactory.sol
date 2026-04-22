@@ -91,6 +91,12 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
         address _weth
     ) OwnableNoRenounce(_owner) {
         if (_protocolFeeBps > MAX_PROTOCOL_FEE_BPS) revert InvalidFee();
+        // AUDIT NEW-L8 (LOW): reject zero-fee deployments. Pools snapshot the factory
+        // fee at init and never update, so deploying with fee=0 ships a whole
+        // factory where every pool earns the protocol $0 forever. Keep this as an
+        // explicit deploy-time guard; the ops team can raise fees via the timelocked
+        // propose path later if they want to change the default.
+        if (_protocolFeeBps == 0) revert InvalidFee();
         if (_protocolFeeRecipient == address(0)) revert ZeroAddress();
         if (_weth == address(0)) revert ZeroAddress();
 

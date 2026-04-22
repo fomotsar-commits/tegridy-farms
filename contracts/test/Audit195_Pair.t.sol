@@ -277,12 +277,15 @@ contract Audit195Pair is Test {
     // Prevents draining pair by swapping to its own tokens.
     // ================================================================
 
+    // AUDIT NEW-I4: Pair now uses distinct revert strings so indexers can tell the
+    // two `INVALID_TO` branches apart — `INVALID_TO_ZERO_OR_SELF` for address(0)
+    // and address(this), `INVALID_TO_IS_TOKEN` for token0/token1.
     function test_F7_swap_toToken0Reverts() public {
         _addLiquidity(alice, 100_000 ether, 100_000 ether);
 
         vm.startPrank(bob);
         token0.transfer(address(pair), 1_000 ether);
-        vm.expectRevert(bytes("INVALID_TO"));
+        vm.expectRevert(bytes("INVALID_TO_IS_TOKEN"));
         pair.swap(0, 900 ether, address(token0), "");
         vm.stopPrank();
     }
@@ -292,7 +295,7 @@ contract Audit195Pair is Test {
 
         vm.startPrank(bob);
         token0.transfer(address(pair), 1_000 ether);
-        vm.expectRevert(bytes("INVALID_TO"));
+        vm.expectRevert(bytes("INVALID_TO_IS_TOKEN"));
         pair.swap(0, 900 ether, address(token1), "");
         vm.stopPrank();
     }
@@ -302,7 +305,7 @@ contract Audit195Pair is Test {
 
         vm.startPrank(bob);
         token0.transfer(address(pair), 1_000 ether);
-        vm.expectRevert(bytes("INVALID_TO"));
+        vm.expectRevert(bytes("INVALID_TO_ZERO_OR_SELF"));
         pair.swap(0, 900 ether, address(pair), "");
         vm.stopPrank();
     }
@@ -312,7 +315,7 @@ contract Audit195Pair is Test {
 
         vm.startPrank(bob);
         token0.transfer(address(pair), 1_000 ether);
-        vm.expectRevert(bytes("INVALID_TO"));
+        vm.expectRevert(bytes("INVALID_TO_ZERO_OR_SELF"));
         pair.swap(0, 900 ether, address(0), "");
         vm.stopPrank();
     }

@@ -155,6 +155,12 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     /// @notice AUDIT M8: cap platform fee at 10% to match LaunchpadV2.MAX_PROTOCOL_FEE_BPS.
     ///         The prior 100% cap allowed direct-clone deployments to siphon all creator share.
     uint16 public constant MAX_PLATFORM_FEE_BPS = 1000;
+    /// @notice AUDIT NEW-L7 (LOW): cap ERC-2981 royalty at 10%. Prior code accepted up
+    ///         to 100%, which is a marketplace-relations landmine: OpenSea/Blur/LooksRare
+    ///         either refuse to list or clip at 2-7.5%, and users seeing a 100% royalty
+    ///         signal would lose confidence in the collection. 10% matches the EIP-2981
+    ///         norm across mature platforms.
+    uint16 public constant MAX_ROYALTY_BPS = 1000;
 
     function initialize(InitParams calldata p) external initializer {
         if (p.creator == address(0)) revert ZeroAddress();
@@ -163,7 +169,8 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         if (p.maxSupply == 0) revert InvalidMaxSupply();
         // AUDIT M8: tightened from 10000 (100%) to MAX_PLATFORM_FEE_BPS (10%).
         if (p.platformFeeBps > MAX_PLATFORM_FEE_BPS) revert InvalidFeeBps();
-        if (p.royaltyBps > 10000) revert InvalidRoyaltyBps();
+        // AUDIT NEW-L7: royalty cap tightened from 100% to 10% (see MAX_ROYALTY_BPS).
+        if (p.royaltyBps > MAX_ROYALTY_BPS) revert InvalidRoyaltyBps();
         if (uint8(p.initialPhase) > uint8(MintPhase.DUTCH_AUCTION)) revert InvalidInitialPhase();
 
         _dropName = p.name;
