@@ -119,7 +119,7 @@ The frontend (`frontend/src/lib/constants.ts`) hardcodes contract addresses. Aft
 
 Then run `npm run wagmi:generate` to refresh `src/generated.ts` — without this, wagmi calls will hit the old addresses and silently fail or revert. CI should block merge if `generated.ts` diff is non-empty (audit M-7 follow-up).
 
-Additionally, re-generate any Merkle trees used for `TegridyDropV2` allowlists. The leaf format changed from `keccak256(msg.sender)` to `keccak256(abi.encodePacked(address(this), msg.sender))`. Old proofs will not verify against new drops. (V1 `TegridyDrop` source was deleted 2026-04-19; historical V1 clones remain live and use the original leaf format.)
+Additionally, re-generate any Merkle trees used for `TegridyDropV2` allowlists. **AUDIT NEW-L5:** the leaf format changed from the prior `keccak256(abi.encodePacked(address(this), msg.sender))` to a **double-hashed** OpenZeppelin v4.9+ format: `keccak256(bytes.concat(keccak256(abi.encode(address(this), msg.sender))))`. The double hash prevents the "second preimage attack" where an attacker presents an intermediate Merkle node as a leaf proof. Old proofs will not verify against upgraded drops. See `DEPLOY_CHEAT_SHEET.md` §6 for the full re-issuance recipe. (V1 `TegridyDrop` source was deleted 2026-04-19; historical V1 clones remain live and use the original leaf format.)
 
 ---
 

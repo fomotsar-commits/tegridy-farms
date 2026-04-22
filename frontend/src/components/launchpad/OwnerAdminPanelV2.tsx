@@ -60,9 +60,25 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
     functionName: 'paused',
     query: { enabled: deployed, refetchInterval: 30_000 },
   });
+  // AUDIT NEW-L1: read totalSupply + maxSupply to gate the Withdraw button —
+  // contract now rejects withdraw() unless mintPhase == CLOSED or sold out.
+  const { data: totalSupplyData } = useReadContract({
+    address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'totalSupply',
+    query: { enabled: deployed, refetchInterval: 30_000 },
+  });
+  const { data: maxSupplyData } = useReadContract({
+    address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'maxSupply',
+    query: { enabled: deployed },
+  });
 
   const currentPhaseNum = onchainPhase !== undefined ? Number(onchainPhase) : -1;
   const isCancelled = currentPhaseNum === 4;
+  // AUDIT NEW-L1: withdraw only allowed when the sale is formally ended.
+  const isClosed = currentPhaseNum === 0;
+  const soldOut = (totalSupplyData !== undefined && maxSupplyData !== undefined)
+    ? (totalSupplyData as bigint) >= (maxSupplyData as bigint) && (maxSupplyData as bigint) > 0n
+    : false;
+  const canWithdraw = !isCancelled && (isClosed || soldOut);
 
   if (isSuccess) {
     void refetchPhase();
@@ -301,13 +317,26 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                 </p>
               </AdminSection>
 
-              {/* Withdraw */}
+              {/* Withdraw — AUDIT NEW-L1: contract rejects withdraw() unless the
+                   sale is formally ended (mintPhase == CLOSED or sold-out). The
+                   button + tooltip surface the gate so creators don't hit a
+                   mid-mint revert. */}
               <button
                 className="w-full py-2.5 rounded-lg bg-amber-600/70 hover:bg-amber-600 text-white text-xs font-medium border border-amber-500/20 transition-colors disabled:opacity-70"
-                disabled={busy || isCancelled}
+                disabled={busy || !canWithdraw}
+                title={
+                  canWithdraw
+                    ? 'Withdraw mint proceeds (creator + platform split)'
+                    : soldOut
+                      ? 'Sold out — withdraw available'
+                      : 'Close the mint (phase → CLOSED) or wait until sold out before withdrawing.'
+                }
                 onClick={() => exec('withdraw')}
               >
                 Withdraw Mint Revenue
+                {!canWithdraw && !isCancelled && (
+                  <span className="ml-2 text-[10px] opacity-70">(close sale first)</span>
+                )}
               </button>
 
               {/* Danger Zone */}

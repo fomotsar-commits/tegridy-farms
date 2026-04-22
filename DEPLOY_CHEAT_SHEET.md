@@ -247,16 +247,31 @@ npm run start                # fresh re-sync, 30–60 min
 
 ## 6. Merkle tree re-issuance (V2 drop allowlists)
 
-`TegridyDropV2` uses the domain-separated leaf format
-`keccak256(abi.encodePacked(address(this), msg.sender))`. Historical V1 `TegridyDrop`
-clones (source deleted 2026-04-19) use the unprefixed `keccak256(msg.sender)` leaf —
-their existing Merkle roots stay valid; do not re-issue.
+**AUDIT NEW-L5:** `TegridyDropV2` now uses a **double-hashed** leaf format
+(OpenZeppelin v4.9+ recommendation against second-preimage attacks):
+
+```
+leaf = keccak256( bytes.concat( keccak256( abi.encode(address(drop), wallet) ) ) )
+```
+
+Notes:
+- `abi.encode` (not `abi.encodePacked`) — standard ABI encoding is unambiguous
+  for fixed-size types and matches the Solidity verifier exactly.
+- Outer `bytes.concat + keccak256` makes leaf-hash and internal-node-hash
+  domains disjoint, so an attacker cannot present an intermediate Merkle node
+  as if it were a leaf proof.
+
+Historical V1 `TegridyDrop` clones (source deleted 2026-04-19) use the original
+single-hash unprefixed `keccak256(msg.sender)` leaf — their existing Merkle
+roots stay valid; do not re-issue.
 
 For each V2 drop with an active allowlist:
-1. Compute leaves as `keccak256(abi.encodePacked(address(drop), wallet))`
-2. Build new Merkle tree
-3. Call `TegridyDropV2.setMerkleRoot(newRoot)` via multisig
-4. Publish new proofs to the allowlist distribution channel
+1. Compute leaves as `keccak256(bytes.concat(keccak256(abi.encode(address(drop), wallet))))`
+2. Build the Merkle tree off-chain (OpenZeppelin's `StandardMerkleTree` JS
+   library applies the double hash automatically — pass `['address', 'address']`
+   for the leaf schema with `[drop, wallet]` values).
+3. Call `TegridyDropV2.setMerkleRoot(newRoot)` via multisig.
+4. Publish new proofs to the allowlist distribution channel.
 
 If no V2 drops are active yet, skip.
 

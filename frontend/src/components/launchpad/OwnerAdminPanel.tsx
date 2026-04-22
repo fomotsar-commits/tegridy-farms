@@ -28,6 +28,22 @@ export function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string
   });
   const currentPhaseNum = onchainPhase !== undefined ? Number(onchainPhase) : -1;
   const isCancelled = currentPhaseNum === 5;
+  // AUDIT NEW-L1: gate Withdraw button — contract rejects withdraw() unless
+  // mintPhase == CLOSED (0) or sold out. `totalSupply` and `maxSupply` read
+  // so we can surface sold-out as an alternative unlock.
+  const isClosed = currentPhaseNum === 0;
+  const { data: totalSupplyData } = useReadContract({
+    address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'totalSupply',
+    query: { enabled: deployed, refetchInterval: 30_000 },
+  });
+  const { data: maxSupplyData } = useReadContract({
+    address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'maxSupply',
+    query: { enabled: deployed },
+  });
+  const soldOut = (totalSupplyData !== undefined && maxSupplyData !== undefined)
+    ? (totalSupplyData as bigint) >= (maxSupplyData as bigint) && (maxSupplyData as bigint) > 0n
+    : false;
+  const canWithdraw = !isCancelled && (isClosed || soldOut);
   // Refetch phase after any successful tx (e.g. cancelSale) so the indicator
   // updates without a page reload.
   if (isSuccess) { void refetchPhase(); }
@@ -170,14 +186,31 @@ export function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string
                 </button>
               </div>
 
-              {/* Withdraw */}
+              {/* Withdraw — AUDIT NEW-L1: contract rejects withdraw() unless
+                   mintPhase == CLOSED or sold out. Surfacing that gate here so
+                   creators don't hit a mid-mint revert and so the "commit to
+                   delivery" signal is explicit. */}
               <button
                 className="w-full py-2.5 rounded-lg bg-amber-600/70 hover:bg-amber-600 text-white text-xs font-medium border border-amber-500/20 transition-colors disabled:opacity-70 disabled:pointer-events-none"
-                disabled={busy || isCancelled}
-                title={isCancelled ? 'Withdraw blocked — sale is cancelled. Buyers may claim refunds.' : undefined}
+                disabled={busy || !canWithdraw}
+                title={
+                  isCancelled
+                    ? 'Withdraw blocked — sale is cancelled. Buyers may claim refunds.'
+                    : canWithdraw
+                      ? (soldOut ? 'Sold out — withdraw available.' : 'Sale is closed — withdraw available.')
+                      : 'Close the mint (phase → CLOSED) or wait until sold out before withdrawing.'
+                }
                 onClick={() => exec('withdraw')}
               >
-                {isPending || isConfirming ? 'Withdrawing...' : !deployed ? 'Contract Not Deployed' : isCancelled ? 'Blocked — Sale Cancelled' : 'Withdraw Mint Revenue'}
+                {isPending || isConfirming
+                  ? 'Withdrawing...'
+                  : !deployed
+                    ? 'Contract Not Deployed'
+                    : isCancelled
+                      ? 'Blocked — Sale Cancelled'
+                      : !canWithdraw
+                        ? 'Withdraw Mint Revenue (close sale first)'
+                        : 'Withdraw Mint Revenue'}
               </button>
 
               {/* Danger Zone — cancelSale is IRREVERSIBLE; moves contract to

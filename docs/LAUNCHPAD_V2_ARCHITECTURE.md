@@ -65,7 +65,7 @@ Optional-field semantics: empty `placeholderURI` / `contractURI_`, `bytes32(0)` 
 
 Mint flow:
 
-- `mint(quantity, proof)` — checked against `mintPhase` (`CLOSED | ALLOWLIST | PUBLIC | DUTCH_AUCTION | CANCELLED`). `ALLOWLIST` verifies `proof` against `merkleRoot` with the leaf `keccak256(abi.encodePacked(address(this), msg.sender))`. `DUTCH_AUCTION` price decays linearly per-block.
+- `mint(quantity, proof)` — checked against `mintPhase` (`CLOSED | ALLOWLIST | PUBLIC | DUTCH_AUCTION | CANCELLED`). `ALLOWLIST` verifies `proof` against `merkleRoot` with the double-hashed leaf `keccak256(bytes.concat(keccak256(abi.encode(address(this), msg.sender))))` (AUDIT NEW-L5 — OpenZeppelin v4.9+ second-preimage-safe shape). `DUTCH_AUCTION` price decays linearly per-block.
 - Overpayment is refunded via `WETHFallbackLib.safeTransferETHOrWrap` — if the minter is a contract that reverts on `.call`, the refund is wrapped to WETH and pushed instead of lost.
 
 Cancel / refund:

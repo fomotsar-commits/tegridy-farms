@@ -194,7 +194,13 @@ function CommitRevealBanner({ enabled, epochUsesCR }: { enabled: boolean; epochU
   );
 }
 
-// ─── Rescue-orphaned-bribes countdown (for depositors) ─────────────
+// ─── Orphaned-bribe refund window countdown (for depositors) ────────
+// AUDIT NEW-G2: the old `rescueOrphanedBribes(epoch,pair,token)` was an owner-only
+// drain that sent everything to treasury. Replaced with permissionless
+// `refundOrphanedBribe(epoch,pair,token)` — each depositor pulls back their own
+// net contribution once the delay has elapsed since the LATEST deposit in the
+// epoch. This banner now frames the window as a safety net rather than a
+// looming drain.
 function RescueBanner({ firstDepositAt, rescueDelaySec, now }: {
   firstDepositAt: number; rescueDelaySec: number; now: number;
 }) {
@@ -204,12 +210,13 @@ function RescueBanner({ firstDepositAt, rescueDelaySec, now }: {
   if (remaining > RESCUE_WARN_THRESHOLD_SEC || remaining <= 0) return null;
   return (
     <div className="rounded-xl p-4 flex items-center justify-between flex-wrap gap-2"
-      style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)' }}>
+      style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.3)' }}>
       <div>
-        <p className="text-[10px] uppercase tracking-wider text-red-300 font-semibold">Epoch Rescue Window Approaching</p>
+        <p className="text-[10px] uppercase tracking-wider text-amber-300 font-semibold">Orphaned-Bribe Refund Window</p>
         <p className="text-white text-[12.5px]">
-          If this epoch hasn't snapshotted within {formatCountdown(remaining)}, admin can rescue its orphaned bribes.
-          Trigger <span className="font-mono">advanceEpoch</span> below to lock votes & protect deposits.
+          If this epoch isn't snapshotted within {formatCountdown(remaining)}, any depositor can pull their own
+          bribes back via <span className="font-mono">refundOrphanedBribe(epoch, pair, token)</span>.
+          Trigger <span className="font-mono">advanceEpoch</span> below to move into reveal/claim phase instead.
         </p>
       </div>
     </div>

@@ -47,13 +47,23 @@ function clearCommitment(key: string) {
 }
 
 /// Client-side mirror of GaugeController.computeCommitment() — must match
-/// the Solidity `keccak256(abi.encode(voter, tokenId, gauges, weights, salt, epoch))`.
+/// the Solidity `keccak256(abi.encode(chainid, address, voter, tokenId, gauges, weights, salt, epoch))`.
+/// AUDIT NEW-I2: chainid + contract address binding prevents cross-fork replay.
 function buildCommitmentHash(
-  voter: Address, tokenId: bigint, gauges: Address[], weights: bigint[], salt: Hex, epoch: bigint,
+  chainId: bigint,
+  gcAddress: Address,
+  voter: Address,
+  tokenId: bigint,
+  gauges: Address[],
+  weights: bigint[],
+  salt: Hex,
+  epoch: bigint,
 ): Hex {
   return keccak256(
     encodeAbiParameters(
       [
+        { type: 'uint256' },
+        { type: 'address' },
         { type: 'address' },
         { type: 'uint256' },
         { type: 'address[]' },
@@ -61,7 +71,7 @@ function buildCommitmentHash(
         { type: 'bytes32' },
         { type: 'uint256' },
       ],
-      [voter, tokenId, gauges, weights, salt, epoch],
+      [chainId, gcAddress, voter, tokenId, gauges, weights, salt, epoch],
     ),
   );
 }
@@ -223,7 +233,14 @@ export function GaugeVoting() {
     const voteWeights = voteGauges.map((g) => BigInt(weights[g] ?? 0));
     const salt = generateSalt();
     const commitmentHash = buildCommitmentHash(
-      address as Address, tokenId, voteGauges, voteWeights, salt, BigInt(currentEpoch),
+      BigInt(chainId),
+      gcAddr,
+      address as Address,
+      tokenId,
+      voteGauges,
+      voteWeights,
+      salt,
+      BigInt(currentEpoch),
     );
     // Persist BEFORE broadcasting — if the user closes the tab after signing
     // but before the tx confirms, they still have the salt to reveal later.
@@ -240,7 +257,7 @@ export function GaugeVoting() {
     } catch (err) {
       surfaceTxError(err, toast, { component: 'GaugeVoting.commit' });
     }
-  }, [tokenId, address, currentEpoch, commitmentKey, totalWeight, weights, writeContract, gcAddr]);
+  }, [tokenId, address, currentEpoch, commitmentKey, totalWeight, weights, writeContract, gcAddr, chainId, toast]);
 
   // ─── Reveal Handler (step 2 of commit-reveal) ───────────────
   const handleReveal = useCallback(() => {

@@ -541,7 +541,7 @@ export const GAUGE_CONTROLLER_ABI = [
       { name: 'weights', type: 'uint256[]' },
       { name: 'salt', type: 'bytes32' },
       { name: 'epoch', type: 'uint256' },
-    ], outputs: [{ name: '', type: 'bytes32' }], stateMutability: 'pure' },
+    ], outputs: [{ name: '', type: 'bytes32' }], stateMutability: 'view' },
   { type: 'function', name: 'commitVote',
     inputs: [{ name: 'tokenId', type: 'uint256' }, { name: 'commitmentHash', type: 'bytes32' }],
     outputs: [], stateMutability: 'nonpayable' },

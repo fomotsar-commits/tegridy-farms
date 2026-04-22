@@ -228,7 +228,7 @@ export const gaugeControllerAbi = [
     ],
     name: 'computeCommitment',
     outputs: [{ name: '', type: 'bytes32' }],
-    stateMutability: 'pure',
+    stateMutability: 'view',
   },
   {
     type: 'function',
