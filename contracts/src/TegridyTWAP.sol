@@ -149,26 +149,51 @@ contract TegridyTWAP is TWAPAdmin {
 
             // AUDIT FIX: Price deviation check — reject observations that deviate >50% from
             // the previous spot price. Mitigates flash-loan reserve manipulation.
+            //
+            // AUDIT NEW-G6 (HIGH): wrap-aware elapsed computation. `timestamp` is stored
+            // as uint32 (Uniswap V2 inheritance) which wraps at year 2106 (or sooner on
+            // chains with large genesis offsets). The prior code read `last.timestamp >
+            // prev.timestamp` and SKIPPED the deviation check when that was false —
+            // exactly the ~15-minute window spanning the wrap, during which an attacker
+            // could post an observation of unlimited deviation and subsequently poison
+            // every consult() that spans the rollover. Now: compute `prevElapsed` using
+            // uint32 wrap-around semantics (the same arithmetic Uniswap V2 uses for
+            // cumulative price accumulation — modular subtraction gives the correct
+            // gap regardless of whether `last` or `prev` was the wrap carrier), and
+            // drop the `last > prev` guard that was creating the hole.
             if (count >= 2) {
                 uint8 prevIdx = lastIdx == 0 ? MAX_OBSERVATIONS - 1 : lastIdx - 1;
                 Observation memory prev = observations[pair][prevIdx];
-                if (prev.timestamp > 0 && last.timestamp > prev.timestamp) {
-                    uint32 prevElapsed = last.timestamp - prev.timestamp;
-                    // Reconstruct previous spot price from cumulative difference
-                    uint256 prevSpot0;
+                if (prev.timestamp > 0) {
+                    // Modular subtraction works correctly across the uint32 boundary
+                    // because `last - prev` naturally underflows to
+                    // `(2^32 - prev) + last` when prev > last. Wrap-safe.
+                    uint32 prevElapsed;
                     unchecked {
-                        prevSpot0 = uint256(last.price0Cumulative - prev.price0Cumulative) / prevElapsed;
+                        prevElapsed = last.timestamp - prev.timestamp;
                     }
-                    if (prevSpot0 > 0) {
-                        uint256 deviation = spotPrice0 > prevSpot0
-                            ? ((spotPrice0 - prevSpot0) * BPS) / prevSpot0
-                            : ((prevSpot0 - spotPrice0) * BPS) / prevSpot0;
-                        if (deviation > MAX_DEVIATION_BPS) revert PriceDeviationTooLarge();
+                    if (prevElapsed > 0) {
+                        uint256 prevSpot0;
+                        unchecked {
+                            prevSpot0 = uint256(last.price0Cumulative - prev.price0Cumulative) / prevElapsed;
+                        }
+                        if (prevSpot0 > 0) {
+                            uint256 deviation = spotPrice0 > prevSpot0
+                                ? ((spotPrice0 - prevSpot0) * BPS) / prevSpot0
+                                : ((prevSpot0 - spotPrice0) * BPS) / prevSpot0;
+                            if (deviation > MAX_DEVIATION_BPS) revert PriceDeviationTooLarge();
+                        }
                     }
                 }
             }
 
-            uint32 elapsed = blockTs - last.timestamp;
+            // AUDIT NEW-G6: same wrap-safe elapsed for the cumulative-price accumulation.
+            // Since cumulatives are computed with unchecked arithmetic already, feeding
+            // them a wrap-safe elapsed maintains correctness across rollover.
+            uint32 elapsed;
+            unchecked {
+                elapsed = blockTs - last.timestamp;
+            }
 
             // AUDIT FIX: unchecked accumulation — intentional overflow wrapping (Uniswap V2 pattern)
             unchecked {

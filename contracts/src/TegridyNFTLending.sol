@@ -109,6 +109,15 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
 
     mapping(address => bool) public whitelistedCollections;
 
+    /// @notice AUDIT NEW-L3 (HIGH): active-loan count per collection. `executeRemoveCollection`
+    ///         used to flip the flag instantly despite active loans remaining for up to
+    ///         MAX_DURATION (365 days) — far longer than the 24h WHITELIST_TIMELOCK. A
+    ///         scam collection could be blocklisted while its NFTs were still escrowed,
+    ///         leaving borrowers trapped with a lender who'd effectively wait for default
+    ///         on an already-condemned collection. Now blocks removal while active loans
+    ///         exist, forcing governance to wait until every outstanding loan concludes.
+    mapping(address => uint256) public activeLoansOfCollection;
+
     // ─── Pending Values (for timelocked changes) ─────────────────────
     uint256 public pendingProtocolFeeBps;
     address public pendingTreasury;
@@ -368,6 +377,10 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         // Transfer NFT from borrower to this contract (collateral escrow)
         IERC721(collateralContract).transferFrom(msg.sender, address(this), _tokenId);
 
+        // AUDIT NEW-L3: register this loan against the collection so whitelist removal
+        // can't complete while collateral is still in escrow for that collection.
+        activeLoansOfCollection[collateralContract] += 1;
+
         // Send principal ETH to borrower (WETH fallback for contract borrowers)
         WETHFallbackLib.safeTransferETHOrWrap(weth, msg.sender, principal);
 
@@ -423,6 +436,10 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
 
         // CEI: state change before external calls
         loan.repaid = true;
+        // AUDIT NEW-L3: release active-loan reservation for this collection.
+        if (activeLoansOfCollection[collateralContract] > 0) {
+            activeLoansOfCollection[collateralContract] -= 1;
+        }
 
         // Calculate protocol fee on interest
         uint256 fee = (interest * protocolFeeBps) / BPS;
@@ -470,6 +487,10 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
 
         // CEI: state change before external call
         loan.defaultClaimed = true;
+        // AUDIT NEW-L3: release active-loan reservation on default too.
+        if (activeLoansOfCollection[collateralContract] > 0) {
+            activeLoansOfCollection[collateralContract] -= 1;
+        }
 
         // Transfer NFT to lender
         IERC721(collateralContract).transferFrom(address(this), lender, tokenId);
@@ -601,10 +622,22 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     }
 
     /// @notice Execute the pending whitelist removal after timelock has elapsed.
+    ///         AUDIT NEW-L3 (HIGH): refuses to flip the flag while active loans exist
+    ///         for this collection. The 24h WHITELIST_TIMELOCK is far shorter than
+    ///         MAX_DURATION (365 days) — without this guard, a scam collection could
+    ///         be blocklisted while NFTs were still in escrow, trapping borrowers
+    ///         with a lender who'd effectively wait for default on an already-
+    ///         condemned collection. Caller must wait for loans to conclude (repay
+    ///         or default) before executing removal. The proposal itself stays valid
+    ///         for `PROPOSAL_VALIDITY` (7d) and can be re-executed once loans clear.
     function executeRemoveCollection() external onlyOwner {
         _execute(WHITELIST_REMOVE);
 
         address collection = pendingWhitelistRemove;
+        // AUDIT NEW-L3: refuse to remove while any loans are still in flight.
+        if (activeLoansOfCollection[collection] > 0) {
+            revert("ACTIVE_LOANS_PRESENT");
+        }
         whitelistedCollections[collection] = false;
         pendingWhitelistRemove = address(0);
 

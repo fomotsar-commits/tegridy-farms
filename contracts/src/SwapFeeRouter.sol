@@ -104,6 +104,15 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     mapping(address => uint256) public accumulatedTokenFees;
     uint256 public accumulatedETHFees;
 
+    /// @notice AUDIT NEW-A5 (HIGH): per-token timestamp of the last successful
+    ///         convertTokenFeesToETH{,FoT} call. Sandwich-MEV amplification required
+    ///         repeated rapid-fire conversions to compound profit against a small
+    ///         accumulated balance. With CONVERSION_COOLDOWN between calls per token,
+    ///         an attacker pays the cooldown-window delay per attempt — economically
+    ///         unfavourable.
+    mapping(address => uint256) public lastConvertedAt;
+    uint256 public constant CONVERSION_COOLDOWN = 1 hours;
+
     // ─── Dynamic Fee Tiers (Uniswap V3-style per-pair overrides) ─────
     mapping(address => uint256) public pairFeeBps;
     mapping(address => bool) public hasPairFeeOverride;
@@ -341,6 +350,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         if (msg.value == 0) revert ZeroAmount();
         uint256 effectiveFee = _getEffectiveFeeBps(path[0], msg.sender);
         if (effectiveFee > maxFeeBps) revert FeeExceedsMax();
+        // AUDIT NEW-A4 (HIGH): the inner Uniswap router catches expired deadlines,
+        // but only AFTER our fee accumulation state writes have already happened for
+        // the transaction. Add the explicit lower-bound check so the whole call reverts
+        // cleanly at the boundary instead of relying on the inner router's revert to
+        // propagate. Defence-in-depth against any future path where fee write lands
+        // before the inner call (e.g., alternate router integrations).
+        if (deadline < block.timestamp) revert("DEADLINE_EXPIRED");
         if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
         if (path.length < 2 || path.length > 10) revert InvalidPath();
         if (path[0] != router.WETH()) revert PathStartMismatch();
@@ -376,6 +392,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         if (amountIn == 0) revert ZeroAmount();
         uint256 effectiveFee = _getEffectiveFeeBps(path[0], msg.sender);
         if (effectiveFee > maxFeeBps) revert FeeExceedsMax();
+        // AUDIT NEW-A4 (HIGH): the inner Uniswap router catches expired deadlines,
+        // but only AFTER our fee accumulation state writes have already happened for
+        // the transaction. Add the explicit lower-bound check so the whole call reverts
+        // cleanly at the boundary instead of relying on the inner router's revert to
+        // propagate. Defence-in-depth against any future path where fee write lands
+        // before the inner call (e.g., alternate router integrations).
+        if (deadline < block.timestamp) revert("DEADLINE_EXPIRED");
         if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
         if (path.length < 2 || path.length > 10) revert InvalidPath();
         if (path[path.length - 1] != router.WETH()) revert PathEndMismatch();
@@ -435,6 +458,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         if (amountIn == 0) revert ZeroAmount();
         uint256 effectiveFee = _getEffectiveFeeBps(path[0], msg.sender);
         if (effectiveFee > maxFeeBps) revert FeeExceedsMax();
+        // AUDIT NEW-A4 (HIGH): the inner Uniswap router catches expired deadlines,
+        // but only AFTER our fee accumulation state writes have already happened for
+        // the transaction. Add the explicit lower-bound check so the whole call reverts
+        // cleanly at the boundary instead of relying on the inner router's revert to
+        // propagate. Defence-in-depth against any future path where fee write lands
+        // before the inner call (e.g., alternate router integrations).
+        if (deadline < block.timestamp) revert("DEADLINE_EXPIRED");
         if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
         if (path.length < 2 || path.length > 10) revert InvalidPath();
         _validateNoDuplicates(path);
@@ -492,6 +522,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         if (msg.value == 0) revert ZeroAmount();
         uint256 effectiveFee = _getEffectiveFeeBps(path[0], msg.sender);
         if (effectiveFee > maxFeeBps) revert FeeExceedsMax();
+        // AUDIT NEW-A4 (HIGH): the inner Uniswap router catches expired deadlines,
+        // but only AFTER our fee accumulation state writes have already happened for
+        // the transaction. Add the explicit lower-bound check so the whole call reverts
+        // cleanly at the boundary instead of relying on the inner router's revert to
+        // propagate. Defence-in-depth against any future path where fee write lands
+        // before the inner call (e.g., alternate router integrations).
+        if (deadline < block.timestamp) revert("DEADLINE_EXPIRED");
         if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
         if (path.length < 2 || path.length > 10) revert InvalidPath();
         if (path[0] != router.WETH()) revert PathStartMismatch();
@@ -548,6 +585,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         if (amountIn == 0) revert ZeroAmount();
         uint256 effectiveFee = _getEffectiveFeeBps(path[0], msg.sender);
         if (effectiveFee > maxFeeBps) revert FeeExceedsMax();
+        // AUDIT NEW-A4 (HIGH): the inner Uniswap router catches expired deadlines,
+        // but only AFTER our fee accumulation state writes have already happened for
+        // the transaction. Add the explicit lower-bound check so the whole call reverts
+        // cleanly at the boundary instead of relying on the inner router's revert to
+        // propagate. Defence-in-depth against any future path where fee write lands
+        // before the inner call (e.g., alternate router integrations).
+        if (deadline < block.timestamp) revert("DEADLINE_EXPIRED");
         if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
         if (path.length < 2 || path.length > 10) revert InvalidPath();
         if (path[path.length - 1] != router.WETH()) revert PathEndMismatch();
@@ -601,6 +645,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         if (amountIn == 0) revert ZeroAmount();
         uint256 effectiveFee = _getEffectiveFeeBps(path[0], msg.sender);
         if (effectiveFee > maxFeeBps) revert FeeExceedsMax();
+        // AUDIT NEW-A4 (HIGH): the inner Uniswap router catches expired deadlines,
+        // but only AFTER our fee accumulation state writes have already happened for
+        // the transaction. Add the explicit lower-bound check so the whole call reverts
+        // cleanly at the boundary instead of relying on the inner router's revert to
+        // propagate. Defence-in-depth against any future path where fee write lands
+        // before the inner call (e.g., alternate router integrations).
+        if (deadline < block.timestamp) revert("DEADLINE_EXPIRED");
         if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
         if (path.length < 2 || path.length > 10) revert InvalidPath();
         _validateNoDuplicates(path);
@@ -1039,7 +1090,21 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         external nonReentrant whenNotPaused
     {
         if (token == address(0) || token == WETH) revert ZeroAddress();
+        // AUDIT NEW-A4 (HIGH): the inner Uniswap router catches expired deadlines,
+        // but only AFTER our fee accumulation state writes have already happened for
+        // the transaction. Add the explicit lower-bound check so the whole call reverts
+        // cleanly at the boundary instead of relying on the inner router's revert to
+        // propagate. Defence-in-depth against any future path where fee write lands
+        // before the inner call (e.g., alternate router integrations).
+        if (deadline < block.timestamp) revert("DEADLINE_EXPIRED");
         if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
+        // AUDIT NEW-A5 (HIGH): rate-limit per-token conversions so a sandwich attacker
+        // cannot repeatedly manipulate the pool, call convertTokenFeesToETH with a
+        // MEV-favorable minETHOut, and unwind. With CONVERSION_COOLDOWN per token,
+        // each sandwich costs the cooldown-window delay — economically unfavorable
+        // against an attacker who can only profit on a small accumulated balance.
+        // Keeper bots still get a wide window (1h is long enough for most fills).
+        _enforceConversionCooldown(token);
 
         uint256 amount = accumulatedTokenFees[token];
         if (amount == 0) revert ZeroAmount();
@@ -1072,7 +1137,12 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         external nonReentrant whenNotPaused
     {
         if (token == address(0) || token == WETH) revert ZeroAddress();
+        // AUDIT NEW-A4 (HIGH): see convertTokenFeesToETH above for rationale.
+        if (deadline < block.timestamp) revert("DEADLINE_EXPIRED");
         if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
+        // AUDIT NEW-A5 (HIGH): shared cooldown across both variants so switching
+        // between them doesn't bypass the rate limit.
+        _enforceConversionCooldown(token);
 
         uint256 amount = accumulatedTokenFees[token];
         if (amount == 0) revert ZeroAmount();
@@ -1169,6 +1239,15 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
                 if (path[i] == path[j]) revert DuplicateTokenInPath();
             }
         }
+    }
+
+    /// @dev AUDIT NEW-A5: per-token conversion cooldown to price out sandwich MEV.
+    function _enforceConversionCooldown(address token) internal {
+        uint256 last = lastConvertedAt[token];
+        if (last != 0 && block.timestamp < last + CONVERSION_COOLDOWN) {
+            revert("CONVERSION_COOLDOWN_ACTIVE");
+        }
+        lastConvertedAt[token] = block.timestamp;
     }
 
     receive() external payable {}
