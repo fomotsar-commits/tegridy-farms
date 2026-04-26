@@ -287,30 +287,37 @@ export function useTegridyScore(): TegridyScoreResult {
   // address it never changes. Cache to localStorage so we don't hammer
   // the RPC with a wide eth_getLogs scan on every page load (and so we
   // tolerate flaky public RPCs that reject the wide range).
+  // R036: validate cached value as a UI hint with strict shape/range
+  // checks instead of trusting the cache. The next RPC corrects it anyway.
   const cacheKey = address ? `tegridy-score:first-interaction:${address.toLowerCase()}` : '';
-  const [firstInteractionTs, setFirstInteractionTs] = useState<number>(() => {
-    if (!cacheKey) return 0;
+  const readCachedTs = (key: string): number => {
+    if (!key) return 0;
     try {
-      const raw = localStorage.getItem(cacheKey);
+      const raw = localStorage.getItem(key);
       const parsed = raw ? Number(raw) : 0;
-      return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+      if (!Number.isFinite(parsed)) return 0;
+      if (parsed <= 0) return 0;
+      // Reject future timestamps (clock skew or bad data).
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (parsed > nowSec) return 0;
+      // Reject pre-2020 (1577836800) — earliest plausible Tegridy interaction.
+      if (parsed < 1577836800) return 0;
+      return parsed;
     } catch { return 0; }
-  });
+  };
+  const [firstInteractionTs, setFirstInteractionTs] = useState<number>(() => readCachedTs(cacheKey));
 
   useEffect(() => {
     if (!address || !publicClient || !checkDeployed(TEGRIDY_STAKING_ADDRESS)) {
       setFirstInteractionTs(0);
       return;
     }
-    // If we already have a cached value for this address, skip the RPC.
-    try {
-      const raw = localStorage.getItem(cacheKey);
-      const parsed = raw ? Number(raw) : 0;
-      if (Number.isFinite(parsed) && parsed > 0) {
-        setFirstInteractionTs(parsed);
-        return;
-      }
-    } catch {/* fall through to fetch */}
+    // If we already have a validated cached value for this address, skip the RPC.
+    const cached = readCachedTs(cacheKey);
+    if (cached > 0) {
+      setFirstInteractionTs(cached);
+      return;
+    }
     let cancelled = false;
     publicClient.getLogs({
       address: TEGRIDY_STAKING_ADDRESS,

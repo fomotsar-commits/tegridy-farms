@@ -4,6 +4,7 @@ export const PageSkeleton = React.memo(function PageSkeleton() {
   return (
     <div
       role="status"
+      aria-busy="true"
       aria-live="polite"
       aria-label="Loading page"
       className="flex flex-col items-center justify-center min-h-[60vh] gap-3"

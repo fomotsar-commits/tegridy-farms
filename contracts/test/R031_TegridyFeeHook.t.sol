@@ -150,7 +150,8 @@ contract R031_TegridyFeeHook is Test {
 
     // Second sync MUST wait the 7-day cooldown after the first.
     function test_executeSyncAccruedFees_SecondCallRespectsCooldown() public {
-        vm.warp(7 days + 1);
+        uint256 t0 = 7 days + 1;
+        vm.warp(t0);
 
         PoolKey memory key = _mkKey();
         IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
@@ -162,23 +163,33 @@ contract R031_TegridyFeeHook is Test {
         vm.prank(address(mockPM));
         hook.afterSwap(address(0), key, params, delta, "");
 
+        // First sync
         vm.prank(owner);
         hook.proposeSyncAccruedFees(TOKEN1, 50_000);
-        vm.warp(block.timestamp + 24 hours + 1);
+        uint256 t1 = t0 + 24 hours + 1;
+        vm.warp(t1);
         vm.prank(owner);
         hook.executeSyncAccruedFees(TOKEN1);
+        // lastSyncExecuted[TOKEN1] is now t1.
 
+        // Reseed accrued.
         vm.prank(address(mockPM));
         hook.afterSwap(address(0), key, params, delta, "");
 
+        // Second propose
         vm.prank(owner);
         hook.proposeSyncAccruedFees(TOKEN1, 40_000);
-        vm.warp(block.timestamp + 24 hours + 1);
+        // Warp to satisfy the 24h timelock but NOT the 7d cooldown.
+        uint256 t2 = t1 + 24 hours + 1;
+        vm.warp(t2);
         vm.prank(owner);
         vm.expectRevert(bytes("SYNC_COOLDOWN"));
         hook.executeSyncAccruedFees(TOKEN1);
 
-        vm.warp(block.timestamp + 7 days);
+        // Now warp 7d past lastSyncExecuted = t1 → cooldown clears.
+        uint256 t3 = t1 + 7 days + 1;
+        if (t3 < t2) t3 = t2 + 1;
+        vm.warp(t3);
         vm.prank(owner);
         hook.executeSyncAccruedFees(TOKEN1);
         assertEq(hook.accruedFees(TOKEN1), 40_000, "second sync after cooldown");

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useAccount } from 'wagmi';
 
 const SEASONAL_EVENTS = [
   {
@@ -30,8 +31,16 @@ function getActiveEvent(): SeasonalEvent | null {
   ) ?? null;
 }
 
-function isDismissed(id: string): boolean {
-  try { return localStorage.getItem(`tegridy-event-dismissed-${id}`) === '1'; } catch { return false; }
+// R037: scope the dismiss flag to the connected wallet so a user dismissing
+// the banner from one address doesn't silence it for the next address they
+// connect (or for guest sessions on a shared device). 'guest' is the
+// disconnected fallback so the banner still has a stable storage key.
+function dismissKey(eventId: string, address: string | undefined): string {
+  return `tegridy-event-dismissed-${address ?? 'guest'}-${eventId}`;
+}
+
+function isDismissed(eventId: string, address: string | undefined): boolean {
+  try { return localStorage.getItem(dismissKey(eventId, address)) === '1'; } catch { return false; }
 }
 
 function formatCountdown(ms: number): string {
@@ -43,21 +52,23 @@ function formatCountdown(ms: number): string {
 }
 
 export function SeasonalEventBanner() {
+  const { address } = useAccount();
   const [event, setEvent] = useState<SeasonalEvent | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [countdown, setCountdown] = useState('');
 
-  // Check for active event on mount and every 60s
+  // Check for active event on mount, every 60s, and whenever the wallet
+  // address changes — the dismiss flag is per-address now.
   useEffect(() => {
     const check = () => {
       const active = getActiveEvent();
       setEvent(active);
-      if (active) setDismissed(isDismissed(active.id));
+      if (active) setDismissed(isDismissed(active.id, address));
     };
     check();
     const id = setInterval(check, 60_000);
     return () => clearInterval(id);
-  }, []);
+  }, [address]);
 
   // Countdown ticker
   useEffect(() => {
@@ -74,9 +85,9 @@ export function SeasonalEventBanner() {
 
   const dismiss = useCallback(() => {
     if (!event) return;
-    try { localStorage.setItem(`tegridy-event-dismissed-${event.id}`, '1'); } catch {}
+    try { localStorage.setItem(dismissKey(event.id, address), '1'); } catch {}
     setDismissed(true);
-  }, [event]);
+  }, [event, address]);
 
   if (!event || dismissed) return null;
 

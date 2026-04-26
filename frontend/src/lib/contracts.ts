@@ -27,7 +27,10 @@ export const TEGRIDY_STAKING_ABI = [
   { type: 'function', name: 'totalLocked', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalRewardsFunded', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalPenaltiesCollected', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'totalPenaltiesRedistributed', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // AUDIT R010: removed phantom `totalPenaltiesRedistributed` view — never
+  // existed in `TegridyStaking.sol`. Calling it would have reverted with
+  // "function does not exist" and any UI relying on it would have shown 0n
+  // forever. Only `totalPenaltiesCollected` is on-chain.
   // Extended staking operations
   { type: 'function', name: 'extendLock', inputs: [{ name: 'tokenId', type: 'uint256' }, { name: '_newLockDuration', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'emergencyExitPosition', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },

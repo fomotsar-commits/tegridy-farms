@@ -103,19 +103,9 @@ export function usePoints() {
     setData(reconciled);
   }, [address, swapCount, stakedAmount, lockDuration, lpBalance, onChainReferralCount]);
 
-  useEffect(() => {
-    if (!address) return;
-    const params = new URLSearchParams(window.location.search);
-    const ref = params.get('ref');
-    if (ref && ref.startsWith('0x') && ref.length === 42) {
-      try {
-        const checksummed = getAddress(ref);
-        setReferrer(address, checksummed);
-      } catch {
-        // Invalid address
-      }
-    }
-  }, [address]);
+  // R037: removed silent localStorage setReferrer auto-write from `?ref=` URL.
+  // The canonical user-initiated path is ReferralWidget (EOA check + URL
+  // disclosure). A silent auto-write was a Sybil + disclosure surface.
 
   const logAction = useCallback((actionType: string, goldCardBoost = false) => {
     if (!address) return;
@@ -148,8 +138,7 @@ export function usePoints() {
     refresh,
     referralLink,
     onChainMetrics,
-    // Points are computed client-side with localStorage — not cryptographically verified.
-    // Display a disclaimer if points are used for any material purpose (leaderboards, eligibility).
-    disclaimer: 'Community score — not verified on-chain. Points, streaks, and badges are stored locally in your browser.',
+    // R037: precise about which values are on-chain verified vs client estimates.
+    disclaimer: 'On-chain: activityScore (swap count + staking from on-chain reads). Client estimates: points, streak, badges (stored locally in your browser).',
   };
 }

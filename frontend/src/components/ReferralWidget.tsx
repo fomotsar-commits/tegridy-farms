@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { m } from 'framer-motion';
 import { isAddress } from 'viem';
+import { usePublicClient } from 'wagmi';
 import { ArtImg } from './ArtImg';
 
 interface ReferralWidgetProps {
@@ -37,6 +38,12 @@ export function ReferralWidget({
   const [copied, setCopied] = useState(false);
   const [refInput, setRefInput] = useState('');
   const [refFromUrl, setRefFromUrl] = useState<string | null>(null);
+  // R037: EOA verification — a contract address as referrer would either
+  // revert on rewardOf reads or quietly capture rewards a wallet can't claim.
+  // We probe getCode() before letting the user link, and surface a warning.
+  const [refIsContract, setRefIsContract] = useState(false);
+  const [refChecking, setRefChecking] = useState(false);
+  const publicClient = usePublicClient();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -89,8 +96,36 @@ export function ReferralWidget({
   const hasPending = (referralPendingBig ?? 0n) > 0n || referralPending > 0;
   const refInputValid = isAddress(refInput) && refInput.toLowerCase() !== address.toLowerCase();
 
+  // R037: re-check getCode() whenever the typed referrer becomes a valid
+  // distinct address. A non-empty bytecode means a contract — referral
+  // payouts to a contract may be unrecoverable, so we surface a warning.
+  useEffect(() => {
+    if (!refInputValid || !publicClient) {
+      setRefIsContract(false);
+      setRefChecking(false);
+      return;
+    }
+    let cancelled = false;
+    setRefChecking(true);
+    publicClient.getCode({ address: refInput as `0x${string}` })
+      .then((code) => {
+        if (cancelled) return;
+        // viem returns undefined or '0x' for EOAs; anything else is bytecode.
+        const isContract = !!code && code !== '0x';
+        setRefIsContract(isContract);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setRefIsContract(false);
+      })
+      .finally(() => {
+        if (!cancelled) setRefChecking(false);
+      });
+    return () => { cancelled = true; };
+  }, [refInputValid, refInput, publicClient]);
+
   const handleSetReferrer = () => {
-    if (!onSetReferrer || !refInputValid) return;
+    if (!onSetReferrer || !refInputValid || refIsContract) return;
     onSetReferrer(refInput as `0x${string}`);
   };
 
@@ -192,7 +227,7 @@ export function ReferralWidget({
                 />
                 <button
                   onClick={handleSetReferrer}
-                  disabled={!refInputValid || txBusy}
+                  disabled={!refInputValid || refIsContract || refChecking || txBusy}
                   className="flex-shrink-0 btn-primary px-4 py-2.5 text-[12px] disabled:opacity-40"
                 >
                   {isPending ? 'Confirm…' : isConfirming ? 'Linking…' : 'Link'}
@@ -200,6 +235,14 @@ export function ReferralWidget({
               </div>
               {refInput && !refInputValid && (
                 <p className="text-[11px] text-warning mt-1">Enter a valid address (not your own).</p>
+              )}
+              {refInputValid && refChecking && (
+                <p className="text-[11px] text-white/55 mt-1">Verifying address...</p>
+              )}
+              {refInputValid && !refChecking && refIsContract && (
+                <p role="alert" className="text-[11px] text-warning mt-1">
+                  Referrer must be an EOA (wallet), not a contract. Linking a contract may forfeit rewards.
+                </p>
               )}
             </div>
           )

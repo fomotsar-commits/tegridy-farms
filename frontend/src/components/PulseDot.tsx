@@ -1,9 +1,16 @@
+import { useReducedMotion } from 'framer-motion';
+
 interface PulseDotProps {
   color?: string;
   size?: number;
 }
 
 export function PulseDot({ color = '#22c55e', size = 8 }: PulseDotProps) {
+  // R068: respect prefers-reduced-motion. The pulsing ring is decorative —
+  // a static dot conveys the same "live" semantics for users who've opted out
+  // of motion. Falls back to false on first render so tests don't depend on
+  // the media query.
+  const reduce = useReducedMotion();
   return (
     <span
       className="pulse-dot-container"
@@ -17,17 +24,19 @@ export function PulseDot({ color = '#22c55e', size = 8 }: PulseDotProps) {
         flexShrink: 0,
       }}
     >
-      <span
-        className="pulse-dot-ring"
-        style={{
-          position: 'absolute',
-          width: size,
-          height: size,
-          borderRadius: '50%',
-          border: `1.5px solid ${color}`,
-          animation: 'pulse-ring 1.5s ease-out infinite',
-        }}
-      />
+      {!reduce && (
+        <span
+          className="pulse-dot-ring"
+          style={{
+            position: 'absolute',
+            width: size,
+            height: size,
+            borderRadius: '50%',
+            border: `1.5px solid ${color}`,
+            animation: 'pulse-ring 1.5s ease-out infinite',
+          }}
+        />
+      )}
       <span
         style={{
           width: size,

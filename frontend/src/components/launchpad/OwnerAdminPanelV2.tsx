@@ -165,10 +165,12 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                 </p>
               )}
 
-              {/* Phase */}
+              {/* Phase — R071 H-072-01: only 0..3 are settable via setMintPhase.
+                  CANCELLED (4) is reachable only via cancelSale() in the Danger
+                  Zone; the contract reverts on setMintPhase(CANCELLED). */}
               <AdminSection label="Mint Phase">
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {PHASE_LABELS.map((label, i) => (
+                  {PHASE_LABELS.slice(0, 4).map((label, i) => (
                     <button key={label}
                       className={`py-2 rounded-lg text-xs font-medium transition-all ${
                         phase === String(i)
@@ -304,14 +306,23 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                     className={`${INPUT} font-mono text-xs`}
                   />
                 </div>
+                {dutchValidationError && (
+                  <p role="alert" className="mt-2 text-[11px] text-red-400">
+                    {dutchValidationError}
+                  </p>
+                )}
                 <ExecButton busy={busy}
-                  disabled={isCancelled || !dutchStartPrice || !dutchEndPrice || !dutchStartTime || !dutchDuration}
-                  onClick={() => exec('configureDutchAuction', [
-                    parseEther(dutchStartPrice),
-                    parseEther(dutchEndPrice),
-                    BigInt(dutchStartTime),
-                    BigInt(dutchDuration),
-                  ])}>
+                  disabled={isCancelled || !dutchStartPrice || !dutchEndPrice || !dutchStartTime || !dutchDuration || dutchValidationError !== null}
+                  onClick={() => {
+                    // R071: re-check at click in case the memo lags one tick
+                    // behind a typed-then-rage-click race.
+                    if (dutchValidationError) return;
+                    let startWei: bigint, endWei: bigint;
+                    try { startWei = parseEther(dutchStartPrice); endWei = parseEther(dutchEndPrice); } catch { return; }
+                    let startUnix: bigint, durationSec: bigint;
+                    try { startUnix = BigInt(dutchStartTime); durationSec = BigInt(dutchDuration); } catch { return; }
+                    exec('configureDutchAuction', [startWei, endWei, startUnix, durationSec]);
+                  }}>
                   Configure Dutch Auction
                 </ExecButton>
               </AdminSection>

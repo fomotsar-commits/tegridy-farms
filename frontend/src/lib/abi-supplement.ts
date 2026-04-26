@@ -145,6 +145,19 @@ export const POL_ACCUMULATOR_ABI = [
   },
   {
     "type": "function",
+    "name": "MAX_HARVEST_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MIN_BACKSTOP_BPS",
     "inputs": [],
     "outputs": [
@@ -171,7 +184,46 @@ export const POL_ACCUMULATOR_ABI = [
   },
   {
     "type": "function",
+    "name": "POL_HARVEST",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "POL_HARVEST_DELAY",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "PROPOSAL_VALIDITY",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "SEQUENCER_GRACE_PERIOD",
     "inputs": [],
     "outputs": [
       {
@@ -275,6 +327,45 @@ export const POL_ACCUMULATOR_ABI = [
   },
   {
     "type": "function",
+    "name": "TWAP_MAX_STALENESS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "TWAP_PERIOD",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "TWAP_SAFETY_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "acceptOwnership",
     "inputs": [],
     "outputs": [],
@@ -343,6 +434,13 @@ export const POL_ACCUMULATOR_ABI = [
   },
   {
     "type": "function",
+    "name": "cancelHarvestLP",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "cancelMaxAccumulateAmountChange",
     "inputs": [],
     "outputs": [],
@@ -378,6 +476,29 @@ export const POL_ACCUMULATOR_ABI = [
   },
   {
     "type": "function",
+    "name": "executeHarvestLP",
+    "inputs": [
+      {
+        "name": "minToken",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minETH",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "executeMaxAccumulateAmount",
     "inputs": [],
     "outputs": [],
@@ -403,6 +524,19 @@ export const POL_ACCUMULATOR_ABI = [
     "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "harvestLPReadyAt",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -562,6 +696,19 @@ export const POL_ACCUMULATOR_ABI = [
   },
   {
     "type": "function",
+    "name": "pendingHarvestLpAmount",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "pendingMaxAccumulateAmount",
     "inputs": [],
     "outputs": [
@@ -646,6 +793,19 @@ export const POL_ACCUMULATOR_ABI = [
   },
   {
     "type": "function",
+    "name": "proposeHarvestLP",
+    "inputs": [
+      {
+        "name": "lpAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "proposeMaxAccumulateAmount",
     "inputs": [
       {
@@ -712,6 +872,19 @@ export const POL_ACCUMULATOR_ABI = [
         "name": "",
         "type": "address",
         "internalType": "contract IUniswapV2Router"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "sequencerFeed",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -836,6 +1009,19 @@ export const POL_ACCUMULATOR_ABI = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "twap",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract ITegridyTWAP"
       }
     ],
     "stateMutability": "view"
@@ -1091,6 +1277,56 @@ export const POL_ACCUMULATOR_ABI = [
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "POLHarvestCancelled",
+    "inputs": [],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "POLHarvestExecuted",
+    "inputs": [
+      {
+        "name": "lpAmount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "tokenOut",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "ethOut",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "POLHarvestProposed",
+    "inputs": [
+      {
+        "name": "lpAmount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "readyAt",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -1366,6 +1602,11 @@ export const POL_ACCUMULATOR_ABI = [
   },
   {
     "type": "error",
+    "name": "LPMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NoContracts",
     "inputs": []
   },
@@ -1393,6 +1634,11 @@ export const POL_ACCUMULATOR_ABI = [
   {
     "type": "error",
     "name": "NoPendingSlippage",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OracleStale",
     "inputs": []
   },
   {
@@ -1457,6 +1703,16 @@ export const POL_ACCUMULATOR_ABI = [
   },
   {
     "type": "error",
+    "name": "SequencerDown",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SequencerGracePeriodNotOver",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "SlippageBpsOutOfRange",
     "inputs": []
   },
@@ -1491,7 +1747,6 @@ export const POL_ACCUMULATOR_ABI = [
     "inputs": []
   }
 ] as const;
-
 
 export const TEGRIDY_FEE_HOOK_ABI = [
   {
@@ -3615,6 +3870,19 @@ export const TEGRIDY_LP_FARMING_ABI = [
   },
   {
     "type": "function",
+    "name": "forfeitedRewards",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "getReward",
     "inputs": [],
     "outputs": [],
@@ -3844,6 +4112,13 @@ export const TEGRIDY_LP_FARMING_ABI = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "reclaimForfeitedRewards",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -4153,6 +4428,25 @@ export const TEGRIDY_LP_FARMING_ABI = [
       },
       {
         "name": "rewardsForfeited",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ForfeitedRewardsReclaimed",
+    "inputs": [
+      {
+        "name": "treasury",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -4717,6 +5011,13 @@ export const TEGRIDY_NFT_POOL_ABI_FULL = [
   },
   {
     "type": "function",
+    "name": "cancelFeeChange",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "cancelSpotPriceChange",
     "inputs": [],
     "outputs": [],
@@ -4727,13 +5028,13 @@ export const TEGRIDY_NFT_POOL_ABI_FULL = [
     "name": "changeFee",
     "inputs": [
       {
-        "name": "newFee",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -4758,6 +5059,13 @@ export const TEGRIDY_NFT_POOL_ABI_FULL = [
   {
     "type": "function",
     "name": "executeDeltaChange",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "executeFeeChange",
     "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
@@ -5115,6 +5423,32 @@ export const TEGRIDY_NFT_POOL_ABI_FULL = [
   },
   {
     "type": "function",
+    "name": "pendingFeeBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pendingFeeBpsExecuteAfter",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "pendingSpotPrice",
     "inputs": [],
     "outputs": [
@@ -5158,6 +5492,19 @@ export const TEGRIDY_NFT_POOL_ABI_FULL = [
     "inputs": [
       {
         "name": "newDelta",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "proposeFeeChange",
+    "inputs": [
+      {
+        "name": "newFee",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -5263,6 +5610,19 @@ export const TEGRIDY_NFT_POOL_ABI_FULL = [
         "name": "deadline",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "syncNFTs",
+    "inputs": [
+      {
+        "name": "tokenIds",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
       }
     ],
     "outputs": [],
@@ -5383,6 +5743,44 @@ export const TEGRIDY_NFT_POOL_ABI_FULL = [
       },
       {
         "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "FeeChangeCancelled",
+    "inputs": [
+      {
+        "name": "cancelledFee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "FeeChangeProposed",
+    "inputs": [
+      {
+        "name": "currentFee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "proposedFee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "executeAfter",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -5911,6 +6309,19 @@ export const TEGRIDY_PAIR_ABI = [
   },
   {
     "type": "function",
+    "name": "blockTimestampLast",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "burn",
     "inputs": [
       {
@@ -5981,6 +6392,13 @@ export const TEGRIDY_PAIR_ABI = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "harvest",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -6517,6 +6935,19 @@ export const TEGRIDY_PAIR_ABI = [
 export const TEGRIDY_TWAP_ABI = [
   {
     "type": "function",
+    "name": "DEVIATION_BYPASS_AFTER",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_DEVIATION_BPS",
     "inputs": [],
     "outputs": [
@@ -6556,7 +6987,66 @@ export const TEGRIDY_TWAP_ABI = [
   },
   {
     "type": "function",
+    "name": "MAX_UPDATE_FEE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MIN_PERIOD",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MIN_UPDATE_INTERVAL",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "SEQUENCER_GRACE_PERIOD",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "acceptOwnership",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "accumulatedFees",
     "inputs": [],
     "outputs": [
       {
@@ -6622,6 +7112,19 @@ export const TEGRIDY_TWAP_ABI = [
   },
   {
     "type": "function",
+    "name": "feeRecipient",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "getLatestObservation",
     "inputs": [
       {
@@ -6662,6 +7165,44 @@ export const TEGRIDY_TWAP_ABI = [
     "inputs": [
       {
         "name": "pair",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lastSpot0",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lastSpot1",
+    "inputs": [
+      {
+        "name": "",
         "type": "address",
         "internalType": "address"
       }
@@ -6749,6 +7290,91 @@ export const TEGRIDY_TWAP_ABI = [
   },
   {
     "type": "function",
+    "name": "owner",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pendingOwner",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "renounceOwnership",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "sequencerFeed",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setFeeRecipient",
+    "inputs": [
+      {
+        "name": "_recipient",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setUpdateFee",
+    "inputs": [
+      {
+        "name": "_newFee",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "transferOwnership",
+    "inputs": [
+      {
+        "name": "newOwner",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "update",
     "inputs": [
       {
@@ -6758,7 +7384,122 @@ export const TEGRIDY_TWAP_ABI = [
       }
     ],
     "outputs": [],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "updateFee",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "withdrawFees",
+    "inputs": [],
+    "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "FeeRecipientChanged",
+    "inputs": [
+      {
+        "name": "oldRecipient",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newRecipient",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "FeesWithdrawn",
+    "inputs": [
+      {
+        "name": "to",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OwnershipTransferStarted",
+    "inputs": [
+      {
+        "name": "previousOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OwnershipTransferred",
+    "inputs": [
+      {
+        "name": "previousOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UpdateFeeChanged",
+    "inputs": [
+      {
+        "name": "oldFee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "newFee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -6793,6 +7534,16 @@ export const TEGRIDY_TWAP_ABI = [
   },
   {
     "type": "error",
+    "name": "FeeTooHigh",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientFee",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InsufficientObservations",
     "inputs": []
   },
@@ -6808,7 +7559,17 @@ export const TEGRIDY_TWAP_ABI = [
   },
   {
     "type": "error",
+    "name": "NoFees",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NoReserves",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotOwner",
     "inputs": []
   },
   {
@@ -6828,7 +7589,22 @@ export const TEGRIDY_TWAP_ABI = [
   },
   {
     "type": "error",
+    "name": "SequencerDown",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SequencerGracePeriodNotOver",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "StaleOracle",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TWAPZeroAddress",
     "inputs": []
   }
 ] as const;

@@ -179,11 +179,18 @@ export function TowelieAssistant() {
     queueMicrotask(() => {
       if (cancelled) return;
       lastEventAt.current = Date.now();
+      // R068: consume the previously-tracked API id before overwriting it.
+      // An urgent message that replaces an in-flight bubble must mark the
+      // prior id consumed; otherwise it pins head-of-line and the queue
+      // never drains.
+      if (currentApiId.current !== null && currentApiId.current !== next.id) {
+        consume(currentApiId.current);
+      }
       currentApiId.current = next.id;
       setBubble({ text: next.text, src: 'api' });
     });
     return () => { cancelled = true; };
-  }, [queue, bubble, disabled]);
+  }, [queue, bubble, disabled, consume]);
 
   // Wallet connected — fires once per connection edge. Skips initial mount
   // (hydrated-already-connected shouldn't trigger a greeting every load).

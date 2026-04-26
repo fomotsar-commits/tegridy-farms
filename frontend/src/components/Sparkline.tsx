@@ -17,8 +17,17 @@ export const Sparkline = React.memo(function Sparkline({
 }: SparklineProps) {
   if (!data || data.length < 2) return null;
 
-  const min = Math.min(...data);
-  const max = Math.max(...data);
+  // R068: single-pass min/max instead of two `Math.min/max(...data)` calls
+  // that spread arguments. Spreading hits a browser argument-count cap on
+  // long arrays (Chrome ~125k args) and double-iterates the data for no
+  // reason. One pass also dodges Math.min(NaN, ...) corruption.
+  let min = Infinity;
+  let max = -Infinity;
+  for (let i = 0; i < data.length; i++) {
+    const v = data[i]!;
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
   const range = max - min || 1; // prevent division by zero
 
   // Determine color based on trend if not provided
