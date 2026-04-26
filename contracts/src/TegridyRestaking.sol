@@ -1084,19 +1084,18 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // Only proceed if the cached value differs (i.e., decay happened)
         if (currentBoosted == info.boostedAmount) revert("NO_DECAY");
 
-        // AUDIT NEW-S3 step 1 — run pending accrual against the STALE denominator one
-        // last time. This finalises the expired restaker's prior share under the
-        // accounting that was actually in effect, so their bonusDebt advances to
-        // `oldBoosted × accBonusPerShare_now`. We'll pay out below, then correct
-        // totalRestaked, then subsequent calls use the fixed denominator.
-        _accrueBonus();
-
-        // Settle pending bonus on old (stale) boostedAmount before updating
         uint256 oldBoosted = info.boostedAmount;
+
+        // R017 RETRY step 1 — settle the expired restaker on the stale (cached)
+        // oldBoosted against the CURRENT accBonusPerShare (reflects accrual up
+        // to lastBonusRewardTime ONLY — NOT yet to block.timestamp). This pays
+        // them their fair share under the accounting that was actually in
+        // effect for prior periods. Anchor bonusDebt BEFORE transfer (CEI).
         if (oldBoosted > 0) {
             int256 accumulated = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
             int256 diff = accumulated - info.bonusDebt;
             uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
+            info.bonusDebt = accumulated; // CEI: anchor BEFORE external call
             if (bonusPending > 0) {
                 bonusRewardToken.safeTransfer(_restaker, bonusPending);
                 totalBonusDistributed += bonusPending;
@@ -1104,10 +1103,24 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             }
         }
 
-        // AUDIT NEW-S3 step 2 — update cached boostedAmount and totalRestaked. All
-        // future accrual (next caller's updateBonus) reads the corrected denominator.
+        // R017 RETRY step 2 — shrink totalRestaked and update cached
+        // boostedAmount BEFORE running fresh accrual. The micro-period from
+        // lastBonusRewardTime to block.timestamp will be divided by the
+        // corrected (smaller) denominator, so honest restakers earn their
+        // fair share for every future second.
         info.boostedAmount = currentBoosted;
         totalRestaked = totalRestaked - oldBoosted + currentBoosted;
+
+        // R017 RETRY step 3 — accrue the elapsed period against the corrected
+        // denominator. This is the key reordering: previously, _accrueBonus
+        // ran BEFORE the totalRestaked shrink, so the elapsed-period emission
+        // was minted into accBonusPerShare against the inflated denominator —
+        // letting the expired restaker siphon the delta from honest users.
+        _accrueBonus();
+
+        // R017 RETRY step 4 — re-anchor expired restaker's bonusDebt to the
+        // post-accrue accBonusPerShare so residual rounding can't credit them
+        // for emission they no longer share in.
         info.bonusDebt = _safeInt256((currentBoosted * accBonusPerShare) / ACC_PRECISION);
 
         // Also refresh positionAmount
