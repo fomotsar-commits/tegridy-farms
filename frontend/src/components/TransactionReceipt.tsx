@@ -1,6 +1,6 @@
-import { useRef, useCallback, useMemo, type ReactNode } from 'react';
+import { useRef, useCallback, useMemo, useState, type ReactNode } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
-import { useChainId } from 'wagmi';
+import { useChainId, useWaitForTransactionReceipt } from 'wagmi';
 import {
   TransactionReceiptContext,
   useTransactionReceiptState,
@@ -8,8 +8,10 @@ import {
   type ReceiptType,
 } from '../hooks/useTransactionReceipt';
 import { formatTokenAmount } from '../lib/formatting';
-import { getTxUrl } from '../lib/explorer';
+import { getTxUrl, getChainLabel } from '../lib/explorer';
 import { RECEIPT_COPY } from '../lib/copy';
+
+type TxStatus = 'pending' | 'confirmed' | 'failed';
 
 /* ─── Sanitize text to prevent HTML/script injection in rendered receipts ─── */
 function sanitize(str: string | undefined): string {

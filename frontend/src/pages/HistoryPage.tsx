@@ -2,6 +2,7 @@ import { Fragment, useState, useEffect, useMemo, useCallback } from 'react';
 import { m } from 'framer-motion';
 import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { z } from 'zod';
 import { getTxUrl, getAddressUrl } from '../lib/explorer';
 import {
   TEGRIDY_STAKING_ADDRESS, TEGRIDY_RESTAKING_ADDRESS, UNISWAP_V2_ROUTER,
@@ -14,44 +15,45 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ArtImg } from '../components/ArtImg';
 
-interface TxRecord {
-  hash: string;
-  timeStamp: string;
-  to: string;
-  functionName: string;
-  isError: string;
-  value: string;
-  // AUDIT HISTORY-UX: Etherscan returns gasUsed + gasPrice on every txlist
-  // entry; we now capture them so users can see what each tx actually cost.
-  // Optional because pre-upgrade caches may omit them (defensive read).
-  gasUsed?: string;
-  gasPrice?: string;
-}
+// R040 H1: zod schema for any externally-controlled JSON crossing the wire.
+// Replaces the typeof-only guard which let a poisoned proxy response slip
+// non-conforming `tx.hash` through to a clickable href. Each field carries a
+// regex (or bounded transform) so the parsed record is safe to render.
+const HEX_HASH = /^0x[a-fA-F0-9]{64}$/;
+const HEX_ADDR = /^0x[a-fA-F0-9]{40}$/;
+const DEC_DIGITS = /^\d+$/;
 
-function isValidTxRecord(tx: unknown): tx is TxRecord {
-  if (!tx || typeof tx !== 'object') return false;
-  const r = tx as Record<string, unknown>;
-  if (typeof r.hash !== 'string' || typeof r.timeStamp !== 'string' || typeof r.to !== 'string'
-    || typeof r.functionName !== 'string' || typeof r.isError !== 'string' || typeof r.value !== 'string') {
-    return false;
+const TxRecordSchema = z.object({
+  hash: z.string().regex(HEX_HASH),
+  to: z.string().regex(HEX_ADDR),
+  // Etherscan returns timeStamp as a digit-string, but other indexers may use
+  // numbers — accept both then normalise to a string of digits.
+  timeStamp: z.union([z.string().regex(DEC_DIGITS), z.number().int().nonnegative()])
+    .transform((v) => String(v)),
+  // value is a decimal-string wei amount.
+  value: z.string().regex(DEC_DIGITS).default('0'),
+  functionName: z.string().max(256).default(''),
+  isError: z.string().max(2).default('0'),
+  // Optional gas fields — bounded strings when present.
+  gasUsed: z.string().regex(DEC_DIGITS).max(20).optional(),
+  gasPrice: z.string().regex(DEC_DIGITS).max(32).optional(),
+});
+
+type TxRecord = z.infer<typeof TxRecordSchema>;
+
+/**
+ * Parse a raw indexer response into a list of validated TxRecords. Every
+ * entry runs through `safeParse`; failures are dropped silently so a single
+ * malformed row can't break the page. Never throws.
+ */
+function parseTxRecords(input: unknown): TxRecord[] {
+  if (!Array.isArray(input)) return [];
+  const out: TxRecord[] = [];
+  for (const raw of input) {
+    const parsed = TxRecordSchema.safeParse(raw);
+    if (parsed.success) out.push(parsed.data);
   }
-  // gas fields are optional but must be strings when present.
-  if (r.gasUsed !== undefined && typeof r.gasUsed !== 'string') return false;
-  if (r.gasPrice !== undefined && typeof r.gasPrice !== 'string') return false;
-  return true;
-}
-
-function truncateTxFields(tx: TxRecord): TxRecord {
-  return {
-    hash: tx.hash.slice(0, 66),
-    timeStamp: tx.timeStamp.slice(0, 12),
-    to: tx.to.slice(0, 42),
-    functionName: tx.functionName.slice(0, 128),
-    isError: tx.isError,
-    value: tx.value.slice(0, 32),
-    gasUsed: tx.gasUsed?.slice(0, 20),
-    gasPrice: tx.gasPrice?.slice(0, 32),
-  };
+  return out;
 }
 
 // Compute gas cost in ETH from decimal-string gasUsed * gasPrice (wei).
@@ -184,7 +186,10 @@ export default function HistoryPage() {
         if (cached) {
           const parsed = JSON.parse(cached);
           if (parsed && typeof parsed.ts === 'number' && Array.isArray(parsed.data) && Date.now() - parsed.ts < 300000) {
-            setTxs(parsed.data.filter(isValidTxRecord).map(truncateTxFields));
+            // R040 H1: parse cached entries through the same schema as fresh
+            // responses — a stale cache from before this fix may still have
+            // unvalidated rows.
+            setTxs(parseTxRecords(parsed.data));
             return;
           }
         }
@@ -228,11 +233,14 @@ export default function HistoryPage() {
       .then(data => {
         if (signal.aborted) return;
         if (data.status === '1' && Array.isArray(data.result)) {
+          // R040 H1: schema-validate every row before rendering so a poisoned
+          // proxy response can't slip a non-hex hash into a clickable href.
           // Fetch up to 500 protocol-relevant txns; pagination handled client-side below.
           // 500 is a UX cap, not a privacy one — Etherscan paginates server-side too.
-          const relevant = data.result.filter((tx: unknown) =>
-            isValidTxRecord(tx) && contracts.includes(tx.to?.toLowerCase())
-          ).slice(0, 500).map(truncateTxFields);
+          const validated = parseTxRecords(data.result);
+          const relevant = validated
+            .filter((tx) => contracts.includes(tx.to.toLowerCase()))
+            .slice(0, 500);
           setTxs(relevant);
           try {
             localStorage.setItem(cacheKey, JSON.stringify({ data: relevant, ts: Date.now() }));

@@ -1,17 +1,36 @@
 // Vercel Serverless Function — proxies Alchemy requests to hide API key
 import { checkRateLimit } from "./_lib/ratelimit.js";
+import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
+import { logSafe } from "./_lib/logSafe.js";
 
-const ALCHEMY_KEY = process.env.ALCHEMY_API_KEY || "demo";
+// AUDIT R048: prefer Authorization: Bearer header over URL path embedding so
+// the key never appears in Vercel access logs, observability tracers, or
+// upstream HTML error pages that echo the request URL. Falls back to URL
+// path embedding only when no real key is configured (legacy/demo dev).
+const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY || "";
+const USE_HEADER_AUTH = !!process.env.ALCHEMY_API_KEY;
+const ALCHEMY_KEY = ALCHEMY_API_KEY || "demo";
 if (!process.env.ALCHEMY_API_KEY && process.env.NODE_ENV === "production") {
   console.warn("WARNING: ALCHEMY_API_KEY is not set — using demo key in production");
 }
-const BASE = `https://eth-mainnet.g.alchemy.com/nft/v3/${ALCHEMY_KEY}`;
-const RPC_BASE = `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`;
+const BASE = USE_HEADER_AUTH
+  ? "https://eth-mainnet.g.alchemy.com/nft/v3"
+  : `https://eth-mainnet.g.alchemy.com/nft/v3/${ALCHEMY_KEY}`;
+const RPC_BASE = USE_HEADER_AUTH
+  ? "https://eth-mainnet.g.alchemy.com/v2"
+  : `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`;
+
+function authHeaders(extra = {}) {
+  const headers = { Accept: "application/json", ...extra };
+  if (USE_HEADER_AUTH) headers["Authorization"] = `Bearer ${ALCHEMY_API_KEY}`;
+  return headers;
+}
 
 // ── Shared validation helpers ──
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 const NUMERIC_ID_RE = /^\d{1,10}$/;
 const MAX_BODY_SIZE = 10 * 1024; // 10 KB
+const MAX_BLOCK_RANGE = 10_000n; // AUDIT R049 H-5: cap eth_getLogs block delta
 
 function isValidAddress(addr) { return typeof addr === "string" && ETH_ADDRESS_RE.test(addr); }
 function isValidTokenId(id) { return typeof id === "string" && NUMERIC_ID_RE.test(id); }
@@ -58,6 +77,21 @@ const CONTRACT_ARRAY_ENDPOINTS = new Set([
 ]);
 
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://nakamigos.gallery";
+
+// AUDIT R049 H-5: resolve "latest" to a numeric block tip via eth_blockNumber
+// so the same delta cap applies whether the client sends numeric blocks or
+// "latest". Bounded by readBoundedText so it can't reintroduce H-3.
+async function resolveChainTip() {
+  const res = await fetch(RPC_BASE, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }),
+  });
+  const { text } = await readBoundedText(res, MAX_RESPONSE_BYTES);
+  const data = JSON.parse(text);
+  if (!data?.result || typeof data.result !== "string") throw new Error("tip-resolve-failed");
+  return BigInt(data.result);
+}
 
 export default async function handler(req, res) {
   const origin = req.headers.origin || "";
@@ -132,21 +166,56 @@ export default async function handler(req, res) {
       if (logParams.toBlock && !blockRe.test(logParams.toBlock)) {
         return res.status(400).json({ error: "Invalid toBlock value" });
       }
+
+      // AUDIT R049 H-5: cap delta(fromBlock, toBlock) at 10_000 to prevent
+      // unbounded chain scans that burn Alchemy compute units AND trigger
+      // the H-3 OOM path.
+      const fromRaw = logParams.fromBlock ?? "latest";
+      const toRaw = logParams.toBlock ?? "latest";
+      try {
+        let fromBig, toBig;
+        if (fromRaw === "latest" || toRaw === "latest") {
+          const tip = await resolveChainTip();
+          fromBig = fromRaw === "latest" ? tip : BigInt(fromRaw);
+          toBig = toRaw === "latest" ? tip : BigInt(toRaw);
+        } else {
+          fromBig = BigInt(fromRaw);
+          toBig = BigInt(toRaw);
+        }
+        if (toBig < fromBig) {
+          return res.status(400).json({ error: "toBlock must be >= fromBlock" });
+        }
+        if (toBig - fromBig > MAX_BLOCK_RANGE) {
+          return res.status(400).json({ error: "Block range too large (max 10000)" });
+        }
+      } catch (err) {
+        if (String(err?.message).includes("tip-resolve-failed")) {
+          return res.status(502).json({ error: "Upstream service error" });
+        }
+        return res.status(400).json({ error: "Invalid block range" });
+      }
     }
 
     try {
       const rpcRes = await fetch(RPC_BASE, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ jsonrpc: "2.0", method, params: req.body.params || [], id: 1 }),
       });
-      const data = await rpcRes.json();
-      // R050 / agent 078 H-4: edge cache is shared across all callers, so we
-      // can only enable it for methods whose response is identical for every
-      // user. eth_blockNumber is a public chain-tip read (~12s block time).
-      // Anything else (logs filtered by user wallet, future user-bound RPCs)
-      // gets `private, no-store` so the edge can never serve one user's
-      // response to another.
+      // AUDIT R049 H-3: bounded body read.
+      const { text, truncated } = await readBoundedText(rpcRes, MAX_RESPONSE_BYTES);
+      if (truncated) {
+        return res.status(502).json({ error: "Upstream response too large" });
+      }
+      let data;
+      try { data = JSON.parse(text); } catch {
+        console.error("Alchemy RPC non-JSON:", logSafe(text.slice(0, 200)));
+        return res.status(502).json({ error: "Upstream returned invalid response" });
+      }
+      // AUDIT R050 HIGH: method-specific edge-cache contract. Only the public
+      // chain-tip method gets shared cache; everything else is private
+      // (defence in depth — if a future RPC method becomes user-bound, it
+      // doesn't auto-leak across users).
       if (method === "eth_blockNumber") {
         res.setHeader("Cache-Control", "s-maxage=12, stale-while-revalidate=12");
       } else {
@@ -154,6 +223,7 @@ export default async function handler(req, res) {
       }
       return res.status(200).json(data);
     } catch (err) {
+      console.error("Alchemy RPC error:", logSafe(err));
       return res.status(500).json({ error: "RPC proxy fetch failed" });
     }
   }
@@ -239,36 +309,43 @@ export default async function handler(req, res) {
       if (v != null && v !== "") url.searchParams.set(k, String(v));
     });
 
-    let fetchOpts = { headers: { Accept: "application/json" } };
+    let fetchOpts = { headers: authHeaders() };
     if (req.method === "POST") {
       fetchOpts.method = "POST";
-      fetchOpts.headers["Content-Type"] = "application/json";
+      fetchOpts.headers = authHeaders({ "Content-Type": "application/json" });
       // Guard against undefined/null body — send empty object instead of "undefined"
       fetchOpts.body = JSON.stringify(req.body ?? {});
     }
 
     const response = await fetch(url.toString(), fetchOpts);
 
-    // Safe JSON parse — upstream may return HTML error pages
-    const text = await response.text();
+    // AUDIT R049 H-3: bounded body read protects against gzip-bombs / OOM.
+    const { text, truncated } = await readBoundedText(response, MAX_RESPONSE_BYTES);
+    if (truncated) {
+      console.error("Alchemy upstream over-cap");
+      return res.status(502).json({ error: "Upstream response too large" });
+    }
     let data;
     try {
       data = JSON.parse(text);
     } catch {
-      console.error("Alchemy non-JSON response:", text.slice(0, 200));
+      // AUDIT R048: don't log full URL — sanitizer scrubs key-shaped path
+      // segments but logSafe is the canonical path.
+      console.error("Alchemy non-JSON response:", logSafe(text.slice(0, 200)));
       return res.status(502).json({ error: "Upstream returned invalid response" });
     }
 
     if (!response.ok) {
       // AUDIT API-M4: don't leak upstream HTTP status or body to clients; map
       // everything to a single opaque 502. Real status logged server-side for ops.
-      console.error("Alchemy upstream error:", response.status, text.slice(0, 500));
+      console.error("Alchemy upstream error:", response.status, logSafe(text.slice(0, 500)));
       return res.status(502).json({ error: "Upstream service error" });
     }
 
     res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60");
     return res.status(200).json(data);
   } catch (err) {
+    console.error("Alchemy proxy error:", logSafe(err));
     return res.status(500).json({ error: "Proxy fetch failed" });
   }
 }

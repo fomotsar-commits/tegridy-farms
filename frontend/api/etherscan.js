@@ -3,9 +3,24 @@
 // This proxy keeps the key server-side while allowing the frontend to fetch tx history.
 
 import { checkRateLimit } from "./_lib/ratelimit.js";
+import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
+import { logSafe } from "./_lib/logSafe.js";
 
+// AUDIT R048: switched from v1 (`?apikey=...` querystring) to v2 multichain
+// (Authorization: Bearer header) when a real key is set. v2 returns the same
+// `{ status, message, result }` shape as v1, so callers don't change. Falls
+// back to v1 querystring auth only when no key is configured (legacy dev).
 const ETHERSCAN_KEY = process.env.ETHERSCAN_API_KEY || "";
-const ETHERSCAN_BASE = "https://api.etherscan.io/api";
+const USE_HEADER_AUTH = !!ETHERSCAN_KEY;
+const ETHERSCAN_BASE = USE_HEADER_AUTH
+  ? "https://api.etherscan.io/v2/api"
+  : "https://api.etherscan.io/api";
+
+function authHeaders(extra = {}) {
+  const headers = { Accept: "application/json", ...extra };
+  if (USE_HEADER_AUTH) headers["Authorization"] = `Bearer ${ETHERSCAN_KEY}`;
+  return headers;
+}
 
 // Shared CORS helpers
 const ALLOWED_ORIGINS = [
@@ -87,11 +102,13 @@ export default async function handler(req, res) {
   }
 
   // Build Etherscan URL with server-side API key
-  const params = new URLSearchParams({
-    module,
-    action,
-    apikey: ETHERSCAN_KEY,
-  });
+  const params = new URLSearchParams({ module, action });
+  // AUDIT R048: v2 requires chainid; v1 fallback uses apikey querystring.
+  if (USE_HEADER_AUTH) {
+    params.set("chainid", "1");
+  } else {
+    params.set("apikey", ETHERSCAN_KEY);
+  }
   if (address) params.set("address", address);
   if (startblock) params.set("startblock", String(startblock));
   if (endblock) params.set("endblock", String(endblock));
@@ -99,12 +116,22 @@ export default async function handler(req, res) {
 
   try {
     const response = await fetch(`${ETHERSCAN_BASE}?${params}`, {
-      headers: { "Accept": "application/json" },
+      headers: authHeaders(),
     });
-    const data = await response.json();
+    // AUDIT R049 H-3: bounded body read.
+    const { text, truncated } = await readBoundedText(response, MAX_RESPONSE_BYTES);
+    if (truncated) {
+      return res.status(502).json({ error: "Upstream response too large" });
+    }
+    let data;
+    try { data = JSON.parse(text); } catch {
+      console.error("Etherscan non-JSON:", logSafe(text.slice(0, 200)));
+      return res.status(502).json({ error: "Upstream returned invalid response" });
+    }
     res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60");
     return res.status(200).json(data);
   } catch (err) {
+    console.error("Etherscan proxy error:", logSafe(err));
     return res.status(502).json({ error: "Etherscan proxy error" });
   }
 }

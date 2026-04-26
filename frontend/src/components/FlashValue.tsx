@@ -10,32 +10,36 @@ interface FlashValueProps {
  * when the value changes.
  * - Increase: green flash (#22c55e)
  * - Decrease: red flash (#ef4444)
+ *
+ * R007 Pattern A — compare during render: the flash direction is derived
+ * from the previous render's value (kept in `lastValue` state). The async
+ * `setFlash(null)` reset stays inside `setTimeout` so the lint rule (which
+ * only flags synchronous setState in effect bodies) is satisfied.
  */
 export function FlashValue({ value, children }: FlashValueProps) {
-  const prevRef = useRef(value);
+  const [lastValue, setLastValue] = useState(value);
   const [flash, setFlash] = useState<'up' | 'down' | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  if (value !== lastValue) {
+    setLastValue(value);
+    if (lastValue !== 0) {
+      // Set flash direction based on the transition we just observed.
+      setFlash(value > lastValue ? 'up' : 'down');
+    }
+  }
+
   useEffect(() => {
-    const prev = prevRef.current;
-    prevRef.current = value;
-
-    // Skip initial render or same value
-    if (prev === value || prev === 0) return;
-
+    if (!flash) return;
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
-
-    setFlash(value > prev ? 'up' : 'down');
-
     timeoutRef.current = setTimeout(() => {
       setFlash(null);
       timeoutRef.current = null;
     }, 600);
-
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-  }, [value]);
+  }, [flash]);
 
   return (
     <span
