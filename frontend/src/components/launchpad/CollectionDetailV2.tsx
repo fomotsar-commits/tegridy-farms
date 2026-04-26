@@ -190,11 +190,11 @@ export function CollectionDetailV2({
               >
                 {shortAddr}
               </a>
-              {externalLink && (
+              {safeExternalLink ? (
                 <>
                   <span className="text-black/30 text-xs mx-2">{'\u00B7'}</span>
                   <a
-                    href={externalLink}
+                    href={safeExternalLink}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-black/70 hover:text-black text-xs hover:underline"
@@ -202,7 +202,17 @@ export function CollectionDetailV2({
                     Project site {'\u2197'}
                   </a>
                 </>
-              )}
+              ) : rawExternalLink ? (
+                <>
+                  <span className="text-black/30 text-xs mx-2">{'\u00B7'}</span>
+                  <span
+                    className="text-black/40 text-xs cursor-not-allowed"
+                    title="Project link uses an unsupported URI scheme and was hidden for safety."
+                  >
+                    Project site (link blocked)
+                  </span>
+                </>
+              ) : null}
               {drop.metadataError && !drop.collectionMetadata && (
                 <p className="text-amber-900/80 text-[10px] mt-1">
                   Off-chain metadata unavailable — showing on-chain basics only.

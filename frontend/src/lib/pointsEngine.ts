@@ -1,10 +1,21 @@
-// Points engine — on-chain activity as source of truth, localStorage as verified cache
+// Points engine — on-chain activity as source of truth, localStorage as a thin cache
 //
-// SECURITY NOTE: All client-side integrity checks are defense-in-depth only.
-// On-chain points are authoritative and re-derived from contract reads every
-// session. The localStorage cache only stores streak/daily-visit bonus data
-// between sessions. Any future airdrop or reward distribution MUST use on-chain
-// data exclusively, never trust client-reported points.
+// SECURITY NOTE: All client-side state is defense-in-depth only. On-chain
+// points are authoritative and re-derived from contract reads every session.
+// Any future airdrop or reward distribution MUST use on-chain data exclusively;
+// never trust client-reported points.
+//
+// AUDIT R036:
+//  - `incrementReferralCount` now refuses self-referral (referrer === self)
+//    so a user cannot trivially inflate their own referral count by passing
+//    their own address as the referrer.
+//  - Removed the `computeHashSync` "integrity-hash" theatre. The session-nonce
+//    djb2 hash was always trivially bypassable from DevTools and obscured the
+//    real defence (on-chain reconciliation), so it has been deleted. The cache
+//    is now read with a typed `validatePointsData` predicate only.
+//  - `incrementReferralCount` is marked `@deprecated` — referral counts are
+//    derived from `ReferralSplitter.getReferralInfo()` on-chain. The local
+//    cache merely echoes the most recent on-chain read for fast paint.
 
 import { safeSetItem, safeGetItem } from './storage';
 
@@ -59,50 +70,8 @@ export const TIER_THRESHOLDS = [
   { name: 'Diamond', min: 5000, color: '#b9f2ff' },
 ];
 
-// --- Integrity check using Web Crypto with per-session nonce ---
-// The session nonce makes it harder to pre-compute hashes outside the browser,
-// though a determined attacker with DevTools access can still bypass this.
-// This is defense-in-depth; on-chain reconciliation is the real safeguard.
-
-let sessionNonce: string | null = null;
-
-function getSessionNonce(): string {
-  if (!sessionNonce) {
-    // Generate a random nonce per page session (not persisted to localStorage)
-    const arr = new Uint8Array(16);
-    crypto.getRandomValues(arr);
-    sessionNonce = Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
-  }
-  return sessionNonce;
-}
-
-// Synchronous hash for reads (used for same-session verification)
-function computeHashSync(data: string): string {
-  // djb2 with session nonce — only used for same-session verification
-  let hash = 5381;
-  const combined = getSessionNonce() + data;
-  for (let i = 0; i < combined.length; i++) {
-    hash = ((hash << 5) + hash + combined.charCodeAt(i)) | 0;
-  }
-  return 's1_' + (hash >>> 0).toString(36);
-}
-
 function getStorageKey(address: string) {
   return `tegridy_points_${address.toLowerCase()}`;
-}
-
-function getIntegrityKey(address: string) {
-  return `tegridy_points_hash_${address.toLowerCase()}`;
-}
-
-function verifyCacheIntegrity(address: string, raw: string): boolean {
-  try {
-    const storedHash = safeGetItem(getIntegrityKey(address));
-    if (!storedHash) return false;
-    return storedHash === computeHashSync(raw);
-  } catch {
-    return false;
-  }
 }
 
 /** Clamp a number to a safe range to prevent overflow / abuse. */
@@ -150,7 +119,7 @@ const FRESH_DATA = (): PointsData => ({
 export function getPointsData(address: string): PointsData {
   try {
     const raw = safeGetItem(getStorageKey(address));
-    if (raw && verifyCacheIntegrity(address, raw)) {
+    if (raw) {
       const parsed = JSON.parse(raw);
       if (validatePointsData(parsed)) return parsed;
     }
@@ -160,9 +129,7 @@ export function getPointsData(address: string): PointsData {
 
 function savePointsData(address: string, data: PointsData) {
   try {
-    const raw = JSON.stringify(data);
-    safeSetItem(getStorageKey(address), raw);
-    safeSetItem(getIntegrityKey(address), computeHashSync(raw));
+    safeSetItem(getStorageKey(address), JSON.stringify(data));
   } catch { /* storage full or unavailable */ }
 }
 
@@ -230,6 +197,7 @@ export function recordDailyVisit(address: string): PointsData {
 }
 
 export function setReferrer(address: string, referrer: string) {
+  // AUDIT R036: guard against self-referral here too (cheap second line of defence).
   if (address.toLowerCase() === referrer.toLowerCase()) return;
   const data = getPointsData(address);
   if (!data.referrer) {
@@ -238,7 +206,23 @@ export function setReferrer(address: string, referrer: string) {
   }
 }
 
-export function incrementReferralCount(referrerAddress: string) {
+/**
+ * @deprecated AUDIT R036: client-side referral counts are not authoritative.
+ * Use the on-chain `ReferralSplitter.getReferralInfo()` read for the actual
+ * count. This helper now (a) refuses self-referral and (b) only updates the
+ * local cache for fast paint — the on-chain reconciliation will overwrite it.
+ */
+export function incrementReferralCount(referrerAddress: string, refereeAddress?: string) {
+  // AUDIT R036: hard self-referral guard. Without this, anyone could pass
+  // their own address as the "friend signed up" callback target and inflate
+  // their cached `referralCount`. Cheap defence-in-depth on top of the
+  // on-chain `ReferralSplitter.setReferrer` self-check.
+  if (
+    refereeAddress &&
+    referrerAddress.toLowerCase() === refereeAddress.toLowerCase()
+  ) {
+    return;
+  }
   const data = getPointsData(referrerAddress);
   data.referralCount = Math.min(data.referralCount + 1, 10_000);
   const referralPts = POINTS_MAP.referral_swap ?? 0;

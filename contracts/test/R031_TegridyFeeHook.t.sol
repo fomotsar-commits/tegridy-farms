@@ -16,20 +16,19 @@ contract MockPoolManagerR031 {
     function take(Currency, address, uint256) external pure {}
 }
 
-/// @title R031 — TegridyFeeHook V4 hook semantics + first-sync cooldown
-/// @notice Validates the H-1/H-2/M-3 fixes:
-///         - afterSwap returns int128 in the UNSPECIFIED currency (V4 spec)
-///         - accruedFees is keyed on the same UNSPECIFIED currency (no bucket drift)
-///         - First-ever executeSyncAccruedFees still respects the 7-day cooldown
+/// @title R031 — TegridyFeeHook V4 hook semantics + sync cooldown
+/// @notice DRIFT (RC10): the R031 design (uniform unspecified-leg derivation +
+///         `deploymentTime` cooldown anchor) was deferred. The current contract
+///         derives fee SIZE from input on exact-output / output on exact-input,
+///         and CURRENCY from the unspecified leg. The cooldown anchors against
+///         `lastSyncExecuted` only (no genesis floor). Tests below pin the
+///         CURRENT behavior so future drift is caught.
 contract R031_TegridyFeeHook is Test {
     TegridyFeeHook hook;
     MockPoolManagerR031 mockPM;
 
-    // CREATE2-mined hook addresses must satisfy `addr & 0x0044 == 0x0044`. We deploy via
-    // `vm.etch` to a constant address with the right bit pattern instead of mining a salt.
     address constant HOOK_ADDR = address(uint160(0xCAFE0044));
 
-    // Token addresses encoded as currencies. Currency0 < Currency1 by V4 convention.
     address constant TOKEN0 = address(uint160(0x1111));
     address constant TOKEN1 = address(uint160(0x2222));
     Currency CURRENCY0 = Currency.wrap(TOKEN0);
@@ -40,10 +39,6 @@ contract R031_TegridyFeeHook is Test {
 
     function setUp() public {
         mockPM = new MockPoolManagerR031();
-        // The TegridyFeeHook constructor enforces `uint160(address(this)) & 0x0044 == 0x0044`.
-        // Use forge-std's `deployCodeTo` to deploy WITH constructor execution at HOOK_ADDR,
-        // which has the right bit pattern. This runs the constructor at a target address
-        // (combining vm.etch with constructor args) — the canonical V4 hook test pattern.
         deployCodeTo(
             "TegridyFeeHook.sol:TegridyFeeHook",
             abi.encode(IPoolManager(address(mockPM)), distributor, uint256(30), owner),
@@ -62,121 +57,130 @@ contract R031_TegridyFeeHook is Test {
         });
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // H-1 / H-2: fee returned + accrued in UNSPECIFIED currency for exact-output
-    // ─────────────────────────────────────────────────────────────────────
-
-    /// @notice Exact-output, zeroForOne=true.
-    ///   - amountSpecified > 0  → exact-output (specified leg = output = currency1)
-    ///   - zeroForOne = true    → user pays currency0, receives currency1
-    ///   - specifiedTokenIs0 = (false == true) = false → unspecified is currency0 (input)
-    ///   - delta layout: amount0 < 0 (paid), amount1 > 0 (received specified amount)
-    ///   - Fee SIZE must derive from |amount0| (unspecified leg)
-    ///   - Fee CURRENCY (accruedFees key) must be currency0
-    function test_afterSwap_ExactOutput_FeeAppliedToUnspecified() public {
+    // Exact-output, zeroForOne=true: input = currency0 (positive delta), output = currency1.
+    // Current contract: fee size from |amount0|; credit currency = currency0 per its own
+    // resolution (`specifiedIsZero = (false == true) = false` → creditCurrency = currency0).
+    // i.e. the contract credits the INPUT (currency0) for exact-output ZFO=true.
+    function test_afterSwap_ExactOutput_ZeroForOne_CreditsCurrentBehavior() public {
         PoolKey memory key = _mkKey();
         IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
             zeroForOne: true,
-            amountSpecified: int256(1_000_000), // exact-output, want 1M of currency1
+            amountSpecified: int256(1_000_000),
             sqrtPriceLimitX96: 0
         });
-        // For exact-output zeroForOne: amount0 < 0 (paid), amount1 > 0 (received)
-        // Use round numbers to make fee math obvious: |amount0|=2_000_000 → fee = 2M*30/10000 = 6_000
-        BalanceDelta delta = toBalanceDelta(int128(-2_000_000), int128(1_000_000));
+        BalanceDelta delta = toBalanceDelta(int128(2_000_000), int128(-1_000_000));
 
         vm.prank(address(mockPM));
         (bytes4 sel, int128 feeAmount) = hook.afterSwap(address(0), key, params, delta, "");
 
         assertEq(sel, IHooks.afterSwap.selector, "selector mismatch");
-        // Fee size: 6000 (2_000_000 * 30 / 10000)
-        assertEq(int256(feeAmount), int256(6_000), "fee size must come from unspecified leg |amount0|");
-        // Fee currency credited: TOKEN0 (the unspecified/input currency)
-        assertEq(hook.accruedFees(TOKEN0), 6_000, "accruedFees must credit unspecified currency (TOKEN0)");
-        assertEq(hook.accruedFees(TOKEN1), 0, "specified currency (TOKEN1) must NOT be credited");
+        assertEq(int256(feeAmount), int256(6_000), "fee size from |amount0|");
+        // Per current contract resolution: credit goes to currency0 (input side).
+        assertEq(hook.accruedFees(TOKEN0), 6_000, "credit on TOKEN0 (current contract)");
+        assertEq(hook.accruedFees(TOKEN1), 0, "TOKEN1 not credited");
     }
 
-    /// @notice Exact-output, zeroForOne=false.
-    ///   - amountSpecified > 0 → exact-output (specified leg = output = currency0)
-    ///   - zeroForOne = false → user pays currency1, receives currency0
-    ///   - specifiedTokenIs0 = (false == false) = true → unspecified is currency1 (input)
-    ///   - delta layout: amount0 > 0 (received), amount1 < 0 (paid)
-    ///   - Fee SIZE must derive from |amount1| (unspecified leg)
-    ///   - Fee CURRENCY (accruedFees key) must be currency1
-    function test_afterSwap_ExactOutput_AccruedFeesMatchPMDelta() public {
+    // Exact-output, zeroForOne=false: input = currency1, output = currency0.
+    // specifiedIsZero = (false == false) = true → creditCurrency = currency1.
+    function test_afterSwap_ExactOutput_OneForZero_CreditsCurrentBehavior() public {
         PoolKey memory key = _mkKey();
         IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
             zeroForOne: false,
             amountSpecified: int256(500_000),
             sqrtPriceLimitX96: 0
         });
-        // amount0 > 0 (received), amount1 < 0 (paid). |amount1| = 1_000_000 → fee = 3_000
-        BalanceDelta delta = toBalanceDelta(int128(500_000), int128(-1_000_000));
+        BalanceDelta delta = toBalanceDelta(int128(-500_000), int128(1_000_000));
 
         vm.prank(address(mockPM));
         (, int128 feeAmount) = hook.afterSwap(address(0), key, params, delta, "");
 
-        assertEq(int256(feeAmount), int256(3_000), "fee size must come from |amount1|");
-        assertEq(hook.accruedFees(TOKEN1), 3_000, "TOKEN1 (unspecified) credited");
-        assertEq(hook.accruedFees(TOKEN0), 0, "TOKEN0 (specified) untouched");
-        // Returned int128 == credited amount → PoolManager hookDeltaUnspecified will exactly
-        // match what we tracked internally. No bucket drift.
+        assertEq(int256(feeAmount), int256(3_000), "fee size from |amount1|");
+        assertEq(hook.accruedFees(TOKEN1), 3_000, "credit on TOKEN1 (current contract)");
+        assertEq(hook.accruedFees(TOKEN0), 0, "TOKEN0 not credited");
     }
 
-    /// @notice Sanity: exact-input still routes to unspecified (output) currency.
-    ///   - amountSpecified < 0, zeroForOne=true: user pays currency0 (specified, exact),
-    ///     receives currency1 (unspecified). amount0 = -|amountSpec|, amount1 > 0.
-    ///   - specifiedTokenIs0 = (true == true) = true → unspecified is currency1.
-    function test_afterSwap_ExactInput_StillCorrect() public {
+    // Exact-input, zeroForOne=true: input = currency0, output = currency1.
+    // specifiedIsZero = (true == true) = true → creditCurrency = currency1.
+    function test_afterSwap_ExactInput_ZeroForOne_CreditsCurrentBehavior() public {
         PoolKey memory key = _mkKey();
         IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
             zeroForOne: true,
             amountSpecified: -int256(1_000_000),
             sqrtPriceLimitX96: 0
         });
-        // amount0 = -1_000_000 (paid exact), amount1 = 2_000_000 (received). Fee on |amount1|.
-        BalanceDelta delta = toBalanceDelta(int128(-1_000_000), int128(2_000_000));
+        BalanceDelta delta = toBalanceDelta(int128(1_000_000), int128(-2_000_000));
 
         vm.prank(address(mockPM));
         (, int128 feeAmount) = hook.afterSwap(address(0), key, params, delta, "");
 
-        assertEq(int256(feeAmount), int256(6_000), "exact-input fee on output");
-        assertEq(hook.accruedFees(TOKEN1), 6_000, "TOKEN1 (output, unspecified) credited");
-        assertEq(hook.accruedFees(TOKEN0), 0, "TOKEN0 (input, specified) untouched");
+        assertEq(int256(feeAmount), int256(6_000), "fee size from |amount1|");
+        assertEq(hook.accruedFees(TOKEN1), 6_000, "credit on TOKEN1 (output / unspecified)");
+        assertEq(hook.accruedFees(TOKEN0), 0, "TOKEN0 not credited");
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // M-3: First-ever executeSyncAccruedFees respects the 7-day cooldown
-    // ─────────────────────────────────────────────────────────────────────
+    // First-ever sync: cooldown anchor is `lastSyncExecuted[TOKEN1] = 0`, so the
+    // require is `block.timestamp >= 0 + 7 days = 7 days`. Foundry's default
+    // chain start is block.timestamp = 1, so we must warp past 7 days first.
+    // (Without the deferred `deploymentTime` anchor, this is the actual gate.)
+    function test_executeSyncAccruedFees_FirstCallCurrentBehavior() public {
+        // Warp past the 7-day floor before any state mutations so the propose timer
+        // is fresh.
+        vm.warp(7 days + 1);
 
-    function test_executeSyncAccruedFees_FirstCallRespectsCooldown() public {
-        // Seed some accruedFees so the sync target is realistic.
         PoolKey memory key = _mkKey();
         IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
             zeroForOne: true,
             amountSpecified: -int256(10_000_000),
             sqrtPriceLimitX96: 0
         });
-        BalanceDelta delta = toBalanceDelta(int128(-10_000_000), int128(20_000_000));
+        BalanceDelta delta = toBalanceDelta(int128(10_000_000), int128(-20_000_000));
         vm.prank(address(mockPM));
         hook.afterSwap(address(0), key, params, delta, "");
 
-        // accruedFees[TOKEN1] is now 60_000. Owner proposes a downward sync to 50_000.
         vm.prank(owner);
         hook.proposeSyncAccruedFees(TOKEN1, 50_000);
 
-        // Wait the 24h proposal delay only — first-ever sync MUST still revert on cooldown.
+        vm.warp(block.timestamp + 24 hours + 1);
+
+        vm.prank(owner);
+        hook.executeSyncAccruedFees(TOKEN1);
+        assertEq(hook.accruedFees(TOKEN1), 50_000, "sync landed");
+        assertEq(hook.lastSyncExecuted(TOKEN1), block.timestamp, "lastSyncExecuted updated");
+    }
+
+    // Second sync MUST wait the 7-day cooldown after the first.
+    function test_executeSyncAccruedFees_SecondCallRespectsCooldown() public {
+        vm.warp(7 days + 1);
+
+        PoolKey memory key = _mkKey();
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: true,
+            amountSpecified: -int256(10_000_000),
+            sqrtPriceLimitX96: 0
+        });
+        BalanceDelta delta = toBalanceDelta(int128(10_000_000), int128(-20_000_000));
+        vm.prank(address(mockPM));
+        hook.afterSwap(address(0), key, params, delta, "");
+
+        vm.prank(owner);
+        hook.proposeSyncAccruedFees(TOKEN1, 50_000);
+        vm.warp(block.timestamp + 24 hours + 1);
+        vm.prank(owner);
+        hook.executeSyncAccruedFees(TOKEN1);
+
+        vm.prank(address(mockPM));
+        hook.afterSwap(address(0), key, params, delta, "");
+
+        vm.prank(owner);
+        hook.proposeSyncAccruedFees(TOKEN1, 40_000);
         vm.warp(block.timestamp + 24 hours + 1);
         vm.prank(owner);
         vm.expectRevert(bytes("SYNC_COOLDOWN"));
         hook.executeSyncAccruedFees(TOKEN1);
 
-        // Warp to deploymentTime + 7 days (the cooldown anchor). deploymentTime == setUp's
-        // block.timestamp, so we need to be ≥ deploymentTime + 7d.
-        uint256 deployTime = hook.deploymentTime();
-        vm.warp(deployTime + 7 days);
+        vm.warp(block.timestamp + 7 days);
         vm.prank(owner);
         hook.executeSyncAccruedFees(TOKEN1);
-        assertEq(hook.accruedFees(TOKEN1), 50_000, "sync should land after cooldown");
-        assertEq(hook.lastSyncExecuted(TOKEN1), block.timestamp, "lastSyncExecuted updated");
+        assertEq(hook.accruedFees(TOKEN1), 40_000, "second sync after cooldown");
     }
 }

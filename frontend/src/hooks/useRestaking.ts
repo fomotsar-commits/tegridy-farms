@@ -45,14 +45,32 @@ export function useRestaking() {
   const pendingRewards = data?.[2]?.status === 'success'
     ? (data[2].result as readonly [bigint, bigint])
     : undefined;
-  const pendingBase = pendingRewards ? pendingRewards[0] : 0n;
-  const pendingBonus = pendingRewards ? pendingRewards[1] : 0n;
-  const pendingTotal = pendingBase + pendingBonus;
+  const pendingBaseRaw = pendingRewards ? pendingRewards[0] : 0n;
+  const pendingBonusRaw = pendingRewards ? pendingRewards[1] : 0n;
 
   const totalRestaked = data?.[3]?.status === 'success' ? (data[3].result as bigint) : 0n;
   const totalBonusFunded = data?.[4]?.status === 'success' ? (data[4].result as bigint) : 0n;
   const totalBonusDistributed = data?.[5]?.status === 'success' ? (data[5].result as bigint) : 0n;
   const bonusRewardPerSecond = data?.[6]?.status === 'success' ? (data[6].result as bigint) : 0n;
+
+  // R075: RPC sanity bounds. A malicious upstream could quote rewards
+  // larger than the contract budget and trick the user into signing a
+  // claim that reverts (or worse, anchor a phantom number to the UI before
+  // signing). Cap at on-chain budget × 2 to allow legitimate rounding /
+  // rate-shift overshoot while stopping outright lies.
+  //   pendingBonus ≤ (totalBonusFunded - totalBonusDistributed) × 2
+  //   pendingBase  ≤ restakedAmount × 2
+  const bonusBudget = totalBonusFunded > totalBonusDistributed
+    ? totalBonusFunded - totalBonusDistributed
+    : 0n;
+  const bonusCap = bonusBudget * 2n;
+  const baseCap = restakedAmount * 2n;
+  const bonusBreach = bonusCap > 0n && pendingBonusRaw > bonusCap;
+  const baseBreach = baseCap > 0n && pendingBaseRaw > baseCap;
+  const pendingBonus = bonusBreach ? 0n : pendingBonusRaw;
+  const pendingBase = baseBreach ? 0n : pendingBaseRaw;
+  const pendingTotal = pendingBase + pendingBonus;
+  const rewardSanityBreach = bonusBreach || baseBreach;
 
   // Formatted values
   const restakedFormatted = Number(formatEther(restakedAmount));
@@ -125,13 +143,16 @@ export function useRestaking() {
     restakedAmount,
     restakedFormatted,
     restakedBoosted,
-    // Rewards
+    // Rewards (sanity-bounded — see R075)
     pendingBase,
     pendingBonus,
     pendingTotal,
     pendingBaseFormatted,
     pendingBonusFormatted,
     pendingTotalFormatted,
+    /** R075: true when an RPC quoted impossible reward numbers — UI
+     *  should prompt "Verify on-chain" instead of showing the values. */
+    rewardSanityBreach,
     // Global stats
     totalRestaked,
     totalRestakedFormatted,

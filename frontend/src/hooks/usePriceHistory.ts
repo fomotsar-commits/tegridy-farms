@@ -1,14 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
 import { TOWELI_WETH_LP_ADDRESS } from '../lib/constants';
+import { safeGetItem, safeJsonParse, safeSetItem } from '../lib/storage';
+import { PRICE_CACHE_VERSION } from './useToweliPrice';
 
 const CACHE_KEY = 'tegridy_price_history';
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const FRESHNESS_SLACK_MS = 60_000;
+const MAX_AGE_MS = 24 * 60 * 60_000;
 const MAX_RETRIES = 2;
 const BASE_DELAY = 1000;
 
 interface CachedHistory {
+  version: number;
   data: number[];
-  ts: number;
+  signedAt: number;
 }
 
 export interface PriceHistoryResult {
@@ -25,23 +30,33 @@ export function usePriceHistory(_currentPrice?: number): PriceHistoryResult {
 
   useEffect(() => {
 
-    // Check cache
-    try {
-      const cached = localStorage.getItem(CACHE_KEY);
-      if (cached) {
-        const parsed: CachedHistory = JSON.parse(cached);
-        if (
-          Date.now() - parsed.ts < CACHE_DURATION &&
-          Array.isArray(parsed.data) &&
-          parsed.data.length > 0 &&
-          parsed.data.every((v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0)
-        ) {
-          setHistory(parsed.data);
-          setError(null);
-          return;
-        }
-      }
-    } catch {}
+    // R075: versioned-cache read with signedAt freshness check. Reject any
+    // entry that fails the version pin, has a future signedAt (>60s slack),
+    // or is older than 24h. CACHE_DURATION still gates "fresh enough" for
+    // the in-session display path.
+    const raw = safeGetItem(CACHE_KEY);
+    const parsed = safeJsonParse<Partial<CachedHistory>>(raw, {} as Partial<CachedHistory>);
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      parsed.version === PRICE_CACHE_VERSION &&
+      typeof parsed.signedAt === 'number' &&
+      Number.isFinite(parsed.signedAt) &&
+      parsed.signedAt <= Date.now() + FRESHNESS_SLACK_MS &&
+      Date.now() - parsed.signedAt <= MAX_AGE_MS &&
+      Date.now() - parsed.signedAt < CACHE_DURATION &&
+      Array.isArray(parsed.data) &&
+      parsed.data.length > 0 &&
+      parsed.data.every((v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0)
+    ) {
+      setHistory(parsed.data as number[]);
+      setError(null);
+      return;
+    }
+    // Drop schema-mismatched entries so they don't fill the eviction queue.
+    if (raw && parsed && parsed.version !== PRICE_CACHE_VERSION) {
+      try { localStorage.removeItem(CACHE_KEY); } catch { /* noop */ }
+    }
 
     const abortController = new AbortController();
     let cancelled = false;
@@ -79,9 +94,13 @@ export function usePriceHistory(_currentPrice?: number): PriceHistoryResult {
               setHistory(closes);
               setError(null);
               setIsLoading(false);
-              try {
-                localStorage.setItem(CACHE_KEY, JSON.stringify({ data: closes, ts: Date.now() }));
-              } catch {}
+              // R075: versioned write — version + signedAt stamped on every save.
+              const entry: CachedHistory = {
+                version: PRICE_CACHE_VERSION,
+                data: closes,
+                signedAt: Date.now(),
+              };
+              safeSetItem(CACHE_KEY, JSON.stringify(entry));
             }
             return;
           }

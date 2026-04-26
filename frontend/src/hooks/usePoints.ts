@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAccount, useReadContracts, usePublicClient } from 'wagmi';
-import { getAddress, parseAbiItem } from 'viem';
+import { parseAbiItem } from 'viem';
 import {
-  getPointsData, recordAction, setReferrer,
+  getPointsData, recordAction,
   getTier, getNextTier, getStreakMultiplier, getEarnedBadges,
   computeOnChainPoints, reconcilePoints,
   type PointsData, type OnChainMetrics,

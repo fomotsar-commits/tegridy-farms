@@ -182,8 +182,12 @@ export function useIrysUpload(): UseIrysUploadApi {
 
   const uploadJson = useCallback(async (data: object, filename = 'data.json') => {
     const u = await getUploader();
-    const body = new TextEncoder().encode(JSON.stringify(data));
-    const receipt = await u.upload(body as unknown as Buffer, {
+    const json = JSON.stringify(data);
+    if (json.length > MAX_UPLOAD_BYTES_PER_FILE) {
+      throw new PayloadTooLargeError(json.length, MAX_UPLOAD_BYTES_PER_FILE);
+    }
+    const body = Buffer.from(new TextEncoder().encode(json));
+    const receipt = await u.upload(body, {
       tags: [
         { name: 'Content-Type', value: 'application/json' },
         { name: 'File-Name', value: filename },
@@ -193,17 +197,31 @@ export function useIrysUpload(): UseIrysUploadApi {
   }, [getUploader]);
 
   const uploadJsonFolder = useCallback(async (items: Array<{ filename: string; json: object }>) => {
+    // R044 H2 cap.
+    let totalBytes = 0;
+    const encoded: { filename: string; bytes: Uint8Array }[] = [];
+    for (const item of items) {
+      const bytes = new TextEncoder().encode(JSON.stringify(item.json));
+      if (bytes.byteLength > MAX_UPLOAD_BYTES_PER_FILE) {
+        throw new PayloadTooLargeError(bytes.byteLength, MAX_UPLOAD_BYTES_PER_FILE,
+          `JSON "${item.filename}" exceeds ${MAX_UPLOAD_BYTES_PER_FILE} bytes`);
+      }
+      totalBytes += bytes.byteLength;
+      encoded.push({ filename: item.filename, bytes });
+    }
+    if (totalBytes > MAX_UPLOAD_BYTES_TOTAL) {
+      throw new PayloadTooLargeError(totalBytes, MAX_UPLOAD_BYTES_TOTAL);
+    }
     setStatus('uploading');
     setError(null);
     setProgress({ uploaded: 0, total: items.length });
     try {
       const u = await getUploader();
       const ids: string[] = [];
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i]!;
+      for (let i = 0; i < encoded.length; i++) {
+        const item = encoded[i]!;
         setProgress({ uploaded: i, total: items.length, currentFile: item.filename });
-        const body = new TextEncoder().encode(JSON.stringify(item.json));
-        const receipt = await u.upload(body as unknown as Buffer, {
+        const receipt = await u.upload(Buffer.from(item.bytes), {
           tags: [
             { name: 'Content-Type', value: 'application/json' },
             { name: 'File-Name', value: item.filename },
@@ -219,7 +237,7 @@ export function useIrysUpload(): UseIrysUploadApi {
         ),
       };
       const manifestReceipt = await u.upload(
-        new TextEncoder().encode(JSON.stringify(manifest)) as unknown as Buffer,
+        Buffer.from(new TextEncoder().encode(JSON.stringify(manifest))),
         { tags: [{ name: 'Content-Type', value: 'application/x.arweave-manifest+json' }] }
       );
       setProgress({ uploaded: items.length, total: items.length });

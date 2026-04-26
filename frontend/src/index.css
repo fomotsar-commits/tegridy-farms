@@ -163,7 +163,14 @@ body {
   font-family: var(--font-family-body);
   background: var(--color-bg-base);
   color: var(--color-text-primary);
+  /* AUDIT R038: 100vh leaks under iOS Safari address bar / Android chrome.
+     Use 100dvh (dynamic viewport) so the body fills the visible viewport on
+     mobile without scrolling under chrome. Cascading override below for old
+     browsers. */
   min-height: 100vh;
+  min-height: 100dvh;
+  /* AUDIT R038: prevent horizontal scroll bleed when sub-pixel rounding
+     (animated cards, transformed art) pushes content past the edge. */
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -698,6 +705,14 @@ body,
 @media (max-width: 767px) {
   .card, .glass, .glass-card, .glass-card-strong, .glass-card-subtle, .glass-card-animated {
     animation: none !important;
+  }
+  /* AUDIT R038: WCAG 2.5.5 Target Size — nav-link must hit at least 44×44px
+     on touch devices. Default padding produced ~32px on iPhone 14, missing
+     the minimum and making mis-taps frequent. */
+  .nav-link {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
   }
 }
 

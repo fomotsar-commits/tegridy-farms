@@ -45,15 +45,30 @@ interface SurfaceOpts {
  * Check whether an error was caused by the user rejecting the wallet prompt.
  * Handles both viem's explicit error class and common string signatures
  * from older wallet providers.
+ *
+ * AUDIT R074: viem wraps errors so the `UserRejectedRequestError` is usually
+ * nested inside a `ContractFunctionExecutionError.cause` (or deeper). The
+ * legacy check only looked at the outer error and produced false-negative
+ * "real failure" toasts for cancelled wallet prompts. Walk the `.cause`
+ * chain (cycle-safe via a depth cap) so any layer surfacing the rejection
+ * is detected.
  */
 export function isUserRejection(err: unknown): boolean {
-  if (err instanceof UserRejectedRequestError) return true;
-  if (!err || typeof err !== 'object') return false;
-  const e = err as { name?: string; code?: number; message?: string };
-  if (e.code === 4001) return true; // EIP-1193 standard
-  if (e.name === 'UserRejectedRequestError') return true;
-  const msg = (e.message ?? '').toLowerCase();
-  return msg.includes('user rejected') || msg.includes('user denied');
+  // AUDIT R074: walk the cause chain — viem nests rejection errors several
+  // layers deep when the prompt comes from a contract write. 8 hops is
+  // plenty (every layer we control is at most 3).
+  let current: unknown = err;
+  for (let depth = 0; depth < 8 && current; depth++) {
+    if (current instanceof UserRejectedRequestError) return true;
+    if (typeof current !== 'object' || current === null) break;
+    const e = current as { name?: string; code?: number; message?: string; cause?: unknown };
+    if (e.code === 4001) return true; // EIP-1193 standard
+    if (e.name === 'UserRejectedRequestError') return true;
+    const msg = (e.message ?? '').toLowerCase();
+    if (msg.includes('user rejected') || msg.includes('user denied')) return true;
+    current = e.cause;
+  }
+  return false;
 }
 
 /**

@@ -2,7 +2,40 @@ import { useRef, useEffect, useState } from 'react';
 import { useReadContract } from 'wagmi';
 import { UNISWAP_V2_PAIR_ABI, CHAINLINK_FEED_ABI, TEGRIDY_TWAP_ABI } from '../lib/contracts';
 import { TOWELI_WETH_LP_ADDRESS, ETH_USD_FEED, TOWELI_ADDRESS, TEGRIDY_TWAP_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
-import { safeSetItem } from '../lib/storage';
+import { safeSetItem, safeGetItem, safeJsonParse } from '../lib/storage';
+
+// R075: every cache key carries its own schema version. A stale entry from
+// a different commit, a tampered `signedAt`, or a future-signed payload is
+// invalidated on read. Bumping this number invalidates every cache entry.
+export const PRICE_CACHE_VERSION = 2;
+const CACHE_FRESHNESS_SLACK_MS = 60_000; // accept entries up to 60s in the future
+const CACHE_MAX_AGE_MS = 24 * 60 * 60_000; // reject entries >24h old
+
+interface VersionedCacheEntry<T> {
+  version: number;
+  data: T;
+  signedAt: number;
+}
+
+function readVersionedCacheEntry<T>(key: string): T | null {
+  const raw = safeGetItem(key);
+  const parsed = safeJsonParse<Partial<VersionedCacheEntry<T>>>(raw, {} as Partial<VersionedCacheEntry<T>>);
+  if (!parsed || typeof parsed !== 'object') return null;
+  if (parsed.version !== PRICE_CACHE_VERSION) {
+    try { localStorage.removeItem(key); } catch { /* noop */ }
+    return null;
+  }
+  if (typeof parsed.signedAt !== 'number' || !Number.isFinite(parsed.signedAt)) return null;
+  const now = Date.now();
+  if (parsed.signedAt > now + CACHE_FRESHNESS_SLACK_MS) return null;
+  if (now - parsed.signedAt > CACHE_MAX_AGE_MS) return null;
+  return (parsed.data as T) ?? null;
+}
+
+function writeVersionedCache<T>(key: string, data: T): void {
+  const entry: VersionedCacheEntry<T> = { version: PRICE_CACHE_VERSION, data, signedAt: Date.now() };
+  safeSetItem(key, JSON.stringify(entry));
+}
 
 // TWAP window: 30 minutes. Long enough to resist single-block manipulation,
 // short enough to track real price movements at <1 min lag.
@@ -65,19 +98,13 @@ export function useToweliPrice() {
   const [apiFallbackPrice, setApiFallbackPrice] = useState<number>(0);
   const [apiPriceStale, setApiPriceStale] = useState(false);
 
-  // Load cached price for display-only (marked stale if old)
+  // R075: load cached price via versioned-cache reader.
   useEffect(() => {
-    try {
-      const cached = localStorage.getItem('tegridy_api_price');
-      if (cached) {
-        const { price: cp, ts } = JSON.parse(cached);
-        if (cp > 0) {
-          setApiFallbackPrice(cp);
-          // Mark stale if older than 5 minutes
-          setApiPriceStale(Date.now() - ts > 300_000);
-        }
-      }
-    } catch {}
+    const entry = readVersionedCacheEntry<{ price: number; ts: number }>('tegridy_api_price');
+    if (!entry) return;
+    if (typeof entry.price !== 'number' || !(entry.price > 0)) return;
+    setApiFallbackPrice(entry.price);
+    setApiPriceStale(Date.now() - entry.ts > 300_000);
   }, []);
 
   // GeckoTerminal API — always fetch fresh price
@@ -95,7 +122,8 @@ export function useToweliPrice() {
         if (p > 0) {
           setApiFallbackPrice(p);
           setApiPriceStale(false);
-          safeSetItem('tegridy_api_price', JSON.stringify({ price: p, ts: Date.now() }));
+          // R075: write through the versioned-cache helper.
+          writeVersionedCache('tegridy_api_price', { price: p, ts: Date.now() });
         }
       })
       .catch((err) => {
@@ -221,7 +249,8 @@ export function useToweliPrice() {
     // Pin baseline to session start — only set once
     if (prevPriceRef.current === 0) {
       prevPriceRef.current = priceInUsd;
-      safeSetItem('tegridy_price_baseline', JSON.stringify({ price: priceInUsd, ts: Date.now() }));
+      // R075: versioned-cache write.
+      writeVersionedCache('tegridy_price_baseline', { price: priceInUsd, ts: Date.now() });
     }
   }, [priceInUsd]);
 

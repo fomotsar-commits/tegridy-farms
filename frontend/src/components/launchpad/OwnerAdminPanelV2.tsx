@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther } from 'viem';
@@ -85,6 +85,34 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
     void refetchContractURI();
     void refetchPaused();
   }
+
+  // R071 M-072-05: client-side Dutch-auction invariants mirror the Solidity
+  // guards (TegridyDropV2.configureDutchAuction). Surfacing them inline lets
+  // the operator fix the issue before signing — beats waiting for a revert.
+  //   1. startTime > 0
+  //   2. duration > 0
+  //   3. startPrice > endPrice (strict)
+  //   4. startPrice − endPrice >= duration (decay step ≥ 1 wei/sec — prevents
+  //      a zero-decay revert from the contract)
+  const dutchValidationError = useMemo<string | null>(() => {
+    if (!dutchStartPrice && !dutchEndPrice && !dutchStartTime && !dutchDuration) return null;
+    if (!dutchStartPrice || !dutchEndPrice || !dutchStartTime || !dutchDuration) {
+      return 'Fill in all four Dutch fields to validate.';
+    }
+    let startWei: bigint;
+    let endWei: bigint;
+    try { startWei = parseEther(dutchStartPrice); } catch { return 'Start price must be a valid ETH amount.'; }
+    try { endWei = parseEther(dutchEndPrice); } catch { return 'End price must be a valid ETH amount.'; }
+    let startUnix: bigint;
+    let durationSec: bigint;
+    try { startUnix = BigInt(dutchStartTime); } catch { return 'Start time must be a unix integer.'; }
+    try { durationSec = BigInt(dutchDuration); } catch { return 'Duration must be an integer (seconds).'; }
+    if (startUnix <= 0n) return 'Start time must be greater than 0.';
+    if (durationSec <= 0n) return 'Duration must be greater than 0.';
+    if (startWei <= endWei) return 'Start price must be strictly greater than end price.';
+    if (startWei - endWei < durationSec) return 'Decay step too small: (start − end) must be ≥ duration in seconds.';
+    return null;
+  }, [dutchStartPrice, dutchEndPrice, dutchStartTime, dutchDuration]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const exec = useCallback((fn: string, args?: unknown[], opts?: { onSuccess?: () => void }) => {

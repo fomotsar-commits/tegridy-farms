@@ -1,8 +1,8 @@
-import { useMemo } from 'react';
-import { useReadContract, useReadContracts } from 'wagmi';
+import { useCallback, useMemo } from 'react';
+import { useReadContract, useReadContracts, useWatchContractEvent } from 'wagmi';
 import { type Address } from 'viem';
-import { GAUGE_CONTROLLER_ADDRESS, isDeployed } from '../lib/constants';
-import { GAUGE_CONTROLLER_ABI, UNISWAP_V2_PAIR_ABI, ERC20_ABI } from '../lib/contracts';
+import { GAUGE_CONTROLLER_ADDRESS, VOTE_INCENTIVES_ADDRESS, isDeployed } from '../lib/constants';
+import { GAUGE_CONTROLLER_ABI, UNISWAP_V2_PAIR_ABI, ERC20_ABI, VOTE_INCENTIVES_ABI } from '../lib/contracts';
 
 export interface GaugeInfo {
   pair: Address;
@@ -29,7 +29,7 @@ export interface GaugeInfo {
 export function useGaugeList(): { gauges: GaugeInfo[]; isLoading: boolean } {
   const enabled = isDeployed(GAUGE_CONTROLLER_ADDRESS);
 
-  const { data: gaugesData, isLoading: isLoadingGauges } = useReadContract({
+  const { data: gaugesData, isLoading: isLoadingGauges, refetch: refetchGauges } = useReadContract({
     address: GAUGE_CONTROLLER_ADDRESS,
     abi: GAUGE_CONTROLLER_ABI,
     functionName: 'getGauges',
@@ -54,9 +54,55 @@ export function useGaugeList(): { gauges: GaugeInfo[]; isLoading: boolean } {
     [pairs],
   );
 
-  const { data: pairData, isLoading: isLoadingPairs } = useReadContracts({
+  const { data: pairData, isLoading: isLoadingPairs, refetch: refetchPairs } = useReadContracts({
     contracts: pairReads,
     query: { enabled: enabled && pairs.length > 0, refetchInterval: 60_000 },
+  });
+
+  // R075: refetch gauges + pair stats on every gauge-relevant event so
+  // retired gauges and post-roll weights flush immediately instead of
+  // waiting up to a minute for the poll. Memoised so all 5 watchers
+  // share the same handler identity.
+  const refetchAll = useCallback(() => {
+    refetchGauges();
+    refetchPairs();
+  }, [refetchGauges, refetchPairs]);
+
+  useWatchContractEvent({
+    address: GAUGE_CONTROLLER_ADDRESS,
+    abi: GAUGE_CONTROLLER_ABI,
+    eventName: 'GaugeAdded',
+    onLogs: refetchAll,
+    enabled,
+  });
+  useWatchContractEvent({
+    address: GAUGE_CONTROLLER_ADDRESS,
+    abi: GAUGE_CONTROLLER_ABI,
+    eventName: 'GaugeRemoved',
+    onLogs: refetchAll,
+    enabled,
+  });
+  useWatchContractEvent({
+    address: GAUGE_CONTROLLER_ADDRESS,
+    abi: GAUGE_CONTROLLER_ABI,
+    eventName: 'Voted',
+    onLogs: refetchAll,
+    enabled,
+  });
+  useWatchContractEvent({
+    address: GAUGE_CONTROLLER_ADDRESS,
+    abi: GAUGE_CONTROLLER_ABI,
+    eventName: 'VoteRevealed',
+    onLogs: refetchAll,
+    enabled,
+  });
+  // EpochAdvanced sourced from VoteIncentives — strongest emission-roll signal.
+  useWatchContractEvent({
+    address: VOTE_INCENTIVES_ADDRESS,
+    abi: VOTE_INCENTIVES_ABI,
+    eventName: 'EpochAdvanced',
+    onLogs: refetchAll,
+    enabled,
   });
 
   // Collect unique token addresses across all pairs, then batch symbol reads.

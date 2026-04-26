@@ -8,7 +8,14 @@ export const LABEL = 'text-[11px] uppercase tracking-wider label-pill text-white
 export const BTN_EMERALD =
   'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 transition-colors text-white font-medium disabled:opacity-70 disabled:pointer-events-none';
 
-export const PHASE_LABELS = ['Paused', 'Allowlist', 'Public'] as const;
+// R071 H-072-01: 5-entry array maps 1:1 to TegridyDropV2.sol enum MintPhase
+// `{CLOSED, ALLOWLIST, PUBLIC, DUTCH_AUCTION, CANCELLED}`. Prior 3-entry list
+// silently dropped DUTCH_AUCTION (admins couldn't pick it from the grid) and
+// mislabeled CLOSED as "Paused" (paused() is a separate boolean reentrancy
+// guard, not the mint phase). CANCELLED is reachable only via cancelSale()
+// — `setMintPhase(CANCELLED)` reverts on-chain — so the admin grid uses
+// PHASE_LABELS.slice(0, 4) and CANCELLED lives in the Danger Zone.
+export const PHASE_LABELS = ['Closed', 'Allowlist', 'Public', 'Dutch Auction', 'Cancelled'] as const;
 // South Park character palette: Kyle green, Stan blue, Cartman red,
 // Kenny orange, Cartman yellow, Chef purple. One per bullet.
 export const FEATURE_BULLETS = [

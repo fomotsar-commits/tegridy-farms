@@ -1,6 +1,6 @@
-import { useAccount, useReadContracts, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useReadContracts, useReadContract, useWriteContract, useWaitForTransactionReceipt, useWatchContractEvent } from 'wagmi';
 import { formatEther, type Address, type Hex } from 'viem';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { VOTE_INCENTIVES_ABI, ERC20_ABI } from '../lib/contracts';
 import { VOTE_INCENTIVES_ADDRESS, TOWELI_WETH_LP_ADDRESS, TOWELI_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
@@ -252,13 +252,56 @@ export function useBribes() {
     });
   }
 
+  // R075: claimable / pendingTokenWithdrawals refresh on every bribe-side
+  // event from any user. Without this the panel could lag chain state for
+  // up to 60s after a peer's deposit / claim / vote.
+  const refetchAll = useCallback(() => {
+    refetch();
+    refetchWhitelist();
+    refetchToweli();
+  }, [refetch, refetchWhitelist, refetchToweli]);
+
+  useWatchContractEvent({
+    address: VOTE_INCENTIVES_ADDRESS,
+    abi: VOTE_INCENTIVES_ABI,
+    eventName: 'BribeDeposited',
+    onLogs: refetchAll,
+    enabled: isDeployed,
+  });
+  useWatchContractEvent({
+    address: VOTE_INCENTIVES_ADDRESS,
+    abi: VOTE_INCENTIVES_ABI,
+    eventName: 'BribeDepositedETH',
+    onLogs: refetchAll,
+    enabled: isDeployed,
+  });
+  useWatchContractEvent({
+    address: VOTE_INCENTIVES_ADDRESS,
+    abi: VOTE_INCENTIVES_ABI,
+    eventName: 'BribeClaimed',
+    onLogs: refetchAll,
+    enabled: isDeployed,
+  });
+  useWatchContractEvent({
+    address: VOTE_INCENTIVES_ADDRESS,
+    abi: VOTE_INCENTIVES_ABI,
+    eventName: 'GaugeVoted',
+    onLogs: refetchAll,
+    enabled: isDeployed,
+  });
+  useWatchContractEvent({
+    address: VOTE_INCENTIVES_ADDRESS,
+    abi: VOTE_INCENTIVES_ABI,
+    eventName: 'EpochAdvanced',
+    onLogs: refetchAll,
+    enabled: isDeployed,
+  });
+
   // Toast feedback — defer reset() to next tick so isSuccess is readable by consumers this render
   useEffect(() => {
     if (isSuccess) {
       toast.success('Transaction confirmed!');
-      refetch();
-      refetchWhitelist();
-      refetchToweli();
+      refetchAll();
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
@@ -267,7 +310,7 @@ export function useBribes() {
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
-  }, [isSuccess, isTxError, writeError, refetch, refetchWhitelist, refetchToweli, reset]);
+  }, [isSuccess, isTxError, writeError, refetchAll, reset]);
 
   return {
     isDeployed,
