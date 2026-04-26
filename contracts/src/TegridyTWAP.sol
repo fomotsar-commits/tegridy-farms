@@ -93,6 +93,16 @@ contract TegridyTWAP is TWAPAdmin {
     mapping(address => uint256) public lastSpot0;
     mapping(address => uint256) public lastSpot1;
 
+    /// @notice AUDIT M-2: timestamp of the most recent rebootstrap (deviation gate
+    ///         bypassed because elapsed > DEVIATION_BYPASS_AFTER). Consumers reading
+    ///         the TWAP can compare against this to detect that a single dormant-then-
+    ///         updated observation is feeding into the cumulative — useful for
+    ///         lending oracles that may want to require a second confirming
+    ///         observation before trusting the new baseline. Zero means the pair
+    ///         has never had its deviation gate bypassed.
+    mapping(address => uint256) public lastBypassUsed;
+    event DeviationBypassed(address indexed pair, uint32 elapsed, uint256 spotPrice0, uint256 spotPrice1);
+
     // ─── AUDIT L7: optional update fee ───────────────────────────────
     /// @notice Fee in wei required from the caller of update(). Default 0 (free,
     ///         backward-compatible). Owner can set non-zero to capture revenue from
@@ -209,6 +219,14 @@ contract TegridyTWAP is TWAPAdmin {
             // M-2 (audit 013): if the pair has been dormant for > DEVIATION_BYPASS_AFTER,
             // skip the deviation gate so a stale baseline cannot self-brick the oracle.
             // Anything shorter is treated as a normal cadence and gated.
+            //
+            // AUDIT M-2 (post-remediation triage): when the bypass is used, emit
+            // DeviationBypassed and stamp lastBypassUsed[pair] so downstream consumers
+            // (lending, AMM integrators) can detect a re-bootstrap window and either
+            // cool-off their own price reads or require a follow-up confirmation
+            // observation before trusting the new baseline. The bypass itself remains
+            // — without it the oracle would brick if real price moved >50% during a
+            // dormant period — but it is no longer silent.
             if (uint256(elapsed) <= DEVIATION_BYPASS_AFTER) {
                 uint256 prev0 = lastSpot0[pair];
                 uint256 prev1 = lastSpot1[pair];
@@ -224,6 +242,10 @@ contract TegridyTWAP is TWAPAdmin {
                         : ((prev1 - spotPrice1) * BPS) / prev1;
                     if (deviation1 > MAX_DEVIATION_BPS) revert PriceDeviationTooLarge();
                 }
+            } else {
+                // AUDIT M-2: rebootstrap path — gate skipped after dormancy
+                lastBypassUsed[pair] = block.timestamp;
+                emit DeviationBypassed(pair, elapsed, spotPrice0, spotPrice1);
             }
 
             // Unchecked accumulation — intentional overflow wrapping (Uniswap V2 pattern).
