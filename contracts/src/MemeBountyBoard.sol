@@ -492,8 +492,13 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // able to refund the creator over a cancel window that elapsed while
         // artists could not submit / dispute (chain offline).
         if (block.timestamp < bounty.deadline + EMERGENCY_FORCE_CANCEL_DELAY + _sequencerBuffer()) revert ForceCancelTooEarly();
+        // AUDIT M-28: both block-checks now require voter diversity. Without the
+        // uniqueVoterCount gate on the aggregate-votes branch, a single whale with
+        // >= 2x quorum could block force-cancel without satisfying completeBounty's
+        // diversity requirement, deadlocking the bounty in an unfinishable state.
+        // Now the bounty is only "winner exists" if there is real voter consensus.
         if (topSubmissionVotes[_bountyId] >= MIN_COMPLETION_VOTES && uniqueVoterCount[_bountyId] >= MIN_UNIQUE_VOTERS) revert WinnerExists();
-        if (totalBountyVotes[_bountyId] >= MIN_COMPLETION_VOTES * 2) revert WinnerExists();
+        if (totalBountyVotes[_bountyId] >= MIN_COMPLETION_VOTES * 2 && uniqueVoterCount[_bountyId] >= MIN_UNIQUE_VOTERS) revert WinnerExists();
 
         bounty.status = BountyStatus.Cancelled;
 

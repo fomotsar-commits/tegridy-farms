@@ -111,7 +111,15 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     // slippage params are sufficient.
     uint256 public backstopBps = 9000; // 90% default, in basis points (10000 = 100%)
     uint256 public constant MAX_BACKSTOP_BPS = 9900; // Max 99%
-    uint256 public constant MIN_BACKSTOP_BPS = 5000; // AUDIT FIX H-03: Min 50% — prevents owner from zeroing backstop
+    /// @notice AUDIT M-16: raised from 5000 (50%) → 9000 (90%) to prevent sandwich
+    ///         attacks on the addLiquidityETH leg. The legacy 50% floor accepted
+    ///         arbitrary slippage on either leg of the LP-add (e.g. a 50%
+    ///         sandwich on a 10 ETH accumulate would leave the protocol with 5 ETH
+    ///         worth of LP). 90% caps slippage at 10% — well above realistic
+    ///         price moves on liquid pairs but enough to block extraction MEV.
+    ///         Owner can still tune within [9000, 9900] for per-pair latency
+    ///         needs; lower floors require code change.
+    uint256 public constant MIN_BACKSTOP_BPS = 9000;
 
     uint256 public maxAccumulateAmount = 10 ether;
     uint256 public constant MAX_ACCUMULATE_CAP = 100 ether; // AUDIT FIX M-06: Hard upper bound to prevent draining pool reserves
