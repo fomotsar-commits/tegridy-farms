@@ -175,6 +175,13 @@ export default function SecurityPage() {
             </p>
             <div className="flex flex-wrap gap-3">
               <a
+                href="https://github.com/fomotsar-commits/tegridy-farms/blob/main/.audit_101/POST_REMEDIATION_LEDGER.md"
+                target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 transition-colors"
+              >
+                Post-remediation ledger (Apr 26)
+              </a>
+              <a
                 href="https://github.com/fomotsar-commits/tegridy-farms/blob/main/SECURITY_AUDIT_300_AGENT.md"
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-purple-600 hover:bg-purple-500 transition-colors"

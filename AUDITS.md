@@ -36,6 +36,7 @@ These live at the repo root because they are actively referenced:
 
 | File | Purpose |
 |---|---|
+| [`.audit_101/POST_REMEDIATION_LEDGER.md`](./.audit_101/POST_REMEDIATION_LEDGER.md) | **NEW (2026-04-26)**: post-remediation reconciliation. 14 fixes shipped across 11 commits closing 3 Critical + 7 High + 4 Medium findings, including R017/R020/R023/R028 fixes that prior docs claimed had shipped but had not. **Single source of truth for post-Apr-26 main.** |
 | [`SECURITY_AUDIT_300_AGENT.md`](./SECURITY_AUDIT_300_AGENT.md) | Canonical severity reference. 300-agent internal sweep + Spartan ingest. Apr 16, 2026. |
 | [`AUDIT_FINDINGS.md`](./AUDIT_FINDINGS.md) | Current `main`-branch blocker list. 35-detective parallel sweep. Apr 17, 2026. |
 | [`SPARTAN_AUDIT.txt`](./SPARTAN_AUDIT.txt) | **External** review. 25 contracts, 12,644 LOC. 1 Critical / 1 High / 7 Medium / 9 Low. Apr 16, 2026. |
@@ -76,6 +77,8 @@ Every finding that can be expressed as a test has one, under [`contracts/test/`]
 - `GaugeCommitReveal.t.sol` — H-2 commit-reveal closure (14 tests)
 
 **Current forge test count: 1,933 / 1,933 passing.**
+
+Post-2026-04-26 additions: 8 demonstration tests in [`contracts/test/AuditDemonstration.t.sol`](./contracts/test/AuditDemonstration.t.sol) prove the new behavior of Batches A–J (commits 393b084 → 5fad774). See [`.audit_101/POST_REMEDIATION_LEDGER.md`](./.audit_101/POST_REMEDIATION_LEDGER.md) for the full per-finding breakdown.
 
 ---
 
