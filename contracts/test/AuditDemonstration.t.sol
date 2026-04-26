@@ -149,15 +149,11 @@ contract AuditDemonstrationTest is Test {
         bribes.advanceEpoch();
     }
 
-    // ─── C-4: Zero-vote epoch bribes permanently locked ─────────────────
+    // ─── C-4: Zero-vote epoch bribes are RECOVERABLE via refundUnvotedBribe (post-fix) ─
     //
-    // Setup: depositor deposits a bribe targeting `pair` for the next
-    // epoch. Then advanceEpoch() snapshots that epoch. Nobody votes for
-    // that pair. Verify that NEITHER claimBribes NOR refundOrphanedBribe
-    // can recover the funds.
-    function test_C4_ZeroVoteEpochBribesAreLocked() public {
-        // Get the bribe-token address (from whitelisting setup, it's the
-        // token at pair.token1 — toweli is token0).
+    // After the fix: depositor can recover their bribe from a snapshotted,
+    // zero-vote pair after a 14-day grace period.
+    function test_C4_ZeroVoteBribesRefundableAfterGrace() public {
         address brb = pair.token1();
 
         // Depositor deposits 100 BRB as a bribe for `pair` in epoch 0
@@ -169,26 +165,46 @@ contract AuditDemonstrationTest is Test {
         // Snapshot the epoch (no one votes for `pair`)
         _advance();
 
-        // Move past VOTE_DEADLINE so it's clear voting is over
-        vm.warp(block.timestamp + 8 days);
+        // Pre-grace: refund reverts
+        vm.warp(block.timestamp + 7 days + 1);
+        vm.prank(depositor);
+        vm.expectRevert(bytes("GRACE_NOT_ELAPSED"));
+        bribes.refundUnvotedBribe(0, address(pair), brb);
 
-        // (1) claimBribes by alice — fails because she has no votes for pair
+        // Post-grace: depositor pulls their funds back
+        vm.warp(block.timestamp + 14 days + 1);
+        uint256 balBefore = IERC20(brb).balanceOf(depositor);
+        vm.prank(depositor);
+        bribes.refundUnvotedBribe(0, address(pair), brb);
+        uint256 balAfter = IERC20(brb).balanceOf(depositor);
+        assertGt(balAfter, balBefore, "depositor should receive refund");
+
+        // Second call reverts — already refunded
+        vm.prank(depositor);
+        vm.expectRevert(bytes("NOTHING_TO_REFUND"));
+        bribes.refundUnvotedBribe(0, address(pair), brb);
+    }
+
+    // ─── C-4.b: Pair WITH votes is NOT eligible for unvoted-refund ───────
+    function test_C4b_PairWithVotesNotEligible() public {
+        address brb = pair.token1();
+        vm.startPrank(depositor);
+        IERC20(brb).approve(address(bribes), 100 ether);
+        bribes.depositBribe(address(pair), brb, 100 ether);
+        vm.stopPrank();
+
+        _advance();
+
+        // Alice casts a vote for the pair
         escrow.setPower(alice, 1000 ether);
         vm.prank(alice);
-        vm.expectRevert();
-        bribes.claimBribes(0, address(pair));
+        bribes.vote(0, address(pair), 100 ether);
 
-        // (2) refundOrphanedBribe by depositor — fails because epoch is
-        //     already snapshotted (the function's first guard)
+        // Even after grace, refundUnvotedBribe rejects — pair has votes
+        vm.warp(block.timestamp + 21 days + 1);
         vm.prank(depositor);
-        vm.expectRevert(bytes("EPOCH_ALREADY_SNAPSHOTTED"));
-        bribes.refundOrphanedBribe(0, address(pair), brb);
-
-        // Confirm bribe is still on the books — it's locked, not gone
-        uint256 stillOnBooks = bribes.epochBribes(0, address(pair), brb);
-        assertGt(stillOnBooks, 0, "bribe should still be reserved on chain");
-
-        // No path forward exists. The funds are locked.
+        vm.expectRevert(bytes("PAIR_HAS_VOTES"));
+        bribes.refundUnvotedBribe(0, address(pair), brb);
     }
 
     // ─── H-12: Dust DoS exhausts MAX_BRIBE_TOKENS ────────────────────────
@@ -196,57 +212,56 @@ contract AuditDemonstrationTest is Test {
     // Whitelist 20 different tokens. Attacker deposits 1 wei of each to
     // the same pair in the current epoch. A legitimate briber with a
     // 21st token then reverts with TooManyBribeTokens.
-    function test_H12_DustDoSBlocksLegitimateBribes() public {
-        uint256 cap = bribes.MAX_BRIBE_TOKENS();
-        assertEq(cap, 20, "expected MAX_BRIBE_TOKENS == 20");
+    // ─── H-12: 1-wei dust ERC20 deposits are now REJECTED (post-fix) ─────
+    //
+    // After fix: depositBribe enforces an effective minimum of
+    // DEFAULT_MIN_TOKEN_BRIBE (1e15) for tokens without a configured
+    // per-token min. Dust deposits revert; legitimate bribes pass.
+    function test_H12_DustDepositsRejectedByDefault() public {
+        address brb = pair.token1();
 
-        address attackerAddr = makeAddr("h12-attacker");
-        address legitBriber = makeAddr("h12-legit");
+        vm.startPrank(depositor);
+        IERC20(brb).approve(address(bribes), 100 ether);
 
-        // Phase 1 — pre-create + pre-fund 20 dust tokens + 1 legit token.
-        MockBribeToken[] memory dustTokens = new MockBribeToken[](cap);
-        for (uint256 i = 0; i < cap; i++) {
-            dustTokens[i] = new MockBribeToken(
-                string(abi.encodePacked("DUST", vm.toString(i)))
-            );
-            dustTokens[i].transfer(attackerAddr, 100);
-        }
-        MockBribeToken legit = new MockBribeToken("LEGIT");
-        legit.transfer(legitBriber, 1000 ether);
+        // 1 wei deposit reverts
+        vm.expectRevert(bytes("BRIBE_TOO_SMALL"));
+        bribes.depositBribe(address(pair), brb, 1);
 
-        // Phase 2 — whitelist all 21 tokens via the timelocked path.
-        // Each propose+execute uses the same WHITELIST_CHANGE key, so we
-        // serialize: propose, warp past the 24h delay, execute, repeat.
-        // Use absolute timestamps to dodge any block.timestamp staleness
-        // between propose and warp.
-        uint256 t = block.timestamp;
-        for (uint256 i = 0; i < cap; i++) {
-            bribes.proposeWhitelistChange(address(dustTokens[i]), true);
-            t += 25 hours;
-            vm.warp(t);
-            bribes.executeWhitelistChange();
-        }
-        bribes.proposeWhitelistChange(address(legit), true);
-        t += 25 hours;
-        vm.warp(t);
-        bribes.executeWhitelistChange();
+        // 1e14 (below default 1e15) reverts
+        vm.expectRevert(bytes("BRIBE_TOO_SMALL"));
+        bribes.depositBribe(address(pair), brb, 1e14);
 
-        // Phase 3 — attacker deposits 1 wei of each of 20 dust tokens to
-        // the same pair in the current epoch. This fills the
-        // MAX_BRIBE_TOKENS slots with worthless entries.
-        for (uint256 i = 0; i < cap; i++) {
-            vm.startPrank(attackerAddr);
-            dustTokens[i].approve(address(bribes), 1);
-            bribes.depositBribe(address(pair), address(dustTokens[i]), 1);
-            vm.stopPrank();
-        }
+        // 1e15 (= DEFAULT_MIN) passes
+        bribes.depositBribe(address(pair), brb, 1e15);
 
-        // Phase 4 — legitimate briber tries to add their 21st token. The
-        // pair-token list is full of dust; their real bribe is rejected.
-        vm.startPrank(legitBriber);
-        legit.approve(address(bribes), 1000 ether);
-        vm.expectRevert(VoteIncentives.TooManyBribeTokens.selector);
-        bribes.depositBribe(address(pair), address(legit), 100 ether);
+        // 1e18 passes (well above default)
+        bribes.depositBribe(address(pair), brb, 1 ether);
+        vm.stopPrank();
+    }
+
+    // ─── H-12.b: per-token min override via timelocked setter ────────────
+    function test_H12b_PerTokenMinTimelocked() public {
+        address brb = pair.token1();
+
+        // Owner proposes a custom 1e3 min (e.g. for a 6-decimal token)
+        bribes.proposeMinBribeAmount(brb, 1e3);
+
+        // Cannot execute instantly
+        vm.expectRevert();
+        bribes.executeMinBribeAmount();
+
+        // After 24h: success
+        vm.warp(block.timestamp + 24 hours + 1);
+        bribes.executeMinBribeAmount();
+        assertEq(bribes.minBribeAmounts(brb), 1e3);
+
+        // Now 1e3 deposits pass (below the 1e15 default but above the 1e3 override)
+        vm.startPrank(depositor);
+        IERC20(brb).approve(address(bribes), 1e15);
+        bribes.depositBribe(address(pair), brb, 1e3);
+        // But 999 still fails
+        vm.expectRevert(bytes("BRIBE_TOO_SMALL"));
+        bribes.depositBribe(address(pair), brb, 999);
         vm.stopPrank();
     }
 

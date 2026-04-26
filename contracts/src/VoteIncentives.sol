@@ -222,6 +222,19 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     // SECURITY FIX H-7: Per-token minimum bribe amounts (supports non-18-decimal tokens)
     mapping(address => uint256) public minBribeAmounts;
 
+    /// @notice AUDIT R020 H-3 (HIGH): default minimum ERC20 bribe applied when
+    ///         the owner has not configured a per-token minimum. Without this,
+    ///         attackers fill a pair's MAX_BRIBE_TOKENS slots with 1-wei dust
+    ///         deposits and block legitimate bribers. Default targets ~0.001
+    ///         tokens at 18-decimal scale; non-18-decimal tokens (USDC, USDT)
+    ///         require operators to set a per-token min via proposeMinBribeAmount.
+    uint256 public constant DEFAULT_MIN_TOKEN_BRIBE = 1e15;
+
+    bytes32 public constant MIN_BRIBE_CHANGE = keccak256("BRIBE_MIN_AMOUNT_CHANGE");
+    uint256 public constant MIN_BRIBE_CHANGE_DELAY = 24 hours;
+    address public pendingMinBribeToken;
+    uint256 public pendingMinBribeAmount;
+
     // V2: Gauge Voting — Velodrome/Aerodrome pattern
     // Users must vote() to allocate power to specific pairs before claiming that pair's bribes.
     // gaugeVotes[user][epoch][pair] = voting power allocated to that pair
@@ -413,12 +426,12 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         uint256 actualReceived = IERC20(token).balanceOf(address(this)) - balBefore;
         if (actualReceived == 0) revert ZeroAmount();
-        // SECURITY FIX H-7: Per-token minimum bribe (supports non-18-decimal tokens like USDC).
-        // Whitelist alone provides spam protection; per-token min is optional defense-in-depth.
+        // SECURITY FIX H-7 + R020 H-3: per-token minimum bribe with a sensible
+        // 18-decimal default. Owners must configure per-token mins for non-18-
+        // decimal tokens (USDC, USDT) via proposeMinBribeAmount.
         uint256 tokenMin = minBribeAmounts[token];
-        if (tokenMin > 0) {
-            require(actualReceived >= tokenMin, "BRIBE_TOO_SMALL");
-        }
+        uint256 effectiveMin = tokenMin > 0 ? tokenMin : DEFAULT_MIN_TOKEN_BRIBE;
+        require(actualReceived >= effectiveMin, "BRIBE_TOO_SMALL");
 
         // Take bribe fee
         uint256 fee = (actualReceived * bribeFeeBps) / BPS;
@@ -906,6 +919,73 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         sending user funds to treasury.
     function rescueOrphanedBribes(uint256, address, address) external pure {
         revert("USE_REFUND_ORPHANED_BRIBE");
+    }
+
+    /// @notice AUDIT R020 H-1 (CRIT): refund a bribe that was deposited for a
+    ///         pair which received zero votes after the epoch was snapshotted.
+    ///         Without this path, refundOrphanedBribe rejects (epoch IS snapshotted)
+    ///         and claimBribes rejects (no votes for pair) — funds are permanently
+    ///         locked. Permissionless per-depositor pull, gated by a 14-day grace
+    ///         window after revealDeadline so honest claimers always get first chance.
+    /// @dev    Mirrors Convex/Hidden Hand `refundOrphaned()` after grace.
+    uint256 public constant UNVOTED_REFUND_GRACE = 14 days;
+    event UnvotedBribeRefunded(uint256 indexed epoch, address indexed pair, address indexed token, address depositor, uint256 amount);
+
+    function refundUnvotedBribe(uint256 epoch, address pair, address token) external nonReentrant {
+        if (epoch >= epochs.length) revert InvalidEpoch();
+        require(totalGaugeVotes[epoch][pair] == 0, "PAIR_HAS_VOTES");
+        require(block.timestamp >= revealDeadline(epoch) + UNVOTED_REFUND_GRACE, "GRACE_NOT_ELAPSED");
+
+        uint256 amount = bribeDeposits[epoch][pair][token][msg.sender];
+        require(amount > 0, "NOTHING_TO_REFUND");
+
+        bribeDeposits[epoch][pair][token][msg.sender] = 0;
+        uint256 remaining = epochBribes[epoch][pair][token];
+        epochBribes[epoch][pair][token] = remaining > amount ? remaining - amount : 0;
+
+        if (token == address(0)) {
+            totalUnclaimedETHBribes = totalUnclaimedETHBribes > amount ? totalUnclaimedETHBribes - amount : 0;
+            WETHFallbackLib.safeTransferETHOrWrap(address(weth), msg.sender, amount);
+        } else {
+            totalUnclaimedBribes[token] = totalUnclaimedBribes[token] > amount ? totalUnclaimedBribes[token] - amount : 0;
+            IERC20(token).safeTransfer(msg.sender, amount);
+        }
+
+        emit UnvotedBribeRefunded(epoch, pair, token, msg.sender, amount);
+    }
+
+    // ─── AUDIT R020 H-3: per-token min-bribe configuration (timelocked) ───
+
+    event MinBribeAmountChangeProposed(address indexed token, uint256 amount, uint256 executeAfter);
+    event MinBribeAmountChangeExecuted(address indexed token, uint256 oldAmount, uint256 newAmount);
+    event MinBribeAmountChangeCancelled(address indexed token, uint256 amount);
+
+    function proposeMinBribeAmount(address token, uint256 amount) external onlyOwner {
+        if (token == address(0)) revert ZeroAddress();
+        pendingMinBribeToken = token;
+        pendingMinBribeAmount = amount;
+        _propose(MIN_BRIBE_CHANGE, MIN_BRIBE_CHANGE_DELAY);
+        emit MinBribeAmountChangeProposed(token, amount, _executeAfter[MIN_BRIBE_CHANGE]);
+    }
+
+    function executeMinBribeAmount() external onlyOwner {
+        _execute(MIN_BRIBE_CHANGE);
+        address token = pendingMinBribeToken;
+        uint256 newAmount = pendingMinBribeAmount;
+        uint256 oldAmount = minBribeAmounts[token];
+        minBribeAmounts[token] = newAmount;
+        pendingMinBribeToken = address(0);
+        pendingMinBribeAmount = 0;
+        emit MinBribeAmountChangeExecuted(token, oldAmount, newAmount);
+    }
+
+    function cancelMinBribeAmount() external onlyOwner {
+        address token = pendingMinBribeToken;
+        uint256 amount = pendingMinBribeAmount;
+        _cancel(MIN_BRIBE_CHANGE);
+        pendingMinBribeToken = address(0);
+        pendingMinBribeAmount = 0;
+        emit MinBribeAmountChangeCancelled(token, amount);
     }
 
     /// @notice AUDIT NEW-G3: permanently-locked rounding dust for a given
