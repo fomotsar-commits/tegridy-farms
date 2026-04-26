@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useState, useRef } from 'react';
+import { useMemo, useEffect, useState, useRef, useCallback } from 'react';
 import { useReadContract, useChainId } from 'wagmi';
 import { formatUnits } from 'viem';
 import { UNISWAP_V2_ROUTER_ABI, UNISWAP_V2_FACTORY_ABI, UNISWAP_V2_PAIR_ABI, TEGRIDY_ROUTER_ABI, TEGRIDY_FACTORY_ABI } from '../lib/contracts';
@@ -13,6 +13,11 @@ const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
 // 0.15% tolerance favoring own pools — keeps volume on our DEX while minimizing user cost.
 // Disclosed in swap UI route label when active.
 const TEGRIDY_PREFERENCE_BPS = 15n;
+
+// R033 H-02: max age of an outstanding quote before we force a refresh.
+// Matches the Uniswap Interface gate; 30s is well under the 5min default
+// router deadline but still long enough to not flap on slow networks.
+export const QUOTE_MAX_AGE_MS = 30_000;
 
 // Build the swap path: always route through WETH if neither token is WETH/ETH
 export function buildPath(fromToken: TokenInfo, toToken: TokenInfo): `0x${string}`[] {
@@ -50,6 +55,10 @@ export interface SwapQuoteResult {
   intermediateAmount: bigint | undefined;
   path: `0x${string}`[];
   activeAmountsOut: readonly bigint[] | undefined;
+  // R033 H-02: quote freshness surface
+  quoteFetchedAt: number;
+  isQuoteStale: boolean;
+  refreshQuote: () => void;
 }
 
 export function useSwapQuote(
@@ -74,11 +83,12 @@ export function useSwapQuote(
   const quoteRequestIdRef = useRef(0);
 
   // ---- Uniswap V2 quote ----
-  const { data: uniAmountsOut, isLoading: isUniQuoteLoading } = useReadContract({
+  const { data: uniAmountsOut, isLoading: isUniQuoteLoading, refetch: refetchUni } = useReadContract({
     address: UNISWAP_V2_ROUTER,
     abi: UNISWAP_V2_ROUTER_ABI,
     functionName: 'getAmountsOut',
     args: [parsedAmount, path],
+    chainId: CHAIN_ID,
     query: { enabled: onRightChain && parsedAmount > 0n && path.length >= 2 },
   });
 
@@ -93,17 +103,19 @@ export function useSwapQuote(
     abi: TEGRIDY_FACTORY_ABI,
     functionName: 'getPair',
     args: [fromAddrForPair as `0x${string}`, toAddrForPair as `0x${string}`],
+    chainId: CHAIN_ID,
     query: { enabled: pairsEnabled },
   });
 
   const hasTegridyPair = !!tegridyPairAddr && tegridyPairAddr !== ZERO_ADDR;
 
   // Get quote from Tegridy Router (only if own pair exists)
-  const { data: tegridyAmountsOut, isLoading: isTegridyQuoteLoading } = useReadContract({
+  const { data: tegridyAmountsOut, isLoading: isTegridyQuoteLoading, refetch: refetchTegridy } = useReadContract({
     address: TEGRIDY_ROUTER_ADDRESS,
     abi: TEGRIDY_ROUTER_ABI,
     functionName: 'getAmountsOut',
     args: [parsedAmount, path],
+    chainId: CHAIN_ID,
     query: { enabled: hasTegridyPair && parsedAmount > 0n && path.length >= 2 },
   });
 
@@ -113,6 +125,7 @@ export function useSwapQuote(
     abi: UNISWAP_V2_FACTORY_ABI,
     functionName: 'getPair',
     args: [fromAddrForPair as `0x${string}`, toAddrForPair as `0x${string}`],
+    chainId: CHAIN_ID,
     query: { enabled: pairsEnabled },
   });
 
@@ -127,7 +140,8 @@ export function useSwapQuote(
     abi: UNISWAP_V2_FACTORY_ABI,
     functionName: 'getPair',
     args: [path[0] as `0x${string}`, WETH_ADDRESS],
-    query: { enabled: isMultiHop && path.length === 3 && parsedAmount > 0n },
+    chainId: CHAIN_ID,
+    query: { enabled: onRightChain && isMultiHop && path.length === 3 && parsedAmount > 0n },
   });
 
   const { data: leg2Pair } = useReadContract({
@@ -135,7 +149,8 @@ export function useSwapQuote(
     abi: UNISWAP_V2_FACTORY_ABI,
     functionName: 'getPair',
     args: [WETH_ADDRESS, path[2] as `0x${string}`],
-    query: { enabled: isMultiHop && path.length === 3 && parsedAmount > 0n },
+    chainId: CHAIN_ID,
+    query: { enabled: onRightChain && isMultiHop && path.length === 3 && parsedAmount > 0n },
   });
 
   const validLeg1 = leg1Pair && leg1Pair !== ZERO_ADDR;
@@ -145,46 +160,59 @@ export function useSwapQuote(
     address: primaryPairAddr as `0x${string}`,
     abi: UNISWAP_V2_PAIR_ABI,
     functionName: 'getReserves',
-    query: { enabled: !!primaryPairAddr && primaryPairAddr !== ZERO_ADDR && parsedAmount > 0n, refetchInterval: 30_000 },
+    chainId: CHAIN_ID,
+    query: { enabled: onRightChain && !!primaryPairAddr && primaryPairAddr !== ZERO_ADDR && parsedAmount > 0n, refetchInterval: 30_000 },
   });
 
   const { data: token0 } = useReadContract({
     address: primaryPairAddr as `0x${string}`,
     abi: UNISWAP_V2_PAIR_ABI,
     functionName: 'token0',
-    query: { enabled: !!primaryPairAddr && primaryPairAddr !== ZERO_ADDR },
+    chainId: CHAIN_ID,
+    query: { enabled: onRightChain && !!primaryPairAddr && primaryPairAddr !== ZERO_ADDR },
   });
 
   const { data: leg1Reserves } = useReadContract({
     address: leg1Pair as `0x${string}`,
     abi: UNISWAP_V2_PAIR_ABI,
     functionName: 'getReserves',
-    query: { enabled: !!validLeg1 && parsedAmount > 0n, refetchInterval: 30_000 },
+    chainId: CHAIN_ID,
+    query: { enabled: onRightChain && !!validLeg1 && parsedAmount > 0n, refetchInterval: 30_000 },
   });
 
   const { data: leg1Token0 } = useReadContract({
     address: leg1Pair as `0x${string}`,
     abi: UNISWAP_V2_PAIR_ABI,
     functionName: 'token0',
-    query: { enabled: !!validLeg1 && parsedAmount > 0n },
+    chainId: CHAIN_ID,
+    query: { enabled: onRightChain && !!validLeg1 && parsedAmount > 0n },
   });
 
   const { data: leg2Reserves } = useReadContract({
     address: leg2Pair as `0x${string}`,
     abi: UNISWAP_V2_PAIR_ABI,
     functionName: 'getReserves',
-    query: { enabled: !!validLeg2 && parsedAmount > 0n, refetchInterval: 30_000 },
+    chainId: CHAIN_ID,
+    query: { enabled: onRightChain && !!validLeg2 && parsedAmount > 0n, refetchInterval: 30_000 },
   });
 
   const { data: leg2Token0 } = useReadContract({
     address: leg2Pair as `0x${string}`,
     abi: UNISWAP_V2_PAIR_ABI,
     functionName: 'token0',
-    query: { enabled: !!validLeg2 && parsedAmount > 0n },
+    chainId: CHAIN_ID,
+    query: { enabled: onRightChain && !!validLeg2 && parsedAmount > 0n },
   });
 
   // ---- Meta-aggregator: queries 7 DEX aggregators in parallel ----
   const [aggQuoteResult, setAggQuoteResult] = useState<{ amountOut: string; priceImpact: number; source: AggregatorSource; allQuotes: AggregatorQuote[] } | null>(null);
+
+  // R033 H-02: stamp on every quote settle (success or failure path on either
+  // aggregator OR on-chain leg). 0 means "no quote landed yet" — UI checks
+  // staleness via isQuoteStale instead of inspecting this directly.
+  const [quoteFetchedAt, setQuoteFetchedAt] = useState<number>(0);
+  // 1s tick to flip isQuoteStale reactively past the 30s window.
+  const [now, setNow] = useState<number>(Date.now());
 
   useEffect(() => {
     if (!fromToken || !toToken || parsedAmount === 0n || !address) {
@@ -202,16 +230,34 @@ export function useSwapQuote(
           // Only apply if this is still the latest request
           if (!abortController.signal.aborted && quoteRequestIdRef.current === currentRequestId) {
             setAggQuoteResult(q);
+            setQuoteFetchedAt(Date.now());
           }
         })
         .catch(() => {
           if (!abortController.signal.aborted && quoteRequestIdRef.current === currentRequestId) {
             setAggQuoteResult(null);
+            // Stamp on failure too so the UI has an anchor — falling back to
+            // on-chain leg is a successful "I have a quote" outcome.
+            setQuoteFetchedAt(Date.now());
           }
         });
     }, 800);
     return () => { abortController.abort(); clearTimeout(timer); };
   }, [fromToken, toToken, parsedAmount, address, fromDecimals]);
+
+  // Stamp on every wagmi on-chain leg arrival.
+  useEffect(() => {
+    if (uniAmountsOut !== undefined || tegridyAmountsOut !== undefined) {
+      setQuoteFetchedAt(Date.now());
+    }
+  }, [uniAmountsOut, tegridyAmountsOut]);
+
+  // 1s ticker — only runs once a quote has landed, idle pre-input.
+  useEffect(() => {
+    if (quoteFetchedAt === 0) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [quoteFetchedAt]);
 
   // ---- Smart Route Selection ----
   const uniOutputAmount = uniAmountsOut ? (uniAmountsOut[uniAmountsOut.length - 1] ?? 0n) : 0n;
@@ -260,7 +306,10 @@ export function useSwapQuote(
 
   // Best route output: full aggregator output or on-chain winner
   const outputAmount = aggBetter ? aggComparison.userReceives : selectedOnChainRoute.output;
-  const outputFormatted = formatUnits(outputAmount, toDecimals);
+  const outputFormatted = useMemo(
+    () => formatUnits(outputAmount, toDecimals),
+    [outputAmount, toDecimals],
+  );
 
   // Use the correct amountsOut for the selected route (for price impact / intermediate display)
   const activeAmountsOut = selectedRoute === 'tegridy' ? tegridyAmountsOut : uniAmountsOut;
@@ -337,6 +386,11 @@ export function useSwapQuote(
     return outputAmount - (outputAmount * slippageBps) / 10000n;
   }, [outputAmount, slippage]);
 
+  const minimumReceivedFormatted = useMemo(
+    () => formatUnits(minimumReceived, toDecimals),
+    [minimumReceived, toDecimals],
+  );
+
   // Route description for display
   const routeDescription = useMemo(() => {
     if (!fromToken || !toToken) return [];
@@ -353,22 +407,55 @@ export function useSwapQuote(
     const preferenceNote = selectedRoute === 'tegridy' && uniOutputAmount > 0n ? ' (preferred +0.15%)' : '';
     if (path.length <= 2) return `Direct swap via ${dex}${preferenceNote}`;
     return `Routed through WETH via ${dex}${preferenceNote}`;
-  }, [path, selectedRoute, bestAggregatorName]);
+  }, [path, selectedRoute, bestAggregatorName, uniOutputAmount]);
 
-  return {
+  // R033 H-02: stale flag flips reactively when (now - quoteFetchedAt) > MAX.
+  const isQuoteStale = useMemo(
+    () => quoteFetchedAt > 0 && (now - quoteFetchedAt) > QUOTE_MAX_AGE_MS,
+    [now, quoteFetchedAt],
+  );
+
+  const refreshQuote = useCallback(() => {
+    refetchUni();
+    if (hasTegridyPair) refetchTegridy();
+    // Aggregator is a fetch effect — bumping the requestId triggers re-fetch.
+    quoteRequestIdRef.current += 1;
+    // Force the aggregator effect to re-run by clearing prior result;
+    // setQuoteFetchedAt will re-fire on the next settle.
+    setAggQuoteResult(null);
+    setQuoteFetchedAt(0);
+  }, [refetchUni, refetchTegridy, hasTegridyPair]);
+
+  const tegridyOutputFormatted = useMemo(
+    () => tegridyOutputAmount > 0n ? formatUnits(tegridyOutputAmount as bigint, toDecimals) : null,
+    [tegridyOutputAmount, toDecimals],
+  );
+  const uniOutputFormatted = useMemo(
+    () => uniOutputAmount > 0n ? formatUnits(uniOutputAmount as bigint, toDecimals) : null,
+    [uniOutputAmount, toDecimals],
+  );
+  const aggOutputFormatted = useMemo(
+    () => aggOutputAmount > 0n ? formatUnits(aggOutputAmount, toDecimals) : null,
+    [aggOutputAmount, toDecimals],
+  );
+
+  // R042 HIGH-2: wrap entire return in useMemo so consumers don't see a fresh
+  // identity on every render. Deps are stable primitives + memoised pieces;
+  // identity flips only when an actual quote field changes.
+  return useMemo<SwapQuoteResult>(() => ({
     outputAmount,
     outputFormatted,
     priceImpact,
     minimumReceived,
-    minimumReceivedFormatted: formatUnits(minimumReceived, toDecimals),
+    minimumReceivedFormatted,
     isQuoteLoading,
     selectedRoute,
     selectedOnChainRoute,
     hasTegridyPair,
-    tegridyOutputFormatted: tegridyOutputAmount > 0n ? formatUnits(tegridyOutputAmount as bigint, toDecimals) : null,
-    uniOutputFormatted: uniOutputAmount > 0n ? formatUnits(uniOutputAmount as bigint, toDecimals) : null,
+    tegridyOutputFormatted,
+    uniOutputFormatted,
     aggBetter,
-    aggOutputFormatted: aggOutputAmount > 0n ? formatUnits(aggOutputAmount, toDecimals) : null,
+    aggOutputFormatted,
     bestAggregatorName,
     allAggQuotes,
     routeDescription,
@@ -377,5 +464,14 @@ export function useSwapQuote(
     intermediateAmount,
     path: path as `0x${string}`[],
     activeAmountsOut,
-  };
+    quoteFetchedAt,
+    isQuoteStale,
+    refreshQuote,
+  }), [
+    outputAmount, outputFormatted, priceImpact, minimumReceived, minimumReceivedFormatted,
+    isQuoteLoading, selectedRoute, selectedOnChainRoute, hasTegridyPair,
+    tegridyOutputFormatted, uniOutputFormatted, aggBetter, aggOutputFormatted, bestAggregatorName,
+    allAggQuotes, routeDescription, routeLabel, hasDirectPair, intermediateAmount,
+    path, activeAmountsOut, quoteFetchedAt, isQuoteStale, refreshQuote,
+  ]);
 }

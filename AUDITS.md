@@ -11,7 +11,7 @@ Before you read further, here's the methodology breakdown:
 | Type | Count | Description |
 |---|---|---|
 | **External, third-party methodology** | 2 | `SPARTAN_AUDIT.txt` (Apr 16, 2026) and the pre-release doc archived at [`docs/audits/archive/tegridy_farms_audit.docx`](./docs/audits/archive/tegridy_farms_audit.docx) (Mar 25, 2026) |
-| **Internal AI-agent reviews** | 7 | Parallel Claude/GPT agent sweeps. Useful as a breadth tool. **Not a substitute for a human audit firm.** |
+| **Internal AI-agent reviews** | 8 | Parallel Claude/GPT agent sweeps. Useful as a breadth tool. **Not a substitute for a human audit firm.** Latest: **101-agent canonical pass (Apr 25, 2026)** under [`.audit_101/MASTER_REPORT.md`](./.audit_101/MASTER_REPORT.md) + [`.audit_101/DETAILED_REPORT.md`](./.audit_101/DETAILED_REPORT.md) + remediation phase tracked in [`.audit_101/remediation/`](./.audit_101/remediation/) (R001–R076). |
 | **Rolling remediation docs** | 3 | `FIX_STATUS.md`, `AUDIT_FINDINGS.md`, `CHANGELOG.md` |
 
 **If you are diligencing this protocol, read `SPARTAN_AUDIT.txt` + `AUDIT_FINDINGS.md` + `FIX_STATUS.md`. The rest is context.**
