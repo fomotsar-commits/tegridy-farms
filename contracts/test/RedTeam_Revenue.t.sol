@@ -1248,10 +1248,19 @@ contract RedTeamRevenue is Test {
 
     /// @notice Attack: forceCancel when winner exists
     /// Expected: DEFENDED by WinnerExists check
+    /// @dev    AUDIT M-28 update: previously this test used 2 voters (bob + carol)
+    ///         and asserted that emergencyForceCancel reverts. Under the M-28 fix
+    ///         (commit 1ec721c), force-cancel only blocks when uniqueVoterCount >=
+    ///         MIN_UNIQUE_VOTERS = 3 — otherwise the bounty would be permanently
+    ///         deadlocked (completeBounty also requires diversity, so 2 voters
+    ///         alone cannot crown a winner). Adding a 3rd voter (dave) restores
+    ///         the original test intent: a real winner blocks force-cancel.
     function test_AttackBonus_ForceCancelWithWinner() public {
+        address dave = makeAddr("dave");
         staking.setPower(alice, 5000 ether);
         staking.setPower(bob, 5000 ether);
         staking.setPower(carol, 5000 ether);
+        staking.setPower(dave, 5000 ether);
 
         vm.prank(attacker);
         bountyBoard.createBounty{value: 5 ether}("Task", block.timestamp + 2 days);
@@ -1262,6 +1271,8 @@ contract RedTeamRevenue is Test {
         vm.prank(bob);
         bountyBoard.voteForSubmission(0, 0);
         vm.prank(carol);
+        bountyBoard.voteForSubmission(0, 0);
+        vm.prank(dave);
         bountyBoard.voteForSubmission(0, 0);
 
         vm.warp(block.timestamp + 2 days + 7 days + 1);
