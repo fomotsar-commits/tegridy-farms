@@ -116,11 +116,27 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     ///      User must currently hold the NFT — previous ownership does not grant access.
     ///      SECURITY FIX M-13: Downstream contracts should use hasPremiumSecure() if flash loan
     ///      resistance is needed. This view function alone cannot prevent same-block flash borrow.
-    // @deprecated Use hasPremiumSecure() for on-chain integrations. This function is vulnerable
-    //             to flash-loan NFT borrows — an attacker can borrow an NFT within a single
-    //             transaction to pass the balanceOf check. hasPremiumSecure() only considers
-    //             subscription-based access, which requires upfront TOWELI payment and is
-    //             inherently multi-block.
+    /// @notice ⚠️ DEPRECATED FOR ON-CHAIN GATING — use hasPremiumSecure() instead.
+    /// @dev This function returns `true` for any address that currently holds a JBAC NFT
+    ///      AND has an `activateNFTPremium()` timestamp >= MIN_ACTIVATION_DELAY (15s) ago.
+    ///      An attacker can:
+    ///        1. Hold a JBAC NFT legitimately, call activateNFTPremium(), wait 15s.
+    ///        2. Sell or transfer the NFT.
+    ///        3. Within the next 10 minutes (deactivateNFTPremium grace window),
+    ///           flash-loan-borrow the NFT in a single tx.
+    ///        4. hasPremium() returns true for the duration of that tx.
+    ///      THIS IS A KNOWN, ACCEPTED LIMITATION OF ERC-721 (no historical balance query).
+    ///      hasPremiumSecure() returns true ONLY for subscription-based access, which
+    ///      requires upfront TOWELI escrow and is inherently multi-block — flash-loan
+    ///      resistant. Pure JBAC holders without an active subscription are NOT covered
+    ///      by hasPremiumSecure().
+    ///
+    ///      Internal consumers (SwapFeeRouter) correctly use hasPremiumSecure(). External
+    ///      integrators MUST do the same for any valuable on-chain gating.
+    ///
+    ///      AUDIT H-10 (post-batch-J reaffirmed): the flash-loan vector is real but
+    ///      mitigated within this protocol. This NatSpec is the single point of
+    ///      enforcement — DO NOT remove it without re-evaluating every consumer.
     // WARNING TO INTEGRATORS: Do NOT use hasPremium() for on-chain gating of valuable actions.
     // Use hasPremiumSecure() instead to prevent flash-loan NFT borrow attacks.
     function hasPremium(address user) external view returns (bool) {
