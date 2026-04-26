@@ -1,0 +1,27 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo",
+    "types": ["vite/client", "node", "vitest/globals"],
+    "verbatimModuleSyntax": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noUncheckedIndexedAccess": false,
+    /*
+     * R080: vitest 4.x's `Mock<Procedure | Constructable>` is the
+     * intersection of a callable AND a constructor — TypeScript fails to
+     * match it against any specific call signature under
+     * `strictFunctionTypes`. Tests pass `vi.fn()` mocks into hooks/utils
+     * that expect a typed callable; flipping this off here avoids
+     * `as unknown as Foo` casts at every test boundary while leaving
+     * production code (tsconfig.app.json) under the strict checker.
+     */
+    "strictFunctionTypes": false
+  },
+  "include": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/test"
+  ],
+  "exclude": []
+}

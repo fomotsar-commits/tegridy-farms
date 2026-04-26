@@ -9,6 +9,8 @@ import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProo
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
+import {TimelockAdmin} from "./base/TimelockAdmin.sol";
+import {SequencerCheck} from "./lib/SequencerCheck.sol";
 
 /// @title TegridyDropV2 — Click-Deploy NFT Collection Template
 /// @notice Drop-in successor to TegridyDrop. Adds OpenSea contractURI (ERC-7572),
@@ -16,7 +18,7 @@ import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
 ///         placeholder URI, contractURI, merkleRoot, and dutch auction config in
 ///         a single transaction — no half-initialized clones.
 ///         v1 clones remain untouched; this is a new template deployed alongside.
-contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Initializable {
+contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, Initializable, TimelockAdmin {
     using Strings for uint256;
 
     constructor() {
@@ -50,6 +52,10 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     error SaleNotCancelled();
     error NothingToRefund();
     error InvalidInitialPhase();
+    /// @notice AUDIT R023 / H-01: setMerkleRoot is now phase-gated and timelocked.
+    ///         Reverts when called outside CLOSED phase (prevents mid-ALLOWLIST
+    ///         exclusion of pending claimers and atomic swap-mint-swap by the owner).
+    error RootRotationBlocked();
 
     event InitializedV2(
         address indexed creator,
@@ -60,6 +66,17 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     );
     event MintPhaseChanged(MintPhase phase);
     event MerkleRootChanged(bytes32 root);
+    /// @notice AUDIT R023 / H-01: emitted by `executeMerkleRoot()` so off-chain
+    ///         indexers and prospective allowlist claimers can observe the
+    ///         old → new transition explicitly. Pure `MerkleRootChanged` events
+    ///         are still emitted at initialize-time (factory wiring path) but
+    ///         every owner-initiated rotation now also emits this richer event.
+    event MerkleRootRotated(bytes32 indexed oldRoot, bytes32 indexed newRoot);
+    /// @notice AUDIT R023 / H-01: lifecycle events for the new propose/execute
+    ///         flow on `setMerkleRoot`. Mirrors the propose/execute event shape
+    ///         already used by `TegridyLaunchpadV2.proposeProtocolFee`.
+    event MerkleRootProposed(bytes32 newRoot, uint256 executeAfter);
+    event MerkleRootCancelled(bytes32 newRoot);
     event MintPriceChanged(uint256 price);
     event MaxPerWalletChanged(uint256 max);
     event BaseURIChanged(string uri);
@@ -150,7 +167,26 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         uint256 dutchStartTime;
         uint256 dutchDuration;
         MintPhase initialPhase;
+        // R062: optional Chainlink L2 Sequencer Uptime feed. address(0) is a
+        // no-op (mainnet / non-L2). Set once at clone init, never mutated.
+        address sequencerFeed;
     }
+
+    // ─── AUDIT R062: L2 Sequencer Uptime gating ──────────────────────
+    /// @notice Optional Chainlink L2 Sequencer Uptime feed. address(0) on
+    ///         mainnet / non-L2 (no-op). Read by `_dutchAuctionPrice` only —
+    ///         a stale post-outage decay quote is the attack surface here.
+    /// @dev    Cannot be `immutable` — this contract is deployed as a clone
+    ///         via OZ `Clones.clone()` and clones cannot inherit immutable
+    ///         values from the implementation. Single-write in `initialize()`
+    ///         and never touched again gives the same security posture.
+    address public sequencerFeed;
+    /// @notice Post-resume grace window. After the sequencer transitions back
+    ///         to "up", `currentPrice()` still reverts during the dutch-auction
+    ///         phase for SEQUENCER_GRACE_PERIOD seconds so a buyer who waited
+    ///         out an outage cannot benefit from a decayed post-outage price
+    ///         on a mint they could not have submitted during the outage.
+    uint256 public constant SEQUENCER_GRACE_PERIOD = 1 hours;
 
     /// @notice AUDIT M8: cap platform fee at 10% to match LaunchpadV2.MAX_PROTOCOL_FEE_BPS.
     ///         The prior 100% cap allowed direct-clone deployments to siphon all creator share.
@@ -161,6 +197,16 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///         signal would lose confidence in the collection. 10% matches the EIP-2981
     ///         norm across mature platforms.
     uint16 public constant MAX_ROYALTY_BPS = 1000;
+
+    /// @notice AUDIT R023 / H-01: merkle-root rotations now traverse propose →
+    ///         execute, with a 24h delay. Matches the Compound Timelock pattern
+    ///         (see TimelockAdmin._proposeWithValue) so the queued root is bound
+    ///         to the proposed VALUE — owner cannot silently swap the root
+    ///         between propose and execute. 24h is enough lead time for an
+    ///         in-flight allowlist claimer to observe a hostile rotation and
+    ///         finalize before it lands.
+    bytes32 public constant MERKLE_ROOT_CHANGE = keccak256("DROP_MERKLE_ROOT_CHANGE_VB");
+    uint256 public constant MERKLE_ROOT_DELAY = 24 hours;
 
     function initialize(InitParams calldata p) external initializer {
         if (p.creator == address(0)) revert ZeroAddress();
@@ -183,6 +229,8 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         platformFeeBps = p.platformFeeBps;
         weth = p.weth;
         owner = p.creator;
+        // R062: zero permitted (mainnet / non-L2 = gating disabled).
+        sequencerFeed = p.sequencerFeed;
 
         _setDefaultRoyalty(p.creator, p.royaltyBps);
 
@@ -296,13 +344,23 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
             if (!MerkleProof.verify(proof, merkleRoot, leaf)) revert InvalidProof();
         }
 
+        // AUDIT R023 / M-02: Checks-Effects-Interactions ordering.
+        // Update drop accounting (totalSupply, mintedPerWallet, paidPerWallet)
+        // BEFORE calling `_safeMint`, which fires `onERC721Received` on contract
+        // recipients. nonReentrant blocks self-reentry on `mint()`, but external
+        // contracts the receiver hook can call into (or oracles / view-callers
+        // hit during the hook) previously observed inconsistent drop state —
+        // counters reflected pre-mint values while ownerOf() already reflected
+        // the new tokens. Update counters first so the hook sees a coherent
+        // post-mint snapshot.
         uint256 startId = totalSupply + 1;
-        for (uint256 i; i < quantity; ++i) {
-            _safeMint(msg.sender, startId + i);
-        }
         totalSupply += quantity;
         mintedPerWallet[msg.sender] += quantity;
         paidPerWallet[msg.sender] += totalCost;
+
+        for (uint256 i; i < quantity; ++i) {
+            _safeMint(msg.sender, startId + i);
+        }
 
         if (msg.value > totalCost) {
             WETHFallbackLib.safeTransferETHOrWrap(weth, msg.sender, msg.value - totalCost);
@@ -319,6 +377,14 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     }
 
     function _dutchAuctionPrice() internal view returns (uint256) {
+        // R062 (HIGH): refuse to quote a dutch-auction price when the L2
+        // sequencer is currently down or has just resumed within
+        // SEQUENCER_GRACE_PERIOD. The price decay clock keeps ticking while
+        // the chain is offline — without this gate, a buyer who waited out a
+        // sequencer outage gets the post-outage decayed price applied to a
+        // mint they could not have submitted during the outage. address(0)
+        // sequencerFeed is a no-op (mainnet / non-L2 deployments).
+        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
         if (block.timestamp < dutchStartTime) return dutchStartPrice;
         uint256 elapsed = block.timestamp - dutchStartTime;
         if (elapsed >= dutchDuration) return dutchEndPrice;

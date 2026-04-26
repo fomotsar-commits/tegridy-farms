@@ -44,8 +44,11 @@ contract DeployRemainingScript is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
-        // 1. Deploy POLAccumulator (the only missing contract)
-        POLAccumulator pol = new POLAccumulator(TOWELI, UNISWAP_V2_ROUTER, LP_TOKEN, TREASURY);
+        // 1. Deploy POLAccumulator (AUDIT R015: TWAP required, AUDIT R062: SEQUENCER_FEED optional)
+        address TWAP = vm.envAddress("TWAP");
+        require(TWAP != address(0), "TWAP env var required");
+        address SEQUENCER_FEED = vm.envOr("SEQUENCER_FEED", address(0));
+        POLAccumulator pol = new POLAccumulator(TOWELI, UNISWAP_V2_ROUTER, LP_TOKEN, TREASURY, TWAP, SEQUENCER_FEED);
         console.log("1. POLAccumulator:", address(pol));
 
         // 2. Cross-contract linking

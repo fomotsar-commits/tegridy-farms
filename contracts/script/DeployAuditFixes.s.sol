@@ -89,7 +89,10 @@ contract DeployAuditFixesScript is Script {
 
         // 7. MemeBountyBoard (quorum + dispute period)
         // AUDIT FIX M-06: MemeBountyBoard now requires WETH address for payout fallback
-        MemeBountyBoard bountyBoard = new MemeBountyBoard(TOWELI, address(staking), WETH);
+        // AUDIT R062: pass per-chain Chainlink L2 Sequencer Uptime feed via SEQUENCER_FEED env;
+        //             address(0) on mainnet / non-L2 (no-op).
+        address SEQUENCER_FEED = vm.envOr("SEQUENCER_FEED", address(0));
+        MemeBountyBoard bountyBoard = new MemeBountyBoard(TOWELI, address(staking), WETH, SEQUENCER_FEED);
         console.log("7. MemeBountyBoard:", address(bountyBoard));
 
         // 8. PremiumAccess (cancelSubscription with pro-rata refund)
@@ -104,11 +107,16 @@ contract DeployAuditFixesScript is Script {
         // 9. POLAccumulator (protocol-owned liquidity)
         address LP_TOKEN = vm.envAddress("LP_TOKEN"); // TOWELI/WETH pair address
         require(LP_TOKEN != address(0), "LP_TOKEN env var required");
+        // AUDIT R015: TWAP env required. AUDIT R062: SEQUENCER_FEED env optional.
+        address TWAP = vm.envAddress("TWAP");
+        require(TWAP != address(0), "TWAP env var required");
         POLAccumulator polAccumulator = new POLAccumulator(
             TOWELI,
             UNISWAP_V2_ROUTER,
             LP_TOKEN,
-            TREASURY
+            TREASURY,
+            TWAP,
+            SEQUENCER_FEED // R062
         );
         console.log("9. POLAccumulator:", address(polAccumulator));
 

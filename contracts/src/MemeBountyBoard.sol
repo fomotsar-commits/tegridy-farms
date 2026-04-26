@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
+import {SequencerCheck, IChainlinkAggregator} from "./lib/SequencerCheck.sol";
 
 interface IStakingVote {
     function votingPowerOf(address user) external view returns (uint256);
@@ -152,7 +153,22 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
     // ─── Constructor ──────────────────────────────────────────────────
 
-    constructor(address _voteToken, address _stakingContract, address _weth) OwnableNoRenounce(msg.sender) {
+    // ─── AUDIT R062: L2 Sequencer Uptime gating ──────────────────────
+    /// @notice Optional Chainlink L2 Sequencer Uptime feed. address(0) on
+    ///         mainnet / non-L2 (no-op).
+    address public immutable sequencerFeed;
+    /// @notice Buffer added to force-cancel and stale-refund windows when the
+    ///         sequencer was unavailable. An honest creator/voter who tried
+    ///         to participate during an outage should not be punished by
+    ///         losing the bounty to a window that elapsed entirely while the
+    ///         chain was down. 1h matches the Aave V3 grace default.
+    uint256 public constant SEQUENCER_OUTAGE_BUFFER = 1 hours;
+
+    /// @param _sequencerFeed AUDIT R062 — Chainlink L2 Sequencer Uptime feed;
+    ///        pass `address(0)` for mainnet / non-L2 deployments.
+    constructor(address _voteToken, address _stakingContract, address _weth, address _sequencerFeed)
+        OwnableNoRenounce(msg.sender)
+    {
         // L-02: Validate constructor arguments
         if (_voteToken == address(0)) revert ZeroAddress();
         if (_stakingContract == address(0)) revert ZeroAddress();
@@ -160,6 +176,30 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         voteToken = IERC20(_voteToken);
         stakingContract = IStakingVote(_stakingContract);
         weth = _weth;
+        // R062: zero permitted (mainnet / non-L2 = gating disabled).
+        sequencerFeed = _sequencerFeed;
+    }
+
+    /// @notice AUDIT R062: returns SEQUENCER_OUTAGE_BUFFER when the L2
+    ///         sequencer is currently down or has resumed within the buffer
+    ///         window. 0 otherwise — and 0 when sequencerFeed is unset
+    ///         (mainnet / non-L2). Used by `refundStaleBounty` and
+    ///         `emergencyForceCancel` to widen the grace window when an
+    ///         outage prevented honest participation.
+    function _sequencerBuffer() internal view returns (uint256) {
+        if (sequencerFeed == address(0)) return 0;
+        (
+            ,
+            int256 answer,
+            uint256 startedAt,
+            ,
+        ) = IChainlinkAggregator(sequencerFeed).latestRoundData();
+        if (answer == 1) return SEQUENCER_OUTAGE_BUFFER;
+        if (startedAt == 0) return SEQUENCER_OUTAGE_BUFFER;
+        if ((block.timestamp - startedAt) < SEQUENCER_OUTAGE_BUFFER) {
+            return SEQUENCER_OUTAGE_BUFFER;
+        }
+        return 0;
     }
 
     // ─── Pausable ────────────────────────────────────────────────────
@@ -399,7 +439,11 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (_bountyId >= bounties.length) revert InvalidBounty();
         Bounty storage bounty = bounties[_bountyId];
         if (bounty.status != BountyStatus.Open) revert BountyNotOpen();
-        if (block.timestamp < bounty.deadline + DISPUTE_PERIOD + GRACE_PERIOD) revert GracePeriodNotExpired();
+        // R062 (HIGH): when the L2 sequencer was unavailable, extend the
+        // grace window by SEQUENCER_OUTAGE_BUFFER so an honest creator/voter
+        // who tried to participate during an outage isn't punished by a
+        // refund window that elapsed entirely while the chain was offline.
+        if (block.timestamp < bounty.deadline + DISPUTE_PERIOD + GRACE_PERIOD + _sequencerBuffer()) revert GracePeriodNotExpired();
         if (topSubmissionVotes[_bountyId] >= MIN_COMPLETION_VOTES && uniqueVoterCount[_bountyId] >= MIN_UNIQUE_VOTERS) revert WinnerExists();
 
         // No submission met quorum — refund creator
@@ -443,7 +487,11 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (_bountyId >= bounties.length) revert InvalidBounty();
         Bounty storage bounty = bounties[_bountyId];
         if (bounty.status != BountyStatus.Open) revert BountyNotOpen();
-        if (block.timestamp < bounty.deadline + EMERGENCY_FORCE_CANCEL_DELAY) revert ForceCancelTooEarly();
+        // R062 (HIGH): extend force-cancel grace by SEQUENCER_OUTAGE_BUFFER
+        // when the sequencer was recently down/resumed. Owner shouldn't be
+        // able to refund the creator over a cancel window that elapsed while
+        // artists could not submit / dispute (chain offline).
+        if (block.timestamp < bounty.deadline + EMERGENCY_FORCE_CANCEL_DELAY + _sequencerBuffer()) revert ForceCancelTooEarly();
         if (topSubmissionVotes[_bountyId] >= MIN_COMPLETION_VOTES && uniqueVoterCount[_bountyId] >= MIN_UNIQUE_VOTERS) revert WinnerExists();
         if (totalBountyVotes[_bountyId] >= MIN_COMPLETION_VOTES * 2) revert WinnerExists();
 

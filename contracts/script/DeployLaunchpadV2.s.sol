@@ -33,11 +33,15 @@ contract DeployLaunchpadV2Script is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
+        // AUDIT R062: per-chain Chainlink L2 Sequencer Uptime feed via SEQUENCER_FEED env;
+        //             address(0) on mainnet / non-L2 (no-op).
+        address SEQUENCER_FEED = vm.envOr("SEQUENCER_FEED", address(0));
         TegridyLaunchpadV2 factory = new TegridyLaunchpadV2(
             deployer,          // deployer owns first so we can transfer via 2-step
             LAUNCHPAD_FEE_BPS,
             TREASURY,
-            WETH
+            WETH,
+            SEQUENCER_FEED
         );
 
         console.log("1. TegridyLaunchpadV2:", address(factory));

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300" role="img" aria-label="Image unavailable">
+  <rect width="300" height="300" fill="#1a1a1a"/>
+  <rect x="0.5" y="0.5" width="299" height="299" fill="none" stroke="#333" stroke-width="1"/>
+  <g fill="#666" font-family="ui-sans-serif, system-ui, sans-serif" text-anchor="middle">
+    <text x="150" y="148" font-size="48" font-weight="600">?</text>
+    <text x="150" y="180" font-size="13" letter-spacing="1">UNAVAILABLE</text>
+  </g>
+</svg>

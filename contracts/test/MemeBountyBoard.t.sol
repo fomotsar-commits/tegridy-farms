@@ -97,7 +97,7 @@ contract MemeBountyBoardTest is Test {
         token = new MockToweliBoard();
         staking = new MockStakingVoteBoard();
         weth = new MockWETHBoard();
-        board = new MemeBountyBoard(address(token), address(staking), address(weth));
+        board = new MemeBountyBoard(address(token), address(staking), address(weth), address(0));
         vm.deal(creator, 10 ether);
         vm.deal(address(this), 10 ether);
 

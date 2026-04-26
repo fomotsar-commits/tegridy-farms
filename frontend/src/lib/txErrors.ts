@@ -21,7 +21,12 @@
  */
 import { UserRejectedRequestError } from 'viem';
 
-type ToastLike = {
+// R080: exported so test mocks can be typed against the same shape. Tests
+// pass vitest mocks (a callable + constructor intersection) which match
+// this only under `strictFunctionTypes: false` — that flag is now off in
+// `tsconfig.test.json` so production code stays strict and tests still
+// compile without `as unknown as ToastLike` boilerplate.
+export type ToastLike = {
   error: (msg: string) => void;
   info?: (msg: string) => void;
   message?: (msg: string) => void;

@@ -53,7 +53,7 @@ contract TegridyTWAPTest is Test {
         pair.mint(address(this));
 
         // Deploy TWAP oracle
-        twap = new TegridyTWAP();
+        twap = new TegridyTWAP(address(0));
 
         // Give alice tokens for swaps
         tokenA.transfer(alice, 10_000 ether);

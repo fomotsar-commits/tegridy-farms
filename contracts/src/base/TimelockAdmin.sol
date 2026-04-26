@@ -84,4 +84,11 @@ abstract contract TimelockAdmin {
     function proposalExecuteAfter(bytes32 key) external view returns (uint256) {
         return _executeAfter[key];
     }
+
+    /// @notice Internal alias for `_executeAfter[key]` used by child
+    ///         contracts to surface the ready-at timestamp without
+    ///         exposing the raw mapping slot.
+    function _proposalReadyAt(bytes32 key) internal view returns (uint256) {
+        return _executeAfter[key];
+    }
 }

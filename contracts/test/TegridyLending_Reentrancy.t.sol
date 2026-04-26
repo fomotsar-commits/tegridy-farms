@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
 import "../src/TegridyLending.sol";
+import {TegridyTWAP} from "../src/TegridyTWAP.sol";
 
 // ─── Mock Contracts (reused from TegridyLending.t.sol) ──────────────
 
@@ -236,7 +237,11 @@ contract TegridyLending_ReentrancyTest is Test {
         // Deploy WETH, pair stub, and lending
         weth = new MockWETH_LendReentry();
         pair = new MockPair_LendReentry(address(toweli), address(weth));
-        lending = new TegridyLending(treasury, 500, address(weth), address(pair));
+        // R003: TegridyLending now consults a TWAP for the optional ETH-floor.
+        // Reentrancy tests use minPositionETHValue=0 so the TWAP is never
+        // queried — an unbootstrapped instance is fine.
+        TegridyTWAP twap = new TegridyTWAP(address(0));
+        lending = new TegridyLending(treasury, 500, address(weth), address(pair), address(twap), address(0));
 
         // Fund alice and have her stake
         toweli.transfer(alice, 100_000 ether);

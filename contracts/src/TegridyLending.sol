@@ -7,6 +7,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
+import {SequencerCheck} from "./lib/SequencerCheck.sol";
 
 /// @dev Minimal interface for TegridyStaking NFT position queries and transfers.
 interface ITegridyStaking {
@@ -27,6 +28,23 @@ interface ITegridyPair {
     function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
     function token0() external view returns (address);
     function token1() external view returns (address);
+}
+
+/// @dev Minimal interface for TegridyTWAP — exposes only the read paths needed by the
+///      ETH-floor oracle. `consult` returns the time-weighted output for `amountIn`
+///      of `tokenIn` over `period` seconds. `getLatestObservation` lets us check
+///      staleness explicitly before relying on a TWAP read (defence-in-depth: the
+///      TWAP's internal MAX_STALENESS check also reverts, but we surface a typed
+///      error here so consumers can disambiguate).
+interface ITegridyTWAP {
+    struct Observation {
+        uint32 timestamp;
+        uint224 price0Cumulative;
+        uint224 price1Cumulative;
+    }
+    function consult(address pair, address tokenIn, uint256 amountIn, uint256 period)
+        external view returns (uint256 amountOut);
+    function getLatestObservation(address pair) external view returns (Observation memory);
 }
 
 /// @title TegridyLending — P2P NFT-Collateralized Lending Protocol
@@ -123,12 +141,45 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     address public immutable weth; // WETH for fallback payout to revert-on-receive lenders
 
     // ─── Pair / TOWELI references (ETH-floor oracle) ────────────────
-    // AUDIT critique 5.4: TegridyPair provides the spot reserves used by the optional
-    // ETH-denominated collateral floor (see `_positionETHValue`). The `toweli` address
-    // is snapshotted at construction so `_positionETHValue` knows which reserve slot
-    // represents TOWELI and which represents WETH.
+    // AUDIT critique 5.4 / R003: TegridyPair is retained for orientation metadata
+    // (token0/token1) but is no longer used as a spot-price source. The optional
+    // ETH-denominated collateral floor now reads a time-weighted price from
+    // `TegridyTWAP.consult` (see `_positionETHValue`). The `toweli` address is
+    // snapshotted at construction so we know which side of the pair represents
+    // TOWELI when calling `consult(pair, toweli, …)`.
     address public immutable pair;
     address public immutable toweli;
+
+    /// @notice TWAP oracle used by the ETH-floor pricing path. Replaces the prior
+    ///         raw `getReserves()` read which was sandwich-manipulable in the same
+    ///         transaction (R003 / agents 006/031/032). `consult(pair, toweli,
+    ///         amount, TWAP_PERIOD)` returns a time-weighted ETH-equivalent value.
+    ITegridyTWAP public immutable twap;
+
+    /// @notice TWAP averaging window used by the ETH-floor check. 30 minutes matches
+    ///         Aave V3's default oracle window — long enough to dilute single-block
+    ///         reserve manipulation, short enough to track real price movement.
+    uint256 public constant TWAP_PERIOD = 30 minutes;
+
+    /// @notice Maximum acceptable age of the most-recent TWAP observation. If the
+    ///         keeper has stopped pushing `update()` calls, the floor check reverts
+    ///         rather than silently falling back to a stale price. Matches the
+    ///         TegridyTWAP contract's own MAX_STALENESS — kept here for explicit
+    ///         typed-error feedback.
+    uint256 public constant TWAP_MAX_STALENESS = 2 hours;
+
+    // ─── AUDIT R062: L2 Sequencer Uptime gating ──────────────────────
+    /// @notice Optional Chainlink L2 Sequencer Uptime feed. address(0) on
+    ///         mainnet / non-L2 (no-op). Stored immutable so it cannot be
+    ///         hot-swapped post-deploy.
+    address public immutable sequencerFeed;
+    /// @notice Post-resume grace window. After the sequencer transitions back
+    ///         to "up", `_positionETHValue` still reverts for
+    ///         `SEQUENCER_GRACE_PERIOD` seconds so AMM reserves and TWAP
+    ///         observations have time to refresh before lender collateral is
+    ///         valued at potentially stale post-outage prices. 1h matches
+    ///         Aave V3's default grace.
+    uint256 public constant SEQUENCER_GRACE_PERIOD = 1 hours;
 
     // ─── Timelock Delays ─────────────────────────────────────────────
     uint256 public constant PROTOCOL_FEE_TIMELOCK = 48 hours;
@@ -264,6 +315,11 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     error InvalidLoanId();
     error InvalidOfferId();
     error MsgValueMismatch();
+    /// @dev R003: raised when the TWAP observation backing the ETH-floor check is
+    ///      older than `TWAP_MAX_STALENESS`. Lender / borrower must wait for a
+    ///      keeper to refresh the oracle (or call `twap.update(pair)` themselves)
+    ///      before `acceptOffer` will succeed for a non-zero ETH floor.
+    error OracleStale();
 
     // ─── Legacy View Helpers (for test compatibility) ────────────────
     function protocolFeeChangeReadyAt() external view returns (uint256) {
@@ -282,21 +338,37 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @param _pair TegridyPair (TOWELI/WETH) used by the optional ETH-denominated
     ///              collateral floor in `acceptOffer`. Reserve-slot orientation is resolved
     ///              at deploy time via `token0()` / `token1()`.
+    /// @param _twap TegridyTWAP oracle used to price the optional ETH-floor. R003 fix:
+    ///              prior implementation read raw `getReserves()` and was provably
+    ///              sandwich-manipulable in a single transaction. NOTE: the TWAP must be
+    ///              bootstrapped (>=2 observations spaced by `TegridyTWAP.MIN_PERIOD`)
+    ///              before `acceptOffer` will succeed for a non-zero ETH floor; deploy
+    ///              scripts must call `twap.update(_pair)` twice with a wait between
+    ///              calls before any lender posts a non-zero `minPositionETHValue`.
+    /// @param _sequencerFeed AUDIT R062 — Chainlink L2 Sequencer Uptime feed;
+    ///        pass `address(0)` for mainnet / non-L2 deployments to disable
+    ///        gating (no-op).
     constructor(
         address _treasury,
         uint256 _protocolFeeBps,
         address _weth,
-        address _pair
+        address _pair,
+        address _twap,
+        address _sequencerFeed
     ) OwnableNoRenounce(msg.sender) {
         if (_treasury == address(0)) revert ZeroAddress();
         if (_weth == address(0)) revert ZeroAddress();
         if (_pair == address(0)) revert ZeroAddress();
+        if (_twap == address(0)) revert ZeroAddress();
         if (_protocolFeeBps > MAX_PROTOCOL_FEE_BPS) revert FeeTooHigh();
 
         treasury = _treasury;
         protocolFeeBps = _protocolFeeBps;
         weth = _weth;
         pair = _pair;
+        twap = ITegridyTWAP(_twap);
+        // R062: zero permitted (mainnet / non-L2 = gating disabled).
+        sequencerFeed = _sequencerFeed;
 
         // Snapshot the TOWELI side of the pair at construction so we don't depend
         // on an externally passed address later. Whichever slot isn't WETH is TOWELI.
@@ -701,26 +773,43 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         return offers.length;
     }
 
-    /// @notice Value a TOWELI amount in ETH at the TegridyPair's current spot reserves.
-    /// @dev AUDIT critique 5.4 / SECURITY_DEFERRED: this reads instantaneous AMM
-    ///      reserves — it IS sandwich-manipulable inside the same transaction. The
-    ///      primary mitigations are the 2-hour min-loan-duration bound on how long
-    ///      a manipulated price can persist before the position unlock matures, plus
-    ///      the fact that the floor is lender-elected (zero = disabled). We will
-    ///      replace this with a TWAP read once the V3 pool / oracle is live (see
-    ///      docs/SECURITY_DEFERRED.md).
+    /// @notice Value a TOWELI amount in ETH using the TegridyTWAP time-weighted price.
+    /// @dev AUDIT critique 5.4 / R003 (agents 006/031/032): the prior implementation
+    ///      read raw `ITegridyPair.getReserves()` and was provably sandwich-manipulable
+    ///      inside the same transaction (see `test_NoSpotManipulation_AfterTWAP`). We
+    ///      now consult the TegridyTWAP oracle over a 30-minute averaging window
+    ///      (`TWAP_PERIOD`), matching Aave V3's default. A defence-in-depth staleness
+    ///      check rejects the read if the most-recent observation is older than
+    ///      `TWAP_MAX_STALENESS` (2h). Single-block manipulation cannot move a
+    ///      30-minute average enough to change the outcome.
     /// @param toweliAmount Amount of TOWELI to value (18-decimal fixed-point).
-    /// @return ETH-equivalent value, computed via `mulDiv(toweliAmount, wethReserve, toweliReserve)`.
-    ///         Returns 0 if the TOWELI reserve is 0 (avoid division-by-zero).
+    /// @return ETH-equivalent value as reported by `TegridyTWAP.consult` over the
+    ///         `TWAP_PERIOD` window. Reverts `OracleStale` if the latest observation
+    ///         is older than `TWAP_MAX_STALENESS`. Reverts with the TWAP's own
+    ///         `InsufficientObservations` if the oracle has not been bootstrapped
+    ///         with at least two observations spaced by `MIN_PERIOD`.
     function _positionETHValue(uint256 toweliAmount) internal view returns (uint256) {
-        (uint112 reserve0, uint112 reserve1, ) = ITegridyPair(pair).getReserves();
-        // Resolve which reserve corresponds to TOWELI vs WETH. Orientation was fixed
-        // at deploy time via `toweli` / `weth` immutables.
-        (uint256 toweliReserve, uint256 wethReserve) = ITegridyPair(pair).token0() == toweli
-            ? (uint256(reserve0), uint256(reserve1))
-            : (uint256(reserve1), uint256(reserve0));
-        if (toweliReserve == 0) return 0;
-        return Math.mulDiv(toweliAmount, wethReserve, toweliReserve);
+        // R062 (HIGH): refuse to value collateral when the L2 sequencer is
+        // currently down or has just resumed within SEQUENCER_GRACE_PERIOD.
+        // Without this gate, a borrower could accept an offer the moment a
+        // sequencer comes back online and force the lender to value their
+        // TOWELI collateral at pre-outage TWAP observations. address(0)
+        // sequencerFeed is a no-op (mainnet / non-L2 deployments). The
+        // downstream `twap.consult` ALSO performs this check, but having it
+        // at the call site gives a typed revert before any TWAP read happens.
+        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
+
+        // Defence-in-depth staleness gate. The TWAP itself enforces the same
+        // 2-hour bound inside `consult`, but we want a typed `OracleStale` error
+        // for callers and to keep the staleness window explicit at the call site.
+        ITegridyTWAP.Observation memory latest = twap.getLatestObservation(pair);
+        if (block.timestamp - latest.timestamp > TWAP_MAX_STALENESS) revert OracleStale();
+
+        // consult(pair, tokenIn=toweli, amountIn=toweliAmount, period=30 min)
+        // returns the time-weighted ETH-equivalent over the window. Same return
+        // semantics as the previous reserve-ratio math but immune to single-block
+        // reserve manipulation.
+        return twap.consult(pair, toweli, toweliAmount, TWAP_PERIOD);
     }
 
     /// @notice Get the total number of loans created.

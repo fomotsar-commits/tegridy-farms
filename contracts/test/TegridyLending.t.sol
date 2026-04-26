@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
 import "../src/TegridyLending.sol";
+import {TegridyTWAP} from "../src/TegridyTWAP.sol";
 
 // ─── Mock Contracts ─────────────────────────────────────────────────
 
@@ -116,7 +117,13 @@ contract TegridyLendingTest is Test {
             1_000_000 ether, // toweli reserve
             1_000 ether      // weth reserve → 1 TOWELI = 0.001 ETH
         );
-        lending = new TegridyLending(treasury, 500, address(weth), address(pair)); // 5% protocol fee
+        // R003: TegridyLending now consults a TWAP for the optional ETH-floor.
+        // We deploy a real TegridyTWAP instance — tests in this file all pass
+        // `minPositionETHValue = 0`, so `_positionETHValue` is never invoked
+        // and the TWAP never needs to be bootstrapped. Tests that exercise
+        // the floor live in TegridyLending_ETHFloor.t.sol.
+        TegridyTWAP twap = new TegridyTWAP(address(0));
+        lending = new TegridyLending(treasury, 500, address(weth), address(pair), address(twap), address(0)); // 5% protocol fee
 
         // 4. Fund alice with TOWELI and have her stake to get a position NFT
         toweli.transfer(alice, 100_000 ether);

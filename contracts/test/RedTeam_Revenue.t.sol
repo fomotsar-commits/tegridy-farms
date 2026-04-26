@@ -312,7 +312,7 @@ contract RedTeamRevenue is Test {
         // Deploy contracts
         distributor = new RevenueDistributor(address(ve), treasury, address(weth));
         grants = new CommunityGrants(address(veGrants), address(token), feeReceiver, address(weth));
-        bountyBoard = new MemeBountyBoard(address(token), address(staking), address(weth));
+        bountyBoard = new MemeBountyBoard(address(token), address(staking), address(weth), address(0));
         splitter = new ReferralSplitter(1000, address(staking), treasury, address(weth));
 
         // Setup: approve splitter caller
@@ -934,14 +934,14 @@ contract RedTeamRevenue is Test {
     }
 
     /// @notice Attack: Try to DOS claims by creating so many epochs users can't iterate
-    /// Expected: DEFENDED by MAX_CLAIM_EPOCHS (500) and claimUpTo
+    /// Expected: DEFENDED by MAX_CLAIM_EPOCHS (R064 lowered 500 → 250) and claimUpTo
     function test_Attack9b_TooManyEpochsDOS() public {
         uint256 t = 100000;
         vm.warp(t);
         ve.setLock(alice, 5000 ether, t + 730 days);
 
-        // Create 501 epochs (at 4 hour + 1 second intervals to satisfy MIN_DISTRIBUTE_INTERVAL)
-        for (uint256 i = 0; i < 501; i++) {
+        // Create 251 epochs (one above the cap; satisfies MIN_DISTRIBUTE_INTERVAL).
+        for (uint256 i = 0; i < 251; i++) {
             t += 4 hours + 1;
             vm.warp(t);
             vm.deal(address(distributor), address(distributor).balance + 1 ether); // MIN_DISTRIBUTE_AMOUNT = 1 ether
@@ -953,9 +953,9 @@ contract RedTeamRevenue is Test {
         vm.prank(alice);
         distributor.claim();
 
-        // But claimUpTo works
+        // But claimUpTo works (clamped to 250 internally)
         vm.prank(alice);
-        distributor.claimUpTo(500);
+        distributor.claimUpTo(250);
 
         emit log("DEFENDED: claimUpTo allows batched claiming when too many epochs");
     }

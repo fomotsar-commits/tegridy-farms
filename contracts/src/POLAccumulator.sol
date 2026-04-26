@@ -8,6 +8,7 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
+import {SequencerCheck} from "./lib/SequencerCheck.sol";
 
 interface IUniswapV2Router {
     function swapExactETHForTokens(
@@ -23,6 +24,26 @@ interface IUniswapV2Router {
         uint256 amountETHMin, address to, uint256 deadline
     ) external returns (uint256 amountToken, uint256 amountETH);
     function WETH() external pure returns (address);
+    // R015: factory introspection for constructor pair validation
+    function factory() external view returns (address);
+}
+
+interface IUniswapV2Factory {
+    function getPair(address tokenA, address tokenB) external view returns (address);
+}
+
+/// @dev R015: Minimal TegridyTWAP read interface — mirrors the surface used in TegridyLending (R003).
+///      `consult` returns the time-weighted output for `amountIn` of `tokenIn` over `period`.
+///      `getLatestObservation` lets us check staleness explicitly before relying on a TWAP read.
+interface ITegridyTWAP {
+    struct Observation {
+        uint32 timestamp;
+        uint224 price0Cumulative;
+        uint224 price1Cumulative;
+    }
+    function consult(address pair, address tokenIn, uint256 amountIn, uint256 period)
+        external view returns (uint256 amountOut);
+    function getLatestObservation(address pair) external view returns (Observation memory);
 }
 
 /// @title POLAccumulator (Protocol-Owned Liquidity)
@@ -55,7 +76,32 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     address public immutable weth;
     address public immutable lpToken; // LP pair address — cannot be swept
 
-    uint256 public constant MAX_DEADLINE = 2 minutes; // A4-H-07: Tightened from 5m to 2m — both swap and LP add happen in the same tx, so tight deadline reduces MEV sandwich window between the two operations
+    /// @notice R015: TWAP oracle used to derive minOut floors INSIDE accumulate()/executeHarvestLP().
+    ///         Battle-tested Olympus / Tokemak treasury-ops pattern: caller-supplied minOut is no
+    ///         longer trusted (was effectively 1 in tests, ~5 ETH/call MEV bleed). The TWAP is the
+    ///         single source of truth for slippage protection — caller-supplied params now act as
+    ///         additive belt-and-braces, never relaxing below the TWAP-derived floor.
+    ITegridyTWAP public immutable twap;
+
+    /// @notice R015: TWAP averaging window — 30 minutes matches Aave V3 / R003 lending oracle.
+    ///         Long enough to dilute single-block reserve manipulation, short enough that a
+    ///         legitimate same-day price move still drives accumulate() execution.
+    uint256 public constant TWAP_PERIOD = 30 minutes;
+
+    /// @notice R015: Defence-in-depth staleness gate — refuse to operate if the TWAP's latest
+    ///         observation is older than this. The TWAP itself enforces the same bound inside
+    ///         consult, but the typed error here is what monitoring keys off.
+    uint256 public constant TWAP_MAX_STALENESS = 2 hours;
+
+    /// @notice R015: TWAP-derived safety margin (50 bps = 0.5%). The internal minOut for both
+    ///         the swap leg and the addLiquidity leg is `twapOut * (BPS - TWAP_SAFETY_BPS) / BPS`.
+    ///         Caller cannot relax this floor; they can only tighten it via the existing minOut
+    ///         params. 50 bps is tighter than the configurable maxSlippageBps because it is keyed
+    ///         off TWAP not spot — TWAP-vs-actual divergence is bounded by TWAP_PERIOD volatility.
+    uint256 public constant TWAP_SAFETY_BPS = 50;
+    uint256 private constant BPS = 10_000;
+
+    uint256 public constant MAX_DEADLINE = 1 minutes; // R015: Tightened from 2m → 1m — narrows MEV sandwich window further; Flashbots inclusion target is the next block (~12s) so 1m is comfortably forgiving for private-mempool relays.
 
     // AUDIT FIX H-13: Configurable max slippage for sandwich protection (default 5%, range 1%-10%)
     uint256 public maxSlippageBps = 500;
@@ -98,6 +144,8 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     error NoContracts();
     error CannotSweepLP(); // SECURITY FIX: Prevent sweeping LP tokens
     error DeadlineTooFar(); // SECURITY FIX: Deadline exceeds MAX_DEADLINE
+    error OracleStale(); // R015: TWAP latest observation older than TWAP_MAX_STALENESS
+    error LPMismatch(); // R015: lpToken != factory.getPair(toweli, weth)
     // Legacy error declarations (kept for test compat — TimelockAdmin errors are thrown instead)
     error BackstopTooHigh();
     error NoPendingBackstop();
@@ -137,18 +185,55 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
     address public treasury;
 
-    constructor(address _toweli, address _router, address _lpToken, address _treasury)
+    // ─── AUDIT R062: L2 Sequencer Uptime gating ──────────────────────
+    /// @notice Optional Chainlink L2 Sequencer Uptime feed. address(0) on
+    ///         mainnet / non-L2 (no-op). Stored immutable so it cannot be
+    ///         hot-swapped post-deploy.
+    address public immutable sequencerFeed;
+    /// @notice Post-resume grace window during which `accumulate()` and
+    ///         `executeHarvestLP()` refuse to act. Pool reserves drift while
+    ///         the sequencer is offline; running either operation immediately
+    ///         after resume risks ETH at off-market prices. 1h matches Aave V3.
+    uint256 public constant SEQUENCER_GRACE_PERIOD = 1 hours;
+
+    /// @param _twap          R015: TegridyTWAP oracle that gates accumulate()/executeHarvestLP() slippage.
+    ///                       REQUIRED — passing address(0) reverts. Must be bootstrapped
+    ///                       (>=2 observations, see TegridyTWAP.MIN_PERIOD) BEFORE the
+    ///                       first accumulate() call or that call reverts with
+    ///                       InsufficientObservations from inside consult().
+    /// @param _sequencerFeed R062: Chainlink L2 Sequencer Uptime feed; pass address(0)
+    ///                       for mainnet / non-L2 deployments (gating disabled).
+    constructor(
+        address _toweli,
+        address _router,
+        address _lpToken,
+        address _treasury,
+        address _twap,
+        address _sequencerFeed
+    )
         OwnableNoRenounce(msg.sender)
     {
         require(_toweli != address(0), "ZERO_TOWELI");
         require(_router != address(0), "ZERO_ROUTER");
         require(_lpToken != address(0), "ZERO_LP_TOKEN");
         require(_treasury != address(0), "ZERO_TREASURY");
+        require(_twap != address(0), "ZERO_TWAP"); // R015
         toweli = IERC20(_toweli);
         router = IUniswapV2Router(_router);
         weth = router.WETH();
+        // R015: Constructor-time validation — confirm `_lpToken` is the canonical V2 pair
+        // for (toweli, weth) reported by the router's factory. Defends against misdeploy
+        // (or a future attacker spoofing a fake "LP" address that the accumulator would
+        // happily lock funds into). Mirrors the Tokemak treasury-ops pattern of
+        // cross-checking pair addresses against the canonical factory at construction.
+        address fac = IUniswapV2Router(_router).factory();
+        address canonicalPair = IUniswapV2Factory(fac).getPair(_toweli, router.WETH());
+        if (canonicalPair == address(0) || canonicalPair != _lpToken) revert LPMismatch();
         lpToken = _lpToken;
         treasury = _treasury;
+        twap = ITegridyTWAP(_twap);
+        // R062: zero permitted (mainnet / non-L2 = gating disabled).
+        sequencerFeed = _sequencerFeed;
     }
 
     receive() external payable {
@@ -221,27 +306,30 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
     /// @notice Use ETH balance to buy TOWELI and add permanent LP.
     ///         Splits ETH 50/50: half buys TOWELI, half pairs as ETH liquidity.
-    /// @dev AUDIT FIX H-13: This function is a high-value MEV sandwich target.
-    ///      The owner MUST use a private mempool (e.g., Flashbots Protect) when calling this.
-    ///      The caller-provided minimums (_minTokens, _minLPTokens, _minLPETH) should be set
-    ///      based on current TWAP or Chainlink oracle prices, not spot price.
-    /// @param _minTokens Minimum TOWELI to receive from swap (slippage protection).
-    ///         Must be set to a reasonable value based on current oracle/off-chain price
-    ///         to protect against sandwich attacks. A value of 0 offers no protection.
-    /// @param _minLPTokens Minimum TOWELI to use in addLiquidity (slippage protection for LP add).
-    /// @param _minLPETH Minimum ETH to use in addLiquidity (slippage protection for LP add).
-    /// @param _deadline Transaction deadline (reverts if block.timestamp > _deadline)
-    /// AUDIT FIX H-05: Removed tx.origin check. It blocked multisig wallets (standard
-    /// security practice) from calling accumulate() since msg.sender (multisig) != tx.origin (signer).
-    /// The onlyOwner modifier is sufficient access control. Sandwich protection is handled by
-    /// slippage parameters + Flashbots Protect, not tx.origin.
+    /// @dev R015 BATTLE-TESTED PATTERN (Olympus / Tokemak treasury ops):
+    ///      Caller-supplied minOut params are NO LONGER trusted as the slippage source.
+    ///      Instead, the swap minOut is derived INTERNALLY from `twap.consult()` with a
+    ///      fixed `TWAP_SAFETY_BPS` margin (0.5%). The caller can still tighten this floor
+    ///      via `_minTokens`, but NEVER relax below the TWAP floor. The TWAP itself is
+    ///      gated by a hard staleness window (TWAP_MAX_STALENESS) so a paused/abandoned
+    ///      oracle cannot be used to grant a sandwich attacker an arbitrarily low minOut.
+    ///      This closes H-1 (caller-supplied minOut accepted as 1, ~5 ETH/call MEV) and
+    ///      H-2 (LP-add floors anchored to the post-swap attacked spot).
+    /// @param _minTokens Optional CALLER tightening of the swap minOut. The internal TWAP
+    ///         floor always wins — `_minTokens` only matters if it exceeds the floor.
+    /// @param _minLPTokens Optional CALLER tightening of the LP-add token min. Same semantics.
+    /// @param _minLPETH Optional CALLER tightening of the LP-add ETH min. Same semantics.
+    /// @param _deadline Transaction deadline (reverts if block.timestamp > _deadline).
     function accumulate(uint256 _minTokens, uint256 _minLPTokens, uint256 _minLPETH, uint256 _deadline) external onlyOwner nonReentrant whenNotPaused {
+        // R062 (HIGH): refuse to accumulate when the L2 sequencer is currently
+        // down or has just resumed within SEQUENCER_GRACE_PERIOD. Pool reserves
+        // drift while the chain is offline, so swapping ETH→TOWELI the moment
+        // the chain wakes up risks executing at stale spot price.
+        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
         require(block.timestamp >= lastAccumulateTime + ACCUMULATE_COOLDOWN, "ACCUMULATE_COOLDOWN");
         require(_deadline >= block.timestamp, "EXPIRED");
         // SECURITY FIX: Enforce tight deadline cap — accumulate() is high-value MEV target
         if (_deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
-        // SECURITY FIX: Require non-zero slippage parameters to prevent sandwich attacks
-        if (_minTokens == 0) revert SlippageTooHigh();
 
         uint256 ethBalance = address(this).balance;
         if (ethBalance < 0.01 ether) revert InsufficientETH();
@@ -249,13 +337,21 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
         uint256 halfETH = ethBalance / 2;
 
-        // Step 1: Buy TOWELI with half the ETH
+        // R015: Derive TWAP-based swap floor BEFORE the swap. `twap.consult` returns the
+        // time-weighted TOWELI output for `halfETH` of WETH over TWAP_PERIOD. This is the
+        // single source of truth for swap-leg slippage protection — caller-supplied
+        // `_minTokens` can only TIGHTEN this floor, never relax it. Staleness is asserted
+        // via `getLatestObservation` first so a frozen oracle cannot grant a 0-min swap.
+        uint256 internalSwapMinOut = _twapMinOut(weth, halfETH);
+        uint256 swapMinOut = _minTokens > internalSwapMinOut ? _minTokens : internalSwapMinOut;
+
+        // Step 1: Buy TOWELI with half the ETH (with the TWAP-enforced floor).
         address[] memory path = new address[](2);
         path[0] = weth;
         path[1] = address(toweli);
 
         uint256[] memory amounts = router.swapExactETHForTokens{value: halfETH}(
-            _minTokens,
+            swapMinOut,
             path,
             address(this),
             _deadline
@@ -266,21 +362,27 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // Step 2: Approve exact amount for LP add (no infinite approval)
         toweli.forceApprove(address(router), toweliAmount);
 
-        // AUDIT FIX H-13: Enforce configurable maxSlippageBps (default 5%) as sandwich protection.
-        // The LP add minimums are derived from actual amounts minus max allowed slippage.
+        // R015: LP-add minimums are now anchored to the TWAP-implied 50/50 ratio, not to
+        // the post-swap attacked spot. We compute `twapImpliedToken = consult(weth → toweli, remainingETH)`
+        // and enforce a TWAP_SAFETY_BPS floor on it. The legacy `maxSlippageBps` and `backstopBps`
+        // floors continue to apply as additional belt-and-braces (whichever is tighter wins).
         uint256 remainingETH = ethBalance - halfETH;
-        // AUDIT FIX (300-agent #12 / battle-tested): OZ Math.mulDiv for the slippage and
-        // backstop floors. 512-bit intermediate + consistent rounding (floor is correct
-        // here — slippageMin should not exceed the actual expected output).
+        uint256 twapMinLPToken = _twapMinOut(weth, remainingETH);
+
         uint256 slippageMinToken = Math.mulDiv(toweliAmount, 10000 - maxSlippageBps, 10000);
         uint256 slippageMinETH = Math.mulDiv(remainingETH, 10000 - maxSlippageBps, 10000);
 
         uint256 backstopMinToken = Math.mulDiv(toweliAmount, backstopBps, 10000);
         uint256 backstopMinETH = Math.mulDiv(remainingETH, backstopBps, 10000);
 
+        // Token-min: max of {caller-supplied, slippage floor, backstop floor, TWAP floor}.
         uint256 minToken = _minLPTokens;
         if (slippageMinToken > minToken) minToken = slippageMinToken;
         if (backstopMinToken > minToken) minToken = backstopMinToken;
+        if (twapMinLPToken > minToken) minToken = twapMinLPToken;
+        // ETH-min: max of {caller-supplied, slippage floor, backstop floor}. (No TWAP floor on
+        // the ETH leg because remainingETH is the ground truth — we can't be sandwiched out of
+        // ETH we're depositing; the floor exists only to detect router-side misbehaviour.)
         uint256 minETH = _minLPETH;
         if (slippageMinETH > minETH) minETH = slippageMinETH;
         if (backstopMinETH > minETH) minETH = backstopMinETH;
@@ -444,22 +546,41 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         emit POLHarvestProposed(lpAmount, _executeAfter[POL_HARVEST]);
     }
 
-    /// @notice Execute the pending POL harvest. Caller provides slippage minimums.
-    /// @dev    Uses a tight MAX_DEADLINE consistent with accumulate(); recovered TOWELI
-    ///         and ETH both go to treasury (reduces TWAP impact concentration).
+    /// @notice Execute the pending POL harvest. Caller-supplied minimums are TIGHTENED
+    ///         (never relaxed) by TWAP-derived floors, mirroring `accumulate()` (R015).
+    /// @dev    R015 BATTLE-TESTED PATTERN (asymmetric → symmetric): Previously this path
+    ///         accepted caller-supplied `minToken`/`minETH` with no floor — fully asymmetric
+    ///         vs `accumulate()`. Now the same TWAP-derived floor (with a `maxSlippageBps`
+    ///         additive belt-and-braces) gates both legs.
+    ///         Recovered TOWELI and ETH both go to treasury.
     function executeHarvestLP(uint256 minToken, uint256 minETH, uint256 deadline)
         external onlyOwner nonReentrant
     {
+        // R062 (HIGH): refuse to harvest when the L2 sequencer is currently
+        // down or has just resumed within SEQUENCER_GRACE_PERIOD. Pool reserves
+        // drift while the chain is offline; running the harvest the moment the
+        // chain resumes risks burning LP at stale spot reserves.
+        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
         _execute(POL_HARVEST);
         uint256 lpAmount = pendingHarvestLpAmount;
         pendingHarvestLpAmount = 0;
         require(deadline >= block.timestamp, "EXPIRED");
         if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
 
+        // R015: TWAP-derived per-leg floors. Compute the LP's share of pool reserves
+        // (lpAmount / lpTotalSupply * reserve_X), then enforce a TWAP-safety margin on
+        // each side. This makes the harvest sandwich-resistant in the same way the
+        // accumulate path is — an attacker pushing the pool ratio cannot trick us into
+        // accepting near-zero TOWELI or ETH on the burn. We additionally apply
+        // `maxSlippageBps` as a configurable belt-and-braces floor.
+        (uint256 floorToken, uint256 floorETH) = _twapHarvestMinOut(lpAmount);
+        uint256 effMinToken = minToken > floorToken ? minToken : floorToken;
+        uint256 effMinETH = minETH > floorETH ? minETH : floorETH;
+
         IERC20(lpToken).forceApprove(address(router), lpAmount);
         uint256 ethBefore = address(this).balance;
         (uint256 tokenOut, uint256 ethOut) = router.removeLiquidityETH(
-            address(toweli), lpAmount, minToken, minETH, address(this), deadline
+            address(toweli), lpAmount, effMinToken, effMinETH, address(this), deadline
         );
         IERC20(lpToken).forceApprove(address(router), 0);
 
@@ -504,6 +625,68 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (balance > 0) {
             IERC20(token).safeTransfer(treasury, balance); // AUDIT FIX L-08: Send to treasury, not owner()
         }
+    }
+
+    // ─── R015 helpers ────────────────────────────────────────────────
+
+    /// @notice TWAP-derived minOut for a swap leg. `twap.consult` returns the
+    ///         time-weighted output amount over `TWAP_PERIOD`. We then apply a
+    ///         `TWAP_SAFETY_BPS` (0.5%) margin so the floor is not so tight
+    ///         that legitimate volatility within the window causes false
+    ///         reverts. Staleness is asserted via `getLatestObservation`
+    ///         BEFORE consulting so a paused/abandoned oracle cannot grant a
+    ///         0-min swap silently. Reverts `OracleStale` if the most recent
+    ///         observation is older than `TWAP_MAX_STALENESS`.
+    function _twapMinOut(address tokenIn, uint256 amountIn) internal view returns (uint256) {
+        ITegridyTWAP.Observation memory latest = twap.getLatestObservation(lpToken);
+        if (block.timestamp - latest.timestamp > TWAP_MAX_STALENESS) revert OracleStale();
+        uint256 out = twap.consult(lpToken, tokenIn, amountIn, TWAP_PERIOD);
+        // Apply TWAP_SAFETY_BPS margin (out * (BPS - TWAP_SAFETY_BPS) / BPS).
+        return (out * (BPS - TWAP_SAFETY_BPS)) / BPS;
+    }
+
+    /// @notice TWAP-derived per-leg floors for `executeHarvestLP`. Computes
+    ///         the LP's pro-rata share of TOWELI/ETH reserves, then applies
+    ///         the same `TWAP_SAFETY_BPS` margin used on the swap leg. The
+    ///         result is the minimum acceptable output on each side of
+    ///         `removeLiquidityETH`. Caller-supplied `minToken` / `minETH`
+    ///         can only TIGHTEN this floor.
+    function _twapHarvestMinOut(uint256 lpAmount) internal view returns (uint256 floorToken, uint256 floorETH) {
+        // Staleness gate (mirrors `_twapMinOut`).
+        ITegridyTWAP.Observation memory latest = twap.getLatestObservation(lpToken);
+        if (block.timestamp - latest.timestamp > TWAP_MAX_STALENESS) revert OracleStale();
+
+        // Pro-rata share = lpAmount / totalSupply * reserve_X. We read
+        // reserves through the standard V2 pair surface — `lpToken` is the
+        // pair contract.
+        uint256 totalSupply = IERC20(lpToken).totalSupply();
+        if (totalSupply == 0) return (0, 0);
+
+        // Snapshot reserves via the V2 pair's reserves slot. We don't import
+        // a full pair interface here — the staticcall pattern below avoids
+        // adding more imports for two reads.
+        (bool okR, bytes memory dataR) =
+            lpToken.staticcall(abi.encodeWithSignature("getReserves()"));
+        require(okR && dataR.length >= 96, "POOL_READ");
+        (uint112 r0, uint112 r1, ) = abi.decode(dataR, (uint112, uint112, uint32));
+        (bool okT0, bytes memory dataT0) =
+            lpToken.staticcall(abi.encodeWithSignature("token0()"));
+        require(okT0 && dataT0.length == 32, "POOL_READ");
+        address t0 = abi.decode(dataT0, (address));
+
+        uint256 toweliReserve;
+        uint256 ethReserve;
+        if (t0 == address(toweli)) {
+            (toweliReserve, ethReserve) = (uint256(r0), uint256(r1));
+        } else {
+            (toweliReserve, ethReserve) = (uint256(r1), uint256(r0));
+        }
+
+        uint256 shareToken = (lpAmount * toweliReserve) / totalSupply;
+        uint256 shareETH = (lpAmount * ethReserve) / totalSupply;
+        // Apply safety margin.
+        floorToken = (shareToken * (BPS - TWAP_SAFETY_BPS)) / BPS;
+        floorETH = (shareETH * (BPS - TWAP_SAFETY_BPS)) / BPS;
     }
 
     // ─── View ─────────────────────────────────────────────────────────

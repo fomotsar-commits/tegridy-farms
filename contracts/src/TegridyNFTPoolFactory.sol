@@ -55,6 +55,14 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     /// @notice Pools indexed by NFT collection address
     mapping(address => address[]) internal _poolsByCollection;
 
+    /// @notice R064 (MEDIUM): O(1) membership check for pools created by this
+    ///         factory. Set to true atomically with `_allPools.push` in
+    ///         `createPool`. Used by `claimPoolFeesBatch` to reject arbitrary
+    ///         caller-supplied addresses (preventing accidental routing of
+    ///         fee claims through pools the factory does not control).
+    ///         Storage-stable: appended after existing slots.
+    mapping(address => bool) public isPool;
+
     // ─── Events ─────────────────────────────────────────────────────────
     event PoolCreated(
         address indexed pool,
@@ -78,6 +86,9 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     error ZeroAddress();
     error NoPoolsFound();
     error InsufficientLiquidity();
+    /// @notice R064 (MEDIUM): caller passed an address to `claimPoolFeesBatch`
+    ///         that was not deployed by this factory.
+    error NotAPool(address pool);
 
     // ─── Constructor ────────────────────────────────────────────────────
 
@@ -165,6 +176,8 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
         // Index the pool
         _allPools.push(pool);
         _poolsByCollection[nftCollection].push(pool);
+        // R064 (MEDIUM): mark for O(1) membership lookups in claimPoolFeesBatch.
+        isPool[pool] = true;
 
         // Deposit initial ETH liquidity
         if (msg.value > 0) {
@@ -229,14 +242,85 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     /// @param numItems Number of items to buy
     /// @return bestPool Address of the cheapest pool (address(0) if none found)
     /// @return bestCost Total cost at the best pool
+    /// @dev R064 (LOW): UNBOUNDED enumeration of `_poolsByCollection`. Each
+    ///      pool incurs external CALLs into `pool.poolType()`,
+    ///      `pool.getHeldCount()`, and `pool.getBuyQuote(numItems)`, so this
+    ///      view CAN exceed the eth_call gas limit on collections with many
+    ///      pools. Routers / frontends that need bounded gas MUST use
+    ///      `getBestBuyPoolPaginated` and aggregate the best across pages
+    ///      off-chain. Kept for backwards compatibility.
     function getBestBuyPool(
         address collection,
         uint256 numItems
     ) external view returns (address bestPool, uint256 bestCost) {
-        address[] storage pools = _poolsByCollection[collection];
-        bestCost = type(uint256).max;
+        return _bestBuyIn(collection, 0, _poolsByCollection[collection].length, numItems);
+    }
 
-        for (uint256 i = 0; i < pools.length; i++) {
+    /// @notice Find the highest-paying pool to sell `numItems` NFTs to a collection
+    /// @param collection The ERC-721 collection address
+    /// @param numItems Number of items to sell
+    /// @return bestPool Address of the best-paying pool (address(0) if none found)
+    /// @return bestPayout Total payout at the best pool
+    /// @dev R064 (LOW): UNBOUNDED enumeration — see warning on
+    ///      `getBestBuyPool`. Use `getBestSellPoolPaginated` for bounded gas.
+    function getBestSellPool(
+        address collection,
+        uint256 numItems
+    ) external view returns (address bestPool, uint256 bestPayout) {
+        return _bestSellIn(collection, 0, _poolsByCollection[collection].length, numItems);
+    }
+
+    /// @notice R064 (LOW): paginated cheapest-buy-pool finder. Scans
+    ///         `_poolsByCollection[collection][startIdx .. startIdx+count)`
+    ///         and returns the best within that window. Off-chain callers
+    ///         iterate pages and pick the global best across pages.
+    /// @param collection The ERC-721 collection address
+    /// @param startIdx Starting index into `_poolsByCollection[collection]` (inclusive)
+    /// @param count Maximum number of pools to scan from `startIdx`
+    /// @param numItems Number of items to buy
+    /// @return bestPool Address of the cheapest pool in the window (address(0) if none)
+    /// @return bestCost Total cost at the best pool in the window;
+    ///         `type(uint256).max` when no pool quoted (matches legacy contract).
+    function getBestBuyPoolPaginated(
+        address collection,
+        uint256 startIdx,
+        uint256 count,
+        uint256 numItems
+    ) external view returns (address bestPool, uint256 bestCost) {
+        return _bestBuyIn(collection, startIdx, count, numItems);
+    }
+
+    /// @notice R064 (LOW): paginated highest-paying-sell-pool finder. Same
+    ///         shape as `getBestBuyPoolPaginated`. Returns `(address(0), 0)`
+    ///         when no pool quoted.
+    function getBestSellPoolPaginated(
+        address collection,
+        uint256 startIdx,
+        uint256 count,
+        uint256 numItems
+    ) external view returns (address bestPool, uint256 bestPayout) {
+        return _bestSellIn(collection, startIdx, count, numItems);
+    }
+
+    /// @dev Shared internal: scan window `[startIdx, startIdx+count)` for cheapest buy.
+    ///      Preserves the legacy `getBestBuyPool` return contract:
+    ///      `bestCost = type(uint256).max` and `bestPool = address(0)` when
+    ///      no quote lands. Callers that aggregate across pages should treat
+    ///      `bestPool == address(0)` as the empty signal.
+    function _bestBuyIn(
+        address collection,
+        uint256 startIdx,
+        uint256 count,
+        uint256 numItems
+    ) internal view returns (address bestPool, uint256 bestCost) {
+        bestCost = type(uint256).max;
+        address[] storage pools = _poolsByCollection[collection];
+        uint256 total = pools.length;
+        if (startIdx >= total) return (bestPool, bestCost);
+        uint256 end = startIdx + count;
+        if (end > total) end = total;
+
+        for (uint256 i = startIdx; i < end; i++) {
             TegridyNFTPool pool = TegridyNFTPool(payable(pools[i]));
 
             // Skip BUY pools (they buy NFTs, don't sell them)
@@ -257,18 +341,20 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
         }
     }
 
-    /// @notice Find the highest-paying pool to sell `numItems` NFTs to a collection
-    /// @param collection The ERC-721 collection address
-    /// @param numItems Number of items to sell
-    /// @return bestPool Address of the best-paying pool (address(0) if none found)
-    /// @return bestPayout Total payout at the best pool
-    function getBestSellPool(
+    /// @dev Shared internal: scan window `[startIdx, startIdx+count)` for highest-paying sell.
+    function _bestSellIn(
         address collection,
+        uint256 startIdx,
+        uint256 count,
         uint256 numItems
-    ) external view returns (address bestPool, uint256 bestPayout) {
+    ) internal view returns (address bestPool, uint256 bestPayout) {
         address[] storage pools = _poolsByCollection[collection];
+        uint256 total = pools.length;
+        if (startIdx >= total) return (address(0), 0);
+        uint256 end = startIdx + count;
+        if (end > total) end = total;
 
-        for (uint256 i = 0; i < pools.length; i++) {
+        for (uint256 i = startIdx; i < end; i++) {
             TegridyNFTPool pool = TegridyNFTPool(payable(pools[i]));
 
             // Skip SELL pools (they sell NFTs, don't buy them)
@@ -376,9 +462,25 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
 
     /// @notice Batch claim protocol fees from multiple pools.
     /// @param pools Array of pool addresses to claim from
-    function claimPoolFeesBatch(address[] calldata pools) external {
+    /// @dev R064 (MEDIUM): the prior version accepted ARBITRARY caller-supplied
+    ///      addresses and swallowed every error. An attacker could pass a
+    ///      hostile contract that gas-griefs (`assert(false)` style) the
+    ///      loop, or simply pollute the success path by routing the call
+    ///      through a pool-shaped address the factory never deployed. We
+    ///      now:
+    ///        1. assert membership via `isPool[pool]` — only pools created by
+    ///           THIS factory can be batch-claimed.
+    ///        2. continue swallowing per-pool failures (so one stuck pool
+    ///           doesn't DoS the whole batch) but ONLY for pools we ourselves
+    ///           deployed.
+    ///        3. add `nonReentrant` so a malicious pool implementation (in a
+    ///           future upgrade) cannot re-enter through `claimProtocolFees`
+    ///           to double-claim.
+    function claimPoolFeesBatch(address[] calldata pools) external nonReentrant {
         for (uint256 i = 0; i < pools.length; i++) {
-            try TegridyNFTPool(payable(pools[i])).claimProtocolFees() {} catch {}
+            address pool = pools[i];
+            if (!isPool[pool]) revert NotAPool(pool);
+            try TegridyNFTPool(payable(pool)).claimProtocolFees() {} catch {}
         }
     }
 

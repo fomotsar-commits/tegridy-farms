@@ -204,11 +204,12 @@ contract RevenueDistributorTest is Test {
     }
 
     // ===== MAX_CLAIM_EPOCHS GAS PROTECTION (SECURITY FIX #18) =====
+    // R064: cap lowered from 500 → 250 (still ~5 years at weekly cadence).
 
     function test_claim_capsAtMaxEpochs() public {
-        vm.deal(address(this), 501 ether);
+        vm.deal(address(this), 251 ether);
         uint256 ts = block.timestamp;
-        for (uint256 i = 0; i < 501; i++) {
+        for (uint256 i = 0; i < 251; i++) {
             ts += 4 hours;
             vm.warp(ts);
             (bool ok,) = address(dist).call{value: 1 ether}("");
@@ -216,20 +217,20 @@ contract RevenueDistributorTest is Test {
             dist.distribute();
         }
 
-        // claim() reverts when unclaimed epochs exceed MAX_CLAIM_EPOCHS (500)
+        // claim() reverts when unclaimed epochs exceed MAX_CLAIM_EPOCHS (250)
         vm.prank(alice);
         vm.expectRevert(RevenueDistributor.TooManyUnclaimedEpochs.selector);
         dist.claim();
 
-        // Use claimUpTo() to batch-claim first 500 epochs
+        // Use claimUpTo() to batch-claim first 250 epochs
         vm.prank(alice);
-        dist.claimUpTo(500);
-        assertEq(dist.lastClaimedEpoch(alice), 500);
+        dist.claimUpTo(250);
+        assertEq(dist.lastClaimedEpoch(alice), 250);
 
         // Then claim the remaining 1 via regular claim()
         vm.prank(alice);
         dist.claim();
-        assertEq(dist.lastClaimedEpoch(alice), 501);
+        assertEq(dist.lastClaimedEpoch(alice), 251);
     }
 
     function test_claimUpTo_workaround() public {

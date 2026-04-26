@@ -41,6 +41,19 @@ contract TegridyFactory is TimelockAdmin {
     mapping(address => mapping(address => address)) public getPair;
     address[] public allPairs;
 
+    /// @notice R064 (LOW): hard ceiling on the total number of pairs this
+    ///         factory will create. The on-chain `allPairs` array is
+    ///         push-only with no enumeration helper exposed; once it grows
+    ///         large, off-chain consumers (subgraphs, indexers, multisig
+    ///         dashboards) must page through `allPairs(i)` index reads, and
+    ///         a malicious actor could cheaply spam `createPair` to balloon
+    ///         the array, degrading every factory observer. 10000 sits well
+    ///         above any realistic single-protocol legitimate volume; if the
+    ///         ceiling is ever approached, a v2 factory can be deployed
+    ///         without disturbing existing pairs.
+    uint256 public constant MAX_PAIRS = 10000;
+    error PairLimitReached();
+
     mapping(address => bool) public blockedTokens;
     mapping(address => bool) public disabledPairs;
     mapping(address => bool) public pendingPairDisableValue;
@@ -87,6 +100,28 @@ contract TegridyFactory is TimelockAdmin {
         return allPairs.length;
     }
 
+    /// @notice R064 (LOW): paginated read of `allPairs` for off-chain
+    ///         iteration. Returns `allPairs[start .. start+count)` clamped
+    ///         to the array length. Off-chain consumers (subgraphs,
+    ///         indexers) should prefer this over calling `allPairs(i)` in a
+    ///         loop because it batches the bound check into a single
+    ///         `eth_call`.
+    /// @param start Starting index (inclusive)
+    /// @param count Maximum number of entries to return; the result may be
+    ///              shorter if `start + count > allPairs.length`.
+    /// @return page Slice of `allPairs` covering the requested window.
+    function allPairsPaginated(uint256 start, uint256 count) external view returns (address[] memory page) {
+        uint256 total = allPairs.length;
+        if (start >= total) return new address[](0);
+        uint256 end = start + count;
+        if (end > total) end = total;
+        uint256 n = end - start;
+        page = new address[](n);
+        for (uint256 i = 0; i < n; i++) {
+            page[i] = allPairs[start + i];
+        }
+    }
+
     /// @notice Create a new trading pair. Anyone can call this.
     /// @dev WARNING: ERC-777 tokens and tokens with transfer callbacks are NOT supported.
     ///      Pairs created with such tokens may be vulnerable to cross-contract reentrancy.
@@ -96,6 +131,9 @@ contract TegridyFactory is TimelockAdmin {
     ///      Only create pairs with standard ERC-20 tokens.
     function createPair(address tokenA, address tokenB) external returns (address pair) {
         require(tokenA != tokenB, "IDENTICAL_ADDRESSES");
+        // R064 (LOW): enforce the MAX_PAIRS ceiling BEFORE doing any other
+        // work, so spam-attempts after the cap are cheap reverts.
+        if (allPairs.length >= MAX_PAIRS) revert PairLimitReached();
         (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
         require(token0 != address(0), "ZERO_ADDRESS");
         // AUDIT FIX: Verify both tokens are contracts (not EOAs)

@@ -1,0 +1,340 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.26;
+
+import "forge-std/Test.sol";
+
+import {RevenueDistributor} from "../src/RevenueDistributor.sol";
+
+// ─── Mocks ────────────────────────────────────────────────────────────────
+
+/// @dev Real-shape WETH9 mock — symbol "WETH", decimals 18.
+contract MockGoodWETH9R026 {
+    string public name = "Wrapped Ether";
+    string public symbol = "WETH";
+    uint8 public decimals = 18;
+    mapping(address => uint256) public balanceOf;
+    function deposit() external payable { balanceOf[msg.sender] += msg.value; }
+    function transfer(address to, uint256 v) external returns (bool) {
+        require(balanceOf[msg.sender] >= v);
+        balanceOf[msg.sender] -= v;
+        balanceOf[to] += v;
+        return true;
+    }
+    function withdraw(uint256 v) external {
+        require(balanceOf[msg.sender] >= v);
+        balanceOf[msg.sender] -= v;
+        (bool ok,) = msg.sender.call{value: v}("");
+        require(ok);
+    }
+    receive() external payable {}
+}
+
+/// @dev Mutable staking mock so tests can dial userPower / totalBoostedStake / lockEnd
+///      independently — letting the test stage flash-deflation, ambiguous power, and grace
+///      transitions without needing the real TegridyStaking machinery.
+contract MockStakingR026 {
+    uint256 public totalBoostedStake;
+    uint256 public totalLocked;
+    bool public paused;
+    mapping(address => uint256) private _power;          // current votingPowerOf
+    mapping(address => uint256) private _historyPower;   // votingPowerAtTimestamp (any ts)
+    mapping(address => uint256) public userTokenId;
+    mapping(uint256 => uint256) public posAmount;
+    mapping(uint256 => uint256) public posLockEnd;
+
+    function setTotalBoostedStake(uint256 v) external { totalBoostedStake = v; }
+    function setTotalLocked(uint256 v) external { totalLocked = v; }
+    function setPower(address u, uint256 v) external { _power[u] = v; }
+    function setHistoryPower(address u, uint256 v) external { _historyPower[u] = v; }
+    function setPosition(address u, uint256 tokenId, uint256 amount, uint256 lockEnd) external {
+        userTokenId[u] = tokenId;
+        posAmount[tokenId] = amount;
+        posLockEnd[tokenId] = lockEnd;
+    }
+    function setPaused(bool p) external { paused = p; }
+
+    function votingPowerOf(address u) external view returns (uint256) { return _power[u]; }
+    function votingPowerAtTimestamp(address u, uint256) external view returns (uint256) {
+        return _historyPower[u];
+    }
+
+    function positions(uint256 tokenId) external view returns (
+        uint256, uint256, int256, uint256, uint256, uint256, bool, bool, uint256, uint256, bool
+    ) {
+        return (posAmount[tokenId], posAmount[tokenId], int256(0), posLockEnd[tokenId],
+                0, 0, false, false, 0, 0, false);
+    }
+}
+
+/// @dev Restaking mock — controls boostedAmountAt and the restakers() tuple.
+contract MockRestakingR026 {
+    struct R { uint256 tokenId; uint256 positionAmount; uint256 boostedAmount; int256 bonusDebt; uint256 depositTime; }
+    mapping(address => R) private _r;
+    mapping(address => uint256) private _historyBoosted;
+
+    function setRestaker(address u, uint256 tokenId, uint256 positionAmount, uint256 boostedAmount) external {
+        _r[u] = R(tokenId, positionAmount, boostedAmount, int256(0), block.timestamp);
+    }
+    function setHistoryBoostedAt(address u, uint256 v) external { _historyBoosted[u] = v; }
+
+    function restakers(address u) external view returns (
+        uint256, uint256, uint256, int256, uint256
+    ) {
+        R memory r = _r[u];
+        return (r.tokenId, r.positionAmount, r.boostedAmount, r.bonusDebt, r.depositTime);
+    }
+
+    function boostedAmountAt(address u, uint256) external view returns (uint256) {
+        return _historyBoosted[u];
+    }
+}
+
+// ─── Test Body ────────────────────────────────────────────────────────────
+
+/// @title R026 — RevenueDistributor remediation (audit 024 H-2 / H-1 / M-6).
+/// @notice Covers the three fixes shipped under R026:
+///   • H-2: flash-deflation race — denominator snapshotted ONCE, no min-of-two.
+///   • H-1: restaker fallback double-credit — explicit mutual exclusion with revert.
+///   • M-6: executeForfeitReclaim freshness — STALE_RECLAIM_WINDOW gate.
+contract R026_RevenueDistributor is Test {
+    MockGoodWETH9R026 internal weth;
+    MockStakingR026 internal staking;
+    MockRestakingR026 internal restaking;
+    RevenueDistributor internal rd;
+
+    address internal owner = address(this);
+    address internal treasury = address(0xBEEF);
+    address internal alice = address(0xA11CE);
+    address internal bob = address(0xB0B);
+
+    function setUp() public {
+        weth = new MockGoodWETH9R026();
+        staking = new MockStakingR026();
+        restaking = new MockRestakingR026();
+        rd = new RevenueDistributor(address(staking), treasury, address(weth));
+
+        // Wire restaking via the standard 48h timelock.
+        rd.proposeRestakingChange(address(restaking));
+        vm.warp(block.timestamp + 48 hours + 1);
+        rd.executeRestakingChange();
+
+        // Move past MIN_DISTRIBUTE_INTERVAL on first call.
+        vm.warp(block.timestamp + 5 hours);
+
+        // Establish a healthy stake floor so distributePermissionless's
+        // MIN_DISTRIBUTE_STAKE check never trips in our scenarios.
+        staking.setTotalBoostedStake(10_000e18);
+        staking.setTotalLocked(10_000e18);
+    }
+
+    // ─── H-2: flash-deflation does not over-pay ─────────────────────────────
+
+    /// @notice POC: with the OLD min-of-two-reads logic, a dominant staker could
+    ///         unstake mid-block (denominator shrinks), then re-stake. Their
+    ///         checkpointed userPower at epoch.timestamp stays high; effectivePower
+    ///         is min(userPower, totalLocked) which still equals the deflated
+    ///         denominator → share = 100% of epoch. The R026 snapshot pattern
+    ///         instead persists `totalLockedAtEpoch[i]` ONCE at distribute time
+    ///         using a single read; no min reduction is applied. Combined with
+    ///         the per-epoch `epochClaimed` cap (C-03), one claimer cannot drain
+    ///         the entire epoch when their userPower exceeds totalBoostedStake.
+    function test_distribute_FlashDeflation_DoesNotOverpay() public {
+        // Stake total: 10_000e18. Alice has 4_000e18 (40%), Bob has 6_000e18 (60%).
+        staking.setTotalBoostedStake(10_000e18);
+        staking.setHistoryPower(alice, 4_000e18);
+        staking.setHistoryPower(bob, 6_000e18);
+        staking.setPower(alice, 4_000e18);
+        staking.setPower(bob, 6_000e18);
+
+        // 10 ETH revenue arrives.
+        vm.deal(address(rd), 10 ether);
+
+        // R026 H-2: distribute uses a SINGLE read of totalBoostedStake. Even
+        // if a fictitious second-read shrunk the value, snapshot is locked to
+        // the first read. Here we just snapshot at 10_000e18.
+        rd.distribute();
+
+        (, uint256 snapTotal, ) = rd.getEpoch(0);
+        assertEq(snapTotal, 10_000e18, "epoch.totalLocked snapshot wrong");
+        assertEq(rd.totalLockedAtEpoch(0), 10_000e18, "totalLockedAtEpoch snapshot wrong");
+
+        // Now simulate a pathological "post-distribute deflation" — totalBoostedStake
+        // falls to 4_000e18 (e.g., Bob unstakes), Alice's history checkpoint stays
+        // at 4_000e18. Even though pre-fix logic capped effectivePower to the
+        // (deflated) snapshot, the snapshot is now FIXED at 10_000e18 — Alice
+        // gets 40%, NOT 100%.
+        staking.setTotalBoostedStake(4_000e18);
+        // Alice claims; 40% of 10 ETH = 4 ETH.
+        vm.prank(alice);
+        rd.claim();
+        assertEq(alice.balance, 4 ether, "alice should get 40%, not 100%");
+
+        // Bob also can claim his 60% — total epochClaimed must equal 10 ETH cap.
+        vm.prank(bob);
+        rd.claim();
+        assertEq(bob.balance, 6 ether, "bob should get 60%");
+        assertEq(rd.epochClaimed(0), 10 ether, "epochClaimed must equal totalETH");
+    }
+
+    /// @notice The snapshot is set ONCE and never recomputed. Subsequent calls
+    ///         to claim() must read the original value, even if totalBoostedStake
+    ///         has changed dramatically since.
+    function test_snapshot_IsImmutableAfterDistribute() public {
+        staking.setTotalBoostedStake(5_000e18);
+        staking.setHistoryPower(alice, 5_000e18);
+        staking.setPower(alice, 5_000e18);
+
+        vm.deal(address(rd), 5 ether);
+        rd.distribute();
+
+        uint256 before = rd.totalLockedAtEpoch(0);
+
+        // Cause large state churn on the staking contract.
+        staking.setTotalBoostedStake(1);
+
+        // Force a second epoch — the original epoch's snapshot is unchanged.
+        vm.warp(block.timestamp + 5 hours);
+        staking.setTotalBoostedStake(8_000e18);
+        vm.deal(address(rd), address(rd).balance + 5 ether);
+        rd.distribute();
+
+        assertEq(rd.totalLockedAtEpoch(0), before, "epoch 0 snapshot must be immutable");
+        assertEq(rd.totalLockedAtEpoch(1), 8_000e18, "epoch 1 snapshot wrong");
+    }
+
+    // ─── H-1: dual-source mutual exclusion ─────────────────────────────────
+
+    /// @notice POC: a user with BOTH a non-zero staking checkpoint AND a non-zero
+    ///         restaker boostedAmount at the same epoch.timestamp would, in
+    ///         pre-R026 logic, silently pick the staking value — but a future
+    ///         migration glitch could let both contribute. R026 reverts
+    ///         AmbiguousPower(epochId, stakingPower, restakerPower) when both
+    ///         are non-zero, forcing the user to migrate one source.
+    function test_dualSource_ClaimsAreExclusive() public {
+        staking.setTotalBoostedStake(2_000e18);
+        // Alice has BOTH staking power AND a restaker history reading.
+        staking.setHistoryPower(alice, 1_000e18);
+        staking.setPower(alice, 1_000e18);
+        restaking.setHistoryBoostedAt(alice, 800e18);
+        restaking.setRestaker(alice, 99, 800e18, 800e18);
+
+        vm.deal(address(rd), 2 ether);
+        rd.distribute();
+
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                RevenueDistributor.AmbiguousPower.selector,
+                uint256(0), uint256(1_000e18), uint256(800e18)
+            )
+        );
+        rd.claim();
+    }
+
+    /// @notice Staking-only user: claim succeeds. Restaker-only user: claim
+    ///         succeeds via the fallback. Only the simultaneous overlap
+    ///         reverts. (Exercises the exclusive branches.)
+    function test_dualSource_StakingOnly_OK_RestakingOnly_OK() public {
+        staking.setTotalBoostedStake(3_000e18);
+
+        // Alice = staking only (1_000e18).
+        staking.setHistoryPower(alice, 1_000e18);
+        staking.setPower(alice, 1_000e18);
+
+        // Bob = restaker only (history = 2_000e18, no staking checkpoint).
+        restaking.setHistoryBoostedAt(bob, 2_000e18);
+        restaking.setRestaker(bob, 7, 2_000e18, 2_000e18);
+
+        vm.deal(address(rd), 3 ether);
+        rd.distribute();
+
+        vm.prank(alice); rd.claim();
+        vm.prank(bob);   rd.claim();
+
+        // Alice 1/3, Bob 2/3 of 3 ETH.
+        assertEq(alice.balance, 1 ether, "alice 1/3");
+        assertEq(bob.balance, 2 ether, "bob 2/3");
+    }
+
+    /// @notice The view path (`pendingETH`) skips ambiguous epochs to avoid
+    ///         crashing UIs — but the write path still reverts. Together they
+    ///         signal "migrate one source" without breaking the frontend.
+    function test_pendingETH_AmbiguousEpoch_SkipsInView_RevertsOnClaim() public {
+        staking.setTotalBoostedStake(1_500e18);
+        staking.setHistoryPower(alice, 500e18);
+        staking.setPower(alice, 500e18);
+        restaking.setHistoryBoostedAt(alice, 1_000e18);
+        restaking.setRestaker(alice, 42, 1_000e18, 1_000e18);
+
+        vm.deal(address(rd), 1.5 ether);
+        rd.distribute();
+
+        // View returns 0 (skips ambiguous epoch).
+        assertEq(rd.pendingETH(alice), 0, "view must skip ambiguous epochs");
+
+        // Write reverts.
+        vm.prank(alice);
+        vm.expectRevert();
+        rd.claim();
+    }
+
+    // ─── M-6: executeForfeitReclaim freshness gate ──────────────────────────
+
+    /// @notice POC: pre-R026 the owner could propose+execute a forfeit reclaim
+    ///         immediately after a distribution, draining ETH that live claimers
+    ///         hadn't yet claimed. R026 adds STALE_RECLAIM_WINDOW (56 days) past
+    ///         the latest epoch.timestamp before the reclaim can execute.
+    function test_forfeitReclaim_RejectsFreshEpochs() public {
+        staking.setTotalBoostedStake(1_000e18);
+        staking.setHistoryPower(alice, 1_000e18);
+        staking.setPower(alice, 1_000e18);
+
+        vm.deal(address(rd), 5 ether);
+        rd.distribute();
+
+        // Owner queues a 1-ether reclaim, waits the 48h timelock — reclaim must
+        // STILL revert because the epoch is fresh.
+        rd.proposeForfeitReclaim(1 ether);
+        vm.warp(block.timestamp + 48 hours + 1);
+
+        (, , uint256 latestTs) = rd.getEpoch(0);
+        uint256 staleAfter = latestTs + rd.STALE_RECLAIM_WINDOW();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                RevenueDistributor.ForfeitTooFresh.selector, latestTs, staleAfter
+            )
+        );
+        rd.executeForfeitReclaim();
+    }
+
+    /// @notice After STALE_RECLAIM_WINDOW elapses, the reclaim is allowed.
+    ///         Propose AFTER the stale window so the proposal is still within
+    ///         the 7-day PROPOSAL_VALIDITY when we go to execute.
+    function test_forfeitReclaim_AllowedAfterStaleWindow() public {
+        staking.setTotalBoostedStake(1_000e18);
+        staking.setHistoryPower(alice, 1_000e18);
+        staking.setPower(alice, 1_000e18);
+
+        vm.deal(address(rd), 5 ether);
+        rd.distribute();
+
+        // First, age the latest epoch past STALE_RECLAIM_WINDOW.
+        vm.warp(block.timestamp + rd.STALE_RECLAIM_WINDOW() + 1);
+
+        // THEN propose and wait the 48h propose timelock (still inside the
+        // 7-day proposal-validity window).
+        rd.proposeForfeitReclaim(1 ether);
+        vm.warp(block.timestamp + 48 hours + 1);
+
+        uint256 earmarkedBefore = rd.totalEarmarked();
+        rd.executeForfeitReclaim();
+        assertEq(rd.totalEarmarked(), earmarkedBefore - 1 ether, "earmarked drops by 1 ether");
+        assertEq(rd.totalForfeited(), 1 ether, "forfeited bumps by 1 ether");
+    }
+
+    /// @notice 10-ether-per-call cap from `proposeForfeitReclaim` survives R026.
+    function test_forfeitReclaim_PerCallCapEnforced() public {
+        vm.expectRevert(bytes("INVALID_AMOUNT"));
+        rd.proposeForfeitReclaim(10 ether + 1);
+    }
+}

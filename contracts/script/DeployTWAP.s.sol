@@ -19,7 +19,12 @@ contract DeployTWAPScript is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
-        TegridyTWAP twap = new TegridyTWAP();
+        // AUDIT R062: per-chain Chainlink L2 Sequencer Uptime feed via
+        //             SEQUENCER_FEED env; address(0) on mainnet / non-L2
+        //             (no-op). See lib/SequencerCheck.sol for canonical
+        //             Arbitrum / OP / Base feed addresses.
+        address SEQUENCER_FEED = vm.envOr("SEQUENCER_FEED", address(0));
+        TegridyTWAP twap = new TegridyTWAP(SEQUENCER_FEED);
         console.log("1. TegridyTWAP deployed:", address(twap));
 
         vm.stopBroadcast();

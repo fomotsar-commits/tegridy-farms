@@ -279,32 +279,33 @@ contract AuditFixes_RevenueDistributorTest is Test {
         assertEq(claimed, 6 ether, "Should use votingPowerAtTimestamp for share calculation");
     }
 
-    /// @notice #18: Claiming more than MAX_CLAIM_EPOCHS (500) reverts — use claimUpTo().
-    ///         AUDIT FIX #18: claim() reverts with TooManyUnclaimedEpochs if over 500.
+    /// @notice #18: Claiming more than MAX_CLAIM_EPOCHS (250 — R064 lowered
+    ///         from 500) reverts — use claimUpTo().
+    ///         AUDIT FIX #18: claim() reverts with TooManyUnclaimedEpochs if over 250.
     function test_revenueDistributor_maxClaimEpochs() public {
-        // Create 501 epochs (one more than MAX_CLAIM_EPOCHS)
+        // Create 251 epochs (one more than MAX_CLAIM_EPOCHS = 250)
         uint256 ts = block.timestamp;
-        for (uint256 i = 0; i < 501; i++) {
+        for (uint256 i = 0; i < 251; i++) {
             ts += 4 hours + 1;
             vm.warp(ts);
             vm.deal(address(distributor), address(distributor).balance + 1 ether);
             distributor.distribute();
         }
 
-        // claim() reverts when unclaimed epochs exceed MAX_CLAIM_EPOCHS (500)
+        // claim() reverts when unclaimed epochs exceed MAX_CLAIM_EPOCHS (250)
         vm.prank(alice);
         vm.expectRevert(RevenueDistributor.TooManyUnclaimedEpochs.selector);
         distributor.claim();
 
-        // Use claimUpTo() to batch-claim first 500 epochs
+        // Use claimUpTo() to batch-claim first 250 epochs
         vm.prank(alice);
-        distributor.claimUpTo(500);
-        assertEq(distributor.lastClaimedEpoch(alice), 500);
+        distributor.claimUpTo(250);
+        assertEq(distributor.lastClaimedEpoch(alice), 250);
 
         // Then claim the remaining 1 via regular claim()
         vm.prank(alice);
         distributor.claim();
-        assertEq(distributor.lastClaimedEpoch(alice), 501);
+        assertEq(distributor.lastClaimedEpoch(alice), 251);
     }
 
     receive() external payable {}
@@ -336,7 +337,7 @@ contract AuditFixes_MemeBountyBoardTest is Test {
         token = new MockTOWELI();
         staking = new MockStakingVote();
         weth = new MockWETHAudit();
-        board = new MemeBountyBoard(address(token), address(staking), address(weth));
+        board = new MemeBountyBoard(address(token), address(staking), address(weth), address(0));
 
         vm.deal(creator, 10 ether);
 

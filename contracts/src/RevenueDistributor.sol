@@ -100,8 +100,17 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     mapping(address => uint256) public pendingWithdrawals;
 
     // Max epochs claimable in a single call / view iteration cap
-    uint256 public constant MAX_CLAIM_EPOCHS = 500;
-    uint256 public constant MAX_VIEW_EPOCHS = 500;
+    // R064 (MEDIUM): lowered from 500 → 250. _calculateClaim runs a binary-search
+    // Checkpoints.upperLookup PLUS a try/CALL into restakingContract per
+    // iteration; at the prior 500-cap a single claim() could exhaust the 30M
+    // block gas budget when many epochs accumulate. 250 still covers ~5 years
+    // at the protocol's 1-week distribution cadence — well past the 56-day
+    // stale window — while halving worst-case gas. Curve FeeDistributor uses
+    // 50 as its iteration cap; we keep 250 to favour UX. claimUpTo() handles
+    // the long tail for users who genuinely have more than 250 unclaimed
+    // epochs.
+    uint256 public constant MAX_CLAIM_EPOCHS = 250;
+    uint256 public constant MAX_VIEW_EPOCHS = 250;
 
     // Minimum interval between permissionless distributions
     uint256 public constant MIN_DISTRIBUTE_INTERVAL = 4 hours;

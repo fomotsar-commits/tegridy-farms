@@ -142,7 +142,11 @@ contract DeploySepoliaScript is Script {
         splitter.completeSetup();
         console.log("    -> ReferralSplitter: approved SwapFeeRouter, setup locked");
 
-        POLAccumulator pol = new POLAccumulator(d.toweli, d.router, d.pair, deployer);
+        // AUDIT R015: TWAP required. AUDIT R062: SEQUENCER_FEED optional.
+        address TWAP = vm.envAddress("TWAP");
+        require(TWAP != address(0), "TWAP env var required");
+        address SEQUENCER_FEED = vm.envOr("SEQUENCER_FEED", address(0));
+        POLAccumulator pol = new POLAccumulator(d.toweli, d.router, d.pair, deployer, TWAP, SEQUENCER_FEED);
         d.polAccumulator = address(pol);
         console.log("12. POLAccumulator:", d.polAccumulator);
 
@@ -158,7 +162,9 @@ contract DeploySepoliaScript is Script {
         d.communityGrants = address(grants);
         console.log("14. CommunityGrants:", d.communityGrants);
 
-        MemeBountyBoard bounty = new MemeBountyBoard(d.toweli, d.staking, d.weth);
+        // AUDIT R062: SEQUENCER_FEED env (set in _deployRevenue).
+        address SEQUENCER_FEED2 = vm.envOr("SEQUENCER_FEED", address(0));
+        MemeBountyBoard bounty = new MemeBountyBoard(d.toweli, d.staking, d.weth, SEQUENCER_FEED2);
         d.memeBountyBoard = address(bounty);
         console.log("15. MemeBountyBoard:", d.memeBountyBoard);
 

@@ -25,7 +25,7 @@ contract TegridyLaunchpadV2Test is Test {
     string constant SAMPLE_PLACEHOLDER = "ar://placeholder-cid";
 
     function setUp() public {
-        launchpad = new TegridyLaunchpadV2(admin, PROTOCOL_FEE_BPS, platform, weth);
+        launchpad = new TegridyLaunchpadV2(admin, PROTOCOL_FEE_BPS, platform, weth, address(0));
         vm.deal(creator, 100 ether);
         vm.deal(alice, 100 ether);
     }

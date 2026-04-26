@@ -98,11 +98,22 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
         TegridyDropV2.MintPhase initialPhase;
     }
 
+    /// @notice AUDIT R062: Chainlink L2 Sequencer Uptime feed propagated to
+    ///         every deployed TegridyDropV2 clone via `InitParams.sequencerFeed`.
+    ///         address(0) on mainnet / non-L2 disables the gating in clones.
+    address public immutable sequencerFeed;
+
+    /// @param _sequencerFeed AUDIT R062 — Chainlink L2 Sequencer Uptime feed;
+    ///        pass `address(0)` for mainnet / non-L2 deployments. The factory
+    ///        threads this address into every clone it deploys via
+    ///        `TegridyDropV2.InitParams.sequencerFeed`, so all dutch-auction
+    ///        price reads are L2-outage-aware without any per-collection setup.
     constructor(
         address _owner,
         uint16 _protocolFeeBps,
         address _protocolFeeRecipient,
-        address _weth
+        address _weth,
+        address _sequencerFeed
     ) OwnableNoRenounce(_owner) {
         if (_protocolFeeRecipient == address(0)) revert ZeroAddress();
         if (_weth == address(0)) revert ZeroAddress();
@@ -111,6 +122,8 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
         protocolFeeBps = _protocolFeeBps;
         protocolFeeRecipient = _protocolFeeRecipient;
         weth = _weth;
+        // R062: zero permitted (mainnet / non-L2 = gating disabled).
+        sequencerFeed = _sequencerFeed;
 
         dropTemplate = address(new TegridyDropV2());
     }
@@ -160,7 +173,9 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
                 dutchEndPrice: cfg.dutchEndPrice,
                 dutchStartTime: cfg.dutchStartTime,
                 dutchDuration: cfg.dutchDuration,
-                initialPhase: cfg.initialPhase
+                initialPhase: cfg.initialPhase,
+                // R062: propagate factory-level feed into the clone.
+                sequencerFeed: sequencerFeed
             })
         );
 

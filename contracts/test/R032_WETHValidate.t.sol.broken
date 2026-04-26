@@ -1,0 +1,204 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.26;
+
+import "forge-std/Test.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+import {WETHFallbackLib} from "../src/lib/WETHFallbackLib.sol";
+import {MemeBountyBoard} from "../src/MemeBountyBoard.sol";
+import {ReferralSplitter} from "../src/ReferralSplitter.sol";
+import {RevenueDistributor} from "../src/RevenueDistributor.sol";
+import {CommunityGrants} from "../src/CommunityGrants.sol";
+import {TegridyRouter} from "../src/TegridyRouter.sol";
+import {TegridyNFTPoolFactory} from "../src/TegridyNFTPoolFactory.sol";
+import {TegridyNFTPool} from "../src/TegridyNFTPool.sol";
+import {TegridyNFTLending} from "../src/TegridyNFTLending.sol";
+
+// ─── Mocks ─────────────────────────────────────────────────────────────
+
+/// @dev Real-shape WETH9 mock — symbol "WETH", decimals 18.
+contract MockGoodWETH9 {
+    string public name = "Wrapped Ether";
+    string public symbol = "WETH";
+    uint8 public decimals = 18;
+    mapping(address => uint256) public balanceOf;
+    function deposit() external payable { balanceOf[msg.sender] += msg.value; }
+    function transfer(address to, uint256 v) external returns (bool) {
+        require(balanceOf[msg.sender] >= v);
+        balanceOf[msg.sender] -= v;
+        balanceOf[to] += v;
+        return true;
+    }
+    function withdraw(uint256 v) external {
+        require(balanceOf[msg.sender] >= v);
+        balanceOf[msg.sender] -= v;
+        (bool ok,) = msg.sender.call{value: v}("");
+        require(ok);
+    }
+    receive() external payable {}
+}
+
+/// @dev "WETH9"-style symbol — also accepted.
+contract MockWETH9LegacySymbol {
+    string public symbol = "WETH9";
+    uint8 public decimals = 18;
+    function deposit() external payable {}
+    function transfer(address, uint256) external pure returns (bool) { return true; }
+    function withdraw(uint256) external {}
+}
+
+/// @dev Wrong symbol — should be rejected.
+contract MockWrongSymbol {
+    string public symbol = "USDC";
+    uint8 public decimals = 18;
+    function deposit() external payable {}
+    function transfer(address, uint256) external pure returns (bool) { return true; }
+    function withdraw(uint256) external {}
+}
+
+/// @dev Wrong decimals — should be rejected.
+contract MockWrongDecimals {
+    string public symbol = "WETH";
+    uint8 public decimals = 6;
+    function deposit() external payable {}
+    function transfer(address, uint256) external pure returns (bool) { return true; }
+    function withdraw(uint256) external {}
+}
+
+/// @dev Reverts on every metadata call — should be rejected via WETHValidationFailed.
+contract MockReverter {
+    function symbol() external pure returns (string memory) { revert("nope"); }
+    function decimals() external pure returns (uint8) { revert("nope"); }
+    function deposit() external payable {}
+    function transfer(address, uint256) external pure returns (bool) { return true; }
+    function withdraw(uint256) external {}
+}
+
+contract MockToweliR032 is ERC20 {
+    constructor() ERC20("Toweli", "TOWELI") { _mint(msg.sender, 1e27); }
+}
+
+contract MockStakingR032 {
+    function votingPowerOf(address) external pure returns (uint256) { return 0; }
+    function votingPowerAt(address, uint256) external pure returns (uint256) { return 0; }
+    function votingPowerAtTimestamp(address, uint256) external pure returns (uint256) { return 0; }
+    function totalLocked() external pure returns (uint256) { return 0; }
+    function totalBoostedStake() external pure returns (uint256) { return 0; }
+    function userTokenId(address) external pure returns (uint256) { return 0; }
+    function holdsToken(address, uint256) external pure returns (bool) { return false; }
+    function paused() external pure returns (bool) { return false; }
+    function positions(uint256) external pure returns (
+        uint256, uint256, int256, uint256, uint256, uint256, bool, bool, uint256, uint256, bool
+    ) {
+        return (0, 0, int256(0), 0, 0, 0, false, false, 0, 0, false);
+    }
+}
+
+// ─── Test Body ─────────────────────────────────────────────────────────
+
+/// @title R032 — WETHFallbackLib.validateWETH and importer constructor probes.
+/// @notice Audit R032 (HIGH): each importer of WETHFallbackLib must reject a non-canonical
+///         WETH9 at deploy time so a rogue/upgraded router or a hand-passed address can't
+///         lock the protocol to a malicious WETH.
+contract R032_WETHValidate is Test {
+    MockGoodWETH9 internal goodWeth;
+    MockToweliR032 internal toweli;
+    MockStakingR032 internal staking;
+
+    function setUp() public {
+        goodWeth = new MockGoodWETH9();
+        toweli = new MockToweliR032();
+        staking = new MockStakingR032();
+    }
+
+    // ── Library-level probes ────────────────────────────────────────────
+
+    function test_validateWETH_AcceptsCanonical() public view {
+        ProbeWrapper.callValidate(address(goodWeth));
+    }
+
+    function test_validateWETH_AcceptsWETH9Symbol() public {
+        MockWETH9LegacySymbol m = new MockWETH9LegacySymbol();
+        ProbeWrapper.callValidate(address(m));
+    }
+
+    function test_validateWETH_RejectsEOA() public {
+        address eoa = makeAddr("eoa");
+        vm.expectRevert(WETHFallbackLib.WETHNotAContract.selector);
+        ProbeWrapper.callValidate(eoa);
+    }
+
+    function test_validateWETH_RejectsWrongSymbol() public {
+        MockWrongSymbol m = new MockWrongSymbol();
+        vm.expectRevert(WETHFallbackLib.WETHSymbolMismatch.selector);
+        ProbeWrapper.callValidate(address(m));
+    }
+
+    function test_validateWETH_RejectsWrongDecimals() public {
+        MockWrongDecimals m = new MockWrongDecimals();
+        vm.expectRevert(WETHFallbackLib.WETHDecimalsMismatch.selector);
+        ProbeWrapper.callValidate(address(m));
+    }
+
+    function test_validateWETH_RejectsReverter() public {
+        MockReverter m = new MockReverter();
+        vm.expectRevert(WETHFallbackLib.WETHValidationFailed.selector);
+        ProbeWrapper.callValidate(address(m));
+    }
+
+    function test_validateWETH_RejectsZero() public {
+        vm.expectRevert(WETHFallbackLib.ZeroWETHAddress.selector);
+        ProbeWrapper.callValidate(address(0));
+    }
+
+    // ── Importer constructor wiring ─────────────────────────────────────
+
+    function test_importer_MemeBountyBoard_RevertsOnInvalidWETH() public {
+        MockWrongSymbol bad = new MockWrongSymbol();
+        vm.expectRevert(WETHFallbackLib.WETHSymbolMismatch.selector);
+        new MemeBountyBoard(address(toweli), address(staking), address(bad), address(0));
+    }
+
+    function test_importer_ReferralSplitter_RevertsOnInvalidWETH() public {
+        MockWrongDecimals bad = new MockWrongDecimals();
+        vm.expectRevert(WETHFallbackLib.WETHDecimalsMismatch.selector);
+        new ReferralSplitter(1000, address(staking), address(this), address(bad));
+    }
+
+    function test_importer_RevenueDistributor_RevertsOnEOA() public {
+        address eoa = makeAddr("eoa-weth");
+        vm.expectRevert(WETHFallbackLib.WETHNotAContract.selector);
+        new RevenueDistributor(address(staking), address(this), eoa);
+    }
+
+    function test_importer_CommunityGrants_RevertsOnReverter() public {
+        MockReverter bad = new MockReverter();
+        vm.expectRevert(WETHFallbackLib.WETHValidationFailed.selector);
+        new CommunityGrants(address(staking), address(toweli), address(this), address(bad));
+    }
+
+    function test_importer_TegridyRouter_RevertsOnInvalidWETH() public {
+        MockWrongSymbol bad = new MockWrongSymbol();
+        vm.expectRevert(WETHFallbackLib.WETHSymbolMismatch.selector);
+        new TegridyRouter(address(this), address(bad));
+    }
+
+    function test_importer_TegridyNFTPoolFactory_RevertsOnInvalidWETH() public {
+        MockWrongSymbol bad = new MockWrongSymbol();
+        vm.expectRevert(WETHFallbackLib.WETHSymbolMismatch.selector);
+        new TegridyNFTPoolFactory(address(this), 100, address(this), address(bad));
+    }
+
+    function test_importer_TegridyNFTLending_RevertsOnInvalidWETH() public {
+        MockWrongDecimals bad = new MockWrongDecimals();
+        vm.expectRevert(WETHFallbackLib.WETHDecimalsMismatch.selector);
+        new TegridyNFTLending(address(this), 500, address(bad));
+    }
+}
+
+/// @dev Foundry can't call `internal` library functions directly — wrap it.
+library ProbeWrapper {
+    function callValidate(address weth) external view {
+        WETHFallbackLib.validateWETH(weth);
+    }
+}
