@@ -1,5 +1,6 @@
-import { type ImgHTMLAttributes, type CSSProperties } from 'react';
+import { useState, type ImgHTMLAttributes, type CSSProperties, type SyntheticEvent } from 'react';
 import { pageArt } from '../lib/artConfig';
+import { PLACEHOLDER_NFT } from '../lib/imageSafety';
 
 type ArtImgProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
   pageId: string;
@@ -21,16 +22,30 @@ type ArtImgProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
  * AVIFs in /splash/new/ are not currently served; see docs for the
  * follow-up task.
  *
+ * R041 + R072 hardening:
+ * - `width` / `height` defaults reserve layout to prevent CLS when an
+ *   override URL 404s. Caller props still win.
+ * - `decoding="async"` keeps the main thread free during page art loads.
+ * - `onError` swaps to `PLACEHOLDER_NFT` so a missing override doesn't
+ *   render a broken `<img>` icon. Caller `onError` is preserved.
+ *
  * If a /art-studio override exists for this surface, both fields come
  * from the override. Otherwise `src` falls back to the deterministic
  * rotation and `objectPosition` falls back to `fallbackPosition`.
- *
- * Existing inline `style.objectPosition` on the rendered img is
- * overridden by the resolved value — intentional, so the studio always
- * wins. Other style keys are preserved.
  */
-export function ArtImg({ pageId, idx, fallbackPosition, style, ...rest }: ArtImgProps) {
+export function ArtImg({
+  pageId,
+  idx,
+  fallbackPosition,
+  style,
+  width,
+  height,
+  decoding,
+  onError,
+  ...rest
+}: ArtImgProps) {
   const art = pageArt(pageId, idx);
+  const [errored, setErrored] = useState(false);
   const objectPosition = art.objectPosition ?? fallbackPosition;
   const merged: CSSProperties = { ...style };
   if (objectPosition) merged.objectPosition = objectPosition;
@@ -40,5 +55,19 @@ export function ArtImg({ pageId, idx, fallbackPosition, style, ...rest }: ArtImg
     // intuitively map to "show this part of the image".
     merged.transformOrigin = objectPosition ?? 'center center';
   }
-  return <img src={art.src} style={merged} {...rest} />;
+  const handleError = (e: SyntheticEvent<HTMLImageElement>) => {
+    if (!errored) setErrored(true);
+    onError?.(e);
+  };
+  return (
+    <img
+      src={errored ? PLACEHOLDER_NFT : art.src}
+      width={width ?? 1200}
+      height={height ?? 800}
+      decoding={decoding ?? 'async'}
+      onError={handleError}
+      style={merged}
+      {...rest}
+    />
+  );
 }

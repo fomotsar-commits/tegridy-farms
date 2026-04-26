@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { getConsent, setConsent } from '../../lib/consent';
 
 /**
@@ -14,11 +14,14 @@ import { getConsent, setConsent } from '../../lib/consent';
  * doesn't fight with the current visual identity.
  */
 export function ConsentBanner() {
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    if (getConsent() === 'pending') setVisible(true);
-  }, []);
+  // R007 Pattern B — decide visibility during state init, no effect needed.
+  const [visible, setVisible] = useState(() => {
+    try {
+      return getConsent() === 'pending';
+    } catch {
+      return false;
+    }
+  });
 
   if (!visible) return null;
 

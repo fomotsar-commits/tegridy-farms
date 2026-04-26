@@ -31,26 +31,31 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        # AUDIT R056: SHA-pinned (was @v4 floating).
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           submodules: recursive
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@de808b1eea699e761c404bda44ba8f21aba30b2c # v1.3.1
         with:
           version: stable
 
       - name: Run Slither
-        uses: crytic/slither-action@v0.4.0
+        uses: crytic/slither-action@f197989dea5b53e986d0f88c60a034ddd77ec9a8 # v0.4.0
         id: slither
         with:
           target: contracts/
           solc-version: 0.8.26
-          fail-on: none
+          # AUDIT R056 LOW: fail-on: medium (was none). PRs that introduce
+          # medium/high static-analysis findings now block merge instead of
+          # silently flowing into main. False positives can be muted with
+          # inline `// slither-disable-next-line <detector>`.
+          fail-on: medium
           sarif: slither.sarif
 
       - name: Upload SARIF to GitHub Security tab
         if: always() && steps.slither.outputs.sarif != ''
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@c1f0c97bcb634b400fc376ab260a5f187961f8e0 # v3.26.10
         with:
           sarif_file: ${{ steps.slither.outputs.sarif }}

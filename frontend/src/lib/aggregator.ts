@@ -2,7 +2,28 @@
 // Pattern: DefiLlama-style "aggregator of aggregators"
 // All APIs are free with no API key required.
 
-const CHAIN_ID = 1; // Ethereum mainnet
+// AUDIT R045 H1: aggregator was hard-coded to chainId 1 (Ethereum mainnet). On
+// any other chain the wallet would still display "best route" results from
+// mainnet token addresses, biasing UI to fictional liquidity. Renamed the
+// constant to make the meaning explicit (the chain this codebase has wired
+// contracts for) and now require an explicit `chainId` argument from callers.
+// The meta-aggregator short-circuits with an empty result when chainId is
+// unsupported, so no aggregator HTTP calls go out for an L2 wallet.
+export const SUPPORTED_CHAIN_ID = 1;
+
+// AUDIT R045 M1: every aggregator that takes a slippage param had a different
+// hard-coded value (SwapAPI 5%, Odos 0.5%, Li.Fi omitted, Kyber/OO/PS quote-time
+// implicit). That biased "best quote" rankings since looser slippage tolerates
+// more inferior fills at execution time. Now uniform default 0.5% clamped to
+// [0.05, 50]% and propagated to every aggregator that accepts it at quote time.
+export const DEFAULT_MAX_SLIPPAGE_PCT = 0.5;
+const MIN_SLIPPAGE_PCT = 0.05;
+const MAX_SLIPPAGE_PCT = 50;
+function clampSlippage(pct: number | undefined): number {
+  const v = typeof pct === 'number' && Number.isFinite(pct) ? pct : DEFAULT_MAX_SLIPPAGE_PCT;
+  return Math.max(MIN_SLIPPAGE_PCT, Math.min(MAX_SLIPPAGE_PCT, v));
+}
+
 const NATIVE_ADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
 const WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
 
@@ -27,48 +48,75 @@ export interface AggregatorQuote {
   amountOut: string; // in smallest unit (wei)
   priceImpact: number;
   estimatedGas?: string;
+  /** AUDIT R045 H1: chain the quote was fetched against; defense-in-depth filter. */
+  chainId: number;
+  /**
+   * AUDIT R045 M1: the slippage tolerance the quote was fetched with.
+   *  - number: forwarded to the aggregator at quote time
+   *  - null:   aggregator does not accept slippage at quote time (CowSwap,
+   *            Kyber routes, OpenOcean /quote, ParaSwap /prices). Slippage is
+   *            consumed at signing/build time instead, and the quoted
+   *            `amountOut` is unaffected, so ranking stays apples-to-apples.
+   */
+  maxSlippagePct: number | null;
+}
+
+interface QuoteCallOpts {
+  chainId: number;
+  slippagePct: number;
+  fromDecimals?: number;
+  signal?: AbortSignal;
 }
 
 // ─── SwapAPI.dev ────────────────────────────────────────────────
-// Free, no API key needed
+// Free, no API key needed. SwapAPI accepts slippage as a fraction.
 
 async function getSwapApiQuote(
-  tokenIn: string, tokenOut: string, amount: string, sender: string, _fromDecimals?: number, signal?: AbortSignal,
+  tokenIn: string, tokenOut: string, amount: string, sender: string, opts: QuoteCallOpts,
 ): Promise<AggregatorQuote | null> {
   try {
     const sellToken = normalizeTokenAddress(tokenIn, 'native');
     const buyToken = normalizeTokenAddress(tokenOut, 'native');
+    // AUDIT R045 M1: was hard-coded `0.05` (5%, an order of magnitude looser
+    // than the others). Forward the canonical clamped value as a fraction.
     const params = new URLSearchParams({
       tokenIn: sellToken, tokenOut: buyToken,
-      amount, sender, maxSlippage: '0.05',
+      amount, sender, maxSlippage: String(opts.slippagePct / 100),
     });
-    const res = await fetch(`https://api.swapapi.dev/v1/swap/${CHAIN_ID}?${params}`, { signal });
+    const res = await fetch(`https://api.swapapi.dev/v1/swap/${opts.chainId}?${params}`, { signal: opts.signal });
     if (!res.ok) return null;
     const data = await res.json();
     if (!data || typeof data.amountOut !== 'string' || !/^\d+$/.test(data.amountOut) || data.amountOut === '0' ||
         typeof data.priceImpact !== 'number' || !Number.isFinite(data.priceImpact)) {
       return null;
     }
-    return { source: 'swapapi', amountOut: data.amountOut, priceImpact: data.priceImpact, estimatedGas: data.tx?.gas };
+    return {
+      source: 'swapapi',
+      amountOut: data.amountOut,
+      priceImpact: data.priceImpact,
+      estimatedGas: data.tx?.gas,
+      chainId: opts.chainId,
+      maxSlippagePct: opts.slippagePct,
+    };
   } catch { return null; }
 }
 
 // ─── Odos ───────────────────────────────────────────────────────
-// Free public API, no API key needed
-// Docs: https://docs.odos.xyz
+// Odos accepts slippage as a percent.
 
 async function getOdosQuote(
-  tokenIn: string, tokenOut: string, amount: string, sender: string, _fromDecimals?: number, signal?: AbortSignal,
+  tokenIn: string, tokenOut: string, amount: string, sender: string, opts: QuoteCallOpts,
 ): Promise<AggregatorQuote | null> {
   try {
     const inAddr = normalizeTokenAddress(tokenIn, 'zero');
     const outAddr = normalizeTokenAddress(tokenOut, 'zero');
     const body = {
-      chainId: CHAIN_ID,
+      chainId: opts.chainId,
       inputTokens: [{ tokenAddress: inAddr, amount }],
       outputTokens: [{ tokenAddress: outAddr, proportion: 1 }],
       userAddr: sender,
-      slippageLimitPercent: 0.5,
+      // AUDIT R045 M1: percent (e.g. 0.5 = 0.5%).
+      slippageLimitPercent: opts.slippagePct,
       disableRFQs: true,
       compact: true,
     };
@@ -76,7 +124,7 @@ async function getOdosQuote(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal,
+      signal: opts.signal,
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -88,16 +136,17 @@ async function getOdosQuote(
       amountOut: String(outAmount),
       priceImpact: Math.abs(priceImpact),
       estimatedGas: data.gasEstimate ? String(data.gasEstimate) : undefined,
+      chainId: opts.chainId,
+      maxSlippagePct: opts.slippagePct,
     };
   } catch { return null; }
 }
 
 // ─── CowSwap / CoW Protocol ────────────────────────────────────
-// Free public API, no API key needed (MEV-protected)
-// Docs: https://api.cow.fi/docs
+// Slippage is consumed at signing/build time, not at quote time. Tag null.
 
 async function getCowSwapQuote(
-  tokenIn: string, tokenOut: string, amount: string, sender: string, _fromDecimals?: number, signal?: AbortSignal,
+  tokenIn: string, tokenOut: string, amount: string, sender: string, opts: QuoteCallOpts,
 ): Promise<AggregatorQuote | null> {
   try {
     // CowSwap uses WETH address, not native ETH
@@ -117,7 +166,7 @@ async function getCowSwapQuote(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal,
+      signal: opts.signal,
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -127,28 +176,32 @@ async function getCowSwapQuote(
       source: 'cowswap',
       amountOut: String(buyAmount),
       priceImpact: 0, // CowSwap doesn't report price impact in quotes
+      chainId: opts.chainId,
+      maxSlippagePct: null,
     };
   } catch { return null; }
 }
 
 // ─── Li.Fi ──────────────────────────────────────────────────────
-// Free without API key (200 quotes per 2 hours)
-// Docs: https://docs.li.fi
+// Li.Fi accepts slippage as a fraction. Was previously omitted.
 
 async function getLiFiQuote(
-  tokenIn: string, tokenOut: string, amount: string, sender: string, _fromDecimals?: number, signal?: AbortSignal,
+  tokenIn: string, tokenOut: string, amount: string, sender: string, opts: QuoteCallOpts,
 ): Promise<AggregatorQuote | null> {
   try {
     const fromToken = normalizeTokenAddress(tokenIn, 'native');
     const toToken = normalizeTokenAddress(tokenOut, 'native');
     const params = new URLSearchParams({
-      fromChain: String(CHAIN_ID),
-      toChain: String(CHAIN_ID),
+      fromChain: String(opts.chainId),
+      toChain: String(opts.chainId),
       fromToken, toToken,
       fromAmount: amount,
       fromAddress: sender,
+      // AUDIT R045 M1: forward the slippage tolerance as a fraction so quotes
+      // are ranked apples-to-apples vs the other aggregators.
+      slippage: String(opts.slippagePct / 100),
     });
-    const res = await fetch(`/api/lifi/v1/quote?${params}`, { signal });
+    const res = await fetch(`/api/lifi/v1/quote?${params}`, { signal: opts.signal });
     if (!res.ok) return null;
     const data = await res.json();
     const toAmount = data?.estimate?.toAmount;
@@ -158,16 +211,17 @@ async function getLiFiQuote(
       amountOut: String(toAmount),
       priceImpact: 0,
       estimatedGas: data?.estimate?.gasCosts?.[0]?.estimate,
+      chainId: opts.chainId,
+      maxSlippagePct: opts.slippagePct,
     };
   } catch { return null; }
 }
 
 // ─── KyberSwap ──────────────────────────────────────────────────
-// Free, no API key needed (10 req/10s default)
-// Docs: https://docs.kyberswap.com
+// KyberSwap /routes is a price-only endpoint; slippage is supplied at /build.
 
 async function getKyberSwapQuote(
-  tokenIn: string, tokenOut: string, amount: string, _sender: string, _fromDecimals?: number, signal?: AbortSignal,
+  tokenIn: string, tokenOut: string, amount: string, _sender: string, opts: QuoteCallOpts,
 ): Promise<AggregatorQuote | null> {
   try {
     const inAddr = normalizeTokenAddress(tokenIn, 'native');
@@ -177,7 +231,7 @@ async function getKyberSwapQuote(
     });
     const res = await fetch(`/api/kyber/ethereum/api/v1/routes?${params}`, {
       headers: { 'X-Client-Id': 'tegridy-farms' },
-      signal,
+      signal: opts.signal,
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -188,18 +242,20 @@ async function getKyberSwapQuote(
       amountOut: String(amountOut),
       priceImpact: 0,
       estimatedGas: data?.data?.routeSummary?.gas ? String(data.data.routeSummary.gas) : undefined,
+      chainId: opts.chainId,
+      maxSlippagePct: null,
     };
   } catch { return null; }
 }
 
 // ─── OpenOcean ──────────────────────────────────────────────────
-// Free, no API key needed
-// Docs: https://docs.openocean.finance
+// /quote is price-only; tagged null. Slippage is consumed at /swap.
 
 async function getOpenOceanQuote(
-  tokenIn: string, tokenOut: string, amount: string, _sender: string, fromDecimals: number = 18, signal?: AbortSignal,
+  tokenIn: string, tokenOut: string, amount: string, _sender: string, opts: QuoteCallOpts,
 ): Promise<AggregatorQuote | null> {
   try {
+    const fromDecimals = opts.fromDecimals ?? 18;
     const inAddr = normalizeTokenAddress(tokenIn, 'native');
     const outAddr = normalizeTokenAddress(tokenOut, 'native');
     // OpenOcean expects human-readable amount (e.g. "0.001"), not wei/smallest unit
@@ -213,7 +269,7 @@ async function getOpenOceanQuote(
       inTokenAddress: inAddr, outTokenAddress: outAddr,
       amount: humanAmount, gasPrice: '5',
     });
-    const res = await fetch(`/api/openocean/v4/eth/quote?${params}`, { signal });
+    const res = await fetch(`/api/openocean/v4/eth/quote?${params}`, { signal: opts.signal });
     if (!res.ok) return null;
     const data = await res.json();
     const outAmount = data?.data?.outAmount;
@@ -223,25 +279,26 @@ async function getOpenOceanQuote(
       amountOut: String(outAmount),
       priceImpact: typeof data?.data?.price_impact === 'string' ? Math.abs(parseFloat(data.data.price_impact)) : 0,
       estimatedGas: data?.data?.estimatedGas ? String(data.data.estimatedGas) : undefined,
+      chainId: opts.chainId,
+      maxSlippagePct: null,
     };
   } catch { return null; }
 }
 
 // ─── ParaSwap ───────────────────────────────────────────────────
-// Free, no API key needed
-// Docs: https://developers.velora.xyz
+// /prices is price-only. Slippage is supplied at /transactions/build.
 
 async function getParaSwapQuote(
-  tokenIn: string, tokenOut: string, amount: string, _sender: string, _fromDecimals?: number, signal?: AbortSignal,
+  tokenIn: string, tokenOut: string, amount: string, _sender: string, opts: QuoteCallOpts,
 ): Promise<AggregatorQuote | null> {
   try {
     const srcToken = normalizeTokenAddress(tokenIn, 'native');
     const destToken = normalizeTokenAddress(tokenOut, 'native');
     const params = new URLSearchParams({
       srcToken, destToken, amount,
-      side: 'SELL', network: String(CHAIN_ID),
+      side: 'SELL', network: String(opts.chainId),
     });
-    const res = await fetch(`/api/paraswap/prices?${params}`, { signal });
+    const res = await fetch(`/api/paraswap/prices?${params}`, { signal: opts.signal });
     if (!res.ok) return null;
     const data = await res.json();
     const destAmount = data?.priceRoute?.destAmount;
@@ -251,6 +308,8 @@ async function getParaSwapQuote(
       amountOut: String(destAmount),
       priceImpact: 0,
       estimatedGas: data?.priceRoute?.gasCost ? String(data.priceRoute.gasCost) : undefined,
+      chainId: opts.chainId,
+      maxSlippagePct: null,
     };
   } catch { return null; }
 }
@@ -262,29 +321,50 @@ export interface MetaAggregatorResult {
   best: AggregatorQuote | null;
   /** All successful quotes, sorted by amountOut descending */
   allQuotes: AggregatorQuote[];
+  /** AUDIT R045 H1: surfaced for callers that want to confirm chain gating. */
+  chainId: number;
 }
 
+/**
+ * AUDIT R045 H1/M1: chainId is now a required positional argument and the
+ * meta-aggregator short-circuits with an empty result for unsupported chains
+ * (no HTTP calls go out). Slippage is uniform across every sub-quote that
+ * accepts it at quote time.
+ */
 export async function getMetaAggregatorQuotes(
   tokenIn: string,
   tokenOut: string,
   amount: string,
   sender: string,
+  chainId: number,
+  maxSlippagePct: number = DEFAULT_MAX_SLIPPAGE_PCT,
   fromDecimals: number = 18,
   signal?: AbortSignal,
 ): Promise<MetaAggregatorResult> {
+  // AUDIT R045 H1: kill-switch — refuse to fetch for unsupported chains.
+  if (chainId !== SUPPORTED_CHAIN_ID) {
+    return { best: null, allQuotes: [], chainId };
+  }
+
+  const slippagePct = clampSlippage(maxSlippagePct);
+  const opts: QuoteCallOpts = { chainId, slippagePct, fromDecimals, signal };
+
   const results = await Promise.allSettled([
-    getSwapApiQuote(tokenIn, tokenOut, amount, sender, undefined, signal),
-    getOdosQuote(tokenIn, tokenOut, amount, sender, undefined, signal),
-    getCowSwapQuote(tokenIn, tokenOut, amount, sender, undefined, signal),
-    getLiFiQuote(tokenIn, tokenOut, amount, sender, undefined, signal),
-    getKyberSwapQuote(tokenIn, tokenOut, amount, sender, undefined, signal),
-    getOpenOceanQuote(tokenIn, tokenOut, amount, sender, fromDecimals, signal),
-    getParaSwapQuote(tokenIn, tokenOut, amount, sender, undefined, signal),
+    getSwapApiQuote(tokenIn, tokenOut, amount, sender, opts),
+    getOdosQuote(tokenIn, tokenOut, amount, sender, opts),
+    getCowSwapQuote(tokenIn, tokenOut, amount, sender, opts),
+    getLiFiQuote(tokenIn, tokenOut, amount, sender, opts),
+    getKyberSwapQuote(tokenIn, tokenOut, amount, sender, opts),
+    getOpenOceanQuote(tokenIn, tokenOut, amount, sender, opts),
+    getParaSwapQuote(tokenIn, tokenOut, amount, sender, opts),
   ]);
 
   const quotes: AggregatorQuote[] = [];
   for (const r of results) {
     if (r.status === 'fulfilled' && r.value) {
+      // AUDIT R045 H1: defense-in-depth — drop quotes whose chain tag doesn't
+      // match the intended chain (should never trip in practice).
+      if (r.value.chainId !== chainId) continue;
       quotes.push(r.value);
     }
   }
@@ -301,6 +381,7 @@ export async function getMetaAggregatorQuotes(
   return {
     best: quotes[0] ?? null,
     allQuotes: quotes,
+    chainId,
   };
 }
 
@@ -312,10 +393,12 @@ export async function getAggregatorPrice(
   tokenOut: string,
   amount: string,
   sender: string,
+  chainId: number,
+  maxSlippagePct: number = DEFAULT_MAX_SLIPPAGE_PCT,
   fromDecimals: number = 18,
   signal?: AbortSignal,
 ): Promise<{ amountOut: string; priceImpact: number; source: AggregatorSource; allQuotes: AggregatorQuote[] } | null> {
-  const result = await getMetaAggregatorQuotes(tokenIn, tokenOut, amount, sender, fromDecimals, signal);
+  const result = await getMetaAggregatorQuotes(tokenIn, tokenOut, amount, sender, chainId, maxSlippagePct, fromDecimals, signal);
   if (!result.best) return null;
   return {
     amountOut: result.best.amountOut,

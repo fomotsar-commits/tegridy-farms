@@ -33,10 +33,23 @@
 //   const ok = await checkRateLimit(req, res, { limit: 30, windowSec: 60, identifier: 'alchemy' });
 //   if (!ok) return;   // already responded with 429
 //
-// IP EXTRACTION
-//   Vercel forwards the real IP via `x-forwarded-for` (first hop) with
-//   `x-real-ip` as fallback. Both are trusted because Vercel's edge strips
-//   them on ingress.
+// IP EXTRACTION (AUDIT R051 H-1)
+//   `x-forwarded-for` is appended-to (not overwritten) by Vercel's edge:
+//   any value the inbound client sends is preserved, and Vercel adds the
+//   real client IP at the END of the list. Reading XFF[0] therefore trusts
+//   attacker-controlled data and lets any caller spoof their rate-limit
+//   key by injecting a fake first entry. The correct ordering is:
+//     1. `request.ip`  — Vercel-runtime parsed real client IP (preferred).
+//     2. `x-real-ip`   — Vercel sets this from the trusted edge.
+//     3. XFF[LAST]     — Vercel APPENDS the real IP at the end.
+//   Never read XFF[0]: always attacker-spoofable on Vercel.
+//
+// PER-IDENTITY KEYING (AUDIT R051 M)
+//   Per-IP keying alone collapses NAT egress: every wallet behind a mobile
+//   carrier shares one bucket and one user can soft-DoS others. For
+//   authenticated endpoints we key by verified wallet address instead;
+//   `buildRateLimitKey` namespaces `wallet:` vs `ip:` so the two buckets
+//   never collide.
 
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
@@ -78,12 +91,56 @@ function getLimiter({ limit, windowSec, identifier }) {
   return limiter;
 }
 
-function extractIp(req) {
-  // Vercel trusts x-forwarded-for (first hop after edge).
-  const xff = req.headers['x-forwarded-for'];
-  if (xff) return String(xff).split(',')[0].trim();
-  if (req.headers['x-real-ip']) return String(req.headers['x-real-ip']);
+/**
+ * AUDIT R051 H-1: extract the real client IP using a strictly-trusted
+ * precedence chain. Never trust XFF[0] — Vercel APPENDS the real IP, so
+ * the first entry is whatever the inbound client sent.
+ *
+ * Order: request.ip → x-real-ip → XFF[last] → 'unknown'.
+ *
+ * Exported for unit testing.
+ */
+export function extractIp(req) {
+  // Vercel runtime — most trusted source when available.
+  if (req?.ip) return String(req.ip);
+
+  // x-real-ip — Vercel sets this from the trusted edge.
+  const real = req?.headers?.['x-real-ip'];
+  if (real) {
+    const trimmed = String(real).trim();
+    if (trimmed) return trimmed;
+  }
+
+  // x-forwarded-for: take the LAST entry (Vercel-appended real IP).
+  const xff = req?.headers?.['x-forwarded-for'];
+  if (xff) {
+    const parts = String(xff)
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (parts.length > 0) return parts[parts.length - 1];
+  }
+
   return 'unknown';
+}
+
+/**
+ * AUDIT R051 M: build a rate-limit key, preferring verified wallet over IP.
+ *
+ * - With wallet  → `wallet:0x<addr>` (lowercased).
+ * - Without      → `ip:<extracted-ip>`.
+ *
+ * Distinct namespace prefixes prevent any cross-namespace collision (an IP
+ * literally `0x...` won't match a wallet bucket).
+ *
+ * @param {object} req
+ * @param {string|null|undefined} walletAddress
+ */
+export function buildRateLimitKey(req, walletAddress) {
+  if (walletAddress && typeof walletAddress === 'string' && walletAddress.length > 0) {
+    return `wallet:${walletAddress.toLowerCase()}`;
+  }
+  return `ip:${extractIp(req)}`;
 }
 
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
@@ -103,7 +160,7 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production';
  *
  * @param {import('http').IncomingMessage} req
  * @param {import('http').ServerResponse} res
- * @param {{ limit: number, windowSec: number, identifier: string }} opts
+ * @param {{ limit: number, windowSec: number, identifier: string, walletAddress?: string }} opts
  * @returns {Promise<boolean>} true = allowed, false = blocked (response already sent)
  */
 export async function checkRateLimit(req, res, opts) {
@@ -117,8 +174,7 @@ export async function checkRateLimit(req, res, opts) {
     return true; // dev / preview without Upstash — allowed
   }
 
-  const ip = extractIp(req);
-  const key = `${ip}`;
+  const key = buildRateLimitKey(req, opts.walletAddress);
 
   try {
     const { success, limit, remaining, reset } = await limiter.limit(key);

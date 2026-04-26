@@ -24,9 +24,10 @@ jobs:
         working-directory: frontend
 
     steps:
-      - uses: actions/checkout@v4
+      # AUDIT R056: SHA-pinned (was floating @v4) — supply-chain hardening.
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
         with:
           node-version: 20
           cache: npm
@@ -52,9 +53,9 @@ jobs:
         working-directory: frontend
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
         with:
           node-version: 20
           cache: npm
@@ -62,13 +63,27 @@ jobs:
 
       - run: npm ci
 
-      - name: Build
+      # AUDIT R056 HIGH: gate WC secret injection on the PR not coming from a
+      # fork. GitHub already withholds secrets on fork PRs, but this is
+      # defense-in-depth: a parallel build path runs without the secret on
+      # fork PRs so the build still verifies non-wallet flows cleanly.
+      - name: Build (with WalletConnect, trusted context)
+        if: |
+          github.event_name == 'push' ||
+          (github.event_name == 'pull_request' &&
+           github.event.pull_request.head.repo.full_name == github.repository)
         run: npm run build
         env:
           VITE_WALLETCONNECT_PROJECT_ID: ${{ secrets.VITE_WALLETCONNECT_PROJECT_ID }}
 
+      - name: Build (no WalletConnect, fork PR)
+        if: |
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name != github.repository
+        run: npm run build
+
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
         with:
           name: dist
           path: frontend/dist
@@ -83,9 +98,9 @@ jobs:
         working-directory: frontend
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
         with:
           node-version: 20
           cache: npm
@@ -97,7 +112,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
           name: dist
           path: frontend/dist
@@ -106,7 +121,7 @@ jobs:
         run: npx playwright test
 
       - name: Upload E2E Report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
         if: ${{ !cancelled() }}
         with:
           name: playwright-report

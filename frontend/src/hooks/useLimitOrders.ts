@@ -145,14 +145,33 @@ function requestNotificationPermission() {
   }
 }
 
+// R042 HIGH-5: track in-flight execution per orderId with txHash + submittedAt.
+// `Set<string>.clear()` on poll-effect cleanup used to flush all in-flight tx
+// tracking on every re-render (chainId switch, address swap, executeOrder
+// regen). Map + 5min TTL fixes that — entries only removed on terminal
+// outcomes (markFilled / revertOrderStatus) or TTL expiry.
+type ExecutionRecord = { txHash: `0x${string}` | null; submittedAt: number };
+const EXECUTION_TTL_MS = 5 * 60_000;
+
 export function useLimitOrders() {
   const chainId = useChainId();
   const { address } = useAccount();
   const publicClient = usePublicClient();
   const [orders, setOrders] = useState<LimitOrder[]>([]);
   const ordersRef = useRef<LimitOrder[]>([]);
-  const executingRef = useRef<Set<string>>(new Set());
+  const executingRef = useRef<Map<string, ExecutionRecord>>(new Map());
   const { writeContract } = useWriteContract();
+
+  /** Returns true if a non-stale execution record exists for this orderId. */
+  const isExecuting = useCallback((orderId: string): boolean => {
+    const rec = executingRef.current.get(orderId);
+    if (!rec) return false;
+    if (Date.now() - rec.submittedAt > EXECUTION_TTL_MS) {
+      executingRef.current.delete(orderId);
+      return false;
+    }
+    return true;
+  }, []);
 
   useEffect(() => {
     if (!address) { setOrders([]); ordersRef.current = []; return; }
@@ -204,7 +223,7 @@ export function useLimitOrders() {
   }, [address, orders, persist]);
 
   const markFilled = useCallback((id: string) => {
-    executingRef.current.delete(id);
+    executingRef.current.delete(id); // terminal — drop tracking
     releaseTabLock(id);
     setOrders(prev => {
       const updated = prev.map(o => o.id === id ? { ...o, status: 'filled' as const } : o);
@@ -244,9 +263,9 @@ export function useLimitOrders() {
   const executeOrder = useCallback(async (order: LimitOrder) => {
     if (!address || !writeContract || !publicClient) return;
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
-    if (executingRef.current.has(order.id)) return;
+    if (isExecuting(order.id)) return;
     if (!claimTabLock(order.id)) return;
-    executingRef.current.add(order.id);
+    executingRef.current.set(order.id, { txHash: null, submittedAt: Date.now() });
 
     setOrders(prev => {
       const updated = prev.map(o => o.id === order.id ? { ...o, status: 'executing' as const } : o);
@@ -307,6 +326,9 @@ export function useLimitOrders() {
     }
 
     const onTxSubmitted = (hash: `0x${string}`) => {
+      // R042 HIGH-5: back-fill the txHash on the execution record.
+      const rec = executingRef.current.get(order.id);
+      if (rec) rec.txHash = hash;
       toast.info('Limit order submitted, waiting for on-chain confirmation...');
       waitForReceipt(hash, order.id);
     };
@@ -387,7 +409,7 @@ export function useLimitOrders() {
         if (activeList.length === 0) return;
 
         for (const order of activeList) {
-          if (executingRef.current.has(order.id)) continue;
+          if (isExecuting(order.id)) continue;
 
           const path = buildPath(order.fromToken, order.toToken);
           const parsedAmount = parseUnits(order.amount, order.fromToken.decimals);
@@ -429,9 +451,13 @@ export function useLimitOrders() {
     }, PRICE_POLL_INTERVAL);
     return () => {
       clearInterval(timer);
-      executingRef.current.clear();
+      // R042 HIGH-5: do NOT clear() — that would flush in-flight tx tracking
+      // on every re-render (chainId switch, address swap, executeOrder
+      // regen) and let the next 15s tick re-fire writeContract for the
+      // same order. Entries are removed only on terminal outcomes
+      // (markFilled / revertOrderStatus) or 5-minute TTL expiry.
     };
-  }, [address, publicClient, persist, executeOrder]);
+  }, [address, publicClient, persist, executeOrder, isExecuting]);
 
   const activeOrders = orders.filter(o => o.status === 'active' || o.status === 'executing');
   const pastOrders = orders.filter(o => o.status === 'expired' || o.status === 'filled');

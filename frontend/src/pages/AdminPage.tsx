@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useState } from 'react';
+import { useMemo, useRef } from 'react';
 import { useAccount, useChainId, useChains, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
 import { toast } from 'sonner';
@@ -13,6 +13,10 @@ import {
 } from '../lib/contracts';
 import { ArtImg } from '../components/ArtImg';
 import { WrongChainScreen } from '../components/ui/WrongChainGuard';
+// R069: shared TypedConfirmation primitive replaces the inlined typed-input
+// flow on destructive writes (pause / unpause). Keeps the gate uniform across
+// every admin-write call site.
+import { TypedConfirmation } from '../components/ui/TypedConfirmation';
 
 // Minimal ABI fragments for owner/admin reads not in the shared ABIs
 const OWNER_ABI = [
@@ -69,29 +73,32 @@ function ContractCard({ name, address, explorerBaseUrl, items }: ContractCardPro
   );
 }
 
-function PauseControls({ isPaused }: { isPaused: boolean }) {
+function PauseControls({
+  isPaused,
+  refetchOwner,
+}: {
+  isPaused: boolean;
+  refetchOwner: () => Promise<unknown>;
+}) {
   const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
-  // Audit H-F7: typed-input confirmation before destructive toggle. A single misclick
-  // on this button pauses staking / withdrawals / claims for every user — that must
-  // require explicit intent, not a pointer landing in the wrong place.
-  const [confirming, setConfirming] = useState(false);
-  const [typed, setTyped] = useState('');
-  const expected = isPaused ? 'UNPAUSE' : 'PAUSE';
 
-  useEffect(() => {
-    if (isSuccess) {
-      toast.success(isPaused ? 'Contract unpaused' : 'Contract paused');
-      setConfirming(false);
-      setTyped('');
-    }
-  }, [isSuccess, isPaused]);
+  // R007 Pattern B — compare-during-render against the last tx hash we've
+  // toasted for. Fires the toast exactly once per `txHash` going confirmed,
+  // no matter how many re-renders see `isSuccess: true`.
+  const lastSuccessHash = useRef<typeof txHash | null>(null);
+  if (isSuccess && txHash && lastSuccessHash.current !== txHash) {
+    lastSuccessHash.current = txHash;
+    toast.success(isPaused ? 'Contract unpaused' : 'Contract paused');
+  }
 
-  const handleConfirm = () => {
-    if (typed.trim().toUpperCase() !== expected) return;
+  // R069: force a fresh owner() read before firing the write so a mid-session
+  // ownership transfer can't slip through the UI. The contract reverts on
+  // not-owner anyway, but bouncing it before signing avoids a wasted prompt.
+  const handleConfirm = async () => {
+    await refetchOwner();
     // AUDIT ADMIN-SEC: pin chainId on every write so a mid-session chain
-    // switch cannot silently send the tx to the wrong network. wagmi will
-    // prompt the user to switch if the wallet is on a different chain.
+    // switch cannot silently send the tx to the wrong network.
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: PAUSE_ABI,
@@ -99,6 +106,8 @@ function PauseControls({ isPaused }: { isPaused: boolean }) {
       chainId: CHAIN_ID,
     });
   };
+
+  const expected = isPaused ? 'UNPAUSE' : 'PAUSE';
 
   return (
     <div className="glass-card p-6 rounded-2xl">
@@ -113,66 +122,23 @@ function PauseControls({ isPaused }: { isPaused: boolean }) {
             {isPaused ? 'PAUSED' : 'ACTIVE'}
           </span>
         </div>
-        {!confirming ? (
-          <button
-            onClick={() => { setConfirming(true); setTyped(''); }}
-            aria-label={isPaused ? 'Unpause the TegridyStaking contract' : 'Pause the TegridyStaking contract (halts staking, withdrawals, and claims)'}
-            className="px-5 py-2.5 rounded-xl text-sm font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-black"
-            style={{
-              background: isPaused
-                ? 'linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105))'
-                : 'linear-gradient(135deg, rgb(239 68 68), rgb(185 28 28))',
-              color: 'white',
-              textShadow: '0 1px 3px rgba(0,0,0,0.5)',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-            }}
-          >
-            {isPaused ? 'Unpause Contract' : 'Pause Contract'}
-          </button>
-        ) : (
-          <button
-            onClick={() => { setConfirming(false); setTyped(''); }}
-            className="text-[12px] text-white/60 hover:text-white transition-colors"
-          >
-            Cancel
-          </button>
-        )}
-      </div>
-      {confirming && (
-        <div className="mt-4 p-4 rounded-xl" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)' }}>
-          <p className="text-[13px] text-red-400 font-semibold mb-2">
-            {isPaused ? 'Unpause the contract?' : 'Pause the contract?'}
-          </p>
-          <p className="text-[12px] text-white/70 mb-3">
-            {isPaused
+        <TypedConfirmation
+          phrase={expected}
+          ctaLabel={isPaused ? 'Unpause Contract' : 'Pause Contract'}
+          executeLabel={isSigning ? 'Confirm in Wallet...' : isConfirming ? 'Confirming...' : 'Execute'}
+          description={
+            isPaused
               ? 'Resuming the contract will immediately allow staking, withdrawals, and claims again.'
-              : 'Pausing will immediately halt staking, withdrawals, and claims for every user. Do not do this without coordinating with the team.'}
-            {' '}Type <span className="font-mono text-white">{expected}</span> to confirm.
-          </p>
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={typed}
-              onChange={(e) => setTyped(e.target.value)}
-              placeholder={expected}
-              autoFocus
-              aria-label={`Type ${expected} to confirm`}
-              className="flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono focus:border-red-500 outline-none transition-colors"
-            />
-            <button
-              onClick={handleConfirm}
-              disabled={typed.trim().toUpperCase() !== expected || isSigning || isConfirming}
-              className="px-4 py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-40"
-              style={{
-                background: 'linear-gradient(135deg, rgb(239 68 68), rgb(185 28 28))',
-                color: 'white',
-              }}
-            >
-              {isSigning ? 'Confirm in Wallet...' : isConfirming ? 'Confirming...' : 'Execute'}
-            </button>
-          </div>
-        </div>
-      )}
+              : 'Pausing will immediately halt staking, withdrawals, and claims for every user. Do not do this without coordinating with the team.'
+          }
+          pending={isSigning || isConfirming}
+          onConfirm={handleConfirm}
+          variant={isPaused ? 'warning' : 'danger'}
+          triggerAriaLabel={isPaused
+            ? 'Unpause the TegridyStaking contract'
+            : 'Pause the TegridyStaking contract (halts staking, withdrawals, and claims)'}
+        />
+      </div>
     </div>
   );
 }
@@ -188,6 +154,11 @@ export default function AdminPage() {
   // user who had been OWNER when the page mounted would keep seeing admin
   // controls even after a transferOwnership + acceptOwnership to a new
   // wallet — writes would revert in-wallet, but the UI stayed authorized.
+  // R069: tightened owner() refetch from 30s → 10s. A mid-session
+  // transferOwnership + acceptOwnership round-trip should be picked up well
+  // inside the average admin-action latency so a stale owner doesn't render
+  // controls to the previous owner for half a minute. PauseControls also
+  // fires `refetchOwner()` synchronously before each pause/unpause write.
   const { data: owner, isLoading: ownerLoading, refetch: refetchOwner } = useReadContract({
     address: TEGRIDY_STAKING_ADDRESS,
     abi: OWNER_ABI,
@@ -195,7 +166,7 @@ export default function AdminPage() {
     chainId: CHAIN_ID,
     query: {
       enabled: isConnected && onCorrectChain,
-      refetchInterval: 30_000,
+      refetchInterval: 10_000,
       refetchOnWindowFocus: true,
     },
   });
@@ -433,8 +404,9 @@ export default function AdminPage() {
           />
         </div>
 
-        {/* Pause Controls */}
-        <PauseControls isPaused={safe(10) === true} />
+        {/* Pause Controls — R069: refetchOwner threaded through so the write
+            forces a fresh owner() read before signing. */}
+        <PauseControls isPaused={safe(10) === true} refetchOwner={refetchOwner} />
 
         <div className="glass-card p-4 rounded-xl">
           <p className="text-xs text-white text-center">

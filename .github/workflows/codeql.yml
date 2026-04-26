@@ -33,18 +33,19 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        # AUDIT R056: SHA-pinned actions (was @v3/@v4 floating).
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@c1f0c97bcb634b400fc376ab260a5f187961f8e0 # v3.26.10
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@c1f0c97bcb634b400fc376ab260a5f187961f8e0 # v3.26.10
 
       - name: Perform analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@c1f0c97bcb634b400fc376ab260a5f187961f8e0 # v3.26.10
         with:
           category: "/language:${{ matrix.language }}"

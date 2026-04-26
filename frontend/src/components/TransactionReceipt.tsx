@@ -203,7 +203,29 @@ function TransactionReceiptOverlay({
   const safeTxHash = sanitizeTxHash(receipt.data.txHash);
   const etherscanUrl = safeTxHash ? getTxUrl(chainId, safeTxHash) : null;
 
-  const handleShareX = useCallback(() => {
+  // R040 M5: wait for 2-block finality before treating the tx as final. A
+  // single-block confirmation can still revert under reorg; sharing or
+  // declaring "Confirmed" before that has bitten users with a viral receipt
+  // pointing at a reverted tx. Tri-state covers pending / confirmed / failed.
+  const { data: rcpt, isSuccess: rcptOk, isError: rcptErr } = useWaitForTransactionReceipt({
+    hash: safeTxHash as `0x${string}` | undefined,
+    confirmations: 2,
+    query: { enabled: !!safeTxHash },
+  });
+  const status: TxStatus = useMemo(() => {
+    if (!safeTxHash) return 'confirmed'; // legacy / synthetic receipts
+    if (rcptErr) return 'failed';
+    if (rcpt?.status === 'reverted') return 'failed';
+    if (rcptOk && rcpt?.status === 'success') return 'confirmed';
+    return 'pending';
+  }, [safeTxHash, rcptOk, rcptErr, rcpt]);
+
+  const chainLabel = getChainLabel(chainId);
+
+  // Share-to-X gating: pending shows a confirmation modal; failed disables.
+  const [showPendingShareModal, setShowPendingShareModal] = useState(false);
+
+  const performShare = useCallback(() => {
     const verb = config.verb;
     const text = `Just ${verb} on @TegridyFarms! \u{1F33F} #TOWELI #DeFi`;
     const url = etherscanUrl ?? 'https://tegridyfarms.io';
@@ -212,6 +234,15 @@ function TransactionReceiptOverlay({
       '_blank',
     );
   }, [config.verb, etherscanUrl]);
+
+  const handleShareX = useCallback(() => {
+    if (status === 'failed') return; // disabled
+    if (status === 'pending') {
+      setShowPendingShareModal(true);
+      return;
+    }
+    performShare();
+  }, [status, performShare]);
 
   const handleCopyImage = useCallback(async () => {
     if (!cardRef.current) return;
@@ -295,8 +326,23 @@ function TransactionReceiptOverlay({
                 Tegridy Farms
               </span>
             </div>
-            <div className="badge badge-primary text-[10px] px-2 py-0.5">
-              Mainnet
+            <div className="flex items-center gap-1.5">
+              <div className="badge badge-primary text-[10px] px-2 py-0.5">
+                {chainLabel}
+              </div>
+              <div
+                role="status"
+                aria-live="polite"
+                className={`text-[10px] px-2 py-0.5 rounded-full font-semibold tracking-wide ${
+                  status === 'confirmed'
+                    ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                    : status === 'failed'
+                      ? 'bg-red-500/15 text-red-300 border border-red-500/30'
+                      : 'bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse'
+                }`}
+              >
+                {status === 'confirmed' ? 'Confirmed' : status === 'failed' ? 'Failed' : 'Pending'}
+              </div>
             </div>
           </div>
 
@@ -366,7 +412,16 @@ function TransactionReceiptOverlay({
           <div className="flex gap-2">
             <button
               onClick={handleShareX}
-              className="flex-1 py-2.5 rounded-lg text-[13px] font-semibold cursor-pointer transition-all"
+              disabled={status === 'failed'}
+              aria-disabled={status === 'failed'}
+              title={
+                status === 'failed'
+                  ? 'Cannot share — transaction reverted'
+                  : status === 'pending'
+                    ? 'Tx still pending — confirm before sharing'
+                    : 'Share this receipt to X'
+              }
+              className="flex-1 py-2.5 rounded-lg text-[13px] font-semibold cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               style={{
                 background: 'var(--color-purple-75)',
                 border: '1px solid var(--color-purple-25)',
@@ -398,6 +453,46 @@ function TransactionReceiptOverlay({
               Close
             </button>
           </div>
+
+          {/* R040 M5: pending-share warning. Modal lives inside the card so a
+              tap on backdrop dismisses just the modal, not the receipt. */}
+          {showPendingShareModal && (
+            <div
+              role="alertdialog"
+              aria-labelledby="pending-share-title"
+              aria-describedby="pending-share-desc"
+              className="absolute inset-0 z-20 flex items-center justify-center px-5"
+              style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)' }}
+              onClick={() => setShowPendingShareModal(false)}
+            >
+              <div
+                className="w-full max-w-[300px] rounded-xl p-4"
+                style={{ background: 'rgba(13,21,48,0.98)', border: '1px solid rgba(245,158,11,0.4)' }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <p id="pending-share-title" className="text-[13px] text-amber-300 font-semibold mb-2">
+                  Tx still pending
+                </p>
+                <p id="pending-share-desc" className="text-[12px] text-white/75 mb-4">
+                  Wait for confirmation before sharing — pending transactions can revert under reorg.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowPendingShareModal(false)}
+                    className="flex-1 py-2 rounded-lg text-[12px] font-semibold bg-white/10 hover:bg-white/15 text-white transition-colors"
+                  >
+                    Wait
+                  </button>
+                  <button
+                    onClick={() => { setShowPendingShareModal(false); performShare(); }}
+                    className="flex-1 py-2 rounded-lg text-[12px] font-semibold bg-amber-600/80 hover:bg-amber-600 text-white transition-colors"
+                  >
+                    Share anyway
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </m.div>
     </m.div>

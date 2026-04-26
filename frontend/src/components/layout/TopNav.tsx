@@ -42,8 +42,16 @@ export const TopNav = React.memo(function TopNav() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [moreOpen]);
 
-  // Close both menus on route change
-  useEffect(() => { setKebabOpen(false); setMoreOpen(false); }, [location.pathname]);
+  // Close both menus on route change.
+  // R007 Pattern A — store the previous pathname and compare during render
+  // (React docs "store info from previous renders"). No effect runs, no
+  // cascading render trigger.
+  const [lastPathname, setLastPathname] = useState(location.pathname);
+  if (lastPathname !== location.pathname) {
+    setLastPathname(location.pathname);
+    if (kebabOpen) setKebabOpen(false);
+    if (moreOpen) setMoreOpen(false);
+  }
 
   // Audit H-F10: close on Escape + trap focus inside the drawer while open.
   // Without the trap, keyboard Tab escapes to the page content behind the overlay.

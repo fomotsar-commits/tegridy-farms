@@ -1,10 +1,25 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { GALLERY_ORDER } from '../lib/artConfig';
 import { ArtLightbox } from '../components/ui/ArtLightbox';
 import { safeSetItem } from '../lib/storage';
 import { usePageTitle } from '../hooks/usePageTitle';
+// R041 + R072: every gallery <img> resolves through safeUrl + PLACEHOLDER_NFT
+// fallback. Width/height + decoding="async" reserve layout and keep the main
+// thread free. Local /art assets are same-origin, so no referrerPolicy here.
+import { safeUrl, PLACEHOLDER_NFT } from '../lib/imageSafety';
+
+function loadUserVotes(address: string | undefined): Record<string, boolean> {
+  if (!address) return {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(`tegridy_gallery_uv_${address}`) || '{}');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, boolean>;
+  } catch (e) {
+    if (import.meta.env.DEV) console.error('Failed to parse user votes', e);
+  }
+  return {};
+}
 
 function useVotes() {
   const { address } = useAccount();
@@ -15,21 +30,15 @@ function useVotes() {
       return {};
     } catch (e) { if (import.meta.env.DEV) console.error('Failed to parse gallery votes', e); return {}; }
   });
-  const [userVotes, setUserVotes] = useState<Record<string, boolean>>({});
+  // R007 Pattern A — store the previous address and reload userVotes during
+  // render when it changes. React docs "store info from previous renders".
+  const [lastAddress, setLastAddress] = useState<string | undefined>(address);
+  const [userVotes, setUserVotes] = useState<Record<string, boolean>>(() => loadUserVotes(address));
   const [voteCooldown, setVoteCooldown] = useState(false);
-
-  // Re-load per-address votes when wallet changes
-  useEffect(() => {
-    if (!address) { setUserVotes({}); return; }
-    try {
-      const parsed = JSON.parse(localStorage.getItem(`tegridy_gallery_uv_${address}`) || '{}');
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        setUserVotes(parsed);
-      } else {
-        setUserVotes({});
-      }
-    } catch (e) { if (import.meta.env.DEV) console.error('Failed to parse user votes', e); setUserVotes({}); }
-  }, [address]);
+  if (address !== lastAddress) {
+    setLastAddress(address);
+    setUserVotes(loadUserVotes(address));
+  }
 
   const vote = useCallback((id: string) => {
     // Require connected wallet — 1 vote per address per piece
@@ -95,9 +104,21 @@ export default function GalleryPage() {
               style={{ border: '1px solid var(--color-purple-75)' }}
               initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }} transition={{ duration: 0.35, delay: (i % 3) * 0.06 }}>
-              {/* Fix #7: loading="lazy" on gallery images */}
-              <img src={piece.src} alt={piece.title}
-                className="w-full h-auto transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
+              {/* Fix #7: loading="lazy" on gallery images.
+                  R041 + R072: src goes through safeUrl, falls back to
+                  PLACEHOLDER_NFT on disallowed scheme or 404. width/height
+                  reserve layout to prevent CLS. decoding="async" keeps the
+                  main thread responsive during a column of large images. */}
+              <img
+                src={safeUrl(piece.src) ?? PLACEHOLDER_NFT}
+                alt={piece.title}
+                width={800}
+                height={800}
+                decoding="async"
+                loading="lazy"
+                onError={(e) => { (e.currentTarget as HTMLImageElement).src = PLACEHOLDER_NFT; }}
+                className="w-full h-auto transition-transform duration-500 group-hover:scale-[1.03]"
+              />
               {/* Fix #4: show overlay on focus-within + always visible on mobile */}
               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/35 focus-within:bg-black/35 transition-all duration-300 flex items-end">
                 <div className="w-full p-3 opacity-100 md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-300"

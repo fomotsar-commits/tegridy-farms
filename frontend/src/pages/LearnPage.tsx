@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PageSkeleton } from '../components/PageSkeleton';
 
@@ -33,16 +33,11 @@ function tabFromPath(pathname: string): Tab {
 export default function LearnPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<Tab>(() => tabFromPath(location.pathname));
-
-  useEffect(() => {
-    const next = tabFromPath(location.pathname);
-    setTab(next);
-  }, [location.pathname]);
+  // R007 Pattern A — derive `tab` directly from the URL.
+  const tab = tabFromPath(location.pathname);
 
   const handleTab = (t: Tab) => {
     if (t === tab) return;
-    setTab(t);
     navigate(TAB_PATHS[t], { replace: false });
   };
 

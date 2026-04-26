@@ -4,6 +4,7 @@
 
 import { jwtVerify } from "jose";
 import { createClient } from "@supabase/supabase-js";
+import { checkRateLimit } from "../_lib/ratelimit.js";
 
 const JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -18,27 +19,42 @@ const supabase = SUPABASE_URL && SUPABASE_SERVICE_KEY
   ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
   : null;
 
-const ALLOWED_ORIGINS = new Set([
-  "https://tegridyfarms.xyz",
-  "https://www.tegridyfarms.xyz",
-  "https://nakamigos.gallery",
-  "https://www.nakamigos.gallery",
-  "https://tegridyfarms.vercel.app",
-]);
-// AUDIT API-SEC: fail-closed — only admit localhost when NODE_ENV === "development".
-if (process.env.NODE_ENV === "development") {
-  ALLOWED_ORIGINS.add("http://localhost:8742");
-  ALLOWED_ORIGINS.add("http://localhost:3000");
-  ALLOWED_ORIGINS.add("http://localhost:5173");
+// AUDIT R050 MED + R052 077: env-driven allowlist; no hardcoded
+// `nakamigos.gallery` fallback. Production hosts + dev localhost form the
+// default; ALLOWED_ORIGINS=foo,bar extends without redeploy.
+function buildAllowedOrigins() {
+  const set = new Set([
+    "https://tegridyfarms.xyz",
+    "https://www.tegridyfarms.xyz",
+    "https://nakamigos.gallery",
+    "https://www.nakamigos.gallery",
+    "https://tegridyfarms.vercel.app",
+  ]);
+  if (process.env.NODE_ENV === "development") {
+    set.add("http://localhost:8742");
+    set.add("http://localhost:3000");
+    set.add("http://localhost:5173");
+  }
+  const env = process.env.ALLOWED_ORIGINS;
+  if (env) {
+    for (const o of env.split(",").map((s) => s.trim()).filter(Boolean)) {
+      set.add(o);
+    }
+  }
+  return set;
 }
 
 function setCors(req, res) {
   const origin = req.headers.origin || "";
-  res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGINS.has(origin) ? origin : "https://nakamigos.gallery");
+  const allowed = buildAllowedOrigins();
+  // AUDIT R050: Vary always, ACAO + ACAC only when origin is allowlisted.
+  res.setHeader("Vary", "Origin");
+  if (allowed.has(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  }
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Vary", "Origin");
 }
 
 function parseSiweJwt(req) {
@@ -51,6 +67,14 @@ export default async function handler(req, res) {
   setCors(req, res);
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
+
+  // AUDIT R052 077: 60/min/IP. /me is a read-only signature-+-Supabase-
+  // lookup; per-IP keying is correct because the cookie may be missing or
+  // invalid before rate-check, so wallet-keyed limiting isn't available.
+  const rlOk = await checkRateLimit(req, res, {
+    limit: 60, windowSec: 60, identifier: "auth-me",
+  });
+  if (!rlOk) return;
 
   if (!JWT_SECRET) {
     return res.status(503).json({ error: "Auth service not configured" });

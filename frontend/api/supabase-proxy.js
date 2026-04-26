@@ -17,9 +17,60 @@ import { jwtVerify } from "jose";
 import { checkRateLimit } from "./_lib/ratelimit.js";
 import { validateBody } from "./_lib/proxy-schemas.js";
 
+// AUDIT R051 H-2: cap Vercel body parser at 32 KB. The largest legitimate
+// row in any of the allowed tables is `messages.text` at 280 chars, so 32 KB
+// is comfortably above any real payload while protecting against
+// deeply-nested JSON CPU DoS.
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "32kb",
+    },
+  },
+};
+
 const ALLOWED_TABLES = ["messages", "user_profiles", "user_favorites", "user_watchlist", "votes"];
 
 const JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
+
+// AUDIT R050 MED: env-driven CORS allowlist. Production hosts are hardcoded
+// for the common case; ALLOWED_ORIGINS=foo,bar lets ops extend without a
+// redeploy. Fail-closed: an origin not in the set gets neither ACAO nor ACAC.
+function buildAllowedOrigins() {
+  const set = new Set([
+    "https://tegridyfarms.xyz",
+    "https://www.tegridyfarms.xyz",
+    "https://nakamigos.gallery",
+    "https://www.nakamigos.gallery",
+    "https://tegridyfarms.vercel.app",
+  ]);
+  if (process.env.NODE_ENV === "development") {
+    set.add("http://localhost:8742");
+    set.add("http://localhost:3000");
+    set.add("http://localhost:5173");
+  }
+  const env = process.env.ALLOWED_ORIGINS;
+  if (env) {
+    for (const o of env.split(",").map((s) => s.trim()).filter(Boolean)) {
+      set.add(o);
+    }
+  }
+  return set;
+}
+
+function setCors(req, res) {
+  const origin = req.headers?.origin || "";
+  const allowed = buildAllowedOrigins();
+  // AUDIT R050 + R053 LOW: Vary: Origin is set unconditionally so any
+  // intermediary cache keys responses by origin.
+  res.setHeader("Vary", "Origin");
+  if (allowed.has(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  }
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
 
 function parseCookie(cookieHeader, name) {
   if (!cookieHeader) return null;
@@ -28,17 +79,22 @@ function parseCookie(cookieHeader, name) {
 }
 
 export default async function handler(req, res) {
+  setCors(req, res);
+
+  // AUDIT R050 MED: OPTIONS preflight — return 200 before auth checks.
+  if (req.method === "OPTIONS") return res.status(200).end();
+
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  // AUDIT API-M1: 20 writes / min per IP. Write-through proxy; conservative
-  // limit both to bound Supabase costs and to throttle spam-listing /
-  // rapid-message abuse on the user-generated-content tables.
-  const allowed = await checkRateLimit(req, res, {
-    limit: 20, windowSec: 60, identifier: "supabase-proxy",
+  // AUDIT R051 M: stage-1 IP baseline. Cheap throttle that gates the
+  // JWT-verify CPU cost; runs before any auth work. 50/min/IP is generous
+  // for a co-located NAT cluster while still slowing brute-force attempts.
+  const stage1Ok = await checkRateLimit(req, res, {
+    limit: 50, windowSec: 60, identifier: "supabase-proxy-ip",
   });
-  if (!allowed) return;
+  if (!stage1Ok) return;
 
   // Extract SIWE JWT from httpOnly cookie
   const jwt = parseCookie(req.headers.cookie, "siwe_jwt");
@@ -63,6 +119,7 @@ export default async function handler(req, res) {
   // to trust an unverified wallet claim from a tampered cookie. On failure
   // return the same 401 shape we return for a missing cookie.
   let jwtClaims = null;
+  let verifiedWallet = null;
   if (JWT_SECRET) {
     try {
       const secret = new TextEncoder().encode(JWT_SECRET);
@@ -72,10 +129,20 @@ export default async function handler(req, res) {
         algorithms: ["HS256"],
       });
       jwtClaims = { wallet: payload.wallet || payload.sub };
+      verifiedWallet = jwtClaims.wallet ? String(jwtClaims.wallet).toLowerCase() : null;
     } catch {
       return res.status(401).json({ error: "Not authenticated" });
     }
   }
+
+  // AUDIT R051 M: stage-2 write bucket — keyed on verified wallet so a NAT
+  // cluster doesn't share one budget. Falls back to IP only when JWT verify
+  // is skipped (no SUPABASE_JWT_SECRET — non-prod only).
+  const stage2Ok = await checkRateLimit(req, res, {
+    limit: 20, windowSec: 60, identifier: "supabase-proxy",
+    walletAddress: verifiedWallet,
+  });
+  if (!stage2Ok) return;
 
   // AUDIT API-M8: shape-validate write bodies before we ever touch upstream.
   // DELETE has no body and is skipped; reads don't hit this endpoint at all.

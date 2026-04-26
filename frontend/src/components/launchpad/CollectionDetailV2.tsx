@@ -7,6 +7,9 @@ import { useNFTDropV2 } from '../../hooks/useNFTDropV2';
 import { INPUT, LABEL, BTN_EMERALD } from './launchpadConstants';
 import { ArtCard, PhaseIndicator, useExplorerAddressUrl, CreatorRevenueDashboard, LiveMintFeed } from './launchpadShared';
 import { OwnerAdminPanelV2 } from './OwnerAdminPanelV2';
+// R071: route external_link through the strict allowlist so a creator-supplied
+// `javascript:` / `file:` / `data:text/html` URI never lands as a clickable href.
+import { resolveSafeUrl } from '../../lib/imageSafety';
 
 /// Detail view for TegridyDropV2 clones — mirrors the legacy v1
 /// `CollectionDetail` layout but consumes `useNFTDropV2`, renders the
@@ -70,7 +73,14 @@ export function CollectionDetailV2({
 
   const displayName = drop.collectionMetadata?.name ?? 'Collection Details';
   const displayDescription = drop.collectionMetadata?.description;
-  const externalLink = drop.collectionMetadata?.external_link;
+  // R071: scheme-allowlist external_link before it becomes a clickable href.
+  // resolveSafeUrl returns null for anything outside https / ipfs / ar / data:image/* —
+  // creator-supplied `javascript:` / `file:` / `data:text/html` is rejected.
+  const safeExternalLink = useMemo(
+    () => resolveSafeUrl(drop.collectionMetadata?.external_link ?? null),
+    [drop.collectionMetadata?.external_link],
+  );
+  const rawExternalLink = drop.collectionMetadata?.external_link;
 
   return (
     <m.div

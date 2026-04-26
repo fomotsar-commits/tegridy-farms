@@ -1,5 +1,14 @@
 // Lightweight, dependency-free analytics for Tegridy Farms
 // Batches events and flushes every 10 seconds to VITE_ANALYTICS_ENDPOINT
+//
+// AUDIT R046 H-1: every track/* helper is gated behind hasConsent() so no
+// telemetry leaves the browser before the user opts in via the ConsentBanner.
+// AUDIT R046 M-1: trackError now routes both message and context through the
+// shared sanitize() from errorReporting.ts (closes wallet-PII / secret-leak
+// asymmetry between the analytics and error channels).
+
+import { hasConsent } from './consent';
+import { sanitize } from './errorReporting';
 
 const FLUSH_INTERVAL_MS = 10_000;
 const ENDPOINT = import.meta.env.VITE_ANALYTICS_ENDPOINT as string | undefined;
@@ -84,6 +93,11 @@ if (typeof window !== 'undefined') {
 // Core track function
 // ---------------------------------------------------------------------------
 export function track(eventName: string, properties?: Record<string, unknown>): void {
+  // AUDIT R046 H-1: deny-by-default. No event is enqueued until consent is
+  // granted, so trackPageView/trackWalletConnect/etc. all stay silent on
+  // pages mounted before the user clicks "Accept" in the ConsentBanner.
+  if (!hasConsent()) return;
+
   queue.push({
     event: eventName,
     properties: properties ?? {},
@@ -130,6 +144,12 @@ export function trackWalletConnect(walletName: string): void {
 }
 
 export function trackError(error: unknown, context: string): void {
-  const message = error instanceof Error ? error.message : String(error);
-  track('error', { message, context });
+  // AUDIT R046 M-1: route both message and context through the shared
+  // sanitize() from errorReporting.ts so wallet hex / private keys /
+  // mnemonics / JWTs / bearer tokens / secret KVs are scrubbed identically
+  // across the analytics and error channels.
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const message = sanitize(rawMessage) ?? 'Unknown error';
+  const cleanContext = sanitize(context) ?? '';
+  track('error', { message, context: cleanContext });
 }

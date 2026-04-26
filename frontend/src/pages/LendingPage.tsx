@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { m, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
@@ -57,17 +57,12 @@ export default function LendingPage() {
   usePageTitle('NFT Finance', 'NFT-backed lending, fractional AMM, and launchpad.');
   const { isConnected, address } = useAccount();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [section, setSection] = useState<Section>(() => sectionFromQuery(searchParams.get('section')) ?? 'lending');
-
-  // Keep state in sync with ?section= so Dashboard loan rows can deep-link to
-  // the right tab; pushing a new query also keeps the URL shareable.
-  useEffect(() => {
-    const fromQuery = sectionFromQuery(searchParams.get('section'));
-    if (fromQuery && fromQuery !== section) setSection(fromQuery);
-  }, [searchParams, section]);
+  // R007 Pattern A — derive `section` directly from ?section=. URL is the
+  // source of truth, so deep-links + Back/Forward stay correct without an
+  // effect.
+  const section: Section = sectionFromQuery(searchParams.get('section')) ?? 'lending';
 
   const handleSectionChange = (next: Section) => {
-    setSection(next);
     const params = new URLSearchParams(searchParams);
     if (next === 'lending') params.delete('section');
     else params.set('section', next);

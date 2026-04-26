@@ -8,6 +8,11 @@ import { MEME_BOUNTY_BOARD_ABI } from '../../lib/contracts';
 import { shortenAddress, formatTimeAgo, formatWei } from '../../lib/formatting';
 import { pageArt } from '../../lib/artConfig';
 import { ArtImg } from '../ArtImg';
+// R069: user-submitted text + URIs reach the contract verbatim and render
+// back to other users. Sanitise on write; allowlist URI scheme; render
+// stored content via SafeText to harden against pre-fix payloads.
+import { sanitizeUserText, isAllowedSubmissionUri, SUBMISSION_URI_ERROR, DEFAULT_DESCRIPTION_LIMIT } from '../../lib/textSafety';
+import { SafeText } from '../ui/SafeText';
 
 const CARD_BORDER = 'var(--color-purple-12)';
 const STAT_ARTS = [pageArt('bounties', 0), pageArt('bounties', 1), pageArt('bounties', 2), pageArt('bounties', 3)];
@@ -58,10 +63,17 @@ export function BountiesSection() {
 
   const handleCreate = () => {
     if (!newDescription || !newReward || !newDeadlineDays) return;
+    // R069: strip BiDi/control chars + cap length client-side. Defence-in-depth
+    // before the on-chain calldata.
+    const clean = sanitizeUserText(newDescription);
+    if (!clean) {
+      toast.error('Description cannot be empty');
+      return;
+    }
     const deadlineSecs = BigInt(Math.floor(Date.now() / 1000) + Number(newDeadlineDays) * 86400);
     writeContract({
       address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'createBounty',
-      args: [newDescription, deadlineSecs],
+      args: [clean, deadlineSecs],
       value: parseEther(newReward),
     });
     toast.info('Creating bounty...');
@@ -69,12 +81,20 @@ export function BountiesSection() {
 
   const handleSubmit = (bountyId: number) => {
     if (!submitURI) return;
+    // R069: enforce https/ipfs/ar — no data:/javascript:/file:.
+    if (!isAllowedSubmissionUri(submitURI)) {
+      toast.error(SUBMISSION_URI_ERROR);
+      return;
+    }
     writeContract({
       address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'submitWork',
-      args: [BigInt(bountyId), submitURI],
+      args: [BigInt(bountyId), submitURI.trim()],
     });
     toast.info('Submitting work...');
   };
+
+  const submitURIInvalid = submitURI.length > 0 && !isAllowedSubmissionUri(submitURI);
+  const descriptionRemaining = DEFAULT_DESCRIPTION_LIMIT - newDescription.length;
 
   const handleClaim = (type: 'payout' | 'refund') => {
     writeContract({
@@ -148,9 +168,14 @@ export function BountiesSection() {
           <p className="text-[11px] text-white/80" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Fund a bounty with ETH. Community votes on submissions. Winner takes the reward.</p>
           <div>
             <label htmlFor="bounty-description" className="text-[11px] text-white/70 uppercase tracking-wider block mb-1">Description</label>
-            <textarea id="bounty-description" value={newDescription} onChange={(e) => setNewDescription(e.target.value)}
+            <textarea id="bounty-description" value={newDescription}
+              onChange={(e) => setNewDescription(e.target.value.slice(0, DEFAULT_DESCRIPTION_LIMIT))}
+              maxLength={DEFAULT_DESCRIPTION_LIMIT}
               placeholder="Create the best Tegridy Farms meme..." rows={2}
               className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:border-emerald-500 outline-none transition-colors resize-none" />
+            <p className={`mt-1 text-[10px] text-right font-mono ${descriptionRemaining < 50 ? 'text-amber-400' : 'text-white/40'}`}>
+              {descriptionRemaining} chars remaining
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -208,7 +233,9 @@ export function BountiesSection() {
                           <span className={`text-[11px] font-semibold ${statusInfo.color}`}>{statusInfo.label}</span>
                           <span className="text-[11px] text-white/30">{Number(submCount)} submissions</span>
                         </div>
-                        <p className="text-[13px] text-white leading-relaxed line-clamp-2">{description}</p>
+                        <p className="text-[13px] text-white leading-relaxed line-clamp-2">
+                          <SafeText value={description} previewChars={180} />
+                        </p>
                       </div>
                       <div className="text-right flex-shrink-0">
                         <p className="text-[13px] font-semibold text-emerald-400">{formatWei(reward, 18, 4)}</p>
@@ -227,14 +254,23 @@ export function BountiesSection() {
                       className="mt-3 pt-3 border-t border-white/5 space-y-2">
                       <label htmlFor={`bounty-submit-${bountyId}`} className="text-[11px] text-white/70 uppercase tracking-wider block">Submit Your Work</label>
                       <div className="flex gap-2">
-                        <input id={`bounty-submit-${bountyId}`} type="text" value={submitURI} onChange={(e) => setSubmitURI(e.target.value)}
-                          placeholder="Link to your submission (IPFS, URL, etc.)"
-                          className="flex-1 bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:border-emerald-500 outline-none transition-colors" />
-                        <button onClick={() => handleSubmit(bountyId)} disabled={!submitURI || isSigning || isConfirming}
+                        <input id={`bounty-submit-${bountyId}`} type="text" value={submitURI}
+                          onChange={(e) => setSubmitURI(e.target.value)}
+                          aria-invalid={submitURIInvalid}
+                          aria-describedby={submitURIInvalid ? `bounty-submit-error-${bountyId}` : undefined}
+                          placeholder="https://, ipfs://, or ar://"
+                          className={`flex-1 bg-black/30 border rounded-lg px-3 py-2 text-white text-sm focus:border-emerald-500 outline-none transition-colors ${submitURIInvalid ? 'border-red-500/60' : 'border-white/10'}`} />
+                        <button onClick={() => handleSubmit(bountyId)}
+                          disabled={!submitURI || submitURIInvalid || isSigning || isConfirming}
                           className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/25 transition-colors disabled:opacity-40">
                           Submit
                         </button>
                       </div>
+                      {submitURIInvalid && (
+                        <p id={`bounty-submit-error-${bountyId}`} role="alert" className="mt-1 text-[11px] text-red-400">
+                          {SUBMISSION_URI_ERROR}
+                        </p>
+                      )}
                     </m.div>
                   )}
                 </m.div>

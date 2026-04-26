@@ -1,4 +1,4 @@
-import { useEffect, useState, Suspense } from 'react';
+import { Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
@@ -35,18 +35,12 @@ export default function CommunityPage() {
   usePageTitle('Community', 'Governance, grants, bounties, and community initiatives.');
   const { isConnected } = useAccount();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [section, setSection] = useState<Section>(
-    () => sectionFromQuery(searchParams.get('section')) ?? 'grants',
-  );
-
-  // Keep state in sync with ?section= so Back/Forward and deep-links behave.
-  useEffect(() => {
-    const fromQuery = sectionFromQuery(searchParams.get('section'));
-    if (fromQuery && fromQuery !== section) setSection(fromQuery);
-  }, [searchParams, section]);
+  // R007 Pattern A — derive `section` directly from ?section=. The URL is
+  // the source of truth, so deep-links and Back/Forward stay correct without
+  // a sync effect.
+  const section: Section = sectionFromQuery(searchParams.get('section')) ?? 'grants';
 
   const handleSectionChange = (next: Section) => {
-    setSection(next);
     const params = new URLSearchParams(searchParams);
     // Default section uses the bare URL; others set ?section= so it's shareable.
     if (next === 'grants') params.delete('section');

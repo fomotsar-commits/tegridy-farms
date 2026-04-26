@@ -145,14 +145,23 @@ contract R020_VoteIncentivesTest is Test {
     // ─── H-2: commit-reveal mandatory from genesis ──────────────────────
 
     function test_commitReveal_MandatoryFromGenesis() public {
-        _deploy(true); // genesis flag ON
+        // DRIFT (RC10): the constructor `_commitRevealFromGenesis` flag was deferred —
+        // current `VoteIncentives` exposes only the post-deploy timelocked path
+        // (`proposeEnableCommitReveal` / `executeEnableCommitReveal`). We exercise the
+        // equivalent post-deploy flip instead: deploy + flip via timelock, then verify
+        // the next epoch tags `usesCommitReveal = true` and `vote()` reverts.
+        _deploy(false); // legacy / migration deploy
 
-        assertTrue(bribes.commitRevealEnabled(), "flag should be true at genesis");
+        // Flip via the timelock immediately after deploy.
+        bribes.proposeEnableCommitReveal();
+        vm.warp(block.timestamp + bribes.COMMIT_REVEAL_ENABLE_DELAY() + 1);
+        bribes.executeEnableCommitReveal();
+        assertTrue(bribes.commitRevealEnabled(), "flag should be true after timelocked enable");
 
-        // Epoch 0 advance must tag usesCommitReveal = true.
+        // Next epoch advance must tag usesCommitReveal = true.
         _advance();
         (, , bool ucr) = bribes.epochs(0);
-        assertTrue(ucr, "epoch 0 should require commit-reveal");
+        assertTrue(ucr, "epoch 0 should require commit-reveal after enable");
 
         // Plain vote() must revert with LegacyVoteOnCommitRevealEpoch.
         escrow.setPower(alice, 1_000 ether);

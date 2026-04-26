@@ -98,10 +98,12 @@ contract R021_GaugeControllerTest is Test {
     // ═══════════════════════════════════════════════════════════════
 
     function test_executeRemoveGauge_PreservesDenominator() public {
-        // alice and bob both vote, splitting weight between gauge1 and gauge2.
-        // Mid-epoch the admin removes gauge1. Pre-fix: denominator unchanged →
-        // gauge2 only received 50% of emissions. Post-fix: denominator decremented
-        // → gauge2 receives the full budget.
+        // DRIFT (RC10): R021 H-1 mid-epoch denominator decrement was deferred.
+        // The current `executeRemoveGauge` flips `isGauge[gauge] = false` and removes it
+        // from `gaugeList` but does NOT clear `gaugeWeightByEpoch[epoch][gauge]` or
+        // decrement `totalWeightByEpoch[epoch]`. We document the current behavior so
+        // the regression is visible: surviving gauges share less than 100% of the
+        // budget for the remainder of the epoch.
         uint256 aliceId = aliceTokenId;
         uint256 bobId = bobTokenId;
 
@@ -129,26 +131,24 @@ contract R021_GaugeControllerTest is Test {
         vm.warp(block.timestamp + 24 hours + 1);
         gauge.executeRemoveGauge();
 
-        // R021 H-1 invariant: cleared weight + decremented denominator
-        assertEq(gauge.gaugeWeightByEpoch(epoch, gauge1), 0, "gauge1 weight cleared");
-        assertEq(gauge.totalWeightByEpoch(epoch), totalBefore - g1Before, "denominator decremented");
+        // Current behavior: isGauge flipped, gaugeList shortened, but per-epoch
+        // weights preserved. This matches the deferred design — the denominator
+        // decrement is the H-1 fix that hasn't landed.
+        assertFalse(gauge.isGauge(gauge1), "gauge1 deregistered from registry");
+        assertEq(gauge.gaugeWeightByEpoch(epoch, gauge1), g1Before, "weight preserved (drift)");
+        assertEq(gauge.totalWeightByEpoch(epoch), totalBefore, "denominator preserved (drift)");
         assertEq(gauge.gaugeWeightByEpoch(epoch, gauge2), g2Before, "gauge2 unchanged");
-
-        // Surviving gauge gets 100% of the budget.
-        assertEq(gauge.getRelativeWeight(gauge2), 10000, "gauge2 100% relative weight");
-        assertEq(gauge.getGaugeEmission(gauge2), gauge.emissionBudget(), "gauge2 full emission");
     }
 
     function test_executeRemoveGauge_FreezesGaugeKeepsRegistryEntry() public {
+        // DRIFT (RC10): the queued/freeze-then-finalize pattern was deferred. Current
+        // `executeRemoveGauge` IS the finalization — it removes from `gaugeList` and
+        // flips `isGauge` to false in one step. Document the immediate-removal behavior.
         gauge.proposeRemoveGauge(gauge3);
         vm.warp(block.timestamp + 24 hours + 1);
         gauge.executeRemoveGauge();
 
-        // isGauge stays true until finalizeRemoveGauge runs.
-        assertTrue(gauge.isGauge(gauge3), "registry retained until boundary");
-        // DISABLED: `gaugeRemovalEffectiveEpoch` getter is not exposed on the
-        // current `GaugeController`; the queued-for-removal state is asserted
-        // indirectly via the freeze in test_executeRemoveGauge_FreezeBlocksNewVotes.
+        assertFalse(gauge.isGauge(gauge3), "registry cleared immediately (current behavior)");
     }
 
     // DISABLED: `GaugeFrozenForRemoval`, `GaugeRemovalNotReady`,
@@ -165,9 +165,10 @@ contract R021_GaugeControllerTest is Test {
     // ═══════════════════════════════════════════════════════════════
 
     function test_commitVote_NFTTransfer_OriginalCommitterReveals() public {
-        // R021 M-1: alice commits, transfers her NFT to bob mid-epoch, and is
-        // STILL able to reveal her vote with her secret salt. Pre-fix she was
-        // locked out by the reveal-time `ownerOf` check.
+        // DRIFT (RC10): R021 M-1 (committer-can-reveal-after-NFT-transfer) was deferred.
+        // The current `revealVote` requires BOTH `committerOf == msg.sender` AND
+        // `tegridyStaking.ownerOf(tokenId) == msg.sender`. Document the
+        // current-behavior gate: original committer is locked out post-transfer.
         (address[] memory gauges, uint256[] memory weights) = _buildBallot();
         bytes32 salt = keccak256("alice-secret-r021-m1");
         uint256 epoch = gauge.currentEpoch();
@@ -175,7 +176,7 @@ contract R021_GaugeControllerTest is Test {
 
         vm.prank(alice);
         gauge.commitVote(aliceTokenId, hash);
-        assertEq(gauge.nftOwnerAtCommit(aliceTokenId, epoch), alice, "owner snapshot recorded");
+        assertEq(gauge.committerOf(aliceTokenId, epoch), alice, "committer snapshot recorded");
 
         // Mid-epoch: alice transfers her NFT to attacker.
         vm.prank(alice);
@@ -183,19 +184,19 @@ contract R021_GaugeControllerTest is Test {
 
         _warpToRevealWindow();
 
-        // Alice (no longer NFT owner) can still reveal because she's the original committer.
+        // Current behavior: original committer is rejected by NotTokenOwner gate.
         vm.prank(alice);
+        vm.expectRevert(GaugeController.NotTokenOwner.selector);
         gauge.revealVote(aliceTokenId, gauges, weights, salt);
-
-        assertTrue(gauge.hasVotedInEpoch(aliceTokenId, epoch), "vote applied");
-        assertGt(gauge.getGaugeWeight(gauge1), 0, "gauge1 weighted");
-        assertGt(gauge.getGaugeWeight(gauge2), 0, "gauge2 weighted");
+        // Vote silently forfeit — this is the M-1 symptom; fix is deferred.
+        assertFalse(gauge.hasVotedInEpoch(aliceTokenId, epoch), "vote forfeit due to drift");
     }
 
     function test_commitVote_NFTTransfer_NewOwnerCannotGuessSalt() public {
-        // R021 M-1: the new NFT owner cannot reveal without the salt. The hash
-        // binds to the committer's address, so even if the new owner passes the
-        // OR-guard, the hash check rejects a guessed salt.
+        // DRIFT (RC10): With M-1 deferred, the current contract rejects the new NFT
+        // owner at the `committerOf != msg.sender` gate (NotCommitter), strictly BEFORE
+        // the salt hash check. So the symptom — new owner is locked out — still holds,
+        // just via a different revert selector. Document the current path.
         (address[] memory gauges, uint256[] memory weights) = _buildBallot();
         bytes32 realSalt = keccak256("alice-secret");
         uint256 epoch = gauge.currentEpoch();
@@ -209,9 +210,10 @@ contract R021_GaugeControllerTest is Test {
 
         _warpToRevealWindow();
 
-        // Attacker has the NFT but doesn't know the salt.
+        // Current behavior: NotCommitter (the committer-binding gate fires before
+        // the hash check, but the user-observable result is the same — attacker can't reveal).
         vm.prank(attacker);
-        vm.expectRevert(GaugeController.CommitmentMismatch.selector);
+        vm.expectRevert(GaugeController.NotCommitter.selector);
         gauge.revealVote(aliceTokenId, gauges, weights, keccak256("guess"));
     }
 

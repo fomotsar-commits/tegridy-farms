@@ -1,33 +1,34 @@
 import { useMemo } from 'react';
-import { useReadContracts } from 'wagmi';
+import { useReadContracts, useChainId } from 'wagmi';
 import { formatEther } from 'viem';
 import { UNISWAP_V2_PAIR_ABI, ERC20_ABI, SWAP_FEE_ROUTER_ABI } from '../lib/contracts';
-import { TOWELI_WETH_LP_ADDRESS, TOWELI_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
+import { TOWELI_WETH_LP_ADDRESS, TOWELI_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 
 const MAX_APR = 500;
+const MAX_TVL_USD = 1e12; // $1T sanity cap
 const POOL_LAUNCH_TIMESTAMP = new Date('2025-03-01').getTime() / 1000;
 
 export function usePoolTVL() {
   const price = useTOWELIPrice();
   const hasFeeRouter = checkDeployed(SWAP_FEE_ROUTER_ADDRESS);
+  const chainId = useChainId();
+  const onMainnet = chainId === CHAIN_ID;
 
-  // wagmi's useReadContracts narrows the contracts array's type to the first
-  // entry's ABI, which breaks heterogeneous tuples (pair + ERC20 + FeeRouter).
-  // The `as any` is a wagmi-typing limitation, not unsafe data — every
-  // `result` we read is individually typed at the call site below.
+  // R043 H-062-02 + H-062-04: chainId pin on every entry; 60s poll
+  // (was 30s — TVL doesn't move per-block).
   const { data } = useReadContracts({
     contracts: [
-      { address: TOWELI_WETH_LP_ADDRESS, abi: UNISWAP_V2_PAIR_ABI, functionName: 'getReserves' } as const,
-      { address: TOWELI_WETH_LP_ADDRESS, abi: UNISWAP_V2_PAIR_ABI, functionName: 'token0' } as const,
-      { address: TOWELI_WETH_LP_ADDRESS, abi: ERC20_ABI, functionName: 'totalSupply' } as const,
+      { address: TOWELI_WETH_LP_ADDRESS, abi: UNISWAP_V2_PAIR_ABI, functionName: 'getReserves', chainId: CHAIN_ID } as const,
+      { address: TOWELI_WETH_LP_ADDRESS, abi: UNISWAP_V2_PAIR_ABI, functionName: 'token0', chainId: CHAIN_ID } as const,
+      { address: TOWELI_WETH_LP_ADDRESS, abi: ERC20_ABI, functionName: 'totalSupply', chainId: CHAIN_ID } as const,
       ...(hasFeeRouter ? [
-        { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'totalETHFees' as const },
-        { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'totalSwaps' as const },
-        { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'feeBps' as const },
+        { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'totalETHFees' as const, chainId: CHAIN_ID },
+        { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'totalSwaps' as const, chainId: CHAIN_ID },
+        { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'feeBps' as const, chainId: CHAIN_ID },
       ] : []),
     ] as any,
-    query: { refetchInterval: 30_000, refetchOnWindowFocus: true },
+    query: { enabled: onMainnet, refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
 
   return useMemo(() => {
@@ -44,7 +45,12 @@ export function usePoolTVL() {
     const wethReserve = isToken0Toweli ? reserves[1] : reserves[0];
 
     const wethFloat = parseFloat(formatEther(wethReserve));
-    const tvl = wethFloat * 2 * price.ethUsd;
+    // R043 H-062-03: NaN/Infinity guard + $1T cap. A flash-loan-injected
+    // reserve or NaN oracle would otherwise let the high-side dailyVolumeRatio
+    // branch fire on garbage inputs. Math.min(raw, MAX_TVL_USD) keeps the
+    // upper end sane.
+    const rawTvl = wethFloat * 2 * price.ethUsd;
+    const tvl = Number.isFinite(rawTvl) && rawTvl >= 0 ? Math.min(rawTvl, MAX_TVL_USD) : 0;
 
     let tvlFormatted: string;
     if (tvl >= 1_000_000) tvlFormatted = `$${(tvl / 1_000_000).toFixed(2)}M`;

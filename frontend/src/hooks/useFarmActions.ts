@@ -1,42 +1,54 @@
 import { useEffect, useRef } from 'react';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
-import { parseEther, formatEther } from 'viem';
+import { formatEther } from 'viem';
 import { toast } from 'sonner';
 import { TEGRIDY_STAKING_ABI, ERC20_ABI, REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
 import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { trackStake } from '../lib/analytics';
 import { getTxUrl } from '../lib/explorer';
+import { safeParseEtherPositive } from '../lib/safeParseEther';
 
 export function useFarmActions() {
   const chainId = useChainId();
   const { address } = useAccount();
-  // AUDIT Spartan TF-03: read pendingETH so withdraw paths can block the
-  // user from burning their staking NFT with unclaimed revenue still on the
-  // distributor — withdrawal sets userTokenId = 0, which collapses
-  // _getUserLockState to (0, 0) and makes the grace-period claim check fail
-  // forever. The ETH isn't destroyed (sits in totalEarmarked for admin
-  // reclaim) but from the user's perspective it's gone.
+  const onRightChain = chainId === CHAIN_ID;
+
   const { data: pendingEthRaw } = useReadContract({
     address: REVENUE_DISTRIBUTOR_ADDRESS,
     abi: REVENUE_DISTRIBUTOR_ABI,
     functionName: 'pendingETH',
     args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: 15_000 },
+    chainId: CHAIN_ID,
+    query: { enabled: !!address && onRightChain, refetchInterval: 15_000 },
   });
   const pendingEth = (pendingEthRaw as bigint | undefined) ?? 0n;
-  // Audit #51: wagmi's useWriteContract internally runs simulateContract before
-  // sending the transaction, providing automatic pre-flight revert detection.
-  // No separate useSimulateContract call is needed.
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
   const pendingStakeRef = useRef<{ amount: string; lockDuration: string } | null>(null);
+  // R034 H1: snapshot of the wallet that submitted the current tx so the
+  // receipt effect doesn't fire trackStake for a different wallet that
+  // reconnected mid-flight.
+  const txAddressRef = useRef<`0x${string}` | undefined>(undefined);
+
+  // R034 H1: account-switch reset block — wipe all in-flight refs so a new
+  // wallet doesn't inherit the previous wallet's pending state.
+  useEffect(() => {
+    pendingStakeRef.current = null;
+    txAddressRef.current = undefined;
+  }, [address]);
 
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({
     hash,
   });
 
-  // Toast on success — must be in useEffect, not during render (#29 audit fix)
   useEffect(() => {
     if (isSuccess && hash) {
+      // R034 H1: drop trackStake / toast for a wallet swap that landed
+      // between submit and confirm.
+      if (txAddressRef.current && txAddressRef.current !== address) {
+        pendingStakeRef.current = null;
+        txAddressRef.current = undefined;
+        return;
+      }
       toast.success('Transaction confirmed', {
         id: hash,
         action: {
@@ -48,17 +60,16 @@ export function useFarmActions() {
         trackStake(pendingStakeRef.current.amount, Number(pendingStakeRef.current.lockDuration));
         pendingStakeRef.current = null;
       }
+      txAddressRef.current = undefined;
     }
-  }, [isSuccess, hash]);
+  }, [isSuccess, hash, address, chainId]);
 
-  // Toast on tx revert (#29 audit fix)
   useEffect(() => {
     if (isTxError && hash) {
       toast.error('Transaction failed', { id: `err-${hash}` });
     }
   }, [isTxError, hash]);
 
-  // Toast on write error (#29 audit fix)
   useEffect(() => {
     if (writeError) {
       const msg = (writeError.message ?? 'Unknown error').replace(/https?:\/\/\S+/g, '').slice(0, 120);
@@ -68,9 +79,10 @@ export function useFarmActions() {
 
   const approve = (amount: string) => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
-    if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) return;
-    // TOWELI uses 18 decimals; if token decimals change, use parseUnits(amount, decimals) instead
-    const approveAmount = parseEther(amount);
+    // R034 H4: safeParseEtherPositive — silent fail instead of ErrorBoundary nuke.
+    const approveAmount = safeParseEtherPositive(amount);
+    if (approveAmount === null) return;
+    txAddressRef.current = address;
     writeContract({
       address: TOWELI_ADDRESS,
       abi: ERC20_ABI,
@@ -81,23 +93,18 @@ export function useFarmActions() {
 
   const stake = (amount: string, lockDurationSeconds: bigint) => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
-    const parsed = parseFloat(amount);
-    if (isNaN(parsed) || parsed <= 0) throw new Error('Invalid amount');
+    const wei = safeParseEtherPositive(amount);
+    if (wei === null) throw new Error('Invalid amount');
     pendingStakeRef.current = { amount, lockDuration: lockDurationSeconds.toString() };
-    // TOWELI uses 18 decimals; if token decimals change, use parseUnits(amount, decimals) instead
+    txAddressRef.current = address;
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'stake',
-      args: [parseEther(amount), lockDurationSeconds],
+      args: [wei, lockDurationSeconds],
     });
   };
 
-  /**
-   * AUDIT Spartan TF-03: guard returns false and toasts if the user has pending
-   * ETH revenue that would be silently forfeited when the staking NFT burns.
-   * Callers can pass `force=true` to bypass after an explicit user confirmation.
-   */
   const pendingEthGuard = (force: boolean): boolean => {
     if (force) return true;
     if (pendingEth > 0n) {
@@ -114,6 +121,7 @@ export function useFarmActions() {
   const withdraw = (tokenId: bigint, force: boolean = false) => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!pendingEthGuard(force)) return;
+    txAddressRef.current = address;
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
@@ -125,6 +133,7 @@ export function useFarmActions() {
   const earlyWithdraw = (tokenId: bigint, force: boolean = false) => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!pendingEthGuard(force)) return;
+    txAddressRef.current = address;
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
@@ -135,6 +144,7 @@ export function useFarmActions() {
 
   const claim = (tokenId: bigint) => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    txAddressRef.current = address;
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
@@ -145,6 +155,7 @@ export function useFarmActions() {
 
   const toggleAutoMaxLock = (tokenId: bigint) => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    txAddressRef.current = address;
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
@@ -155,6 +166,7 @@ export function useFarmActions() {
 
   const extendLock = (tokenId: bigint, newDuration: bigint) => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    txAddressRef.current = address;
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
@@ -166,6 +178,7 @@ export function useFarmActions() {
   const emergencyExit = (tokenId: bigint, force: boolean = false) => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!pendingEthGuard(force)) return;
+    txAddressRef.current = address;
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
@@ -176,6 +189,7 @@ export function useFarmActions() {
 
   const claimUnsettled = () => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    txAddressRef.current = address;
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
@@ -185,6 +199,7 @@ export function useFarmActions() {
 
   const revalidateBoost = (tokenId: bigint) => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    txAddressRef.current = address;
     writeContract({
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
@@ -204,8 +219,6 @@ export function useFarmActions() {
     emergencyExit,
     claimUnsettled,
     revalidateBoost,
-    // AUDIT Spartan TF-03: exposed so UI can render "claim ETH first" UX
-    // proactively rather than relying on the guard-toast on click.
     pendingEth,
     isPending,
     isConfirming,

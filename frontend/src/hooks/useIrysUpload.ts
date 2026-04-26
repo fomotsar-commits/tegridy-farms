@@ -1,5 +1,26 @@
 import { useCallback, useRef, useState } from 'react';
+import { Buffer } from 'buffer';
 import { buildIrysUploader, type IrysUploader } from '../lib/irysClient';
+
+// R044 H2 + R080: enforce a hard size cap on every upload before we touch the
+// SDK. Without this an attacker (or a footgun click on a multi-GB folder)
+// could drain the wallet via an enormous fund() leg. 100MiB per file is the
+// per-tx cap; 500MiB total is the per-folder cap.
+export const MAX_UPLOAD_BYTES_PER_FILE = 100 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES_TOTAL = 500 * 1024 * 1024;
+// Backwards-compat alias for the "MAX_UPLOAD_BYTES = 100*1024*1024" callout.
+export const MAX_UPLOAD_BYTES = MAX_UPLOAD_BYTES_PER_FILE;
+
+export class PayloadTooLargeError extends Error {
+  bytes: number;
+  limit: number;
+  constructor(bytes: number, limit: number, message?: string) {
+    super(message ?? `Payload too large: ${bytes} > ${limit} bytes`);
+    this.name = 'PayloadTooLargeError';
+    this.bytes = bytes;
+    this.limit = limit;
+  }
+}
 
 export interface UploadProgress {
   uploaded: number;
@@ -104,27 +125,32 @@ export function useIrysUpload(): UseIrysUploadApi {
   }, [getUploader]);
 
   const uploadFolder = useCallback(async (files: File[]) => {
+    // R044 H2: enforce caps BEFORE initialising the SDK. Wallet drain defence.
+    let totalBytes = 0;
+    for (const f of files) {
+      if (f.size > MAX_UPLOAD_BYTES_PER_FILE) {
+        throw new PayloadTooLargeError(f.size, MAX_UPLOAD_BYTES_PER_FILE,
+          `File "${f.name}" exceeds ${MAX_UPLOAD_BYTES_PER_FILE} bytes`);
+      }
+      totalBytes += f.size;
+    }
+    if (totalBytes > MAX_UPLOAD_BYTES_TOTAL) {
+      throw new PayloadTooLargeError(totalBytes, MAX_UPLOAD_BYTES_TOTAL,
+        `Folder exceeds total ${MAX_UPLOAD_BYTES_TOTAL} bytes`);
+    }
     setStatus('uploading');
     setError(null);
     setProgress({ uploaded: 0, total: files.length });
     try {
       const u = await getUploader();
-      // uploadFolder takes a File[] in the browser; each file becomes a
-      // manifest entry keyed by its name. Returns a transaction object with
-      // `id` — the manifest tx ID that resolves at ar://<id>/<filename>.
-      //
-      // We fake progress by wrapping each upload individually when the SDK
-      // doesn't expose a progress callback. Irys's upload events vary across
-      // SDK versions — uploading file-by-file gives us reliable progress + retry.
       const fileIds: string[] = [];
       for (let i = 0; i < files.length; i++) {
         const f = files[i]!;
         setProgress({ uploaded: i, total: files.length, currentFile: f.name });
-        const buf = new Uint8Array(await f.arrayBuffer());
-        // Irys SDK typings want Buffer|string|Readable; Vite polyfills Buffer at
-        // runtime so Uint8Array works. `as unknown as Buffer` keeps the cast
-        // narrow and avoids `any`-widening the rest of the call.
-        const receipt = await u.upload(buf as unknown as Buffer, {
+        // R080: Buffer.from polyfill — true subtype, no `as unknown` cast,
+        // no `any`-widening of the rest of the SDK call.
+        const buf = Buffer.from(await f.arrayBuffer());
+        const receipt = await u.upload(buf, {
           tags: [
             { name: 'Content-Type', value: f.type },
             { name: 'File-Name', value: f.name },
@@ -132,7 +158,6 @@ export function useIrysUpload(): UseIrysUploadApi {
         });
         fileIds.push(receipt.id);
       }
-      // Build manifest: { manifest: "arweave/paths", version: "0.1.0", paths: { "file.png": { id } } }
       const manifest = {
         manifest: 'arweave/paths',
         version: '0.1.0',
@@ -141,7 +166,7 @@ export function useIrysUpload(): UseIrysUploadApi {
         ),
       };
       const manifestReceipt = await u.upload(
-        new TextEncoder().encode(JSON.stringify(manifest)) as unknown as Buffer,
+        Buffer.from(new TextEncoder().encode(JSON.stringify(manifest))),
         { tags: [{ name: 'Content-Type', value: 'application/x.arweave-manifest+json' }] }
       );
       setProgress({ uploaded: files.length, total: files.length });

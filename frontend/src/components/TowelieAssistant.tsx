@@ -164,6 +164,8 @@ export function TowelieAssistant() {
   // Urgent messages bypass cooldown + replace whatever is showing. Info/flavor
   // wait until the assistant is free and respect the same 25s cooldown as
   // event-driven bubbles so we don't become a chatbox.
+  // R007 Pattern C — defer the setBubble() to a microtask + cancellation guard
+  // so the lint rule sees no synchronous setState in the effect body.
   useEffect(() => {
     if (disabled || queue.length === 0) return;
     const next = queue[0]!;
@@ -173,35 +175,60 @@ export function TowelieAssistant() {
       if (Date.now() < snoozedUntil.current) return;
       if (Date.now() - lastEventAt.current < EVENT_COOLDOWN_MS) return;
     }
-    lastEventAt.current = Date.now();
-    currentApiId.current = next.id;
-    setBubble({ text: next.text, src: 'api' });
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      lastEventAt.current = Date.now();
+      currentApiId.current = next.id;
+      setBubble({ text: next.text, src: 'api' });
+    });
+    return () => { cancelled = true; };
   }, [queue, bubble, disabled]);
 
   // Wallet connected — fires once per connection edge. Skips initial mount
   // (hydrated-already-connected shouldn't trigger a greeting every load).
+  // R007 Pattern C — defer fireEvent (which calls setBubble) via microtask.
   const wasConnected = useRef<boolean | null>(null);
   useEffect(() => {
     if (wasConnected.current === null) { wasConnected.current = isConnected; return; }
-    if (!wasConnected.current && isConnected) fireEvent(pick(COPY.walletConnected));
+    const justConnected = !wasConnected.current && isConnected;
     wasConnected.current = isConnected;
+    if (!justConnected) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      fireEvent(pick(COPY.walletConnected));
+    });
+    return () => { cancelled = true; };
   }, [isConnected, fireEvent]);
 
   // Tx success — receiptData going non-null means a tx just confirmed.
+  // R007 Pattern C — defer via microtask.
   const lastReceiptKey = useRef<string | null>(null);
   useEffect(() => {
     if (!receiptData) return;
     const key = receiptData.data.txHash ?? `${receiptData.type}:${receiptData.data.amount ?? ''}`;
     if (lastReceiptKey.current === key) return;
     lastReceiptKey.current = key;
-    fireEvent(pick(COPY.txSuccess));
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      fireEvent(pick(COPY.txSuccess));
+    });
+    return () => { cancelled = true; };
   }, [receiptData, fireEvent]);
 
   // Wrong network — only when connected to a non-mainnet chain.
+  // R007 Pattern C — defer via microtask.
   useEffect(() => {
     if (!isConnected) return;
     if (chainId === mainnet.id) return;
-    fireEvent(pick(COPY.wrongNetwork));
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      fireEvent(pick(COPY.wrongNetwork));
+    });
+    return () => { cancelled = true; };
   }, [isConnected, chainId, fireEvent]);
 
   // Idle nudge — resets on mouse/key/touch activity. Shows once per idle

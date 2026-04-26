@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useAccount, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { toast } from 'sonner';
 import { TEGRIDY_DROP_V2_ABI } from '../lib/contracts';
+import { CHAIN_ID } from '../lib/constants';
 import { formatWei } from '../lib/formatting';
 import type { ContractMetadata } from '../lib/nftMetadata';
 
@@ -33,6 +34,8 @@ export function resolveAssetUrl(uri: string | undefined): string | undefined {
 
 export function useNFTDropV2(dropAddress: string) {
   const { address } = useAccount();
+  const chainId = useChainId();
+  const onMainnet = chainId === CHAIN_ID;
   const contractAddr = dropAddress as `0x${string}`;
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
@@ -40,22 +43,23 @@ export function useNFTDropV2(dropAddress: string) {
 
   const enabled = !!dropAddress && dropAddress !== '0x0000000000000000000000000000000000000000';
 
+  // R043 H-062-02 + H-062-04: chainId pin on every entry, 60s poll (was 30s).
   const { data, refetch } = useReadContracts({
     contracts: [
-      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'mintPhase' },
-      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'currentPrice' },
-      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'totalSupply' },
-      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'maxSupply' },
-      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'owner' },
-      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'maxPerWallet' },
-      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'paidPerWallet', args: address ? [address] : undefined },
-      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'revealed' },
-      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'paused' },
-      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'mintPrice' },
-      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'creator' },
-      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'contractURI' },
+      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'mintPhase', chainId: CHAIN_ID },
+      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'currentPrice', chainId: CHAIN_ID },
+      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'totalSupply', chainId: CHAIN_ID },
+      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'maxSupply', chainId: CHAIN_ID },
+      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'owner', chainId: CHAIN_ID },
+      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'maxPerWallet', chainId: CHAIN_ID },
+      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'paidPerWallet', args: address ? [address] : undefined, chainId: CHAIN_ID },
+      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'revealed', chainId: CHAIN_ID },
+      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'paused', chainId: CHAIN_ID },
+      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'mintPrice', chainId: CHAIN_ID },
+      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'creator', chainId: CHAIN_ID },
+      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'contractURI', chainId: CHAIN_ID },
     ],
-    query: { enabled, refetchInterval: 30_000, refetchOnWindowFocus: true },
+    query: { enabled: enabled && onMainnet, refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
 
   const currentPhase = data?.[0]?.status === 'success' ? Number(data[0].result as number) : 0;
@@ -76,10 +80,11 @@ export function useNFTDropV2(dropAddress: string) {
   const isSoldOut = maxSupply > 0 && totalSupply >= maxSupply;
   const isOwner = !!address && owner.toLowerCase() === address.toLowerCase();
 
-  // V2 uses 5 phases (no "Closed" enum): 0 Paused, 1 Allowlist, 2 Public,
-  // 3 Dutch, 4 Cancelled. Keep label parity with v1 where possible; `Closed`
-  // never surfaces. `paused` is an independent pause circuit — distinct from
-  // phase=Paused which is the configured mint phase.
+  // R043 M-062-05: phase enum aligned to TegridyDropV2.sol:27
+  //   0=CLOSED, 1=ALLOWLIST, 2=PUBLIC, 3=DUTCH_AUCTION, 4=CANCELLED.
+  // `paused` is an independent pause circuit — distinct from phase=CLOSED
+  // which is the configured mint phase. `currentPhase === 0` gates mint
+  // disabled at the call site, consistent with the contract `MintClosed()` revert.
   const isCancelled = currentPhase === 4;
   const canRefund = isCancelled && paidByUser > 0n;
   const phaseLabel =
@@ -87,7 +92,7 @@ export function useNFTDropV2(dropAddress: string) {
     currentPhase === 3 ? 'Dutch auction' :
     currentPhase === 2 ? 'Public' :
     currentPhase === 1 ? 'Allowlist' :
-    'Paused';
+    'Closed';
 
   // ─── contractURI JSON fetch ───────────────────────────────────
   // The off-chain JSON lives on Arweave (typically). Fetch once per URI
@@ -190,10 +195,12 @@ export function useNFTDropV2(dropAddress: string) {
     });
   }
 
+  // R043 H-062-04: do NOT call refetch() here — the 60s poll drives state
+  // convergence. Stacking manual refetches on every successful tx caused a
+  // 10/12-call batch-read storm during back-to-back mints.
   useEffect(() => {
     if (isSuccess) {
       toast.success('Mint confirmed!');
-      refetch();
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
@@ -202,7 +209,7 @@ export function useNFTDropV2(dropAddress: string) {
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
-  }, [isSuccess, isTxError, writeError, refetch, reset]);
+  }, [isSuccess, isTxError, writeError, reset]);
 
   return {
     // Read data

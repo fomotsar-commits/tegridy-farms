@@ -8,6 +8,18 @@ import { isValidAddress as isValidTokenAddress } from '../lib/tokenList';
 
 const DCA_CHANNEL = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('tegridy_dca_sync') : null;
 
+// R042 MED-6: dedicated cross-tab lock channel. The localStorage TTL alone
+// is racey under hardware-wallet sign latency >20s; broadcasting claim/release
+// closes the window between "lock expired in localStorage" and "another tab
+// claimed but hasn't yet hit setItem".
+const DCA_LOCK_CHANNEL = typeof BroadcastChannel !== 'undefined'
+  ? new BroadcastChannel('tegridy-dca-lock')
+  : null;
+const TAB_ID = (typeof crypto !== 'undefined' && crypto.randomUUID)
+  ? crypto.randomUUID()
+  : `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const REMOTE_CLAIM_WINDOW_MS = 20_000;
+
 export interface DCASchedule {
   id: string;
   fromToken: { symbol: string; address: string; decimals: number; isNative?: boolean };
@@ -74,6 +86,12 @@ function refreshTabLock(scheduleId: string) {
 
 function releaseTabLock(scheduleId: string) {
   try { localStorage.removeItem(`tegridy_dca_lock_${scheduleId}`); } catch {}
+}
+
+// R042 MED-6: broadcast lock claim/release across tabs.
+type LockMsg = { type: 'lock_claim' | 'lock_release'; scheduleId: string; tabId: string; ts: number };
+function broadcastLockMsg(msg: LockMsg) {
+  try { DCA_LOCK_CHANNEL?.postMessage(msg); } catch {}
 }
 
 const INTERVAL_MS: Record<string, number> = {
@@ -190,6 +208,43 @@ export function useDCA() {
     return () => DCA_CHANNEL.removeEventListener('message', handler);
   }, [address]);
 
+  // R042 MED-6: subscribe to peer claim/release messages on the dedicated
+  // lock channel; record claims so we can reject our own claim if a peer
+  // beat us within the window.
+  const remoteClaimsRef = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    if (!DCA_LOCK_CHANNEL) return;
+    const handler = (e: MessageEvent<LockMsg>) => {
+      const msg = e.data;
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.tabId === TAB_ID) return; // ignore our own broadcasts
+      if (msg.type === 'lock_claim') {
+        remoteClaimsRef.current.set(msg.scheduleId, msg.ts);
+      } else if (msg.type === 'lock_release') {
+        remoteClaimsRef.current.delete(msg.scheduleId);
+      }
+    };
+    DCA_LOCK_CHANNEL.addEventListener('message', handler);
+    return () => DCA_LOCK_CHANNEL.removeEventListener('message', handler);
+  }, []);
+
+  /** Combined claim: rejects if any peer broadcast a claim within the window,
+   *  then claimTabLock, then broadcast our claim. */
+  const claimWithBroadcast = useCallback((scheduleId: string): boolean => {
+    const peerTs = remoteClaimsRef.current.get(scheduleId) ?? 0;
+    if (peerTs > 0 && Date.now() - peerTs < REMOTE_CLAIM_WINDOW_MS) {
+      return false;
+    }
+    if (!claimTabLock(scheduleId)) return false;
+    broadcastLockMsg({ type: 'lock_claim', scheduleId, tabId: TAB_ID, ts: Date.now() });
+    return true;
+  }, []);
+
+  const releaseWithBroadcast = useCallback((scheduleId: string) => {
+    releaseTabLock(scheduleId);
+    broadcastLockMsg({ type: 'lock_release', scheduleId, tabId: TAB_ID, ts: Date.now() });
+  }, []);
+
   // AUDIT DCA-LOCK: release all currently-executing locks on explicit
   // tab close. beforeunload fires reliably for user-initiated navigation
   // + close; it does NOT fire on hard crashes (kill -9, power loss) —
@@ -197,7 +252,10 @@ export function useDCA() {
   // orphan window from "60s always" to "sub-second on close, 20s on crash."
   useEffect(() => {
     const onBeforeUnload = () => {
-      executingRef.current.forEach((id) => releaseTabLock(id));
+      executingRef.current.forEach((id) => {
+        releaseTabLock(id);
+        broadcastLockMsg({ type: 'lock_release', scheduleId: id, tabId: TAB_ID, ts: Date.now() });
+      });
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
@@ -258,7 +316,7 @@ export function useDCA() {
 
   const markComplete = useCallback((id: string) => {
     executingRef.current.delete(id);
-    releaseTabLock(id);
+    releaseWithBroadcast(id);
     setSchedules(prev => {
       const updated = prev.map(s => {
         if (s.id !== id) return s;
@@ -274,7 +332,7 @@ export function useDCA() {
       return updated;
     });
     toast.success('DCA swap confirmed on-chain!');
-  }, [address]);
+  }, [address, releaseWithBroadcast]);
 
   const waitForReceipt = useCallback(async (hash: `0x${string}`, scheduleId: string) => {
     if (!publicClient) return;
@@ -283,27 +341,27 @@ export function useDCA() {
       if (receipt.status === 'success') {
         markComplete(scheduleId);
       } else {
-        executingRef.current.delete(scheduleId); releaseTabLock(scheduleId);
+        executingRef.current.delete(scheduleId); releaseWithBroadcast(scheduleId);
         toast.error('DCA swap transaction reverted on-chain.');
       }
     } catch (err) {
-      executingRef.current.delete(scheduleId); releaseTabLock(scheduleId);
+      executingRef.current.delete(scheduleId); releaseWithBroadcast(scheduleId);
       toast.error('DCA swap failed: could not confirm transaction.');
       if (import.meta.env.DEV) console.error('DCA waitForTransactionReceipt error:', err);
     }
-  }, [publicClient, markComplete]);
+  }, [publicClient, markComplete, releaseWithBroadcast]);
 
   const executeDCASwap = useCallback(async (schedule: DCASchedule) => {
     if (!address || !writeContract || !publicClient) return;
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (executingRef.current.has(schedule.id)) return;
-    // Multi-tab mutex: skip if another tab already claimed this schedule
-    if (!claimTabLock(schedule.id)) return;
+    // Multi-tab mutex: skip if a peer broadcast OR localStorage lock claims it.
+    if (!claimWithBroadcast(schedule.id)) return;
     executingRef.current.add(schedule.id);
 
     const path = buildPath(schedule.fromToken, schedule.toToken);
     const parsedAmount = parseUnits(schedule.amountPerSwap, schedule.fromToken.decimals);
-    if (parsedAmount === 0n) { executingRef.current.delete(schedule.id); releaseTabLock(schedule.id); return; }
+    if (parsedAmount === 0n) { executingRef.current.delete(schedule.id); releaseWithBroadcast(schedule.id); return; }
     const deadlineTs = BigInt(Math.floor(Date.now() / 1000) + 300);
 
     // Refresh the lock timestamp at each async boundary so a wallet that
@@ -327,7 +385,7 @@ export function useDCA() {
       minOut = expectedOut - (expectedOut * SLIPPAGE_BPS / 10000n);
     } catch {
       // If quote fails, do not proceed with 0 slippage -- abort
-      executingRef.current.delete(schedule.id); releaseTabLock(schedule.id);
+      executingRef.current.delete(schedule.id); releaseWithBroadcast(schedule.id);
       toast.error(`DCA: Could not fetch price quote for ${schedule.fromToken.symbol} → ${schedule.toToken.symbol}. Swap skipped.`);
       return;
     }
@@ -352,12 +410,12 @@ export function useDCA() {
           args: [address, SWAP_FEE_ROUTER_ADDRESS],
         }) as bigint;
         if (allowance < parsedAmount) {
-          executingRef.current.delete(schedule.id); releaseTabLock(schedule.id);
+          executingRef.current.delete(schedule.id); releaseWithBroadcast(schedule.id);
           toast.error(`DCA: Insufficient ${schedule.fromToken.symbol} approval for SwapFeeRouter. Please approve the token first.`);
           return;
         }
       } catch {
-        executingRef.current.delete(schedule.id); releaseTabLock(schedule.id);
+        executingRef.current.delete(schedule.id); releaseWithBroadcast(schedule.id);
         toast.error(`DCA: Could not check ${schedule.fromToken.symbol} allowance. Swap skipped.`);
         return;
       }
@@ -372,7 +430,7 @@ export function useDCA() {
       waitForReceipt(hash, schedule.id);
     };
     const onTxError = (err: Error) => {
-      executingRef.current.delete(schedule.id); releaseTabLock(schedule.id);
+      executingRef.current.delete(schedule.id); releaseWithBroadcast(schedule.id);
       const msg = (err as Error & { shortMessage?: string }).shortMessage || err.message || 'Transaction rejected';
       toast.error(`DCA swap failed: ${msg}`);
     };
@@ -411,9 +469,9 @@ export function useDCA() {
         });
       }
     } catch {
-      executingRef.current.delete(schedule.id); releaseTabLock(schedule.id);
+      executingRef.current.delete(schedule.id); releaseWithBroadcast(schedule.id);
     }
-  }, [address, chainId, writeContract, publicClient, markComplete, waitForReceipt]);
+  }, [address, chainId, writeContract, publicClient, markComplete, waitForReceipt, claimWithBroadcast, releaseWithBroadcast]);
 
   // Polling: check for due schedules and auto-execute
   useEffect(() => {

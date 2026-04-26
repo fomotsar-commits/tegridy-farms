@@ -1,6 +1,8 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import type { ArtPiece } from '../../lib/artConfig';
+// R041 + R072: lightbox image goes through the same safe-URL gate as the grid.
+import { safeUrl, PLACEHOLDER_NFT } from '../../lib/imageSafety';
 
 interface ArtLightboxProps {
   pieces: ArtPiece[];
@@ -86,7 +88,15 @@ export function ArtLightbox({ pieces, selectedIndex, onClose, onNavigate }: ArtL
             transition={{ type: 'spring', damping: 25 }} onClick={(e) => e.stopPropagation()}>
 
             <div className="rounded-xl overflow-hidden">
-              <img src={piece.src} alt={piece.title} className="w-full h-auto max-h-[70vh] object-contain bg-black" />
+              <img
+                src={safeUrl(piece.src) ?? PLACEHOLDER_NFT}
+                alt={piece.title}
+                width={1600}
+                height={1600}
+                decoding="async"
+                onError={(e) => { (e.currentTarget as HTMLImageElement).src = PLACEHOLDER_NFT; }}
+                className="w-full h-auto max-h-[70vh] object-contain bg-black"
+              />
             </div>
 
             <div className="flex items-center justify-between mt-3 flex-wrap gap-3">

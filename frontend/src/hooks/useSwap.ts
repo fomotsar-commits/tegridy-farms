@@ -8,8 +8,11 @@ import { type TokenInfo, DEFAULT_TOKENS } from '../lib/tokenList';
 import { decodeRevertReason } from '../lib/revertDecoder';
 import { trackSwap } from '../lib/analytics';
 import { getTxUrl } from '../lib/explorer';
-import { useSwapQuote } from './useSwapQuote';
+import { useSwapQuote, QUOTE_MAX_AGE_MS as _QUOTE_MAX_AGE_MS } from './useSwapQuote';
 import { useSwapAllowance } from './useSwapAllowance';
+
+// re-export so external consumers can read the constant.
+export const QUOTE_MAX_AGE_MS = _QUOTE_MAX_AGE_MS;
 
 // Re-export RouteSource so existing imports from useSwap keep working
 export type { RouteSource } from './useSwapQuote';
@@ -35,16 +38,11 @@ export function useSwap() {
   const [inputAmount, setInputAmount] = useState('');
   const [slippageRaw, setSlippageRaw] = useState(1.0);
   // SECURITY FIX: Reduced max slippage from 49% to 20%.
-  // 49% slippage allows users to lose nearly half their swap value to MEV/sandwich attacks.
-  // 20% is already very generous -- most swaps should use 0.5-5%.
   const slippage = Math.min(Math.max(slippageRaw, 0), 20);
   const setSlippage = useCallback((val: number) => {
     setSlippageRaw(Math.min(Math.max(val, 0), 20));
   }, []);
   const [deadline, setDeadline] = useState(5);
-  // AUDIT M-6: opt-in toggle for Fee-on-Transfer swap variants. Off by default —
-  // auto-enabled on an InsufficientOutput retry (see the post-error effect below).
-  // Users can also toggle manually via the swap settings drawer for known FoT tokens.
   const [supportsFeeOnTransfer, setSupportsFeeOnTransfer] = useState(false);
   const [customTokens, setCustomTokens] = useState<TokenInfo[]>(() => {
     try {
@@ -88,15 +86,21 @@ export function useSwap() {
   // ---- Allowance (delegated to useSwapAllowance) ----
   const allowance = useSwapAllowance(fromToken, parsedAmount, quote.selectedRoute, address, writeContract);
 
-  // AUDIT SWAP-UX: track which action fired the current tx so the receipt
-  // effect can distinguish "swap confirmed" from "approve confirmed" and
-  // fire the right toast + analytics event. Previously every successful tx
-  // — including approvals — triggered "WAGMI! Swap confirmed" + trackSwap.
   const lastActionRef = useRef<'approve' | 'swap' | null>(null);
+  // R033 H-04: in-flight ref guard prevents double-tap from firing two writeContracts.
+  const isPendingRef = useRef(false);
+  // R042 HIGH-1: snapshot input + route at submit so analytics doesn't read
+  // the post-edit value if the user types between submit and confirm.
+  const submittedInputAmountRef = useRef<string>('');
+  const submittedRouteRef = useRef<string>('');
+
   const approveAndTag = useCallback(() => {
+    if (isPendingRef.current) return;
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     lastActionRef.current = 'approve';
+    isPendingRef.current = true;
     allowance.approve();
-  }, [allowance]);
+  }, [allowance, chainId]);
 
   // Refetch allowance and balances after successful tx + toast + auto-reset
   const { data: fromTokenBalance, refetch: refetchFromBalance } = useReadContract({
@@ -119,29 +123,30 @@ export function useSwap() {
 
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash });
 
-  // AUDIT M-6: Track whether the last failed swap already attempted the FoT variants.
-  // Prevents infinite retry loops if both variants also fail. Reset on successful tx.
   const [fotRetryAttempted, setFotRetryAttempted] = useState(false);
 
-  // Refetch allowance and balances after successful tx + toast + auto-reset.
-  // Split approve vs swap outcomes — an approve tx shouldn't claim "Swap confirmed"
-  // or log a trackSwap event, and after approve we want to keep the amount so
-  // the user can proceed to swap without retyping.
   useEffect(() => {
     if (!isSuccess || !hash) return;
     allowance.refetchAllowance();
     refetchFromBalance();
     const action = lastActionRef.current;
     if (action === 'approve') {
+      // R033 M-02: if a multi-step approve is in flight, the zero-write just
+      // landed — kick off the second target-amount write. Keep lastActionRef
+      // == 'approve' and isPendingRef == true through the second tx.
+      const dispatched = allowance.continueMultiStepApprove();
+      if (dispatched) {
+        toast.info('Allowance reset — confirm the target approval in your wallet');
+        return;
+      }
       toast.success('Token approved', {
         description: `${fromToken?.symbol ?? 'Token'} ready — tap Swap when you're set.`,
       });
       lastActionRef.current = null;
-      // Do not reset inputAmount — user is mid-flow and will now hit Swap.
+      isPendingRef.current = false;
       return;
     }
-    // Either 'swap' or null (defensive: treat null as swap — approve path
-    // is the only one that should tag explicitly). Fire the swap UI.
+    // Swap path.
     toast.success('WAGMI! Swap confirmed', {
       description: `${fromToken?.symbol} → ${toToken?.symbol}`,
       action: {
@@ -149,23 +154,30 @@ export function useSwap() {
         onClick: () => window.open(getTxUrl(chainId, hash), '_blank'),
       },
     });
-    trackSwap(fromToken?.symbol ?? '', toToken?.symbol ?? '', inputAmount, quote.selectedRoute);
+    // R042 HIGH-1: read snapshots first, fall back to live closures defensively.
+    const submittedInput = submittedInputAmountRef.current || inputAmount;
+    const submittedRoute = submittedRouteRef.current || quote.selectedRoute;
+    trackSwap(fromToken?.symbol ?? '', toToken?.symbol ?? '', submittedInput, submittedRoute);
+    submittedInputAmountRef.current = '';
+    submittedRouteRef.current = '';
     lastActionRef.current = null;
-    // AUDIT M-6: reset FoT retry guard so future swaps can auto-detect again.
+    isPendingRef.current = false;
     setFotRetryAttempted(false);
     const t = setTimeout(() => { reset(); setInputAmount(''); }, 4000);
     return () => clearTimeout(t);
-  }, [isSuccess, hash, allowance.refetchAllowance, refetchFromBalance, fromToken, toToken, reset, chainId, inputAmount, quote.selectedRoute]);
+  }, [isSuccess, hash, allowance, refetchFromBalance, fromToken, toToken, reset, chainId, inputAmount, quote.selectedRoute]);
 
-  // Show user-friendly error toast when a write transaction fails.
-  // AUDIT M-6: auto-detect fee-on-transfer pairs — on an InsufficientOutput revert from
-  // the non-FoT path, silently flip `supportsFeeOnTransfer` and suggest a retry. A real
-  // FoT token will fail the legacy path every time; this gives users a one-click recovery.
   useEffect(() => {
     if (!writeError) return;
+    // R033 H-04: clear in-flight on any write error (wallet reject / revert).
+    isPendingRef.current = false;
+    // R033 M-02: any failed approve (including rejected zero-write) clears
+    // the multi-step machine.
+    if (lastActionRef.current === 'approve') {
+      allowance.resetMultiStepApprove();
+    }
     const msg = decodeRevertReason(writeError);
     const raw = (writeError as { message?: string })?.message ?? String(writeError);
-    // Match on the custom error selector OR the legacy Uniswap string.
     const looksLikeFoT =
       !supportsFeeOnTransfer &&
       !fotRetryAttempted &&
@@ -180,7 +192,7 @@ export function useSwap() {
       return;
     }
     toast.error(msg);
-  }, [writeError, supportsFeeOnTransfer, fotRetryAttempted]);
+  }, [writeError, supportsFeeOnTransfer, fotRetryAttempted, allowance]);
 
   // ---- Balances ----
   const fromBalance = useMemo(() => {
@@ -205,41 +217,50 @@ export function useSwap() {
 
   // ---- Actions ----
   const executeSwap = useCallback(() => {
+    if (isPendingRef.current) return; // R033 H-04
     if (!address || !fromToken || !toToken || parsedAmount === 0n || insufficientBalance || !swapType) return;
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
-    // Prevent executing swap if approval is still needed
     if (allowance.needsApproval) { toast.error('Please approve the token first'); return; }
-    // Tag the current tx as a swap so the receipt effect knows to fire the
-    // swap toast + analytics (instead of the generic approve toast).
+    // R033 H-02: if the displayed quote is stale, force a refresh and bail.
+    if (quote.isQuoteStale) {
+      toast.error('Quote is stale — refreshing now');
+      quote.refreshQuote();
+      return;
+    }
+    // Tag the current tx as a swap so the receipt effect knows to fire the swap toast + analytics.
     lastActionRef.current = 'swap';
+    isPendingRef.current = true;
+    // R042 HIGH-1: snapshot at submit, BEFORE writeContract.
+    submittedInputAmountRef.current = inputAmount;
+    submittedRouteRef.current = quote.selectedRoute;
     // Prevent swapping a token for itself
     const fromAddr = fromToken.isNative ? WETH_ADDRESS : fromToken.address;
     const toAddr = toToken.isNative ? WETH_ADDRESS : toToken.address;
     if (fromAddr.toLowerCase() === toAddr.toLowerCase()) {
       toast.error('Cannot swap a token for itself');
+      isPendingRef.current = false;
       return;
     }
-    // Prevent swaps with zero expected output
     if (quote.outputAmount === 0n) {
       toast.error('No output quote available — try a different amount or pair');
+      isPendingRef.current = false;
       return;
     }
     const deadlineTs = BigInt(Math.floor(Date.now() / 1000) + deadline * 60);
-    const { path, selectedRoute, selectedOnChainRoute, minimumReceived } = quote;
+    const { path, selectedRoute, minimumReceived } = quote;
+    // R033 H-01: bind the displayed minOut directly. Aggregator path now
+    // submits `quote.minimumReceived` — the exact value rendered in the
+    // "Min. Received" UI row — instead of re-deriving from the on-chain leg.
+    // Trade-off: aggregator selected but execution still routes through an
+    // on-chain router; if the on-chain leg returns less the swap reverts.
+    // That's the desired contract — user gets the price they signed for or
+    // no swap. Matches 1inch / Paraswap / Uniswap behaviour.
     const minReceivedRaw = minimumReceived;
 
     if (selectedRoute === 'aggregator') {
-      // Aggregator route: use the best on-chain route with on-chain minimumReceived
-      // The aggregator is used for price discovery only -- execution goes through our routers
-      // Recalculate minimumReceived from the on-chain output to avoid reverts
-      const onChainMin = (() => {
-        const onChainOutput = selectedOnChainRoute.output;
-        if (onChainOutput === 0n) return minReceivedRaw;
-        const slippageBps = BigInt(Math.round(slippage * 100));
-        return onChainOutput - (onChainOutput * slippageBps) / 10000n;
-      })();
+      const onChainMin = minReceivedRaw;
+      const { selectedOnChainRoute } = quote;
       if (selectedOnChainRoute.source === 'tegridy') {
-        // Route through TegridyRouter (no maxFeeBps param)
         if (swapType === 'ethForTokens') {
           writeContract({ address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactETHForTokens', args: [onChainMin, path, address, deadlineTs], value: parsedAmount });
         } else if (swapType === 'tokensForEth') {
@@ -248,7 +269,6 @@ export function useSwap() {
           writeContract({ address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactTokensForTokens', args: [parsedAmount, onChainMin, path, address, deadlineTs] });
         }
       } else {
-        // Route through SwapFeeRouter (includes maxFeeBps)
         const maxFeeBps = 100n;
         if (swapType === 'ethForTokens') {
           writeContract({ address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactETHForTokens', args: [onChainMin, path, address, deadlineTs, maxFeeBps], value: parsedAmount });
@@ -259,85 +279,62 @@ export function useSwap() {
         }
       }
     } else if (selectedRoute === 'tegridy') {
-      // Route through TegridyRouter (standard Uni V2 interface, no maxFeeBps)
       if (swapType === 'ethForTokens') {
         writeContract({
-          address: TEGRIDY_ROUTER_ADDRESS,
-          abi: TEGRIDY_ROUTER_ABI,
-          functionName: 'swapExactETHForTokens',
-          args: [minReceivedRaw, path, address, deadlineTs],
-          value: parsedAmount,
+          address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactETHForTokens',
+          args: [minReceivedRaw, path, address, deadlineTs], value: parsedAmount,
         });
       } else if (swapType === 'tokensForEth') {
         writeContract({
-          address: TEGRIDY_ROUTER_ADDRESS,
-          abi: TEGRIDY_ROUTER_ABI,
-          functionName: 'swapExactTokensForETH',
+          address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactTokensForETH',
           args: [parsedAmount, minReceivedRaw, path, address, deadlineTs],
         });
       } else {
         writeContract({
-          address: TEGRIDY_ROUTER_ADDRESS,
-          abi: TEGRIDY_ROUTER_ABI,
-          functionName: 'swapExactTokensForTokens',
+          address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactTokensForTokens',
           args: [parsedAmount, minReceivedRaw, path, address, deadlineTs],
         });
       }
     } else {
-      // Route through SwapFeeRouter (wraps Uniswap V2 with 0.3% fee to treasury)
-      // maxFeeBps = 100 (1%) protects against fee frontrunning during timelock changes
       const maxFeeBps = 100n;
-      // AUDIT M-6: when FoT support is enabled, call the FeeOnTransfer variants.
-      // These have identical args but no return value — they measure output via balance delta.
       if (supportsFeeOnTransfer) {
         if (swapType === 'ethForTokens') {
           writeContract({
-            address: SWAP_FEE_ROUTER_ADDRESS,
-            abi: SWAP_FEE_ROUTER_ABI,
+            address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI,
             functionName: 'swapExactETHForTokensSupportingFeeOnTransferTokens',
-            args: [minReceivedRaw, path, address, deadlineTs, maxFeeBps],
-            value: parsedAmount,
+            args: [minReceivedRaw, path, address, deadlineTs, maxFeeBps], value: parsedAmount,
           });
         } else if (swapType === 'tokensForEth') {
           writeContract({
-            address: SWAP_FEE_ROUTER_ADDRESS,
-            abi: SWAP_FEE_ROUTER_ABI,
+            address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI,
             functionName: 'swapExactTokensForETHSupportingFeeOnTransferTokens',
             args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
           });
         } else {
           writeContract({
-            address: SWAP_FEE_ROUTER_ADDRESS,
-            abi: SWAP_FEE_ROUTER_ABI,
+            address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI,
             functionName: 'swapExactTokensForTokensSupportingFeeOnTransferTokens',
             args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
           });
         }
       } else if (swapType === 'ethForTokens') {
         writeContract({
-          address: SWAP_FEE_ROUTER_ADDRESS,
-          abi: SWAP_FEE_ROUTER_ABI,
-          functionName: 'swapExactETHForTokens',
-          args: [minReceivedRaw, path, address, deadlineTs, maxFeeBps],
-          value: parsedAmount,
+          address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactETHForTokens',
+          args: [minReceivedRaw, path, address, deadlineTs, maxFeeBps], value: parsedAmount,
         });
       } else if (swapType === 'tokensForEth') {
         writeContract({
-          address: SWAP_FEE_ROUTER_ADDRESS,
-          abi: SWAP_FEE_ROUTER_ABI,
-          functionName: 'swapExactTokensForETH',
+          address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForETH',
           args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
         });
       } else {
         writeContract({
-          address: SWAP_FEE_ROUTER_ADDRESS,
-          abi: SWAP_FEE_ROUTER_ABI,
-          functionName: 'swapExactTokensForTokens',
+          address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForTokens',
           args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
         });
       }
     }
-  }, [address, chainId, fromToken, toToken, parsedAmount, insufficientBalance, swapType, deadline, quote, slippage, writeContract, supportsFeeOnTransfer]);
+  }, [address, chainId, fromToken, toToken, parsedAmount, insufficientBalance, swapType, deadline, quote, writeContract, supportsFeeOnTransfer, allowance.needsApproval, inputAmount]);
 
   const flipDirection = useCallback(() => {
     const prev = fromToken;
@@ -348,7 +345,6 @@ export function useSwap() {
   }, [fromToken, toToken, reset]);
 
   const addCustomToken = useCallback((token: TokenInfo) => {
-    // L-06: Warn users about risks of importing unverified tokens
     toast.warning('Unverified token', {
       description: `${token.symbol} is not on the default token list. Only import tokens you trust — scam tokens may steal your funds.`,
       duration: 8000,
@@ -399,19 +395,21 @@ export function useSwap() {
     swapType,
     unlimitedApproval: allowance.unlimitedApproval,
     toggleUnlimitedApproval: allowance.toggleUnlimitedApproval,
-    // Smart routing
+    isApprovingMultiStep: allowance.isApprovingMultiStep,
     selectedRoute: quote.selectedRoute,
     hasTegridyPair: quote.hasTegridyPair,
     tegridyOutputFormatted: quote.tegridyOutputFormatted,
     uniOutputFormatted: quote.uniOutputFormatted,
-    // Meta-aggregator (7 DEX aggregators queried in parallel)
     aggBetter: quote.aggBetter,
     aggOutputFormatted: quote.aggOutputFormatted,
     bestAggregatorName: quote.bestAggregatorName,
     allAggQuotes: quote.allAggQuotes,
     txHash: hash,
-    // AUDIT M-6: Fee-on-Transfer opt-in toggle for the swap settings drawer.
     supportsFeeOnTransfer,
     setSupportsFeeOnTransfer,
+    // R033 H-02: quote freshness surface
+    isQuoteStale: quote.isQuoteStale,
+    quoteFetchedAt: quote.quoteFetchedAt,
+    refreshQuote: quote.refreshQuote,
   };
 }

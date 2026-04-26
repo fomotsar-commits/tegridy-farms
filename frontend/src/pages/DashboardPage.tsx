@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useRef, useState } from 'react';
+import { useMemo, useEffect, useRef } from 'react';
 import { m } from 'framer-motion';
 import { useAccount, useBalance, useChainId, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
@@ -55,15 +55,9 @@ export default function DashboardPage() {
   const { isConnected, address } = useAccount();
   const { isWrongNetwork } = useNetworkCheck();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [tab, setTab] = useState<DashTab>(
-    () => dashTabFromQuery(searchParams.get('tab')) ?? 'overview',
-  );
-  useEffect(() => {
-    const next = dashTabFromQuery(searchParams.get('tab'));
-    if (next && next !== tab) setTab(next);
-  }, [searchParams, tab]);
+  // R007 Pattern A — derive `tab` directly from ?tab=. URL is source of truth.
+  const tab: DashTab = dashTabFromQuery(searchParams.get('tab')) ?? 'overview';
   const handleTabChange = (next: DashTab) => {
-    setTab(next);
     const params = new URLSearchParams(searchParams);
     if (next === 'overview') params.delete('tab');
     else params.set('tab', next);

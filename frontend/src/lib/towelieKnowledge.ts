@@ -18,8 +18,12 @@ export interface KnowledgeEntry {
 export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   // ── Core protocol ────────────────────────────────────────────
   {
+    // AUDIT R073: prior copy said "100% of swap fees flow to stakers" — wrong.
+    // TegridyPair splits the 0.3% swap fee into 6 LP shares: 5/6 stay with LPs
+    // (rebasing K-invariant earnings) and 1/6 mints protocol-owned LP that gets
+    // routed to the RevenueDistributor for staker ETH yield.
     keywords: ['toweli', 'token'],
-    answer: "TOWELI is the farm's token. 1B fixed supply. 100% of swap fees flow back to stakers as ETH. That's the whole pitch.",
+    answer: "TOWELI is the farm's token. 1B fixed supply. Swap fees are split 5/6 to LPs and 1/6 to the protocol → stakers as ETH yield. That's the whole pitch.",
   },
   {
     keywords: ['tegridy', 'farms', 'protocol', 'project'],
@@ -53,12 +57,17 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "Lock from 7 days to 4 years. 4 years = 4× boost on rewards. Math checks out.",
   },
   {
+    // AUDIT R073: clarified — boost floor is 0.4× (not 1×), max is 4×, and
+    // a JBAC NFT applies a flat +0.5× as a binary attribute (not stackable).
     keywords: ['boost', 'multiplier'],
-    answer: "Lock longer, earn more. 4× boost at max lock (4 years). Add a JBAC NFT for an extra bump on top.",
+    answer: "Lock longer, earn more. Boost ranges 0.4× (sub-week) to 4.0× (4-year max). A JBAC NFT adds a flat +0.5× boost — binary, only one applies, no stacking.",
   },
   {
+    // AUDIT R073: prior copy said the early-withdrawal penalty "scales with
+    // distance from unlock". Actual on-chain constant is a flat 25% on the
+    // staked principal regardless of how much lock time is left.
     keywords: ['unstake', 'withdraw', 'exit'],
-    answer: "Withdraw early = penalty (% scales with how far you are from your unlock date). Wait it out for the full payout.",
+    answer: "Withdraw early = flat 25% penalty on your stake, no matter how close you are to unlock. The penalty is redistributed to remaining stakers. Wait it out for the full payout.",
   },
   {
     keywords: ['extend', 'top', 'increase', 'add', 'position'],
@@ -118,8 +127,11 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "First swap of a token needs an approval tx (lets the contract pull tokens from your wallet). One-time per token. Then swap.",
   },
   {
+    // AUDIT R073: 0.3% fee is split 5/6 to LPs and 1/6 to the protocol → ETH
+    // yield for stakers via the RevenueDistributor. Earlier copy said 100% to
+    // stakers, which would have left LPs earning nothing.
     keywords: ['fee', 'swap', 'cost', 'percent'],
-    answer: "Swap fee is 0.3% per trade. 100% of it goes to TOWELI stakers as ETH. That's where your yield comes from.",
+    answer: "Swap fee is 0.3% per trade. 5/6 of it stays with LPs (earned via K growth), 1/6 flows to the protocol and out to TOWELI stakers as ETH yield.",
   },
 
   // ── Liquidity ───────────────────────────────────────────────
@@ -138,8 +150,11 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
 
   // ── NFTs ─────────────────────────────────────────────────────
   {
+    // AUDIT R073: prior copy said "stack them for stacked boost" — wrong.
+    // The on-chain attribute is binary: hasJbacBoost is true or false, applies
+    // a single +0.5× regardless of how many NFTs you hold.
     keywords: ['jbac', 'nft'],
-    answer: "JBAC NFTs add a boost multiplier on top of your lock boost. Hold one, your stake earns more. Stack them for stacked boost.",
+    answer: "Holding any JBAC NFT adds a flat +0.5× boost on top of your lock boost. Binary attribute — extra NFTs don't stack. Boost floor is 0.4× either way.",
   },
   {
     keywords: ['nft', 'lending', 'borrow', 'collateral'],
@@ -246,8 +261,11 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "Randy's Gold Card gives bonus rewards + perks. Subscription via /premium. Pays for itself if you're staking serious size.",
   },
   {
+    // AUDIT R073: prior copy said "no refund mid-period" — wrong. PremiumAccess
+    // implements pull-payment pro-rata refunds: cancel mid-window and the
+    // unspent fraction is credited as a pull-pattern claim you withdraw.
     keywords: ['cancel', 'unsubscribe', 'refund'],
-    answer: "Cancel from /premium → Manage. No refund mid-period; runs to end of your paid window.",
+    answer: "Cancel from /premium → Manage. You get a pro-rata refund on the unused portion as a pull-payment credit — claim it from the same screen after you cancel.",
   },
   {
     keywords: ['leaderboard', 'points', 'rank', 'ranking'],

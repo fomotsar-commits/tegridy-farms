@@ -1,12 +1,31 @@
+import { hasConsent } from './consent';
+
 const STORAGE_KEY = 'tegridy_error_log';
 const MAX_BUFFER = 50;
 const DEDUP_WINDOW_MS = 60_000;
 const DEDUP_MAX_ENTRIES = 500;
 const BATCH_INTERVAL_MS = 5_000;
 
-/** Patterns that indicate sensitive data which must never be reported. */
+/**
+ * Patterns that indicate sensitive *values* which must never be reported.
+ * AUDIT R046 M-2 / R057: extended with 40-hex EVM wallet addresses.
+ *  - 64-hex private keys
+ *  - BIP-39 mnemonics (12–24 lowercase words)
+ *  - JWTs (eyJ.x.y)
+ *  - bearer tokens
+ *  - 40-hex wallet addresses (de-anonymise users in stack traces / revert msgs)
+ */
 const SENSITIVE_PATTERNS =
-  /\b(0x[0-9a-fA-F]{64})\b|(\b(?:[a-z]+\s){11,23}[a-z]+\b)|bearer\s+[^\s]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/gi;
+  /\b(0x[0-9a-fA-F]{64})\b|(\b(?:[a-z]+\s){11,23}[a-z]+\b)|bearer\s+[^\s]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|0x[a-fA-F0-9]{40}\b/gi;
+
+/**
+ * AUDIT R057: key-name patterns. Redacts the *value* attached to a known
+ * secret key name (e.g. `apiKey=sk_live_...`, `Authorization: Bearer ...`,
+ * `password = hunter2`) while keeping the key for debug attribution.
+ * Mirrors the surface defended on the server in `api/_lib/logSafe.js`.
+ */
+const SECRET_KV_PATTERN =
+  /\b(authorization|cookie|set-cookie|x-api-key|api[_-]?key|secret|token|password|auth)(\s*[:=]\s*)["']?([^"'\s,;}]+)["']?/gi;
 
 /** Max length for any single string field sent in a report. */
 const MAX_FIELD_LENGTH = 500;
@@ -23,10 +42,18 @@ let batch: ErrorEntry[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 const recentKeys = new Map<string, number>();
 
-/** Strip sensitive material (private keys, mnemonics, bearer tokens, JWTs) from a string. */
-function sanitize(value: string | undefined): string | undefined {
+/**
+ * Strip sensitive material (private keys, mnemonics, bearer tokens, JWTs,
+ * EVM wallet addresses, and `<secret-key>=<value>` pairs) from a string.
+ *
+ * AUDIT R057: exported so analytics.ts can share the same sanitiser surface.
+ */
+export function sanitize(value: string | undefined): string | undefined {
   if (!value) return value;
-  return value.replace(SENSITIVE_PATTERNS, '[REDACTED]').slice(0, MAX_FIELD_LENGTH);
+  let out = value.replace(SENSITIVE_PATTERNS, '[REDACTED]');
+  // Then redact secret-keyed values while keeping the key for debug.
+  out = out.replace(SECRET_KV_PATTERN, (_m, key: string, sep: string) => `${key}${sep}[REDACTED]`);
+  return out.slice(0, MAX_FIELD_LENGTH);
 }
 
 /** Strip query params / fragments that may contain tokens from URLs. */
@@ -132,6 +159,10 @@ export function reportError(
   error: unknown,
   componentStack?: string,
 ): void {
+  // AUDIT R046 H-1: deny-by-default consent gate. No telemetry leaves the
+  // browser until the user has affirmatively granted consent via the banner.
+  if (!hasConsent()) return;
+
   const rawMessage = error instanceof Error ? error.message : String(error);
   const rawStack = error instanceof Error ? error.stack : undefined;
 

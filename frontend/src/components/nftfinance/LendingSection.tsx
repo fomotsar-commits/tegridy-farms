@@ -13,6 +13,7 @@ import { TEGRIDY_LENDING_ABI, TEGRIDY_STAKING_ABI } from '../../lib/contracts';
 import { formatTokenAmount, shortenAddress } from '../../lib/formatting';
 import { pageArt, artStyle, type ArtPiece } from '../../lib/artConfig';
 import { useTOWELIPrice } from '../../contexts/PriceContext';
+import { useCountdown } from '../../hooks/useCountdown';
 import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '../ui/InfoTooltip';
 
 // ─── Design tokens ──────────────────────────────────────────────
@@ -92,26 +93,39 @@ function getLoanStatus(loan: Loan): LoanStatus {
   return 'active';
 }
 
-function useCountdown(deadline: bigint): { text: string; isUrgent: boolean; isExpired: boolean } {
-  const [now, setNow] = useState(Math.floor(Date.now() / 1000));
-  useEffect(() => {
-    const iv = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
-    return () => clearInterval(iv);
-  }, []);
-  const remaining = Number(deadline) - now;
-  if (remaining <= 0) return { text: 'Expired', isUrgent: true, isExpired: true };
-  const d = Math.floor(remaining / 86400);
-  const h = Math.floor((remaining % 86400) / 3600);
-  const m = Math.floor((remaining % 3600) / 60);
-  const isUrgent = remaining < 86400;
-  return { text: `${d}d:${String(h).padStart(2, '0')}h:${String(m).padStart(2, '0')}m`, isUrgent, isExpired: false };
+// AUDIT R011 (HIGH-049-1): typed accessor for getPosition tuple. Index 0 is the
+// staked TOWELI amount, NOT ETH. Prior code labelled it "ETH" and fed it raw
+// into computeLTV, which silently understated risk by the TOWELI/ETH ratio.
+interface ParsedPosition {
+  toweliAmount: bigint;
+  boostBps: bigint;
+  lockEnd: bigint;
+  lockDuration: bigint;
+  autoMaxLock: boolean;
+  canWithdraw: boolean;
+}
+function parsePosition(raw: unknown): ParsedPosition | null {
+  if (!raw || !Array.isArray(raw)) return null;
+  const tuple = raw as readonly unknown[];
+  if (tuple.length < 6) return null;
+  const [a, b, c, d, e, f] = tuple as [bigint, bigint, bigint, bigint, boolean, boolean];
+  return {
+    toweliAmount: a ?? 0n,
+    boostBps: b ?? 0n,
+    lockEnd: c ?? 0n,
+    lockDuration: d ?? 0n,
+    autoMaxLock: !!e,
+    canWithdraw: !!f,
+  };
 }
 
-function computeLTV(principal: bigint, positionValueEth: string): { ratio: number; color: string } {
-  const pv = parseFloat(positionValueEth);
-  if (pv <= 0) return { ratio: 0, color: 'text-white' };
+// AUDIT R011 (HIGH-049-1): consumes ETH-denominated number, never a TOWELI string.
+function computeLTV(principal: bigint, positionValueEth: number): { ratio: number; color: string } {
+  if (!Number.isFinite(positionValueEth) || positionValueEth <= 0) {
+    return { ratio: 0, color: 'text-white' };
+  }
   const principalEth = parseFloat(formatEther(principal));
-  const ratio = (principalEth / pv) * 100;
+  const ratio = (principalEth / positionValueEth) * 100;
   if (ratio < 50) return { ratio, color: 'text-black' };
   if (ratio < 75) return { ratio, color: 'text-yellow-400' };
   return { ratio, color: 'text-red-400' };
@@ -976,8 +990,18 @@ function OfferRow({
     });
   };
 
-  const positionAmount = position ? formatEther((position as readonly bigint[])[0] ?? 0n) : '0';
-  const ltv = computeLTV(offer.principal, positionAmount);
+  // AUDIT R011 (HIGH-049-1): typed accessor + ETH conversion for LTV.
+  const parsed = parsePosition(position);
+  const positionAmount = parsed ? formatEther(parsed.toweliAmount) : '0';
+  const { priceInEth } = useTOWELIPrice();
+  const positionEthValue = useMemo(() => {
+    if (!parsed) return 0;
+    const toweliFloat = parseFloat(formatEther(parsed.toweliAmount));
+    return Number.isFinite(toweliFloat) && Number.isFinite(priceInEth)
+      ? toweliFloat * priceInEth
+      : 0;
+  }, [parsed, priceInEth]);
+  const ltv = computeLTV(offer.principal, positionEthValue);
 
   // Desktop row
   const desktopRow = (
@@ -1106,9 +1130,12 @@ function OfferRow({
                           </div>
                         </div>
                         <div>
-                          <span className="text-[11px] uppercase tracking-wider label-pill text-white">Position Value</span>
+                          <span className="text-[11px] uppercase tracking-wider label-pill text-white inline-flex items-center gap-1">
+                            Position Value
+                            <InfoTooltip text="ETH-equivalent of your TOWELI collateral, computed from the live TOWELI/ETH spot price. LTV is calculated against this number." />
+                          </span>
                           <div className="font-mono text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {formatTokenAmount(positionAmount)} ETH
+                            {positionEthValue > 0 ? positionEthValue.toFixed(6) : '0'} ETH
                           </div>
                         </div>
                         <div>
@@ -1450,12 +1477,20 @@ function LoanRow({
   const status = getLoanStatus(loan);
   const countdown = useCountdown(loan.deadline);
 
-  const { data: repaymentAmount } = useReadContract({
+  // AUDIT R011 (HIGH-049-3): pro-rata interest accrues every block, so the
+  // cached repayment quote can be cents short by the time the user signs and
+  // would revert with InsufficientPayment. Refresh every 12s + on focus +
+  // post-confirmation invalidation.
+  const { data: repaymentAmount, refetch: refetchRepayment } = useReadContract({
     address: TEGRIDY_LENDING_ADDRESS as Address,
     abi: TEGRIDY_LENDING_ABI,
     functionName: 'getRepaymentAmount',
     args: [BigInt(loan.id)],
-    query: { enabled: status === 'active' || status === 'overdue' },
+    query: {
+      enabled: status === 'active' || status === 'overdue',
+      refetchInterval: 12_000,
+      refetchOnWindowFocus: true,
+    },
   });
 
   const { data: defaulted } = useReadContract({
@@ -1473,8 +1508,12 @@ function LoanRow({
   const { isLoading: claimConfirming, isSuccess: claimSuccess } = useWaitForTransactionReceipt({ hash: claimTx });
 
   useEffect(() => {
-    if (repaySuccess) toast.success('Loan repaid successfully');
-  }, [repaySuccess]);
+    if (repaySuccess) {
+      toast.success('Loan repaid successfully');
+      // AUDIT R011 (HIGH-049-3): invalidate the cached repayment quote.
+      refetchRepayment();
+    }
+  }, [repaySuccess, refetchRepayment]);
 
   useEffect(() => {
     if (claimSuccess) toast.success('Collateral claimed');

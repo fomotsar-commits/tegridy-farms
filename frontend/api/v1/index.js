@@ -10,8 +10,24 @@
 //   GET /api/v1?route=activity&contract=0x...         → recent sales
 //   GET /api/v1?route=token&contract=0x...&tokenId=1  → token metadata
 
-const ALCHEMY_KEY = process.env.ALCHEMY_API_KEY || "demo";
-const ALCHEMY_NFT = `https://eth-mainnet.g.alchemy.com/nft/v3/${ALCHEMY_KEY}`;
+import { checkRateLimit } from "../_lib/ratelimit.js";
+import { readBoundedText, MAX_RESPONSE_BYTES } from "../_lib/bodycap.js";
+import { logSafe } from "../_lib/logSafe.js";
+
+// AUDIT R048: header auth — Alchemy NFT base URL drops the /${KEY} segment
+// when a real key is configured; the bearer header is injected per-fetch.
+const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY || "";
+const USE_HEADER_AUTH = !!process.env.ALCHEMY_API_KEY;
+const ALCHEMY_KEY = ALCHEMY_API_KEY || "demo";
+const ALCHEMY_NFT = USE_HEADER_AUTH
+  ? "https://eth-mainnet.g.alchemy.com/nft/v3"
+  : `https://eth-mainnet.g.alchemy.com/nft/v3/${ALCHEMY_KEY}`;
+
+function alchemyAuthHeaders(extra = {}) {
+  const headers = { Accept: "application/json", ...extra };
+  if (USE_HEADER_AUTH) headers["Authorization"] = `Bearer ${ALCHEMY_API_KEY}`;
+  return headers;
+}
 
 const ALLOWED_CONTRACTS = new Set([
   "0xd774557b647330c91bf44cfeab205095f7e6c367", // Nakamigos
@@ -33,12 +49,6 @@ const NUMERIC_ID_RE = /^\d{1,10}$/;
 
 function isValidAddress(addr) { return typeof addr === "string" && ETH_ADDRESS_RE.test(addr); }
 function isValidTokenId(id) { return typeof id === "string" && NUMERIC_ID_RE.test(id); }
-
-function setRateLimitHeaders(res, { limit = 60, remaining = 59, reset = 60 } = {}) {
-  res.setHeader("X-RateLimit-Limit", String(limit));
-  res.setHeader("X-RateLimit-Remaining", String(remaining));
-  res.setHeader("X-RateLimit-Reset", String(Math.floor(Date.now() / 1000) + reset));
-}
 
 function setCors(req, res) {
   const origin = req.headers.origin || "";
@@ -65,16 +75,26 @@ async function alchemyFetch(endpoint, params = {}) {
   Object.entries(params).forEach(([k, v]) => {
     if (v != null && v !== "") url.searchParams.set(k, String(v));
   });
-  const res = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+  const res = await fetch(url.toString(), { headers: alchemyAuthHeaders() });
   if (!res.ok) throw new Error(`Alchemy ${res.status}`);
-  return res.json();
+  // AUDIT R049 H-3: bounded body read.
+  const { text, truncated } = await readBoundedText(res, MAX_RESPONSE_BYTES);
+  if (truncated) throw new Error("upstream-too-large");
+  return JSON.parse(text);
 }
 
 export default async function handler(req, res) {
   setCors(req, res);
-  setRateLimitHeaders(res);
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
+
+  // AUDIT R049 H-2: real per-IP rate limit (was cosmetic-header-only).
+  // 20 req/min — each v1 call fans out to 1-3 upstream Alchemy + OpenSea
+  // calls, so the budget burns fast. Headers are set by checkRateLimit.
+  const allowed = await checkRateLimit(req, res, {
+    limit: 20, windowSec: 60, identifier: "v1",
+  });
+  if (!allowed) return;
 
   const { route, slug, contract: rawContract, tokenId, limit } = req.query;
 
@@ -205,9 +225,12 @@ export default async function handler(req, res) {
           { headers },
         );
         if (!osRes.ok) throw new Error(`OpenSea ${osRes.status}`);
+        // AUDIT R049 H-3: bounded body read.
+        const { text, truncated } = await readBoundedText(osRes, MAX_RESPONSE_BYTES);
+        if (truncated) throw new Error("upstream-too-large");
         let osData;
         try {
-          osData = await osRes.json();
+          osData = JSON.parse(text);
         } catch {
           throw new Error("OpenSea returned non-JSON response");
         }
@@ -230,7 +253,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Unknown route" });
     }
   } catch (err) {
-    console.error("API v1 error:", err.message);
+    console.error("API v1 error:", logSafe(err));
     return res.status(500).json({ error: "Internal error" });
   }
 }

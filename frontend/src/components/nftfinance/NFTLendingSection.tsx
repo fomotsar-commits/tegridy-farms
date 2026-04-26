@@ -8,6 +8,7 @@ import { TEGRIDY_NFT_LENDING_ABI, ERC721_ABI } from '../../lib/contracts';
 import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '../ui/InfoTooltip';
 import { ART, pageArt, artStyle } from '../../lib/artConfig';
 import { ArtImg } from '../ArtImg';
+import { useCountdown } from '../../hooks/useCountdown';
 
 // Per-collection art for the collateral selector — pulls from each project's
 // canonical asset instead of Tegridy's art pool so the cards represent the
@@ -814,14 +815,16 @@ function OfferCard({
 function MyLoansTab({ loanCount }: { loanCount: number }) {
   const { address, isConnected } = useAccount();
 
-  // Batch-read all loans
+  // AUDIT R011 (M-049-7): on-chain `loans[]` is 0-indexed (loanId = loans.length
+  // at push, valid range [0, loanCount)). Iterating 1..n was hiding loan #0 and
+  // OOB-reverting on the final element.
   const loanContracts = useMemo(() => {
     if (loanCount === 0) return [];
     return Array.from({ length: loanCount }, (_, i) => ({
       address: TEGRIDY_NFT_LENDING_ADDRESS,
       abi: TEGRIDY_NFT_LENDING_ABI,
       functionName: 'getLoan' as const,
-      args: [BigInt(i + 1)] as const,
+      args: [BigInt(i)] as const,
     }));
   }, [loanCount]);
 
@@ -843,7 +846,9 @@ function MyLoansTab({ loanCount }: { loanCount: number }) {
         // Only show loans where user is borrower or lender
         if (borrower.toLowerCase() !== address.toLowerCase() && lender.toLowerCase() !== address.toLowerCase()) return null;
         return {
-          id: i + 1,
+          // AUDIT R011 (M-049-7): id matches the 0-indexed contract loan id so
+          // subsequent repayLoan(id) / claimDefault(id) hit the correct element.
+          id: i,
           borrower,
           lender,
           offerId,
@@ -902,17 +907,23 @@ function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; user
   const colors = STATUS_COLORS[status] ?? { text: 'text-white/80', border: 'border-white/20', bg: 'rgba(255,255,255,0.05)' };
   const isBorrower = loan.borrower.toLowerCase() === userAddress.toLowerCase();
   const isLender = loan.lender.toLowerCase() === userAddress.toLowerCase();
-  const now = Math.floor(Date.now() / 1000);
-  const deadline = Number(loan.deadline);
-  const timeLeft = deadline - now;
 
-  // Read repayment amount for borrower
-  const { data: repaymentData } = useReadContract({
+  // AUDIT R011 (HIGH-049-4): shared 1-Hz countdown so the displayed time
+  // updates every second instead of drifting until the parent re-renders.
+  const countdown = useCountdown(loan.deadline);
+
+  // AUDIT R011 (HIGH-049-3): pro-rata interest moves every block — refresh
+  // the repayment quote every 12s + on focus + after a successful repay.
+  const { data: repaymentData, refetch: refetchRepayment } = useReadContract({
     address: TEGRIDY_NFT_LENDING_ADDRESS,
     abi: TEGRIDY_NFT_LENDING_ABI,
     functionName: 'getRepaymentAmount',
     args: [BigInt(loan.id)],
-    query: { enabled: isBorrower && status === 'active' },
+    query: {
+      enabled: isBorrower && status === 'active',
+      refetchInterval: 12_000,
+      refetchOnWindowFocus: true,
+    },
   });
 
   const { writeContract: repayLoan, data: repayTx, isPending: repaying } = useWriteContract();
@@ -922,8 +933,12 @@ function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; user
   const { isLoading: claimConfirming, isSuccess: claimSuccess } = useWaitForTransactionReceipt({ hash: claimTx });
 
   useEffect(() => {
-    if (repaySuccess) toast.success('Loan repaid! Your NFT has been returned.');
-  }, [repaySuccess]);
+    if (repaySuccess) {
+      toast.success('Loan repaid! Your NFT has been returned.');
+      // AUDIT R011 (HIGH-049-3): invalidate cached quote post-confirmation.
+      refetchRepayment();
+    }
+  }, [repaySuccess, refetchRepayment]);
 
   useEffect(() => {
     if (claimSuccess) toast.success('Default claimed! NFT transferred to you.');
@@ -952,14 +967,18 @@ function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; user
     });
   };
 
+  // AUDIT R011 (HIGH-049-4): drive the deadline string off the shared 1-Hz
+  // countdown so it ticks every second.
   const deadlineStr = (() => {
     if (status === 'repaid' || status === 'defaulted') return '--';
-    if (timeLeft <= 0) return 'Expired';
-    const days = Math.floor(timeLeft / 86400);
-    const hrs = Math.floor((timeLeft % 86400) / 3600);
+    if (countdown.isExpired) return 'Expired';
+    const remaining = countdown.secondsRemaining;
+    const days = Math.floor(remaining / 86400);
+    const hrs = Math.floor((remaining % 86400) / 3600);
     if (days > 0) return `${days}d ${hrs}h`;
-    const mins = Math.floor((timeLeft % 3600) / 60);
-    return `${hrs}h ${mins}m`;
+    const mins = Math.floor((remaining % 3600) / 60);
+    const secs = remaining % 60;
+    return `${hrs}h ${String(mins).padStart(2, '0')}m ${String(secs).padStart(2, '0')}s`;
   })();
 
   return (

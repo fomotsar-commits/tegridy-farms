@@ -225,7 +225,10 @@ export function useSwapQuote(
     const sellToken = fromToken.isNative ? 'ETH' : fromToken.address;
     const buyToken = toToken.isNative ? 'ETH' : toToken.address;
     const timer = setTimeout(() => {
-      getAggregatorPrice(sellToken, buyToken, parsedAmount.toString(), address, fromDecimals, abortController.signal)
+      // AUDIT R045 H1: pass the connected wallet's chainId so the meta-
+      // aggregator short-circuits on unsupported chains (no HTTP calls go
+      // out and "best route" never returns mainnet liquidity for an L2 user).
+      getAggregatorPrice(sellToken, buyToken, parsedAmount.toString(), address, chainId, undefined, fromDecimals, abortController.signal)
         .then(q => {
           // Only apply if this is still the latest request
           if (!abortController.signal.aborted && quoteRequestIdRef.current === currentRequestId) {
@@ -243,7 +246,7 @@ export function useSwapQuote(
         });
     }, 800);
     return () => { abortController.abort(); clearTimeout(timer); };
-  }, [fromToken, toToken, parsedAmount, address, fromDecimals]);
+  }, [fromToken, toToken, parsedAmount, address, fromDecimals, chainId]);
 
   // Stamp on every wagmi on-chain leg arrival.
   useEffect(() => {

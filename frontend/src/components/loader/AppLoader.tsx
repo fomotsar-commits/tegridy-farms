@@ -21,8 +21,26 @@ import { createMorphParticles, updateMorphParticles } from './fx/particleMorph';
 import { AudioEngine } from './fx/audio';
 import { PostFX } from './fx/postfx';
 
+// R007 Pattern B — decide skip-at-mount synchronously during state init so
+// the loader never renders for repeat visits / reduced-motion users. The
+// previous implementation called `finalize()` (which calls setState) inside
+// an effect, which the lint rule rightly flagged as a cascading render.
+function shouldSkipAtMount(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    if (sessionStorage.getItem('tf_loaded')) return true;
+  } catch { /* SSR / privacy mode */ }
+  try {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      try { sessionStorage.setItem('tf_loaded', '1'); } catch { /* noop */ }
+      return true;
+    }
+  } catch { /* matchMedia unavailable */ }
+  return false;
+}
+
 export function AppLoader({ onComplete, children }: { onComplete?: () => void; children?: React.ReactNode }) {
-  const [visible, setVisible] = useState(true);
+  const [visible, setVisible] = useState(() => !shouldSkipAtMount());
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<AudioEngine | null>(null);
@@ -67,18 +85,16 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
     onComplete?.();
   }, [onComplete]);
 
-  /* Skip for repeat visits or reduced-motion preference */
+  /* Skip for repeat visits or reduced-motion preference. R007: the
+   * decision happens during `useState` lazy init (`shouldSkipAtMount`),
+   * so `visible` is already `false` on the very first render. Here we
+   * just fire `onComplete?.()` once so consumers can swap to the real
+   * app — no synchronous setState in effect body. */
   useEffect(() => {
-    if (sessionStorage.getItem('tf_loaded')) {
-      finalize();
-      return;
-    }
-    // WCAG 2.1: Skip heavy animations for users who prefer reduced motion
-    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      sessionStorage.setItem('tf_loaded', '1');
-      finalize();
-    }
-  }, [finalize]);
+    if (!visible) onComplete?.();
+    // Run only once per mount; consumers expect a single onComplete call.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /* Initialize audio on first user gesture */
   const initAudio = useCallback(() => {

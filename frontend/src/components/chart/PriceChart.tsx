@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, memo, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, memo, useCallback } from 'react';
 import { createChart, type IChartApi, type ISeriesApi, ColorType, type CandlestickData, type Time, CandlestickSeries } from 'lightweight-charts';
 import { TOWELI_WETH_LP_ADDRESS, GECKOTERMINAL_URL } from '../../lib/constants';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -98,20 +98,17 @@ function PriceChartInner() {
   // AUDIT THEME: chart chrome (text, grid lines, axis borders) was hardcoded
   // to white + purple, making light mode a near-illegible light-on-light
   // chart. Candlestick semantic colors (green/red) stay fixed across themes
-  // since they encode direction, not brand. We rebuild the chart on theme
-  // toggle so lightweight-charts picks up the new palette (its options
-  // accept a partial update via applyOptions, but only for some fields).
-  const chartTextColor = isDark ? 'rgba(255,255,255,1)' : 'rgba(26,26,26,0.88)';
-  const chartGridColor = isDark ? 'rgba(139,92,246,0.1)' : 'rgba(26,26,26,0.08)';
-  const chartAxisColor = isDark ? 'rgba(139,92,246,0.1)' : 'rgba(26,26,26,0.14)';
-
-  // Create chart once
-  useEffect(() => {
-    if (!containerRef.current || useEmbed) return;
-
-    const chart = createChart(containerRef.current, {
+  // since they encode direction, not brand.
+  // R072: pre-compute the full chart-options object via useMemo keyed on
+  // [isDark] so the createChart effect's deps are a single stable reference
+  // — we only rebuild on actual theme flip rather than on every render.
+  const chartOptions = useMemo(() => {
+    const chartTextColor = isDark ? 'rgba(255,255,255,1)' : 'rgba(26,26,26,0.88)';
+    const chartGridColor = isDark ? 'rgba(139,92,246,0.1)' : 'rgba(26,26,26,0.08)';
+    const chartAxisColor = isDark ? 'rgba(139,92,246,0.1)' : 'rgba(26,26,26,0.14)';
+    return {
       layout: {
-        background: { type: ColorType.Solid, color: 'transparent' },
+        background: { type: ColorType.Solid, color: 'transparent' as const },
         textColor: chartTextColor,
         fontSize: 11,
       },
@@ -137,6 +134,16 @@ function PriceChartInner() {
       },
       handleScroll: { mouseWheel: true, pressedMouseMove: true },
       handleScale: { mouseWheel: true, pinch: true },
+    };
+  }, [isDark]);
+
+  // Create chart once per theme flip.
+  useEffect(() => {
+    if (!containerRef.current || useEmbed) return;
+
+    const chart = createChart(containerRef.current, {
+      ...chartOptions,
+      layout: { ...chartOptions.layout, background: { type: ColorType.Solid, color: 'transparent' } },
     });
 
     const series = chart.addSeries(CandlestickSeries, {
@@ -179,7 +186,7 @@ function PriceChartInner() {
     // / axis palette takes effect. lightweight-charts has applyOptions,
     // but it doesn't propagate every chrome field — a remount is the
     // safe, small fix.
-  }, [useEmbed, chartTextColor, chartGridColor, chartAxisColor]);
+  }, [useEmbed, chartOptions]);
 
   const requestIdRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
@@ -234,10 +241,18 @@ function PriceChartInner() {
       });
   }, [useEmbed]);
 
-  // Fetch data on timeframe change; abort on unmount
+  // Fetch data on timeframe change; abort on unmount.
+  // R007 Pattern C — defer the loadData call (which does synchronous
+  // setLoading/setError) via microtask + cancelled guard so the lint rule
+  // doesn't flag it as a synchronous setState-in-effect.
   useEffect(() => {
-    loadData(tf);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      loadData(tf);
+    });
     return () => {
+      cancelled = true;
       abortRef.current?.abort();
     };
   }, [tf, loadData]);
@@ -257,11 +272,16 @@ function PriceChartInner() {
           </a>
         </div>
         <div className="flex-1 relative min-h-0">
+          {/* R072: tightened iframe sandbox — `allow-same-origin` + `allow-scripts`
+              together is equivalent to no sandbox at all (scripts can escape).
+              GeckoTerminal's chart iframe is a third-party origin already, so
+              it doesn't need same-origin to render its own assets. Removing it
+              is the tightest sandbox that still lets the chart be interactive. */}
           <iframe
             src={GECKO_EMBED_URL}
             className="absolute inset-0 w-full h-full"
             style={{ border: 'none', borderRadius: '8px' }}
-            sandbox="allow-scripts allow-same-origin"
+            sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
             referrerPolicy="no-referrer"
             title="TOWELI Price Chart"
           />

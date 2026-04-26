@@ -7,6 +7,9 @@ import { COMMUNITY_GRANTS_ADDRESS } from '../../lib/constants';
 import { COMMUNITY_GRANTS_ABI } from '../../lib/contracts';
 import { shortenAddress, formatTokenAmount, formatTimeAgo } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
+// R069: sanitize freeform descriptions on write + render via SafeText.
+import { sanitizeUserText, DEFAULT_DESCRIPTION_LIMIT } from '../../lib/textSafety';
+import { SafeText } from '../ui/SafeText';
 
 const CARD_BORDER = 'var(--color-purple-12)';
 
@@ -115,12 +118,20 @@ export function GrantsSection() {
       toast.error('Amount must be greater than zero');
       return;
     }
+    // R069: sanitize description before it lands on-chain.
+    const cleanDescription = sanitizeUserText(newDescription);
+    if (!cleanDescription) {
+      toast.error('Description cannot be empty');
+      return;
+    }
     writeContract({
       address: gcAddr, abi: COMMUNITY_GRANTS_ABI, functionName: 'createProposal',
-      args: [newRecipient as Address, amt, newDescription],
+      args: [newRecipient as Address, amt, cleanDescription],
     });
     toast.info('Creating proposal...');
   };
+
+  const descriptionRemaining = DEFAULT_DESCRIPTION_LIMIT - newDescription.length;
 
   return (
     <div className="space-y-4">
@@ -196,9 +207,14 @@ export function GrantsSection() {
           </div>
           <div>
             <label htmlFor="grant-description" className="text-[11px] text-white/70 uppercase tracking-wider block mb-1">Description</label>
-            <textarea id="grant-description" value={newDescription} onChange={(e) => setNewDescription(e.target.value)}
+            <textarea id="grant-description" value={newDescription}
+              onChange={(e) => setNewDescription(e.target.value.slice(0, DEFAULT_DESCRIPTION_LIMIT))}
+              maxLength={DEFAULT_DESCRIPTION_LIMIT}
               placeholder="Describe what this grant funds..." rows={3}
               className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:border-emerald-500 outline-none transition-colors resize-none" />
+            <p className={`mt-1 text-[10px] text-right font-mono ${descriptionRemaining < 50 ? 'text-amber-400' : 'text-white/40'}`}>
+              {descriptionRemaining} chars remaining
+            </p>
           </div>
           <button onClick={handleCreate} disabled={!canCreate || isSigning || isConfirming}
             className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-40"
@@ -242,7 +258,9 @@ export function GrantsSection() {
                         <span className="text-[11px] text-white/30 font-mono">#{proposalId}</span>
                         <span className={`text-[11px] font-semibold ${statusInfo.color}`}>{statusInfo.label}</span>
                       </div>
-                      <p className="text-[13px] text-white leading-relaxed line-clamp-2">{description}</p>
+                      <p className="text-[13px] text-white leading-relaxed line-clamp-2">
+                        <SafeText value={description} previewChars={180} />
+                      </p>
                     </div>
                     <div className="text-right flex-shrink-0">
                       <p className="text-[13px] font-semibold text-emerald-400">{formatTokenAmount(formatEther(amount), 0)}</p>
