@@ -18,6 +18,13 @@ contract TegridyFactory is TimelockAdmin {
     bytes32 public constant FEE_TO_CHANGE = keccak256("FEE_TO_CHANGE");
     bytes32 public constant TOKEN_BLOCK_CHANGE = keccak256("TOKEN_BLOCK_CHANGE");
     bytes32 public constant PAIR_DISABLE_CHANGE = keccak256("PAIR_DISABLE_CHANGE");
+    /// @notice AUDIT R028 H-01 (HIGH): timelock for guardian rotation.
+    ///         Initial set via setGuardian() remains instant (one-shot, only
+    ///         while guardian == address(0)). Any subsequent rotation must
+    ///         traverse propose → execute with the 48h delay below.
+    bytes32 public constant GUARDIAN_CHANGE = keccak256("GUARDIAN_CHANGE");
+    uint256 public constant GUARDIAN_CHANGE_DELAY = 48 hours;
+    address public pendingGuardian;
 
     address public feeTo;      // Address that receives protocol fees (treasury)
     address public feeToSetter; // Address allowed to change feeTo
@@ -377,22 +384,62 @@ contract TegridyFactory is TimelockAdmin {
     // ─── AUDIT NEW-A2: Emergency Pair Disable (guardian) ──────────────
 
     event GuardianSet(address indexed oldGuardian, address indexed newGuardian);
+    event GuardianChangeProposed(address indexed currentGuardian, address indexed proposedGuardian, uint256 executeAfter);
+    event GuardianChangeExecuted(address indexed oldGuardian, address indexed newGuardian);
+    event GuardianChangeCancelled(address indexed cancelled);
     event PairEmergencyDisabled(address indexed pair, address indexed by);
 
-    /// @notice Set the guardian address. Only feeToSetter may call. Can be zero to
-    ///         disable emergency powers entirely.
+    /// @notice Set the guardian address (initial-only). Only feeToSetter may call,
+    ///         and ONLY while guardian == address(0). Subsequent rotations must
+    ///         use proposeGuardianChange() / executeGuardianChange() (48h timelock).
+    /// @dev    AUDIT R028 H-01 (HIGH): Hardened from the prior unconditional setter,
+    ///         which let a compromised feeToSetter swap the guardian instantly to
+    ///         disable arbitrary pairs.
     function setGuardian(address _guardian) external {
         require(msg.sender == feeToSetter, "FORBIDDEN");
-        address old = guardian;
+        require(guardian == address(0), "Use proposeGuardianChange()");
         guardian = _guardian;
-        emit GuardianSet(old, _guardian);
+        emit GuardianSet(address(0), _guardian);
+    }
+
+    /// @notice AUDIT R028 H-01: propose a guardian change (takes effect after 48h).
+    ///         _newGuardian == address(0) is allowed and disables emergency powers.
+    function proposeGuardianChange(address _newGuardian) external {
+        require(msg.sender == feeToSetter, "FORBIDDEN");
+        pendingGuardian = _newGuardian;
+        _propose(GUARDIAN_CHANGE, GUARDIAN_CHANGE_DELAY);
+        emit GuardianChangeProposed(guardian, _newGuardian, _executeAfter[GUARDIAN_CHANGE]);
+    }
+
+    /// @notice AUDIT R028 H-01: execute a previously proposed guardian change.
+    function executeGuardianChange() external {
+        require(msg.sender == feeToSetter, "FORBIDDEN");
+        _execute(GUARDIAN_CHANGE);
+        address old = guardian;
+        guardian = pendingGuardian;
+        pendingGuardian = address(0);
+        emit GuardianChangeExecuted(old, guardian);
+    }
+
+    /// @notice AUDIT R028 H-01: cancel a pending guardian change.
+    function cancelGuardianChange() external {
+        require(msg.sender == feeToSetter, "FORBIDDEN");
+        address cancelled = pendingGuardian;
+        _cancel(GUARDIAN_CHANGE);
+        pendingGuardian = address(0);
+        emit GuardianChangeCancelled(cancelled);
     }
 
     /// @notice INSTANT pair disable — no timelock. Callable only by guardian or
     ///         feeToSetter. Intended for active-exploit response. Re-enabling a
     ///         disabled pair still requires the normal 48h timelocked propose path.
-    ///         If any proposal was pending to re-enable the pair, it is force-cancelled
-    ///         so the attacker can't race the guardian.
+    ///
+    ///         AUDIT H-2 (HIGH): if a pending PAIR_DISABLE_CHANGE proposal exists
+    ///         AND its target value is `false` (i.e. a re-enable), force-cancel
+    ///         it so the attacker can't race the guardian and unwind the circuit
+    ///         breaker. A pending DISABLE proposal (target value `true`) is left
+    ///         in place — it will execute normally and is benign (same end-state),
+    ///         and silencing it would amount to a guardian veto over governance.
     function emergencyDisablePair(address pair) external {
         require(pair != address(0), "ZERO_ADDRESS");
         require(
@@ -401,10 +448,9 @@ contract TegridyFactory is TimelockAdmin {
         );
         disabledPairs[pair] = true;
 
-        // Force-cancel any pending re-enable proposal so a benign-looking "re-enable"
-        // queued before the incident can't execute and unwind the circuit breaker.
         bytes32 key = keccak256(abi.encodePacked(PAIR_DISABLE_CHANGE, pair));
-        if (_executeAfter[key] != 0) {
+        // H-2: only cancel pending RE-ENABLEs (false), leave pending DISABLEs (true) alone.
+        if (_executeAfter[key] != 0 && pendingPairDisableValue[pair] == false) {
             _cancel(key);
             delete pendingPairDisableValue[pair];
         }
