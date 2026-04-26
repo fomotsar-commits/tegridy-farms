@@ -7,6 +7,8 @@ import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
+import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 
@@ -84,6 +86,21 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
     mapping(address => RestakeInfo) public restakers;
     mapping(uint256 => address) public tokenIdToRestaker; // reverse lookup
+
+    /// @notice AUDIT H-8 (HIGH): per-restaker historical boost checkpoints. Without
+    ///         this, boostedAmountAt(_user, _ts) was returning the CURRENT (already
+    ///         decayed) cached boostedAmount for any historical timestamp — silently
+    ///         under-crediting restakers in RevenueDistributor when their lock decays
+    ///         between epoch creation and claim time. Trace208.upperLookup gives the
+    ///         actual value at `_ts`. Pattern matches TegridyStaking._checkpoints.
+    using Checkpoints for Checkpoints.Trace208;
+    mapping(address => Checkpoints.Trace208) private _boostCheckpoints;
+
+    /// @dev H-8: write a new boost checkpoint for `user` with the given value.
+    ///      Called from every site that mutates info.boostedAmount.
+    function _writeBoostCheckpoint(address user, uint256 newBoost) internal {
+        _boostCheckpoints[user].push(SafeCast.toUint48(block.timestamp), SafeCast.toUint208(newBoost));
+    }
 
     uint256 public totalBonusFunded;
     uint256 public totalBonusDistributed;
@@ -279,7 +296,17 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         RestakeInfo memory info = restakers[_user];
         if (info.tokenId == 0) return 0;
         if (info.depositTime > _timestamp) return 0;
-        return info.boostedAmount;
+        // AUDIT H-8: prefer the historical boost checkpoint (Trace208.upperLookup) so
+        // RevenueDistributor reads the boost the user actually held at `_timestamp`,
+        // not a post-decay approximation. The fallback to info.boostedAmount preserves
+        // legacy semantics for pre-existing restakers who haven't yet written a
+        // checkpoint (i.e. the contract was upgraded mid-restake). Once any boost-
+        // mutating call runs (restake / unrestake / refresh / decay), checkpoints
+        // start tracking and this branch is dead.
+        if (_boostCheckpoints[_user].length() == 0) {
+            return info.boostedAmount;
+        }
+        return _boostCheckpoints[_user].upperLookup(SafeCast.toUint48(_timestamp));
     }
 
     // ─── User Functions ─────────────────────────────────────────────
@@ -319,6 +346,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         totalRestaked += boostedAmount;
         // AUDIT H-1: track active principal so recoverStuckPrincipal can reserve it.
         totalActivePrincipal += amount;
+        // AUDIT H-8: write initial boost checkpoint so RevenueDistributor / other
+        // consumers can read historical boost via boostedAmountAt.
+        _writeBoostCheckpoint(msg.sender, boostedAmount);
 
         emit Restaked(msg.sender, _tokenId, amount);
     }
@@ -352,6 +382,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // Update cached values
         info.positionAmount = newAmount;
         info.boostedAmount = newBoostedAmount;
+        // AUDIT H-8: write boost checkpoint
+        _writeBoostCheckpoint(msg.sender, newBoostedAmount);
 
         // Update totalRestaked
         totalRestaked = totalRestaked - oldBoosted + newBoostedAmount;
@@ -396,6 +428,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                     info.positionAmount = 0;
                     info.boostedAmount = 0;
                     info.bonusDebt = 0;
+                    _writeBoostCheckpoint(msg.sender, 0); // AUDIT H-8
                     emit PositionRefreshed(msg.sender, info.tokenId, oldAmt, 0);
                 } else if (currentAmount > 0) {
                 // Claim pending bonus on OLD boostedAmount first
@@ -412,6 +445,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 uint256 oldBoosted = info.boostedAmount;
                 info.positionAmount = currentAmount;
                 info.boostedAmount = currentBoosted;
+                _writeBoostCheckpoint(msg.sender, currentBoosted); // AUDIT H-8
                 totalRestaked = totalRestaked - oldBoosted + currentBoosted;
                 // Reset debt after payout — M-27: Safe int256 cast
                 uint256 newDebtUint = (currentBoosted * accBonusPerShare) / ACC_PRECISION;
@@ -489,6 +523,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 uint256 oldBoosted = info.boostedAmount;
                 info.positionAmount = currentAmount;
                 info.boostedAmount = currentBoosted;
+                _writeBoostCheckpoint(msg.sender, currentBoosted); // AUDIT H-8
                 totalRestaked = totalRestaked - oldBoosted + currentBoosted;
                 // M-27: Safe int256 cast
                 uint256 newDebtUint = (currentBoosted * accBonusPerShare) / ACC_PRECISION;
@@ -544,6 +579,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         uint256 depositSnapshot = info.unsettledSnapshot;
         delete tokenIdToRestaker[tokenId];
         delete restakers[msg.sender];
+        _writeBoostCheckpoint(msg.sender, 0); // AUDIT H-8: zero historical boost on unrestake
 
         // Return NFT to user.
         // AUDIT H-06: compute user's unsettled delta against the deposit-time snapshot
@@ -732,6 +768,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         }
         delete tokenIdToRestaker[info.tokenId];
         delete restakers[msg.sender];
+        _writeBoostCheckpoint(msg.sender, 0); // AUDIT H-8
 
         if (payout > 0) {
             totalRecoveredPrincipal += payout;
@@ -798,6 +835,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         uint256 depositSnapshot = info.unsettledSnapshot;
         delete tokenIdToRestaker[tokenId];
         delete restakers[msg.sender];
+        _writeBoostCheckpoint(msg.sender, 0); // AUDIT H-8
 
         // Return NFT without attempting any reward claims.
         // AUDIT H-06: use deposit-time snapshot instead of racy before/after reads.
@@ -939,6 +977,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             // so rescueNFT knows who owns it. restakers mapping cleared for bonus accounting.
             delete restakers[restaker];
         }
+        _writeBoostCheckpoint(restaker, 0); // AUDIT H-8: zero historical boost on emergency return
 
         emit EmergencyForceReturn(restaker, tokenId, nftReturned);
     }
@@ -995,6 +1034,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // Refresh cached boostedAmount from staking contract
         (, uint256 newBoostedAmount,,,,,,, , ,) = staking.positions(tokenId);
         info.boostedAmount = newBoostedAmount;
+        _writeBoostCheckpoint(restaker, newBoostedAmount); // AUDIT H-8
         totalRestaked = totalRestaked - oldBoosted + newBoostedAmount;
         info.bonusDebt = _safeInt256((newBoostedAmount * accBonusPerShare) / ACC_PRECISION);
 
@@ -1044,6 +1084,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // Refresh cached boostedAmount from staking contract
         (, uint256 newBoostedAmount,,,,,,, , ,) = staking.positions(tokenId);
         info.boostedAmount = newBoostedAmount;
+        _writeBoostCheckpoint(_user, newBoostedAmount); // AUDIT H-8
         totalRestaked = totalRestaked - oldBoosted + newBoostedAmount;
         info.bonusDebt = _safeInt256((newBoostedAmount * accBonusPerShare) / ACC_PRECISION);
 
@@ -1109,6 +1150,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // corrected (smaller) denominator, so honest restakers earn their
         // fair share for every future second.
         info.boostedAmount = currentBoosted;
+        _writeBoostCheckpoint(_restaker, currentBoosted); // AUDIT H-8
         totalRestaked = totalRestaked - oldBoosted + currentBoosted;
 
         // R017 RETRY step 3 — accrue the elapsed period against the corrected

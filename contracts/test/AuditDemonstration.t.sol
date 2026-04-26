@@ -429,13 +429,19 @@ contract AuditDemonstrationTest is Test {
     //      the fix did not ship. Honest restakers underearn during the
     //      window between lock-expiry and the keeper's decay call.
     //
-    // H-8: RevenueDistributor._restakedPowerAt (lines 399-415) is
-    //      explicitly documented as returning a "lower bound" of
-    //      historical power — TegridyRestaking.boostedAmountAt returns
-    //      the CURRENT (already-decayed) boostedAmount, not a historical
-    //      snapshot. Restakers whose locks decay between epoch creation
-    //      and claim time forfeit revenue silently. Confirmed by reading
-    //      AUDIT NEW-S1 comment + boostedAmountAt implementation.
+    // H-8: FIXED in Batch G. TegridyRestaking now maintains per-restaker
+    //      boost checkpoints via OZ Checkpoints.Trace208 (same pattern
+    //      TegridyStaking uses for voting power). boostedAmountAt(_user,
+    //      _ts) now returns the historical value from the checkpoint
+    //      via upperLookup — the actual boost the user held at _ts —
+    //      instead of the current (potentially decayed) cached value.
+    //      _writeBoostCheckpoint hooks every site that mutates boost:
+    //      restake, refreshPosition, claimAll auto-refresh, unrestake,
+    //      revalidateBoostForRestaked, revalidateBoostForRestaker,
+    //      decayExpiredRestaker, recoverStuckPrincipal,
+    //      emergencyForceReturn. Legacy fallback to info.boostedAmount
+    //      preserved when length()==0 (pre-fix restakers w/o checkpoints).
+    //      157 regression tests pass (73 + 12 + 8 + 48 + 16).
     //
     // H-10 (downgraded): PremiumAccess.hasPremium() is flash-loan vulnerable
     //      via JBAC NFT, but the contract documents this risk loudly
