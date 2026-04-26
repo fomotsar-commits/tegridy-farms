@@ -6,7 +6,7 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
-import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -69,6 +69,7 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     error NoPendingSync();
     error SyncNotReady();
     error SyncReductionTooLarge();
+    error AboveOnChainCredit();
 
     // SECURITY FIX: Track fees actually earned per token to prevent over-claiming
     mapping(address => uint256) public accruedFees;
@@ -297,14 +298,34 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     ///         when accruedFees drifted significantly from PoolManager credits (e.g., after
     ///         millions of swaps with rounding). The 24h timelock + 7-day cooldown provide
     ///         sufficient protection against misuse by a compromised owner.
+    /// @dev    AUDIT H-5 (HIGH): allow upward syncs (recovery from under-counting drift)
+    ///         but bound the proposed value by the on-chain PoolManager credit balance,
+    ///         which is tamper-proof. The hook's claimable balance in the PoolManager is
+    ///         tracked via ERC6909Claims; reading balanceOf(address(this), Currency.toId)
+    ///         gives the maximum the hook is allowed to claim. accruedFees is internal
+    ///         accounting and may legitimately drift below the on-chain balance over
+    ///         millions of swaps — this lets the owner correct it without trusting their
+    ///         input alone. The error name is also clarified — the legacy
+    ///         "SyncReductionTooLarge" was misleading (it actually fired on increases,
+    ///         which are now allowed if bounded by on-chain truth).
     function executeSyncAccruedFees(address currency) external onlyOwner {
         bytes32 key = keccak256(abi.encodePacked(SYNC_CHANGE, currency));
         _execute(key);
         require(block.timestamp >= lastSyncExecuted[currency] + SYNC_COOLDOWN, "SYNC_COOLDOWN");
         uint256 actualCredit = pendingSyncCredit[currency];
         uint256 old = accruedFees[currency];
-        if (actualCredit > old) revert SyncReductionTooLarge();
-        // AUDIT FIX H-01: Removed `old - actualCredit > old / 2` cap that prevented full correction
+
+        // H-5: upward syncs are allowed but capped by the on-chain PoolManager
+        // credit balance (the only authoritative source for what the hook can
+        // actually claim).
+        if (actualCredit > old) {
+            uint256 onChainCredit = poolManager.balanceOf(
+                address(this),
+                CurrencyLibrary.toId(Currency.wrap(currency))
+            );
+            if (actualCredit > onChainCredit) revert AboveOnChainCredit();
+        }
+
         accruedFees[currency] = actualCredit;
         pendingSyncCredit[currency] = 0;
         lastSyncExecuted[currency] = block.timestamp;

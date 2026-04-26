@@ -5,9 +5,20 @@ import "forge-std/Test.sol";
 import "../src/TegridyFeeHook.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 
-/// @dev Minimal mock PoolManager — just needs a non-zero address
+/// @dev Minimal mock PoolManager — most admin/timelock tests just need a
+///      non-zero address. The H-5 sync-direction tests also exercise the
+///      on-chain credit check, so we expose a configurable `balanceOf`
+///      stub matching the IERC6909Claims surface.
 contract MockPoolManager {
-    // No methods needed for admin/timelock tests
+    mapping(address => mapping(uint256 => uint256)) internal _credit;
+
+    function setCredit(address holder, uint256 id, uint256 amount) external {
+        _credit[holder][id] = amount;
+    }
+
+    function balanceOf(address holder, uint256 id) external view returns (uint256) {
+        return _credit[holder][id];
+    }
 }
 
 contract TegridyFeeHookTest is Test {
@@ -277,17 +288,34 @@ contract TegridyFeeHookTest is Test {
         assertEq(hook.accruedFees(token), 500);
     }
 
-    function test_syncAccruedFees_rejectsIncrease() public {
+    function test_syncAccruedFees_rejectsIncrease_aboveOnChainCredit() public {
+        // H-5 update: upward syncs are now ALLOWED, but bounded by the
+        // on-chain PoolManager credit. With on-chain credit = 0, any
+        // upward sync (1500 > 1000) reverts with AboveOnChainCredit.
         address token = makeAddr("token");
         bytes32 slot = keccak256(abi.encode(token, uint256(7)));
         vm.store(address(hook), slot, bytes32(uint256(1000)));
 
-        // Propose syncing UP to 1500 — should fail
         hook.proposeSyncAccruedFees(token, 1500);
-        vm.warp(block.timestamp + 7 days); // Must satisfy both 24h proposal timelock AND 7-day sync cooldown
+        vm.warp(block.timestamp + 7 days);
 
-        vm.expectRevert(TegridyFeeHook.SyncReductionTooLarge.selector);
+        vm.expectRevert(TegridyFeeHook.AboveOnChainCredit.selector);
         hook.executeSyncAccruedFees(token);
+    }
+
+    function test_syncAccruedFees_allowsIncrease_withinOnChainCredit() public {
+        // H-5: upward sync is allowed up to the on-chain PoolManager credit.
+        // Set on-chain credit to 1500 → sync from 1000 to 1500 succeeds.
+        address token = makeAddr("token");
+        bytes32 slot = keccak256(abi.encode(token, uint256(7)));
+        vm.store(address(hook), slot, bytes32(uint256(1000)));
+        // Stub the PoolManager credit at the V4 currency-id (uint256(uint160(token)))
+        poolManager.setCredit(address(hook), uint256(uint160(token)), 1500);
+
+        hook.proposeSyncAccruedFees(token, 1500);
+        vm.warp(block.timestamp + 7 days);
+        hook.executeSyncAccruedFees(token);
+        assertEq(hook.accruedFees(token), 1500);
     }
 
     function test_syncAccruedFees_allowsSmallReduction() public {
