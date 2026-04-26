@@ -317,7 +317,10 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
 
     /// @notice A4-H-08: Batch reconcile multiple expired subscriptions in one call.
     ///         Prevents totalRefundEscrow from permanently inflating and locking treasury funds.
-    function batchReconcileExpired(address[] calldata _users) external {
+    /// @dev    AUDIT M-30: nonReentrant added for parity with cancelSubscription, which
+    ///         mutates the same totalRefundEscrow / userEscrow state. Defense-in-depth
+    ///         against any future caller that gains control during a state-modifying tx.
+    function batchReconcileExpired(address[] calldata _users) external nonReentrant {
         for (uint256 i = 0; i < _users.length; i++) {
             address user = _users[i];
             Subscription memory sub = subscriptions[user];

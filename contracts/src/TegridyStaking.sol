@@ -1512,9 +1512,18 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     /// @dev Split a penalty into (toTreasury, recycled) per penaltyRecycleBps. If
     ///      totalBoostedStake == 0 there is no one to recycle to, so the recycled
     ///      portion is rebated to treasury for safekeeping.
+    ///
+    ///      AUDIT M-24: round-UP `recycled` so sub-wei dust on small penalties favors
+    ///      stakers (the recycle pool) rather than treasury. The legacy rounding bias
+    ///      (floor) cumulatively drained the recycle pool of 1-wei increments per
+    ///      small early-exit. Ceiling division here is bounded by `recycled <= penalty`
+    ///      because penaltyRecycleBps is gated to <= BPS at propose time.
     function _splitPenalty(uint256 penalty) internal view returns (uint256 toTreasury, uint256 recycled) {
         if (penalty == 0) return (0, 0);
-        recycled = (penalty * penaltyRecycleBps) / BPS;
+        // Ceiling: (a*b + d - 1) / d when a*b > 0; safe because penaltyRecycleBps <= BPS
+        uint256 numerator = penalty * penaltyRecycleBps;
+        recycled = numerator == 0 ? 0 : (numerator + BPS - 1) / BPS;
+        if (recycled > penalty) recycled = penalty; // defensive (should never fire)
         if (recycled > 0 && totalBoostedStake == 0) {
             // Nothing to credit — fall back to treasury so funds aren't stranded.
             recycled = 0;
