@@ -9,14 +9,50 @@ interface ModalProps {
   title?: string;
   /** Max width class — defaults to 'max-w-md' */
   maxWidth?: string;
+  /**
+   * R039: when false, clicks on the backdrop don't dismiss. Use for
+   * onboarding / blocking dialogs that must be acknowledged. Default true.
+   */
+  dismissOnBackdrop?: boolean;
+}
+
+// R039: discover focusable descendants for the Tab/Shift+Tab cycle. A simple
+// querySelectorAll covers anchors, native buttons, inputs, selects, textareas,
+// and any element with explicit `tabindex>=0`. Disabled controls and
+// `tabindex="-1"` are skipped so they don't trap focus.
+function getFocusableDescendants(root: HTMLElement): HTMLElement[] {
+  const selector = [
+    'a[href]',
+    'button:not([disabled])',
+    'input:not([disabled])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])',
+  ].join(', ');
+  return Array.from(root.querySelectorAll<HTMLElement>(selector)).filter(
+    (el) => !el.hasAttribute('disabled') && el.offsetParent !== null,
+  );
 }
 
 /**
  * Base modal component with standard backdrop, close-on-escape,
- * focus trap (basic), and body scroll lock.
+ * focus trap (Tab/Shift+Tab cycle), focus restoration on close, and body
+ * scroll lock. Pass `dismissOnBackdrop={false}` to disable backdrop-click
+ * dismissal for blocking dialogs (e.g. onboarding).
  */
-export function Modal({ open, onClose, children, title, maxWidth = 'max-w-md' }: ModalProps) {
+export function Modal({
+  open,
+  onClose,
+  children,
+  title,
+  maxWidth = 'max-w-md',
+  dismissOnBackdrop = true,
+}: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  // R039: remember the element that had focus when the modal opened so we
+  // can return focus to it on close. Without this, screen-reader and
+  // keyboard users get dumped at <body> after dismissing the dialog.
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   // Audit H-F13: associate the title element with aria-labelledby rather than
   // using aria-label so screen readers announce the real heading (including
   // any inline styling/content like badges) and not a flattened string.
@@ -31,34 +67,70 @@ export function Modal({ open, onClose, children, title, maxWidth = 'max-w-md' }:
     return () => { document.body.style.overflow = prev; };
   }, [open]);
 
-  // Close on Escape
+  // Close on Escape + R039: focus trap (Tab / Shift+Tab cycle within dialog).
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab' || !dialogRef.current) return;
+      const focusables = getFocusableDescendants(dialogRef.current);
+      if (focusables.length === 0) {
+        // Trap focus on the dialog itself if nothing focusable inside.
+        e.preventDefault();
+        dialogRef.current.focus();
+        return;
+      }
+      const first = focusables[0]!;
+      const last = focusables[focusables.length - 1]!;
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey) {
+        if (active === first || !dialogRef.current.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (active === last || !dialogRef.current.contains(active)) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [open, onClose]);
 
-  // Auto-focus the dialog when opened
+  // R039: capture the previously-focused element when opening and restore
+  // it when the modal closes. The dialog's first focusable child gets focus
+  // on mount; if there are none, the dialog itself is focused (tabIndex=-1).
   useEffect(() => {
-    if (open && dialogRef.current) {
-      dialogRef.current.focus();
-    }
+    if (!open) return;
+    previouslyFocusedRef.current = (document.activeElement as HTMLElement | null) ?? null;
+    requestAnimationFrame(() => {
+      if (!dialogRef.current) return;
+      const focusables = getFocusableDescendants(dialogRef.current);
+      if (focusables.length > 0) focusables[0]!.focus();
+      else dialogRef.current.focus();
+    });
+    return () => {
+      const prev = previouslyFocusedRef.current;
+      if (prev && typeof prev.focus === 'function') prev.focus();
+    };
   }, [open]);
 
   return (
     <AnimatePresence>
       {open && (
         <>
-          {/* Backdrop */}
+          {/* Backdrop. R039: opt-out for blocking dialogs via dismissOnBackdrop=false. */}
           <m.div
             className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={dismissOnBackdrop ? onClose : undefined}
           />
           {/* Dialog */}
           <div className="fixed inset-0 z-[101] flex items-center justify-center px-4 pointer-events-none">

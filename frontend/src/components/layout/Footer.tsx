@@ -55,7 +55,10 @@ export function Footer() {
   // text-white/60 with no scrim — barely legible over bright art regions. Now we
   // layer a dark frosted panel under the whole footer and bump link contrast so the
   // IA is readable regardless of what's behind it.
-  const LINK_CLASS = 'block text-white/90 text-[13px] hover:text-white transition-colors';
+  // R038: footer links bumped to a 44px minimum touch target so mobile users
+  // don't fat-finger neighbouring rows. Inline-block + tighter padding
+  // keeps the visual rhythm dense on desktop.
+  const LINK_CLASS = 'block text-white/90 text-[13px] hover:text-white transition-colors min-h-[44px] flex items-center';
   const LINK_SHADOW = { textShadow: '0 1px 6px rgba(0,0,0,0.95)' } as const;
   return (
     <footer

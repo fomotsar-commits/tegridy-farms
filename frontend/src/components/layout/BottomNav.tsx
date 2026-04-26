@@ -44,18 +44,24 @@ const TABS = [
 
 export const BottomNav = React.memo(function BottomNav() {
   return (
-    <nav aria-label="Main navigation" className="fixed bottom-0 left-0 right-0 z-50 md:hidden"
+    // R038: was hidden at `md:hidden` (≥768px), but iPad portrait at 820px
+    // hid it too — the portrait viewport is mobile-shaped and needs the
+    // bottom nav. Switching to `sm:hidden` restores it for ≥640px tablets.
+    // safe-area-inset-bottom keeps the bar above the home indicator on
+    // notched iOS devices. 44px tap target floor is enforced via min-h.
+    <nav aria-label="Main navigation" className="fixed bottom-0 left-0 right-0 z-50 sm:hidden"
       style={{
         background: 'rgba(6,12,26,0.95)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
         borderTop: '1px solid var(--color-purple-75)',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }}>
       <div className="flex items-center justify-around h-16 safe-area-bottom">
         {TABS.map(tab => (
           <NavLink key={tab.to} to={tab.to} aria-label={tab.label}
             className={({ isActive }) =>
-              `flex flex-col items-center justify-center gap-0.5 flex-1 min-w-0 min-h-[48px] px-1 py-2 transition-colors ${
+              `flex flex-col items-center justify-center gap-0.5 flex-1 min-w-0 min-h-[48px] min-w-[44px] px-1 py-2 transition-colors ${
                 isActive ? 'text-purple-400' : 'text-white/60'
               }`
             }>

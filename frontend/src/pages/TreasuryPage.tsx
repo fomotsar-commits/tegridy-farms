@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { m } from 'framer-motion';
-import { useBalance, useReadContract } from 'wagmi';
+import { useBalance, useBlockNumber, useChainId, useReadContract } from 'wagmi';
 import { formatEther } from 'viem';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { usePoolTVL } from '../hooks/usePoolTVL';
@@ -13,6 +13,7 @@ import {
 } from '../lib/constants';
 import { SWAP_FEE_ROUTER_ABI } from '../lib/contracts';
 import { shortenAddress } from '../lib/formatting';
+import { getAddressUrl } from '../lib/explorer';
 import { CopyButton } from '../components/ui/CopyButton';
 import { ArtImg } from '../components/ArtImg';
 
@@ -57,11 +58,34 @@ function formatEth(wei: bigint): string {
   return '0 ETH';
 }
 
+/**
+ * R070: small inline component for "view source on Etherscan" links next to
+ * any on-chain-derived stat. Centralised so every link shares the same
+ * visual pattern (faint underline + arrow icon) and chain-aware URL.
+ */
+function SourceLink({ chainId, address, label }: { chainId: number | undefined; address: string; label?: string }) {
+  return (
+    <a
+      href={getAddressUrl(chainId, address)}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`View source contract for ${label ?? 'this stat'} on block explorer (opens in new tab)`}
+      className="text-white/55 hover:text-white text-[10px] underline underline-offset-2 transition-colors"
+    >
+      source ↗
+    </a>
+  );
+}
+
 export default function TreasuryPage() {
   usePageTitle('Treasury — Tegridy Farms');
 
+  const chainId = useChainId();
   const price = useTOWELIPrice();
   const pool = usePoolTVL();
+  // R070: every reading on this page is "as of block N" — surface the latest
+  // block so a user can verify or pin a snapshot. `watch:true` keeps it live.
+  const { data: latestBlock } = useBlockNumber({ watch: true });
 
   // Treasury ETH balance
   const { data: treasuryBal } = useBalance({
@@ -101,6 +125,28 @@ export default function TreasuryPage() {
     functionName: 'polShareBps',
     query: { refetchInterval: 300_000, staleTime: 60_000 },
   });
+
+  // R070: surface SwapFeeRouter.paused() with an amber banner so users see
+  // when fee routing is halted (no stakers/POL/treasury distribution while
+  // paused). Surface treasury() vs the hardcoded TREASURY_ADDRESS with a RED
+  // banner if they disagree — that means the on-chain treasury rotated and
+  // the frontend constant is stale.
+  const { data: routerPaused } = useReadContract({
+    address: SWAP_FEE_ROUTER_ADDRESS,
+    abi: SWAP_FEE_ROUTER_ABI,
+    functionName: 'paused',
+    query: { refetchInterval: 60_000 },
+  });
+  const { data: routerTreasury } = useReadContract({
+    address: SWAP_FEE_ROUTER_ADDRESS,
+    abi: SWAP_FEE_ROUTER_ABI,
+    functionName: 'treasury',
+    query: { refetchInterval: 300_000, staleTime: 60_000 },
+  });
+  const treasuryRotationPending = useMemo(() => {
+    if (!routerTreasury || typeof routerTreasury !== 'string') return false;
+    return routerTreasury.toLowerCase() !== TREASURY_ADDRESS.toLowerCase();
+  }, [routerTreasury]);
   const stakerBps = stakerShareData !== undefined ? Number(stakerShareData as bigint) : 10_000;
   const polBps = polShareData !== undefined ? Number(polShareData as bigint) : 0;
   const treasuryBps = Math.max(0, 10_000 - stakerBps - polBps);
@@ -146,14 +192,54 @@ export default function TreasuryPage() {
         transition={{ duration: 0.5 }}
       >
         {/* Header */}
-        <div className="mb-10">
+        <div className="mb-6">
           <p className="text-white/65 text-[11px] uppercase tracking-[0.2em] label-pill mb-3">Public Transparency</p>
           <h1 className="heading-luxury text-4xl md:text-5xl text-white mb-3" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.9)' }}>Treasury</h1>
           <p className="text-white/80 text-[14px] max-w-[640px] leading-relaxed" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
             Live, on-chain view of protocol treasury, protocol-owned liquidity, lifetime fees, and how
             revenue is distributed. All figures are read directly from Ethereum mainnet.
           </p>
+          {/* R070: as-of block — every read on this page reflects state at the
+              latest block number. Live ticker via useBlockNumber({ watch:true }). */}
+          {latestBlock !== undefined && (
+            <p className="text-white/50 text-[11px] mt-2 font-mono" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
+              as of block #{latestBlock.toString()}
+            </p>
+          )}
         </div>
+
+        {/* R070: status banners. Order matters — the rotation banner is most
+            severe (frontend lying about treasury), the paused banner is amber
+            (informational), the oracleStale banner is purple (price-derived
+            stats fall back to on-chain values). */}
+        {treasuryRotationPending && routerTreasury && (
+          <div role="alert"
+            className="mb-4 rounded-xl border px-4 py-3 text-[13px]"
+            style={{ background: 'rgba(239,68,68,0.12)', borderColor: 'rgba(239,68,68,0.45)', color: '#fecaca' }}>
+            <strong className="font-semibold">Treasury rotation pending.</strong> The on-chain SwapFeeRouter
+            treasury is{' '}
+            <span className="font-mono">{shortenAddress(routerTreasury as string, 6)}</span>{' '}
+            but this page still references{' '}
+            <span className="font-mono">{shortenAddress(TREASURY_ADDRESS, 6)}</span>. Treat balances on
+            this page as <em>frontend-state</em> until the constants update.
+          </div>
+        )}
+        {routerPaused === true && (
+          <div role="status"
+            className="mb-4 rounded-xl border px-4 py-3 text-[13px]"
+            style={{ background: 'rgba(245,158,11,0.12)', borderColor: 'rgba(245,158,11,0.4)', color: '#fde68a' }}>
+            <strong className="font-semibold">Fee routing paused.</strong> SwapFeeRouter is currently
+            paused; new swap fees are not being distributed to stakers, POL, or treasury until it resumes.
+          </div>
+        )}
+        {price.oracleStale && (
+          <div role="status"
+            className="mb-6 rounded-xl border px-4 py-3 text-[13px]"
+            style={{ background: 'rgba(139,92,246,0.10)', borderColor: 'rgba(139,92,246,0.40)', color: '#ddd6fe' }}>
+            <strong className="font-semibold">Price oracle is stale.</strong> USD figures shown derive
+            from a delayed price feed; ETH amounts on-chain are authoritative.
+          </div>
+        )}
 
         {/* Top stats — each tile overlays its own ArtImg so the grid feels art-first. */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-10">
@@ -231,15 +317,9 @@ export default function TreasuryPage() {
                       display={shortenAddress(row.addr, 6)}
                       className="font-mono text-[12px] text-white"
                     />
-                    <a
-                      href={`https://etherscan.io/address/${row.addr}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-white/55 hover:text-white text-[12px]"
-                      aria-label={`View ${row.label} on Etherscan (opens in new tab)`}
-                    >
-                      Etherscan ↗
-                    </a>
+                    {/* R070: chain-aware explorer URL via SourceLink — was
+                        hardcoded to etherscan.io (broken on testnets / L2s). */}
+                    <SourceLink chainId={chainId} address={row.addr} label={row.label} />
                   </div>
                 </div>
               ))}
@@ -258,13 +338,13 @@ export default function TreasuryPage() {
               Coming soon — an indexed feed of the latest 10 inflows and outflows will appear here once the
               indexer is live. In the meantime, all activity is auditable on-chain:{' '}
               <a
-                href={`https://etherscan.io/address/${TREASURY_ADDRESS}`}
+                href={getAddressUrl(chainId, TREASURY_ADDRESS)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-white underline hover:text-white/80"
-                aria-label="View treasury on Etherscan (opens in new tab)"
+                aria-label="View treasury on block explorer (opens in new tab)"
               >
-                View on Etherscan ↗
+                View on block explorer ↗
               </a>
             </p>
           </div>

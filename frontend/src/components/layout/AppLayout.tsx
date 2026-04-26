@@ -103,9 +103,18 @@ export function AppLayout() {
       <SeasonalEventBanner />
       <RouteGlitch />
 
-      {/* #82 audit: wrong-network banner */}
+      {/* #82 audit + R039: wrong-network banner. `top` clears the 56px header
+          AND respects safe-area-inset-top so notched iPhones don't render the
+          banner under the notch. */}
       {wrongNetwork && (
-        <div className="fixed top-14 left-0 right-0 z-50 bg-red-600/95 backdrop-blur-sm text-white text-center py-2 px-4 text-[12px] md:text-[13px] font-medium shadow-lg" style={{ paddingLeft: 'max(1rem, env(safe-area-inset-left))', paddingRight: 'max(1rem, env(safe-area-inset-right))' }}>
+        <div
+          className="fixed left-0 right-0 z-50 bg-red-600/95 backdrop-blur-sm text-white text-center py-2 px-4 text-[12px] md:text-[13px] font-medium shadow-lg"
+          style={{
+            top: 'calc(56px + env(safe-area-inset-top, 0px))',
+            paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+            paddingRight: 'max(1rem, env(safe-area-inset-right))',
+          }}
+        >
           You are connected to <strong>{chain.name ?? `chain ${chain.id}`}</strong>.
           Please switch to Ethereum Mainnet.
           {switchChain && (

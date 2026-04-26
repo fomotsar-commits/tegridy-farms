@@ -143,7 +143,10 @@ export const TopNav = React.memo(function TopNav() {
             </Link>
           </div>
 
-          <nav aria-label="Main navigation" className="hidden md:flex items-center gap-0.5">
+          {/* R038: was hidden below md (768px) so iPad portrait (820px) lost the
+              primary nav. sm: switches in at 640px so portrait tablets see
+              the full top-nav row. */}
+          <nav aria-label="Main navigation" className="hidden sm:flex items-center gap-0.5">
             {PRIMARY_NAV.map((n) => (
               <NavLink key={n.to} to={n.to}
                 className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
@@ -248,7 +251,7 @@ export const TopNav = React.memo(function TopNav() {
               onClick={toggleTheme}
               aria-label={isDark ? 'Toggle light mode' : 'Toggle dark mode'}
               title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-              className="hidden md:flex w-8 h-8 flex-shrink-0 items-center justify-center rounded-lg text-text-secondary hover:text-primary transition-colors"
+              className="hidden sm:flex w-8 h-8 flex-shrink-0 items-center justify-center rounded-lg text-text-secondary hover:text-primary transition-colors"
               style={{ background: 'var(--color-purple-10)', border: '1px solid var(--color-purple-15)' }}
             >
               {isDark ? (
@@ -315,7 +318,7 @@ export const TopNav = React.memo(function TopNav() {
               </div>
             )}
 
-            <button ref={menuButtonRef} onClick={() => setOpen(true)} aria-label="Open navigation menu" aria-expanded={open} className="md:hidden p-2 -mr-1 flex-shrink-0 text-text-muted min-w-[44px] min-h-[44px] flex items-center justify-center">
+            <button ref={menuButtonRef} onClick={() => setOpen(true)} aria-label="Open navigation menu" aria-expanded={open} className="sm:hidden p-2 -mr-1 flex-shrink-0 text-text-muted min-w-[44px] min-h-[44px] flex items-center justify-center">
               <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
                 <path d="M3 5h14M3 10h14M3 15h14" />
               </svg>
@@ -328,7 +331,7 @@ export const TopNav = React.memo(function TopNav() {
       <AnimatePresence>
         {open && (
           <>
-            <m.div className="fixed inset-0 z-50 bg-black/50 md:hidden"
+            <m.div className="fixed inset-0 z-50 bg-black/50 sm:hidden"
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               onClick={() => setOpen(false)} />
             <m.div
@@ -336,7 +339,7 @@ export const TopNav = React.memo(function TopNav() {
               role="dialog"
               aria-modal="true"
               aria-label="Navigation menu"
-              className="fixed right-0 top-0 bottom-0 z-50 w-56 md:hidden flex flex-col"
+              className="fixed right-0 top-0 bottom-0 z-50 w-56 sm:hidden flex flex-col"
               style={{ background: 'var(--color-bg-surface)', borderLeft: '1px solid var(--color-purple-75)' }}
               initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}>

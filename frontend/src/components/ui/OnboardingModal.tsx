@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
+// R039: refactor onto the shared Modal primitive. Modal already handles focus
+// trap, focus restore, body scroll lock, Escape close, and aria-labelledby.
+// Onboarding sets dismissOnBackdrop={false} so users have to explicitly
+// acknowledge the introduction (Skip/Start Farming/Buy TOWELI) — a stray
+// background click shouldn't dismiss what's effectively a TOS-style flow.
+import { Modal } from './Modal';
 
 const STORAGE_KEY = 'tegridy-onboarding-seen';
 
@@ -39,126 +45,95 @@ export function OnboardingModal() {
     if (localStorage.getItem(STORAGE_KEY) !== '1') setOpen(true);
   }, []);
 
-  // Close on Escape key
-  useEffect(() => {
-    if (!open) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close();
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const close = () => {
     localStorage.setItem(STORAGE_KEY, '1');
     setOpen(false);
   };
 
-  if (!open) return null;
-
   const isLast = step === steps.length - 1;
 
   return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="onboarding-title"
-      onClick={close}
+    <Modal
+      open={open}
+      onClose={close}
+      dismissOnBackdrop={false}
+      title={steps[step]!.title}
     >
+      {/* Step content — Modal renders the title via aria-labelledby, so the
+          step body lives below it. The visible heading inside the slide
+          stays for visual rhythm but the dialog announcement comes from the
+          Modal title prop. */}
+      <div className="overflow-hidden min-h-[160px] flex items-center">
+        <AnimatePresence mode="wait" custom={dir}>
+          <m.div
+            key={step}
+            custom={dir}
+            variants={variants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ duration: 0.25 }}
+            className="w-full text-center"
+          >
+            <p className="text-sm text-gray-300 whitespace-pre-line leading-relaxed">
+              {steps[step]!.body}
+            </p>
+          </m.div>
+        </AnimatePresence>
+      </div>
+
+      {/* Dots */}
       <div
-        className="relative w-full max-w-md rounded-2xl border p-6 shadow-2xl"
-        style={{
-          background: 'rgba(13, 21, 48, 0.95)',
-          borderColor: 'var(--color-purple-20)',
-        }}
-        onClick={(e) => e.stopPropagation()}
+        className="flex justify-center gap-2 mt-4 mb-5"
+        role="tablist"
+        aria-label={`Onboarding step ${step + 1} of ${steps.length}`}
       >
-        {/* Close */}
+        {steps.map((_, i) => (
+          <span
+            key={i}
+            role="tab"
+            aria-selected={i === step}
+            aria-label={`Step ${i + 1} of ${steps.length}`}
+            className={`w-2 h-2 rounded-full transition-colors ${
+              i === step ? 'bg-purple-500' : 'bg-gray-600'
+            }`}
+          />
+        ))}
+      </div>
+
+      {/* Buttons */}
+      <div className="flex justify-between">
         <button
-          onClick={close}
-          className="absolute top-3 right-3 text-gray-400 hover:text-white transition-colors text-xl leading-none"
-          aria-label="Close onboarding"
+          onClick={() => { setDir(-1); setStep((s) => s - 1); }}
+          className={`px-4 py-2 text-sm rounded-lg transition-colors min-h-[44px] ${
+            step === 0
+              ? 'invisible'
+              : 'text-gray-300 hover:text-white border border-gray-600 hover:border-gray-400'
+          }`}
         >
-          &times;
+          Back
         </button>
 
-        {/* Step content */}
-        <div className="overflow-hidden min-h-[160px] flex items-center">
-          <AnimatePresence mode="wait" custom={dir}>
-            <m.div
-              key={step}
-              custom={dir}
-              variants={variants}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              transition={{ duration: 0.25 }}
-              className="w-full text-center"
-            >
-              <h2 id="onboarding-title" className="text-xl font-bold text-white mb-3">
-                {steps[step]!.title}
-              </h2>
-              <p className="text-sm text-gray-300 whitespace-pre-line leading-relaxed">
-                {steps[step]!.body}
-              </p>
-            </m.div>
-          </AnimatePresence>
-        </div>
-
-        {/* Dots */}
-        <div
-          className="flex justify-center gap-2 mt-4 mb-5"
-          role="tablist"
-          aria-label={`Onboarding step ${step + 1} of ${steps.length}`}
-        >
-          {steps.map((_, i) => (
-            <span
-              key={i}
-              role="tab"
-              aria-selected={i === step}
-              aria-label={`Step ${i + 1} of ${steps.length}`}
-              className={`w-2 h-2 rounded-full transition-colors ${
-                i === step ? 'bg-purple-500' : 'bg-gray-600'
-              }`}
-            />
-          ))}
-        </div>
-
-        {/* Buttons */}
-        <div className="flex justify-between">
+        {isLast ? (
+          <div className="flex gap-2">
+            <Link to="/farm" onClick={close}
+              className="px-4 py-2 text-sm font-semibold rounded-lg bg-green-600 hover:bg-green-500 text-white transition-colors text-center min-h-[44px] flex items-center">
+              Start Farming
+            </Link>
+            <Link to="/swap" onClick={close}
+              className="px-4 py-2 text-sm font-semibold rounded-lg bg-purple-600 hover:bg-purple-500 text-white transition-colors text-center min-h-[44px] flex items-center">
+              Buy TOWELI
+            </Link>
+          </div>
+        ) : (
           <button
-            onClick={() => { setDir(-1); setStep((s) => s - 1); }}
-            className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-              step === 0
-                ? 'invisible'
-                : 'text-gray-300 hover:text-white border border-gray-600 hover:border-gray-400'
-            }`}
+            onClick={() => { setDir(1); setStep((s) => s + 1); }}
+            className="px-5 py-2 text-sm font-semibold rounded-lg bg-purple-600 hover:bg-purple-500 text-white transition-colors min-h-[44px]"
           >
-            Back
+            Next
           </button>
-
-          {isLast ? (
-            <div className="flex gap-2">
-              <Link to="/farm" onClick={close}
-                className="px-4 py-2 text-sm font-semibold rounded-lg bg-green-600 hover:bg-green-500 text-white transition-colors text-center">
-                Start Farming
-              </Link>
-              <Link to="/swap" onClick={close}
-                className="px-4 py-2 text-sm font-semibold rounded-lg bg-purple-600 hover:bg-purple-500 text-white transition-colors text-center">
-                Buy TOWELI
-              </Link>
-            </div>
-          ) : (
-            <button
-              onClick={() => { setDir(1); setStep((s) => s + 1); }}
-              className="px-5 py-2 text-sm font-semibold rounded-lg bg-purple-600 hover:bg-purple-500 text-white transition-colors"
-            >
-              Next
-            </button>
-          )}
-        </div>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }

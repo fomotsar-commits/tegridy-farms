@@ -37,6 +37,10 @@ const MISSING = [
   { sol: 'TegridyPair.sol',           name: 'TEGRIDY_PAIR_ABI' },
   { sol: 'TegridyTWAP.sol',           name: 'TEGRIDY_TWAP_ABI' },
   { sol: 'TegridyTokenURIReader.sol', name: 'TEGRIDY_TOKEN_URI_READER_ABI' },
+  // AUDIT R010: full staking ABI exposes all 144 functions on-chain (the
+  // hand-rolled subset in contracts.ts only covered ~30 critical ones).
+  // Exposed under the `_FULL` suffix so existing imports keep working.
+  { sol: 'TegridyStaking.sol',        name: 'TEGRIDY_STAKING_ABI_FULL' },
 ];
 
 if (!existsSync(ARTIFACT_DIR)) {
