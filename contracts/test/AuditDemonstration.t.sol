@@ -405,11 +405,15 @@ contract AuditDemonstrationTest is Test {
     //      race within the same block as execute).
     //      Existing 27 TegridyDropV2.t.sol tests pass without changes.
     //
-    // C-2: TegridyStaking has MAX_POSITIONS_PER_HOLDER = 100 (line 127).
-    //      votingPowerOf(user) iterates the full set on every call.
-    //      Comment on line 119 acknowledges "~130k worst case at cap" —
-    //      governance / claim paths that aggregate voting power across
-    //      many users hit this multiplied gas cost.
+    // C-2: PARTIALLY FIXED in Batch F. MAX_POSITIONS_PER_HOLDER lowered
+    //      from 100 → 50, halving the worst-case votingPowerOf gas cost
+    //      paid by every external integrator (ReferralSplitter on each
+    //      fee credit, RevenueDistributor's checkpoint-fallback path,
+    //      governance consumers). 50 still gives Gnosis Safe / vault
+    //      headroom (typical multi-position holders accumulate <10).
+    //      A full O(1) cached aggregate would be ideal but is deferred
+    //      because lazy-expiry semantics make the cache invalidation
+    //      non-trivial. 189 staking regression tests pass.
     //
     // H-5: TegridyFeeHook.executeSyncAccruedFees at line 306 reverts with
     //      `if (actualCredit > old) revert SyncReductionTooLarge()`. This

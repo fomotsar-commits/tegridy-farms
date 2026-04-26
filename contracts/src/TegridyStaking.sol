@@ -116,15 +116,18 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     // Prior implementation overwrote userTokenId on each transfer, so votingPowerOf(holder)
     // silently undercounted multi-NFT holders (contract wallets, Safes, aggregating vaults).
     // Now votingPowerOf iterates the full set, summing active voting power across all positions.
-    // Cap at MAX_POSITIONS_PER_HOLDER bounds checkpoint-write gas (~130k worst case at cap vs
-    // ~100k single-position baseline) and protects against push-grief (attacker flooding a
-    // target address with stale NFTs to inflate their aggregation cost).
+    // Cap at MAX_POSITIONS_PER_HOLDER bounds checkpoint-write gas and votingPowerOf read gas;
+    // also protects against push-grief (attacker flooding a target address with stale NFTs).
     mapping(address => EnumerableSet.UintSet) private _positionsByOwner;
-    // Batch 8 polish (audit sweep 2026-04-20): raised from 50 → 100 to give Gnosis Safe
-    // multisigs and similar contract wallets more legitimate-use headroom. Worst-case
-    // votingPowerOf cost grows linearly (~260k gas at cap vs ~130k at 50) — still well
-    // under any practical gas limit. Attacker cost for a push-grief doubles.
-    uint256 public constant MAX_POSITIONS_PER_HOLDER = 100;
+    // AUDIT C-2 (HIGH): cap restored to 50 from the prior 100. Every external integrator
+    // that reads votingPowerOf — ReferralSplitter on each fee credit, RevenueDistributor's
+    // checkpoint-fallback path, governance/voting consumers — pays the O(n) cost. Doubling
+    // the cap to 100 doubled the cost they pay. 50 still gives Gnosis Safe / aggregating
+    // vault headroom (typical multi-position holders accumulate <10) while halving the
+    // worst-case gas (~130k checkpoint-write, ~250k votingPowerOf read at the cap).
+    // Existing addresses already over the new cap can still claim/withdraw — the cap
+    // gates new acquisitions only.
+    uint256 public constant MAX_POSITIONS_PER_HOLDER = 50;
 
     // AUDIT FIX #1: Checkpointing via OZ Checkpoints.Trace208 (timestamp → votingPower)
     mapping(address => Checkpoints.Trace208) private _checkpoints;
