@@ -28,11 +28,11 @@ const FAQ_DATA: FAQSection[] = [
     category: 'Staking',
     items: [
       { q: 'How does staking work?', a: 'Deposit TOWELI tokens into the staking contract to earn ETH rewards from swap fees. Choose a lock duration to receive a boost multiplier — longer locks earn higher yields.' },
-      { q: 'What is the lock duration?', a: 'You can lock your TOWELI for 1 to 52 months. Longer lock durations give you a higher boost multiplier, which means more rewards.' },
+      { q: 'What is the lock duration?', a: 'You can lock your TOWELI from 7 days up to 4 years. Contract bounds are MIN_LOCK_DURATION = 7 days and MAX_LOCK_DURATION = 4 years. Longer lock durations give you a higher boost multiplier, which means more rewards.' },
       { q: 'Can I withdraw early?', a: 'Yes, but with a 25% early withdrawal penalty. The penalty amount is distributed proportionally to all remaining stakers as a bonus.' },
-      { q: 'What is a boost multiplier?', a: 'Your lock duration determines your yield boost. 1 month lock = 1x multiplier, scaling up to 2.5x at 52 months. Higher multipliers mean a larger share of the reward pool.' },
+      { q: 'What is a boost multiplier?', a: 'Your lock duration determines your yield boost on a linear scale: 0.4x at 7 days up to 4.0x at the full 4-year lock. With the JBAC NFT bonus stacked on top, the contract enforces a 4.5x ceiling (MAX_BOOST_BPS_CEILING = 45000). Higher multipliers mean a larger share of the reward pool.' },
       { q: 'Do I get an NFT for staking?', a: 'Yes. Your staking position is represented as an ERC-721 NFT. This NFT tracks your deposit amount, lock duration, and boost. It can also be used as collateral for peer-to-peer lending.' },
-      { q: 'What are NFT boosts?', a: 'Holders of JBAC, Nakamigos, or GNSS NFTs receive an additional 10-20% yield boost on top of their lock multiplier. Simply hold the NFT in your connected wallet to activate the bonus.' },
+      { q: 'What are NFT boosts?', a: 'Holders of a JBAC NFT receive a flat +0.5x bonus on top of their lock multiplier (capped at 4.5x by MAX_BOOST_BPS_CEILING). Simply hold the NFT in your connected wallet to activate the bonus.' },
     ],
   },
   {

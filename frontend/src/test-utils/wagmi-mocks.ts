@@ -178,6 +178,9 @@ vi.mock('wagmi', () => {
     isError: state.writeStatus.isTxError,
   });
 
+  // R075: no-op so hooks using useWatchContractEvent still mount in tests.
+  const useWatchContractEvent = (_opts: unknown) => undefined;
+
   return {
     useAccount,
     useChainId,
@@ -185,6 +188,7 @@ vi.mock('wagmi', () => {
     useReadContracts,
     useWriteContract,
     useWaitForTransactionReceipt,
+    useWatchContractEvent,
   };
 });
 

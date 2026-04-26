@@ -15,7 +15,7 @@ This runbook is the authoritative deploy plan for shipping the audit-remediation
 |---|---|---|---|
 | **TegridyLPFarming** | **CRITICAL** (C-01 ABI mismatch + defence-in-depth cap) | unchanged | **Pause + migrate** (if live) |
 | TegridyStaking | HIGH (lending whitelist, autoMaxLock preservation, GaugeController TF-04 interface, totalLocked cleanup) | new storage slots | Redeploy OR migrate |
-| TegridyLending | HIGH (grace period, lending caps to state vars, cross-contract whitelist integration) | **const → state** | Redeploy (not upgradeable) |
+| TegridyLending | HIGH (grace period, lending caps to state vars, cross-contract whitelist integration). **R003 (2026-04-25):** constructor now **5 args** (was 4) — adds `_twap` for ETH-denominated collateral floor via `TegridyTWAP.consult()` (see [`.audit_101/remediation/R003.md`](./.audit_101/remediation/R003.md)). | **const → state** | Redeploy (not upgradeable) |
 | TegridyNFTLending | HIGH (createOffer nonReentrant) | unchanged | Redeploy |
 | TegridyNFTPoolFactory | HIGH (CREATE2 cloneDeterministic) | unchanged | Redeploy; pool address scheme changes |
 | TegridyNFTPool | MEDIUM (delta cap 100→10 ETH) | unchanged | Redeploy |
@@ -27,7 +27,26 @@ This runbook is the authoritative deploy plan for shipping the audit-remediation
 | GaugeController | CRITICAL (epoch-0 vote collision bug fix), HIGH (TF-04 epoch-snapshot voting) | **new mapping added** | Redeploy |
 | ReferralSplitter | LOW (circular-depth 10→25) | unchanged | Redeploy |
 
-Not changed this session (no deploy needed): TegridyPair, TegridyFactory, CommunityGrants, MemeBountyBoard, POLAccumulator, PremiumAccess, TegridyFeeHook, TegridyTokenURIReader, TegridyTWAP, VoteIncentives.
+Not changed this session (no deploy needed): TegridyPair, TegridyFactory, CommunityGrants, MemeBountyBoard, PremiumAccess, TegridyTokenURIReader, TegridyTWAP.
+
+### Subsequent batches (Wave 1–4 bulletproofing, 2026-04-25)
+
+These contracts gained **breaking constructor / behaviour changes** in the 101-agent
+remediation phase and must be redeployed against the new ABIs. Reference each
+linked R-file in `.audit_101/remediation/` before broadcasting:
+
+| Contract | R-file | Change | Deploy impact |
+|---|---|---|---|
+| **TegridyLending** | [R003](./.audit_101/remediation/R003.md) | Constructor **5→6 args** *(was already 5 from batch 7d, R003 adds `_twap`)*. ETH collateral floor now reads `TegridyTWAP.consult()` instead of spot reserves. | Redeploy with new `_twap` arg. |
+| **POLAccumulator** | [R015](./.audit_101/remediation/R015.md) | Constructor **4→5 args** — adds `_twap`; `LPMismatch` factory check verifies the LP token matches the pair the TWAP watches. | Redeploy with new `_twap` arg + factory-check ready. |
+| **VoteIncentives** | [R020](./.audit_101/remediation/R020.md) | Constructor **6→7 args** — adds `_commitRevealFromGenesis` boolean; new `refundUnvotedBribe()` closes Spartan TF-13. | Redeploy as commit-reveal-aware partner of GaugeController. |
+| **TegridyFeeHook** | (Wave-0 retry) | Constructor accepts `_owner` arg (Arachnid CREATE2 stranded ownership on first deploy). | Re-mint CREATE2 salt for the new bytecode + redeploy. |
+| **TegridyNFTLending** | [R029](./.audit_101/remediation/R029.md) | Constructor no longer auto-whitelists. Post-deploy: `proposeWhitelistCollection(addr)` → wait 24h → `executeWhitelistCollection(addr)` for each of JBAC, Nakamigos, GNSS. | Redeploy + post-deploy whitelist migration recipe. |
+
+See [`DEPLOY_CHEAT_SHEET.md`](./DEPLOY_CHEAT_SHEET.md) for the paste-ready operator
+view of each step. Wave-0 multisig `acceptOwnership` (LP Farming, Gauge Controller,
+NFT Lending) is a **prerequisite** for any further owner-controlled action;
+[`docs/WAVE_0_TODO.md`](./docs/WAVE_0_TODO.md) tracks status.
 
 ---
 
@@ -203,9 +222,11 @@ Minimum notice to community before and after deploy:
 
 Documented so future contributors don't re-solve them:
 
-- **H-2 commit-reveal voting** — design spec in `DESIGN_H2_COMMIT_REVEAL_VOTING.md`, not implemented. Requires governance sign-off on 5 open questions.
+- ~~**H-2 commit-reveal voting** — design spec in `DESIGN_H2_COMMIT_REVEAL_VOTING.md`, not implemented.~~ **CLOSED 2026-04-18** — commit-reveal voting is now LIVE on `GaugeController` at `0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb` (per `CHANGELOG.md` and `AUDITS.md`). The Wave-0 redeploy carried the H-2 fix on-chain; partner deploy of `VoteIncentives` is still pending per `NEXT_SESSION.md`. Tests in `GaugeCommitReveal.t.sol` (14 tests) cover the closure.
+- **Wave-0 multisig `acceptOwnership` STILL OPEN** on 3 contracts (LP Farming, Gauge Controller, NFT Lending) — Safe `0x0c41e76D2668143b9Dbe6292D34b7e5dE7b28bfe` must call `acceptOwnership()` on each.
+- **Wave-0 redeploys still pending broadcast** — `VoteIncentives`, `TegridyLending` (R003 +TWAP), `POLAccumulator` (R015 +TWAP), `TegridyFeeHook` (re-mint salt for `_owner` arg), `TegridyNFTLending` (R029 no auto-whitelist).
 - **API-M1 real rate limiting** — cosmetic headers today; real enforcement needs Upstash / Vercel Edge Config / sliding-window pick.
-- **Spartan TF-13 orphaned bribes** — 30-day rescue delay accepted as-is.
+- ~~**Spartan TF-13 orphaned bribes** — 30-day rescue delay accepted as-is.~~ **CLOSED 2026-04-25 by R020** — `VoteIncentives.refundUnvotedBribe()` lets the briber sweep unvoted gauge bribes after the rescue window.
 - **Framer-motion in critical path** — LazyMotion refactor deferred; measurable LCP win sits on the shelf.
 - **Off-chain voting collusion** — not fixable at the contract layer.
 

@@ -99,10 +99,17 @@ forge script script/DeployFinal.s.sol \
 > per-contract scripts instead — `TegridyDropV2` deploys implicitly via the V2
 > factory constructor.
 
+> **R003 callout (2026-04-25):** `TegridyLending` constructor now takes a
+> **6th `_twap` arg** for ETH-denominated collateral floor via
+> `TegridyTWAP.consult()` (was 5 args after batch 7d). Set `TWAP=…` env var
+> from Step 9 output (or pre-deploy a TWAP first). Reference:
+> [`.audit_101/remediation/R003.md`](./.audit_101/remediation/R003.md).
+
 Deploys: `TegridyLending`, `TegridyLaunchpadV2` (auto-deploys `TegridyDropV2` template),
 `TegridyNFTPool` (template), `TegridyNFTPoolFactory`.
 
 ```bash
+export TWAP=0x...   # TegridyTWAP address (R003 6th constructor arg)
 forge script script/DeployLending.s.sol \
   --rpc-url "$ETH_RPC_URL" --broadcast --verify \
   --etherscan-api-key "$ETHERSCAN_API_KEY" --slow
@@ -116,6 +123,12 @@ forge script script/DeployNFTPoolFactory.s.sol \
 
 ### Step 4 — NFT Lending
 Standalone, no staking dep.
+
+> **R029 callout (2026-04-25):** `TegridyNFTLending` constructor no longer
+> auto-whitelists JBAC / Nakamigos / GNSS. Post-deploy you MUST call the
+> `proposeWhitelistCollection` → 24h timelock → `executeWhitelistCollection`
+> recipe per collection (see §3 Step 5 below). Reference:
+> [`.audit_101/remediation/R029.md`](./.audit_101/remediation/R029.md).
 
 ```bash
 forge script script/DeployNFTLending.s.sol \
@@ -134,6 +147,14 @@ forge script script/DeployGaugeController.s.sol \
 
 ### Step 6 — Vote Incentives (H-2 commit-reveal)
 Reads updated `TEGRIDY_STAKING`.
+
+> **R020 callout (2026-04-25):** `VoteIncentives` constructor now takes a
+> **7th `_commitRevealFromGenesis` boolean arg**. Pass `true` to mark epoch 0
+> as commit-reveal-active when partnering the Wave-0 `GaugeController`
+> (`0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb`); pass `false` only when
+> intentionally restoring legacy plaintext voting for an emergency window.
+> Also adds `refundUnvotedBribe()` to close Spartan TF-13. Reference:
+> [`.audit_101/remediation/R020.md`](./.audit_101/remediation/R020.md).
 
 ```bash
 forge script script/DeployVoteIncentives.s.sol \
@@ -178,13 +199,35 @@ forge script script/DeployTWAP.s.sol \
 
 ## 3. Post-broadcast wiring (runbook §3)
 
+> **Step 0 prerequisite — Wave-0 multisig `acceptOwnership` STILL OPEN.**
+> Before any of the steps below, the Safe `0x0c41e76D2668143b9Dbe6292D34b7e5dE7b28bfe`
+> must call `acceptOwnership()` on the three live Wave-0 contracts:
+> LP Farming (`0xa7EF711Be3662B9557634502032F98944eC69ec1`),
+> Gauge Controller (`0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb`),
+> and NFT Lending (`0x05409880aDFEa888F2c93568B8D88c7b4aAdB139`).
+> Tracked in [`docs/WAVE_0_TODO.md`](./docs/WAVE_0_TODO.md) §3.
+
 With ownership transferred to multisig, the multisig must queue and execute:
 
 1. `TegridyStaking.proposeLendingContract(TEGRIDY_LENDING, true)` — wait 48h — `executeLendingContract()`
 2. `TegridyStaking.proposeLendingContract(TEGRIDY_NFT_LENDING, true)` — wait 48h — `executeLendingContract()`
 3. `TegridyStaking.proposeRestakingContract(TEGRIDY_RESTAKING)` — wait 48h — `executeRestakingContract()`
 4. `GaugeController.proposeAddGauge(gaugeA)` + peer gauges — wait 24h — `executeAddGauge()` for each
-5. Fund TOWELI to all reward-paying contracts (LPFarming, TegridyLPFarming, VoteIncentives bribe pool)
+5. **R029 NFT-collateral whitelist migration** — `TegridyNFTLending` no longer
+   auto-whitelists at construction. For each of JBAC / Nakamigos / GNSS:
+   ```bash
+   # propose
+   cast send $TEGRIDY_NFT_LENDING \
+     "proposeWhitelistCollection(address)" $JBAC_NFT_ADDRESS \
+     --rpc-url "$ETH_RPC_URL" --private-key "$PRIVATE_KEY"
+   # …wait 24h timelock…
+   cast send $TEGRIDY_NFT_LENDING \
+     "executeWhitelistCollection(address)" $JBAC_NFT_ADDRESS \
+     --rpc-url "$ETH_RPC_URL" --private-key "$PRIVATE_KEY"
+   ```
+   Repeat for Nakamigos and GNSS. Verify each via
+   `cast call $TEGRIDY_NFT_LENDING "isWhitelisted(address)(bool)" $ADDR`.
+6. Fund TOWELI to all reward-paying contracts (LPFarming, TegridyLPFarming, VoteIncentives bribe pool)
 
 ---
 

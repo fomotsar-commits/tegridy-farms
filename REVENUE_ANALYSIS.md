@@ -11,8 +11,8 @@ hard-cap `constant`. "Cap" = the max the contract will let the owner set, even v
 
 | # | Lever | Where collected | Current rate | Hard cap | Who pays | Who receives |
 |---|-------|-----------------|--------------|----------|----------|--------------|
-| 1 | Swap fee (own DEX path) | `SwapFeeRouter.sol` via `swapExactETHForTokens`/`…ForETH` | **0.50 %** (`SWAP_FEE_BPS = 50`) | 1.00 % (`MAX_FEE_BPS = 100`) | Swapper | 100 % → `RevenueDistributor` → stakers (pro-rata TOWELI lock-weighted) |
-| 2 | Swap fee (Uniswap fallback path) | same | **0.50 %** | 1.00 % | Swapper | same |
+| 1 | Swap fee (own DEX path) | `SwapFeeRouter.sol` via `swapExactETHForTokens`/`…ForETH` | **mutable state var** — Swap fee is a mutable state var on `SwapFeeRouter` queryable via `feeBps()` getter; default 50 bps (0.50%) configurable via 48h timelock | 1.00 % (`MAX_FEE_BPS = 100`, hard constant) | Swapper | 100 % → `RevenueDistributor` → stakers (pro-rata TOWELI lock-weighted) |
+| 2 | Swap fee (Uniswap fallback path) | same | same — `feeBps()` getter (mutable state var) | 1.00 % | Swapper | same |
 | 3 | Premium discount on #1/#2 | `SwapFeeRouter.premiumDiscountBps` | **50 %** (`PREMIUM_DISCOUNT_BPS = 5000`) | 100 % | — (discount, not a fee) | Gold Card / Premium subscribers pay 0.25 % instead of 0.50 % |
 | 4 | Referral cut of swap fee | `ReferralSplitter.recordFee()` | **20 %** of protocol fee (`REFERRAL_FEE_BPS = 2000` in Final) or **10 %** (V2/AuditFixes). Which actually deployed depends on broadcast — confirm. | — | — (split, not a fee) | Qualifying referrer (≥ 1000 TOWELI voting power); otherwise redirected to treasury |
 | 5 | Premium subscription | `PremiumAccess.subscribe` | **0.01 ETH / month** (`PREMIUM_MONTHLY_FEE` in Final) **or 10 000 TOWELI / month** (older) | no cap | Subscriber | Treasury |

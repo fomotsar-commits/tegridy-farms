@@ -31,6 +31,7 @@ import { TowelieAssistant } from '../TowelieAssistant';
 import { TowelieProvider } from '../../hooks/useTowelie';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { OnboardingModal } from '../ui/OnboardingModal';
+import { ConsentBanner } from '../ui/ConsentBanner';
 import { SeasonalEventBanner } from '../SeasonalEvent';
 
 const NAV_ORDER = [
@@ -135,6 +136,10 @@ export function AppLayout() {
       <LiveActivity />
       <TowelieAssistant />
       <OnboardingModal />
+      {/* R046 / H-1: GDPR/ePrivacy consent gate. Renders only on first visit
+          (consent === 'pending'); analytics + error reporting are blocked
+          until the user clicks Accept or Decline. */}
+      <ConsentBanner />
 
       <Toaster
         position="top-right"

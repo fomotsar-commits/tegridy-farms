@@ -141,7 +141,17 @@ export default async function handler(req, res) {
         body: JSON.stringify({ jsonrpc: "2.0", method, params: req.body.params || [], id: 1 }),
       });
       const data = await rpcRes.json();
-      res.setHeader("Cache-Control", "s-maxage=10, stale-while-revalidate=30");
+      // R050 / agent 078 H-4: edge cache is shared across all callers, so we
+      // can only enable it for methods whose response is identical for every
+      // user. eth_blockNumber is a public chain-tip read (~12s block time).
+      // Anything else (logs filtered by user wallet, future user-bound RPCs)
+      // gets `private, no-store` so the edge can never serve one user's
+      // response to another.
+      if (method === "eth_blockNumber") {
+        res.setHeader("Cache-Control", "s-maxage=12, stale-while-revalidate=12");
+      } else {
+        res.setHeader("Cache-Control", "private, no-store");
+      }
       return res.status(200).json(data);
     } catch (err) {
       return res.status(500).json({ error: "RPC proxy fetch failed" });

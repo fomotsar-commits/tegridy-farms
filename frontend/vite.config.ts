@@ -5,6 +5,51 @@ import { visualizer } from 'rollup-plugin-visualizer';
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+// R002: only same-origin localhost dev servers may POST to the save handler.
+// Defends against DNS-rebind, LAN-side CSRF, and arbitrary sites the dev
+// happens to be visiting (a hostile tab can fetch() this URL otherwise).
+const ART_STUDIO_ORIGIN_ALLOWLIST = new Set<string>([
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+]);
+const ART_STUDIO_MAX_BODY_BYTES = 64 * 1024; // 64 KB — matches Vercel default
+
+function isAllowedOrigin(req: { headers: { origin?: string; referer?: string } }): boolean {
+  const origin = req.headers.origin;
+  if (origin) return ART_STUDIO_ORIGIN_ALLOWLIST.has(origin);
+  // Fall back to Referer if Origin is absent (some clients drop it on
+  // same-origin POSTs). Treat parse failure as a rejection.
+  const referer = req.headers.referer;
+  if (!referer) return false;
+  try {
+    const u = new URL(referer);
+    return ART_STUDIO_ORIGIN_ALLOWLIST.has(`${u.protocol}//${u.host}`);
+  } catch {
+    return false;
+  }
+}
+
+// R002: minimal schema validator. Rejects anything that is not the exact
+// shape /art-studio sends — `artId` is the only required field per surface,
+// `objectPosition` and `scale` are optional. Bound oversized strings/numbers
+// to keep the saved file small and deterministic.
+function isValidOverridePayload(p: unknown): p is Record<string, { artId: string; objectPosition?: string; scale?: number }> {
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return false;
+  for (const [k, v] of Object.entries(p as Record<string, unknown>)) {
+    if (typeof k !== 'string' || k.length === 0 || k.length > 256) return false;
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+    const entry = v as Record<string, unknown>;
+    if (typeof entry.artId !== 'string' || entry.artId.length === 0 || entry.artId.length > 128) return false;
+    if (entry.objectPosition !== undefined) {
+      if (typeof entry.objectPosition !== 'string' || entry.objectPosition.length > 64) return false;
+    }
+    if (entry.scale !== undefined) {
+      if (typeof entry.scale !== 'number' || !Number.isFinite(entry.scale) || entry.scale <= 0 || entry.scale > 16) return false;
+    }
+  }
+  return true;
+}
+
 // Dev-only middleware that lets /art-studio persist picks to
 // src/lib/artOverrides.ts. Disabled in production builds.
 function artStudioPlugin(): Plugin {
@@ -18,11 +63,46 @@ function artStudioPlugin(): Plugin {
           res.end('POST only');
           return;
         }
+        // R002: origin allowlist (must run before we read the body).
+        if (!isAllowedOrigin(req)) {
+          res.statusCode = 403;
+          res.end('Forbidden: origin not allowed');
+          return;
+        }
+        // R002: streaming body cap so an attacker can't make us buffer
+        // unbounded data in dev memory.
         let body = '';
-        req.on('data', (chunk) => { body += chunk; });
+        let bytes = 0;
+        let tooLarge = false;
+        req.on('data', (chunk: Buffer | string) => {
+          if (tooLarge) return;
+          const chunkBytes = typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length;
+          bytes += chunkBytes;
+          if (bytes > ART_STUDIO_MAX_BODY_BYTES) {
+            tooLarge = true;
+            res.statusCode = 413;
+            res.end('Payload too large');
+            req.destroy();
+            return;
+          }
+          body += chunk;
+        });
         req.on('end', () => {
+          if (tooLarge) return;
+          let parsed: unknown;
           try {
-            const parsed = JSON.parse(body) as Record<string, { artId: string; objectPosition?: string; scale?: number }>;
+            parsed = JSON.parse(body);
+          } catch (err) {
+            res.statusCode = 400;
+            res.end(`Bad JSON: ${(err as Error).message}`);
+            return;
+          }
+          if (!isValidOverridePayload(parsed)) {
+            res.statusCode = 400;
+            res.end('Bad request: schema validation failed');
+            return;
+          }
+          try {
             // Stable key order so diffs are clean.
             const keys = Object.keys(parsed).sort();
             const entries = keys.map((k) => {
@@ -58,8 +138,9 @@ ${entries}
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({ ok: true, count: keys.length }));
           } catch (err) {
-            res.statusCode = 400;
-            res.end(`Bad request: ${(err as Error).message}`);
+            // Write failure (ENOENT/EACCES) is a server fault, not a client one.
+            res.statusCode = 500;
+            res.end(`Server error: ${(err as Error).message}`);
           }
         });
       });
@@ -173,7 +254,9 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       target: 'es2023',
-      sourcemap: 'hidden',
+      // R078: don't ship sourcemaps — even 'hidden' writes them to disk and
+      // hosting CDNs sometimes leak them. Bundle internals stay private.
+      sourcemap: false,
       // Fix: CSS preload errors on lazy-loaded chunks (Nakamigos App.css)
       // Vite's modulePreload inserts <link rel="modulepreload"> that can fail on some CDNs
       cssCodeSplit: true,

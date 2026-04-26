@@ -92,3 +92,18 @@ export function safeGetItem(key: string): string | null {
     return null;
   }
 }
+
+/**
+ * Safe JSON.parse — returns null on any error rather than throwing.
+ * R080: callers in cache readers (useToweliPrice, usePriceHistory) used to
+ * directly catch JSON.parse exceptions; centralising here so a malformed
+ * cache entry can never bubble a SyntaxError into a render path.
+ */
+export function safeJsonParse<T = unknown>(raw: string | null | undefined): T | null {
+  if (raw == null) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}

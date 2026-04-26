@@ -160,12 +160,20 @@ forge build
 forge test
 ```
 
-To redeploy the three contracts with working-tree patches (see `FIX_STATUS.md`), use the helper:
+To redeploy contracts with working-tree patches (see `FIX_STATUS.md` and `DEPLOY_CHEAT_SHEET.md`), run the per-contract `forge script` calls in order. The previous one-shot helper `scripts/redeploy-patched-3.sh` was deleted on 2026-04-19 along with the V1 `TegridyDrop` source. Use, for example:
 
 ```bash
-./scripts/redeploy-patched-3.sh
+# C-01 fixed LP farming (see DEPLOY_CHEAT_SHEET.md §2 Step 8)
+export TEGRIDY_LP=0x...        # TOWELI/WETH pair
+export TEGRIDY_STAKING=0x...   # current staking
+forge script script/DeployTegridyLPFarming.s.sol \
+  --rpc-url "$ETH_RPC_URL" --broadcast --verify \
+  --etherscan-api-key "$ETHERSCAN_API_KEY" --slow
+
 npx tsx scripts/diff-addresses.ts   # prints the constants.ts patch
 ```
+
+See `DEPLOY_CHEAT_SHEET.md` and `DEPLOY_RUNBOOK.md` for the full ordered deploy sequence.
 
 ### Quick start — indexer
 

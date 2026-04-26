@@ -19,11 +19,15 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { ArtImg } from '../components/ArtImg';
 
+// AUDIT R035: Split mirrors TOKENOMICS.md (source of truth) — Circulating 45 /
+// LP Seed 30 / Treasury 10 / Community Emissions 10 / Team (vesting) 5.
+// Investors 0% omitted from the pie. Distinct fills so the legend reads.
 const SUPPLY_DATA = [
-  { name: 'Circulating', value: 65, color: '#000000' },
-  { name: 'Staking Rewards', value: 20, color: '#ffb237' },
-  { name: 'LP Rewards', value: 10, color: '#000000' },
-  { name: 'Treasury', value: 5, color: '#ff4ea3' },
+  { name: 'Circulating', value: 45, color: '#ffb237' },
+  { name: 'LP Seed', value: 30, color: '#ff4ea3' },
+  { name: 'Treasury', value: 10, color: '#8b5cf6' },
+  { name: 'Community', value: 10, color: '#22c55e' },
+  { name: 'Team (vesting)', value: 5, color: '#3b82f6' },
 ];
 
 const CONTRACTS = [

@@ -10,7 +10,7 @@ TOWELI can be acquired by swapping on the native AMM, earned through LP farming 
 Yes. The core contracts (TegridyLPFarming, TegridyNFTLending, GaugeController, TegridyDropV2) have been reviewed internally and findings are tracked in AUDIT_FINDINGS.md and SPARTAN_AUDIT.txt. External audits are scheduled pre-mainnet with a public report release.
 
 ## How are fees distributed (70/20/10)?
-Protocol fees split as: 70% to stakers and LP providers as real yield, 20% to the treasury multisig for operations and grants, and 10% to a burn/buyback address that permanently reduces circulating supply.
+Protocol fees split as: 70% to stakers and LP providers as real yield, 20% to the treasury multisig for operations and grants, and 10% reserved for future tokenomics decisions via governance — there is currently **no protocol burn mechanism**. `Toweli.sol` exposes no `burn()` entrypoint and supply is fixed at 1,000,000,000. Any future burn or buyback path would have to go through governance and a contract upgrade. See [TOKENOMICS.md](TOKENOMICS.md) for the canonical breakdown of where each fee surface routes today.
 
 ## What's the boost?
 Stakers who lock TOWELI earn a 0.4×–4.0× boost on LP rewards depending on lock duration, plus an additional +0.5× if they hold a JBAC NFT (ceiling 4.5×). Boost magnitude scales with lock duration and veTOWELI balance, rewarding long-term aligned participants. See [TOKENOMICS.md](TOKENOMICS.md) for the full boost curve.
@@ -22,7 +22,7 @@ Early unstaking from locked positions incurs a linear penalty that decreases as 
 Tegridy NFT Lending uses fixed-term loans with no margin-call liquidations. If a borrower defaults at maturity, the NFT transfers to the lender — there are no surprise liquidations from oracle volatility mid-loan.
 
 ## Who controls the multisig?
-The treasury multisig is a 4-of-7 Gnosis Safe held by core contributors and community-elected signers. Signer rotations and threshold changes require on-chain governance approval via the GaugeController voting system.
+Migration to a **4-of-7 Gnosis Safe is planned (Wave 0 incomplete as of 2026-04-25)**. Today the protocol is administered by an EOA with on-chain timelock delays gating every privileged action (24–48h depending on the contract — see `DEPLOY_RUNBOOK.md`). Once the multisig is live, signer rotations and threshold changes will require on-chain governance approval via the GaugeController voting system. Status of the migration is tracked in `NEXT_SESSION.md` and `FIX_STATUS.md`.
 
 ## Is there a mobile app?
 Not yet. The web app is fully responsive and optimized for iPhone 14+ and iPad. A dedicated iOS and Android app is on the roadmap post-mainnet, with wallet-connect integration and push notifications for positions.

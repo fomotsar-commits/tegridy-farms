@@ -8,7 +8,7 @@ Tegridy Farms takes the security of its smart contracts, frontend, and user fund
 
 PGP key fingerprint available on request. Please encrypt critical findings.
 
-**Alternative channel:** [Immunefi bug bounty program](https://immunefi.com/bounty/tegridyfarms) — submit via the Immunefi platform for streamlined triage, escrowed rewards, and mediation.
+**Bug bounty program status:** A formal bug bounty program is being set up. For now, please email security@tegridyfarms.xyz with disclosures. Researchers who report responsibly during this interim period will receive Hall-of-Fame acknowledgment and priority consideration for rewards once the program is live. There is no public Immunefi page yet — this section will be updated when the program goes live.
 
 **Response SLA:**
 - Initial acknowledgement: within 24 hours
@@ -16,7 +16,7 @@ PGP key fingerprint available on request. Please encrypt critical findings.
 - Status updates: at least every 5 business days until resolved
 - Patch + payout timeline communicated after triage
 
-Please do NOT open public GitHub issues for security vulnerabilities. Use email or Immunefi.
+Please do NOT open public GitHub issues for security vulnerabilities. Use email.
 
 ## Scope
 
@@ -48,16 +48,7 @@ Frontend code paths that directly handle user funds, signatures, or private keys
 
 ## Bounty Tiers
 
-Rewards are paid in USDC or TGRDY (reporter's choice) based on impact and likelihood. Final severity is determined by the Tegridy Farms security team in consultation with Immunefi.
-
-| Severity | Impact | Reward Range (USD) |
-|----------|--------------------------------------------------------|---------------------|
-| Critical | Direct theft of user funds, permanent protocol freeze | $50,000 – $250,000 |
-| High     | Theft of yield / rewards, temporary fund freeze        | $10,000 – $50,000   |
-| Medium   | Griefing, unfair advantage, contract state corruption  | $2,500 – $10,000    |
-| Low      | Minor informational leaks, non-critical edge cases     | $500 – $2,500       |
-
-Rewards scale with TVL at risk and quality of the report (reproduction steps, PoC, suggested fix).
+A formal bug bounty program — including reward tiers, payout currency, and final-severity adjudication — is being prepared and will be published here when live. **Until then, no specific reward amounts are guaranteed.** Researchers who report responsibly during this interim period will be acknowledged in the [Hall of Fame](./HALL_OF_FAME.md) and given priority consideration for rewards once the program launches. Severity classification follows the [Immunefi vulnerability severity classification system](https://immunefi.com/severity-system/) for reference.
 
 ## Safe Harbor
 
@@ -70,7 +61,7 @@ Tegridy Farms offers safe harbor to security researchers who act in good faith a
 5. Report findings promptly and keep details confidential until a fix is deployed
 6. Comply with applicable laws
 
-This safe harbor is Immunefi-compatible. If this policy conflicts with Immunefi's standard terms while reporting via that platform, Immunefi's terms govern the engagement.
+This safe harbor is intended to be Immunefi-compatible once the program is live. Once Tegridy Farms publishes an Immunefi page, any conflict between this policy and Immunefi's standard terms while reporting via that platform will be resolved in favor of Immunefi's terms.
 
 If legal action is initiated by a third party against a researcher following this policy, we will take reasonable steps to make it known the activity was authorized.
 
@@ -106,4 +97,4 @@ We maintain a [Hall of Fame](./HALL_OF_FAME.md) for researchers who have contrib
 
 ---
 
-Last updated: 2026-04-19
+Last updated: 2026-04-25

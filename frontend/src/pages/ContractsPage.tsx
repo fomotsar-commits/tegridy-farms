@@ -38,7 +38,10 @@ import {
   isDeployed,
 } from '../lib/constants';
 
-const GITHUB_BASE = 'https://github.com/tegridyfarms/tegridy-farms/blob/main';
+// AUDIT R035: org was previously `tegridyfarms` (404). Source of truth per
+// `git remote -v` is `fomotsar-commits/tegridy-farms`. All per-contract source
+// links and the tracked-issues badge below now resolve.
+const GITHUB_BASE = 'https://github.com/fomotsar-commits/tegridy-farms/blob/main';
 
 interface ContractEntry {
   label: string;
@@ -357,7 +360,7 @@ export default function ContractsPage() {
               </a>
               {' '}·{' '}
               <a
-                href="https://github.com/fomotsar-commits/tegriddy-farms/issues?q=is%3Aissue+is%3Aopen+label%3Await-wave0"
+                href="https://github.com/fomotsar-commits/tegridy-farms/issues?q=is%3Aissue+is%3Aopen+label%3Await-wave0"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-white/80 underline hover:text-white transition-colors"

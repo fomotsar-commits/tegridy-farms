@@ -1,11 +1,11 @@
-import { useMemo, useEffect, useState } from 'react';
+import { useMemo, useEffect, useRef, useState } from 'react';
 import { m } from 'framer-motion';
-import { useAccount, useBalance, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useBalance, useChainId, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, isDeployed } from '../lib/constants';
+import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
 import { ERC20_ABI, REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
 import { useUserPosition } from '../hooks/useUserPosition';
 import { usePoolData } from '../hooks/usePoolData';
@@ -109,21 +109,32 @@ export default function DashboardPage() {
     farmActions.claim(pos.tokenId);
   };
 
-  // Show success toast after claim confirms
+  // Show success toast after claim confirms.
+  // R047 M2: dedup by tx hash so a wagmi cache rehydration that surfaces
+  // `isSuccess: true` on remount can't fire a second toast for the same tx.
+  const claimToastFiredRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (farmActions.isSuccess) {
-      toast.success('Rewards claimed successfully!');
-    }
-  }, [farmActions.isSuccess]);
+    if (!farmActions.isSuccess) return;
+    const key = farmActions.hash ?? '__no_hash__';
+    if (claimToastFiredRef.current.has(key)) return;
+    claimToastFiredRef.current.add(key);
+    toast.success('Rewards claimed successfully!');
+  }, [farmActions.isSuccess, farmActions.hash]);
 
   // Towelie nudge: surface unclaimed yield. Dedup by `key` so the bubble
   // doesn't re-fire on every price tick or remount — once per page load.
+  // R047 H1: depend on `nudgeKey = round(pendingTotal*100)` so sub-cent
+  // floating-point churn from the position hook doesn't re-fire the effect
+  // on every price tick. `say` is stable from `TowelieProvider` (useCallback).
   const { say } = useTowelie();
+  const nudgeKey = Math.round(pendingTotal * 100);
   useEffect(() => {
     if (!isConnected || isWrongNetwork) return;
-    if (!pos.hasPosition || pendingTotal < 0.01) return;
-    say(`You've got ${pendingTotal.toFixed(2)} TOWELI waiting. Claim it.`, { key: 'unclaimed-yield' });
-  }, [isConnected, isWrongNetwork, pos.hasPosition, pendingTotal, say]);
+    if (!pos.hasPosition || nudgeKey < 1) return;
+    const amount = (nudgeKey / 100).toFixed(2);
+    say(`You've got ${amount} TOWELI waiting. Claim it.`, { key: 'unclaimed-yield' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- say is stable; nudgeKey is the de-floated dep
+  }, [isConnected, isWrongNetwork, pos.hasPosition, nudgeKey]);
 
   // Price change indicator
   const priceChangeStr = price.priceChange !== 0
@@ -514,12 +525,19 @@ export default function DashboardPage() {
 }
 
 function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrongNetwork: boolean }) {
+  // R047 M1: pin chainId on the read so a wallet on the wrong chain can't
+  // surface stale 0 ETH from a different network. Wrong-chain UI surfaces
+  // the page-level "Wrong network detected" banner instead.
+  const chainId = useChainId();
+  const onCorrectChain = chainId === CHAIN_ID;
+
   const { data: pendingETH, error: pendingError } = useReadContract({
     address: REVENUE_DISTRIBUTOR_ADDRESS,
     abi: REVENUE_DISTRIBUTOR_ABI,
     functionName: 'pendingETH',
     args: [address as `0x${string}`],
-    query: { enabled: !!address },
+    chainId: CHAIN_ID,
+    query: { enabled: !!address && onCorrectChain },
   });
 
   const { writeContract, data: hash, isPending } = useWriteContract();
@@ -527,12 +545,16 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
 
   const pending = pendingETH ? Number(formatEther(pendingETH as bigint)) : 0;
 
-  // Show success toast after ETH claim confirms
+  // Show success toast after ETH claim confirms.
+  // R047 M2: dedup keyed on tx hash; effect early-returns when no hash so a
+  // cache-rehydrated `isSuccess: true` from a stale render can't toast.
+  const ethToastFiredRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (isClaimSuccess) {
-      toast.success('ETH revenue claimed successfully!');
-    }
-  }, [isClaimSuccess]);
+    if (!isClaimSuccess || !hash) return;
+    if (ethToastFiredRef.current.has(hash)) return;
+    ethToastFiredRef.current.add(hash);
+    toast.success('ETH revenue claimed successfully!');
+  }, [isClaimSuccess, hash]);
 
   if (pending > 0) {
     return (

@@ -29,7 +29,7 @@ const SECTIONS = [
   },
   {
     title: '7. Fees',
-    body: 'The Protocol charges the following fees: a 0.3% fee on all token swaps executed through the AMM; a 25% early withdrawal penalty on staked positions withdrawn before their lock period expires; and protocol fees on NFT lending transactions as determined by the lending contract parameters. Fee structures may be modified through DAO governance proposals. All fees are transparently enforced by the smart contracts and cannot be altered outside of the governance process.',
+    body: 'The Protocol charges the following fees: a 0.50% fee on token swaps routed through the SwapFeeRouter (SWAP_FEE_BPS = 50; capped at 1.00% / MAX_FEE_BPS = 100 by contract); a 25% early withdrawal penalty on staked positions withdrawn before their lock period expires; and protocol fees on NFT lending transactions as determined by the lending contract parameters. Fee structures may be modified through DAO governance proposals subject to the on-chain timelock. All fees are transparently enforced by the smart contracts and cannot be altered outside of the governance process.',
   },
   {
     title: '8. Intellectual Property',

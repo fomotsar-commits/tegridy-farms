@@ -10,6 +10,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Ongoing investor-polish and audit-closure work. Lands on `main` as it ships;
 a tagged release will cut from here once Wave 0 redeploys are complete.
 
+### 2026-04-25 — Wave 1–4 bulletproofing (~80 R-fixes)
+
+#### Summary
+
+Wave 1–4 bulletproofing — ~80 R-fixes; build green; tests pass. Reference
+[`.audit_101/MASTER_REPORT.md`](./.audit_101/MASTER_REPORT.md) +
+[`.audit_101/DETAILED_REPORT.md`](./.audit_101/DETAILED_REPORT.md) +
+[`.audit_101/remediation/REMEDIATION_REPORT.md`](./.audit_101/remediation/REMEDIATION_REPORT.md).
+Per-fix change logs at [`.audit_101/remediation/R001.md`](./.audit_101/remediation/R001.md)
+through [`R076.md`](./.audit_101/remediation/R076.md).
+
+#### Breaking constructor / behaviour changes (require redeploy)
+
+- **R003** — `TegridyLending` constructor adds `_twap` arg (5→6 args). ETH
+  collateral floor now reads `TegridyTWAP.consult()` instead of spot reserves.
+- **R015** — `POLAccumulator` constructor adds `_twap` arg (4→5 args) +
+  `LPMismatch` factory check that the LP token matches the pair the TWAP watches.
+- **R020** — `VoteIncentives` constructor adds `_commitRevealFromGenesis`
+  boolean (6→7 args); also adds `refundUnvotedBribe()` (closes Spartan TF-13).
+- **R029** — `TegridyNFTLending` no longer auto-whitelists collections at
+  construction. Post-deploy must call `proposeWhitelistCollection(addr)` →
+  24h timelock → `executeWhitelistCollection(addr)` per collection
+  (JBAC / Nakamigos / GNSS).
+
+#### Wave 0 still pending
+
+Per memory `project_wave0_pending.md`: `VoteIncentives` + `V3Features` +
+`FeeHook-patch` redeploys plus multisig `acceptOwnership` on 3 contracts
+(LP Farming, Gauge Controller, NFT Lending) by Safe
+`0x0c41e76D2668143b9Dbe6292D34b7e5dE7b28bfe`. Tracked in
+[`docs/WAVE_0_TODO.md`](./docs/WAVE_0_TODO.md) §3.
+
+#### Docs
+
+R008 + R076 + RC3 doc-truth-up sweep across `FAQ.md`, `REVENUE_ANALYSIS.md`,
+`SECURITY.md`, `README.md`, `FIX_STATUS.md`, `DEPLOY_RUNBOOK.md`,
+`DEPLOY_CHEAT_SHEET.md`, `NEXT_SESSION.md`, `AUDITS.md` — removed fictional
+claims (no `burn()` in `Toweli.sol`; no `SWAP_FEE_BPS = 50` constant on
+`SwapFeeRouter`; no live Immunefi page; deleted `redeploy-patched-3.sh`),
+flagged Wave-0 multisig migration as PENDING.
+
 ### 2026-04-19 — Batch 7d: ETH-denominated collateral floor on `TegridyLending`
 
 #### Added

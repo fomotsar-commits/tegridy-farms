@@ -4,35 +4,66 @@ Where we are, what's left, and where to start when a new session opens.
 
 ---
 
-## Status at handoff (2026-04-18, after session 13)
+## Status at handoff (2026-04-25, after Wave 1–4 bulletproofing)
 
-**Current branch:** `main` at [`9b6e7da`](https://github.com/fomotsar-commits/tegridy-farms/commit/9b6e7da). Clean working tree (plus the usual scratch at `.audit_findings.md`, `.claude/`, `.spartan_unpacked/`, `indexer/nul`, `frontend/test-results/`, `indexer/tsconfig.tsbuildinfo` — all gitignored-appropriate).
+**Current branch:** `main` (post-101-agent canonical pass + ~80 R-fix remediation
+phase). Reference: [`.audit_101/MASTER_REPORT.md`](.audit_101/MASTER_REPORT.md) +
+[`.audit_101/DETAILED_REPORT.md`](.audit_101/DETAILED_REPORT.md) +
+[`.audit_101/remediation/`](.audit_101/remediation/) (R001–R076).
 
-**13 commits pushed** across sessions 1–13. Cumulative: ~24,000 lines touched across ~130 files.
+**Live test health (post-bulletproofing):**
+- `forge test`: green across all suites; new audit-regression coverage in
+  `Audit195_*.t.sol` + `RC*.t.sol` + R-fix per-file harnesses
+- `pnpm --filter frontend exec vitest run`: green
+- `pnpm --filter frontend exec tsc --noEmit`: 0 errors
+- Playwright E2E: smoke + trust-pages + gauge-voting + wallet-connect + trade-page
 
-**Live test health:**
-- `forge test`: **1,921 / 1,921 passing** across 66 suites
-- `pnpm --filter frontend exec vitest run`: **403 / 403 passing** across 27 files
-- `pnpm --filter frontend exec tsc --noEmit`: **0 errors**
-- Playwright E2E: 20+ specs across smoke, trust-pages, gauge-voting, wallet-connect, trade-page
-
-**Known-stale:** indexer `pnpm exec tsc --noEmit` reports Ponder `Virtual.Registry` type-recursion errors — **pre-existing ceiling issue**, not a regression. Verified via `git stash` in session 5.
+**Known-stale:** indexer `pnpm exec tsc --noEmit` reports Ponder `Virtual.Registry` type-recursion errors — **pre-existing ceiling issue**, not a regression.
 
 ---
 
 ## Immediate priorities when the new session opens
 
-### 🔴 1. Wave 0 execution (user hands — 45-90 min + 48h timelock wait)
-Open [`docs/WAVE_0_RUNBOOK.md`](docs/WAVE_0_RUNBOOK.md) and work through top-to-bottom. Every step is a scripted command or dashboard click. Six steps:
+### 🔴 1. Wave-0 + Wave-1–4 deploy work (user hands — multi-session)
 
-1. Rotate `.env` secrets (Alchemy / Etherscan / WalletConnect / Upstash / Supabase / deployer EOA)
-2. Apply Supabase migration 002 in the SQL editor
-3. Redeploy the 3 patched contracts via `scripts/redeploy-patched-3.sh` + `scripts/diff-addresses.ts` → patch `constants.ts` + README + `MIGRATION_HISTORY.md`
-4. Deploy `TegridyFeeHook` via the CREATE2 salt-miner at `contracts/script/DeployTegridyFeeHook.s.sol`
-5. *(Already done in session 13:)* Render OG PNG — skip
-6. Smoke-test prod
+The Wave-0 deploy partially landed 2026-04-18 (per memory `project_wave0_pending.md`),
+and the Wave-1–4 bulletproofing R-fixes (R001–R076) layer additional breaking
+changes on top. Three sub-buckets:
 
-Needs: your private key, RPC URL, ~0.05 ETH for gas across all the redeploys, Supabase dashboard access.
+#### 1a. Multisig `acceptOwnership` on 3 contracts (FIRST — gates everything else)
+Safe `0x0c41e76D2668143b9Dbe6292D34b7e5dE7b28bfe` must call `acceptOwnership()` on:
+- LP Farming `0xa7EF711Be3662B9557634502032F98944eC69ec1`
+- Gauge Controller `0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb`
+- NFT Lending `0x05409880aDFEa888F2c93568B8D88c7b4aAdB139`
+
+Tracked in [`docs/WAVE_0_TODO.md`](docs/WAVE_0_TODO.md) §3. Without this, no
+`propose…` / `execute…` calls can fire.
+
+#### 1b. Wave-0 redeploys still pending broadcast
+Per memory `project_wave0_pending.md`, deferred contracts include `VoteIncentives`,
+`V3Features`, `TegridyFeeHook` (re-mint salt for `_owner`). Add the Wave-1–4
+breaking-change redeploys layered on top:
+- **R003** — `TegridyLending` constructor now **5→6 args** (`+_twap`)
+- **R015** — `POLAccumulator` constructor now **4→5 args** (`+_twap`, `LPMismatch` factory check)
+- **R020** — `VoteIncentives` constructor now **6→7 args** (`+_commitRevealFromGenesis`); adds `refundUnvotedBribe()` (closes Spartan TF-13)
+- **R029** — `TegridyNFTLending` no longer auto-whitelists collections (see 1c)
+
+Use the per-contract `forge script` recipes in
+[`DEPLOY_CHEAT_SHEET.md`](DEPLOY_CHEAT_SHEET.md) §2 (the previous one-shot helper
+`scripts/redeploy-patched-3.sh` was deleted 2026-04-19 with the V1 `TegridyDrop`
+source).
+
+#### 1c. R029 NFT-collateral whitelist migration (post-NFTLending redeploy)
+`TegridyNFTLending` constructor no longer auto-whitelists JBAC / Nakamigos / GNSS.
+For each collection, post-deploy:
+1. `proposeWhitelistCollection(addr)` from owner / multisig
+2. Wait 24h timelock
+3. `executeWhitelistCollection(addr)`
+
+Recipe in [`DEPLOY_CHEAT_SHEET.md`](DEPLOY_CHEAT_SHEET.md) §3 Step 5.
+
+Needs: your private key (or Safe signers), RPC URL, ~0.05 ETH for gas across
+all the redeploys, Supabase dashboard access for the still-pending migration 002.
 
 ### 🟠 2. Community channel registration (user hands — hours across days)
 Open [`docs/COMMUNITY_LAUNCH.md`](docs/COMMUNITY_LAUNCH.md). Phased order:

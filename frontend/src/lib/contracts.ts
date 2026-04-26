@@ -158,6 +158,11 @@ export const SWAP_FEE_ROUTER_ABI = [
   { type: 'function', name: 'totalSwaps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'getEffectiveFeeBps', inputs: [{ name: 'pairOrToken', type: 'address' }, { name: 'user', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'premiumDiscountBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // R070: paused() + treasury() surfaced on the Treasury page so users see when
+  // fee routing is halted and whether the on-chain treasury matches the address
+  // we render. Both are read-only — no new write ABIs added.
+  { type: 'function', name: 'paused', inputs: [], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
+  { type: 'function', name: 'treasury', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
 ] as const;
 
 // ─── PremiumAccess ──────────────────────────────────────────────
@@ -275,6 +280,35 @@ export const VOTE_INCENTIVES_ABI = [
     { name: 'bond', type: 'uint96' },
     { name: 'revealed', type: 'bool' },
   ], stateMutability: 'view' },
+  // R075: events used by useWatchContractEvent in useBribes / useGaugeList
+  { type: 'event', name: 'BribeDeposited', inputs: [
+    { name: 'depositor', type: 'address', indexed: true },
+    { name: 'pair', type: 'address', indexed: true },
+    { name: 'token', type: 'address', indexed: true },
+    { name: 'amount', type: 'uint256', indexed: false },
+    { name: 'epoch', type: 'uint256', indexed: false },
+  ], anonymous: false },
+  { type: 'event', name: 'BribeDepositedETH', inputs: [
+    { name: 'depositor', type: 'address', indexed: true },
+    { name: 'pair', type: 'address', indexed: true },
+    { name: 'amount', type: 'uint256', indexed: false },
+    { name: 'epoch', type: 'uint256', indexed: false },
+  ], anonymous: false },
+  { type: 'event', name: 'BribeClaimed', inputs: [
+    { name: 'user', type: 'address', indexed: true },
+    { name: 'pair', type: 'address', indexed: true },
+    { name: 'epoch', type: 'uint256', indexed: false },
+  ], anonymous: false },
+  { type: 'event', name: 'GaugeVoted', inputs: [
+    { name: 'user', type: 'address', indexed: true },
+    { name: 'epoch', type: 'uint256', indexed: true },
+    { name: 'pair', type: 'address', indexed: true },
+    { name: 'power', type: 'uint256', indexed: false },
+  ], anonymous: false },
+  { type: 'event', name: 'EpochAdvanced', inputs: [
+    { name: 'epoch', type: 'uint256', indexed: true },
+    { name: 'totalPower', type: 'uint256', indexed: false },
+  ], anonymous: false },
 ] as const;
 
 export const voteIncentivesConfig = {
@@ -578,6 +612,18 @@ export const GAUGE_CONTROLLER_ABI = [
     { name: 'epoch', type: 'uint256', indexed: true },
     { name: 'gauges', type: 'address[]', indexed: false },
     { name: 'weights', type: 'uint256[]', indexed: false },
+  ], anonymous: false },
+  // R075: gauge add/remove + simple Voted event
+  { type: 'event', name: 'GaugeAdded', inputs: [
+    { name: 'gauge', type: 'address', indexed: true },
+  ], anonymous: false },
+  { type: 'event', name: 'GaugeRemoved', inputs: [
+    { name: 'gauge', type: 'address', indexed: true },
+  ], anonymous: false },
+  { type: 'event', name: 'Voted', inputs: [
+    { name: 'voter', type: 'address', indexed: true },
+    { name: 'tokenId', type: 'uint256', indexed: true },
+    { name: 'epoch', type: 'uint256', indexed: true },
   ], anonymous: false },
 ] as const;
 

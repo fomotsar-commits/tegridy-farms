@@ -152,3 +152,14 @@ export const metadataLimit = createLimit(5);
 /// Public-path fallback used by `<img onError>`. Tracked here so every
 /// surface uses the same asset and a missing file is obvious in QA.
 export const PLACEHOLDER_NFT = '/placeholder-nft.svg';
+
+/**
+ * One-shot helper for `<img src>` and `<a href>` consumers: resolve to a
+ * safe HTTPS URL or fall back to PLACEHOLDER_NFT for image surfaces /
+ * undefined for link surfaces. Lets callers do
+ *   `<img src={safeUrl(uri) ?? PLACEHOLDER_NFT} />`
+ * without spreading the allowlist check across every component.
+ */
+export function safeUrl(uri: string | null | undefined): string | null {
+  return resolveSafeUrl(uri);
+}

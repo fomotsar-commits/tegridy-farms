@@ -9,12 +9,12 @@
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
         { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" },
-        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=(), interest-cohort=(), browsing-topics=(), attribution-reporting=(), private-state-token-redemption=(), private-state-token-issuance=()" },
         { "key": "X-Permitted-Cross-Domain-Policies", "value": "none" },
         { "key": "X-DNS-Prefetch-Control", "value": "on" },
         { "key": "Cross-Origin-Opener-Policy", "value": "same-origin-allow-popups" },
         { "key": "Cross-Origin-Resource-Policy", "value": "same-site" },
-        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' 'sha256-fs/Fksxr9J5Rwod3ET+U0AyQJosZ8lzM4DBNs4NuZfM=' 'sha256-HLYQhrrVIImu5zi4jq79GmRWdTZjdunmdgi6j+sZJ/s=' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://rpc.flashbots.net https://*.publicnode.com https://*.llamarpc.com https://api.geckoterminal.com https://api.swapapi.dev https://api.etherscan.io https://*.walletconnect.com https://*.walletconnect.org wss://*.walletconnect.com wss://*.walletconnect.org https://rpc.walletconnect.com https://explorer-api.walletconnect.com https://*.infura.io https://cloudflare-eth.com https://verify.walletconnect.com https://verify.walletconnect.org https://api.odos.xyz https://api.cow.fi https://li.quest https://aggregator-api.kyberswap.com https://open-api.openocean.finance https://api.paraswap.io https://*.alchemy.com https://api.opensea.io wss://*.alchemy.com https://nft-cdn.alchemy.com wss://eth-mainnet.g.alchemy.com https://pulse.walletconnect.org https://api.web3modal.org https://*.reown.com https://*.supabase.co wss://*.supabase.co; frame-src https://www.geckoterminal.com https://verify.walletconnect.com https://verify.walletconnect.org; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" }
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' 'sha256-fs/Fksxr9J5Rwod3ET+U0AyQJosZ8lzM4DBNs4NuZfM=' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://rpc.ankr.com https://*.publicnode.com https://*.llamarpc.com https://api.geckoterminal.com https://api.swapapi.dev https://api.etherscan.io https://*.walletconnect.com https://*.walletconnect.org wss://*.walletconnect.com wss://*.walletconnect.org https://rpc.walletconnect.com https://explorer-api.walletconnect.com https://*.infura.io https://cloudflare-eth.com https://verify.walletconnect.com https://verify.walletconnect.org https://api.odos.xyz https://api.cow.fi https://li.quest https://aggregator-api.kyberswap.com https://open-api.openocean.finance https://api.paraswap.io https://*.alchemy.com https://api.opensea.io wss://*.alchemy.com https://nft-cdn.alchemy.com wss://eth-mainnet.g.alchemy.com https://pulse.walletconnect.org https://api.web3modal.org https://*.reown.com https://*.supabase.co wss://*.supabase.co; frame-src https://www.geckoterminal.com https://verify.walletconnect.com https://verify.walletconnect.org; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" }
       ]
     },
     {
@@ -46,6 +46,13 @@
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=604800" }
       ]
+    },
+    {
+      "source": "/(.*).map",
+      "headers": [
+        { "key": "X-Robots-Tag", "value": "noindex" },
+        { "key": "Cache-Control", "value": "no-store" }
+      ]
     }
   ],
   "redirects": [
@@ -53,6 +60,19 @@
       "source": "/(.*)",
       "has": [{ "type": "host", "value": "tegridyfarms-three.vercel.app" }],
       "destination": "https://tegridyfarms.vercel.app/$1",
+      "permanent": true
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "(?<host>.+)\\.vercel\\.app" }],
+      "missing": [{ "type": "host", "value": "tegridyfarms.vercel.app" }],
+      "destination": "https://tegridyfarms.xyz/$1",
+      "permanent": false
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "tegridyfarms.vercel.app" }],
+      "destination": "https://tegridyfarms.xyz/$1",
       "permanent": true
     }
   ],

@@ -4,8 +4,9 @@ Running log of what's landed on `main` in response to [AUDIT_FINDINGS.md](AUDIT_
 the 35-detective audit, the Spartan audit, and the 300-agent internal review.
 See [REVENUE_ANALYSIS.md](REVENUE_ANALYSIS.md) for the fee-lever calibration.
 
-Last refreshed after sessions 1–6 ending 2026-04-18. For a richer
-Keep-a-Changelog view see [CHANGELOG.md](CHANGELOG.md).
+Last refreshed 2026-04-25 after Wave 1–4 bulletproofing pass (101-agent
+canonical audit + remediation phase; see [`.audit_101/MASTER_REPORT.md`](.audit_101/MASTER_REPORT.md)).
+For a richer Keep-a-Changelog view see [CHANGELOG.md](CHANGELOG.md).
 
 ## ✅ Sessions 3–6 (2026-04-18)
 
@@ -231,11 +232,30 @@ Scope cut from the current work to keep changes reviewable. Each can be picked u
 
 - **Rotate committed API keys + private key** out of `.env` working files. Never pushed
   to git per earlier `git log --all --full-history` check, but rotate anyway.
-- **After rebuilding contracts:** run
-  [`scripts/redeploy-patched-3.sh`](scripts/redeploy-patched-3.sh) →
+- **Wave-0 multisig `acceptOwnership` STILL OPEN** on 3 contracts (LP Farming,
+  Gauge Controller, NFT Lending) — Safe `0x0c41e76D2668143b9Dbe6292D34b7e5dE7b28bfe`
+  must call `acceptOwnership()` on each. See [`docs/WAVE_0_TODO.md`](docs/WAVE_0_TODO.md) §3.
+- **Per-contract constructor-arg deltas** from Wave 1–4 bulletproofing — read
+  the change logs in `.audit_101/remediation/` before broadcasting:
+  - **R003** — `TegridyLending` constructor now **5 args** (was 4); new `_twap`
+    arg passes the `TegridyTWAP` address for ETH-denominated collateral floor.
+  - **R015** — `POLAccumulator` constructor now **5 args**; new `_twap` arg +
+    `LPMismatch` factory check on the LP token vs. the pair the TWAP watches.
+  - **R020** — `VoteIncentives` constructor now **7 args**; new
+    `_commitRevealFromGenesis` (boolean) tells the bribe contract whether to
+    treat epoch 0 as commit-reveal-active or legacy.
+  - **R029** — `TegridyNFTLending` no longer auto-whitelists collections at
+    construction. Post-deploy you must call `proposeWhitelistCollection(addr)`
+    → wait 24h → `executeWhitelistCollection(addr)` for each of JBAC,
+    Nakamigos, GNSS (recipe in [`DEPLOY_CHEAT_SHEET.md`](DEPLOY_CHEAT_SHEET.md) §3 Step 5).
+- **After rebuilding contracts:** run the per-contract `forge script` invocations
+  documented in [`DEPLOY_CHEAT_SHEET.md`](DEPLOY_CHEAT_SHEET.md) (the previous
+  one-shot helper `scripts/redeploy-patched-3.sh` was deleted 2026-04-19 with the
+  V1 `TegridyDrop` source — use per-contract scripts now). Then run
   [`scripts/diff-addresses.ts`](scripts/diff-addresses.ts) → apply the constants.ts
   patch + README address-table updates in one commit. Current on-chain versions
-  still do **not** have the exit / grace / refund / commit-reveal patches.
+  still do **not** have every patch — see [`NEXT_SESSION.md`](NEXT_SESSION.md)
+  for the live Wave 0 status.
 - **Apply Supabase migration 002** in the SQL editor.
 - **Run `DeployTegridyFeeHook.s.sol`** (CREATE2 miner) once POOL_MANAGER +
   REVENUE_DIST env vars are set. Mining typically 10k–200k iterations.

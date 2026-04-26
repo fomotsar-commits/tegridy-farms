@@ -27,7 +27,13 @@ const LearnPage = lazy(() => import('./pages/LearnPage'));
 // BribesPage, GrantsPage, BountyPage merged into CommunityPage
 const NakamigosApp = lazy(() => import('./nakamigos/App'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
-const ArtStudioPage = lazy(() => import('./pages/ArtStudioPage'));
+// R002: art-studio is a dev-only internal tool. Gate the lazy import behind
+// `import.meta.env.DEV` so Rollup statically tree-shakes the entire chunk out
+// of production builds — prod ships zero studio code, the route below
+// redirects, and the `/__art-studio/save` middleware is dev-only too.
+const ArtStudioPage = import.meta.env.DEV
+  ? lazy(() => import('./pages/ArtStudioPage'))
+  : null;
 const LendingPage = lazy(() => import('./pages/LendingPage'));
 // Terms, Privacy, Risks, Contracts, Treasury merged into InfoPage (tabs)
 const InfoPage = lazy(() => import('./pages/InfoPage'));
@@ -111,8 +117,18 @@ function AnimatedRoutes() {
     <Routes>
       {/* Nakamigos marketplace — renders outside AppLayout (has its own header/footer/background) */}
       <Route path="nakamigos/*" element={<NakamigosApp />} />
-      {/* Art studio — internal dev tool, renders standalone (no app chrome/background) */}
-      <Route path="art-studio" element={<Suspense fallback={<PageSkeleton />}><ArtStudioPage /></Suspense>} />
+      {/* Art studio — internal dev tool, renders standalone (no app chrome/background).
+          R002: gated to DEV. In prod, `ArtStudioPage` is `null` (tree-shaken)
+          and we redirect to home so anyone browsing /art-studio on prod lands
+          on the public site rather than seeing an empty Suspense crash. */}
+      <Route
+        path="art-studio"
+        element={
+          import.meta.env.DEV && ArtStudioPage
+            ? <Suspense fallback={<PageSkeleton />}><ArtStudioPage /></Suspense>
+            : <Navigate to="/" replace />
+        }
+      />
       <Route element={<AppLayout />}>
         <Route index element={<Suspense fallback={<PageSkeleton />}><HomePage /></Suspense>} />
         <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><FarmPage /></Suspense>} />

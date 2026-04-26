@@ -3,7 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" href="/favicon.svg" />
-    <link rel="manifest" href="/manifest.json">
+    <!-- R077: point at the W3C-spec manifest filename. `manifest.webmanifest`
+         is the canonical extension for Web App Manifests; `manifest.json`
+         can confuse some PWA tooling. -->
+    <link rel="manifest" href="/manifest.webmanifest">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#060c1a">
     <!--
@@ -17,7 +20,10 @@
     <script src="/theme-init.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="Tegridy Farms — DeFi protocol for swapping, staking, farming, and NFT finance on Ethereum">
-    <link rel="apple-touch-icon" href="/art/bobowelie.jpg">
+    <!-- R077: serve a purpose-built 192px PNG, not a JPG of the logo. iOS
+         home-screen icons render best when the image is a square PNG with
+         the correct sizes attribute; JPG works but lacks transparency. -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="192x192">
     <!-- CSP enforced via Vercel headers in vercel.json (not meta tag — avoids mobile Safari issues) -->
     <link rel="canonical" href="https://tegridyfarms.xyz/" />
     <title>Tegridy Farms | TOWELI Yield Farm</title>
@@ -29,7 +35,10 @@
          secure_url for modern crawlers that want sharpness. Both are
          regenerated via `node scripts/render-og-png.mjs`. -->
     <meta property="og:image" content="https://tegridyfarms.xyz/og.png" />
-    <meta property="og:image:secure_url" content="https://tegridyfarms.xyz/og.svg" />
+    <!-- R077: secure_url must declare a raster URL so Facebook/Discord
+         crawlers don't reject the SVG fallback for failing to match
+         og:image:type. Both are functionally identical PNGs. -->
+    <meta property="og:image:secure_url" content="https://tegridyfarms.xyz/og.png" />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1280" />
     <meta property="og:image:height" content="640" />

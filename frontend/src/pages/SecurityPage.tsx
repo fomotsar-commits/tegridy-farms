@@ -3,16 +3,28 @@ import { useState } from 'react';
 import { pageArt, artStyle, type ArtPiece } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ArtImg } from '../components/ArtImg';
+import {
+  TEGRIDY_STAKING_ADDRESS,
+  TEGRIDY_FACTORY_ADDRESS,
+  TEGRIDY_ROUTER_ADDRESS,
+  TEGRIDY_LENDING_ADDRESS,
+  TEGRIDY_NFT_LENDING_ADDRESS,
+  TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
+} from '../lib/constants';
 
 const fade = { hidden: { opacity: 0, y: 24 }, visible: { opacity: 1, y: 0 } };
 
+// AUDIT R035: Addresses now flow from constants.ts (single source of truth).
+// Previously hardcoded the paused v1 staking (0x65D8…0421) and pre-Wave-0
+// NFT lending (0x63baD…68aD); both drifted from canonical. Importing keeps
+// this card list in lockstep with any future Wave 0 redeploy.
 const CONTRACTS = [
-  { name: 'TegridyStaking', address: '0x65D8b87917c59a0B33009493fB236bCccF1Ea421' },
-  { name: 'TegridyFactory', address: '0x8B786163aA3beb97822d480a0c306DfD6dEbdCB6' },
-  { name: 'TegridyRouter', address: '0xCBCF6AcC4697cA3a7D7658Cd2051606a09c9863F' },
-  { name: 'TegridyLending', address: '0xd471e5675EaDbD8C192A5dA2fF44372D5713367f' },
-  { name: 'TegridyNFTLending', address: '0x63baD13f89186E0769F636D4Cd736eB26E2968aD' },
-  { name: 'TegridyNFTPoolFactory', address: '0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0' },
+  { name: 'TegridyStaking', address: TEGRIDY_STAKING_ADDRESS },
+  { name: 'TegridyFactory', address: TEGRIDY_FACTORY_ADDRESS },
+  { name: 'TegridyRouter', address: TEGRIDY_ROUTER_ADDRESS },
+  { name: 'TegridyLending', address: TEGRIDY_LENDING_ADDRESS },
+  { name: 'TegridyNFTLending', address: TEGRIDY_NFT_LENDING_ADDRESS },
+  { name: 'TegridyNFTPoolFactory', address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS },
 ];
 
 const PROTECTIONS = [
