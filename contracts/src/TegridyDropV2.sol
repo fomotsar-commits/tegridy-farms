@@ -409,9 +409,59 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         emit MintPhaseChanged(phase);
     }
 
-    function setMerkleRoot(bytes32 root) external onlyOwner {
-        merkleRoot = root;
-        emit MerkleRootChanged(root);
+    /// @notice DEPRECATED — direct one-step root rotation removed.
+    ///         AUDIT R023 H-01 (HIGH): legacy setMerkleRoot let a compromised
+    ///         owner rotate the root atomically mid-claim, excluding pending
+    ///         allowlist claimers or rotating-minting for supply siphon.
+    ///         Use proposeMerkleRoot / executeMerkleRoot (24h timelock) instead.
+    function setMerkleRoot(bytes32) external pure {
+        revert("Use proposeMerkleRoot()");
+    }
+
+    /// @notice Pending root for the timelocked rotation flow.
+    bytes32 public pendingMerkleRoot;
+
+    /// @dev R023: rotation is permitted only while the sale is closed,
+    ///      cancelled, or paused. Active phases (ALLOWLIST/PUBLIC/DUTCH_AUCTION)
+    ///      reject rotation so in-flight claimers can't be excluded mid-mint.
+    function _canRotateMerkleRoot() internal view returns (bool) {
+        return mintPhase == MintPhase.CLOSED
+            || mintPhase == MintPhase.CANCELLED
+            || paused();
+    }
+
+    /// @notice AUDIT R023 H-01: propose a merkle root rotation. The proposal
+    ///         can execute after MERKLE_ROOT_DELAY (24h). Phase is rechecked
+    ///         at execute time so a close→reopen window during the delay
+    ///         cannot smuggle a hostile rotation into an active mint phase.
+    function proposeMerkleRoot(bytes32 newRoot) external onlyOwner {
+        if (!_canRotateMerkleRoot()) revert RootRotationBlocked();
+        pendingMerkleRoot = newRoot;
+        _propose(MERKLE_ROOT_CHANGE, MERKLE_ROOT_DELAY);
+        emit MerkleRootProposed(newRoot, _executeAfter[MERKLE_ROOT_CHANGE]);
+    }
+
+    /// @notice AUDIT R023 H-01: execute a previously proposed root rotation.
+    ///         Caller must pass the expected value to bind the execution to
+    ///         a specific proposal — even though _propose stored the value,
+    ///         this guards against a re-propose-with-different-root race
+    ///         attempted within the same block as execute.
+    function executeMerkleRoot(bytes32 expectedRoot) external onlyOwner {
+        require(pendingMerkleRoot == expectedRoot, "ROOT_MISMATCH");
+        if (!_canRotateMerkleRoot()) revert RootRotationBlocked();
+        _execute(MERKLE_ROOT_CHANGE);
+        bytes32 oldRoot = merkleRoot;
+        merkleRoot = expectedRoot;
+        pendingMerkleRoot = bytes32(0);
+        emit MerkleRootRotated(oldRoot, expectedRoot);
+    }
+
+    /// @notice AUDIT R023 H-01: cancel a pending root rotation.
+    function cancelMerkleRoot() external onlyOwner {
+        bytes32 cancelled = pendingMerkleRoot;
+        _cancel(MERKLE_ROOT_CHANGE);
+        pendingMerkleRoot = bytes32(0);
+        emit MerkleRootCancelled(cancelled);
     }
 
     function setMintPrice(uint256 price) external onlyOwner {

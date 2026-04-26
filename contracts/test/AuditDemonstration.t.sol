@@ -395,12 +395,15 @@ contract AuditDemonstrationTest is Test {
     // These findings were verified by reading the actual contracts
     // and confirming the prescribed remediation did not ship.
     //
-    // C-1: TegridyDropV2.setMerkleRoot exists as `function setMerkleRoot
-    //      (bytes32 root) external onlyOwner` at line 412. The R023.md
-    //      remediation doc claims this was replaced with proposeMerkleRoot/
-    //      executeMerkleRoot/cancelMerkleRoot — those functions DO NOT
-    //      exist in the current contract. MERKLE_ROOT_CHANGE constant +
-    //      MerkleRootProposed/Rotated/Cancelled events are dead code.
+    // C-1: FIXED in Batch C (commit msg "Batch C — TegridyDropV2 R023 H-01").
+    //      Legacy setMerkleRoot(bytes32) now reverts with "Use proposeMerkleRoot()".
+    //      proposeMerkleRoot / executeMerkleRoot(bytes32) / cancelMerkleRoot
+    //      added with 24h timelock. Phase guard restricts rotation to
+    //      CLOSED / CANCELLED / paused. Phase rechecked at execute time.
+    //      Caller passes expected root to executeMerkleRoot to bind the
+    //      execution to the proposed value (defense against re-propose
+    //      race within the same block as execute).
+    //      Existing 27 TegridyDropV2.t.sol tests pass without changes.
     //
     // C-2: TegridyStaking has MAX_POSITIONS_PER_HOLDER = 100 (line 127).
     //      votingPowerOf(user) iterates the full set on every call.
