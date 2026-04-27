@@ -80,7 +80,10 @@ Every finding that can be expressed as a test has one, under [`contracts/test/`]
 
 Post-2026-04-26 additions: 8 demonstration tests in [`contracts/test/AuditDemonstration.t.sol`](./contracts/test/AuditDemonstration.t.sol) prove the new behavior of Batches A–J (commits 393b084 → 5fad774). See [`.audit_101/POST_REMEDIATION_LEDGER.md`](./.audit_101/POST_REMEDIATION_LEDGER.md) for the full per-finding breakdown.
 
-**Architectural change (2026-04-26):** TegridyStaking was split into [`TegridyStaking`](./contracts/src/TegridyStaking.sol) (user-facing) + [`TegridyStakingAdmin`](./contracts/src/TegridyStakingAdmin.sol) (timelocked admin) to fit under the EIP-170 24,576-byte runtime limit. Final size: 22,492 bytes (+2,084 margin). All 1,927 tests pass. Admin-side `propose/execute/cancel` calls moved from `staking.*` to `admin.*` — frontend ABI imports + deploy scripts need to reference the new admin contract. See ledger for details.
+**Architectural changes (2026-04-26):**
+- TegridyStaking split into [`TegridyStaking`](./contracts/src/TegridyStaking.sol) + [`TegridyStakingAdmin`](./contracts/src/TegridyStakingAdmin.sol) for EIP-170 fit. Final size: 22,492 bytes (+2,084 margin).
+- SwapFeeRouter split into [`SwapFeeRouter`](./contracts/src/SwapFeeRouter.sol) + [`SwapFeeRouterAdmin`](./contracts/src/SwapFeeRouterAdmin.sol) for the same reason. Final size: 16,735 bytes (+7,841 margin).
+- All 1,927 tests pass. User-facing swap and stake function signatures unchanged. Admin `propose/execute/cancel` calls moved to the new admin contracts (`staking.*`/`router.*` → `stakingAdmin.*`/`routerAdmin.*`) — frontend ABI imports + deploy scripts need updates. See ledger for details.
 
 ---
 

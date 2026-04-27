@@ -34,6 +34,7 @@
 | I | `1ec721c` | MemeBountyBoard + POLAccumulator | M-16, M-28 | MED |
 | J | `5fad774` | TegridyTWAP | M-2 | MED |
 | size-1 | `99eaf9b` + `b3092b6` | TegridyStaking + new TegridyStakingAdmin | EIP-170 split | INFRA |
+| size-2 | `cb3d12b` | SwapFeeRouter + new SwapFeeRouterAdmin | EIP-170 split | INFRA |
 
 ---
 
@@ -57,6 +58,29 @@
 - All other public surface unchanged
 - Frontend ABI imports for the 18 admin functions need to point at the new admin contract (follow-up for dApp team)
 - Indexer ABI may want to track admin-contract events too (follow-up)
+
+---
+
+## Architectural split — SwapFeeRouter → SwapFeeRouter + SwapFeeRouterAdmin
+
+**Why:** Same EIP-170 issue surfaced for SwapFeeRouter during the triple-check (25,930 bytes — 1,354 over the 24,576-byte limit). Same playbook as TegridyStaking.
+
+**What changed:** All 9 timelocked admin function triplets (fee, treasury, referralSplitter, pairFee, premiumDiscount, premiumAccess, revenueDistributor, feeSplit, polAccumulator) plus their pending state moved into [`SwapFeeRouterAdmin.sol`](../contracts/src/SwapFeeRouterAdmin.sol). Router exposes 9 `onlyAdmin`-gated `apply*` setters.
+
+**Result:**
+- SwapFeeRouter: 25,930 → **16,735 bytes** (saved 9,195 bytes / 35.5%; +7,841 margin under EIP-170)
+- SwapFeeRouterAdmin (new): 12,886 bytes (+11,690 margin)
+- All 1,927 forge tests pass — no regression
+- All user-facing swap functions (`swapExactETHForTokens`, `swapExactTokensForETH`, `swapExactTokensForTokens`, plus 3 FoT variants) signatures unchanged
+- Audit-fix code preserved (NEW-A4 deadline guard, NEW-A5 cooldown, AUDIT C1, AUDIT C4 pending distribution, AUDIT M-2 fail-open premium, AUDIT M-4 50k gas stipend, AUDIT M-6 FoT)
+
+**Wiring:** One-shot `router.setSwapFeeRouterAdmin(address(admin))` at deploy time. Single trust anchor. Same pattern as TegridyStaking.
+
+**Public surface delta**:
+- Callers that used `router.proposeFeeChange(...)` etc. now use `admin.proposeFeeChange(...)` — applies to all 9 triplets
+- `router.treasuryChangeTime()` etc. moved to `admin.treasuryChangeTime()`
+- All swap-side functions unchanged
+- Frontend ABI imports + `ConfigureFeePolicy.s.sol` runbook need the admin address (placeholder set, operator must fill in post-deploy)
 
 ---
 
