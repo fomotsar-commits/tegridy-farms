@@ -22,9 +22,11 @@ contract TegridyFactory is TimelockAdmin {
     ///         Initial set via setGuardian() remains instant (one-shot, only
     ///         while guardian == address(0)). Any subsequent rotation must
     ///         traverse propose → execute with the 48h delay below.
+    /// @dev    Constants only — no storage. The associated state (`pendingGuardian`)
+    ///         is appended at the end of the storage layout to preserve slot
+    ///         positions for existing test cheats (R064 PaginationBounds slot 7).
     bytes32 public constant GUARDIAN_CHANGE = keccak256("GUARDIAN_CHANGE");
     uint256 public constant GUARDIAN_CHANGE_DELAY = 48 hours;
-    address public pendingGuardian;
 
     address public feeTo;      // Address that receives protocol fees (treasury)
     address public feeToSetter; // Address allowed to change feeTo
@@ -93,6 +95,12 @@ contract TegridyFactory is TimelockAdmin {
     uint256 public constant MAX_PROPOSAL_VALIDITY = 7 days;
     uint256 public constant MAX_SETTER_PROPOSAL_VALIDITY = 7 days;
     uint256 public constant TOKEN_BLOCK_DELAY = 24 hours;
+
+    // ─── AUDIT R028 H-01 — appended to preserve original storage layout ───
+    /// @dev Pending value for the timelocked guardian rotation flow. Placed at
+    ///      the end of storage so existing test cheats and any external slot-
+    ///      based readers continue to work against the original layout.
+    address public pendingGuardian;
 
     constructor(address _feeToSetter, address _feeTo) {
         // AUDIT FIX v2: Zero-address checks prevent permanent lockout of fee configuration
