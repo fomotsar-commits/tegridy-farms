@@ -14,7 +14,6 @@ import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
-import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 
 /// @dev AUDIT FIX H8: Minimal interface for restaking-aware view functions
 interface ITegridyRestakingView {
@@ -41,7 +40,7 @@ interface ITegridyRestakingView {
 ///         - Transferring the NFT transfers the entire staking position
 ///         - Buyer of an NFT inherits the lock, boost, and rewards
 ///         - This means users can sell their locked position instead of paying the 25% penalty
-contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable, TimelockAdmin, IERC721Receiver {
+contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable, IERC721Receiver {
     using SafeERC20 for IERC20;
     using Checkpoints for Checkpoints.Trace208;
     using EnumerableSet for EnumerableSet.UintSet;
@@ -63,16 +62,12 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     uint256 public constant MIN_STAKE = 100e18; // AUDIT FIX #33: Minimum stake amount
     uint256 public constant MIN_NOTIFY_AMOUNT = 1000e18; // AUDIT FIX #61: Minimum fund amount to prevent dust funding
 
-    // ─── TimelockAdmin Keys ──────────────────────────────────────────
-    bytes32 public constant REWARD_RATE_CHANGE = keccak256("REWARD_RATE_CHANGE");
-    bytes32 public constant TREASURY_CHANGE = keccak256("TREASURY_CHANGE");
-    bytes32 public constant RESTAKING_CHANGE = keccak256("RESTAKING_CHANGE");
-    bytes32 public constant UNSETTLED_CAP_CHANGE = keccak256("UNSETTLED_CAP_CHANGE"); // AUDIT FIX C-02
-    bytes32 public constant LENDING_CONTRACT_CHANGE = keccak256("LENDING_CONTRACT_CHANGE"); // AUDIT H-01 / Spartan TF-02
-    bytes32 public constant EXTEND_FEE_CHANGE = keccak256("EXTEND_FEE_CHANGE"); // AUDIT C5
-    bytes32 public constant PENALTY_RECYCLE_CHANGE = keccak256("PENALTY_RECYCLE_CHANGE"); // AUDIT C6
-
     // ─── State ────────────────────────────────────────────────────────
+    // NOTE (size-reduction sprint 2026-04-26): timelock keys, propose/execute/cancel
+    // flow, pending state, and the `*ChangeReadyAt`/`*ChangeTime` view helpers all
+    // live on the sister `TegridyStakingAdmin` contract. TegridyStaking exposes
+    // `applyXxx` setters guarded by `onlyAdmin` for the admin contract to call.
+    address public stakingAdmin;
 
     IERC20 public immutable rewardToken;
     IERC721 public immutable jbacNFT;
@@ -147,31 +142,19 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     uint256 public constant EMERGENCY_EXIT_DELAY = 7 days;
     mapping(uint256 => uint256) public emergencyExitRequests;
 
-    // SECURITY FIX #13: Timelock for reward rate changes
-    uint256 public constant REWARD_RATE_TIMELOCK = 48 hours;
+    // SECURITY FIX #13: Reward rate cap (timelocked propose/execute lives on TegridyStakingAdmin).
     uint256 public constant MAX_REWARD_RATE = 100e18; // Cap maximum reward rate
-    uint256 public pendingRewardRate;
-
-    // AUDIT FIX #66: Treasury change timelock
-    uint256 public constant TREASURY_CHANGE_TIMELOCK = 48 hours;
-    address public pendingTreasury;
 
     // AUDIT FIX H8: Restaking contract reference for restaking-aware view functions
     address public restakingContract;
-
-    // AUDIT FIX C-02: Restaking contract change timelock (48h delay)
-    address public pendingRestakingContract;
 
     // AUDIT H-01 / Spartan TF-02: whitelisted lending contracts are exempt from the
     // NFT transfer COOLDOWN and RATE_LIMIT gates. Without this, a user who stakes
     // cannot deposit the staking NFT as collateral on TegridyLending for 24 hours,
     // and the NFT's round-trip on repayment/default is only saved from the rate
     // limit by the implicit dependence on MIN_DURATION >= TRANSFER_RATE_LIMIT.
-    // Adds/removes go through the 48h TimelockAdmin path.
-    uint256 public constant LENDING_CONTRACT_CHANGE_TIMELOCK = 48 hours;
+    // Adds/removes go through the 48h timelocked path on TegridyStakingAdmin.
     mapping(address => bool) public isLendingContract;
-    address public pendingLendingContract;
-    bool public pendingLendingContractApproval;
 
     // AUDIT H-1 (2026-04-20): Stranded-JBAC reclaim bookkeeping. If the JBAC return transfer
     // in `_returnJbacIfDeposited` reverts (e.g., JBAC contract paused), we record who is
@@ -182,22 +165,20 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     // ─── AUDIT C5: extend-lock / autoMaxLock-enable fee ──────────────────
     /// @notice Fee in BPS charged on extendLock and on toggleAutoMaxLock when enabling.
     ///         Default 0 — governance must propose/execute a non-zero value via 48h
-    ///         timelock to activate. Capped at EXTEND_FEE_BPS_CEILING (200 = 2%).
-    ///         Pulled from the caller via TOWELI safeTransferFrom (caller must approve);
-    ///         routed to treasury so the protocol captures value when boost is increased.
+    ///         timelock (on TegridyStakingAdmin) to activate. Capped at
+    ///         EXTEND_FEE_BPS_CEILING (200 = 2%). Pulled from the caller via TOWELI
+    ///         safeTransferFrom (caller must approve); routed to treasury so the
+    ///         protocol captures value when boost is increased.
     uint256 public extendFeeBps;
     uint256 public constant EXTEND_FEE_BPS_CEILING = 200;
-    uint256 public constant EXTEND_FEE_TIMELOCK = 48 hours;
-    uint256 public pendingExtendFeeBps;
 
     // ─── AUDIT C6: penalty recycle to active stakers ─────────────────────
     /// @notice BPS of early-withdrawal penalty that is recycled into the staker reward
     ///         pool (rewardPerTokenStored is credited immediately). Remainder goes to
     ///         treasury (current behaviour). Default 0 — backward-compatible. Capped at
-    ///         BPS (10000 = 100%). Governance can shift via 48h timelock.
+    ///         BPS (10000 = 100%). Governance can shift via 48h timelock on
+    ///         TegridyStakingAdmin.
     uint256 public penaltyRecycleBps;
-    uint256 public constant PENALTY_RECYCLE_TIMELOCK = 48 hours;
-    uint256 public pendingPenaltyRecycleBps;
 
 
     // ─── Events ───────────────────────────────────────────────────────
@@ -211,40 +192,23 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     event RewardRateUpdated(uint256 newRate);
     event PenaltySentToTreasury(uint256 indexed tokenId, uint256 penaltyAmount); // AUDIT FIX L-16: Renamed from PenaltyRedistributed — penalty goes to treasury
     event EmergencyWithdraw(address indexed user, uint256 indexed tokenId, uint256 amount); // SECURITY FIX #12
-    event RewardRateProposed(uint256 newRate, uint256 executeAfter); // SECURITY FIX #13
-    event RewardRateExecuted(uint256 newRate); // SECURITY FIX #13
     event TreasuryUpdated(address oldTreasury, address newTreasury); // SECURITY FIX #19
     event LockExtended(uint256 indexed tokenId, uint256 newLockDuration, uint256 newLockEnd);
     event BoostRevalidated(uint256 indexed tokenId, bool hasJbacBoost, uint256 newBoostedAmount); // AUDIT FIX #16
     /// @notice AUDIT FIX M-5 (battle-tested): emitted when a contract other than the
-    ///         registered restakingContract receives a second+ staking NFT. The prior
-    ///         userTokenId is overwritten, so votingPowerOf(holder) reflects only the
-    ///         newest position. Integrators that accept staking NFTs must implement their
-    ///         own voting-power aggregation (see TegridyRestaking for reference).
+    ///         registered restakingContract receives a second+ staking NFT.
     event MultipleNFTsAtAddress(address indexed holder, uint256 newTokenId, uint256 priorTokenId);
-    event TreasuryChangeProposed(address newTreasury, uint256 executeAfter); // AUDIT FIX #66
-    event TreasuryChangeExecuted(address oldTreasury, address newTreasury); // AUDIT FIX #66
-    event RestakingContractChangeProposed(address newRestaking, uint256 executeAfter); // AUDIT FIX C-02
-    event RestakingContractChanged(address oldRestaking, address newRestaking); // AUDIT FIX C-02
-    event LendingContractChangeProposed(address indexed lending, bool approved, uint256 executeAfter); // AUDIT H-01
-    event LendingContractUpdated(address indexed lending, bool approved); // AUDIT H-01
     event EmergencyExitPosition(address indexed user, uint256 indexed tokenId, uint256 amount); // AUDIT FIX C-05
     event EmergencyExitRequested(address indexed user, uint256 indexed tokenId, uint256 executeAfter); // AUDIT FIX C-05
     event EmergencyExitCancelled(address indexed user, uint256 indexed tokenId); // AUDIT FIX C-05
-    // V2: PenaltyDustReconciled event removed (dead code)
     event AmountIncreased(uint256 indexed tokenId, uint256 addedAmount, uint256 newTotal);
-    event RewardsForfeited(address indexed user, uint256 amount); // AUDIT FIX C-02: Emitted when cap blocks settlement
-    event MaxUnsettledRewardsUpdated(uint256 oldCap, uint256 newCap); // AUDIT FIX C-02
+    event RewardsForfeited(address indexed user, uint256 amount); // AUDIT FIX C-02
     event JbacReturned(uint256 indexed tokenId, address indexed to, uint256 indexed jbacTokenId); // AUDIT H-1
     event JbacStranded(uint256 indexed tokenId, address indexed to, uint256 indexed jbacTokenId); // AUDIT H-1
     /// @notice AUDIT C5: emitted when an extend-lock / autoMaxLock fee is collected to treasury.
     event ExtendFeeCollected(uint256 indexed tokenId, address indexed payer, uint256 amount);
-    event ExtendFeeProposed(uint256 newBps, uint256 executeAfter);
-    event ExtendFeeUpdated(uint256 oldBps, uint256 newBps);
     /// @notice AUDIT C6: emitted on early-withdrawal penalty distribution.
     event PenaltySplit(uint256 indexed tokenId, uint256 toTreasury, uint256 recycledToStakers);
-    event PenaltyRecycleProposed(uint256 newBps, uint256 executeAfter);
-    event PenaltyRecycleUpdated(uint256 oldBps, uint256 newBps);
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -299,11 +263,6 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         rewardRate = _rewardRate;
         lastUpdateTime = block.timestamp;
     }
-
-    // ─── Legacy View Helpers (for test compatibility) ──────────────
-    function rewardRateChangeTime() external view returns (uint256) { return _executeAfter[REWARD_RATE_CHANGE]; }
-    function treasuryChangeTime() external view returns (uint256) { return _executeAfter[TREASURY_CHANGE]; }
-    function restakingChangeReadyAt() external view returns (uint256) { return _executeAfter[RESTAKING_CHANGE]; }
 
     // V2: Simplified — dead penalty variables removed
     function _reserved() internal view returns (uint256) {
@@ -1214,57 +1173,47 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         emit RewardAdded(_amount);
     }
 
-    // setRewardPerSecond() removed — use proposeRewardRate() + executeRewardRateChange()
+    /// @notice One-shot setter for the sister TegridyStakingAdmin contract (where the
+    ///         timelocked propose/execute/cancel flow lives). Callable once by owner;
+    ///         after that the address is immutable. Set during deployment after the
+    ///         admin contract is constructed.
+    function setStakingAdmin(address _admin) external onlyOwner {
+        if (_admin == address(0)) revert ZeroAddress();
+        if (stakingAdmin != address(0)) revert Unauthorized();
+        stakingAdmin = _admin;
+    }
 
-    /// @notice SECURITY FIX #13: Propose a new reward rate (subject to 48h timelock)
-    function proposeRewardRate(uint256 _rate) external onlyOwner updateReward {
+    modifier onlyAdmin() {
+        if (msg.sender != stakingAdmin) revert Unauthorized();
+        _;
+    }
+
+    /// @notice Apply a new reward rate. Caller must be the wired admin contract.
+    function applyRewardRate(uint256 _rate) external onlyAdmin updateReward {
         if (_rate > MAX_REWARD_RATE) revert RateTooHigh();
-        pendingRewardRate = _rate;
-        _propose(REWARD_RATE_CHANGE, REWARD_RATE_TIMELOCK);
-        emit RewardRateProposed(_rate, _executeAfter[REWARD_RATE_CHANGE]);
+        rewardRate = _rate;
+        emit RewardRateUpdated(_rate);
     }
 
-    /// @notice SECURITY FIX #13: Execute pending reward rate change after timelock
-    function executeRewardRateChange() external onlyOwner updateReward {
-        _execute(REWARD_RATE_CHANGE);
-        rewardRate = pendingRewardRate;
-        emit RewardRateExecuted(pendingRewardRate);
-        pendingRewardRate = 0;
-    }
-
-    /// @notice AUDIT FIX #66: Propose a treasury change (subject to 48h timelock)
-    function proposeTreasuryChange(address _newTreasury) external onlyOwner {
+    /// @notice Apply a treasury change. Caller must be the wired admin contract.
+    function applyTreasury(address _newTreasury) external onlyAdmin {
         if (_newTreasury == address(0)) revert ZeroAddress();
-        pendingTreasury = _newTreasury;
-        _propose(TREASURY_CHANGE, TREASURY_CHANGE_TIMELOCK);
-        emit TreasuryChangeProposed(_newTreasury, _executeAfter[TREASURY_CHANGE]);
+        address oldT = treasury;
+        treasury = _newTreasury;
+        emit TreasuryUpdated(oldT, _newTreasury);
     }
 
-    /// @notice AUDIT FIX #66: Execute pending treasury change after timelock
-    function executeTreasuryChange() external onlyOwner {
-        _execute(TREASURY_CHANGE);
-        address oldTreasury = treasury;
-        treasury = pendingTreasury;
-        emit TreasuryChangeExecuted(oldTreasury, pendingTreasury);
-        pendingTreasury = address(0);
+    /// @notice Apply a restaking-contract change. Caller must be the wired admin contract.
+    function applyRestakingContract(address _restaking) external onlyAdmin {
+        if (_restaking == address(0)) revert ZeroAddress();
+        restakingContract = _restaking;
     }
 
-    /// @notice AUDIT FIX M-18: Cancel a pending reward rate proposal
-    /// @dev TimelockAdmin emits ProposalCancelled(REWARD_RATE_CHANGE) for off-chain monitoring
-    function cancelRewardRateProposal() external onlyOwner {
-        _cancel(REWARD_RATE_CHANGE);
-        pendingRewardRate = 0;
+    /// @notice Apply a lending-contract whitelist toggle. Caller must be the wired admin contract.
+    function applyLendingContract(address _lending, bool _approved) external onlyAdmin {
+        if (_lending == address(0)) revert ZeroAddress();
+        isLendingContract[_lending] = _approved;
     }
-
-    /// @notice AUDIT FIX M-18: Cancel a pending treasury change proposal
-    /// @dev TimelockAdmin emits ProposalCancelled(TREASURY_CHANGE) for off-chain monitoring
-    function cancelTreasuryProposal() external onlyOwner {
-        _cancel(TREASURY_CHANGE);
-        pendingTreasury = address(0);
-    }
-
-    /// @notice DEPRECATED: Use proposeTreasuryChange() + executeTreasuryChange()
-    // setTreasury() removed — use proposeTreasuryChange() + executeTreasuryChange()
 
     /// @notice AUDIT FIX L-28: Rescue ERC-20 tokens accidentally sent to this contract.
     ///         Cannot sweep the staking reward token to protect user funds.
@@ -1274,99 +1223,6 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         uint256 balance = IERC20(token).balanceOf(address(this));
         if (balance == 0) revert ZeroBalance();
         IERC20(token).safeTransfer(treasury, balance);
-    }
-
-    // locks() removed to reduce contract size — callers use positions(userTokenId[user]) directly
-
-    /// @notice AUDIT FIX C-02: Propose a new restaking contract (subject to 48h timelock)
-    function proposeRestakingContract(address _restaking) external onlyOwner {
-        if (_restaking == address(0)) revert ZeroAddress();
-        pendingRestakingContract = _restaking;
-        _propose(RESTAKING_CHANGE, 48 hours);
-        emit RestakingContractChangeProposed(_restaking, _executeAfter[RESTAKING_CHANGE]);
-    }
-
-    /// @notice AUDIT FIX C-02: Execute pending restaking contract change after timelock
-    function executeRestakingContract() external onlyOwner {
-        _execute(RESTAKING_CHANGE);
-        address oldRestaking = restakingContract;
-        restakingContract = pendingRestakingContract;
-        emit RestakingContractChanged(oldRestaking, pendingRestakingContract);
-        pendingRestakingContract = address(0);
-    }
-
-    /// @notice AUDIT FIX C-02: Cancel a pending restaking contract change
-    /// @dev TimelockAdmin emits ProposalCancelled(RESTAKING_CHANGE) for off-chain monitoring
-    function cancelRestakingContract() external onlyOwner {
-        _cancel(RESTAKING_CHANGE);
-        pendingRestakingContract = address(0);
-    }
-
-    // ─── AUDIT H-01 / Spartan TF-02: Lending-contract whitelist timelock ──
-
-    /// @notice Propose adding or removing a lending contract from the transfer-gate whitelist.
-    /// @param _lending    The lending contract address to toggle
-    /// @param _approved   true to whitelist (exempt from cooldown + rate-limit), false to revoke
-    /// @dev 48h timelock. One pending proposal at a time per key — cancel the pending
-    ///      one before proposing a replacement.
-    function proposeLendingContract(address _lending, bool _approved) external onlyOwner {
-        if (_lending == address(0)) revert ZeroAddress();
-        pendingLendingContract = _lending;
-        pendingLendingContractApproval = _approved;
-        _propose(LENDING_CONTRACT_CHANGE, LENDING_CONTRACT_CHANGE_TIMELOCK);
-        emit LendingContractChangeProposed(_lending, _approved, _executeAfter[LENDING_CONTRACT_CHANGE]);
-    }
-
-    /// @notice Execute the pending lending-contract whitelist change after the timelock.
-    function executeLendingContract() external onlyOwner {
-        _execute(LENDING_CONTRACT_CHANGE);
-        address lending = pendingLendingContract;
-        bool approved = pendingLendingContractApproval;
-        isLendingContract[lending] = approved;
-        emit LendingContractUpdated(lending, approved);
-        pendingLendingContract = address(0);
-        pendingLendingContractApproval = false;
-    }
-
-    /// @notice Cancel a pending lending-contract change.
-    /// @dev TimelockAdmin emits ProposalCancelled(LENDING_CONTRACT_CHANGE) for off-chain monitoring.
-    function cancelLendingContract() external onlyOwner {
-        _cancel(LENDING_CONTRACT_CHANGE);
-        pendingLendingContract = address(0);
-        pendingLendingContractApproval = false;
-    }
-
-    /// @notice Legacy view helper — timestamp after which the pending lending change can be executed.
-    function lendingContractChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[LENDING_CONTRACT_CHANGE];
-    }
-
-    // ─── AUDIT FIX C-02: Timelocked unsettled rewards cap adjustment ──
-
-    uint256 public constant UNSETTLED_CAP_TIMELOCK = 48 hours;
-    uint256 public pendingMaxUnsettledRewards;
-
-    /// @notice Propose a new maxUnsettledRewards cap (48h timelock).
-    /// @param _newCap The proposed new cap value (must be >= 10_000e18 to prevent griefing)
-    function proposeMaxUnsettledRewards(uint256 _newCap) external onlyOwner {
-        if (_newCap < 10_000e18) revert CapTooLow();
-        pendingMaxUnsettledRewards = _newCap;
-        _propose(UNSETTLED_CAP_CHANGE, UNSETTLED_CAP_TIMELOCK);
-    }
-
-    /// @notice Execute the pending maxUnsettledRewards change after the timelock.
-    function executeMaxUnsettledRewards() external onlyOwner {
-        _execute(UNSETTLED_CAP_CHANGE);
-        uint256 oldCap = maxUnsettledRewards;
-        maxUnsettledRewards = pendingMaxUnsettledRewards;
-        pendingMaxUnsettledRewards = 0;
-        emit MaxUnsettledRewardsUpdated(oldCap, maxUnsettledRewards);
-    }
-
-    /// @notice Cancel a pending maxUnsettledRewards change.
-    function cancelMaxUnsettledRewards() external onlyOwner {
-        _cancel(UNSETTLED_CAP_CHANGE);
-        pendingMaxUnsettledRewards = 0;
     }
 
     /// @dev AUDIT H-1 FIX (2026-04-20): Return a deposited JBAC to `to`. Wrapped in try/catch so
@@ -1484,29 +1340,10 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         emit ExtendFeeCollected(tokenId, msg.sender, fee);
     }
 
-    /// @notice Propose a new extendFeeBps. 48h timelock; capped at EXTEND_FEE_BPS_CEILING.
-    function proposeExtendFee(uint256 _newBps) external onlyOwner {
-        if (_newBps > EXTEND_FEE_BPS_CEILING) revert ExtendFeeTooHigh();
-        pendingExtendFeeBps = _newBps;
-        _propose(EXTEND_FEE_CHANGE, EXTEND_FEE_TIMELOCK);
-        emit ExtendFeeProposed(_newBps, _executeAfter[EXTEND_FEE_CHANGE]);
-    }
-
-    function executeExtendFeeChange() external onlyOwner {
-        _execute(EXTEND_FEE_CHANGE);
-        uint256 old = extendFeeBps;
-        extendFeeBps = pendingExtendFeeBps;
-        pendingExtendFeeBps = 0;
-        emit ExtendFeeUpdated(old, extendFeeBps);
-    }
-
-    function cancelExtendFeeChange() external onlyOwner {
-        _cancel(EXTEND_FEE_CHANGE);
-        pendingExtendFeeBps = 0;
-    }
-
-    function extendFeeChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[EXTEND_FEE_CHANGE];
+    /// @notice Apply a new extendFeeBps. Caller must be the wired admin contract.
+    function applyExtendFee(uint256 _bps) external onlyAdmin {
+        if (_bps > EXTEND_FEE_BPS_CEILING) revert ExtendFeeTooHigh();
+        extendFeeBps = _bps;
     }
 
     // ─── AUDIT C6: Penalty-recycle helpers + timelocked setter ───────────
@@ -1543,28 +1380,15 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         totalRewardsFunded += amount;
     }
 
-    /// @notice Propose a new penaltyRecycleBps. 48h timelock; capped at BPS (10000 = 100%).
-    function proposePenaltyRecycle(uint256 _newBps) external onlyOwner {
-        if (_newBps > BPS) revert PenaltyRecycleTooHigh();
-        pendingPenaltyRecycleBps = _newBps;
-        _propose(PENALTY_RECYCLE_CHANGE, PENALTY_RECYCLE_TIMELOCK);
-        emit PenaltyRecycleProposed(_newBps, _executeAfter[PENALTY_RECYCLE_CHANGE]);
+    /// @notice Apply a new penaltyRecycleBps. Caller must be the wired admin contract.
+    function applyPenaltyRecycle(uint256 _bps) external onlyAdmin {
+        if (_bps > BPS) revert PenaltyRecycleTooHigh();
+        penaltyRecycleBps = _bps;
     }
 
-    function executePenaltyRecycleChange() external onlyOwner {
-        _execute(PENALTY_RECYCLE_CHANGE);
-        uint256 old = penaltyRecycleBps;
-        penaltyRecycleBps = pendingPenaltyRecycleBps;
-        pendingPenaltyRecycleBps = 0;
-        emit PenaltyRecycleUpdated(old, penaltyRecycleBps);
-    }
-
-    function cancelPenaltyRecycleChange() external onlyOwner {
-        _cancel(PENALTY_RECYCLE_CHANGE);
-        pendingPenaltyRecycleBps = 0;
-    }
-
-    function penaltyRecycleChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[PENALTY_RECYCLE_CHANGE];
+    /// @notice Apply a new maxUnsettledRewards cap. Caller must be the wired admin contract.
+    function applyMaxUnsettledRewards(uint256 _cap) external onlyAdmin {
+        if (_cap < 10_000e18) revert CapTooLow();
+        maxUnsettledRewards = _cap;
     }
 }

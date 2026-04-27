@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
+import "../src/TegridyStakingAdmin.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 
 contract MockToken195 is ERC20 {
@@ -38,6 +39,7 @@ contract MockSafe195 {
 
 contract Audit195StakingGov is Test {
     TegridyStaking public staking;
+    TegridyStakingAdmin public admin;
     MockToken195 public token;
     MockNFT195 public nft;
     address public treasury = makeAddr("treasury");
@@ -54,6 +56,8 @@ contract Audit195StakingGov is Test {
         token = new MockToken195();
         nft = new MockNFT195();
         staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        admin = new TegridyStakingAdmin(address(staking));
+        staking.setStakingAdmin(address(admin));
 
         nft.mint(alice);
 
@@ -270,85 +274,85 @@ contract Audit195StakingGov is Test {
     function test_proposeRewardRate_onlyOwner() public {
         vm.prank(attacker);
         vm.expectRevert();
-        staking.proposeRewardRate(5 ether);
+        admin.proposeRewardRate(5 ether);
     }
 
     function test_proposeRewardRate_rateTooHigh() public {
         vm.expectRevert(TegridyStaking.RateTooHigh.selector);
-        staking.proposeRewardRate(101 ether); // MAX_REWARD_RATE is 100e18
+        admin.proposeRewardRate(101 ether); // MAX_REWARD_RATE is 100e18
     }
 
     function test_proposeRewardRate_canProposeZero() public {
         // Rate 0 is valid - effectively halts rewards
-        staking.proposeRewardRate(0);
-        assertEq(staking.pendingRewardRate(), 0);
-        assertGt(staking.rewardRateChangeTime(), 0);
+        admin.proposeRewardRate(0);
+        assertEq(admin.pendingRewardRate(), 0);
+        assertGt(admin.rewardRateChangeTime(), 0);
     }
 
     function test_executeRewardRate_beforeTimelock() public {
-        staking.proposeRewardRate(5 ether);
+        admin.proposeRewardRate(5 ether);
 
         // Try to execute immediately - should fail
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, staking.REWARD_RATE_CHANGE()));
-        staking.executeRewardRateChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, admin.REWARD_RATE_CHANGE()));
+        admin.executeRewardRateChange();
 
         // 47h59m - still too early
         vm.warp(block.timestamp + 48 hours - 1);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, staking.REWARD_RATE_CHANGE()));
-        staking.executeRewardRateChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, admin.REWARD_RATE_CHANGE()));
+        admin.executeRewardRateChange();
     }
 
     function test_executeRewardRate_atExactTimelock() public {
-        staking.proposeRewardRate(5 ether);
-        uint256 executeAt = staking.rewardRateChangeTime();
+        admin.proposeRewardRate(5 ether);
+        uint256 executeAt = admin.rewardRateChangeTime();
 
         vm.warp(executeAt);
-        staking.executeRewardRateChange();
+        admin.executeRewardRateChange();
         assertEq(staking.rewardRate(), 5 ether);
     }
 
     function test_executeRewardRate_afterExpiry() public {
-        staking.proposeRewardRate(5 ether);
-        uint256 executeAt = staking.rewardRateChangeTime();
+        admin.proposeRewardRate(5 ether);
+        uint256 executeAt = admin.rewardRateChangeTime();
 
         // Warp past MAX_PROPOSAL_VALIDITY (7 days after executeAt)
         vm.warp(executeAt + 7 days + 1);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, staking.REWARD_RATE_CHANGE()));
-        staking.executeRewardRateChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, admin.REWARD_RATE_CHANGE()));
+        admin.executeRewardRateChange();
     }
 
     function test_executeRewardRate_atExactExpiry() public {
-        staking.proposeRewardRate(5 ether);
-        uint256 executeAt = staking.rewardRateChangeTime();
+        admin.proposeRewardRate(5 ether);
+        uint256 executeAt = admin.rewardRateChangeTime();
 
         // At exact expiry boundary
         vm.warp(executeAt + 7 days);
         // This should still work (> not >=)
-        staking.executeRewardRateChange();
+        admin.executeRewardRateChange();
         assertEq(staking.rewardRate(), 5 ether);
     }
 
     function test_proposeRewardRate_cannotDoublePropose() public {
-        staking.proposeRewardRate(5 ether);
+        admin.proposeRewardRate(5 ether);
 
         // Second proposal without canceling first should revert
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, staking.REWARD_RATE_CHANGE()));
-        staking.proposeRewardRate(10 ether);
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, admin.REWARD_RATE_CHANGE()));
+        admin.proposeRewardRate(10 ether);
     }
 
     function test_executeRewardRate_clearsState() public {
-        staking.proposeRewardRate(5 ether);
+        admin.proposeRewardRate(5 ether);
         vm.warp(block.timestamp + 48 hours);
-        staking.executeRewardRateChange();
+        admin.executeRewardRateChange();
 
         // State should be cleared
-        assertEq(staking.pendingRewardRate(), 0);
-        assertEq(staking.rewardRateChangeTime(), 0);
+        assertEq(admin.pendingRewardRate(), 0);
+        assertEq(admin.rewardRateChangeTime(), 0);
     }
 
     function test_executeRewardRate_noPendingReverts() public {
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, staking.REWARD_RATE_CHANGE()));
-        staking.executeRewardRateChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, admin.REWARD_RATE_CHANGE()));
+        admin.executeRewardRateChange();
     }
 
     // ============================================================
@@ -358,48 +362,48 @@ contract Audit195StakingGov is Test {
     function test_proposeTreasury_onlyOwner() public {
         vm.prank(attacker);
         vm.expectRevert();
-        staking.proposeTreasuryChange(makeAddr("newTreasury"));
+        admin.proposeTreasuryChange(makeAddr("newTreasury"));
     }
 
     function test_proposeTreasury_zeroAddress() public {
         vm.expectRevert(TegridyStaking.ZeroAddress.selector);
-        staking.proposeTreasuryChange(address(0));
+        admin.proposeTreasuryChange(address(0));
     }
 
     function test_executeTreasury_beforeTimelock() public {
-        staking.proposeTreasuryChange(makeAddr("newTreasury"));
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, staking.TREASURY_CHANGE()));
-        staking.executeTreasuryChange();
+        admin.proposeTreasuryChange(makeAddr("newTreasury"));
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, admin.TREASURY_CHANGE()));
+        admin.executeTreasuryChange();
     }
 
     function test_executeTreasury_afterTimelock() public {
         address newTreasury = makeAddr("newTreasury");
-        staking.proposeTreasuryChange(newTreasury);
+        admin.proposeTreasuryChange(newTreasury);
         vm.warp(block.timestamp + 48 hours);
-        staking.executeTreasuryChange();
+        admin.executeTreasuryChange();
         assertEq(staking.treasury(), newTreasury);
     }
 
     function test_executeTreasury_expired() public {
-        staking.proposeTreasuryChange(makeAddr("newTreasury"));
-        uint256 executeAt = staking.treasuryChangeTime();
+        admin.proposeTreasuryChange(makeAddr("newTreasury"));
+        uint256 executeAt = admin.treasuryChangeTime();
         vm.warp(executeAt + 7 days + 1);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, staking.TREASURY_CHANGE()));
-        staking.executeTreasuryChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, admin.TREASURY_CHANGE()));
+        admin.executeTreasuryChange();
     }
 
     function test_proposeTreasury_cannotDoublePropose() public {
-        staking.proposeTreasuryChange(makeAddr("a"));
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, staking.TREASURY_CHANGE()));
-        staking.proposeTreasuryChange(makeAddr("b"));
+        admin.proposeTreasuryChange(makeAddr("a"));
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, admin.TREASURY_CHANGE()));
+        admin.proposeTreasuryChange(makeAddr("b"));
     }
 
     function test_executeTreasury_clearsState() public {
-        staking.proposeTreasuryChange(makeAddr("newTreasury"));
+        admin.proposeTreasuryChange(makeAddr("newTreasury"));
         vm.warp(block.timestamp + 48 hours);
-        staking.executeTreasuryChange();
-        assertEq(staking.pendingTreasury(), address(0));
-        assertEq(staking.treasuryChangeTime(), 0);
+        admin.executeTreasuryChange();
+        assertEq(admin.pendingTreasury(), address(0));
+        assertEq(admin.treasuryChangeTime(), 0);
     }
 
     // ============================================================
@@ -409,48 +413,48 @@ contract Audit195StakingGov is Test {
     function test_proposeRestaking_onlyOwner() public {
         vm.prank(attacker);
         vm.expectRevert();
-        staking.proposeRestakingContract(makeAddr("restaking"));
+        admin.proposeRestakingContract(makeAddr("restaking"));
     }
 
     function test_proposeRestaking_zeroAddress() public {
         vm.expectRevert(TegridyStaking.ZeroAddress.selector);
-        staking.proposeRestakingContract(address(0));
+        admin.proposeRestakingContract(address(0));
     }
 
     function test_executeRestaking_beforeTimelock() public {
-        staking.proposeRestakingContract(makeAddr("restaking"));
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, staking.RESTAKING_CHANGE()));
-        staking.executeRestakingContract();
+        admin.proposeRestakingContract(makeAddr("restaking"));
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, admin.RESTAKING_CHANGE()));
+        admin.executeRestakingContract();
     }
 
     function test_executeRestaking_afterTimelock() public {
         address newRestaking = makeAddr("restaking");
-        staking.proposeRestakingContract(newRestaking);
+        admin.proposeRestakingContract(newRestaking);
         vm.warp(block.timestamp + 48 hours);
-        staking.executeRestakingContract();
+        admin.executeRestakingContract();
         assertEq(staking.restakingContract(), newRestaking);
     }
 
     function test_executeRestaking_expired() public {
-        staking.proposeRestakingContract(makeAddr("restaking"));
-        uint256 executeAt = staking.restakingChangeReadyAt();
+        admin.proposeRestakingContract(makeAddr("restaking"));
+        uint256 executeAt = admin.restakingChangeReadyAt();
         vm.warp(executeAt + 7 days + 1);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, staking.RESTAKING_CHANGE()));
-        staking.executeRestakingContract();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, admin.RESTAKING_CHANGE()));
+        admin.executeRestakingContract();
     }
 
     function test_executeRestaking_clearsState() public {
-        staking.proposeRestakingContract(makeAddr("restaking"));
+        admin.proposeRestakingContract(makeAddr("restaking"));
         vm.warp(block.timestamp + 48 hours);
-        staking.executeRestakingContract();
-        assertEq(staking.pendingRestakingContract(), address(0));
-        assertEq(staking.restakingChangeReadyAt(), 0);
+        admin.executeRestakingContract();
+        assertEq(admin.pendingRestakingContract(), address(0));
+        assertEq(admin.restakingChangeReadyAt(), 0);
     }
 
     function test_proposeRestaking_cannotDoublePropose() public {
-        staking.proposeRestakingContract(makeAddr("a"));
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, staking.RESTAKING_CHANGE()));
-        staking.proposeRestakingContract(makeAddr("b"));
+        admin.proposeRestakingContract(makeAddr("a"));
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, admin.RESTAKING_CHANGE()));
+        admin.proposeRestakingContract(makeAddr("b"));
     }
 
     // ============================================================
@@ -458,71 +462,71 @@ contract Audit195StakingGov is Test {
     // ============================================================
 
     function test_cancelRewardRate_clearsState() public {
-        staking.proposeRewardRate(5 ether);
-        assertGt(staking.rewardRateChangeTime(), 0);
+        admin.proposeRewardRate(5 ether);
+        assertGt(admin.rewardRateChangeTime(), 0);
 
-        staking.cancelRewardRateProposal();
-        assertEq(staking.pendingRewardRate(), 0);
-        assertEq(staking.rewardRateChangeTime(), 0);
+        admin.cancelRewardRateProposal();
+        assertEq(admin.pendingRewardRate(), 0);
+        assertEq(admin.rewardRateChangeTime(), 0);
     }
 
     function test_cancelRewardRate_noPendingReverts() public {
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, staking.REWARD_RATE_CHANGE()));
-        staking.cancelRewardRateProposal();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, admin.REWARD_RATE_CHANGE()));
+        admin.cancelRewardRateProposal();
     }
 
     function test_cancelRewardRate_onlyOwner() public {
-        staking.proposeRewardRate(5 ether);
+        admin.proposeRewardRate(5 ether);
         vm.prank(attacker);
         vm.expectRevert();
-        staking.cancelRewardRateProposal();
+        admin.cancelRewardRateProposal();
     }
 
     function test_cancelRewardRate_thenReproposeWorks() public {
-        staking.proposeRewardRate(5 ether);
-        staking.cancelRewardRateProposal();
+        admin.proposeRewardRate(5 ether);
+        admin.cancelRewardRateProposal();
 
         // Can now propose a new rate
-        staking.proposeRewardRate(10 ether);
-        assertEq(staking.pendingRewardRate(), 10 ether);
+        admin.proposeRewardRate(10 ether);
+        assertEq(admin.pendingRewardRate(), 10 ether);
     }
 
     function test_cancelTreasury_clearsState() public {
-        staking.proposeTreasuryChange(makeAddr("t"));
-        staking.cancelTreasuryProposal();
-        assertEq(staking.pendingTreasury(), address(0));
-        assertEq(staking.treasuryChangeTime(), 0);
+        admin.proposeTreasuryChange(makeAddr("t"));
+        admin.cancelTreasuryProposal();
+        assertEq(admin.pendingTreasury(), address(0));
+        assertEq(admin.treasuryChangeTime(), 0);
     }
 
     function test_cancelTreasury_noPendingReverts() public {
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, staking.TREASURY_CHANGE()));
-        staking.cancelTreasuryProposal();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, admin.TREASURY_CHANGE()));
+        admin.cancelTreasuryProposal();
     }
 
     function test_cancelTreasury_onlyOwner() public {
-        staking.proposeTreasuryChange(makeAddr("t"));
+        admin.proposeTreasuryChange(makeAddr("t"));
         vm.prank(attacker);
         vm.expectRevert();
-        staking.cancelTreasuryProposal();
+        admin.cancelTreasuryProposal();
     }
 
     function test_cancelRestaking_clearsState() public {
-        staking.proposeRestakingContract(makeAddr("r"));
-        staking.cancelRestakingContract();
-        assertEq(staking.pendingRestakingContract(), address(0));
-        assertEq(staking.restakingChangeReadyAt(), 0);
+        admin.proposeRestakingContract(makeAddr("r"));
+        admin.cancelRestakingContract();
+        assertEq(admin.pendingRestakingContract(), address(0));
+        assertEq(admin.restakingChangeReadyAt(), 0);
     }
 
     function test_cancelRestaking_noPendingReverts() public {
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, staking.RESTAKING_CHANGE()));
-        staking.cancelRestakingContract();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, admin.RESTAKING_CHANGE()));
+        admin.cancelRestakingContract();
     }
 
     function test_cancelRestaking_onlyOwner() public {
-        staking.proposeRestakingContract(makeAddr("r"));
+        admin.proposeRestakingContract(makeAddr("r"));
         vm.prank(attacker);
         vm.expectRevert();
-        staking.cancelRestakingContract();
+        admin.cancelRestakingContract();
     }
 
     // ============================================================
@@ -890,62 +894,62 @@ contract Audit195StakingGov is Test {
         uint256 oldRate = staking.rewardRate();
 
         // Propose
-        staking.proposeRewardRate(50 ether);
-        assertEq(staking.pendingRewardRate(), 50 ether);
+        admin.proposeRewardRate(50 ether);
+        assertEq(admin.pendingRewardRate(), 50 ether);
 
         // Wait timelock
         vm.warp(block.timestamp + 48 hours);
 
         // Execute
-        staking.executeRewardRateChange();
+        admin.executeRewardRateChange();
         assertEq(staking.rewardRate(), 50 ether);
         assertTrue(staking.rewardRate() != oldRate || oldRate == 50 ether);
 
         // State cleared
-        assertEq(staking.pendingRewardRate(), 0);
-        assertEq(staking.rewardRateChangeTime(), 0);
+        assertEq(admin.pendingRewardRate(), 0);
+        assertEq(admin.rewardRateChangeTime(), 0);
     }
 
     function test_rewardRate_fullLifecycle_proposeCancel() public {
         uint256 oldRate = staking.rewardRate();
 
-        staking.proposeRewardRate(50 ether);
-        staking.cancelRewardRateProposal();
+        admin.proposeRewardRate(50 ether);
+        admin.cancelRewardRateProposal();
 
         // Rate unchanged
         assertEq(staking.rewardRate(), oldRate);
 
         // Can propose again
-        staking.proposeRewardRate(25 ether);
+        admin.proposeRewardRate(25 ether);
         vm.warp(block.timestamp + 48 hours);
-        staking.executeRewardRateChange();
+        admin.executeRewardRateChange();
         assertEq(staking.rewardRate(), 25 ether);
     }
 
     function test_treasury_fullLifecycle_proposeExecute() public {
         address newTreasury = makeAddr("newTreasury");
-        staking.proposeTreasuryChange(newTreasury);
+        admin.proposeTreasuryChange(newTreasury);
         vm.warp(block.timestamp + 48 hours);
-        staking.executeTreasuryChange();
+        admin.executeTreasuryChange();
         assertEq(staking.treasury(), newTreasury);
     }
 
     function test_treasury_fullLifecycle_proposeCancelRepropose() public {
-        staking.proposeTreasuryChange(makeAddr("a"));
-        staking.cancelTreasuryProposal();
+        admin.proposeTreasuryChange(makeAddr("a"));
+        admin.cancelTreasuryProposal();
 
         address b = makeAddr("b");
-        staking.proposeTreasuryChange(b);
+        admin.proposeTreasuryChange(b);
         vm.warp(block.timestamp + 48 hours);
-        staking.executeTreasuryChange();
+        admin.executeTreasuryChange();
         assertEq(staking.treasury(), b);
     }
 
     function test_restaking_fullLifecycle() public {
         address r = makeAddr("restaking");
-        staking.proposeRestakingContract(r);
+        admin.proposeRestakingContract(r);
         vm.warp(block.timestamp + 48 hours);
-        staking.executeRestakingContract();
+        admin.executeRestakingContract();
         assertEq(staking.restakingContract(), r);
     }
 
@@ -973,9 +977,9 @@ contract Audit195StakingGov is Test {
         uint256 tokenId = staking.userTokenId(bob);
 
         // Set rate to 0
-        staking.proposeRewardRate(0);
+        admin.proposeRewardRate(0);
         vm.warp(block.timestamp + 48 hours);
-        staking.executeRewardRateChange();
+        admin.executeRewardRateChange();
         assertEq(staking.rewardRate(), 0);
 
         // Advance time - should earn 0 new rewards (only pre-change rewards remain)
@@ -1025,34 +1029,34 @@ contract Audit195StakingGov is Test {
     // ============================================================
 
     function test_cancelRewardRate_afterTimelockStillWorks() public {
-        staking.proposeRewardRate(50 ether);
+        admin.proposeRewardRate(50 ether);
         vm.warp(block.timestamp + 48 hours + 1 days);
 
         // Cancel even after timelock has passed
-        staking.cancelRewardRateProposal();
-        assertEq(staking.pendingRewardRate(), 0);
-        assertEq(staking.rewardRateChangeTime(), 0);
+        admin.cancelRewardRateProposal();
+        assertEq(admin.pendingRewardRate(), 0);
+        assertEq(admin.rewardRateChangeTime(), 0);
 
         // Rate unchanged
         assertEq(staking.rewardRate(), 1 ether);
     }
 
     function test_cancelTreasury_afterTimelockStillWorks() public {
-        staking.proposeTreasuryChange(makeAddr("t"));
+        admin.proposeTreasuryChange(makeAddr("t"));
         vm.warp(block.timestamp + 48 hours + 1 days);
 
-        staking.cancelTreasuryProposal();
-        assertEq(staking.pendingTreasury(), address(0));
-        assertEq(staking.treasuryChangeTime(), 0);
+        admin.cancelTreasuryProposal();
+        assertEq(admin.pendingTreasury(), address(0));
+        assertEq(admin.treasuryChangeTime(), 0);
     }
 
     function test_cancelRestaking_afterTimelockStillWorks() public {
-        staking.proposeRestakingContract(makeAddr("r"));
+        admin.proposeRestakingContract(makeAddr("r"));
         vm.warp(block.timestamp + 48 hours + 1 days);
 
-        staking.cancelRestakingContract();
-        assertEq(staking.pendingRestakingContract(), address(0));
-        assertEq(staking.restakingChangeReadyAt(), 0);
+        admin.cancelRestakingContract();
+        assertEq(admin.pendingRestakingContract(), address(0));
+        assertEq(admin.restakingChangeReadyAt(), 0);
     }
 
     // ============================================================
@@ -1274,9 +1278,9 @@ contract Audit195StakingGov is Test {
     function test_VotingPowerOf_RestakingReturnsZero() public {
         // Install a restaking-contract address via the full timelock flow.
         address restaking = makeAddr("restaking");
-        staking.proposeRestakingContract(restaking);
+        admin.proposeRestakingContract(restaking);
         vm.warp(block.timestamp + 48 hours);
-        staking.executeRestakingContract();
+        admin.executeRestakingContract();
         assertEq(staking.restakingContract(), restaking);
 
         // Baseline: some other holder has non-zero VP.

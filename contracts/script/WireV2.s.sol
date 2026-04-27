@@ -20,7 +20,6 @@ interface IRevenueDistributor {
 }
 
 interface ITegridyStaking {
-    function proposeRestakingContract(address) external;
     function transferOwnership(address) external;
 }
 
@@ -66,9 +65,8 @@ contract WireV2Script is Script {
         IRevenueDistributor(REV_DIST).proposeRestakingChange(RESTAKING);
         console.log("3. RevenueDistributor restaking proposed");
 
-        // 4. TegridyStaking: propose restaking contract
-        ITegridyStaking(STAKING).proposeRestakingContract(RESTAKING);
-        console.log("4. TegridyStaking restaking proposed");
+        // 4. SIZE-REDUCTION SPRINT 2026-04-26: timelocked admin lives on TegridyStakingAdmin
+        console.log("4. TegridyStaking restaking link must be proposed via TegridyStakingAdmin");
 
         // 5. Transfer ownership of all 9 to multisig
         ITegridyStaking(STAKING).transferOwnership(MULTISIG);

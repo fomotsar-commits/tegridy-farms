@@ -115,9 +115,8 @@ contract DeploySepoliaScript is Script {
         d.restaking = address(restaking);
         console.log(" 8. TegridyRestaking:", d.restaking);
 
-        // Propose restaking wiring (timelocked — execute after 48h)
-        staking.proposeRestakingContract(d.restaking);
-        console.log("    -> Staking.restakingContract proposed");
+        // SIZE-REDUCTION SPRINT 2026-04-26: timelocked admin lives on TegridyStakingAdmin
+        console.log("    -> Staking.restakingContract must be proposed via TegridyStakingAdmin");
 
         return d;
     }

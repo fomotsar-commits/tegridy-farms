@@ -59,8 +59,8 @@ contract DeployRemainingScript is Script {
         RevenueDistributor(payable(REV_DIST)).proposeRestakingChange(RESTAKING);
         console.log("3. RevenueDistributor: restaking link proposed (48h)");
 
-        TegridyStaking(STAKING).proposeRestakingContract(RESTAKING);
-        console.log("4. TegridyStaking: restaking link proposed (48h)");
+        // SIZE-REDUCTION SPRINT 2026-04-26: timelocked admin lives on TegridyStakingAdmin
+        console.log("4. TegridyStaking: restaking link must be proposed via TegridyStakingAdmin");
 
         // 3. Transfer ownership to multisig on ALL contracts
         TegridyStaking(STAKING).transferOwnership(MULTISIG);

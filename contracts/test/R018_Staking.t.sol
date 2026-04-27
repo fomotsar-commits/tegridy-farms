@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
+import "../src/TegridyStakingAdmin.sol";
 
 contract R018MockToken is ERC20 {
     constructor() ERC20("Towelie", "TOWELI") {
@@ -23,6 +24,7 @@ contract R018MockNFT is ERC721 {
 ///         reversibility), and M-005-01 (Synthetix streaming) on TegridyStaking.
 contract R018StakingTest is Test {
     TegridyStaking public staking;
+    TegridyStakingAdmin public admin;
     R018MockToken public token;
     R018MockNFT public nft;
 
@@ -39,6 +41,8 @@ contract R018StakingTest is Test {
         token = new R018MockToken();
         nft = new R018MockNFT();
         staking = new TegridyStaking(address(token), address(nft), treasury, START_RATE);
+        admin = new TegridyStakingAdmin(address(staking));
+        staking.setStakingAdmin(address(admin));
 
         token.transfer(alice, 5_000_000 ether);
         token.transfer(bob, 5_000_000 ether);
@@ -158,9 +162,9 @@ contract R018StakingTest is Test {
         // Tiny cap so the H-005-02 fallback fires deterministically.
         // The min cap on proposeMaxUnsettledRewards is 10_000e18 - propose
         // it now, warp, execute.
-        staking.proposeMaxUnsettledRewards(10_000e18);
+        admin.proposeMaxUnsettledRewards(10_000e18);
         vm.warp(block.timestamp + 49 hours);
-        staking.executeMaxUnsettledRewards();
+        admin.executeMaxUnsettledRewards();
 
         // Stake alice large; let rewards accrue.
         uint256 aliceId = _stake(alice, 1_000_000 ether, 365 days);

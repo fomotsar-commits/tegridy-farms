@@ -92,9 +92,9 @@ contract DeployFinalScript is Script {
         d.restaking = address(restaking);
         console.log(" 5. TegridyRestaking:", d.restaking);
 
-        // Propose restaking wiring on staking (timelocked)
-        staking.proposeRestakingContract(d.restaking);
-        console.log("    -> Staking.restakingContract proposed");
+        // SIZE-REDUCTION SPRINT 2026-04-26: timelocked admin lives on TegridyStakingAdmin.
+        // Deploy TegridyStakingAdmin separately and call admin.proposeRestakingContract(...).
+        console.log("    -> Staking.restakingContract must be proposed via TegridyStakingAdmin");
 
         return d;
     }

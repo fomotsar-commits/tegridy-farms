@@ -132,9 +132,9 @@ contract DeployAuditFixesScript is Script {
         revDist.proposeRestakingChange(address(restaking));
         console.log("9. Proposed restaking link for RevenueDistributor (execute after 48h)");
 
-        // AUDIT FIX C-02: Restaking contract now uses timelocked setter
-        staking.proposeRestakingContract(address(restaking));
-        console.log("10. TegridyStaking restaking contract proposed (execute after 48h)");
+        // SIZE-REDUCTION SPRINT 2026-04-26: timelocked admin lives on TegridyStakingAdmin
+        // NOTE: deploy/wire TegridyStakingAdmin separately and call admin.proposeRestakingContract(...)
+        console.log("10. TegridyStaking restaking link must be proposed via TegridyStakingAdmin (post-split)");
 
         // AUDIT FIX H10: Transfer ownership to multisig
         address MULTISIG = vm.envAddress("MULTISIG");

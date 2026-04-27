@@ -161,9 +161,8 @@ contract DeployV2Script is Script {
         revDist.proposeRestakingChange(address(restaking));
         console.log(">> RevenueDistributor: restaking link proposed (48h timelock)");
 
-        // TegridyStaking: propose restaking contract (48h timelock)
-        staking.proposeRestakingContract(address(restaking));
-        console.log(">> TegridyStaking: restaking contract proposed (48h timelock)");
+        // SIZE-REDUCTION SPRINT 2026-04-26: timelocked admin lives on TegridyStakingAdmin
+        console.log(">> TegridyStaking: restaking link must be proposed via TegridyStakingAdmin");
 
         // ═══════════════════════════════════════════════════════════════
         // Transfer ownership to multisig (Ownable2Step)
