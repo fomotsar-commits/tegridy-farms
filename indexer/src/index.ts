@@ -1366,3 +1366,33 @@ ponder.on("TegridyTWAP:DeviationBypassed", async ({ event, context }) => {
     })
     .onConflictDoNothing();
 });
+
+// ─── TegridyStakingAdmin (post-2026-04-26 split) ─────────────────────────────
+//
+// AUDIT (commit 99eaf9b): timelocked admin triplets moved off TegridyStaking
+// into TegridyStakingAdmin. ProposalCreated/Executed/Cancelled now fire from
+// the admin contract; recordTimelockEvent writes to the existing
+// timelockProposal table with contract = "TegridyStakingAdmin".
+ponder.on("TegridyStakingAdmin:ProposalCreated", async ({ event, context }) => {
+  await recordTimelockEvent(context, event, "TegridyStakingAdmin", "created");
+});
+ponder.on("TegridyStakingAdmin:ProposalExecuted", async ({ event, context }) => {
+  await recordTimelockEvent(context, event, "TegridyStakingAdmin", "executed");
+});
+ponder.on("TegridyStakingAdmin:ProposalCancelled", async ({ event, context }) => {
+  await recordTimelockEvent(context, event, "TegridyStakingAdmin", "cancelled");
+});
+
+// ─── SwapFeeRouterAdmin (post-2026-04-26 split) ──────────────────────────────
+//
+// AUDIT (commit cb3d12b): timelocked admin triplets moved off SwapFeeRouter
+// into SwapFeeRouterAdmin. Same pattern as TegridyStakingAdmin.
+ponder.on("SwapFeeRouterAdmin:ProposalCreated", async ({ event, context }) => {
+  await recordTimelockEvent(context, event, "SwapFeeRouterAdmin", "created");
+});
+ponder.on("SwapFeeRouterAdmin:ProposalExecuted", async ({ event, context }) => {
+  await recordTimelockEvent(context, event, "SwapFeeRouterAdmin", "executed");
+});
+ponder.on("SwapFeeRouterAdmin:ProposalCancelled", async ({ event, context }) => {
+  await recordTimelockEvent(context, event, "SwapFeeRouterAdmin", "cancelled");
+});

@@ -791,6 +791,33 @@ const TegridyTWAPAbi = [
   },
 ] as const;
 
+// AUDIT (2026-04-26 splits, commits 99eaf9b + cb3d12b): TegridyStakingAdmin and
+// SwapFeeRouterAdmin both inherit TimelockAdmin and emit the standard
+// ProposalCreated/Executed/Cancelled events. Subscribing here lets the
+// existing `timelockProposal` table track the admin lifecycle without needing
+// per-triplet event handlers.
+const TimelockAdminMinimalAbi = [
+  {
+    type: "event",
+    name: "ProposalCreated",
+    inputs: [
+      { name: "key", type: "bytes32", indexed: true },
+      { name: "executeAfter", type: "uint256", indexed: false },
+      { name: "expiresAt", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "ProposalExecuted",
+    inputs: [{ name: "key", type: "bytes32", indexed: true }],
+  },
+  {
+    type: "event",
+    name: "ProposalCancelled",
+    inputs: [{ name: "key", type: "bytes32", indexed: true }],
+  },
+] as const;
+
 // AUDIT R054: dedicated PausableOnly ABI for the 3 contracts that we want
 // to watch ONLY for pause-state transitions (no other event surface yet).
 const PausableOnlyAbi = [
@@ -998,6 +1025,35 @@ export default createConfig({
       network: "mainnet",
       address: "0xddbe4cd58faf4b0b93e4e03a2493327ee3bb4995",
       startBlock: TEGRIDY_FACTORY_START,
+    },
+    // AUDIT (2026-04-26 split, commit 99eaf9b): TegridyStakingAdmin sister
+    // contract. Holds all 7 timelocked admin triplets after the EIP-170
+    // split. ProposalCreated/Executed/Cancelled events fire from here, NOT
+    // from the parent TegridyStaking.
+    //
+    // OPERATOR TODO: replace 0x000... with the deployed TegridyStakingAdmin
+    // address after running the deploy script + setStakingAdmin wiring.
+    // Until then, this subscription is a no-op (matches no logs).
+    TegridyStakingAdmin: {
+      abi: TimelockAdminMinimalAbi,
+      network: "mainnet",
+      address: (process.env.TEGRIDY_STAKING_ADMIN_ADDRESS as `0x${string}` | undefined)
+        ?? "0x0000000000000000000000000000000000000000",
+      startBlock: TEGRIDY_STAKING_START,
+    },
+    // AUDIT (2026-04-26 split, commit cb3d12b): SwapFeeRouterAdmin sister
+    // contract. Holds all 9 timelocked admin triplets after the EIP-170
+    // split. ProposalCreated/Executed/Cancelled events fire from here, NOT
+    // from the parent SwapFeeRouter.
+    //
+    // OPERATOR TODO: replace 0x000... with the deployed SwapFeeRouterAdmin
+    // address after running the deploy script + setSwapFeeRouterAdmin wiring.
+    SwapFeeRouterAdmin: {
+      abi: TimelockAdminMinimalAbi,
+      network: "mainnet",
+      address: (process.env.SWAP_FEE_ROUTER_ADMIN_ADDRESS as `0x${string}` | undefined)
+        ?? "0x0000000000000000000000000000000000000000",
+      startBlock: SWAP_FEE_ROUTER_START,
     },
   },
 });
