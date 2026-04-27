@@ -296,6 +296,48 @@ const VoteIncentivesAbi = [
       { name: "amount", type: "uint256", indexed: false },
     ],
   },
+  // AUDIT R020 H-1 (Batch B, commit 1b7ad2f): zero-vote epoch bribe rescue.
+  // Distinct from OrphanedBribeRefunded (which handles un-snapshotted epochs)
+  // — UnvotedBribeRefunded fires on snapshotted epochs where the targeted
+  // pair received zero votes after a 14-day grace window.
+  {
+    type: "event",
+    name: "UnvotedBribeRefunded",
+    inputs: [
+      { name: "epoch", type: "uint256", indexed: true },
+      { name: "pair", type: "address", indexed: true },
+      { name: "token", type: "address", indexed: true },
+      { name: "depositor", type: "address", indexed: false },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+  // AUDIT R020 H-3 (Batch B): per-token min-bribe governance lifecycle.
+  {
+    type: "event",
+    name: "MinBribeAmountChangeProposed",
+    inputs: [
+      { name: "token", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+      { name: "executeAfter", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "MinBribeAmountChangeExecuted",
+    inputs: [
+      { name: "token", type: "address", indexed: true },
+      { name: "oldAmount", type: "uint256", indexed: false },
+      { name: "newAmount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "MinBribeAmountChangeCancelled",
+    inputs: [
+      { name: "token", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
   {
     type: "event",
     name: "Paused",
@@ -684,6 +726,71 @@ const TegridyFactoryPairCreatedEvent = parseAbiItem(
   "event PairCreated(address indexed token0, address indexed token1, address pair, uint256 pairCount)",
 );
 
+// AUDIT (post-Batch-J sweep): TegridyFactory governance lifecycle. The
+// guardian rotation timelock (Batch A, commit 393b084) emits a propose/execute/
+// cancel triplet that the timelock UI needs to render the active queue.
+// Pair-disable governance also emits PairDisableProposed/Executed.
+const TegridyFactoryGovernanceAbi = [
+  {
+    type: "event",
+    name: "GuardianSet",
+    inputs: [
+      { name: "oldGuardian", type: "address", indexed: true },
+      { name: "newGuardian", type: "address", indexed: true },
+    ],
+  },
+  {
+    type: "event",
+    name: "GuardianChangeProposed",
+    inputs: [
+      { name: "currentGuardian", type: "address", indexed: true },
+      { name: "proposedGuardian", type: "address", indexed: true },
+      { name: "executeAfter", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "GuardianChangeExecuted",
+    inputs: [
+      { name: "oldGuardian", type: "address", indexed: true },
+      { name: "newGuardian", type: "address", indexed: true },
+    ],
+  },
+  {
+    type: "event",
+    name: "GuardianChangeCancelled",
+    inputs: [
+      { name: "cancelled", type: "address", indexed: true },
+    ],
+  },
+  {
+    type: "event",
+    name: "PairEmergencyDisabled",
+    inputs: [
+      { name: "pair", type: "address", indexed: true },
+      { name: "by", type: "address", indexed: true },
+    ],
+  },
+] as const;
+
+// AUDIT (post-Batch-J sweep): TegridyTWAP rebootstrap visibility. Batch J
+// (commit 5fad774) added DeviationBypassed so consumers can detect the
+// rebootstrap window after >24h dormancy. Indexed table lets lending
+// integrators query "was this pair rebootstrapped in the last hour?"
+// efficiently instead of scanning logs.
+const TegridyTWAPAbi = [
+  {
+    type: "event",
+    name: "DeviationBypassed",
+    inputs: [
+      { name: "pair", type: "address", indexed: true },
+      { name: "elapsed", type: "uint32", indexed: false },
+      { name: "spotPrice0", type: "uint256", indexed: false },
+      { name: "spotPrice1", type: "uint256", indexed: false },
+    ],
+  },
+] as const;
+
 // AUDIT R054: dedicated PausableOnly ABI for the 3 contracts that we want
 // to watch ONLY for pause-state transitions (no other event surface yet).
 const PausableOnlyAbi = [
@@ -874,6 +981,23 @@ export default createConfig({
       network: "mainnet",
       address: "0x05409880aDFEa888F2c93568B8D88c7b4aAdB139",
       startBlock: TEGRIDY_NFT_LENDING_START,
+    },
+    // AUDIT (post-Batch-J sweep): track TegridyFactory governance lifecycle.
+    // Separate from the TegridyPair factory subscription above (which uses the
+    // PairCreated event to enumerate child contracts). This entry tracks the
+    // factory's OWN governance events.
+    TegridyFactory_Governance: {
+      abi: TegridyFactoryGovernanceAbi,
+      network: "mainnet",
+      address: "0x8B786163aA3beb97822d480a0c306DfD6dEbdCB6",
+      startBlock: TEGRIDY_FACTORY_START,
+    },
+    // AUDIT (post-Batch-J sweep): TegridyTWAP rebootstrap detection.
+    TegridyTWAP: {
+      abi: TegridyTWAPAbi,
+      network: "mainnet",
+      address: "0xddbe4cd58faf4b0b93e4e03a2493327ee3bb4995",
+      startBlock: TEGRIDY_FACTORY_START,
     },
   },
 });

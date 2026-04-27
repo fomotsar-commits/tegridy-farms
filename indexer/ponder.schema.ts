@@ -192,14 +192,14 @@ export const voteIncentivesEpoch = onchainTable("vote_incentives_epoch", (t) => 
   timestamp: t.bigint().notNull(),
 }));
 
-// AUDIT R054 (NEW-G2): refund table. Currently only `orphaned` is emitted
-// by the contract but the `type` discriminator leaves room for future
-// refund flavours without re-migrating.
+// AUDIT R054 (NEW-G2): refund table. Originally only `orphaned` was emitted
+// by the contract; Batch B (commit 1b7ad2f) added `unvoted` for snapshotted
+// zero-vote epochs. The `type` discriminator covers both.
 export const voteIncentivesRefund = onchainTable(
   "vote_incentives_refund",
   (t) => ({
     id: t.text().primaryKey(),
-    type: t.text().notNull(), // "orphaned"
+    type: t.text().notNull(), // "orphaned" | "unvoted"
     epoch: t.bigint().notNull(),
     pair: t.hex().notNull(),
     token: t.hex().notNull(),
@@ -210,6 +210,27 @@ export const voteIncentivesRefund = onchainTable(
   (table) => ({
     depositorIdx: index().on(table.depositor),
     epochIdx: index().on(table.epoch),
+  }),
+);
+
+// AUDIT R020 H-3 (Batch B, commit 1b7ad2f): per-token min-bribe governance
+// lifecycle. Records propose/execute/cancel events so the frontend timelock
+// UI can show the active queue and history without re-scanning logs.
+export const voteIncentivesMinBribeChange = onchainTable(
+  "vote_incentives_min_bribe_change",
+  (t) => ({
+    id: t.text().primaryKey(),
+    action: t.text().notNull(), // "proposed" | "executed" | "cancelled"
+    token: t.hex().notNull(),
+    amount: t.bigint().notNull(),
+    previousAmount: t.bigint(), // only set on "executed"
+    executeAfter: t.bigint().notNull(),
+    timestamp: t.bigint().notNull(),
+    txHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    tokenIdx: index().on(table.token),
+    actionIdx: index().on(table.action),
   }),
 );
 
@@ -489,5 +510,61 @@ export const timelockProposal = onchainTable(
   (table) => ({
     contractIdx: index().on(table.contract),
     keyIdx: index().on(table.key),
+  }),
+);
+
+// ─── Factory governance (post-Batch-J sweep) ─────────────────────────────────
+
+// AUDIT (Batch A, commit 393b084): TegridyFactory.setGuardian initial-set +
+// the propose/execute/cancel triplet for guardian rotation. Plus the
+// emergencyDisablePair circuit-breaker fires.
+export const factoryGuardianEvent = onchainTable(
+  "factory_guardian_event",
+  (t) => ({
+    id: t.text().primaryKey(),
+    type: t.text().notNull(), // "set" | "proposed" | "executed" | "cancelled"
+    oldGuardian: t.hex(),
+    newGuardian: t.hex(),
+    executeAfter: t.bigint(),
+    timestamp: t.bigint().notNull(),
+    txHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    typeIdx: index().on(table.type),
+  }),
+);
+
+export const factoryEmergencyDisable = onchainTable(
+  "factory_emergency_disable",
+  (t) => ({
+    id: t.text().primaryKey(),
+    pair: t.hex().notNull(),
+    by: t.hex().notNull(),
+    timestamp: t.bigint().notNull(),
+    txHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    pairIdx: index().on(table.pair),
+  }),
+);
+
+// ─── TWAP rebootstrap (post-Batch-J sweep) ───────────────────────────────────
+
+// AUDIT M-2 (Batch J, commit 5fad774): TegridyTWAP DeviationBypassed.
+// Lending integrators can query "was this pair rebootstrapped recently?" to
+// require a confirming observation before trusting the new baseline.
+export const twapRebootstrap = onchainTable(
+  "twap_rebootstrap",
+  (t) => ({
+    id: t.text().primaryKey(),
+    pair: t.hex().notNull(),
+    elapsed: t.bigint().notNull(),
+    spotPrice0: t.bigint().notNull(),
+    spotPrice1: t.bigint().notNull(),
+    timestamp: t.bigint().notNull(),
+    txHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    pairIdx: index().on(table.pair),
   }),
 );

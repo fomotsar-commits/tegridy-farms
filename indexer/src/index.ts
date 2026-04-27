@@ -13,6 +13,10 @@ import {
   voteIncentivesCommit,
   voteIncentivesEpoch,
   voteIncentivesRefund,
+  voteIncentivesMinBribeChange,
+  factoryGuardianEvent,
+  factoryEmergencyDisable,
+  twapRebootstrap,
   swap,
   pairEvent,
   lpFarmAction,
@@ -619,6 +623,78 @@ ponder.on("VoteIncentives:OrphanedBribeRefunded", async ({ event, context }) => 
     .onConflictDoNothing();
 });
 
+// AUDIT R020 H-1 (Batch B, commit 1b7ad2f): zero-vote epoch bribe rescue.
+// Distinct from the orphaned-bribe path — fires on snapshotted epochs whose
+// targeted pair received zero votes after the 14-day grace window.
+ponder.on("VoteIncentives:UnvotedBribeRefunded", async ({ event, context }) => {
+  const { epoch, pair, token, depositor, amount } = event.args;
+  await context.db
+    .insert(voteIncentivesRefund)
+    .values({
+      id: event.log.id,
+      type: "unvoted",
+      epoch,
+      pair,
+      token,
+      depositor,
+      amount,
+      timestamp: event.block.timestamp,
+    })
+    .onConflictDoNothing();
+});
+
+// AUDIT R020 H-3 (Batch B): per-token min-bribe governance lifecycle.
+// Frontends and operators want full visibility into proposed/executed/cancelled
+// changes so the timelock UI can show the live queue.
+ponder.on("VoteIncentives:MinBribeAmountChangeProposed", async ({ event, context }) => {
+  const { token, amount, executeAfter } = event.args;
+  await context.db
+    .insert(voteIncentivesMinBribeChange)
+    .values({
+      id: event.log.id,
+      action: "proposed",
+      token,
+      amount,
+      executeAfter,
+      timestamp: event.block.timestamp,
+      txHash: event.transaction.hash,
+    })
+    .onConflictDoNothing();
+});
+
+ponder.on("VoteIncentives:MinBribeAmountChangeExecuted", async ({ event, context }) => {
+  const { token, oldAmount, newAmount } = event.args;
+  await context.db
+    .insert(voteIncentivesMinBribeChange)
+    .values({
+      id: event.log.id,
+      action: "executed",
+      token,
+      amount: newAmount,
+      previousAmount: oldAmount,
+      executeAfter: 0n,
+      timestamp: event.block.timestamp,
+      txHash: event.transaction.hash,
+    })
+    .onConflictDoNothing();
+});
+
+ponder.on("VoteIncentives:MinBribeAmountChangeCancelled", async ({ event, context }) => {
+  const { token, amount } = event.args;
+  await context.db
+    .insert(voteIncentivesMinBribeChange)
+    .values({
+      id: event.log.id,
+      action: "cancelled",
+      token,
+      amount,
+      executeAfter: 0n,
+      timestamp: event.block.timestamp,
+      txHash: event.transaction.hash,
+    })
+    .onConflictDoNothing();
+});
+
 ponder.on("VoteIncentives:Paused", async ({ event, context }) => {
   await recordPauseState(context, event, "VoteIncentives", true);
 });
@@ -1195,4 +1271,98 @@ ponder.on("TegridyNFTLending_Pause:Paused", async ({ event, context }) => {
 });
 ponder.on("TegridyNFTLending_Pause:Unpaused", async ({ event, context }) => {
   await recordPauseState(context, event, "TegridyNFTLending", false);
+});
+
+// ─── TegridyFactory governance (post-Batch-J sweep) ──────────────────────────
+
+ponder.on("TegridyFactory_Governance:GuardianSet", async ({ event, context }) => {
+  const { oldGuardian, newGuardian } = event.args;
+  await context.db
+    .insert(factoryGuardianEvent)
+    .values({
+      id: event.log.id,
+      type: "set",
+      oldGuardian,
+      newGuardian,
+      timestamp: event.block.timestamp,
+      txHash: event.transaction.hash,
+    })
+    .onConflictDoNothing();
+});
+
+ponder.on("TegridyFactory_Governance:GuardianChangeProposed", async ({ event, context }) => {
+  const { currentGuardian, proposedGuardian, executeAfter } = event.args;
+  await context.db
+    .insert(factoryGuardianEvent)
+    .values({
+      id: event.log.id,
+      type: "proposed",
+      oldGuardian: currentGuardian,
+      newGuardian: proposedGuardian,
+      executeAfter,
+      timestamp: event.block.timestamp,
+      txHash: event.transaction.hash,
+    })
+    .onConflictDoNothing();
+});
+
+ponder.on("TegridyFactory_Governance:GuardianChangeExecuted", async ({ event, context }) => {
+  const { oldGuardian, newGuardian } = event.args;
+  await context.db
+    .insert(factoryGuardianEvent)
+    .values({
+      id: event.log.id,
+      type: "executed",
+      oldGuardian,
+      newGuardian,
+      timestamp: event.block.timestamp,
+      txHash: event.transaction.hash,
+    })
+    .onConflictDoNothing();
+});
+
+ponder.on("TegridyFactory_Governance:GuardianChangeCancelled", async ({ event, context }) => {
+  const { cancelled } = event.args;
+  await context.db
+    .insert(factoryGuardianEvent)
+    .values({
+      id: event.log.id,
+      type: "cancelled",
+      newGuardian: cancelled,
+      timestamp: event.block.timestamp,
+      txHash: event.transaction.hash,
+    })
+    .onConflictDoNothing();
+});
+
+ponder.on("TegridyFactory_Governance:PairEmergencyDisabled", async ({ event, context }) => {
+  const { pair, by } = event.args;
+  await context.db
+    .insert(factoryEmergencyDisable)
+    .values({
+      id: event.log.id,
+      pair,
+      by,
+      timestamp: event.block.timestamp,
+      txHash: event.transaction.hash,
+    })
+    .onConflictDoNothing();
+});
+
+// ─── TegridyTWAP rebootstrap (post-Batch-J sweep) ────────────────────────────
+
+ponder.on("TegridyTWAP:DeviationBypassed", async ({ event, context }) => {
+  const { pair, elapsed, spotPrice0, spotPrice1 } = event.args;
+  await context.db
+    .insert(twapRebootstrap)
+    .values({
+      id: event.log.id,
+      pair,
+      elapsed: BigInt(elapsed),
+      spotPrice0,
+      spotPrice1,
+      timestamp: event.block.timestamp,
+      txHash: event.transaction.hash,
+    })
+    .onConflictDoNothing();
 });
