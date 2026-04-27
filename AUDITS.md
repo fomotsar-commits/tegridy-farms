@@ -80,6 +80,8 @@ Every finding that can be expressed as a test has one, under [`contracts/test/`]
 
 Post-2026-04-26 additions: 8 demonstration tests in [`contracts/test/AuditDemonstration.t.sol`](./contracts/test/AuditDemonstration.t.sol) prove the new behavior of Batches A–J (commits 393b084 → 5fad774). See [`.audit_101/POST_REMEDIATION_LEDGER.md`](./.audit_101/POST_REMEDIATION_LEDGER.md) for the full per-finding breakdown.
 
+**Architectural change (2026-04-26):** TegridyStaking was split into [`TegridyStaking`](./contracts/src/TegridyStaking.sol) (user-facing) + [`TegridyStakingAdmin`](./contracts/src/TegridyStakingAdmin.sol) (timelocked admin) to fit under the EIP-170 24,576-byte runtime limit. Final size: 22,492 bytes (+2,084 margin). All 1,927 tests pass. Admin-side `propose/execute/cancel` calls moved from `staking.*` to `admin.*` — frontend ABI imports + deploy scripts need to reference the new admin contract. See ledger for details.
+
 ---
 
 ## Known blockers on `main`

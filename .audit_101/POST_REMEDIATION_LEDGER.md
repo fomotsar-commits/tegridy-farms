@@ -33,6 +33,30 @@
 | H | `2626dc5` | PremiumAccess + TegridyStaking | M-24, M-30 | MED |
 | I | `1ec721c` | MemeBountyBoard + POLAccumulator | M-16, M-28 | MED |
 | J | `5fad774` | TegridyTWAP | M-2 | MED |
+| size-1 | `99eaf9b` + `b3092b6` | TegridyStaking + new TegridyStakingAdmin | EIP-170 split | INFRA |
+
+---
+
+## Architectural split — TegridyStaking → TegridyStaking + TegridyStakingAdmin
+
+**Why:** The triple-check sweep found TegridyStaking's runtime bytecode at 29,461 bytes — 4,885 bytes OVER the EIP-170 mainnet limit (24,576). The contract could not be redeployed. Source-level fixes from this campaign (Batch F MAX_POSITIONS, Batch H ceiling-div, Wave 1 custom errors) were stuck.
+
+**What changed:** All 7 timelocked admin function triplets (rewardRate, treasury, restakingContract, maxUnsettledRewards, lendingContract, extendFee, penaltyRecycle) plus their pending state moved from TegridyStaking into a new sister contract [`TegridyStakingAdmin.sol`](../contracts/src/TegridyStakingAdmin.sol). TegridyStaking exposes `onlyAdmin`-gated `apply*` setters that the Admin contract calls during execute.
+
+**Result:**
+- TegridyStaking: 29,461 → **22,492 bytes** (saved 6,953 bytes; +2,084 margin under EIP-170)
+- TegridyStakingAdmin (new): 10,079 bytes (well within limit)
+- All 1,927 forge tests pass — no regression
+- Public hot-path functions (stake, withdraw, claim, getReward, votingPowerOf, transferFrom etc.) unchanged
+
+**Wiring:** One-shot `staking.setStakingAdmin(address(admin))` at deploy time. Single trust anchor.
+
+**Public surface delta** (relevant for frontend, indexer, deploy scripts):
+- Callers that used `staking.proposeRewardRate(...)` etc. now use `admin.proposeRewardRate(...)`
+- `staking.rewardRateChangeTime()` etc. moved to `admin.rewardRateChangeTime()`
+- All other public surface unchanged
+- Frontend ABI imports for the 18 admin functions need to point at the new admin contract (follow-up for dApp team)
+- Indexer ABI may want to track admin-contract events too (follow-up)
 
 ---
 
