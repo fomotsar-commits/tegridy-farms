@@ -6,6 +6,15 @@ export const TOWELI_ADDRESS = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D' as co
 export const TEGRIDY_STAKING_ADDRESS = '0x626644523d34B84818df602c991B4a06789C4819' as const;
 export const TEGRIDY_RESTAKING_ADDRESS = '0xfba4D340759Ae4c36DfFC6C773D171bf7BDCaEe4' as const;
 
+// EIP-170 admin sister contracts (post-Apr-26 splits, commits 99eaf9b + cb3d12b).
+// Operators MUST update these placeholders with the deployed addresses after running:
+//   1. Deploy TegridyStakingAdmin(staking) + call staking.setStakingAdmin(admin)
+//   2. Deploy SwapFeeRouterAdmin(router) + call router.setSwapFeeRouterAdmin(admin)
+// Until then, any propose/execute/cancel admin call from the dApp will revert against
+// address(0). User-facing functions (stake/withdraw/claim/swap) work without these.
+export const TEGRIDY_STAKING_ADMIN_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+export const SWAP_FEE_ROUTER_ADMIN_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+
 // Native DEX
 export const TEGRIDY_FACTORY_ADDRESS = '0x8B786163aA3beb97822d480a0c306DfD6dEbdCB6' as const;
 export const TEGRIDY_ROUTER_ADDRESS = '0xCBCF6AcC4697cA3a7D7658Cd2051606a09c9863F' as const;
