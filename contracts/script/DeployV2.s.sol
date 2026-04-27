@@ -7,6 +7,7 @@ import {VoteIncentives} from "../src/VoteIncentives.sol";
 import {TegridyRestaking} from "../src/TegridyRestaking.sol";
 import {CommunityGrants} from "../src/CommunityGrants.sol";
 import {SwapFeeRouter} from "../src/SwapFeeRouter.sol";
+import {SwapFeeRouterAdmin} from "../src/SwapFeeRouterAdmin.sol";
 import {RevenueDistributor} from "../src/RevenueDistributor.sol";
 import {MemeBountyBoard} from "../src/MemeBountyBoard.sol";
 import {ReferralSplitter} from "../src/ReferralSplitter.sol";
@@ -103,6 +104,11 @@ contract DeployV2Script is Script {
         );
         console.log("5. SwapFeeRouter V2:", address(swapRouter));
 
+        // 5b. SwapFeeRouterAdmin (sister contract holding timelocked propose/execute/cancel)
+        SwapFeeRouterAdmin swapRouterAdmin = new SwapFeeRouterAdmin(address(swapRouter));
+        swapRouter.setSwapFeeRouterAdmin(address(swapRouterAdmin));
+        console.log("5b. SwapFeeRouterAdmin:", address(swapRouterAdmin));
+
         // ═══════════════════════════════════════════════════════════════
         // 6. CommunityGrants (immutable staking ref → new staking)
         // ═══════════════════════════════════════════════════════════════
@@ -175,6 +181,7 @@ contract DeployV2Script is Script {
         restaking.transferOwnership(MULTISIG);
         referral.transferOwnership(MULTISIG);
         swapRouter.transferOwnership(MULTISIG);
+        swapRouterAdmin.transferOwnership(MULTISIG);
         grants.transferOwnership(MULTISIG);
         revDist.transferOwnership(MULTISIG);
         bountyBoard.transferOwnership(MULTISIG);
@@ -194,6 +201,7 @@ contract DeployV2Script is Script {
         console.log("TegridyRestaking:     ", address(restaking));
         console.log("ReferralSplitter:     ", address(referral));
         console.log("SwapFeeRouter V2:     ", address(swapRouter));
+        console.log("SwapFeeRouterAdmin:   ", address(swapRouterAdmin));
         console.log("CommunityGrants:      ", address(grants));
         console.log("RevenueDistributor:   ", address(revDist));
         console.log("MemeBountyBoard:      ", address(bountyBoard));
@@ -204,8 +212,8 @@ contract DeployV2Script is Script {
         console.log("2. After 24h: VoteIncentives.executeWhitelistChange() (TOWELI)");
         console.log("3. After 48h: TegridyStaking.executeRestakingContract()");
         console.log("4. After 48h: RevenueDistributor.executeRestakingChange()");
-        console.log("5. SwapFeeRouter: proposeRevenueDistributor(RevenueDistributor) -> 48h -> execute");
-        console.log("6. SwapFeeRouter: proposePremiumAccessChange(PremiumAccess) -> 48h -> execute");
+        console.log("5. SwapFeeRouterAdmin: proposeRevenueDistributor(RevenueDistributor) -> 48h -> execute");
+        console.log("6. SwapFeeRouterAdmin: proposePremiumAccessChange(PremiumAccess) -> 48h -> execute");
         console.log("7. VoteIncentives: proposeWhitelistChange(WETH, true) -> 24h -> execute");
         console.log("8. Fund TegridyStaking with TOWELI rewards via fund()");
         console.log("9. Update frontend/src/lib/constants.ts with new addresses");

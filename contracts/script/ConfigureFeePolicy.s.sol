@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "forge-std/Script.sol";
 import "../src/SwapFeeRouter.sol";
+import "../src/SwapFeeRouterAdmin.sol";
 
 /// @title ConfigureFeePolicy
 /// @notice Two-phase runbook for the new pair-specific fee + 70/20/10 split policy.
@@ -32,6 +33,10 @@ import "../src/SwapFeeRouter.sol";
 abstract contract ConfigureFeePolicyBase is Script {
     // --- Deployment addresses (mainnet) ---
     address constant SWAP_FEE_ROUTER      = 0xea13Cd47a37cC5B59675bfd52BFc8ff8691937A0;
+    /// @notice Sister admin contract — owner of all timelocked propose/execute/cancel flow.
+    /// @dev    Address set after the size-reduction sprint deploys SwapFeeRouterAdmin.
+    ///         FILL IN before broadcasting Phase 1.
+    address constant SWAP_FEE_ROUTER_ADMIN = address(0); // TODO: set post-deploy
     address constant POL_ACCUMULATOR      = 0x17215f0dfA5E97c33c025E0560eeddffaD87B7Ca;
 
     // Pair addresses that get captive-pricing overrides. Add additional pair addresses
@@ -53,26 +58,27 @@ contract ConfigureFeePolicyPropose is ConfigureFeePolicyBase {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(pk);
 
-        SwapFeeRouter r = SwapFeeRouter(payable(SWAP_FEE_ROUTER));
+        require(SWAP_FEE_ROUTER_ADMIN != address(0), "SET_ADMIN_ADDRESS");
+        SwapFeeRouterAdmin a = SwapFeeRouterAdmin(SWAP_FEE_ROUTER_ADMIN);
 
         // 1. Fee split 70/20/10 (staker/treasury/POL)
-        r.proposeFeeSplit(NEW_STAKER_SHARE_BPS, NEW_POL_SHARE_BPS);
+        a.proposeFeeSplit(NEW_STAKER_SHARE_BPS, NEW_POL_SHARE_BPS);
         console.log("Proposed fee split:", NEW_STAKER_SHARE_BPS, NEW_POL_SHARE_BPS);
 
         // 2. POL accumulator destination
-        r.proposePolAccumulator(POL_ACCUMULATOR);
+        a.proposePolAccumulator(POL_ACCUMULATOR);
         console.log("Proposed POL accumulator:", POL_ACCUMULATOR);
 
         // 3. Global fee bump (50 -> 75 bps on non-captive paths)
-        r.proposeFeeChange(NEW_GLOBAL_FEE_BPS);
+        a.proposeFeeChange(NEW_GLOBAL_FEE_BPS);
         console.log("Proposed global fee bps:", NEW_GLOBAL_FEE_BPS);
 
         // 4a. TOWELI/WETH Uniswap pair captive override
-        r.proposePairFeeChange(TOWELI_WETH_UNI_LP, CAPTIVE_FEE_BPS, false);
+        a.proposePairFeeChange(TOWELI_WETH_UNI_LP, CAPTIVE_FEE_BPS, false);
         console.log("Proposed captive fee on TOWELI/WETH (Uni):", CAPTIVE_FEE_BPS);
 
         // 4b. Tegridy-owned TOWELI/WETH pair captive override
-        r.proposePairFeeChange(TEGRIDY_LP, CAPTIVE_FEE_BPS, false);
+        a.proposePairFeeChange(TEGRIDY_LP, CAPTIVE_FEE_BPS, false);
         console.log("Proposed captive fee on TEGRIDY_LP:", CAPTIVE_FEE_BPS);
 
         vm.stopBroadcast();
@@ -91,24 +97,25 @@ contract ConfigureFeePolicyExecute is ConfigureFeePolicyBase {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(pk);
 
-        SwapFeeRouter r = SwapFeeRouter(payable(SWAP_FEE_ROUTER));
+        require(SWAP_FEE_ROUTER_ADMIN != address(0), "SET_ADMIN_ADDRESS");
+        SwapFeeRouterAdmin a = SwapFeeRouterAdmin(SWAP_FEE_ROUTER_ADMIN);
 
         // 1. execute split
-        r.executeFeeSplit();
+        a.executeFeeSplit();
         console.log("Executed fee split");
 
         // 2. execute POL accumulator
-        r.executePolAccumulator();
+        a.executePolAccumulator();
         console.log("Executed POL accumulator");
 
         // 3. execute global fee bump
-        r.executeFeeChange();
+        a.executeFeeChange();
         console.log("Executed global fee bump");
 
         // 4. execute pair overrides (one at a time — proposePairFeeChange stores one
         //    pending pair, so they must be proposed+executed in sequence. If your
         //    multisig batches differently, adjust the Phase 1 script accordingly.)
-        r.executePairFeeChange();
+        a.executePairFeeChange();
         console.log("Executed first pair override");
 
         vm.stopBroadcast();

@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "forge-std/Script.sol";
 import "../src/SwapFeeRouter.sol";
+import "../src/SwapFeeRouterAdmin.sol";
 
 /// @title DeploySwapFeeRouterV2 - Deploy upgraded SwapFeeRouter with dynamic fees + premium discount
 contract DeploySwapFeeRouterV2Script is Script {
@@ -36,34 +37,44 @@ contract DeploySwapFeeRouterV2Script is Script {
         console.log("1. SwapFeeRouter V2 deployed:", address(sfr));
         console.log("   Fee:", SWAP_FEE_BPS, "bps");
 
-        // 2. Propose PremiumAccess integration (48h timelock)
-        sfr.proposePremiumAccessChange(PREMIUM_ACCESS);
-        console.log("2. PremiumAccess change proposed (48h timelock)");
+        // 2. Deploy sister SwapFeeRouterAdmin (holds timelocked propose/execute/cancel flow)
+        SwapFeeRouterAdmin sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
+        console.log("2. SwapFeeRouterAdmin deployed:", address(sfrAdmin));
 
-        // 3. Propose premium discount (24h timelock)
-        sfr.proposePremiumDiscountChange(PREMIUM_DISCOUNT_BPS);
-        console.log("3. Premium discount proposed:", PREMIUM_DISCOUNT_BPS, "bps (24h timelock)");
+        // 3. Wire admin into router (one-shot, immutable after first call)
+        sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
+        console.log("3. SwapFeeRouterAdmin wired into router");
 
-        // 4. Transfer ownership to multisig
+        // 4. Propose PremiumAccess integration (48h timelock)
+        sfrAdmin.proposePremiumAccessChange(PREMIUM_ACCESS);
+        console.log("4. PremiumAccess change proposed on admin (48h timelock)");
+
+        // 5. Propose premium discount (24h timelock)
+        sfrAdmin.proposePremiumDiscountChange(PREMIUM_DISCOUNT_BPS);
+        console.log("5. Premium discount proposed on admin:", PREMIUM_DISCOUNT_BPS, "bps (24h timelock)");
+
+        // 6. Transfer ownership of router AND admin to multisig
         address multisig = vm.envOr("MULTISIG", address(0));
         if (multisig != address(0)) {
             sfr.transferOwnership(multisig);
-            console.log("4. Ownership transfer initiated to:", multisig);
+            sfrAdmin.transferOwnership(multisig);
+            console.log("6. Ownership transfer initiated to:", multisig);
         } else {
-            console.log("4. SKIPPED ownership transfer (no MULTISIG env var)");
+            console.log("6. SKIPPED ownership transfer (no MULTISIG env var)");
         }
 
         vm.stopBroadcast();
 
         console.log("");
         console.log("=== DEPLOYMENT COMPLETE ===");
-        console.log("SwapFeeRouter V2:", address(sfr));
+        console.log("SwapFeeRouter V2:    ", address(sfr));
+        console.log("SwapFeeRouterAdmin:  ", address(sfrAdmin));
         console.log("");
         console.log("=== NEXT STEPS ===");
         console.log("1. Update frontend SWAP_FEE_ROUTER_ADDRESS in constants.ts");
         console.log("2. Approve new SwapFeeRouter on ReferralSplitter (setApprovedCaller)");
-        console.log("3. In 24h: executePremiumDiscountChange()");
-        console.log("4. In 48h: executePremiumAccessChange()");
-        console.log("5. Set per-pair fee overrides as needed (proposePairFeeChange)");
+        console.log("3. In 24h: admin.executePremiumDiscountChange()");
+        console.log("4. In 48h: admin.executePremiumAccessChange()");
+        console.log("5. Set per-pair fee overrides as needed (admin.proposePairFeeChange)");
     }
 }

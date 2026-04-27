@@ -6,6 +6,7 @@ import "../src/TegridyStaking.sol";
 import "../src/TegridyRestaking.sol";
 import "../src/CommunityGrants.sol";
 import "../src/SwapFeeRouter.sol";
+import "../src/SwapFeeRouterAdmin.sol";
 import "../src/RevenueDistributor.sol";
 import "../src/MemeBountyBoard.sol";
 import "../src/ReferralSplitter.sol";
@@ -69,6 +70,11 @@ contract DeployAuditFixesScript is Script {
             address(referral) // AUDIT FIX C2: ReferralSplitter integration
         );
         console.log("4. SwapFeeRouter:", address(swapRouter));
+
+        // 4b. SwapFeeRouterAdmin sister (timelocked propose/execute/cancel)
+        SwapFeeRouterAdmin swapRouterAdmin = new SwapFeeRouterAdmin(address(swapRouter));
+        swapRouter.setSwapFeeRouterAdmin(address(swapRouterAdmin));
+        console.log("4b. SwapFeeRouterAdmin:", address(swapRouterAdmin));
 
         // 5. CommunityGrants (snapshot voting via votingPowerAt)
         CommunityGrants grants = new CommunityGrants(
@@ -144,6 +150,7 @@ contract DeployAuditFixesScript is Script {
         restaking.transferOwnership(MULTISIG);
         referral.transferOwnership(MULTISIG);
         swapRouter.transferOwnership(MULTISIG);
+        swapRouterAdmin.transferOwnership(MULTISIG);
         grants.transferOwnership(MULTISIG);
         revDist.transferOwnership(MULTISIG);
         bountyBoard.transferOwnership(MULTISIG);
@@ -160,6 +167,7 @@ contract DeployAuditFixesScript is Script {
         console.log("TegridyRestaking:    ", address(restaking));
         console.log("ReferralSplitter:    ", address(referral));
         console.log("SwapFeeRouter:       ", address(swapRouter));
+        console.log("SwapFeeRouterAdmin:  ", address(swapRouterAdmin));
         console.log("CommunityGrants:     ", address(grants));
         console.log("RevenueDistributor:  ", address(revDist));
         console.log("MemeBountyBoard:     ", address(bountyBoard));

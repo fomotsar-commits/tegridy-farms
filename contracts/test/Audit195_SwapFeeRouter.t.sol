@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../src/SwapFeeRouter.sol";
+import "../src/SwapFeeRouterAdmin.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 
 // ──────── Mocks ────────────────────────────────────────────────────
@@ -104,6 +105,7 @@ contract NoETHReceiver {
 
 contract Audit195SwapFeeRouter is Test {
     SwapFeeRouter public sfr;
+    SwapFeeRouterAdmin public sfrAdmin;
     MockUniRouter195 public uniRouter;
     MockERC20A195 public weth;
     MockERC20A195 public tokenA;
@@ -123,6 +125,8 @@ contract Audit195SwapFeeRouter is Test {
         vm.deal(address(uniRouter), 10_000 ether);
 
         sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0));
+        sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
+        sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
 
         tokenA.transfer(alice, 100_000 ether);
         tokenB.transfer(alice, 100_000 ether);
@@ -563,43 +567,43 @@ contract Audit195SwapFeeRouter is Test {
     function test_onlyOwner_proposeFeeChange() public {
         vm.prank(attacker);
         vm.expectRevert();
-        sfr.proposeFeeChange(50);
+        sfrAdmin.proposeFeeChange(50);
     }
 
     function test_onlyOwner_executeFeeChange() public {
-        sfr.proposeFeeChange(50);
+        sfrAdmin.proposeFeeChange(50);
         vm.warp(block.timestamp + 24 hours + 1);
         vm.prank(attacker);
         vm.expectRevert();
-        sfr.executeFeeChange();
+        sfrAdmin.executeFeeChange();
     }
 
     function test_onlyOwner_cancelFeeChange() public {
-        sfr.proposeFeeChange(50);
+        sfrAdmin.proposeFeeChange(50);
         vm.prank(attacker);
         vm.expectRevert();
-        sfr.cancelFeeChange();
+        sfrAdmin.cancelFeeChange();
     }
 
     function test_onlyOwner_proposeTreasuryChange() public {
         vm.prank(attacker);
         vm.expectRevert();
-        sfr.proposeTreasuryChange(attacker);
+        sfrAdmin.proposeTreasuryChange(attacker);
     }
 
     function test_onlyOwner_executeTreasuryChange() public {
-        sfr.proposeTreasuryChange(makeAddr("newTreas"));
+        sfrAdmin.proposeTreasuryChange(makeAddr("newTreas"));
         vm.warp(block.timestamp + 48 hours + 1);
         vm.prank(attacker);
         vm.expectRevert();
-        sfr.executeTreasuryChange();
+        sfrAdmin.executeTreasuryChange();
     }
 
     function test_onlyOwner_cancelTreasuryChange() public {
-        sfr.proposeTreasuryChange(makeAddr("x"));
+        sfrAdmin.proposeTreasuryChange(makeAddr("x"));
         vm.prank(attacker);
         vm.expectRevert();
-        sfr.cancelTreasuryChange();
+        sfrAdmin.cancelTreasuryChange();
     }
 
     // AUDIT H-3: test_onlyOwner_withdrawFees removed (function deleted).
@@ -652,7 +656,7 @@ contract Audit195SwapFeeRouter is Test {
     function test_onlyOwner_proposeReferralSplitterChange() public {
         vm.prank(attacker);
         vm.expectRevert();
-        sfr.proposeReferralSplitterChange(attacker);
+        sfrAdmin.proposeReferralSplitterChange(attacker);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -660,114 +664,114 @@ contract Audit195SwapFeeRouter is Test {
     // ═══════════════════════════════════════════════════════════════
 
     function test_feeTimelock_fullCycle() public {
-        sfr.proposeFeeChange(50);
-        assertEq(sfr.pendingFeeBps(), 50);
+        sfrAdmin.proposeFeeChange(50);
+        assertEq(sfrAdmin.pendingFeeBps(), 50);
 
         // Too early
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, sfr.FEE_CHANGE()));
-        sfr.executeFeeChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, sfrAdmin.FEE_CHANGE()));
+        sfrAdmin.executeFeeChange();
 
         // Right on time
         vm.warp(block.timestamp + 24 hours);
-        sfr.executeFeeChange();
+        sfrAdmin.executeFeeChange();
         assertEq(sfr.feeBps(), 50);
-        assertEq(sfr.feeChangeTime(), 0);
-        assertEq(sfr.pendingFeeBps(), 0);
+        assertEq(sfrAdmin.feeChangeTime(), 0);
+        assertEq(sfrAdmin.pendingFeeBps(), 0);
     }
 
     function test_feeTimelock_expiry() public {
-        sfr.proposeFeeChange(50);
+        sfrAdmin.proposeFeeChange(50);
         // Past expiry: 24h delay + 7 days validity + 1
         vm.warp(block.timestamp + 24 hours + 7 days + 1);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, sfr.FEE_CHANGE()));
-        sfr.executeFeeChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, sfrAdmin.FEE_CHANGE()));
+        sfrAdmin.executeFeeChange();
     }
 
     function test_feeTimelock_cancelAndRepropose() public {
-        sfr.proposeFeeChange(50);
-        sfr.cancelFeeChange();
-        assertEq(sfr.feeChangeTime(), 0);
+        sfrAdmin.proposeFeeChange(50);
+        sfrAdmin.cancelFeeChange();
+        assertEq(sfrAdmin.feeChangeTime(), 0);
         // Can propose again after cancel
-        sfr.proposeFeeChange(60);
-        assertEq(sfr.pendingFeeBps(), 60);
+        sfrAdmin.proposeFeeChange(60);
+        assertEq(sfrAdmin.pendingFeeBps(), 60);
     }
 
     function test_feeTimelock_doublePropose_reverts() public {
-        sfr.proposeFeeChange(50);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, sfr.FEE_CHANGE()));
-        sfr.proposeFeeChange(60);
+        sfrAdmin.proposeFeeChange(50);
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, sfrAdmin.FEE_CHANGE()));
+        sfrAdmin.proposeFeeChange(60);
     }
 
     function test_feeTimelock_cancelNoPending_reverts() public {
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, sfr.FEE_CHANGE()));
-        sfr.cancelFeeChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, sfrAdmin.FEE_CHANGE()));
+        sfrAdmin.cancelFeeChange();
     }
 
     function test_treasuryTimelock_fullCycle() public {
         address newTreas = makeAddr("newTreas");
-        sfr.proposeTreasuryChange(newTreas);
+        sfrAdmin.proposeTreasuryChange(newTreas);
         vm.warp(block.timestamp + 48 hours);
-        sfr.executeTreasuryChange();
+        sfrAdmin.executeTreasuryChange();
         assertEq(sfr.treasury(), newTreas);
-        assertEq(sfr.treasuryChangeTime(), 0);
+        assertEq(sfrAdmin.treasuryChangeTime(), 0);
     }
 
     function test_treasuryTimelock_expiry() public {
-        sfr.proposeTreasuryChange(makeAddr("x"));
+        sfrAdmin.proposeTreasuryChange(makeAddr("x"));
         vm.warp(block.timestamp + 48 hours + 7 days + 1);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, sfr.TREASURY_CHANGE()));
-        sfr.executeTreasuryChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, sfrAdmin.TREASURY_CHANGE()));
+        sfrAdmin.executeTreasuryChange();
     }
 
     function test_treasuryTimelock_zeroAddress_reverts() public {
-        vm.expectRevert(SwapFeeRouter.ZeroAddress.selector);
-        sfr.proposeTreasuryChange(address(0));
+        vm.expectRevert(SwapFeeRouterAdmin.ZeroAddress.selector);
+        sfrAdmin.proposeTreasuryChange(address(0));
     }
 
     function test_treasuryTimelock_doublePropose_reverts() public {
-        sfr.proposeTreasuryChange(makeAddr("a"));
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, sfr.TREASURY_CHANGE()));
-        sfr.proposeTreasuryChange(makeAddr("b"));
+        sfrAdmin.proposeTreasuryChange(makeAddr("a"));
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, sfrAdmin.TREASURY_CHANGE()));
+        sfrAdmin.proposeTreasuryChange(makeAddr("b"));
     }
 
     function test_referralTimelock_fullCycle() public {
         address newSplitter = makeAddr("newSplitter");
-        sfr.proposeReferralSplitterChange(newSplitter);
+        sfrAdmin.proposeReferralSplitterChange(newSplitter);
         vm.warp(block.timestamp + 48 hours);
-        sfr.executeReferralSplitterChange();
+        sfrAdmin.executeReferralSplitterChange();
         assertEq(address(sfr.referralSplitter()), newSplitter);
     }
 
     function test_referralTimelock_allowsZero() public {
         // Setting splitter to zero (disable) is allowed
-        sfr.proposeReferralSplitterChange(address(0));
+        sfrAdmin.proposeReferralSplitterChange(address(0));
         vm.warp(block.timestamp + 48 hours);
-        sfr.executeReferralSplitterChange();
+        sfrAdmin.executeReferralSplitterChange();
         assertEq(address(sfr.referralSplitter()), address(0));
     }
 
     function test_referralTimelock_cancel() public {
-        sfr.proposeReferralSplitterChange(makeAddr("x"));
-        sfr.cancelReferralSplitterChange();
-        assertEq(sfr.referralSplitterChangeTime(), 0);
+        sfrAdmin.proposeReferralSplitterChange(makeAddr("x"));
+        sfrAdmin.cancelReferralSplitterChange();
+        assertEq(sfrAdmin.referralSplitterChangeTime(), 0);
     }
 
     function test_referralTimelock_expiry() public {
-        sfr.proposeReferralSplitterChange(makeAddr("x"));
+        sfrAdmin.proposeReferralSplitterChange(makeAddr("x"));
         vm.warp(block.timestamp + 48 hours + 7 days + 1);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, sfr.REFERRAL_CHANGE()));
-        sfr.executeReferralSplitterChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, sfrAdmin.REFERRAL_CHANGE()));
+        sfrAdmin.executeReferralSplitterChange();
     }
 
     function test_referralTimelock_tooEarly() public {
-        sfr.proposeReferralSplitterChange(makeAddr("x"));
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, sfr.REFERRAL_CHANGE()));
-        sfr.executeReferralSplitterChange();
+        sfrAdmin.proposeReferralSplitterChange(makeAddr("x"));
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, sfrAdmin.REFERRAL_CHANGE()));
+        sfrAdmin.executeReferralSplitterChange();
     }
 
     function test_referralTimelock_cancelNoPending() public {
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, sfr.REFERRAL_CHANGE()));
-        sfr.cancelReferralSplitterChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, sfrAdmin.REFERRAL_CHANGE()));
+        sfrAdmin.cancelReferralSplitterChange();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -908,6 +912,8 @@ contract Audit195SwapFeeRouter is Test {
         // We need to set callerCredit for the sfr address
         // Instead, create a router that uses this splitter, do a swap, change splitter, then recover from old
         SwapFeeRouter r2 = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(splitter));
+        SwapFeeRouterAdmin r2Admin = new SwapFeeRouterAdmin(address(r2));
+        r2.setSwapFeeRouterAdmin(address(r2Admin));
         address[] memory path = _ethToTokenA();
         vm.deal(alice, 10 ether);
         vm.prank(alice);
@@ -915,10 +921,10 @@ contract Audit195SwapFeeRouter is Test {
 
         uint256 fee = (10 ether * FEE_BPS) / 10000;
 
-        // Change splitter via timelock
-        r2.proposeReferralSplitterChange(address(0));
+        // Change splitter via timelock (now lives on the admin sister contract)
+        r2Admin.proposeReferralSplitterChange(address(0));
         vm.warp(block.timestamp + 48 hours);
-        r2.executeReferralSplitterChange();
+        r2Admin.executeReferralSplitterChange();
 
         // Recover from old splitter
         uint256 balBefore = address(r2).balance;

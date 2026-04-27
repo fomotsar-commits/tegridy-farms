@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../src/SwapFeeRouter.sol";
+import "../src/SwapFeeRouterAdmin.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 
 contract MockERC20 is ERC20 {
@@ -122,6 +123,7 @@ contract MockUniRouter {
 
 contract SwapFeeRouterTest is Test {
     SwapFeeRouter public router;
+    SwapFeeRouterAdmin public admin;
     MockUniRouter public uniRouter;
     MockERC20 public tokenA;
     MockERC20 public tokenB;
@@ -139,6 +141,8 @@ contract SwapFeeRouterTest is Test {
         vm.deal(address(uniRouter), 1000 ether);
 
         router = new SwapFeeRouter(address(uniRouter), treasury, 30, address(0)); // 0.3% fee
+        admin = new SwapFeeRouterAdmin(address(router));
+        router.setSwapFeeRouterAdmin(address(admin));
 
         tokenA.transfer(alice, 100_000 ether);
         tokenB.transfer(alice, 100_000 ether);
@@ -273,33 +277,33 @@ contract SwapFeeRouterTest is Test {
     // ===== FEE TIMELOCK (SECURITY FIX #67) =====
 
     function test_proposeFeeChange() public {
-        router.proposeFeeChange(50);
-        assertEq(router.pendingFeeBps(), 50);
-        assertGt(router.feeChangeTime(), block.timestamp);
+        admin.proposeFeeChange(50);
+        assertEq(admin.pendingFeeBps(), 50);
+        assertGt(admin.feeChangeTime(), block.timestamp);
     }
 
     function test_executeFeeChange_afterDelay() public {
-        router.proposeFeeChange(50);
+        admin.proposeFeeChange(50);
         vm.warp(block.timestamp + 24 hours + 1);
-        router.executeFeeChange();
+        admin.executeFeeChange();
         assertEq(router.feeBps(), 50);
-        assertEq(router.feeChangeTime(), 0);
+        assertEq(admin.feeChangeTime(), 0);
     }
 
     function test_revert_executeFeeChange_tooEarly() public {
-        router.proposeFeeChange(50);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, router.FEE_CHANGE()));
-        router.executeFeeChange();
+        admin.proposeFeeChange(50);
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, admin.FEE_CHANGE()));
+        admin.executeFeeChange();
     }
 
     function test_revert_executeFeeChange_noPending() public {
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, router.FEE_CHANGE()));
-        router.executeFeeChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, admin.FEE_CHANGE()));
+        admin.executeFeeChange();
     }
 
     function test_revert_proposeFee_tooHigh() public {
-        vm.expectRevert(SwapFeeRouter.FeeTooHigh.selector);
-        router.proposeFeeChange(101);
+        vm.expectRevert(SwapFeeRouterAdmin.FeeTooHigh.selector);
+        admin.proposeFeeChange(101);
     }
 
     function test_revert_setFee_deprecated() public {
@@ -310,29 +314,29 @@ contract SwapFeeRouterTest is Test {
     function test_revert_proposeFeeChange_notOwner() public {
         vm.prank(alice);
         vm.expectRevert();
-        router.proposeFeeChange(50);
+        admin.proposeFeeChange(50);
     }
 
     // ===== TREASURY CHANGE TIMELOCK (AUDIT FIX #68) =====
 
     function test_proposeTreasuryChange() public {
         address newTreasury = makeAddr("newTreasury");
-        router.proposeTreasuryChange(newTreasury);
-        assertEq(router.pendingTreasury(), newTreasury);
+        admin.proposeTreasuryChange(newTreasury);
+        assertEq(admin.pendingTreasury(), newTreasury);
     }
 
     function test_executeTreasuryChange_afterDelay() public {
         address newTreasury = makeAddr("newTreasury");
-        router.proposeTreasuryChange(newTreasury);
+        admin.proposeTreasuryChange(newTreasury);
         vm.warp(block.timestamp + 48 hours + 1);
-        router.executeTreasuryChange();
+        admin.executeTreasuryChange();
         assertEq(router.treasury(), newTreasury);
     }
 
     function test_revert_executeTreasuryChange_tooEarly() public {
-        router.proposeTreasuryChange(makeAddr("x"));
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, router.TREASURY_CHANGE()));
-        router.executeTreasuryChange();
+        admin.proposeTreasuryChange(makeAddr("x"));
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, admin.TREASURY_CHANGE()));
+        admin.executeTreasuryChange();
     }
 
     function test_revert_setTreasury_deprecated() public {

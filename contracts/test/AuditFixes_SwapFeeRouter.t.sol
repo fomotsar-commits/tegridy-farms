@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../src/SwapFeeRouter.sol";
+import "../src/SwapFeeRouterAdmin.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 
 // ─── Mock Contracts ──────────────────────────────────────────────────────────
@@ -128,6 +129,7 @@ contract MockUniswapV2Router {
 
 contract AuditFixes_SwapFeeRouterTest is Test {
     SwapFeeRouter public feeRouter;
+    SwapFeeRouterAdmin public feeRouterAdmin;
     MockUniswapV2Router public mockRouter;
     MockERC20 public tokenA;
     MockERC20 public tokenB;
@@ -152,8 +154,10 @@ contract AuditFixes_SwapFeeRouterTest is Test {
         // Configure mock router
         mockRouter.setOutputToken(address(tokenB));
 
-        // Deploy SwapFeeRouter
+        // Deploy SwapFeeRouter + sister admin
         feeRouter = new SwapFeeRouter(address(mockRouter), treasury, FEE_BPS, address(0));
+        feeRouterAdmin = new SwapFeeRouterAdmin(address(feeRouter));
+        feeRouter.setSwapFeeRouterAdmin(address(feeRouterAdmin));
 
         // Fund mock router with ETH for token->ETH swaps
         vm.deal(address(mockRouter), 100 ether);
@@ -282,17 +286,17 @@ contract AuditFixes_SwapFeeRouterTest is Test {
         uint256 oldFee = feeRouter.feeBps();
 
         // Propose fee change
-        feeRouter.proposeFeeChange(newFee);
-        assertEq(feeRouter.pendingFeeBps(), newFee);
-        assertEq(feeRouter.feeChangeTime(), block.timestamp + 24 hours);
+        feeRouterAdmin.proposeFeeChange(newFee);
+        assertEq(feeRouterAdmin.pendingFeeBps(), newFee);
+        assertEq(feeRouterAdmin.feeChangeTime(), block.timestamp + 24 hours);
 
         // Warp past the 24h delay
         vm.warp(block.timestamp + 24 hours);
 
         // Execute
-        feeRouter.executeFeeChange();
+        feeRouterAdmin.executeFeeChange();
         assertEq(feeRouter.feeBps(), newFee);
-        assertEq(feeRouter.feeChangeTime(), 0); // Reset
+        assertEq(feeRouterAdmin.feeChangeTime(), 0); // Reset
 
         // Verify old fee is no longer active
         assertTrue(feeRouter.feeBps() != oldFee);
@@ -302,20 +306,20 @@ contract AuditFixes_SwapFeeRouterTest is Test {
         uint256 newFee = 50;
 
         // Propose fee change
-        feeRouter.proposeFeeChange(newFee);
+        feeRouterAdmin.proposeFeeChange(newFee);
 
         // Try to execute immediately (before 24h delay)
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, feeRouter.FEE_CHANGE()));
-        feeRouter.executeFeeChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, feeRouterAdmin.FEE_CHANGE()));
+        feeRouterAdmin.executeFeeChange();
 
         // Try after 23 hours (still too early)
         vm.warp(block.timestamp + 23 hours);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, feeRouter.FEE_CHANGE()));
-        feeRouter.executeFeeChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, feeRouterAdmin.FEE_CHANGE()));
+        feeRouterAdmin.executeFeeChange();
 
         // At exactly 24h it should work
         vm.warp(block.timestamp + 1 hours);
-        feeRouter.executeFeeChange();
+        feeRouterAdmin.executeFeeChange();
         assertEq(feeRouter.feeBps(), newFee);
     }
 
@@ -329,33 +333,33 @@ contract AuditFixes_SwapFeeRouterTest is Test {
         feeRouter.setTreasury(newTreasury);
 
         // Propose treasury change
-        feeRouter.proposeTreasuryChange(newTreasury);
-        assertEq(feeRouter.pendingTreasury(), newTreasury);
-        assertEq(feeRouter.treasuryChangeTime(), block.timestamp + 48 hours);
+        feeRouterAdmin.proposeTreasuryChange(newTreasury);
+        assertEq(feeRouterAdmin.pendingTreasury(), newTreasury);
+        assertEq(feeRouterAdmin.treasuryChangeTime(), block.timestamp + 48 hours);
 
         // Cannot execute before 48h
         vm.warp(block.timestamp + 47 hours);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, feeRouter.TREASURY_CHANGE()));
-        feeRouter.executeTreasuryChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, feeRouterAdmin.TREASURY_CHANGE()));
+        feeRouterAdmin.executeTreasuryChange();
 
         // Execute after 48h
         vm.warp(block.timestamp + 1 hours);
-        feeRouter.executeTreasuryChange();
+        feeRouterAdmin.executeTreasuryChange();
         assertEq(feeRouter.treasury(), newTreasury);
-        assertEq(feeRouter.pendingTreasury(), address(0));
-        assertEq(feeRouter.treasuryChangeTime(), 0);
+        assertEq(feeRouterAdmin.pendingTreasury(), address(0));
+        assertEq(feeRouterAdmin.treasuryChangeTime(), 0);
     }
 
     // ─── Additional edge case: execute without proposal ──────────────────
 
     function test_revert_executeFeeChange_noPending() public {
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, feeRouter.FEE_CHANGE()));
-        feeRouter.executeFeeChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, feeRouterAdmin.FEE_CHANGE()));
+        feeRouterAdmin.executeFeeChange();
     }
 
     function test_revert_executeTreasuryChange_noPending() public {
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, feeRouter.TREASURY_CHANGE()));
-        feeRouter.executeTreasuryChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, feeRouterAdmin.TREASURY_CHANGE()));
+        feeRouterAdmin.executeTreasuryChange();
     }
 
     receive() external payable {}

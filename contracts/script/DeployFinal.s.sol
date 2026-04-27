@@ -8,6 +8,7 @@ import "../src/TegridyRouter.sol";
 import "../src/TegridyRestaking.sol";
 import "../src/RevenueDistributor.sol";
 import "../src/SwapFeeRouter.sol";
+import "../src/SwapFeeRouterAdmin.sol";
 import "../src/POLAccumulator.sol";
 import "../src/PremiumAccess.sol";
 import "../src/ReferralSplitter.sol";
@@ -37,6 +38,7 @@ contract DeployFinalScript is Script {
         address revenueDistributor;
         address referralSplitter;
         address swapFeeRouter;
+        address swapFeeRouterAdmin;
         address polAccumulator;
         address premiumAccess;
         address communityGrants;
@@ -118,6 +120,12 @@ contract DeployFinalScript is Script {
         d.swapFeeRouter = address(sfr);
         console.log(" 8. SwapFeeRouter:", d.swapFeeRouter);
 
+        // 8b. SwapFeeRouterAdmin (sister contract holding timelocked propose/execute/cancel)
+        SwapFeeRouterAdmin sfrAdmin = new SwapFeeRouterAdmin(d.swapFeeRouter);
+        d.swapFeeRouterAdmin = address(sfrAdmin);
+        sfr.setSwapFeeRouterAdmin(d.swapFeeRouterAdmin);
+        console.log(" 8b. SwapFeeRouterAdmin:", d.swapFeeRouterAdmin);
+
         // Approve SwapFeeRouter on ReferralSplitter, then lock instant setter
         splitter.setApprovedCaller(d.swapFeeRouter, true);
         splitter.completeSetup();
@@ -164,6 +172,7 @@ contract DeployFinalScript is Script {
         TegridyRestaking(d.restaking).transferOwnership(multisig);
         RevenueDistributor(payable(d.revenueDistributor)).transferOwnership(multisig);
         SwapFeeRouter(payable(d.swapFeeRouter)).transferOwnership(multisig);
+        SwapFeeRouterAdmin(d.swapFeeRouterAdmin).transferOwnership(multisig);
         POLAccumulator(payable(d.polAccumulator)).transferOwnership(multisig);
         PremiumAccess(payable(d.premiumAccess)).transferOwnership(multisig);
         ReferralSplitter(payable(d.referralSplitter)).transferOwnership(multisig);
@@ -187,6 +196,7 @@ contract DeployFinalScript is Script {
         console.log("RevenueDistributor: ", d.revenueDistributor);
         console.log("ReferralSplitter:   ", d.referralSplitter);
         console.log("SwapFeeRouter:      ", d.swapFeeRouter);
+        console.log("SwapFeeRouterAdmin: ", d.swapFeeRouterAdmin);
         console.log("POLAccumulator:     ", d.polAccumulator);
         console.log("PremiumAccess:      ", d.premiumAccess);
         console.log("CommunityGrants:    ", d.communityGrants);

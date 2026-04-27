@@ -6,7 +6,6 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
-import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
 
 interface IUniswapV2Router02 {
@@ -60,19 +59,19 @@ interface IPremiumAccess {
 ///
 /// Battle-tested sources:
 ///  - OwnableNoRenounce: OZ Ownable2Step (industry standard)
-///  - TimelockAdmin: MakerDAO DSPause pattern (billions TVL, never compromised)
 ///  - WETHFallbackLib: Solmate SafeTransferLib + WETH fallback (Uniswap V3/V4, Seaport)
 ///  - Fee wrapper pattern: 1inch/Paraswap aggregator fee model
-contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, TimelockAdmin {
+///  - Timelocked admin (propose/execute/cancel) lives on SwapFeeRouterAdmin sister
+///    contract using the MakerDAO DSPause pattern.
+contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
-    // ─── Timelock Operation Keys ─────────────────────────────────────
-    bytes32 public constant FEE_CHANGE = keccak256("FEE_CHANGE");
-    bytes32 public constant TREASURY_CHANGE = keccak256("TREASURY_CHANGE");
-    bytes32 public constant REFERRAL_CHANGE = keccak256("REFERRAL_CHANGE");
-    bytes32 public constant PAIR_FEE_CHANGE = keccak256("PAIR_FEE_CHANGE");
-    bytes32 public constant PREMIUM_DISCOUNT_CHANGE = keccak256("PREMIUM_DISCOUNT_CHANGE");
-    bytes32 public constant PREMIUM_ACCESS_CHANGE = keccak256("PREMIUM_ACCESS_CHANGE");
+    // ─── Admin sister contract ───────────────────────────────────────
+    // NOTE (size-reduction sprint 2026-04-26): timelock keys, propose/execute/cancel
+    // flow, pending state, and the `*ChangeTime` view helpers all live on the sister
+    // `SwapFeeRouterAdmin` contract. SwapFeeRouter exposes `applyXxx` setters guarded
+    // by `onlyAdmin` for the admin contract to call.
+    address public swapFeeRouterAdmin;
 
     // ─── Immutables ──────────────────────────────────────────────────
     IUniswapV2Router02 public immutable router;
@@ -85,13 +84,7 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
 
     uint256 public constant MAX_FEE_BPS = 100; // Max 1%
     uint256 public constant BPS = 10000;
-    uint256 public constant FEE_CHANGE_DELAY = 24 hours;
-    uint256 public constant TREASURY_CHANGE_DELAY = 48 hours;
-    uint256 public constant REFERRAL_CHANGE_DELAY = 48 hours;
-    uint256 public constant PAIR_FEE_CHANGE_DELAY = 24 hours;
-    uint256 public constant PREMIUM_DISCOUNT_CHANGE_DELAY = 24 hours;
-    uint256 public constant PREMIUM_ACCESS_CHANGE_DELAY = 48 hours;
-    uint256 public constant REV_DIST_CHANGE_DELAY = 48 hours;
+    // Per-key timelock delays now live on SwapFeeRouterAdmin.
     // AUDIT L-1: raised from 30 minutes to 2 hours. 30m bricks swaps during normal
     // Ethereum congestion (post-merge average 12s blocks, but fees can spike base-fee
     // beyond the user's maxPriorityFee for far longer than 30m on busy days).
@@ -123,8 +116,6 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
 
     // V2: Revenue pipeline — direct fee routing to RevenueDistributor
     address public revenueDistributor;
-    bytes32 public constant REV_DIST_CHANGE = keccak256("REV_DIST_CHANGE");
-    address public pendingRevenueDistributor;
 
     // ─── V3: Three-way fee split (stakers / treasury / POL) ──────────
     /// @notice BPS of each distribution that flows to RevenueDistributor → stakers.
@@ -140,19 +131,12 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     /// @notice Destination for the POL slice. Can be the POLAccumulator contract.
     address public polAccumulator;
 
-    bytes32 public constant FEE_SPLIT_CHANGE = keccak256("FEE_SPLIT_CHANGE");
-    bytes32 public constant POL_ACCUMULATOR_CHANGE = keccak256("POL_ACCUMULATOR_CHANGE");
-    uint256 public constant FEE_SPLIT_CHANGE_DELAY = 48 hours;
-    uint256 public constant POL_ACCUMULATOR_CHANGE_DELAY = 48 hours;
     /// @notice Guardrails: stakers get no less than 50% and POL no more than 25%.
     ///         Protects the "stakers earn fees" marketing story through any future
-    ///         governance mis-step.
+    ///         governance mis-step. Enforced at propose-time on SwapFeeRouterAdmin
+    ///         and re-enforced at apply-time below.
     uint256 public constant MIN_STAKER_SHARE_BPS = 5_000;
     uint256 public constant MAX_POL_SHARE_BPS = 2_500;
-
-    uint256 public pendingStakerShareBps;
-    uint256 public pendingPolShareBps;
-    address public pendingPolAccumulator;
 
     /// @notice AUDIT C4: pull-pattern queue for distributeFeesToStakers legs that fail
     ///         the direct .call (recipient out of gas, paused, mid-upgrade, etc).
@@ -166,50 +150,23 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     ///         exclude this so the queued ETH cannot be swept to treasury.
     uint256 public totalPendingDistribution;
 
-    // ─── Pending Values (for timelocked changes) ─────────────────────
-    uint256 public pendingFeeBps;
-    address public pendingTreasury;
-    address public pendingReferralSplitter;
-    address public pendingPairFeeAddress;
-    uint256 public pendingPairFeeBps;
-    bool public pendingPairFeeRemoval;
-    uint256 public pendingPremiumDiscountBps;
-    address public pendingPremiumAccess;
-
     // ─── Events ──────────────────────────────────────────────────────
     event SwapExecuted(address indexed user, address tokenIn, address tokenOut, uint256 amountIn, uint256 fee);
     event FeeUpdated(uint256 oldFee, uint256 newFee);
-    event FeeChangeProposed(uint256 currentFee, uint256 proposedFee, uint256 executeAfter);
-    event FeeChangeCancelled(uint256 cancelledFee);
     event TreasuryUpdated(address oldTreasury, address newTreasury);
-    event TreasuryChangeProposed(address indexed newTreasury, uint256 executeAfter);
-    event TreasuryChangeCancelled(address cancelledTreasury);
     event FeesWithdrawn(address indexed to, uint256 amount);
     event ReferralFeeRedirectedToTreasury(address indexed user, uint256 amount);
     event ReferralSplitterUpdated(address indexed oldSplitter, address indexed newSplitter);
-    event ReferralSplitterChangeProposed(address indexed newSplitter, uint256 executeAfter);
-    event ReferralSplitterChangeCancelled(address indexed cancelled);
     event CallerCreditRecovered(address indexed splitter, uint256 amount);
     event PairFeeUpdated(address indexed pair, uint256 feeBps, bool removed);
-    event PairFeeChangeProposed(address indexed pair, uint256 feeBps, bool removal, uint256 executeAfter);
-    event PairFeeChangeCancelled(address indexed pair);
     event PremiumDiscountUpdated(uint256 oldDiscount, uint256 newDiscount);
-    event PremiumDiscountChangeProposed(uint256 newDiscount, uint256 executeAfter);
-    event PremiumDiscountChangeCancelled(uint256 cancelledDiscount);
     event PremiumAccessUpdated(address indexed oldAccess, address indexed newAccess);
-    event PremiumAccessChangeProposed(address indexed newAccess, uint256 executeAfter);
-    event PremiumAccessChangeCancelled(address indexed cancelledAccess);
     event FeesDistributed(address indexed distributor, uint256 amount);
     event RevenueDistributorUpdated(address indexed oldDistributor, address indexed newDistributor);
-    event RevenueDistributorChangeProposed(address indexed newDistributor, uint256 executeAfter);
-    event RevenueDistributorChangeCancelled(address indexed cancelledDistributor);
     event FeeSplitUpdated(uint256 stakerShareBps, uint256 polShareBps, uint256 treasuryShareBps);
-    event FeeSplitChangeProposed(uint256 stakerShareBps, uint256 polShareBps, uint256 executeAfter);
-    event FeeSplitChangeCancelled();
     event PolAccumulatorUpdated(address indexed oldAccumulator, address indexed newAccumulator);
-    event PolAccumulatorChangeProposed(address indexed newAccumulator, uint256 executeAfter);
-    event PolAccumulatorChangeCancelled(address indexed cancelled);
     event FeesDistributedSplit(uint256 stakerAmount, uint256 treasuryAmount, uint256 polAmount);
+    event SwapFeeRouterAdminSet(address indexed admin);
     /// @notice AUDIT C4: emitted when a staker or POL transfer fails the direct .call and
     ///         is parked in pendingDistribution for later pull. Off-chain monitors should
     ///         alert so the recipient (or owner) can drain via withdrawPendingDistribution.
@@ -238,26 +195,11 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     error SplitInvalid();
     error StakerShareTooLow();
     error PolShareTooHigh();
+    error Unauthorized();
 
     // Legacy error aliases (kept for test compatibility during V2 migration)
-    // Note: ProposalExpired() removed — use TimelockAdmin.ProposalExpired(bytes32) instead
-    error NoPendingFeeChange();
-    error FeeChangeNotReady();
     error UseProposeFeeChange();
-    error NoPendingTreasuryChange();
-    error TreasuryChangeNotReady();
     error UseProposeTreasuryChange();
-    error NoPendingReferralChange();
-    error ReferralChangeNotReady();
-
-    // ─── Legacy View Helpers (for test compatibility) ──────────────
-    function feeChangeTime() external view returns (uint256) { return _executeAfter[FEE_CHANGE]; }
-    function treasuryChangeTime() external view returns (uint256) { return _executeAfter[TREASURY_CHANGE]; }
-    function referralSplitterChangeTime() external view returns (uint256) { return _executeAfter[REFERRAL_CHANGE]; }
-    function pairFeeChangeTime() external view returns (uint256) { return _executeAfter[PAIR_FEE_CHANGE]; }
-    function premiumDiscountChangeTime() external view returns (uint256) { return _executeAfter[PREMIUM_DISCOUNT_CHANGE]; }
-    function premiumAccessChangeTime() external view returns (uint256) { return _executeAfter[PREMIUM_ACCESS_CHANGE]; }
-    function revenueDistributorChangeTime() external view returns (uint256) { return _executeAfter[REV_DIST_CHANGE]; }
 
     constructor(address _router, address _treasury, uint256 _feeBps, address _referralSplitter)
         OwnableNoRenounce(msg.sender)
@@ -695,170 +637,75 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     function setFee(uint256) external pure { revert UseProposeFeeChange(); }
     function setTreasury(address) external pure { revert UseProposeTreasuryChange(); }
 
-    // ─── Admin: Timelocked Changes (MakerDAO DSPause pattern) ────────
+    // ─── Admin wiring + apply* setters (called by SwapFeeRouterAdmin) ──
 
-    /// @notice Propose a fee change (takes effect after 24h delay)
-    function proposeFeeChange(uint256 newFee) external onlyOwner {
+    modifier onlyAdmin() {
+        if (msg.sender != swapFeeRouterAdmin) revert Unauthorized();
+        _;
+    }
+
+    /// @notice One-shot setter for the sister SwapFeeRouterAdmin contract (where the
+    ///         timelocked propose/execute/cancel flow lives). Callable once by owner;
+    ///         after that the address is immutable. Set during deployment after the
+    ///         admin contract is constructed.
+    function setSwapFeeRouterAdmin(address _admin) external onlyOwner {
+        if (_admin == address(0)) revert ZeroAddress();
+        if (swapFeeRouterAdmin != address(0)) revert Unauthorized();
+        swapFeeRouterAdmin = _admin;
+        emit SwapFeeRouterAdminSet(_admin);
+    }
+
+    /// @notice Apply a new global fee. Caller must be the wired admin contract.
+    function applyFee(uint256 newFee) external onlyAdmin {
         if (newFee > MAX_FEE_BPS) revert FeeTooHigh();
-        pendingFeeBps = newFee;
-        _propose(FEE_CHANGE, FEE_CHANGE_DELAY);
-        emit FeeChangeProposed(feeBps, newFee, _executeAfter[FEE_CHANGE]);
-    }
-
-    /// @notice Execute a previously proposed fee change after the timelock
-    function executeFeeChange() external onlyOwner {
-        _execute(FEE_CHANGE);
         uint256 old = feeBps;
-        feeBps = pendingFeeBps;
-        pendingFeeBps = 0;
-        emit FeeUpdated(old, feeBps);
+        feeBps = newFee;
+        emit FeeUpdated(old, newFee);
     }
 
-    /// @notice Cancel a pending fee change proposal
-    function cancelFeeChange() external onlyOwner {
-        _cancel(FEE_CHANGE);
-        uint256 cancelled = pendingFeeBps;
-        pendingFeeBps = 0;
-        emit FeeChangeCancelled(cancelled);
-    }
-
-    /// @notice Propose a treasury change (takes effect after 48h delay)
-    function proposeTreasuryChange(address _newTreasury) external onlyOwner {
+    /// @notice Apply a treasury change. Caller must be the wired admin contract.
+    function applyTreasury(address _newTreasury) external onlyAdmin {
         if (_newTreasury == address(0)) revert ZeroAddress();
-        pendingTreasury = _newTreasury;
-        _propose(TREASURY_CHANGE, TREASURY_CHANGE_DELAY);
-        emit TreasuryChangeProposed(_newTreasury, _executeAfter[TREASURY_CHANGE]);
-    }
-
-    /// @notice Execute a previously proposed treasury change after the timelock
-    function executeTreasuryChange() external onlyOwner {
-        _execute(TREASURY_CHANGE);
         address old = treasury;
-        treasury = pendingTreasury;
-        pendingTreasury = address(0);
-        emit TreasuryUpdated(old, treasury);
+        treasury = _newTreasury;
+        emit TreasuryUpdated(old, _newTreasury);
     }
 
-    /// @notice Cancel a pending treasury change proposal
-    function cancelTreasuryChange() external onlyOwner {
-        _cancel(TREASURY_CHANGE);
-        address cancelled = pendingTreasury;
-        pendingTreasury = address(0);
-        emit TreasuryChangeCancelled(cancelled);
-    }
-
-    /// @notice Propose a referral splitter change (48h timelock)
-    function proposeReferralSplitterChange(address _newSplitter) external onlyOwner {
-        pendingReferralSplitter = _newSplitter; // address(0) allowed to disable
-        _propose(REFERRAL_CHANGE, REFERRAL_CHANGE_DELAY);
-        emit ReferralSplitterChangeProposed(_newSplitter, _executeAfter[REFERRAL_CHANGE]);
-    }
-
-    /// @notice Execute a previously proposed referral splitter change
-    function executeReferralSplitterChange() external onlyOwner {
-        _execute(REFERRAL_CHANGE);
+    /// @notice Apply a referral splitter change. address(0) disables referral routing.
+    function applyReferralSplitter(address _newSplitter) external onlyAdmin {
         address old = address(referralSplitter);
-        referralSplitter = IReferralSplitter(pendingReferralSplitter);
-        pendingReferralSplitter = address(0);
-        emit ReferralSplitterUpdated(old, address(referralSplitter));
+        referralSplitter = IReferralSplitter(_newSplitter);
+        emit ReferralSplitterUpdated(old, _newSplitter);
     }
 
-    /// @notice Cancel a pending referral splitter change
-    function cancelReferralSplitterChange() external onlyOwner {
-        _cancel(REFERRAL_CHANGE);
-        address cancelled = pendingReferralSplitter;
-        pendingReferralSplitter = address(0);
-        emit ReferralSplitterChangeCancelled(cancelled);
-    }
-
-    // ─── Admin: Timelocked Pair Fee Override (24h) ────────────────────
-
-    /// @notice Propose a per-pair fee override (or removal). Takes effect after 24h.
-    /// @param pair The pair/token address to set a custom fee for
-    /// @param newFeeBps The fee in basis points (ignored if removal is true)
-    /// @param removal If true, removes the pair fee override (reverts to global default)
-    function proposePairFeeChange(address pair, uint256 newFeeBps, bool removal) external onlyOwner {
+    /// @notice Apply a per-pair fee override (or removal). Caller must be the wired admin.
+    function applyPairFee(address pair, uint256 newFeeBps, bool removal) external onlyAdmin {
         if (pair == address(0)) revert ZeroAddress();
-        if (!removal && newFeeBps > MAX_FEE_BPS) revert FeeTooHigh();
-        pendingPairFeeAddress = pair;
-        pendingPairFeeBps = newFeeBps;
-        pendingPairFeeRemoval = removal;
-        _propose(PAIR_FEE_CHANGE, PAIR_FEE_CHANGE_DELAY);
-        emit PairFeeChangeProposed(pair, newFeeBps, removal, _executeAfter[PAIR_FEE_CHANGE]);
-    }
-
-    function executePairFeeChange() external onlyOwner {
-        _execute(PAIR_FEE_CHANGE);
-        address pair = pendingPairFeeAddress;
-        if (pendingPairFeeRemoval) {
+        if (removal) {
             delete pairFeeBps[pair];
             delete hasPairFeeOverride[pair];
             emit PairFeeUpdated(pair, 0, true);
         } else {
-            pairFeeBps[pair] = pendingPairFeeBps;
+            if (newFeeBps > MAX_FEE_BPS) revert FeeTooHigh();
+            pairFeeBps[pair] = newFeeBps;
             hasPairFeeOverride[pair] = true;
-            emit PairFeeUpdated(pair, pendingPairFeeBps, false);
+            emit PairFeeUpdated(pair, newFeeBps, false);
         }
-        pendingPairFeeAddress = address(0);
-        pendingPairFeeBps = 0;
-        pendingPairFeeRemoval = false;
     }
 
-    function cancelPairFeeChange() external onlyOwner {
-        _cancel(PAIR_FEE_CHANGE);
-        address cancelled = pendingPairFeeAddress;
-        pendingPairFeeAddress = address(0);
-        pendingPairFeeBps = 0;
-        pendingPairFeeRemoval = false;
-        emit PairFeeChangeCancelled(cancelled);
-    }
-
-    // ─── Admin: Timelocked Premium Discount (24h) ────────────────────
-
-    function proposePremiumDiscountChange(uint256 newDiscountBps) external onlyOwner {
+    /// @notice Apply a premium discount change. Caller must be the wired admin contract.
+    function applyPremiumDiscount(uint256 newDiscountBps) external onlyAdmin {
         require(newDiscountBps <= MAX_PREMIUM_DISCOUNT_BPS, "DISCOUNT_TOO_HIGH");
-        pendingPremiumDiscountBps = newDiscountBps;
-        _propose(PREMIUM_DISCOUNT_CHANGE, PREMIUM_DISCOUNT_CHANGE_DELAY);
-        emit PremiumDiscountChangeProposed(newDiscountBps, _executeAfter[PREMIUM_DISCOUNT_CHANGE]);
-    }
-
-    function executePremiumDiscountChange() external onlyOwner {
-        _execute(PREMIUM_DISCOUNT_CHANGE);
         uint256 old = premiumDiscountBps;
-        premiumDiscountBps = pendingPremiumDiscountBps;
-        pendingPremiumDiscountBps = 0;
-        emit PremiumDiscountUpdated(old, premiumDiscountBps);
+        premiumDiscountBps = newDiscountBps;
+        emit PremiumDiscountUpdated(old, newDiscountBps);
     }
 
-    function cancelPremiumDiscountChange() external onlyOwner {
-        _cancel(PREMIUM_DISCOUNT_CHANGE);
-        uint256 cancelled = pendingPremiumDiscountBps;
-        pendingPremiumDiscountBps = 0;
-        emit PremiumDiscountChangeCancelled(cancelled);
-    }
-
-    // ─── Admin: Timelocked Premium Access Change (48h) ───────────────
-
-    function proposePremiumAccessChange(address _newAccess) external onlyOwner {
-        // address(0) allowed to disable premium discount
-        pendingPremiumAccess = _newAccess;
-        _propose(PREMIUM_ACCESS_CHANGE, PREMIUM_ACCESS_CHANGE_DELAY);
-        emit PremiumAccessChangeProposed(_newAccess, _executeAfter[PREMIUM_ACCESS_CHANGE]);
-    }
-
-    function executePremiumAccessChange() external onlyOwner {
-        _execute(PREMIUM_ACCESS_CHANGE);
+    /// @notice Apply a premium-access registry change. address(0) disables the discount.
+    function applyPremiumAccess(address _newAccess) external onlyAdmin {
         address old = address(premiumAccess);
-        premiumAccess = IPremiumAccess(pendingPremiumAccess);
-        pendingPremiumAccess = address(0);
-        emit PremiumAccessUpdated(old, address(premiumAccess));
-    }
-
-    function cancelPremiumAccessChange() external onlyOwner {
-        _cancel(PREMIUM_ACCESS_CHANGE);
-        address cancelled = pendingPremiumAccess;
-        pendingPremiumAccess = address(0);
-        emit PremiumAccessChangeCancelled(cancelled);
+        premiumAccess = IPremiumAccess(_newAccess);
+        emit PremiumAccessUpdated(old, _newAccess);
     }
 
     // ─── V2: Revenue Pipeline (Permissionless Fee Distribution) ─────
@@ -936,91 +783,30 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         emit FeesDistributedSplit(stakerAmount, treasuryAmount, polAmount);
     }
 
-    // ─── V3: Fee-split governance (timelocked 48h) ────────────────────
-
-    /// @notice Propose new staker/POL split. Treasury share is implicit (remainder).
-    /// @dev    Both bounds checked here so a malformed proposal never enters the queue.
-    function proposeFeeSplit(uint256 _stakerShareBps, uint256 _polShareBps) external onlyOwner {
+    /// @notice Apply a new staker/POL split. Caller must be the wired admin contract.
+    ///         Bounds re-checked here as defence-in-depth (admin enforces at propose-time).
+    function applyFeeSplit(uint256 _stakerShareBps, uint256 _polShareBps) external onlyAdmin {
         if (_stakerShareBps < MIN_STAKER_SHARE_BPS) revert StakerShareTooLow();
         if (_polShareBps > MAX_POL_SHARE_BPS) revert PolShareTooHigh();
         if (_stakerShareBps + _polShareBps > BPS) revert SplitInvalid();
-        pendingStakerShareBps = _stakerShareBps;
-        pendingPolShareBps = _polShareBps;
-        _propose(FEE_SPLIT_CHANGE, FEE_SPLIT_CHANGE_DELAY);
-        emit FeeSplitChangeProposed(_stakerShareBps, _polShareBps, _executeAfter[FEE_SPLIT_CHANGE]);
+        stakerShareBps = _stakerShareBps;
+        polShareBps = _polShareBps;
+        emit FeeSplitUpdated(_stakerShareBps, _polShareBps, BPS - _stakerShareBps - _polShareBps);
     }
 
-    function executeFeeSplit() external onlyOwner {
-        _execute(FEE_SPLIT_CHANGE);
-        stakerShareBps = pendingStakerShareBps;
-        polShareBps = pendingPolShareBps;
-        pendingStakerShareBps = 0;
-        pendingPolShareBps = 0;
-        emit FeeSplitUpdated(stakerShareBps, polShareBps, BPS - stakerShareBps - polShareBps);
-    }
-
-    function cancelFeeSplit() external onlyOwner {
-        _cancel(FEE_SPLIT_CHANGE);
-        pendingStakerShareBps = 0;
-        pendingPolShareBps = 0;
-        emit FeeSplitChangeCancelled();
-    }
-
-    function feeSplitChangeTime() external view returns (uint256) { return _executeAfter[FEE_SPLIT_CHANGE]; }
-
-    // ─── V3: POL accumulator governance (timelocked 48h) ──────────────
-
-    function proposePolAccumulator(address _newAccumulator) external onlyOwner {
-        // Zero address is allowed — that's how you disable the POL slice without
-        // changing the BPS. When address is zero, POL share re-routes to treasury
-        // in distributeFeesToStakers.
-        pendingPolAccumulator = _newAccumulator;
-        _propose(POL_ACCUMULATOR_CHANGE, POL_ACCUMULATOR_CHANGE_DELAY);
-        emit PolAccumulatorChangeProposed(_newAccumulator, _executeAfter[POL_ACCUMULATOR_CHANGE]);
-    }
-
-    function executePolAccumulator() external onlyOwner {
-        _execute(POL_ACCUMULATOR_CHANGE);
+    /// @notice Apply a POL accumulator change. address(0) re-routes POL to treasury.
+    function applyPolAccumulator(address _newAccumulator) external onlyAdmin {
         address old = polAccumulator;
-        polAccumulator = pendingPolAccumulator;
-        pendingPolAccumulator = address(0);
-        emit PolAccumulatorUpdated(old, polAccumulator);
+        polAccumulator = _newAccumulator;
+        emit PolAccumulatorUpdated(old, _newAccumulator);
     }
 
-    function cancelPolAccumulator() external onlyOwner {
-        _cancel(POL_ACCUMULATOR_CHANGE);
-        address cancelled = pendingPolAccumulator;
-        pendingPolAccumulator = address(0);
-        emit PolAccumulatorChangeCancelled(cancelled);
-    }
-
-    function polAccumulatorChangeTime() external view returns (uint256) { return _executeAfter[POL_ACCUMULATOR_CHANGE]; }
-
-    // ─── Admin: Timelocked Revenue Distributor Change (48h) ──────────
-
-    /// @notice Propose a revenue distributor change (48h timelock, MakerDAO DSPause pattern)
-    function proposeRevenueDistributor(address _newDistributor) external onlyOwner {
+    /// @notice Apply a revenue distributor change. Caller must be the wired admin contract.
+    function applyRevenueDistributor(address _newDistributor) external onlyAdmin {
         if (_newDistributor == address(0)) revert ZeroAddress();
-        pendingRevenueDistributor = _newDistributor;
-        _propose(REV_DIST_CHANGE, REV_DIST_CHANGE_DELAY);
-        emit RevenueDistributorChangeProposed(_newDistributor, _executeAfter[REV_DIST_CHANGE]);
-    }
-
-    /// @notice Execute a previously proposed revenue distributor change after the timelock
-    function executeRevenueDistributor() external onlyOwner {
-        _execute(REV_DIST_CHANGE);
         address old = revenueDistributor;
-        revenueDistributor = pendingRevenueDistributor;
-        pendingRevenueDistributor = address(0);
-        emit RevenueDistributorUpdated(old, revenueDistributor);
-    }
-
-    /// @notice Cancel a pending revenue distributor change
-    function cancelRevenueDistributor() external onlyOwner {
-        _cancel(REV_DIST_CHANGE);
-        address cancelled = pendingRevenueDistributor;
-        pendingRevenueDistributor = address(0);
-        emit RevenueDistributorChangeCancelled(cancelled);
+        revenueDistributor = _newDistributor;
+        emit RevenueDistributorUpdated(old, _newDistributor);
     }
 
     // ─── Admin: Pause ────────────────────────────────────────────────
