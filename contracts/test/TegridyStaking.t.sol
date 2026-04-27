@@ -1109,7 +1109,7 @@ contract TegridyStakingTest is Test {
     function test_NEWS5_notifyByRandomReverts() public {
         address attacker = makeAddr("attacker");
         vm.prank(attacker);
-        vm.expectRevert(bytes("NOT_NOTIFIER"));
+        vm.expectRevert(TegridyStaking.NotRewardNotifier.selector);
         staking.notifyRewardAmount(1000 ether);
     }
 
@@ -1150,7 +1150,7 @@ contract TegridyStakingTest is Test {
 
         staking.setRewardNotifier(treasuryOp, false);
         vm.prank(treasuryOp);
-        vm.expectRevert(bytes("NOT_NOTIFIER"));
+        vm.expectRevert(TegridyStaking.NotRewardNotifier.selector);
         staking.notifyRewardAmount(1000 ether);
     }
 

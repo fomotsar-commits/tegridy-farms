@@ -836,7 +836,7 @@ contract FinalAuditStaking is Test {
         // only. A random attacker reverts with NOT_NOTIFIER, but the owner (test
         // contract) can still fund freely.
         vm.prank(attacker);
-        vm.expectRevert(bytes("NOT_NOTIFIER"));
+        vm.expectRevert(TegridyStaking.NotRewardNotifier.selector);
         staking.notifyRewardAmount(1000 ether);
 
         // Owner funding still works (this test contract is the deployer).
