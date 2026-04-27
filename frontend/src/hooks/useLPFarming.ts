@@ -183,6 +183,27 @@ export function useLPFarming() {
     });
   }
 
+  /// AUDIT F-7 (post-Batch-J sweep): refresh effective balance against the
+  /// caller's current JBAC ownership. Required when a user acquires a JBAC
+  /// NFT AFTER staking — without this their boost stays at the pre-acquisition
+  /// rate. Permissionless on the contract side; UI exposes the action so users
+  /// can trigger it manually, or `useAutoRefreshBoost` can fire it on detection.
+  function refreshBoost(target?: `0x${string}`) {
+    if (chainId !== CHAIN_ID) {
+      toast.error('Wrong network — switch to Ethereum mainnet');
+      return;
+    }
+    const acct = (target ?? address) as `0x${string}` | undefined;
+    if (!acct) return;
+    txAddressRef.current = address;
+    writeContract({
+      address: LP_FARMING_ADDRESS,
+      abi: LP_FARMING_ABI,
+      functionName: 'refreshBoost',
+      args: [acct],
+    });
+  }
+
   return {
     totalStaked,
     totalStakedFormatted: formatEther(totalStaked),
@@ -208,6 +229,7 @@ export function useLPFarming() {
     claim,
     exit,
     emergencyWithdraw,
+    refreshBoost, // AUDIT F-7
     isDeployed,
     isReadLoading,
     isPending,
