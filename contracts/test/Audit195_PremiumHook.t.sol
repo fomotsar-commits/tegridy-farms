@@ -27,7 +27,15 @@ contract MockJBAC195 is ERC721 {
     }
 }
 
-contract MockPoolManager195 {}
+contract MockPoolManager195 {
+    // AUDIT H-5: TegridyFeeHook.executeSyncAccruedFees now reads
+    // poolManager.balanceOf(this, currencyId) to bound upward syncs by the
+    // on-chain credit. Stub returns 0 so existing tests of "reject upward
+    // sync" pass via the new AboveOnChainCredit revert.
+    function balanceOf(address, uint256) external pure returns (uint256) {
+        return 0;
+    }
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // PremiumAccess Deep Audit Tests
@@ -751,13 +759,16 @@ contract Audit195PremiumHookTest is Test {
     }
 
     function test_H06_syncRejectsIncrease() public {
+        // AUDIT H-5: upward syncs are now allowed up to the on-chain
+        // PoolManager credit. The mock returns 0, so any upward sync
+        // (1500 > 1000 here) reverts with AboveOnChainCredit.
         address tok = makeAddr("tok");
         _setAccruedFees(tok, 1000);
 
         hook.proposeSyncAccruedFees(tok, 1500);
         vm.warp(block.timestamp + 7 days);
 
-        vm.expectRevert(TegridyFeeHook.SyncReductionTooLarge.selector);
+        vm.expectRevert(TegridyFeeHook.AboveOnChainCredit.selector);
         hook.executeSyncAccruedFees(tok);
     }
 
