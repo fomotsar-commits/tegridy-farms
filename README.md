@@ -265,8 +265,9 @@ Methodology is labelled honestly. **Internal AI agents** are parallel Claude/GPT
 
 | Audit | Date | Type | Headline severity | Role |
 |---|---|---|---|---|
-| [SECURITY_AUDIT_300_AGENT.md](SECURITY_AUDIT_300_AGENT.md) | 2026-04-16 | Internal AI, 300 agents + Spartan ingest | 5 C / 12 H / many M+L | **🟢 Canonical severity** |
-| [AUDIT_FINDINGS.md](AUDIT_FINDINGS.md) | 2026-04-17 | Internal AI, 35 detectives vs `main` | 4 ship-blockers (B1–B4) + H/M/L | **🟢 Current working-tree state** |
+| [.audit_101/POST_REMEDIATION_LEDGER.md](.audit_101/POST_REMEDIATION_LEDGER.md) | 2026-04-26 | Internal AI + multi-pass verification, 27 commits landed | 3 Crit + 7 High + 5 Med fixed; 2 EIP-170 splits; 31 false positives cleared | **🟢 Post-fix source of truth** |
+| [SECURITY_AUDIT_300_AGENT.md](SECURITY_AUDIT_300_AGENT.md) | 2026-04-16 | Internal AI, 300 agents + Spartan ingest | 5 C / 12 H / many M+L | Canonical severity (pre-Apr-26) |
+| [AUDIT_FINDINGS.md](AUDIT_FINDINGS.md) | 2026-04-17 | Internal AI, 35 detectives vs `main` | 4 ship-blockers (B1–B4) + H/M/L | Pre-Apr-26 working-tree state |
 | [SPARTAN_AUDIT.txt](SPARTAN_AUDIT.txt) | 2026-04-16 | **External** (Spartan) | 1 C / 1 H / 7 M / 9 L | Ingested into 300-agent |
 | [API_INDEXER_AUDIT.md](API_INDEXER_AUDIT.md) | 2026-04-17 | Internal AI, domain-specific | H + M triage | `frontend/api/**` + `indexer/` |
 | *9 earlier reviews, Mar 25 – Apr 4* | — | Archived | — | See [docs/audits/archive/](docs/audits/archive/) |
@@ -294,6 +295,8 @@ Plus **27+ audit-derived Foundry test files** under [`contracts/test/`](contract
 
 All contracts are verified on Etherscan; click any address to view source.
 
+> **2026-04-26 architectural note:** TegridyStaking and SwapFeeRouter were each split into a user-facing contract + a sister `*Admin` contract to fit under the EIP-170 24,576-byte mainnet limit (see [CHANGELOG](CHANGELOG.md#2026-04-26--post-remediation-audit-campaign-3-crit--7-high--5-med--2-eip-170-splits) and [POST_REMEDIATION_LEDGER](.audit_101/POST_REMEDIATION_LEDGER.md)). The currently-deployed addresses below run the pre-split bytecode and continue to function. Once the new admin sister contracts deploy, they'll be added to this table; until then `propose/execute/cancel` admin calls go to the existing addresses.
+
 <details>
 <summary><b>Core token & staking</b></summary>
 
@@ -302,6 +305,7 @@ All contracts are verified on Etherscan; click any address to view source.
 | TOWELI Token | [`0x42069…78F9D`](https://etherscan.io/address/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D#code) |
 | TegridyStaking | [`0x62664…C4819`](https://etherscan.io/address/0x626644523d34B84818df602c991B4a06789C4819#code) |
 | TegridyRestaking | [`0xfba4D…CaEe4`](https://etherscan.io/address/0xfba4D340759Ae4c36DfFC6C773D171bf7BDCaEe4#code) |
+| TegridyStakingAdmin (post-split sister) | _to be deployed — see [CHANGELOG](CHANGELOG.md)_ |
 
 </details>
 
@@ -323,6 +327,7 @@ All contracts are verified on Etherscan; click any address to view source.
 |---|---|
 | RevenueDistributor | [`0x332aa…264D8`](https://etherscan.io/address/0x332aaE555b1164eA45c2291fD7eDfa97aAA264D8#code) |
 | SwapFeeRouter | [`0xea13C…937A0`](https://etherscan.io/address/0xea13Cd47a37cC5B59675bfd52BFc8ff8691937A0#code) |
+| SwapFeeRouterAdmin (post-split sister) | _to be deployed — see [CHANGELOG](CHANGELOG.md)_ |
 | POLAccumulator | [`0x17215…B7Ca`](https://etherscan.io/address/0x17215f0dfA5E97c33c025E0560eeddffaD87B7Ca#code) |
 | TegridyLPFarming (C-01 fixed) | [`0xa7EF7…9ec1`](https://etherscan.io/address/0xa7EF711Be3662B9557634502032F98944eC69ec1#code) |
 | TegridyFeeHook (V4 hook, ends `0x0044`) | [`0xB6cfe…0044`](https://etherscan.io/address/0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044#code) |

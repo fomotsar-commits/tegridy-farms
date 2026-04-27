@@ -10,6 +10,123 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Ongoing investor-polish and audit-closure work. Lands on `main` as it ships;
 a tagged release will cut from here once Wave 0 redeploys are complete.
 
+### 2026-04-26 — Post-remediation audit campaign (3 Crit + 7 High + 5 Med + 2 EIP-170 splits)
+
+#### Summary
+
+A focused multi-pass audit + remediation campaign that discovered the prior
+R017/R020/R023/R028 doc-claimed remediations had not actually shipped to
+`main`, then closed those gaps plus 4 additional confirmed Mediums plus 2
+EIP-170 deployability blockers (TegridyStaking + SwapFeeRouter both exceeded
+the 24,576-byte mainnet limit). Reference
+[`.audit_101/POST_REMEDIATION_LEDGER.md`](./.audit_101/POST_REMEDIATION_LEDGER.md)
+for the full per-finding breakdown.
+
+#### Critical (3)
+
+- **C-1** TegridyDropV2: legacy single-step `setMerkleRoot(bytes32)` replaced
+  with timelocked `proposeMerkleRoot` / `executeMerkleRoot(bytes32)` /
+  `cancelMerkleRoot` (24h delay, value-bound, phase-gated to CLOSED /
+  CANCELLED / paused only). Replaces R023 H-01 doc-claimed-but-unshipped fix.
+- **C-2** TegridyStaking: `MAX_POSITIONS_PER_HOLDER` lowered 100 → 50 to halve
+  every external integrator's `votingPowerOf` gas cost (ReferralSplitter,
+  RevenueDistributor checkpoint-fallback path, governance consumers).
+- **C-4** VoteIncentives: zero-vote epoch bribes were permanently locked
+  (refundOrphanedBribe required un-snapshotted epoch; claimBribes rejected
+  on zero votes). Added `refundUnvotedBribe(epoch, pair, token)` —
+  permissionless per-depositor pull, gated by 14-day grace after revealDeadline.
+  Replaces R020 H-1.
+
+#### High (7)
+
+- **H-1 / H-1b** TegridyFactory: `setGuardian` was a 1-step setter with no
+  validation. Replaced with `proposeGuardianChange` / `executeGuardianChange`
+  (48h timelock); legacy `setGuardian` remains for the initial post-deploy
+  set only (`guardian == address(0)` gate). Replaces R028 H-01.
+- **H-2** TegridyFactory: `emergencyDisablePair` previously cancelled ANY
+  pending PAIR_DISABLE_CHANGE proposal — including governance-queued disables.
+  Now only cancels pending RE-ENABLE proposals; pending DISABLEs are
+  preserved (governance audit trail intact, circuit-breaker still effective).
+- **H-5** TegridyFeeHook: `executeSyncAccruedFees` legacy
+  `if (actualCredit > old) revert SyncReductionTooLarge()` blocked all
+  upward sync corrections, leaving no recovery path for accruedFees drifting
+  below true PoolManager balance. Now allows upward sync bounded by
+  `IPoolManager.balanceOf(this, currencyId)` (tamper-proof on-chain credit).
+- **H-7** TegridyRestaking: `decayExpiredRestaker` reordered per R017 RETRY
+  (settle → shrink `totalRestaked` → `_accrueBonus()` → re-anchor). Honest
+  restakers no longer underearn during the lock-expiry window. CEI tightened
+  (bonusDebt anchored before transfer). Replaces R017 H-3.
+- **H-8** TegridyRestaking: per-restaker boost checkpoints via
+  `Checkpoints.Trace208`. `boostedAmountAt(_user, _ts)` now returns the
+  historical value at `_ts` (via `upperLookup`) instead of the current
+  decayed cache. RevenueDistributor restakers no longer silently
+  undercompensated post-decay.
+- **H-12 / H-12b** VoteIncentives: ERC20 dust deposits (1 wei) could fill
+  MAX_BRIBE_TOKENS slots and DoS legitimate bribes. Added
+  `DEFAULT_MIN_TOKEN_BRIBE = 1e15` enforced when no per-token min is
+  configured. Per-token override via timelocked
+  `proposeMinBribeAmount` / `executeMinBribeAmount` (24h delay).
+  Replaces R020 H-3.
+
+#### Medium (5)
+
+- **M-2** TegridyTWAP: `DeviationBypassed` event + `lastBypassUsed[pair]`
+  mapping surface the rebootstrap-after-dormancy window so consumers (lending,
+  POL accumulator, dutch-auction price) can cool-off / require a confirming
+  observation.
+- **M-16** POLAccumulator: `MIN_BACKSTOP_BPS` raised 5000 → 9000. Caps
+  slippage at 10% on the addLiquidityETH leg (was effectively 50%, no
+  protection against sandwich attacks).
+- **M-24** TegridyStaking: `_splitPenalty` now uses ceiling division so
+  sub-wei dust on small early-exit penalties favors stakers (recycle pool)
+  rather than treasury.
+- **M-28** MemeBountyBoard: `emergencyForceCancel` aggregate-votes branch
+  (`totalBountyVotes >= 2x quorum`) now also requires
+  `uniqueVoterCount >= MIN_UNIQUE_VOTERS`. Whales alone can no longer
+  deadlock bounties.
+- **M-30** PremiumAccess: `nonReentrant` added to `batchReconcileExpired`
+  for parity with `cancelSubscription`.
+
+#### Architectural fixes (2 EIP-170 splits)
+
+- **TegridyStaking → TegridyStaking + TegridyStakingAdmin**: 29,461 → 22,492
+  bytes (saved 6,953; +2,084 margin under EIP-170). All 7 timelocked admin
+  triplets moved to the sister contract. Wired via `staking.setStakingAdmin(addr)`.
+- **SwapFeeRouter → SwapFeeRouter + SwapFeeRouterAdmin**: 25,930 → 16,735
+  bytes (saved 9,195; +7,841 margin). All 9 timelocked admin triplets moved.
+  Wired via `router.setSwapFeeRouterAdmin(addr)`.
+
+#### Frontend / indexer integrations
+
+- Restored + extended `frontend/scripts/extract-missing-abis.mjs` to
+  generate `TEGRIDY_STAKING_ADMIN_ABI` + `SWAP_FEE_ROUTER_ADMIN_ABI`
+  alongside the 8 prior ABIs. Output written to
+  `frontend/src/lib/abi-supplement.ts`.
+- `frontend/src/lib/constants.ts`: added
+  `TEGRIDY_STAKING_ADMIN_ADDRESS` + `SWAP_FEE_ROUTER_ADMIN_ADDRESS`
+  placeholders (operators populate post-deploy).
+- Indexer subscribes to both admin contracts via shared
+  `TimelockAdminMinimalAbi`. ProposalCreated / Executed / Cancelled events
+  written to existing `timelockProposal` table with discriminator. Addresses
+  sourced from `TEGRIDY_STAKING_ADMIN_ADDRESS` /
+  `SWAP_FEE_ROUTER_ADMIN_ADDRESS` env vars.
+- `useLPFarming().refreshBoost(target)` action exposed.
+  `useAutoRefreshBoost` hook detects boost-not-applied (holdsJBAC && stake &&
+  effective < raw * 1.4) and surfaces / auto-fires refresh. Closes F-7.
+
+#### Operator follow-ups
+
+1. Deploy `TegridyStakingAdmin(staking)` + call
+   `staking.setStakingAdmin(admin)` (one-shot).
+2. Deploy `SwapFeeRouterAdmin(router)` + call
+   `router.setSwapFeeRouterAdmin(admin)` (one-shot).
+3. Update `frontend/src/lib/constants.ts` admin placeholders with deployed
+   addresses.
+4. Set indexer env vars `TEGRIDY_STAKING_ADMIN_ADDRESS` +
+   `SWAP_FEE_ROUTER_ADMIN_ADDRESS` for production sync.
+5. Update `contracts/script/ConfigureFeePolicy.s.sol`
+   `SWAP_FEE_ROUTER_ADMIN` constant.
+
 ### 2026-04-25 — Wave 1–4 bulletproofing (~80 R-fixes)
 
 #### Summary

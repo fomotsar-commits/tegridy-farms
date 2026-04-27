@@ -16,6 +16,18 @@ const CARD_ART = Array.from({ length: 16 }, (_, i) => pageArt('changelog-cards',
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    date: 'April 26, 2026',
+    title: 'Post-Remediation Audit Campaign',
+    items: [
+      'Closed 3 Critical + 7 High + 5 Medium vulnerabilities discovered during a focused audit + verification campaign (27 commits)',
+      'Found that R017 / R020 / R023 / R028 fixes were doc-claimed but not actually shipped to main; landed those plus 4 additional Mediums',
+      'Architectural splits — TegridyStaking + TegridyStakingAdmin (29.5KB → 22.5KB) and SwapFeeRouter + SwapFeeRouterAdmin (25.9KB → 16.7KB) — both contracts now under the EIP-170 24,576-byte mainnet limit',
+      'Frontend: refreshBoost auto-detection hook for users who acquire JBAC NFTs after staking',
+      'Indexer: 4 new event types tracked plus admin-contract subscriptions',
+      'New source of truth: .audit_101/POST_REMEDIATION_LEDGER.md',
+    ],
+  },
+  {
     date: 'April 18, 2026',
     title: 'Visual Identity Refresh',
     items: [
