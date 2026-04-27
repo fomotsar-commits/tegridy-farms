@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
+import "../src/TegridyStakingAdmin.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 
 contract MockToken is ERC20 {
@@ -25,6 +26,7 @@ contract MockNFT is ERC721 {
 
 contract TegridyStakingTest is Test {
     TegridyStaking public staking;
+    TegridyStakingAdmin public admin;
     MockToken public token;
     MockNFT public nft;
     address public treasury = makeAddr("treasury");
@@ -36,6 +38,8 @@ contract TegridyStakingTest is Test {
         token = new MockToken();
         nft = new MockNFT();
         staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        admin = new TegridyStakingAdmin(address(staking));
+        staking.setStakingAdmin(address(admin));
 
         nft.mint(alice); // Alice gets JBAC
 
@@ -652,75 +656,75 @@ contract TegridyStakingTest is Test {
 
     function test_proposeTreasuryChange() public {
         address newTreasury = makeAddr("newTreasury");
-        staking.proposeTreasuryChange(newTreasury);
-        assertEq(staking.pendingTreasury(), newTreasury);
-        assertGt(staking.treasuryChangeTime(), block.timestamp);
+        admin.proposeTreasuryChange(newTreasury);
+        assertEq(admin.pendingTreasury(), newTreasury);
+        assertGt(admin.treasuryChangeTime(), block.timestamp);
     }
 
     function test_executeTreasuryChange_afterTimelock() public {
         address newTreasury = makeAddr("newTreasury");
-        staking.proposeTreasuryChange(newTreasury);
+        admin.proposeTreasuryChange(newTreasury);
         vm.warp(block.timestamp + 48 hours + 1);
-        staking.executeTreasuryChange();
+        admin.executeTreasuryChange();
         assertEq(staking.treasury(), newTreasury);
-        assertEq(staking.pendingTreasury(), address(0));
-        assertEq(staking.treasuryChangeTime(), 0);
+        assertEq(admin.pendingTreasury(), address(0));
+        assertEq(admin.treasuryChangeTime(), 0);
     }
 
     function test_revert_executeTreasuryChange_beforeTimelock() public {
         address newTreasury = makeAddr("newTreasury");
-        staking.proposeTreasuryChange(newTreasury);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, staking.TREASURY_CHANGE()));
-        staking.executeTreasuryChange();
+        admin.proposeTreasuryChange(newTreasury);
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, admin.TREASURY_CHANGE()));
+        admin.executeTreasuryChange();
     }
 
     function test_revert_executeTreasuryChange_noPending() public {
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, staking.TREASURY_CHANGE()));
-        staking.executeTreasuryChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, admin.TREASURY_CHANGE()));
+        admin.executeTreasuryChange();
     }
 
     function test_revert_proposeTreasuryChange_zeroAddress() public {
         vm.expectRevert(TegridyStaking.ZeroAddress.selector);
-        staking.proposeTreasuryChange(address(0));
+        admin.proposeTreasuryChange(address(0));
     }
 
     // ===== PROPOSE REWARD RATE TIMELOCK (SECURITY FIX #13) =====
 
     function test_proposeRewardRate() public {
-        staking.proposeRewardRate(5 ether);
-        assertEq(staking.pendingRewardRate(), 5 ether);
-        assertGt(staking.rewardRateChangeTime(), block.timestamp);
+        admin.proposeRewardRate(5 ether);
+        assertEq(admin.pendingRewardRate(), 5 ether);
+        assertGt(admin.rewardRateChangeTime(), block.timestamp);
     }
 
     function test_executeRewardRateChange_afterTimelock() public {
-        staking.proposeRewardRate(5 ether);
+        admin.proposeRewardRate(5 ether);
         vm.warp(block.timestamp + 48 hours + 1);
-        staking.executeRewardRateChange();
+        admin.executeRewardRateChange();
         assertEq(staking.rewardRate(), 5 ether);
-        assertEq(staking.pendingRewardRate(), 0);
-        assertEq(staking.rewardRateChangeTime(), 0);
+        assertEq(admin.pendingRewardRate(), 0);
+        assertEq(admin.rewardRateChangeTime(), 0);
     }
 
     function test_revert_executeRewardRate_beforeTimelock() public {
-        staking.proposeRewardRate(5 ether);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, staking.REWARD_RATE_CHANGE()));
-        staking.executeRewardRateChange();
+        admin.proposeRewardRate(5 ether);
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, admin.REWARD_RATE_CHANGE()));
+        admin.executeRewardRateChange();
     }
 
     function test_revert_executeRewardRate_noPending() public {
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, staking.REWARD_RATE_CHANGE()));
-        staking.executeRewardRateChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, admin.REWARD_RATE_CHANGE()));
+        admin.executeRewardRateChange();
     }
 
     function test_revert_proposeRewardRate_tooHigh() public {
         vm.expectRevert(TegridyStaking.RateTooHigh.selector);
-        staking.proposeRewardRate(101 ether);
+        admin.proposeRewardRate(101 ether);
     }
 
     function test_revert_proposeRewardRate_notOwner() public {
         vm.prank(bob);
         vm.expectRevert();
-        staking.proposeRewardRate(5 ether);
+        admin.proposeRewardRate(5 ether);
     }
 
     // ===== NFT TRANSFER WITH AlreadyHasPosition GUARD (AUDIT FIX #2) =====

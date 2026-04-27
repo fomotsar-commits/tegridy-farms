@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
+import "../src/TegridyStakingAdmin.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 
 contract MockTokenAudit is ERC20 {
@@ -29,6 +30,7 @@ contract MockNFTAudit is ERC721 {
 
 contract AuditFixesStakingTest is Test {
     TegridyStaking public staking;
+    TegridyStakingAdmin public admin;
     MockTokenAudit public token;
     MockNFTAudit public nft;
     address public treasury = makeAddr("treasury");
@@ -40,6 +42,8 @@ contract AuditFixesStakingTest is Test {
         token = new MockTokenAudit();
         nft = new MockNFTAudit();
         staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        admin = new TegridyStakingAdmin(address(staking));
+        staking.setStakingAdmin(address(admin));
 
         nft.mint(alice); // Alice gets JBAC #1
 
@@ -318,31 +322,31 @@ contract AuditFixesStakingTest is Test {
         address newTreasury = makeAddr("newTreasury");
 
         // Propose treasury change
-        staking.proposeTreasuryChange(newTreasury);
+        admin.proposeTreasuryChange(newTreasury);
 
         // Try to execute immediately — should revert
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, staking.TREASURY_CHANGE()));
-        staking.executeTreasuryChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, admin.TREASURY_CHANGE()));
+        admin.executeTreasuryChange();
 
         // Try after 47 hours — still too early
         vm.warp(block.timestamp + 47 hours);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, staking.TREASURY_CHANGE()));
-        staking.executeTreasuryChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, admin.TREASURY_CHANGE()));
+        admin.executeTreasuryChange();
     }
 
     function test_executeTreasuryChange_afterTimelock() public {
         address newTreasury = makeAddr("newTreasury");
 
-        staking.proposeTreasuryChange(newTreasury);
+        admin.proposeTreasuryChange(newTreasury);
 
         // Warp past 48 hours
         vm.warp(block.timestamp + 48 hours);
 
-        staking.executeTreasuryChange();
+        admin.executeTreasuryChange();
 
         assertEq(staking.treasury(), newTreasury, "Treasury should be updated");
-        assertEq(staking.pendingTreasury(), address(0), "Pending treasury should be cleared");
-        assertEq(staking.treasuryChangeTime(), 0, "Timelock should be cleared");
+        assertEq(admin.pendingTreasury(), address(0), "Pending treasury should be cleared");
+        assertEq(admin.treasuryChangeTime(), 0, "Timelock should be cleared");
     }
 
     // ═══════════════════════════════════════════════════════════════════

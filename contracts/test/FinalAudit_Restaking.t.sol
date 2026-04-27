@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";
 import "../src/TegridyStaking.sol";
+import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyRestaking.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
@@ -44,6 +45,7 @@ contract FinalAuditRestaking is Test {
     MockJBAC_FA jbac;
     MockWETH_FA weth;
     TegridyStaking staking;
+    TegridyStakingAdmin stakingAdmin;
     TegridyRestaking restaking;
 
     address alice = makeAddr("alice");
@@ -69,6 +71,8 @@ contract FinalAuditRestaking is Test {
             treasury,
             REWARD_RATE
         );
+        stakingAdmin = new TegridyStakingAdmin(address(staking));
+        staking.setStakingAdmin(address(stakingAdmin));
 
         restaking = new TegridyRestaking(
             address(staking),
@@ -78,9 +82,9 @@ contract FinalAuditRestaking is Test {
         );
 
         // Set restaking contract on staking so revalidateBoost works
-        staking.proposeRestakingContract(address(restaking));
+        stakingAdmin.proposeRestakingContract(address(restaking));
         vm.warp(block.timestamp + 48 hours + 1);
-        staking.executeRestakingContract();
+        stakingAdmin.executeRestakingContract();
 
         // Fund staking with rewards
         toweli.approve(address(staking), 2_000_000 ether);

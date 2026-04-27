@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";
 import "../src/TegridyStaking.sol";
+import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyRestaking.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -45,6 +46,7 @@ contract Audit195Restaking is Test {
     A195_MockJBAC jbac;
     A195_MockWETH weth;
     TegridyStaking staking;
+    TegridyStakingAdmin stakingAdmin;
     TegridyRestaking restaking;
 
     address alice = makeAddr("alice");
@@ -69,6 +71,8 @@ contract Audit195Restaking is Test {
             treasury,
             REWARD_RATE
         );
+        stakingAdmin = new TegridyStakingAdmin(address(staking));
+        staking.setStakingAdmin(address(stakingAdmin));
 
         restaking = new TegridyRestaking(
             address(staking),
@@ -78,9 +82,9 @@ contract Audit195Restaking is Test {
         );
 
         // Set restaking contract reference in staking (48h timelock)
-        staking.proposeRestakingContract(address(restaking));
+        stakingAdmin.proposeRestakingContract(address(restaking));
         vm.warp(block.timestamp + 48 hours + 1);
-        staking.executeRestakingContract();
+        stakingAdmin.executeRestakingContract();
 
         // Fund staking with rewards
         toweli.approve(address(staking), 500_000_000 ether);

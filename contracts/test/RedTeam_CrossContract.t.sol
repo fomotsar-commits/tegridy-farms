@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "../src/TegridyStaking.sol";
+import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyRestaking.sol";
 import "../src/RevenueDistributor.sol";
 import "../src/ReferralSplitter.sol";
@@ -145,6 +146,7 @@ contract RedTeamCrossContract is Test {
     MockWETH public weth;
     MockJBAC public jbac;
     TegridyStaking public staking;
+    TegridyStakingAdmin public stakingAdmin;
     TegridyRestaking public restaking;
     RevenueDistributor public revDistributor;
     ReferralSplitter public referralSplitter;
@@ -170,6 +172,8 @@ contract RedTeamCrossContract is Test {
             treasury,
             1 ether // 1 TOWELI/sec reward rate
         );
+        stakingAdmin = new TegridyStakingAdmin(address(staking));
+        staking.setStakingAdmin(address(stakingAdmin));
 
         restaking = new TegridyRestaking(
             address(staking),
@@ -199,9 +203,9 @@ contract RedTeamCrossContract is Test {
         );
 
         // Setup: wire restaking contract into staking
-        staking.proposeRestakingContract(address(restaking));
+        stakingAdmin.proposeRestakingContract(address(restaking));
         vm.warp(block.timestamp + 48 hours + 1);
-        staking.executeRestakingContract();
+        stakingAdmin.executeRestakingContract();
 
         // Fund staking rewards
         toweli.approve(address(staking), type(uint256).max);
@@ -787,25 +791,25 @@ contract RedTeamCrossContract is Test {
         assertEq(staking.rewardRate(), 1 ether);
 
         // Owner proposes reducing rate to 0 (legitimate governance action)
-        staking.proposeRewardRate(0);
+        stakingAdmin.proposeRewardRate(0);
 
         // 48h timelock gives users time to exit
         vm.warp(block.timestamp + 24 hours);
         // Cannot execute yet
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, staking.REWARD_RATE_CHANGE()));
-        staking.executeRewardRateChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, stakingAdmin.REWARD_RATE_CHANGE()));
+        stakingAdmin.executeRewardRateChange();
 
         // After timelock, rate can be changed
         vm.warp(block.timestamp + 24 hours + 1);
-        staking.executeRewardRateChange();
+        stakingAdmin.executeRewardRateChange();
         assertEq(staking.rewardRate(), 0);
 
         // But proposal has MAX_PROPOSAL_VALIDITY (7 days) expiry
         // If not executed in time, it expires
-        staking.proposeRewardRate(50 ether);
+        stakingAdmin.proposeRewardRate(50 ether);
         vm.warp(block.timestamp + 48 hours + 7 days + 1);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, staking.REWARD_RATE_CHANGE()));
-        staking.executeRewardRateChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, stakingAdmin.REWARD_RATE_CHANGE()));
+        stakingAdmin.executeRewardRateChange();
 
         emit log_string("[ATTACK #16] Reward Rate Manipulation: DEFENDED");
         emit log_string("  - 48h timelock gives users time to notice and exit");

@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "../src/TegridyStaking.sol";
+import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyRestaking.sol";
 
 // ─── Mock Tokens ──────────────────────────────────────────────────────
@@ -82,6 +83,7 @@ contract RedTeamStaking is Test {
     RT_MockJBAC jbac;
     RT_MockWETH weth;
     TegridyStaking staking;
+    TegridyStakingAdmin stakingAdmin;
     TegridyRestaking restaking;
 
     address alice = makeAddr("alice");
@@ -105,6 +107,8 @@ contract RedTeamStaking is Test {
             treasury,
             REWARD_RATE
         );
+        stakingAdmin = new TegridyStakingAdmin(address(staking));
+        staking.setStakingAdmin(address(stakingAdmin));
 
         restaking = new TegridyRestaking(
             address(staking),
@@ -114,9 +118,9 @@ contract RedTeamStaking is Test {
         );
 
         // Register restaking contract via timelock
-        staking.proposeRestakingContract(address(restaking));
+        stakingAdmin.proposeRestakingContract(address(restaking));
         vm.warp(block.timestamp + 48 hours + 1);
-        staking.executeRestakingContract();
+        stakingAdmin.executeRestakingContract();
 
         // Fund staking with rewards
         toweli.approve(address(staking), type(uint256).max);

@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";
 import "../src/TegridyStaking.sol";
+import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyRestaking.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -52,6 +53,7 @@ contract TegridyRestakingTest is Test {
     MockJBAC jbac;
     MockWETH weth;
     TegridyStaking staking;
+    TegridyStakingAdmin stakingAdmin;
     TegridyRestaking restaking;
 
     address alice = makeAddr("alice");
@@ -73,6 +75,8 @@ contract TegridyRestakingTest is Test {
             treasury,
             REWARD_RATE
         );
+        stakingAdmin = new TegridyStakingAdmin(address(staking));
+        staking.setStakingAdmin(address(stakingAdmin));
 
         restaking = new TegridyRestaking(
             address(staking),
@@ -344,9 +348,9 @@ contract TegridyRestakingTest is Test {
     // ===== H-02: JBAC Boost Retained After Restaking =====
 
     function _linkRestakingContract() internal {
-        staking.proposeRestakingContract(address(restaking));
+        stakingAdmin.proposeRestakingContract(address(restaking));
         vm.warp(block.timestamp + 48 hours + 1);
-        staking.executeRestakingContract();
+        stakingAdmin.executeRestakingContract();
     }
 
     function test_revalidateBoost_retainsJbacForRestakedPosition() public {
