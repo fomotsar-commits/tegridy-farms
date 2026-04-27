@@ -280,6 +280,8 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     error JbacDeposited(); // AUDIT H-1: revalidateBoost not allowed on deposit-based positions
     error ExtendFeeTooHigh(); // AUDIT C5
     error PenaltyRecycleTooHigh(); // AUDIT C6
+    error OnlyJbacNFT(); // SIZE-OPT: replaces require("only JBAC")
+    error NotRewardNotifier(); // SIZE-OPT: replaces revert("NOT_NOTIFIER")
 
     // ─── Constructor ──────────────────────────────────────────────────
 
@@ -601,7 +603,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     /// @dev AUDIT H-1 FIX (2026-04-20): Restrict to the configured JBAC collection so no
     ///      other ERC721 can be dumped here.
     function onERC721Received(address, address, uint256, bytes calldata) external view returns (bytes4) {
-        require(msg.sender == address(jbacNFT), "only JBAC");
+        if (msg.sender != address(jbacNFT)) revert OnlyJbacNFT();
         return IERC721Receiver.onERC721Received.selector;
     }
 
@@ -1204,7 +1206,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     /// @param _amount Amount of reward tokens to deposit (must be >= MIN_NOTIFY_AMOUNT)
     function notifyRewardAmount(uint256 _amount) external nonReentrant {
         if (msg.sender != owner() && !rewardNotifiers[msg.sender]) {
-            revert("NOT_NOTIFIER");
+            revert NotRewardNotifier();
         }
         if (_amount < MIN_NOTIFY_AMOUNT) revert FundAmountTooSmall(); // AUDIT FIX #61
         rewardToken.safeTransferFrom(msg.sender, address(this), _amount);
