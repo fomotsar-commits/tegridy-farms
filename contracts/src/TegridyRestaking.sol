@@ -182,6 +182,11 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     error Int256Overflow(); // M-27: Safe int256 cast guard
     error NotRestakedToken(); // M-26: Token not restaked in this contract
     error Unauthorized(); // AUDIT NEW-S2: restrict revalidate-boost helpers to owner/restaker
+    /// @notice R014 RETRY: emitted by `_accrueBonusChecked` when an `_accrueBonus`
+    ///         override decreases `accBonusPerShare`. The accumulator is monotonically
+    ///         non-decreasing by construction; any overriding subclass that violates
+    ///         this invariant is malicious and must trip this assertion.
+    error AccrueNotMonotone();
 
     // ─── Constructor ────────────────────────────────────────────────
     constructor(
@@ -356,19 +361,20 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     /// @notice C-05: Refresh cached position data from TegridyStaking
     /// @dev Re-reads staking.positions(tokenId) and updates positionAmount and totalRestaked.
     ///      AUDIT FIX: Claims pending bonus before resetting debt to prevent silent forfeiture.
-    function refreshPosition() external nonReentrant updateBonus {
+    /// @dev R014 RETRY (R017): the prior implementation used the `updateBonus`
+    ///      modifier which ran `_accrueBonus()` BEFORE the body. When the caller's
+    ///      cached boost was stale (e.g., lock decayed in TegridyStaking but not
+    ///      yet synced here), the elapsed-period emission was minted into
+    ///      `accBonusPerShare` against an INFLATED `totalRestaked` denominator —
+    ///      letting the caller siphon honest restakers' share. Fix: drop the
+    ///      modifier and branch on `stale`. Stale path settles pending bonus on
+    ///      the OLD boost at the PRE-accrue `accBonusPerShare`, anchors
+    ///      `bonusDebt` BEFORE transfer (CEI), shrinks `totalRestaked`, then
+    ///      runs `_accrueBonusChecked` against the corrected denominator and
+    ///      re-anchors `bonusDebt` at the POST-accrue `accBonusPerShare`.
+    function refreshPosition() external nonReentrant {
         RestakeInfo storage info = restakers[msg.sender];
         if (info.tokenId == 0) revert NotRestaked();
-
-        // AUDIT FIX: Claim pending bonus rewards BEFORE resetting debt
-        int256 accumulated = _safeInt256((info.boostedAmount * accBonusPerShare) / ACC_PRECISION);
-        int256 diff = accumulated - info.bonusDebt;
-        uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
-        if (bonusPending > 0) {
-            bonusRewardToken.safeTransfer(msg.sender, bonusPending);
-            totalBonusDistributed += bonusPending;
-            emit BonusClaimed(msg.sender, bonusPending);
-        }
 
         uint256 oldAmount = info.positionAmount;
         uint256 oldBoosted = info.boostedAmount;
@@ -379,19 +385,58 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // AUDIT FIX: Prevent setting positionAmount to zero (would break bonus calculations)
         if (newAmount == 0) revert ZeroAmount();
 
-        // Update cached values
-        info.positionAmount = newAmount;
-        info.boostedAmount = newBoostedAmount;
-        // AUDIT H-8: write boost checkpoint
-        _writeBoostCheckpoint(msg.sender, newBoostedAmount);
+        bool stale = (newAmount != info.positionAmount || newBoostedAmount != info.boostedAmount);
 
-        // Update totalRestaked
-        totalRestaked = totalRestaked - oldBoosted + newBoostedAmount;
+        if (stale) {
+            // R014 RETRY step 1 — settle pending bonus on OLD boost at the
+            // PRE-accrue `accBonusPerShare`. Anchor `info.bonusDebt` BEFORE the
+            // external transfer (CEI) so a hostile bonus token cannot re-enter.
+            uint256 preBonus;
+            if (oldBoosted > 0) {
+                int256 preAccum = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
+                int256 preDiff = preAccum - info.bonusDebt;
+                preBonus = preDiff > 0 ? uint256(preDiff) : 0;
+                info.bonusDebt = preAccum; // CEI: anchor BEFORE external call
+            }
+            if (preBonus > 0) {
+                bonusRewardToken.safeTransfer(msg.sender, preBonus);
+                totalBonusDistributed += preBonus;
+                emit BonusClaimed(msg.sender, preBonus);
+            }
 
-        // Reset bonus debt to current accumulated (rewards already claimed above)
-        // M-27: Safe int256 cast via _safeInt256 helper
-        uint256 newDebtUint = (newBoostedAmount * accBonusPerShare) / ACC_PRECISION;
-        info.bonusDebt = _safeInt256(newDebtUint);
+            // R014 RETRY step 2 — update cached values and adjust
+            // `totalRestaked` (shrink, in the typical decay case).
+            info.positionAmount = newAmount;
+            info.boostedAmount = newBoostedAmount;
+            _writeBoostCheckpoint(msg.sender, newBoostedAmount); // AUDIT H-8
+            totalRestaked = totalRestaked - oldBoosted + newBoostedAmount;
+
+            // R014 RETRY step 3 — accrue against the corrected (smaller)
+            // denominator. This is the key reordering: the elapsed-period
+            // emission is now divided by the honest `totalRestaked`.
+            _accrueBonusChecked();
+
+            // R014 RETRY step 4 — re-anchor `bonusDebt` at POST-accrue on the
+            // NEW boost so residual rounding cannot credit emission the caller
+            // is no longer entitled to share in.
+            uint256 newDebtUint = (newBoostedAmount * accBonusPerShare) / ACC_PRECISION;
+            info.bonusDebt = _safeInt256(newDebtUint);
+        } else {
+            // Non-stale path: cached boost matches the staking contract. Run
+            // accrual first, then claim against the user's actual boost at the
+            // current `accBonusPerShare`. Behavior matches pre-R014 semantics.
+            _accrueBonusChecked();
+
+            int256 accumulated = _safeInt256((info.boostedAmount * accBonusPerShare) / ACC_PRECISION);
+            int256 diff = accumulated - info.bonusDebt;
+            uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
+            info.bonusDebt = accumulated; // CEI: anchor BEFORE external call
+            if (bonusPending > 0) {
+                bonusRewardToken.safeTransfer(msg.sender, bonusPending);
+                totalBonusDistributed += bonusPending;
+                emit BonusClaimed(msg.sender, bonusPending);
+            }
+        }
 
         emit PositionRefreshed(msg.sender, info.tokenId, oldAmount, newAmount);
     }
@@ -399,7 +444,16 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     /// @notice Claim base staking rewards + bonus restaking rewards
     /// @dev SECURITY FIX H-03: Auto-refreshes cached position data from TegridyStaking
     ///      before calculating bonus rewards, preventing stale position exploitation.
-    function claimAll() external nonReentrant updateBonus {
+    /// @dev R014 RETRY (R017): the prior implementation used the `updateBonus`
+    ///      modifier which ran `_accrueBonus()` BEFORE the body. With a stale
+    ///      cached boost the elapsed-period emission was minted into
+    ///      `accBonusPerShare` against an INFLATED `totalRestaked` denominator —
+    ///      letting the caller siphon honest restakers' share. Fix: drop the
+    ///      modifier and branch on `stale`. The stale path settles the OLD boost
+    ///      at PRE-accrue, anchors `bonusDebt` BEFORE transfer (CEI), shrinks
+    ///      `totalRestaked`, then runs `_accrueBonusChecked` against the
+    ///      corrected denominator and re-anchors `bonusDebt` POST-accrue.
+    function claimAll() external nonReentrant {
         RestakeInfo storage info = restakers[msg.sender];
         if (info.tokenId == 0) revert NotRestaked();
 
@@ -410,48 +464,59 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // were invisible to auto-refresh, allowing stale bonus accrual.
         {
             (uint256 currentAmount, uint256 currentBoosted,,,,,,, , ,) = staking.positions(info.tokenId);
-            if (currentAmount != info.positionAmount || currentBoosted != info.boostedAmount) {
-                // S2-01: Handle currentAmount == 0 — position was fully withdrawn from base staking.
-                // Still need to settle bonus on old amount and update cached value to prevent phantom accrual.
-                if (currentAmount == 0) {
-                    // Claim any pending bonus on the now-defunct position
-                    int256 zeroAccum = _safeInt256((info.boostedAmount * accBonusPerShare) / ACC_PRECISION);
-                    int256 zeroDiff = zeroAccum - info.bonusDebt;
-                    uint256 zeroBonus = zeroDiff > 0 ? uint256(zeroDiff) : 0;
-                    if (zeroBonus > 0) {
-                        bonusRewardToken.safeTransfer(msg.sender, zeroBonus);
-                        totalBonusDistributed += zeroBonus;
-                        emit BonusClaimed(msg.sender, zeroBonus);
-                    }
-                    uint256 oldAmt = info.positionAmount;
-                    totalRestaked -= info.boostedAmount;
-                    info.positionAmount = 0;
-                    info.boostedAmount = 0;
-                    info.bonusDebt = 0;
-                    _writeBoostCheckpoint(msg.sender, 0); // AUDIT H-8
-                    emit PositionRefreshed(msg.sender, info.tokenId, oldAmt, 0);
-                } else if (currentAmount > 0) {
-                // Claim pending bonus on OLD boostedAmount first
-                int256 preAccum = _safeInt256((info.boostedAmount * accBonusPerShare) / ACC_PRECISION);
-                int256 preDiff = preAccum - info.bonusDebt;
-                uint256 preBonus = preDiff > 0 ? uint256(preDiff) : 0;
+            bool stale = (currentAmount != info.positionAmount || currentBoosted != info.boostedAmount);
+
+            if (stale) {
+                // R014 RETRY step 1 — settle pending bonus on the OLD boost at
+                // the PRE-accrue `accBonusPerShare`. Anchor `info.bonusDebt`
+                // BEFORE the external transfer (CEI).
+                uint256 oldBoosted = info.boostedAmount;
+                uint256 preBonus;
+                if (oldBoosted > 0) {
+                    int256 preAccum = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
+                    int256 preDiff = preAccum - info.bonusDebt;
+                    preBonus = preDiff > 0 ? uint256(preDiff) : 0;
+                    info.bonusDebt = preAccum; // CEI: anchor BEFORE external call
+                }
                 if (preBonus > 0) {
                     bonusRewardToken.safeTransfer(msg.sender, preBonus);
                     totalBonusDistributed += preBonus;
                     emit BonusClaimed(msg.sender, preBonus);
                 }
-                // Update cached values
-                uint256 oldAmount = info.positionAmount;
-                uint256 oldBoosted = info.boostedAmount;
+
+                // R014 RETRY step 2 — update cached values + adjust
+                // `totalRestaked` (shrink in typical decay case). Handles both
+                // the position-zeroed (force-closed) sub-case and the normal
+                // refresh sub-case in a single arithmetic update.
+                uint256 oldAmt = info.positionAmount;
                 info.positionAmount = currentAmount;
                 info.boostedAmount = currentBoosted;
                 _writeBoostCheckpoint(msg.sender, currentBoosted); // AUDIT H-8
                 totalRestaked = totalRestaked - oldBoosted + currentBoosted;
-                // Reset debt after payout — M-27: Safe int256 cast
-                uint256 newDebtUint = (currentBoosted * accBonusPerShare) / ACC_PRECISION;
-                info.bonusDebt = _safeInt256(newDebtUint);
-                emit PositionRefreshed(msg.sender, info.tokenId, oldAmount, currentAmount);
+
+                // R014 RETRY step 3 — accrue against the corrected (smaller)
+                // denominator. The micro-period elapsed since
+                // `lastBonusRewardTime` is now divided by the honest
+                // `totalRestaked`, so honest restakers earn their fair share.
+                _accrueBonusChecked();
+
+                // R014 RETRY step 4 — re-anchor `bonusDebt` at POST-accrue on
+                // the NEW boost so residual rounding cannot credit emission the
+                // caller is no longer entitled to share in.
+                if (currentBoosted > 0) {
+                    uint256 newDebtUint = (currentBoosted * accBonusPerShare) / ACC_PRECISION;
+                    info.bonusDebt = _safeInt256(newDebtUint);
+                } else {
+                    info.bonusDebt = 0;
                 }
+
+                emit PositionRefreshed(msg.sender, info.tokenId, oldAmt, currentAmount);
+            } else {
+                // Non-stale path: cached boost matches the staking contract.
+                // Run accrual first; the post-accrue claim further down uses
+                // the resulting `accBonusPerShare` against the user's actual
+                // boost. Behavior matches pre-R014 semantics.
+                _accrueBonusChecked();
             }
         }
 
@@ -501,7 +566,16 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     }
 
     /// @notice Withdraw your NFT and stop restaking
-    function unrestake() external nonReentrant updateBonus {
+    /// @dev R014 RETRY (R017): the prior implementation used the `updateBonus`
+    ///      modifier which ran `_accrueBonus()` BEFORE the body. With a stale
+    ///      cached boost the elapsed-period emission was minted into
+    ///      `accBonusPerShare` against an INFLATED `totalRestaked` denominator —
+    ///      letting the caller siphon honest restakers' share at exit time.
+    ///      Fix: drop the modifier and branch on `stale`. Stale path settles the
+    ///      OLD boost at PRE-accrue, anchors `bonusDebt` BEFORE transfer (CEI),
+    ///      shrinks `totalRestaked`, then runs `_accrueBonusChecked` against the
+    ///      corrected denominator and re-anchors `bonusDebt` POST-accrue.
+    function unrestake() external nonReentrant {
         RestakeInfo storage info = restakers[msg.sender];
         if (info.tokenId == 0) revert NotRestaked();
 
@@ -509,26 +583,51 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // AUDIT FIX M-07: Also compare boostedAmount to catch boost-only changes
         {
             (uint256 currentAmount, uint256 currentBoosted,,,,,,, , ,) = staking.positions(info.tokenId);
-            if (currentAmount != info.positionAmount || currentBoosted != info.boostedAmount) {
-                // Claim pending bonus on OLD boostedAmount first
-                int256 preAccum = _safeInt256((info.boostedAmount * accBonusPerShare) / ACC_PRECISION);
-                int256 preDiff = preAccum - info.bonusDebt;
-                uint256 preBonus = preDiff > 0 ? uint256(preDiff) : 0;
+            bool stale = (currentAmount != info.positionAmount || currentBoosted != info.boostedAmount);
+
+            if (stale) {
+                // R014 RETRY step 1 — settle pending bonus on OLD boost at the
+                // PRE-accrue `accBonusPerShare`. Anchor `info.bonusDebt` BEFORE
+                // the external transfer (CEI).
+                uint256 oldBoosted = info.boostedAmount;
+                uint256 preBonus;
+                if (oldBoosted > 0) {
+                    int256 preAccum = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
+                    int256 preDiff = preAccum - info.bonusDebt;
+                    preBonus = preDiff > 0 ? uint256(preDiff) : 0;
+                    info.bonusDebt = preAccum; // CEI: anchor BEFORE external call
+                }
                 if (preBonus > 0) {
                     bonusRewardToken.safeTransfer(msg.sender, preBonus);
                     totalBonusDistributed += preBonus;
                     emit BonusClaimed(msg.sender, preBonus);
                 }
+
+                // R014 RETRY step 2 — update cached values + adjust
+                // `totalRestaked` (shrink in typical decay case).
                 uint256 oldAmount = info.positionAmount;
-                uint256 oldBoosted = info.boostedAmount;
                 info.positionAmount = currentAmount;
                 info.boostedAmount = currentBoosted;
                 _writeBoostCheckpoint(msg.sender, currentBoosted); // AUDIT H-8
                 totalRestaked = totalRestaked - oldBoosted + currentBoosted;
-                // M-27: Safe int256 cast
-                uint256 newDebtUint = (currentBoosted * accBonusPerShare) / ACC_PRECISION;
-                info.bonusDebt = _safeInt256(newDebtUint);
+
+                // R014 RETRY step 3 — accrue against the corrected (smaller)
+                // denominator.
+                _accrueBonusChecked();
+
+                // R014 RETRY step 4 — re-anchor `bonusDebt` at POST-accrue on
+                // the NEW boost.
+                if (currentBoosted > 0) {
+                    uint256 newDebtUint = (currentBoosted * accBonusPerShare) / ACC_PRECISION;
+                    info.bonusDebt = _safeInt256(newDebtUint);
+                } else {
+                    info.bonusDebt = 0;
+                }
                 emit PositionRefreshed(msg.sender, info.tokenId, oldAmount, currentAmount);
+            } else {
+                // Non-stale path: run accrual first, then claim against current
+                // `accBonusPerShare` with the user's actual boost.
+                _accrueBonusChecked();
             }
         }
 
@@ -1176,7 +1275,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      internal function so `decayExpiredRestaker` can run accrual at a
     ///      specific step of the decay workflow instead of at the modifier's
     ///      fixed always-first position.
-    function _accrueBonus() internal {
+    /// @dev R014 RETRY: marked `virtual` so audit/red-team subclasses can override
+    ///      to demonstrate that the `_accrueBonusChecked` wrapper traps any
+    ///      `accBonusPerShare` decrement.
+    function _accrueBonus() internal virtual {
         if (block.timestamp > lastBonusRewardTime && totalRestaked > 0) {
             uint256 elapsed = block.timestamp - lastBonusRewardTime;
             uint256 reward = elapsed * bonusRewardPerSecond;
@@ -1197,6 +1299,20 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         } else if (totalRestaked == 0) {
             lastBonusRewardTime = block.timestamp;
         }
+    }
+
+    /// @notice R014 RETRY: monotonicity-checked wrapper around `_accrueBonus`.
+    /// @dev `accBonusPerShare` is monotonically non-decreasing by construction
+    ///      (`_accrueBonus` only ever performs `accBonusPerShare += ...`). This
+    ///      wrapper snapshots the value before the call and reverts with
+    ///      `AccrueNotMonotone()` if the post-call value is strictly less. It is
+    ///      a runtime tripwire for malicious or buggy subclasses that override
+    ///      `_accrueBonus` to siphon emission. Replace every direct call to
+    ///      `_accrueBonus()` in stale-path / R017 code paths with this wrapper.
+    function _accrueBonusChecked() internal {
+        uint256 snapshotPre = accBonusPerShare;
+        _accrueBonus();
+        if (accBonusPerShare < snapshotPre) revert AccrueNotMonotone();
     }
 
     // ─── M-27: Safe Int256 Helper ───────────────────────────────────
