@@ -86,4 +86,57 @@ library SequencerCheck {
             revert SequencerGracePeriodNotOver();
         }
     }
+
+    /// @notice AUDIT R014 H-6: return the wall-clock timestamp at which the
+    ///         sequencer most recently transitioned to "up", or zero if the
+    ///         sequencer is currently down / the feed is the no-op address.
+    ///
+    /// @dev    `checkSequencerUp` only proves the sequencer is currently up AND
+    ///         the post-resume grace window has elapsed. It does NOT expose
+    ///         WHEN the resume happened — so a downstream consumer can pass the
+    ///         gate while still consuming a stale oracle observation that
+    ///         pre-dates the resume. This is the core H-6 staleness gap:
+    ///
+    ///           t0:   sequencer goes down
+    ///           t0+1: TWAP `update()` records observation O1 (pre-outage spot)
+    ///           t1:   sequencer resumes (`startedAt = t1`)
+    ///           t1+G: grace window elapses; `checkSequencerUp` now passes
+    ///                 — but a `consult()` here would still average over O1,
+    ///                 which reflects pre-outage reserves. An attacker who
+    ///                 watched the outage queue can extract value the moment
+    ///                 the gate opens, BEFORE a fresh observation lands.
+    ///
+    ///         Consumers that have access to a per-observation timestamp (POL,
+    ///         lending oracle, drop dutch price) should call this helper after
+    ///         `checkSequencerUp` and reject reads where the observation
+    ///         timestamp is older than `resumeAt + gracePeriod`. Mirrors
+    ///         Aave V3's `PriceOracleSentinel` "isAnswerNotStale" extension.
+    ///
+    /// @param  feed Chainlink L2 Sequencer Uptime feed address.
+    /// @return resumeAt The `startedAt` of the latest round (i.e. when the
+    ///         current `answer` was posted). Zero if the sequencer is currently
+    ///         reporting down OR if the feed is `address(0)` (mainnet no-op).
+    ///         Callers MUST treat zero as "no resume gating applies" and rely
+    ///         on `checkSequencerUp`'s revert semantics for the up/down decision.
+    function getResumeTimestamp(address feed) internal view returns (uint256 resumeAt) {
+        // Mainnet / non-L2: no feed → no resume timestamp to gate on. Return 0
+        // and let the caller skip the staleness comparison entirely.
+        if (feed == address(0)) return 0;
+
+        (
+            /* uint80 roundId */,
+            int256 answer,
+            uint256 startedAt,
+            /* uint256 updatedAt */,
+            /* uint80 answeredInRound */
+        ) = IChainlinkAggregator(feed).latestRoundData();
+
+        // If the sequencer is currently down, there is no meaningful "resume"
+        // timestamp — return 0 and let `checkSequencerUp` produce the typed
+        // revert. The H-6 staleness comparison is only relevant when the
+        // sequencer is up; in the down case we already block via SequencerDown.
+        if (answer != 0) return 0;
+
+        return startedAt;
+    }
 }

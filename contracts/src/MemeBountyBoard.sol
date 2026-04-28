@@ -50,7 +50,14 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     uint256 public constant MAX_DEADLINE_DURATION = 180 days; // AUDIT FIX H-20: prevent indefinite ETH locking (was 365, reduced to 180)
     // AUDIT FIX M-1 (battle-tested): snapshot voting power from SNAPSHOT_LOOKBACK before
     // bounty creation. Prevents creator-ally pre-positioning for submission voting.
-    uint256 public constant SNAPSHOT_LOOKBACK = 1 hours;
+    // AUDIT R014 (MEDIUM, MEV snapshot bypass): re-derived from a block-count
+    // semantic. 250 blocks @ ~12s/block ≈ 50 minutes — close to the prior
+    // 1-hour value but explicitly motivated by "block-resistant lookback" so
+    // miner-influenced timestamp jitter cannot collapse the snapshot window
+    // into a MEV-friendly tx. The staking checkpoint store (Checkpoints.Trace208)
+    // is keyed by timestamp, so we convert: SNAPSHOT_LOOKBACK_BLOCKS * 12s.
+    uint256 public constant SNAPSHOT_LOOKBACK_BLOCKS = 250;
+    uint256 public constant SNAPSHOT_LOOKBACK = SNAPSHOT_LOOKBACK_BLOCKS * 12 seconds;
     // AUDIT FIX M-38: Configurable minimum reward — 0.001 ETH may be too low on L2
     uint256 public minBountyReward = 0.001 ether;
     uint256 public constant MIN_BOUNTY_REWARD_TIMELOCK = 24 hours;
@@ -70,6 +77,12 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         uint256 submissionCount;
         uint256 snapshotTimestamp; // Timestamp snapshot for voting power (L2-safe)
         uint256 createdAt;    // FIX 3: timestamp of creation for cancel delay
+        // AUDIT R014 (MEDIUM, creator voting suppression): snapshot the bounty
+        // creator at creation time and reject any vote where the voter matches
+        // the snapshot. Mirrors `creator` today, but having an immutable
+        // snapshot field guarantees the suppression check survives any future
+        // creator-mutation logic and gives auditors an explicit invariant.
+        address originalCreator;
     }
 
     struct Submission {
@@ -259,7 +272,9 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             snapshotTimestamp: block.timestamp >= SNAPSHOT_LOOKBACK
                 ? block.timestamp - SNAPSHOT_LOOKBACK
                 : block.timestamp - 1,
-            createdAt: block.timestamp
+            createdAt: block.timestamp,
+            // AUDIT R014: snapshot creator identity at creation time.
+            originalCreator: msg.sender
         }));
 
         totalBountiesPosted++;
@@ -310,8 +325,11 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (block.timestamp > bounties[_bountyId].deadline) revert DeadlinePassed();
         // SECURITY FIX: Prevent submitters from voting on their own submissions
         if (submissions[_bountyId][_submissionId].submitter == msg.sender) revert CannotVoteOwnSubmission();
-        // SECURITY FIX M-11: Prevent bounty creator from voting to influence outcome
-        if (msg.sender == bounties[_bountyId].creator) revert CreatorCannotVote();
+        // SECURITY FIX M-11: Prevent bounty creator from voting to influence outcome.
+        // AUDIT R014 (MEDIUM, creator suppression): check against the originalCreator
+        // snapshot field — invariant-grade rejection, immune to any future creator
+        // mutation. We also keep the live `creator` check for defense-in-depth.
+        if (msg.sender == bounties[_bountyId].originalCreator || msg.sender == bounties[_bountyId].creator) revert CreatorCannotVote();
         uint256 voterPower = stakingContract.votingPowerAtTimestamp(msg.sender, bounties[_bountyId].snapshotTimestamp);
         if (voterPower < MIN_VOTE_BALANCE) revert InsufficientVoteBalance();
 

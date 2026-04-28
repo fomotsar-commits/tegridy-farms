@@ -110,14 +110,17 @@ contract PremiumAccessTest is Test {
         vm.prank(alice);
         premium.subscribe(1, type(uint256).max);
 
-        vm.warp(block.timestamp + 1); // advance past startedAt to satisfy SAME_BLOCK_CANCEL check
+        // AUDIT R014: MIN_HOLDING_PERIOD = 1 day, so warp past it.
+        // Still exercises "near-start" pro-rata logic — refund tolerance
+        // widened to absorb the 1d consumption (~33 TOWELI of 1000).
+        vm.warp(block.timestamp + 1 days + 1);
 
         uint256 aliceBefore = token.balanceOf(alice);
         vm.prank(alice);
         premium.cancelSubscription();
         uint256 refund = token.balanceOf(alice) - aliceBefore;
 
-        assertApproxEqAbs(refund, MONTHLY_FEE, 10 ether);
+        assertApproxEqAbs(refund, MONTHLY_FEE, 50 ether);
     }
 
     function test_cancelSubscription_noRefundNearEnd() public {

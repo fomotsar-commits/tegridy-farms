@@ -106,9 +106,21 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     mapping(address => uint256) public lastConvertedAt;
     uint256 public constant CONVERSION_COOLDOWN = 1 hours;
 
-    // ─── Dynamic Fee Tiers (Uniswap V3-style per-pair overrides) ─────
-    mapping(address => uint256) public pairFeeBps;
-    mapping(address => bool) public hasPairFeeOverride;
+    // ─── Dynamic Fee Tiers (per-input-token overrides) ───────────────
+    /// @notice AUDIT R-014 M-1: canonical storage keyed on the swap path's input
+    ///         token (`path[0]`), NOT a pair address. Every `swapXxx` flow reads
+    ///         `_getEffectiveFeeBps(path[0], …)`, so an override registered here
+    ///         applies to every swap that begins with this token, across every
+    ///         pair. Renamed from the legacy `pairFeeBps`/`hasPairFeeOverride`
+    ///         to eliminate the misreading risk where admins assumed per-pair
+    ///         scoping (the legacy name caused a global override for every
+    ///         WETH-input swap when admins meant to scope to one pair).
+    ///
+    ///         The legacy public getters `pairFeeBps(address)` and
+    ///         `hasPairFeeOverride(address)` below proxy to this storage so the
+    ///         pre-existing public ABI continues to resolve.
+    mapping(address => uint256) public inputTokenFeeBps;
+    mapping(address => bool) public hasInputTokenFeeOverride;
 
     // ─── Premium Discount (Gold Card holders get reduced fees) ────────
     IPremiumAccess public premiumAccess;
@@ -158,7 +170,19 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     event ReferralFeeRedirectedToTreasury(address indexed user, uint256 amount);
     event ReferralSplitterUpdated(address indexed oldSplitter, address indexed newSplitter);
     event CallerCreditRecovered(address indexed splitter, uint256 amount);
+    /// @notice AUDIT R-014 M-1: canonical event for the per-input-token override
+    ///         write. `inputToken` is the swap path's `path[0]`, NOT a pair address.
+    ///         Indexers should subscribe to this event going forward; `PairFeeUpdated`
+    ///         is emitted alongside for ABI compatibility but uses the legacy `pair`
+    ///         field name.
+    event InputTokenFeeApplied(address indexed inputToken, uint256 newFeeBps, bool removal);
+    /// @dev DEPRECATED — emitted alongside `InputTokenFeeApplied` for ABI compatibility.
+    ///      The `pair` field name is misleading; the value is the input-token address.
     event PairFeeUpdated(address indexed pair, uint256 feeBps, bool removed);
+    /// @notice AUDIT R-014 M-1: emitted whenever the legacy `applyPairFee` alias is
+    ///         invoked. Off-chain monitors should alert so callers (admin contracts,
+    ///         scripts) can migrate to `applyInputTokenFee`.
+    event ApplyPairFeeDeprecated();
     event PremiumDiscountUpdated(uint256 oldDiscount, uint256 newDiscount);
     event PremiumAccessUpdated(address indexed oldAccess, address indexed newAccess);
     event FeesDistributed(address indexed distributor, uint256 amount);
@@ -229,14 +253,16 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     }
 
     /// @dev Get the effective fee for a swap path and user, considering:
-    ///      1. Per-pair fee override (if set for the first pair in path)
-    ///      2. Premium discount (if user has Gold Card subscription)
-    ///      Falls back to the global `feeBps` if no per-pair override exists.
-    function _getEffectiveFeeBps(address pairOrToken, address user) internal view returns (uint256) {
-        // Step 1: Determine base fee (per-pair override or global default)
+    ///      1. Per-input-token fee override (keyed on `path[0]` — see AUDIT R-014 M-1
+    ///         note on `inputTokenFeeBps`). Applies to every swap starting with that
+    ///         token, irrespective of which pair the path resolves to.
+    ///      2. Premium discount (if user has Gold Card subscription).
+    ///      Falls back to the global `feeBps` if no override exists for the input token.
+    function _getEffectiveFeeBps(address inputToken, address user) internal view returns (uint256) {
+        // Step 1: Determine base fee (per-input-token override or global default)
         uint256 baseFee;
-        if (hasPairFeeOverride[pairOrToken]) {
-            baseFee = pairFeeBps[pairOrToken];
+        if (hasInputTokenFeeOverride[inputToken]) {
+            baseFee = inputTokenFeeBps[inputToken];
         } else {
             baseFee = feeBps;
         }
@@ -274,7 +300,10 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         }
     }
 
-    /// @notice View function for frontend: get effective fee for a pair/token and user.
+    /// @notice View function for frontend: get effective fee for an input token and user.
+    /// @dev    AUDIT R-014 M-1: parameter is the swap-path's input token (`path[0]`),
+    ///         not a pair address. The legacy `pairOrToken` name is preserved at the
+    ///         public ABI; new integrations should think of it as `inputToken`.
     function getEffectiveFeeBps(address pairOrToken, address user) external view returns (uint256) {
         return _getEffectiveFeeBps(pairOrToken, user);
     }
@@ -678,19 +707,53 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         emit ReferralSplitterUpdated(old, _newSplitter);
     }
 
-    /// @notice Apply a per-pair fee override (or removal). Caller must be the wired admin.
-    function applyPairFee(address pair, uint256 newFeeBps, bool removal) external onlyAdmin {
-        if (pair == address(0)) revert ZeroAddress();
+    /// @notice Apply a per-input-token fee override (or removal). Caller must be the wired admin.
+    /// @dev    AUDIT R-014 M-1: the `inputToken` parameter is the swap path's `path[0]`.
+    ///         Every swap starting with this token will pay `newFeeBps` instead of the
+    ///         global `feeBps`. Replaces the legacy `applyPairFee` whose name caused
+    ///         admins to assume per-pair scoping. Emits both `InputTokenFeeApplied`
+    ///         (canonical) and `PairFeeUpdated` (legacy, for ABI compatibility).
+    function applyInputTokenFee(address inputToken, uint256 newFeeBps, bool removal) public onlyAdmin {
+        if (inputToken == address(0)) revert ZeroAddress();
         if (removal) {
-            delete pairFeeBps[pair];
-            delete hasPairFeeOverride[pair];
-            emit PairFeeUpdated(pair, 0, true);
+            delete inputTokenFeeBps[inputToken];
+            delete hasInputTokenFeeOverride[inputToken];
+            emit InputTokenFeeApplied(inputToken, 0, true);
+            emit PairFeeUpdated(inputToken, 0, true);
         } else {
             if (newFeeBps > MAX_FEE_BPS) revert FeeTooHigh();
-            pairFeeBps[pair] = newFeeBps;
-            hasPairFeeOverride[pair] = true;
-            emit PairFeeUpdated(pair, newFeeBps, false);
+            inputTokenFeeBps[inputToken] = newFeeBps;
+            hasInputTokenFeeOverride[inputToken] = true;
+            emit InputTokenFeeApplied(inputToken, newFeeBps, false);
+            emit PairFeeUpdated(inputToken, newFeeBps, false);
         }
+    }
+
+    /// @notice DEPRECATED — thin alias for `applyInputTokenFee`. The `pair` parameter
+    ///         is actually the input-token address (`path[0]`); the misleading legacy
+    ///         name caused the AUDIT R-014 M-1 finding. Emits `ApplyPairFeeDeprecated`
+    ///         alongside the canonical event so off-chain monitors can detect callers
+    ///         still using the legacy name.
+    /// @dev    Kept callable by the wired admin contract (`SwapFeeRouterAdmin`'s legacy
+    ///         `executePairFeeChange` still routes through this name) for backward
+    ///         compatibility. Prefer `applyInputTokenFee` for new integrations.
+    function applyPairFee(address pair, uint256 newFeeBps, bool removal) external onlyAdmin {
+        emit ApplyPairFeeDeprecated();
+        applyInputTokenFee(pair, newFeeBps, removal);
+    }
+
+    /// @notice DEPRECATED — ABI-compatible getter that proxies to `inputTokenFeeBps`.
+    /// @dev    AUDIT R-014 M-1: storage was renamed but this getter is preserved so
+    ///         the pre-existing public ABI continues to resolve. New integrations
+    ///         should read `inputTokenFeeBps(inputToken)` directly.
+    function pairFeeBps(address pair) external view returns (uint256) {
+        return inputTokenFeeBps[pair];
+    }
+
+    /// @notice DEPRECATED — ABI-compatible getter that proxies to `hasInputTokenFeeOverride`.
+    /// @dev    AUDIT R-014 M-1: see `pairFeeBps` above.
+    function hasPairFeeOverride(address pair) external view returns (bool) {
+        return hasInputTokenFeeOverride[pair];
     }
 
     /// @notice Apply a premium discount change. Caller must be the wired admin contract.

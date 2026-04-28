@@ -38,6 +38,14 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
 
     uint256 public monthlyFeeToweli; // TOWELI per month
     uint256 public constant MONTH = 30 days;
+    /// @dev AUDIT R014 (MEDIUM, same-block subscribe-then-cancel): require a
+    ///      24h minimum holding period before cancellation is allowed. The
+    ///      pre-existing SAME_BLOCK_CANCEL guard only blocked the same-block
+    ///      attack (and was bypassed by waiting one block). 1 day is short
+    ///      enough not to hurt legitimate cancel UX (most users either commit
+    ///      or refund within minutes of a misclick) but long enough to make
+    ///      the flash-premium attack uneconomical.
+    uint256 public constant MIN_HOLDING_PERIOD = 1 days;
 
     struct Subscription {
         uint256 expiresAt;
@@ -89,6 +97,7 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     error RefundFailed(); // SECURITY FIX #17
     error UseProposeTreasuryChange(); // AUDIT FIX #68
     error ZeroFee(); // AUDIT FIX H-06
+    error MinHoldingNotMet(); // AUDIT R014: cancel before MIN_HOLDING_PERIOD
 
     // Legacy error aliases (kept for test compatibility)
     // Note: ProposalExpired() removed — use TimelockAdmin.ProposalExpired(bytes32) instead
@@ -267,6 +276,10 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         if (sub.expiresAt <= block.timestamp) revert NoActiveSubscription();
         // AUDIT FIX M-18: Prevent same-block subscribe+cancel to avoid free premium window exploit
         require(block.timestamp > sub.startedAt, "SAME_BLOCK_CANCEL");
+        // AUDIT R014 (MEDIUM): minimum 24h holding period — closes the
+        // "subscribe in block N, gain premium gating, cancel in block N+1
+        // for ~full refund" window that SAME_BLOCK_CANCEL alone left open.
+        if (block.timestamp < sub.startedAt + MIN_HOLDING_PERIOD) revert MinHoldingNotMet();
 
         uint256 remainingTime = sub.expiresAt - block.timestamp;
         uint256 totalDuration = sub.expiresAt - sub.startedAt;

@@ -1,0 +1,241 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.26;
+
+import "forge-std/Test.sol";
+import {RevenueDistributor} from "../src/RevenueDistributor.sol";
+
+/// @dev Mock voting escrow for AUDIT R014 tests. Mirrors the IVotingEscrow surface
+///      consumed by RevenueDistributor with deterministic getters.
+contract MockVE_R014 {
+    mapping(address => uint256) public power;
+    mapping(address => uint256) public lockEnds;
+    mapping(address => uint256) public userTokenId;
+    mapping(uint256 => address) public tokenOwner;
+    uint256 public total;
+    uint256 private _next = 1;
+
+    function setLock(address user, uint256 amt, uint256 end) external {
+        if (userTokenId[user] == 0) {
+            uint256 tid = _next++;
+            userTokenId[user] = tid;
+            tokenOwner[tid] = user;
+        }
+        if (power[user] == 0) total += amt;
+        else total = total - power[user] + amt;
+        power[user] = amt;
+        lockEnds[user] = end;
+    }
+
+    /// @dev Simulate a "corrupted" position — all fallbacks return 0 so claim()
+    ///      hits the NoLockedTokens revert. This models a single-NFT user whose
+    ///      NFT was transferred out of the staking contract.
+    function corrupt(address user) external {
+        total -= power[user];
+        power[user] = 0;
+        // Keep userTokenId pointing at a tokenId, but make positions() return zeros
+        // so the multi-fallback in _getUserLockState misses everywhere.
+        uint256 tid = userTokenId[user];
+        tokenOwner[tid] = address(0);
+    }
+
+    function votingPowerOf(address user) external view returns (uint256) { return power[user]; }
+    function votingPowerAtTimestamp(address user, uint256) external view returns (uint256) { return power[user]; }
+    function totalLocked() external view returns (uint256) { return total; }
+    function totalBoostedStake() external view returns (uint256) { return total; }
+    function paused() external pure returns (bool) { return false; }
+
+    function positions(uint256 tokenId) external view returns (
+        uint256 amount, uint256 boostedAmount, int256 rewardDebt, uint256 lockEnd,
+        uint256 boostBps, uint256 lockDuration, bool autoMaxLock, bool hasJbacBoost,
+        uint256 stakeTimestamp, uint256 jbacTokenId, bool jbacDeposited
+    ) {
+        address u = tokenOwner[tokenId];
+        return (power[u], power[u], int256(0), lockEnds[u], 10000, 0, false, false, 0, 0, false);
+    }
+}
+
+contract MockWETH_R014 {
+    mapping(address => uint256) public balanceOf;
+    function deposit() external payable { balanceOf[msg.sender] += msg.value; }
+    function transfer(address to, uint256 v) external returns (bool) {
+        balanceOf[msg.sender] -= v; balanceOf[to] += v; return true;
+    }
+    receive() external payable {}
+}
+
+/// @title AUDIT R014 — RevenueDistributor remediation tests
+/// @notice Covers H-5 (claim recovery for corrupted positions) and M-8 (auto dust
+///         reconcile after grace period) as per the audit ticket.
+contract AuditR014_RevenueDistributorTest is Test {
+    MockVE_R014 public ve;
+    MockWETH_R014 public weth;
+    RevenueDistributor public dist;
+
+    address public alice = makeAddr("alice");
+    address public bob   = makeAddr("bob");
+    address public carol = makeAddr("carol"); // recovery target
+    address public attacker = makeAddr("attacker");
+    address public treasury = makeAddr("treasury");
+
+    function setUp() public {
+        vm.warp(4 hours + 1);
+        ve = new MockVE_R014();
+        weth = new MockWETH_R014();
+        dist = new RevenueDistributor(address(ve), treasury, address(weth));
+
+        ve.setLock(alice, 100_000 ether, block.timestamp + 365 days);
+        ve.setLock(bob,   100_000 ether, block.timestamp + 365 days);
+        ve.setLock(carol,  50_000 ether, block.timestamp + 365 days);
+    }
+
+    function _distribute(uint256 amt) internal {
+        vm.deal(address(this), address(this).balance + amt);
+        (bool ok,) = address(dist).call{value: amt}("");
+        assertTrue(ok);
+        dist.distribute();
+    }
+
+    // ─── H-5 — Claim Recovery ─────────────────────────────────────────
+
+    function test_proposeClaimRecovery_isOwnerOnly() public {
+        _distribute(2 ether);
+        vm.prank(attacker);
+        vm.expectRevert(); // OwnableNoRenounce reverts; we don't pin the selector
+        dist.proposeClaimRecovery(carol, 0, 50_000 ether);
+    }
+
+    function test_proposeClaimRecovery_revertsWhenPowerExceedsTotalLocked() public {
+        _distribute(2 ether);
+        // Epoch 0 totalLocked = 250_000 ether (alice + bob + carol). Attest 250_001 — must revert.
+        vm.expectRevert(RevenueDistributor.PowerExceedsTotalLocked.selector);
+        dist.proposeClaimRecovery(carol, 0, 250_001 ether);
+    }
+
+    function test_proposeClaimRecovery_revertsOnInvalidEpoch() public {
+        _distribute(2 ether);
+        vm.expectRevert(RevenueDistributor.InvalidEpoch.selector);
+        dist.proposeClaimRecovery(carol, 1, 50_000 ether);
+    }
+
+    function test_executeClaimRecovery_paysCorrectShare() public {
+        _distribute(10 ether);
+
+        // Snapshot epoch denominator: 250_000 ether. Carol's share: 50_000/250_000 * 10 = 2 ether.
+        // Now corrupt carol so the normal claim() path would revert.
+        ve.corrupt(carol);
+
+        // Sanity: the normal path would now revert for carol.
+        vm.prank(carol);
+        vm.expectRevert(RevenueDistributor.NoLockedTokens.selector);
+        dist.claim();
+
+        // Owner attests carol's historical power.
+        dist.proposeClaimRecovery(carol, 0, 50_000 ether);
+
+        // Cannot execute before timelock matures.
+        vm.expectRevert();
+        dist.executeClaimRecovery(carol, 0);
+
+        // Warp past the 48h timelock.
+        vm.warp(block.timestamp + 48 hours + 1);
+
+        uint256 carolBefore = carol.balance;
+        dist.executeClaimRecovery(carol, 0);
+        assertEq(carol.balance - carolBefore, 2 ether, "carol should receive 2 ETH");
+
+        // epochClaimed[0] reflects the recovery payout.
+        assertEq(dist.epochClaimed(0), 2 ether, "epochClaimed[0] tracks recovery");
+
+        // Idempotency: re-execute reverts (proposal cleared).
+        vm.expectRevert(RevenueDistributor.NoPendingRecovery.selector);
+        dist.executeClaimRecovery(carol, 0);
+
+        // Re-proposing the SAME (user, epoch) reverts because already paid out.
+        vm.expectRevert(RevenueDistributor.AlreadyClaimed.selector);
+        dist.proposeClaimRecovery(carol, 0, 50_000 ether);
+    }
+
+    function test_cancelClaimRecovery_clearsProposal() public {
+        _distribute(5 ether);
+        dist.proposeClaimRecovery(carol, 0, 50_000 ether);
+        dist.cancelClaimRecovery(carol, 0);
+        // After cancel, executing reverts.
+        vm.warp(block.timestamp + 48 hours + 1);
+        vm.expectRevert(RevenueDistributor.NoPendingRecovery.selector);
+        dist.executeClaimRecovery(carol, 0);
+    }
+
+    // ─── M-8 — Auto Dust Reconcile ─────────────────────────────────────
+
+    function test_autoReconcileDust_revertsWithinGracePeriod() public {
+        // Need at least 2 epochs to have a destination distinct from source.
+        _distribute(2 ether);
+        vm.warp(block.timestamp + 4 hours + 1);
+        _distribute(2 ether);
+        vm.expectRevert(RevenueDistributor.GracePeriodActive.selector);
+        dist.autoReconcileDust();
+    }
+
+    function test_autoReconcileDust_routesDustForwardAfterGrace() public {
+        // Distribute 2 ETH at t=t0, wait > 7 days, distribute another 2 ETH at t=t0+8d.
+        _distribute(2 ether); // epoch 0: 2 ETH
+        vm.warp(block.timestamp + 8 days);
+        _distribute(2 ether); // epoch 1: 2 ETH (destination)
+
+        // Snapshot the destination epoch's totalETH BEFORE reconcile.
+        (uint256 destETHBefore, , ) = dist.getEpoch(1);
+        assertEq(destETHBefore, 2 ether);
+
+        // No claims happened on epoch 0 → entire 2 ETH is "dust" (above MIN_DUST_RECONCILE = 0.01).
+        (uint256 reclaimed, uint256 processed) = dist.autoReconcileDust();
+        assertEq(reclaimed, 2 ether, "all of epoch 0 reclaimed");
+        assertEq(processed, 1, "one epoch processed");
+
+        // Destination epoch totalETH inflated by reclaimed amount.
+        (uint256 destETHAfter, , ) = dist.getEpoch(1);
+        assertEq(destETHAfter, destETHBefore + 2 ether, "dust routed forward");
+
+        // epochClaimed[0] now equals epoch 0's totalETH → no further claims possible there.
+        assertEq(dist.epochClaimed(0), 2 ether);
+
+        // Cursor advanced.
+        assertEq(dist.lastReconciledEpoch(), 1);
+    }
+
+    function test_autoReconcileDust_isBoundedTo10Epochs() public {
+        // Push 12 epochs with 4h+1 spacing (use a local cursor to avoid trace ambiguity).
+        uint256 t = block.timestamp;
+        for (uint256 i = 0; i < 12; i++) {
+            _distribute(2 ether);
+            t += 4 hours + 1;
+            vm.warp(t);
+        }
+        // Need a 13th epoch as the destination (cannot reconcile the latest into itself).
+        // Wait long enough that all earlier epochs are past their 7-day grace window AND
+        // that MIN_DISTRIBUTE_INTERVAL has elapsed since the most recent distribute.
+        t += 8 days;
+        vm.warp(t);
+        _distribute(2 ether); // epoch 12 destination
+
+        // First call processes at most MAX_AUTO_RECONCILE_EPOCHS = 10 epochs.
+        (uint256 reclaimed1, uint256 processed1) = dist.autoReconcileDust();
+        assertEq(processed1, 10, "first call bounded to 10 epochs");
+        assertEq(reclaimed1, 20 ether, "first call reclaims 10 epochs * 2 ETH");
+        assertEq(dist.lastReconciledEpoch(), 10);
+
+        // Second call processes the remaining eligible epochs (10 and 11).
+        (uint256 reclaimed2, uint256 processed2) = dist.autoReconcileDust();
+        assertEq(processed2, 2, "second call processes remaining 2");
+        assertEq(reclaimed2, 4 ether);
+        assertEq(dist.lastReconciledEpoch(), 12);
+
+        // Third call: no more source epochs (cursor == destEpoch).
+        vm.expectRevert(RevenueDistributor.NoEpochToReconcile.selector);
+        dist.autoReconcileDust();
+    }
+
+    function test_autoReconcileDust_revertsWhenNoEpochs() public {
+        vm.expectRevert(RevenueDistributor.NoEpochToReconcile.selector);
+        dist.autoReconcileDust();
+    }
+}

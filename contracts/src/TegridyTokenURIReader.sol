@@ -45,6 +45,16 @@ contract TegridyTokenURIReader {
             bool autoMaxLock, bool hasJbacBoost, , ,
         ) = staking.positions(tokenId);
 
+        // AUDIT R014 (LOW): defensive range checks on staking-returned values
+        // before they hit the SVG / JSON formatters. The staking contract
+        // already enforces these bounds at write-time, but adding them here
+        // makes the URI reader robust to any future relaxation upstream and
+        // gives indexers a typed revert instead of a silently-malformed JSON
+        // string. 1e9 ether covers the entire TOWELI supply with margin;
+        // 50000 bps is well above the protocol's MAX_BOOST + JBAC_BONUS cap.
+        require(amount <= 1e9 ether, "AMOUNT_OOB");
+        require(boostBps <= 50000, "BOOST_OOB");
+
         string memory svg = _buildSVG(tokenId, amount, boostBps, lockEnd, lockDuration, autoMaxLock, hasJbacBoost);
         string memory json = _buildJSON(tokenId, amount, boostBps, lockEnd, lockDuration, autoMaxLock, hasJbacBoost, svg);
 

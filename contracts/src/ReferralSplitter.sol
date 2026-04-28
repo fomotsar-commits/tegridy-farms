@@ -220,13 +220,43 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     ///     budget). Additionally, referral payouts are stake-gated by
     ///     MIN_REFERRAL_STAKE_POWER so the economic benefit of ring-gaming is
     ///     already bounded; this just closes the last cheap loophole.
-    uint256 public constant CIRCULAR_DEPTH = 25;
+    ///   AUDIT R014 (MEDIUM, sybil ring bypass): depth 25 still allowed a
+    ///     coordinated 26-address ring to bypass detection. Two complementary
+    ///     fixes: (a) raise CIRCULAR_DEPTH to 100 — 100 SLOADs ≈ 210k gas, well
+    ///     within any per-tx budget; (b) explicit cycle detection via an
+    ///     in-memory visited list that reverts on a duplicate address visited
+    ///     anywhere in the chain. The combination makes coordinated ring-
+    ///     building exponentially more expensive while keeping the worst-case
+    ///     gas bounded.
+    uint256 public constant CIRCULAR_DEPTH = 100;
     function _checkCircularReferral(address _referrer, address _user) internal view {
+        // Build an in-memory visited set. We keep at most CIRCULAR_DEPTH+2
+        // entries (the user + the candidate referrer + each upstream link),
+        // so the memory expansion cost is fully bounded.
+        address[] memory visited = new address[](CIRCULAR_DEPTH + 2);
+        uint256 visitedLen;
+        visited[visitedLen++] = _user;
+        visited[visitedLen++] = _referrer;
+        // Direct self-cycle: user setting their own referrer is already caught
+        // by SelfReferral up-stack, but defense-in-depth costs nothing here.
+        if (_referrer == _user) revert CircularReferral();
+
         address current = _referrer;
         for (uint256 i = 0; i < CIRCULAR_DEPTH; i++) {
             current = referrerOf[current];
             if (current == address(0)) break;
+            // Cycle to the user → would form A→…→user→A
             if (current == _user) revert CircularReferral();
+            // Cycle to any address already in the chain (including _referrer
+            // and intermediate hops) → ring detected even if it doesn't close
+            // back to the user yet. This is what defeats the
+            // CIRCULAR_DEPTH-bypass: an N-address ring that lands on any
+            // previously visited node is rejected immediately, regardless of
+            // ring size relative to CIRCULAR_DEPTH.
+            for (uint256 j = 0; j < visitedLen; j++) {
+                if (visited[j] == current) revert CircularReferral();
+            }
+            visited[visitedLen++] = current;
         }
     }
 

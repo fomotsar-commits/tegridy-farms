@@ -171,7 +171,23 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     mapping(address => mapping(uint256 => CommitInfo[])) public voterCommits;
 
     // epochBribes[epoch][pair][token] = total bribe amount (after fee)
+    //
+    // AUDIT R014 H-4 (HIGH): write path is the live (un-snapshotted) bucket only.
+    // The on-chain "snapshotted" boundary is enforced by `epochBribesFinalized[N]`
+    // below. Read paths (vote/claim/preview/refundUnvotedBribe/dustOf) MUST guard
+    // on `epochBribesFinalized[epoch] == true` so a future refactor that lets a
+    // depositor target a specific epoch index cannot retroactively change a
+    // confirmed snapshot.
     mapping(uint256 => mapping(address => mapping(address => uint256))) public epochBribes;
+
+    /// @notice AUDIT R014 H-4 (HIGH): per-epoch finalization flag, set atomically
+    ///         inside `advanceEpoch()`. Equivalent to the audit's proposed
+    ///         `confirmedEpochBribes` ledger without the O(pairs * tokens) copy
+    ///         on advance — which would otherwise be a gas bomb on heavily-bribed
+    ///         weeks. Read paths refuse to surface a per-(pair, token) amount
+    ///         until this flag flips, so a briber cannot atomically deposit +
+    ///         advance + vote and have voters see/claim the just-deposited pool.
+    mapping(uint256 => bool) public epochBribesFinalized;
 
     // epochBribeTokens[epoch][pair] = list of bribe token addresses
     mapping(uint256 => mapping(address => address[])) public epochBribeTokens;
@@ -305,6 +321,10 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     error CommitHashMismatch();
     error BondStillLocked();
     error BondAlreadyClaimed();
+    /// @notice AUDIT R014 H-4: bribes for an epoch are not visible until the
+    ///         epoch is finalized via `advanceEpoch`. Surfaces clearly in
+    ///         vote/claim/preview/dust paths instead of silently zeroing.
+    error EpochNotFinalized();
 
     // ─── Legacy View Helpers (for test/frontend compatibility) ───────
     function feeChangeTime() external view returns (uint256) { return _executeAfter[FEE_CHANGE]; }
@@ -352,15 +372,31 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             ? block.timestamp - SNAPSHOT_LOOKBACK
             : (block.timestamp > 0 ? block.timestamp - 1 : 0);
 
+        // AUDIT R014 H-4 (HIGH): the index that was the LIVE bucket up to this
+        // call is the one being finalized. Capture it BEFORE pushing so the
+        // finalized flag flips atomically with the snapshot — voters reading
+        // bribes for `newEpoch` post-tx see the confirmed pool, never a partial
+        // pre-snapshot view. Pending deposits in the live bucket made BEFORE
+        // this call are now committed; deposits made AFTER (which target
+        // `epochs.length` post-push, i.e., the next live bucket) cannot
+        // retroactively change `newEpoch`'s finalized pool.
+        uint256 newEpoch = epochs.length;
+
         epochs.push(EpochInfo({
             totalPower: totalPower,
             timestamp: snapshotTime,
             usesCommitReveal: commitRevealEnabled
         }));
 
+        // AUDIT R014 H-4: finalize. From this point, vote/claim/preview/dust
+        // paths see the bribe pool for `newEpoch`; any further `depositBribe`
+        // call for `newEpoch` reverts via the EPOCH_FINALIZED guard in
+        // depositBribe / depositBribeETH.
+        epochBribesFinalized[newEpoch] = true;
+
         lastEpochTime = block.timestamp;
 
-        emit EpochAdvanced(epochs.length - 1, totalPower, snapshotTime);
+        emit EpochAdvanced(newEpoch, totalPower, snapshotTime);
     }
 
     /// @notice Get the current epoch index (next epoch that bribes deposit into).
@@ -383,6 +419,11 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @param power Amount of voting power to allocate to this pair
     function vote(uint256 epoch, address pair, uint256 power) external whenNotPaused {
         if (epoch >= epochs.length) revert InvalidEpoch();
+        // AUDIT R014 H-4 (HIGH): refuse votes against epochs whose bribe ledger
+        // isn't finalized. Identical to `epoch < epochs.length` today (advance
+        // flips both atomically) but the explicit guard defends against future
+        // refactors that push to `epochs[]` without finalizing the bribe ledger.
+        if (!epochBribesFinalized[epoch]) revert EpochNotFinalized();
         if (pair == address(0)) revert InvalidPair();
         if (power == 0) revert ZeroAmount();
 
@@ -444,6 +485,14 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
         // Current epoch = epochs.length (the next epoch to be snapshotted)
         uint256 epoch = epochs.length;
+        // AUDIT R014 H-4 (HIGH): defense in depth. By construction
+        // `epochs.length` is always the LIVE (un-finalized) bucket because
+        // `epochBribesFinalized[N]` is set inside `advanceEpoch()` for the
+        // index that EQUALS `epochs.length` BEFORE the push, and `epochs.length`
+        // increments atomically inside the same call. So this require can only
+        // trigger if a future refactor changes the deposit-target derivation;
+        // surfacing the invariant explicitly prevents that class of bug.
+        require(!epochBribesFinalized[epoch], "EPOCH_FINALIZED");
 
         // Check token cap for this pair in this epoch
         address[] storage tokenList = epochBribeTokens[epoch][pair];
@@ -488,6 +537,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
         // Current epoch = epochs.length
         uint256 epoch = epochs.length;
+        // AUDIT R014 H-4 (HIGH): same defense-in-depth guard as depositBribe.
+        require(!epochBribesFinalized[epoch], "EPOCH_FINALIZED");
 
         // Use address(0) as the "token" for ETH bribes
         address[] storage tokenList = epochBribeTokens[epoch][pair];
@@ -520,6 +571,10 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     function claimBribes(uint256 epoch, address pair) external nonReentrant whenNotPaused {
         if (_isStakingPaused()) revert StakingPaused();
         if (epoch >= epochs.length) revert InvalidEpoch();
+        // AUDIT R014 H-4 (HIGH): refuse to surface the bribe pool until the
+        // epoch is finalized. Equivalent to `epoch < epochs.length` today
+        // (advance flips both atomically); explicit guard defends future code.
+        if (!epochBribesFinalized[epoch]) revert EpochNotFinalized();
         if (pair == address(0)) revert InvalidPair();
 
         // V2: Use gauge votes instead of raw voting power
@@ -616,6 +671,11 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 totalIterations;
 
         for (uint256 e = epochStart; e < epochEnd; e++) {
+            // AUDIT R014 H-4: skip un-finalized epochs (defensive — today
+            // `e < epochEnd <= epochs.length` already guarantees finalization,
+            // but mirroring the single-epoch guard makes the invariant local).
+            if (!epochBribesFinalized[e]) continue;
+
             // V2: Use gauge votes instead of raw voting power
             uint256 userVoteForPair = gaugeVotes[msg.sender][e][pair];
             if (userVoteForPair == 0) continue;
@@ -723,6 +783,10 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256[] memory amounts
     ) {
         if (epoch >= epochs.length) return (new address[](0), new uint256[](0));
+        // AUDIT R014 H-4: hide pending pools from the preview view too.
+        // Front-end / aggregators relying on `claimable()` should only ever see
+        // confirmed snapshots — never the live MEV-able bucket.
+        if (!epochBribesFinalized[epoch]) return (new address[](0), new uint256[](0));
 
         // V2: Use gauge votes
         uint256 userVoteForPair = gaugeVotes[user][epoch][pair];
@@ -740,6 +804,22 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
                 amounts[i] = (bribeAmount * userVoteForPair) / totalVotesForPair;
             }
         }
+    }
+
+    /// @notice AUDIT R014 H-4 (HIGH): canonical "confirmed snapshot" view of an
+    ///         epoch's bribe pool. Returns 0 for un-finalized epochs (the live
+    ///         bucket); returns the finalized post-snapshot amount for past
+    ///         epochs. Voters / aggregators / claim simulations should call
+    ///         this rather than reading the raw `epochBribes` mapping, which
+    ///         exposes the MEV-able pending bucket.
+    function confirmedEpochBribes(
+        uint256 epoch,
+        address pair,
+        address token
+    ) external view returns (uint256) {
+        if (epoch >= epochs.length) return 0;
+        if (!epochBribesFinalized[epoch]) return 0;
+        return epochBribes[epoch][pair][token];
     }
 
     /// @notice Get all bribe tokens for a given epoch and pair.
@@ -933,8 +1013,23 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
     function refundUnvotedBribe(uint256 epoch, address pair, address token) external nonReentrant {
         if (epoch >= epochs.length) revert InvalidEpoch();
+        // AUDIT R014 H-4: refunds operate on confirmed (post-snapshot) bribe
+        // pools; refuse if the epoch was somehow not finalized.
+        if (!epochBribesFinalized[epoch]) revert EpochNotFinalized();
         require(totalGaugeVotes[epoch][pair] == 0, "PAIR_HAS_VOTES");
-        require(block.timestamp >= revealDeadline(epoch) + UNVOTED_REFUND_GRACE, "GRACE_NOT_ELAPSED");
+        // AUDIT R014 M-6: deadline branches on the epoch's voting model. Legacy
+        // (plain `vote()`) epochs gate on `epoch.timestamp + VOTE_DEADLINE`;
+        // commit-reveal epochs gate on `revealDeadline(epoch)`. Today both
+        // expressions equal `timestamp + VOTE_DEADLINE` so the explicit branch
+        // is a no-op — but keeping `revealDeadline` and `VOTE_DEADLINE` decoupled
+        // means a future change that lengthens the reveal window (e.g., to
+        // accommodate hardware-wallet reveal cadence) won't accidentally let
+        // depositors yank legacy-epoch bribes early.
+        EpochInfo memory ep = epochs[epoch];
+        uint256 voteEnd = ep.usesCommitReveal
+            ? revealDeadline(epoch)
+            : ep.timestamp + VOTE_DEADLINE;
+        require(block.timestamp >= voteEnd + UNVOTED_REFUND_GRACE, "GRACE_NOT_ELAPSED");
 
         uint256 amount = bribeDeposits[epoch][pair][token][msg.sender];
         require(amount > 0, "NOTHING_TO_REFUND");
@@ -993,6 +1088,9 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         This is sum-of-voter-shares floor-rounding; it is NOT sweep-able.
     ///         Exposed for observability only.
     function dustOf(uint256 epoch, address pair, address token) external view returns (uint256) {
+        // AUDIT R014 H-4: dust is only meaningful AFTER an epoch is finalized;
+        // the live (un-snapshotted) bucket has no claim accounting yet.
+        if (epoch >= epochs.length || !epochBribesFinalized[epoch]) return 0;
         uint256 deposited = epochBribes[epoch][pair][token];
         uint256 paidOut = totalClaimedBribes[epoch][pair][token];
         return deposited > paidOut ? deposited - paidOut : 0;
@@ -1114,6 +1212,9 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @return commitIndex The index of this commit in voterCommits[user][epoch].
     function commitVote(uint256 epoch, bytes32 commitHash) external nonReentrant whenNotPaused returns (uint256 commitIndex) {
         if (epoch >= epochs.length) revert InvalidEpoch();
+        // AUDIT R014 H-4: refuse commits against epochs whose bribe ledger isn't
+        // finalized. Equivalent today to `epoch < epochs.length`.
+        if (!epochBribesFinalized[epoch]) revert EpochNotFinalized();
         EpochInfo memory ep = epochs[epoch];
         if (!ep.usesCommitReveal) revert NotCommitRevealEpoch();
         if (block.timestamp <= ep.timestamp) revert CommitWindowNotOpen();
@@ -1157,6 +1258,9 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         bytes32 salt
     ) external nonReentrant whenNotPaused {
         if (epoch >= epochs.length) revert InvalidEpoch();
+        // AUDIT R014 H-4: refuse reveals against epochs whose bribe ledger
+        // isn't finalized. Equivalent today to `epoch < epochs.length`.
+        if (!epochBribesFinalized[epoch]) revert EpochNotFinalized();
         EpochInfo memory ep = epochs[epoch];
         if (!ep.usesCommitReveal) revert NotCommitRevealEpoch();
 

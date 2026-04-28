@@ -68,6 +68,12 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     bytes32 public constant RESTAKING_CHANGE = keccak256("RESTAKING_CHANGE");
     bytes32 public constant EMERGENCY_WITHDRAW_EXCESS = keccak256("EMERGENCY_WITHDRAW_EXCESS");
     bytes32 public constant TOKEN_SWEEP = keccak256("TOKEN_SWEEP");
+    /// @notice AUDIT R014 H-5: Per-(user,epoch) admin recovery for users whose staking
+    ///         checkpoint was zeroed (e.g. NFT transferred out, position corrupted) and
+    ///         who now revert with NoLockedTokens(). Each proposal is keyed by the
+    ///         (user, epoch) pair so multiple recoveries can be in-flight in parallel.
+    bytes32 public constant CLAIM_RECOVERY = keccak256("CLAIM_RECOVERY");
+    uint256 public constant CLAIM_RECOVERY_DELAY = 48 hours;
 
     // ─── State ────────────────────────────────────────────────────────
 
@@ -98,6 +104,18 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
 
     // Pending withdrawals for contracts that can't receive ETH
     mapping(address => uint256) public pendingWithdrawals;
+
+    // AUDIT R014 H-5: Per-(user,epoch) claim-recovery state. Owner attests historical
+    // power off-chain (from staking checkpoint at epoch.timestamp); after a 48h timelock
+    // the user is paid as if they had that power. Decrements epoch.totalETH via epochClaimed.
+    struct PendingRecovery {
+        uint256 power;        // Attested historical voting power
+        uint256 executeAfter; // Timelock unlock timestamp
+    }
+    mapping(address => mapping(uint256 => PendingRecovery)) public pendingRecoveries;
+    // Per-(user,epoch) idempotency for recovery executions (separate from lastClaimedEpoch
+    // because recovery is for users who can't traverse the normal claim loop).
+    mapping(address => mapping(uint256 => bool)) public recoveryClaimed;
 
     // Max epochs claimable in a single call / view iteration cap
     // R064 (MEDIUM): lowered from 500 → 250. _calculateClaim runs a binary-search
@@ -158,6 +176,12 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     event EmergencyWithdrawExcess(address indexed treasury, uint256 amount);
     event EmergencyWithdrawExcessProposed(uint256 executeAfter);
     event EmergencyWithdrawExcessCancelled();
+    // AUDIT R014 H-5: claim-recovery events (loud — admin attestation should be auditable on-chain)
+    event ClaimRecoveryProposed(address indexed user, uint256 indexed epoch, uint256 power, uint256 executeAfter);
+    event ClaimRecoveryExecuted(address indexed user, uint256 indexed epoch, uint256 power, uint256 amount);
+    event ClaimRecoveryCancelled(address indexed user, uint256 indexed epoch);
+    // AUDIT R014 M-8: auto-reconcile events
+    event DustAutoReconciled(uint256 fromEpoch, uint256 toEpoch, uint256 amount, uint256 routedToEpoch);
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -183,6 +207,14 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     error EmergencyWithdrawExpired();
     error StakingPaused(); // AUDIT FIX M-10: Block claims when staking is paused
     error EpochExhausted(); // AUDIT FIX C-03: Epoch funds fully claimed
+    // AUDIT R014 H-5: Recovery-path errors
+    error InvalidEpoch();
+    error PowerExceedsTotalLocked();
+    error NoPendingRecovery();
+    error AlreadyClaimed();
+    // AUDIT R014 M-8: Auto-reconcile errors
+    error NoEpochToReconcile();
+    error GracePeriodActive();
 
     // ─── Constructor ──────────────────────────────────────────────────
 
@@ -757,6 +789,165 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         totalForfeited += gap;
         totalEarmarked = totalClaimed;
         emit DustSwept(treasury, gap);
+    }
+
+    // ─── Auto Dust Reconcile (AUDIT R014 M-8) ─────────────────────────
+    /// @notice Minimum per-epoch dust threshold to consider for auto-reconcile.
+    uint256 public constant MIN_DUST_RECONCILE = 0.01 ether;
+    /// @notice Grace period after epoch creation before its unclaimed dust can be auto-reclaimed.
+    uint256 public constant DUST_RECLAIM_GRACE = 7 days;
+    /// @notice Bound on how many epochs a single autoReconcileDust() call may scan.
+    uint256 public constant MAX_AUTO_RECONCILE_EPOCHS = 10;
+    /// @notice Cursor tracking the next epoch index to attempt auto-reconcile for.
+    uint256 public lastReconciledEpoch;
+
+    /// @notice AUDIT R014 M-8: Auto-reclaim per-epoch dust (epoch.totalETH - epochClaimed[i])
+    ///         from finalized epochs whose 7-day grace period has elapsed. Dust above
+    ///         MIN_DUST_RECONCILE is moved into the most recent (current) epoch's pool so
+    ///         active stakers absorb the unclaimed share.
+    ///
+    ///         Bounded loop — at most MAX_AUTO_RECONCILE_EPOCHS (10) per call. The
+    ///         lastReconciledEpoch cursor advances even when an epoch is skipped (e.g.
+    ///         dust below threshold) so subsequent calls make forward progress without
+    ///         re-scanning.
+    ///
+    ///         Permissionless — anyone may call. The grace period + threshold + cursor
+    ///         together prevent griefing: a caller cannot reclaim dust that stragglers
+    ///         could still rightfully claim, and cannot replay reclamations.
+    ///
+    ///         Routes the reclaimed dust into the latest epoch (epochs[length-1]).
+    ///         If there is no current epoch (epochs.length == 0) or only one epoch exists
+    ///         (no separate destination available), the call reverts.
+    function autoReconcileDust() external nonReentrant returns (uint256 totalReclaimed, uint256 epochsProcessed) {
+        uint256 totalEpochs = epochs.length;
+        if (totalEpochs == 0) revert NoEpochToReconcile();
+
+        uint256 cursor = lastReconciledEpoch;
+        if (cursor >= totalEpochs) revert NoEpochToReconcile();
+
+        // Auto-reconcile routes dust forward into the most recent epoch. We must NOT
+        // touch the current (latest) epoch as both source and destination, and we must
+        // leave at least one epoch as the destination.
+        uint256 destEpoch = totalEpochs - 1;
+        if (cursor >= destEpoch) revert NoEpochToReconcile();
+
+        uint256 endEpoch = cursor + MAX_AUTO_RECONCILE_EPOCHS;
+        if (endEpoch > destEpoch) endEpoch = destEpoch;
+
+        bool anyEligible = false;
+        uint256 lastTouched = cursor;
+
+        for (uint256 i = cursor; i < endEpoch; i++) {
+            Epoch memory epoch = epochs[i];
+
+            // Grace period gate — if the next-eligible epoch is still in its grace
+            // window, stop scanning. We do NOT advance the cursor past an in-grace
+            // epoch; subsequent calls will retry it once enough time has passed.
+            if (epoch.timestamp + DUST_RECLAIM_GRACE > block.timestamp) {
+                if (!anyEligible) revert GracePeriodActive();
+                break;
+            }
+
+            anyEligible = true;
+            lastTouched = i;
+
+            uint256 dust = epoch.totalETH > epochClaimed[i] ? epoch.totalETH - epochClaimed[i] : 0;
+            if (dust >= MIN_DUST_RECONCILE) {
+                // Mark the source epoch fully claimed so future claims/views correctly
+                // see no remaining share, and credit the destination epoch's pool.
+                epochClaimed[i] = epoch.totalETH;
+                epochs[destEpoch].totalETH += dust;
+                totalReclaimed += dust;
+            }
+        }
+
+        if (!anyEligible) revert NoEpochToReconcile();
+
+        epochsProcessed = lastTouched + 1 - cursor;
+        lastReconciledEpoch = lastTouched + 1;
+
+        emit DustAutoReconciled(cursor, lastTouched, totalReclaimed, destEpoch);
+    }
+
+    // ─── Claim Recovery (AUDIT R014 H-5) ───────────────────────────────
+
+    /// @notice AUDIT R014 H-5: Propose an admin-attested recovery for a user whose
+    ///         claim path reverts because their staking checkpoint reads 0 (NFT
+    ///         transferred out, position corruption, etc.) and all fallbacks miss.
+    ///
+    ///         The owner must attest the user's correct historical voting power at
+    ///         epoch.timestamp (from off-chain proof — typically the staking
+    ///         checkpoint snapshot the indexer captured before the corruption).
+    ///         A 48h timelock applies before executeClaimRecovery() may pay out.
+    ///
+    /// @param user  The address whose claim is being recovered.
+    /// @param epoch The epoch index to recover (must be < epochs.length).
+    /// @param power The user's attested voting power at epoch.timestamp. Must be
+    ///              <= epoch.totalLocked as a sanity bound.
+    function proposeClaimRecovery(address user, uint256 epoch, uint256 power) external onlyOwner {
+        if (user == address(0)) revert ZeroAddress();
+        if (epoch >= epochs.length) revert InvalidEpoch();
+        if (power == 0) revert PowerExceedsTotalLocked(); // 0 is not a valid recovery
+        if (recoveryClaimed[user][epoch]) revert AlreadyClaimed();
+
+        Epoch memory ep = epochs[epoch];
+        if (power > ep.totalLocked) revert PowerExceedsTotalLocked();
+
+        // Overwrite any in-flight proposal for this (user, epoch). Loud event ensures
+        // any silent overwrite is auditable on-chain.
+        uint256 unlockAt = block.timestamp + CLAIM_RECOVERY_DELAY;
+        pendingRecoveries[user][epoch] = PendingRecovery({power: power, executeAfter: unlockAt});
+
+        emit ClaimRecoveryProposed(user, epoch, power, unlockAt);
+    }
+
+    /// @notice Cancel a previously proposed claim recovery.
+    function cancelClaimRecovery(address user, uint256 epoch) external onlyOwner {
+        PendingRecovery memory p = pendingRecoveries[user][epoch];
+        if (p.executeAfter == 0) revert NoPendingRecovery();
+        delete pendingRecoveries[user][epoch];
+        emit ClaimRecoveryCancelled(user, epoch);
+    }
+
+    /// @notice Execute a previously proposed claim recovery after the 48h timelock.
+    ///         Pays the user as if they had the attested power, decrementing the
+    ///         epoch's remaining pool via epochClaimed. Marks (user, epoch) as
+    ///         recoveryClaimed so the same proposal cannot be replayed.
+    function executeClaimRecovery(address user, uint256 epoch) external nonReentrant {
+        PendingRecovery memory p = pendingRecoveries[user][epoch];
+        if (p.executeAfter == 0) revert NoPendingRecovery();
+        if (block.timestamp < p.executeAfter) revert ProposalNotReady(CLAIM_RECOVERY);
+        if (block.timestamp > p.executeAfter + PROPOSAL_VALIDITY) revert ProposalExpired(CLAIM_RECOVERY);
+        if (recoveryClaimed[user][epoch]) revert AlreadyClaimed();
+
+        Epoch memory ep = epochs[epoch];
+        if (ep.totalLocked == 0) revert NoLockedTokens();
+        // Re-bound power against epoch.totalLocked (defensive — totalLocked is immutable
+        // post-distribution but we read fresh state to be safe).
+        uint256 power = p.power > ep.totalLocked ? ep.totalLocked : p.power;
+
+        uint256 share = (ep.totalETH * power) / ep.totalLocked;
+
+        // Cap by remaining pool to preserve C-03 invariant.
+        uint256 remaining = ep.totalETH > epochClaimed[epoch] ? ep.totalETH - epochClaimed[epoch] : 0;
+        if (share > remaining) share = remaining;
+        if (share == 0) revert NothingToClaim();
+
+        // Effects before external interaction (CEI).
+        recoveryClaimed[user][epoch] = true;
+        delete pendingRecoveries[user][epoch];
+        epochClaimed[epoch] += share;
+
+        (bool success,) = user.call{value: share, gas: 10000}("");
+        if (success) {
+            totalClaimed += share;
+        } else {
+            pendingWithdrawals[user] += share;
+            totalPendingWithdrawals += share;
+            emit PendingWithdrawalCredited(user, share);
+        }
+
+        emit ClaimRecoveryExecuted(user, epoch, power, share);
     }
 
     // ─── View Functions ───────────────────────────────────────────────

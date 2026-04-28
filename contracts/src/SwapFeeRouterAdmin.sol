@@ -10,6 +10,10 @@ interface ISwapFeeRouterApply {
     function applyFee(uint256 newFee) external;
     function applyTreasury(address newTreasury) external;
     function applyReferralSplitter(address newSplitter) external;
+    /// @dev AUDIT R-014 M-1: canonical per-input-token override hook.
+    function applyInputTokenFee(address inputToken, uint256 newFeeBps, bool removal) external;
+    /// @dev AUDIT R-014 M-1: DEPRECATED alias retained for the admin's legacy
+    ///      `executePairFeeChange` flow. Use `applyInputTokenFee` for new integrations.
     function applyPairFee(address pair, uint256 newFeeBps, bool removal) external;
     function applyPremiumDiscount(uint256 newDiscountBps) external;
     function applyPremiumAccess(address newAccess) external;
@@ -93,8 +97,20 @@ contract SwapFeeRouterAdmin is OwnableNoRenounce, TimelockAdmin {
     event TreasuryChangeCancelled(address cancelledTreasury);
     event ReferralSplitterChangeProposed(address indexed newSplitter, uint256 executeAfter);
     event ReferralSplitterChangeCancelled(address indexed cancelled);
+    /// @notice AUDIT R-014 M-1: canonical event for the per-input-token override
+    ///         proposal. Indexers should subscribe to this event going forward; the
+    ///         legacy `PairFeeChangeProposed` is emitted alongside for ABI compat.
+    event InputTokenFeeChangeProposed(address indexed inputToken, uint256 feeBps, bool removal, uint256 executeAfter);
+    /// @dev DEPRECATED — emitted alongside `InputTokenFeeChangeProposed`.
     event PairFeeChangeProposed(address indexed pair, uint256 feeBps, bool removal, uint256 executeAfter);
+    /// @notice AUDIT R-014 M-1: canonical cancellation event.
+    event InputTokenFeeChangeCancelled(address indexed inputToken);
+    /// @dev DEPRECATED — emitted alongside `InputTokenFeeChangeCancelled`.
     event PairFeeChangeCancelled(address indexed pair);
+    /// @notice AUDIT R-014 M-1: emitted whenever the legacy `proposePairFeeChange`
+    ///         alias is invoked. Off-chain monitors should alert so callers can
+    ///         migrate to `proposeInputTokenFeeChange`.
+    event ProposePairFeeChangeDeprecated();
     event PremiumDiscountChangeProposed(uint256 newDiscount, uint256 executeAfter);
     event PremiumDiscountChangeCancelled(uint256 cancelledDiscount);
     event PremiumAccessChangeProposed(address indexed newAccess, uint256 executeAfter);
@@ -189,38 +205,98 @@ contract SwapFeeRouterAdmin is OwnableNoRenounce, TimelockAdmin {
         return _executeAfter[REFERRAL_CHANGE];
     }
 
-    // ─── Pair fee override ────────────────────────────────────────────
+    // ─── Per-input-token fee override ─────────────────────────────────
+    /// @notice AUDIT R-014 M-1: canonical propose entry-point. The `inputToken`
+    ///         argument is the swap path's `path[0]` — every swap that begins with
+    ///         this token will pay `newFeeBps` instead of the global fee. Replaces
+    ///         the legacy `proposePairFeeChange` whose name caused admins to
+    ///         assume per-pair scoping. Emits both `InputTokenFeeChangeProposed`
+    ///         (canonical) and `PairFeeChangeProposed` (legacy, ABI-compat).
+    function proposeInputTokenFeeChange(address inputToken, uint256 newFeeBps, bool removal) public onlyOwner {
+        if (inputToken == address(0)) revert ZeroAddress();
+        if (!removal && newFeeBps > router.MAX_FEE_BPS()) revert FeeTooHigh();
+        pendingPairFeeAddress = inputToken;
+        pendingPairFeeBps = newFeeBps;
+        pendingPairFeeRemoval = removal;
+        _propose(PAIR_FEE_CHANGE, PAIR_FEE_CHANGE_DELAY);
+        emit InputTokenFeeChangeProposed(inputToken, newFeeBps, removal, _executeAfter[PAIR_FEE_CHANGE]);
+        emit PairFeeChangeProposed(inputToken, newFeeBps, removal, _executeAfter[PAIR_FEE_CHANGE]);
+    }
+
+    /// @notice DEPRECATED — thin alias for `proposeInputTokenFeeChange`. The `pair`
+    ///         parameter is actually the input-token address (`path[0]`); the
+    ///         misleading legacy name caused the AUDIT R-014 M-1 finding. Emits
+    ///         `ProposePairFeeChangeDeprecated` so off-chain monitors can detect
+    ///         callers still using the legacy name. Body inlined to avoid the
+    ///         `onlyOwner` re-entry check chirp.
     function proposePairFeeChange(address pair, uint256 newFeeBps, bool removal) external onlyOwner {
+        emit ProposePairFeeChangeDeprecated();
         if (pair == address(0)) revert ZeroAddress();
         if (!removal && newFeeBps > router.MAX_FEE_BPS()) revert FeeTooHigh();
         pendingPairFeeAddress = pair;
         pendingPairFeeBps = newFeeBps;
         pendingPairFeeRemoval = removal;
         _propose(PAIR_FEE_CHANGE, PAIR_FEE_CHANGE_DELAY);
+        emit InputTokenFeeChangeProposed(pair, newFeeBps, removal, _executeAfter[PAIR_FEE_CHANGE]);
         emit PairFeeChangeProposed(pair, newFeeBps, removal, _executeAfter[PAIR_FEE_CHANGE]);
     }
 
-    function executePairFeeChange() external onlyOwner {
+    /// @notice AUDIT R-014 M-1: canonical execute entry-point. Routes through the
+    ///         router's new `applyInputTokenFee` setter so on-chain monitors see
+    ///         the canonical event without the deprecation chirp.
+    function executeInputTokenFeeChange() public onlyOwner {
         _execute(PAIR_FEE_CHANGE);
-        address pair = pendingPairFeeAddress;
+        address inputToken = pendingPairFeeAddress;
         uint256 bps = pendingPairFeeBps;
         bool removal = pendingPairFeeRemoval;
         pendingPairFeeAddress = address(0);
         pendingPairFeeBps = 0;
         pendingPairFeeRemoval = false;
-        router.applyPairFee(pair, bps, removal);
+        router.applyInputTokenFee(inputToken, bps, removal);
     }
 
+    /// @notice DEPRECATED — alias for `executeInputTokenFeeChange`. Kept callable
+    ///         so any in-flight automation continues to function. Body inlined to
+    ///         avoid the `onlyOwner` re-entry chirp.
+    function executePairFeeChange() external onlyOwner {
+        _execute(PAIR_FEE_CHANGE);
+        address inputToken = pendingPairFeeAddress;
+        uint256 bps = pendingPairFeeBps;
+        bool removal = pendingPairFeeRemoval;
+        pendingPairFeeAddress = address(0);
+        pendingPairFeeBps = 0;
+        pendingPairFeeRemoval = false;
+        router.applyInputTokenFee(inputToken, bps, removal);
+    }
+
+    /// @notice AUDIT R-014 M-1: canonical cancel entry-point.
+    function cancelInputTokenFeeChange() public onlyOwner {
+        _cancel(PAIR_FEE_CHANGE);
+        address cancelled = pendingPairFeeAddress;
+        pendingPairFeeAddress = address(0);
+        pendingPairFeeBps = 0;
+        pendingPairFeeRemoval = false;
+        emit InputTokenFeeChangeCancelled(cancelled);
+        emit PairFeeChangeCancelled(cancelled);
+    }
+
+    /// @notice DEPRECATED — alias for `cancelInputTokenFeeChange`. Body inlined.
     function cancelPairFeeChange() external onlyOwner {
         _cancel(PAIR_FEE_CHANGE);
         address cancelled = pendingPairFeeAddress;
         pendingPairFeeAddress = address(0);
         pendingPairFeeBps = 0;
         pendingPairFeeRemoval = false;
+        emit InputTokenFeeChangeCancelled(cancelled);
         emit PairFeeChangeCancelled(cancelled);
     }
 
     function pairFeeChangeTime() external view returns (uint256) {
+        return _executeAfter[PAIR_FEE_CHANGE];
+    }
+
+    /// @notice AUDIT R-014 M-1: canonical view-helper alias.
+    function inputTokenFeeChangeTime() external view returns (uint256) {
         return _executeAfter[PAIR_FEE_CHANGE];
     }
 

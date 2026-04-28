@@ -154,6 +154,14 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     error DeadlineTooFar(); // SECURITY FIX: Deadline exceeds MAX_DEADLINE
     error OracleStale(); // R015: TWAP latest observation older than TWAP_MAX_STALENESS
     error LPMismatch(); // R015: lpToken != factory.getPair(toweli, weth)
+    /// @notice AUDIT R014 H-6: TWAP observation pre-dates the most recent
+    ///         sequencer resume (plus grace). Even when `checkSequencerUp`
+    ///         passes, a TWAP read whose latest observation was recorded
+    ///         BEFORE the sequencer's last `startedAt` reflects pre-outage
+    ///         reserves and is unsafe to act on. Closes the post-resume
+    ///         staleness gap where an attacker watching the outage queue
+    ///         could extract value the moment the gate opened.
+    error OracleObservationPredatesResume();
     // Legacy error declarations (kept for test compat — TimelockAdmin errors are thrown instead)
     error BackstopTooHigh();
     error NoPendingBackstop();
@@ -460,12 +468,15 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     }
 
     /// @notice Execute the pending backstop change after timelock
+    /// @dev    AUDIT R014 M-7: routes through `_setBackstopBps` so the
+    ///         MIN_BACKSTOP_BPS invariant is re-asserted at the executor —
+    ///         not just at the proposer. Future refactors that bypass the
+    ///         proposer (e.g. an emergency setter) cannot violate the floor.
     function executeBackstopChange() external onlyOwner {
         _execute(BACKSTOP_CHANGE);
-        uint256 old = backstopBps;
-        backstopBps = pendingBackstopBps;
+        uint256 newBps = pendingBackstopBps;
         pendingBackstopBps = 0;
-        emit BackstopUpdated(old, backstopBps);
+        _setBackstopBps(newBps);
     }
 
     /// @notice Cancel a pending backstop change
@@ -479,6 +490,24 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @notice Legacy view helper for test compatibility
     function backstopChangeTime() external view returns (uint256) {
         return _executeAfter[BACKSTOP_CHANGE];
+    }
+
+    /// @dev AUDIT R014 M-7: single chokepoint for ALL `backstopBps` mutations.
+    ///      Re-asserts the `MIN_BACKSTOP_BPS` floor and the `MAX_BACKSTOP_BPS`
+    ///      ceiling at the assignment site so a future setter (or refactor of
+    ///      the proposer) cannot drop the invariant. Emits `BackstopUpdated`
+    ///      with the old and new values for indexers / monitoring.
+    ///
+    ///      Battle-tested pattern: OpenZeppelin's internal `_setX(...)` style
+    ///      where every external mutator delegates to a single private
+    ///      function that owns the invariant. Removes the "did the proposer
+    ///      remember to check?" question from every future code review.
+    function _setBackstopBps(uint256 _newBps) private {
+        require(_newBps >= MIN_BACKSTOP_BPS, "BELOW_MIN_BACKSTOP");
+        require(_newBps <= MAX_BACKSTOP_BPS, "ABOVE_MAX_BACKSTOP");
+        uint256 old = backstopBps;
+        backstopBps = _newBps;
+        emit BackstopUpdated(old, _newBps);
     }
 
     // AUDIT FIX H-14: Timelock for sweepETH to prevent instant owner drain
@@ -645,9 +674,27 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         BEFORE consulting so a paused/abandoned oracle cannot grant a
     ///         0-min swap silently. Reverts `OracleStale` if the most recent
     ///         observation is older than `TWAP_MAX_STALENESS`.
+    /// @dev    AUDIT R014 H-6: in addition to the wall-clock staleness gate,
+    ///         we read the sequencer's resume timestamp and reject the TWAP
+    ///         read if the latest observation pre-dates `resumeAt + grace`.
+    ///         The standard `SequencerCheck.checkSequencerUp` at the entry of
+    ///         accumulate() / executeHarvestLP() proves the sequencer is up
+    ///         AND the grace window has elapsed, but it does NOT prove the
+    ///         observation we are about to consume is itself post-resume —
+    ///         a freshly-passed gate can still feed pre-outage reserves into
+    ///         consult(). This second check closes that staleness gap.
+    ///         `getResumeTimestamp` returns 0 on the no-feed mainnet path,
+    ///         which makes the comparison a no-op (`resumeAt == 0` short-
+    ///         circuits) and preserves mainnet semantics.
     function _twapMinOut(address tokenIn, uint256 amountIn) internal view returns (uint256) {
         ITegridyTWAP.Observation memory latest = twap.getLatestObservation(lpToken);
         if (block.timestamp - latest.timestamp > TWAP_MAX_STALENESS) revert OracleStale();
+        // R014 H-6: post-resume observation freshness. See dev-note above for the
+        // attack model. resumeAt == 0 → mainnet no-op (skip the comparison).
+        uint256 resumeAt = SequencerCheck.getResumeTimestamp(sequencerFeed);
+        if (resumeAt != 0 && uint256(latest.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
+            revert OracleObservationPredatesResume();
+        }
         uint256 out = twap.consult(lpToken, tokenIn, amountIn, TWAP_PERIOD);
         // Apply TWAP_SAFETY_BPS margin (out * (BPS - TWAP_SAFETY_BPS) / BPS).
         return (out * (BPS - TWAP_SAFETY_BPS)) / BPS;
@@ -659,10 +706,22 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         result is the minimum acceptable output on each side of
     ///         `removeLiquidityETH`. Caller-supplied `minToken` / `minETH`
     ///         can only TIGHTEN this floor.
+    /// @dev    AUDIT R014 H-6: same post-resume staleness gate as `_twapMinOut`.
+    ///         The harvest path reads pair reserves directly (not through the
+    ///         TWAP), but the staleness gate on the latest observation is the
+    ///         only on-chain proxy we have for "the chain has caught up since
+    ///         resume" — without it, we would burn LP at reserves that were
+    ///         set during the outage and have not yet been corrected by
+    ///         post-resume arbitrage.
     function _twapHarvestMinOut(uint256 lpAmount) internal view returns (uint256 floorToken, uint256 floorETH) {
         // Staleness gate (mirrors `_twapMinOut`).
         ITegridyTWAP.Observation memory latest = twap.getLatestObservation(lpToken);
         if (block.timestamp - latest.timestamp > TWAP_MAX_STALENESS) revert OracleStale();
+        // R014 H-6: same post-resume freshness gate as `_twapMinOut`.
+        uint256 resumeAt = SequencerCheck.getResumeTimestamp(sequencerFeed);
+        if (resumeAt != 0 && uint256(latest.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
+            revert OracleObservationPredatesResume();
+        }
 
         // Pro-rata share = lpAmount / totalSupply * reserve_X. We read
         // reserves through the standard V2 pair surface — `lpToken` is the

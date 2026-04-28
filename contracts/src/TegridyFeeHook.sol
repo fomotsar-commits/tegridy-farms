@@ -70,6 +70,7 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     error SyncNotReady();
     error SyncReductionTooLarge();
     error AboveOnChainCredit();
+    error SyncIncreaseTooLarge(); // AUDIT R014: per-step upward sync ceiling exceeded
 
     // SECURITY FIX: Track fees actually earned per token to prevent over-claiming
     mapping(address => uint256) public accruedFees;
@@ -79,6 +80,17 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     uint256 public constant SYNC_COOLDOWN = 7 days;
     mapping(address => uint256) public lastSyncExecuted;
     mapping(address => uint256) public pendingSyncCredit;
+
+    // AUDIT R014 (MEDIUM, upward-sync ceiling): cap each successful upward
+    // sync at 10% of the prior accruedFees value. Combined with the existing
+    // 24h proposal timelock + 7d cooldown, raising the value 10× now requires
+    // ~24 successful proposals over ~24 weeks — making rapid fee inflation by
+    // a compromised owner economically and operationally infeasible while
+    // leaving legitimate drift recovery achievable across multiple cycles.
+    // Bypass for the bootstrap case (currentAccruedFees == 0): we allow
+    // setting any value bounded by the on-chain PoolManager credit, since
+    // 10% of 0 is 0 and the contract would otherwise be unrecoverable.
+    uint256 public constant MAX_SYNC_INCREASE_BPS = 1000; // 10%
 
     // Legacy constant kept for test compatibility
     uint256 public constant MAX_PROPOSAL_VALIDITY = 7 days;
@@ -324,6 +336,15 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
                 CurrencyLibrary.toId(Currency.wrap(currency))
             );
             if (actualCredit > onChainCredit) revert AboveOnChainCredit();
+            // AUDIT R014 (MEDIUM, upward-sync ceiling): bound the per-step
+            // increase to MAX_SYNC_INCREASE_BPS of the prior value. Bootstrap
+            // case (old == 0): the on-chain-credit cap above is the only
+            // bound, since 10% of 0 would lock the contract permanently.
+            if (old > 0) {
+                uint256 increase = actualCredit - old;
+                uint256 maxIncrease = (old * MAX_SYNC_INCREASE_BPS) / 10000;
+                if (increase > maxIncrease) revert SyncIncreaseTooLarge();
+            }
         }
 
         accruedFees[currency] = actualCredit;

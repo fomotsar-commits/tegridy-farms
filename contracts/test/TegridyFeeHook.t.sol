@@ -305,17 +305,20 @@ contract TegridyFeeHookTest is Test {
 
     function test_syncAccruedFees_allowsIncrease_withinOnChainCredit() public {
         // H-5: upward sync is allowed up to the on-chain PoolManager credit.
-        // Set on-chain credit to 1500 → sync from 1000 to 1500 succeeds.
+        // AUDIT R014 (MAX_SYNC_INCREASE_BPS = 1000 = 10%): also bounded to
+        // 10% of the prior accrued value per step. With old=1000, the largest
+        // single-step increase is +100 → 1100. Each subsequent step needs
+        // another 24h timelock + 7d cooldown (verified in AuditR014_Misc).
         address token = makeAddr("token");
         bytes32 slot = keccak256(abi.encode(token, uint256(7)));
         vm.store(address(hook), slot, bytes32(uint256(1000)));
-        // Stub the PoolManager credit at the V4 currency-id (uint256(uint160(token)))
-        poolManager.setCredit(address(hook), uint256(uint160(token)), 1500);
+        // Stub the PoolManager credit comfortably above the per-step ceiling
+        poolManager.setCredit(address(hook), uint256(uint160(token)), 5000);
 
-        hook.proposeSyncAccruedFees(token, 1500);
+        hook.proposeSyncAccruedFees(token, 1100);
         vm.warp(block.timestamp + 7 days);
         hook.executeSyncAccruedFees(token);
-        assertEq(hook.accruedFees(token), 1500);
+        assertEq(hook.accruedFees(token), 1100);
     }
 
     function test_syncAccruedFees_allowsSmallReduction() public {

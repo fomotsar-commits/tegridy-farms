@@ -137,6 +137,9 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     event FeeReceiverChangeProposed(address indexed current, address indexed proposed, uint256 readyAt);
     event FeeReceiverChanged(address indexed oldReceiver, address indexed newReceiver);
     event FeeReceiverChangeCancelled(address indexed cancelled);
+    /// @notice AUDIT R014-MEDIUM: emitted when the dry-run 1-wei test transfer to the
+    ///         proposed fee receiver fails. The change is auto-cancelled in that case.
+    event FeeReceiverChangeRejected(address indexed proposed, string reason);
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -163,6 +166,12 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error RollingDisbursementExceeded();
 
     error AlreadyRefunded(); // AUDIT FIX H-01: Deposit already consumed or refunded
+    /// @notice AUDIT R014-MEDIUM: dry-run TOWELI transfer to the proposed fee receiver
+    ///         failed (the receiver cannot accept ERC20 transfers, e.g. blacklisted by the
+    ///         token, or no balance available for the test transfer). The pending change
+    ///         is auto-cancelled — owner must `proposeFeeReceiver` again with a different
+    ///         address.
+    error FeeReceiverDryRunFailed();
 
     // Legacy error aliases (kept for test compatibility)
     error NoFeeReceiverChangePending();
@@ -588,11 +597,49 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     }
 
     /// @notice Execute the pending fee receiver change after timelock has elapsed.
+    /// @dev AUDIT R014-MEDIUM: dry-run a 1-wei TOWELI transfer to the proposed receiver
+    ///      before committing the swap. If the test transfer fails (the receiver is
+    ///      blacklisted by TOWELI, or it's a contract that reverts on ERC20 inbound),
+    ///      the pending change is auto-cancelled and `FeeReceiverChangeRejected` is
+    ///      emitted. The 1 wei is taken from the contract's non-refundable TOWELI
+    ///      balance and stays with the (rejected) receiver if the test passed. This
+    ///      prevents an owner from accidentally rotating fees to a black-hole address.
+    ///
+    ///      Edge case: the contract must hold at least 1 wei of non-refundable TOWELI
+    ///      for the dry-run. If only refundable deposits are present, the dry-run is
+    ///      skipped — but in production the contract always accumulates fees first, so
+    ///      this edge case is a no-op for any real deployment.
     function executeFeeReceiverChange() external onlyOwner {
         _execute(FEE_RECEIVER_CHANGE);
 
+        address proposed = pendingFeeReceiver;
+
+        // AUDIT R014-MEDIUM: dry-run validation. Only run when we have spare TOWELI to
+        // burn — refundable deposits MUST stay reserved for proposal refunds.
+        uint256 balance = toweli.balanceOf(address(this));
+        uint256 spare = balance > totalRefundableDeposits ? balance - totalRefundableDeposits : 0;
+        if (spare >= 1) {
+            // Use a low-level call so a revert doesn't unwind state — we want to detect
+            // the failure and auto-cancel rather than propagate. Standard ERC20.transfer
+            // returns bool (or reverts). Both failure modes count as a failed dry-run.
+            (bool ok, bytes memory ret) = address(toweli).call(
+                abi.encodeWithSelector(IERC20.transfer.selector, proposed, uint256(1))
+            );
+            bool transferred = ok && (ret.length == 0 || abi.decode(ret, (bool)));
+            if (!transferred) {
+                // Auto-cancel: clear pending state, emit the rejection event, and RETURN
+                // normally so state mutations persist. The timelock entry is already
+                // cleared by `_execute` above. The owner must `proposeFeeReceiver` again
+                // with a working address. We do not revert — reverting would unwind the
+                // pendingFeeReceiver clear, leaving the proposal half-executed.
+                pendingFeeReceiver = address(0);
+                emit FeeReceiverChangeRejected(proposed, "DRY_RUN_TRANSFER_FAILED");
+                return;
+            }
+        }
+
         address oldReceiver = feeReceiver;
-        feeReceiver = pendingFeeReceiver;
+        feeReceiver = proposed;
         pendingFeeReceiver = address(0);
 
         emit FeeReceiverChanged(oldReceiver, feeReceiver);
@@ -720,5 +767,77 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ) {
         Proposal memory p = proposals[_id];
         return (p.proposer, p.recipient, p.amount, p.description, p.votesFor, p.votesAgainst, p.deadline, p.status, p.snapshotTimestamp, p.snapshotTotalStake);
+    }
+
+    // ─── AUDIT R014-MEDIUM: Paginated proposal queries ───────────────
+    //
+    // The `proposals` array grows monotonically (no entries are deleted — historical
+    // proposals are kept for audit trail). Off-chain indexers and UIs that need to
+    // iterate proposals must do so in bounded chunks rather than reading the whole
+    // array, which would eventually blow past the JSON-RPC response size and gas-for-
+    // view limits. These two helpers expose that bounded iteration on-chain.
+
+    /// @notice Return a contiguous range of proposal IDs as Proposal structs.
+    /// @dev Inclusive `start`, exclusive `end`. Reverts on inverted ranges and clamps
+    ///      `end` to `proposals.length` so callers can pass `type(uint256).max` as a
+    ///      "to the end" sentinel without overflowing.
+    /// @param start The first proposal ID to include (inclusive).
+    /// @param end   One past the last proposal ID to include (exclusive). Clamped to
+    ///              `proposals.length`.
+    function getProposalsInRange(uint256 start, uint256 end) external view returns (Proposal[] memory page) {
+        uint256 len = proposals.length;
+        if (end > len) end = len;
+        if (start >= end) return new Proposal[](0);
+        page = new Proposal[](end - start);
+        for (uint256 i = start; i < end; ++i) {
+            page[i - start] = proposals[i];
+        }
+    }
+
+    /// @notice Indexer-friendly query: return up to `limit` proposals matching `status`,
+    ///         scanning the array starting at `startIdx` (inclusive).
+    /// @dev Returns both the matched proposals and their IDs so the caller can resume
+    ///      pagination by passing `nextStartIdx` back as `startIdx`. `nextStartIdx ==
+    ///      proposals.length` means the scan reached the end. Bounded by `limit`, so
+    ///      gas cost per call is predictable even when the array grows large.
+    /// @param status   The ProposalStatus to filter on.
+    /// @param startIdx First array index to scan (inclusive).
+    /// @param limit    Maximum number of matching entries to return.
+    /// @return ids          Array of proposal IDs that matched (length up to `limit`).
+    /// @return matched      Array of Proposal structs corresponding to `ids`.
+    /// @return nextStartIdx Position to resume the scan from on the next call. When this
+    ///                      equals `proposals.length`, the scan has finished.
+    function getProposalsByStatus(
+        ProposalStatus status,
+        uint256 startIdx,
+        uint256 limit
+    ) external view returns (uint256[] memory ids, Proposal[] memory matched, uint256 nextStartIdx) {
+        uint256 len = proposals.length;
+        if (startIdx >= len || limit == 0) {
+            return (new uint256[](0), new Proposal[](0), len < startIdx ? len : startIdx);
+        }
+        // Two-pass: first count matches up to `limit` so we can size the return arrays
+        // exactly, then a second pass to populate them. Avoids over-allocation.
+        uint256 found;
+        uint256 cursor = startIdx;
+        for (; cursor < len && found < limit; ++cursor) {
+            if (proposals[cursor].status == status) {
+                ++found;
+            }
+        }
+        nextStartIdx = cursor;
+
+        ids = new uint256[](found);
+        matched = new Proposal[](found);
+        if (found == 0) return (ids, matched, nextStartIdx);
+
+        uint256 outIdx;
+        for (uint256 i = startIdx; i < cursor; ++i) {
+            if (proposals[i].status == status) {
+                ids[outIdx] = i;
+                matched[outIdx] = proposals[i];
+                ++outIdx;
+            }
+        }
     }
 }

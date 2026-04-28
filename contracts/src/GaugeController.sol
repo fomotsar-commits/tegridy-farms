@@ -47,6 +47,17 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///      made late in the commit window still needs to be revealed before epoch end.
     uint256 public constant REVEAL_WINDOW = 24 hours;
 
+    /// @notice AUDIT R014-MEDIUM: 5-minute grace buffer on either side of the reveal
+    ///         window to absorb validator block.timestamp drift (~15s typical, up to a
+    ///         few minutes worst case). The buffer is tiny relative to the 24h reveal
+    ///         window so it doesn't materially widen the attack surface, but it prevents
+    ///         legitimate reveals from being rejected because a validator's clock was
+    ///         a few seconds behind. Symmetric on both ends: reveals are accepted from
+    ///         `revealOpens - REVEAL_GRACE` until `revealCloses + REVEAL_GRACE`.
+    ///         Commit window is correspondingly tightened: commits stop being accepted
+    ///         REVEAL_GRACE before revealOpens so the windows don't overlap.
+    uint256 public constant REVEAL_GRACE = 5 minutes;
+
     bytes32 public constant GAUGE_ADD = keccak256("GAUGE_ADD");
     bytes32 public constant GAUGE_REMOVE = keccak256("GAUGE_REMOVE");
     bytes32 public constant EMISSION_BUDGET_CHANGE = keccak256("EMISSION_BUDGET_CHANGE");
@@ -106,6 +117,27 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     /// @notice Records which address posted the commitment (binds reveal to committer).
     mapping(uint256 => mapping(uint256 => address)) public committerOf;
 
+    /// @notice AUDIT R014-HIGH: Per-user-per-epoch active commit guard.
+    ///         Closes the multi-NFT commit-rotation vector where a holder of multiple
+    ///         staking NFTs commits with NFT-A on day 1, observes vote distribution and
+    ///         bribe markets, then commits with NFT-B before reveal opens and reveals
+    ///         only with NFT-B (abandoning the NFT-A commit). The per-tokenId guard at
+    ///         reveal time doesn't catch this because the abandoned commit never
+    ///         reveals — but at commit time the user already had an outstanding commit.
+    ///
+    ///         Stores the commitment hash the user committed with this epoch. Cleared
+    ///         on successful reveal or explicit `cancelCommit`. While this slot is
+    ///         non-zero, additional `commitVote` calls revert.
+    ///
+    ///         Storage layout: bytes32(0) means "no active commit". A non-zero entry
+    ///         means the user has an outstanding commit that they must either reveal
+    ///         or cancel before they can commit again.
+    mapping(address => mapping(uint256 => bytes32)) public userActiveCommit;
+
+    /// @notice AUDIT R014-HIGH: Tracks which tokenId backs the user's active commit,
+    ///         so cancelCommit knows which (tokenId, epoch) commitment slot to clear.
+    mapping(address => mapping(uint256 => uint256)) public userActiveCommitTokenId;
+
     // ─── Emission Budget ────────────────────────────────────────────
     /// @notice Total TOWELI emission budget per epoch (set by admin)
     uint256 public emissionBudget;
@@ -119,6 +151,7 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     event Voted(address indexed voter, uint256 indexed tokenId, uint256 indexed epoch, address[] gauges, uint256[] weights);
     event VoteCommitted(address indexed voter, uint256 indexed tokenId, uint256 indexed epoch, bytes32 commitmentHash);
     event VoteRevealed(address indexed voter, uint256 indexed tokenId, uint256 indexed epoch, address[] gauges, uint256[] weights);
+    event VoteCommitCancelled(address indexed voter, uint256 indexed tokenId, uint256 indexed epoch);
     event GaugeAddProposed(address gauge, uint256 executeAfter);
     event GaugeAdded(address gauge);
     event GaugeRemoveProposed(address gauge, uint256 executeAfter);
@@ -147,6 +180,10 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error AlreadyCommitted();
     error ZeroCommitment();
     error UserAlreadyVotedThisEpoch(); // AUDIT C2: per-user epoch guard
+    error UserHasActiveCommit();        // AUDIT R014-HIGH: per-user active commit guard
+    error CancelWindowClosed();         // AUDIT R014-HIGH: cannot cancel after reveal opens
+    error NoActiveCommit();             // AUDIT R014-HIGH: cancel called with no commit
+    error ZeroWeight();                 // AUDIT R014-LOW: zero-weight gauge entries rejected
 
     // ─── Constructor ────────────────────────────────────────────────
     constructor(
@@ -223,9 +260,14 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (votingPower == 0) revert ZeroVotingPower();
 
         // Validate weights sum to BPS and all gauges are whitelisted
+        // AUDIT R014-LOW: reject zero-weight entries to keep storage clean.
+        // A zero-weight entry adds nothing to the gauge's tally but still consumes a
+        // slot in `_tokenVotes` and an iteration step in any downstream consumer that
+        // walks the array — callers should pass only meaningful gauge selections.
         uint256 totalWeight;
         for (uint256 i; i < gauges.length; ++i) {
             if (!isGauge[gauges[i]]) revert InvalidGauge(gauges[i]);
+            if (weights[i] == 0) revert ZeroWeight();
             totalWeight += weights[i];
         }
         if (totalWeight != BPS) revert WeightsMustSumToBPS();
@@ -305,8 +347,12 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (tegridyStaking.ownerOf(tokenId) != msg.sender) revert NotTokenOwner();
 
         uint256 epoch = currentEpoch();
+        // AUDIT R014-MEDIUM: commit window closes REVEAL_GRACE before the reveal
+        // window opens (with grace) — i.e. the windows abut at the un-graced
+        // boundary. This keeps commits and reveals strictly disjoint while
+        // tolerating ±REVEAL_GRACE validator drift on the reveal-side gate.
         uint256 revealOpens = epochStartTime(epoch) + EPOCH_DURATION - REVEAL_WINDOW;
-        if (block.timestamp >= revealOpens) revert CommitWindowClosed();
+        if (block.timestamp + REVEAL_GRACE >= revealOpens) revert CommitWindowClosed();
         if (hasVotedInEpoch[tokenId][epoch]) revert AlreadyVotedThisEpoch();
         if (commitmentOf[tokenId][epoch] != bytes32(0)) revert AlreadyCommitted();
         // AUDIT C2: per-user epoch guard. If the user already revealed (hence applied) a
@@ -314,6 +360,13 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // Stale unrevealed commits don't trip this guard — only successful reveals do —
         // so a user can still rotate which tokenId they ultimately reveal with.
         if (hasUserVotedInEpoch[msg.sender][epoch]) revert UserAlreadyVotedThisEpoch();
+        // AUDIT R014-HIGH: per-user active commit guard. Multi-NFT holders cannot rotate
+        // commits across NFTs within an epoch (commit with NFT-A, observe vote distribution
+        // and bribe markets, commit with NFT-B, abandon NFT-A). If they want to switch
+        // NFTs they must explicitly `cancelCommit` first — and cancellation is forbidden
+        // once the reveal window opens, so they cannot use post-observation information
+        // to retroactively change which NFT they vote with.
+        if (userActiveCommit[msg.sender][epoch] != bytes32(0)) revert UserHasActiveCommit();
 
         // Validate the NFT still represents an active lock (cheap pre-check;
         // real voting power is computed at reveal time against epoch-start snapshot).
@@ -322,8 +375,37 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
         commitmentOf[tokenId][epoch] = commitmentHash;
         committerOf[tokenId][epoch] = msg.sender;
+        userActiveCommit[msg.sender][epoch] = commitmentHash;
+        userActiveCommitTokenId[msg.sender][epoch] = tokenId;
 
         emit VoteCommitted(msg.sender, tokenId, epoch, commitmentHash);
+    }
+
+    /// @notice AUDIT R014-HIGH: Cancel an outstanding commit before the reveal window opens.
+    /// @dev Allowed only while the commit window is open (with REVEAL_GRACE buffer). Once the
+    ///      reveal window opens, cancellation is forbidden so a user cannot abandon a commit
+    ///      after seeing other participants' reveals. Cancelling clears `userActiveCommit`,
+    ///      letting the user submit a fresh commit (potentially with a different NFT).
+    /// @param epoch The epoch in which the user's active commit was made (usually currentEpoch()).
+    function cancelCommit(uint256 epoch) external nonReentrant whenNotPaused {
+        bytes32 active = userActiveCommit[msg.sender][epoch];
+        if (active == bytes32(0)) revert NoActiveCommit();
+
+        // Cancellation closes once the reveal window opens (with grace). Without this
+        // gate a user could watch other revealers and then null their own commit, which
+        // would reintroduce the post-observation rotation vector this fix is meant to close.
+        uint256 revealOpens = epochStartTime(epoch) + EPOCH_DURATION - REVEAL_WINDOW;
+        if (block.timestamp + REVEAL_GRACE >= revealOpens) revert CancelWindowClosed();
+
+        uint256 tokenId = userActiveCommitTokenId[msg.sender][epoch];
+
+        // Clear all per-(tokenId, epoch) commit state and per-(user, epoch) commit state.
+        delete commitmentOf[tokenId][epoch];
+        delete committerOf[tokenId][epoch];
+        delete userActiveCommit[msg.sender][epoch];
+        delete userActiveCommitTokenId[msg.sender][epoch];
+
+        emit VoteCommitCancelled(msg.sender, tokenId, epoch);
     }
 
     /// @notice Reveal a previously committed vote. Applies the vote to gauge weights.
@@ -341,8 +423,15 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         bytes32 salt
     ) external nonReentrant whenNotPaused {
         uint256 epoch = currentEpoch();
+        // AUDIT R014-MEDIUM: accept reveals from REVEAL_GRACE before the formal opening
+        // until REVEAL_GRACE after the formal close. The graced opening absorbs validators
+        // running ~15s ahead, the graced close absorbs validators running ~15s behind.
+        // 5 minutes is tiny vs the 24-hour reveal window; the marginal early/late tolerance
+        // doesn't widen the bribe-arbitrage surface in any economically meaningful way.
         uint256 revealOpens = epochStartTime(epoch) + EPOCH_DURATION - REVEAL_WINDOW;
-        if (block.timestamp < revealOpens) revert RevealWindowNotOpen();
+        uint256 revealCloses = epochStartTime(epoch) + EPOCH_DURATION;
+        if (block.timestamp + REVEAL_GRACE < revealOpens) revert RevealWindowNotOpen();
+        if (block.timestamp > revealCloses + REVEAL_GRACE) revert RevealWindowNotOpen();
         if (hasVotedInEpoch[tokenId][epoch]) revert AlreadyVotedThisEpoch();
 
         bytes32 stored = commitmentOf[tokenId][epoch];
@@ -371,6 +460,8 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         uint256 totalWeight;
         for (uint256 i; i < gauges.length; ++i) {
             if (!isGauge[gauges[i]]) revert InvalidGauge(gauges[i]);
+            // AUDIT R014-LOW: same zero-weight rejection as legacy vote().
+            if (weights[i] == 0) revert ZeroWeight();
             totalWeight += weights[i];
         }
         if (totalWeight != BPS) revert WeightsMustSumToBPS();
@@ -378,6 +469,11 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // Clear commitment (prevent replay) + mark voted (blocks legacy vote() too).
         delete commitmentOf[tokenId][epoch];
         delete committerOf[tokenId][epoch];
+        // AUDIT R014-HIGH: clear the per-user active commit so cancelCommit cannot be
+        // called retroactively (it would already revert on NoActiveCommit, but we keep
+        // storage minimal). userActiveCommitTokenId is also cleared for the same reason.
+        delete userActiveCommit[msg.sender][epoch];
+        delete userActiveCommitTokenId[msg.sender][epoch];
         delete _tokenVotes[tokenId];
         lastVotedEpoch[tokenId] = epoch;
         hasVotedInEpoch[tokenId][epoch] = true;
@@ -394,11 +490,16 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     }
 
     /// @notice Returns true when the current moment is inside the reveal window.
+    /// @dev Reports the formal opens/closes timestamps. The contract itself accepts
+    ///      reveals from `revealOpensAt - REVEAL_GRACE` to `revealClosesAt + REVEAL_GRACE`
+    ///      per the AUDIT R014-MEDIUM grace buffer; the `open` boolean uses the same
+    ///      graced range so off-chain UIs match on-chain acceptance.
     function isRevealWindowOpen() external view returns (uint256 epoch, bool open, uint256 revealOpensAt, uint256 revealClosesAt) {
         epoch = currentEpoch();
         revealOpensAt = epochStartTime(epoch) + EPOCH_DURATION - REVEAL_WINDOW;
         revealClosesAt = epochStartTime(epoch) + EPOCH_DURATION;
-        open = block.timestamp >= revealOpensAt && block.timestamp < revealClosesAt;
+        open = block.timestamp + REVEAL_GRACE >= revealOpensAt
+            && block.timestamp <= revealClosesAt + REVEAL_GRACE;
     }
 
     // ═══════════════════════════════════════════════════════════════
