@@ -4,12 +4,17 @@ pragma solidity ^0.8.26;
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
 import {SequencerCheck} from "./lib/SequencerCheck.sol";
 
 /// @dev Minimal interface for TegridyStaking NFT position queries and transfers.
+///      AUDIT R014: extended with `unsettledRewards(address)` and `claimUnsettled()`
+///      so escrow contracts can recover the rewards that accrue to the position
+///      while it is held as collateral. See TegridyLending.pullEscrowRewards.
 interface ITegridyStaking {
     function getPosition(uint256 tokenId) external view returns (
         uint256 amount,
@@ -21,6 +26,10 @@ interface ITegridyStaking {
     );
     function ownerOf(uint256 tokenId) external view returns (address);
     function transferFrom(address from, address to, uint256 tokenId) external;
+    /// @notice Read the cached unsettled rewards balance for `who`. AUDIT R014.
+    function unsettledRewards(address who) external view returns (uint256);
+    /// @notice Sweep the caller's unsettled rewards to its own balance. AUDIT R014.
+    function claimUnsettled() external;
 }
 
 /// @dev Minimal interface for TegridyPair reserve queries (used by the ETH-floor check).
@@ -45,6 +54,12 @@ interface ITegridyTWAP {
     function consult(address pair, address tokenIn, uint256 amountIn, uint256 period)
         external view returns (uint256 amountOut);
     function getLatestObservation(address pair) external view returns (Observation memory);
+    /// @notice AUDIT R014: timestamp of the most recent dormancy bypass for `pair`. When
+    ///         non-zero and recent, the TWAP just absorbed a single observation that
+    ///         skipped the deviation gate (post-dormancy rebootstrap). Lending refuses
+    ///         to value collateral within `TWAP_PERIOD * 2` of this stamp so a single
+    ///         post-bypass observation cannot sole-source the reported price.
+    function lastBypassUsed(address pair) external view returns (uint256);
 }
 
 /// @title TegridyLending — P2P NFT-Collateralized Lending Protocol
@@ -67,6 +82,7 @@ interface ITegridyTWAP {
 ///  - TimelockAdmin: MakerDAO DSPause pattern (billions TVL, never compromised)
 ///  - ReentrancyGuard + Pausable: OpenZeppelin 5.6.1
 contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, TimelockAdmin {
+    using SafeERC20 for IERC20;
 
     // ─── Timelock Operation Keys ─────────────────────────────────────
     bytes32 public constant PROTOCOL_FEE_CHANGE = keccak256("PROTOCOL_FEE_CHANGE");
@@ -79,6 +95,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     bytes32 public constant MAX_DURATION_CHANGE = keccak256("LENDING_MAX_DURATION_CHANGE");
     bytes32 public constant ORIGINATION_FEE_CHANGE = keccak256("LENDING_ORIGINATION_FEE_CHANGE"); // AUDIT C7
     bytes32 public constant MIN_APR_CHANGE = keccak256("LENDING_MIN_APR_CHANGE"); // AUDIT H14
+    // AUDIT R014: minimum-principal floor (anti-dust) and per-collection whitelist.
+    bytes32 public constant MIN_PRINCIPAL_CHANGE = keccak256("LENDING_MIN_PRINCIPAL_CHANGE");
+    bytes32 public constant ACCEPTED_COLLATERAL_CHANGE = keccak256("LENDING_ACCEPTED_COLLATERAL_CHANGE");
 
     // ─── Safety Caps ─────────────────────────────────────────────────
     // AUDIT TF-06 (Spartan MEDIUM): lending caps were compile-time constants with
@@ -125,6 +144,28 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
     uint256 public pendingOriginationFeeBps;
     uint256 public pendingMinAprBps;
+
+    // ─── AUDIT R014: Minimum principal floor (anti-dust) ────────────────
+    /// @notice Lenders cannot create offers with principal below this floor. Closes
+    ///         the dust-offer griefing vector where attackers spam the index with
+    ///         microscopic offers that would never be accepted but bloat enumeration
+    ///         and force borrowers to filter through noise. Default 0.001 ETH.
+    ///         48h-timelocked, capped at MAX_MIN_PRINCIPAL (1 ETH) so a malicious
+    ///         admin can never make the protocol unusable for small lenders.
+    uint256 public minPrincipal = 0.001 ether;
+    uint256 public constant MAX_MIN_PRINCIPAL = 1 ether;
+    uint256 public pendingMinPrincipal;
+
+    // ─── AUDIT R014: Per-collateral-contract whitelist ──────────────────
+    /// @notice Only collateral contracts in this map may back loans. Replaces the
+    ///         "trust the lender to check the contract" model with a governance-gated
+    ///         allowlist. 48h-timelocked add/remove. Closes the channel where a
+    ///         malicious lender posts an offer pointing at a fake `ITegridyStaking`
+    ///         that mirrors the interface but burns the borrower's NFT on transfer
+    ///         (or otherwise grieves repayment).
+    mapping(address => bool) public acceptedCollateralContracts;
+    address public pendingAcceptedCollateral;
+    bool public pendingAcceptedCollateralAdd;
 
     // Pending proposal storage
     uint256 public pendingMaxPrincipal;
@@ -227,6 +268,27 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     uint256 public pendingProtocolFeeBps;
     address public pendingTreasury;
 
+    // ─── AUDIT R014: Escrow rewards recovery ─────────────────────────
+    /// @notice Per-loan reward attribution recovered after the loan settles. While
+    ///         the position NFT is held by this contract, TegridyStaking's
+    ///         `unsettledRewards[address(this)]` accrues — those rewards belong to
+    ///         the borrower (if repaid) or the lender (if defaulted). This map is
+    ///         keyed by loanId and decremented when `pullEscrowRewards` pays out.
+    mapping(uint256 => uint256) public escrowRewardsOwed;
+    /// @notice Sum of all `escrowRewardsOwed` entries. Used as the denominator when
+    ///         the contract's available unsettled-rewards balance is less than the
+    ///         total claim — payouts fall back to `owed * available / total`.
+    uint256 public totalEscrowRewardsOwed;
+
+    // ─── AUDIT R014: Pause-aware deadlines ───────────────────────────
+    /// @notice Unix timestamp at which the most-recent `_pause()` was called. Zero
+    ///         when the contract has never been paused. Reset to zero on `_unpause()`.
+    uint256 public pauseStartTime;
+    /// @notice Cumulative seconds the contract has spent paused since deployment.
+    ///         Added to every loan's deadline check (see `effectiveDeadline`) so
+    ///         neither side is penalised by an admin pause.
+    uint256 public totalPausedDuration;
+
     // ─── Events ──────────────────────────────────────────────────────
 
     event LoanOfferCreated(
@@ -284,6 +346,24 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     event MinAprProposed(uint256 newBps, uint256 readyAt);
     event MinAprChanged(uint256 oldBps, uint256 newBps);
 
+    // ─── AUDIT R014 events ──────────────────────────────────────────────
+    event MinPrincipalProposed(uint256 newValue, uint256 readyAt);
+    event MinPrincipalChanged(uint256 oldValue, uint256 newValue);
+    event AcceptedCollateralProposed(address indexed collateral, bool add, uint256 readyAt);
+    event AcceptedCollateralChanged(address indexed collateral, bool add);
+    /// @notice Emitted when `pullEscrowRewards`/the inline settlement path attempted
+    ///         `staking.claimUnsettled()` and the call reverted. Records the raw
+    ///         revert data so off-chain operators can diagnose the staking-side
+    ///         issue and retry. Loan settlement still completes — the rewards
+    ///         remain claimable via a follow-up `pullEscrowRewards` call.
+    event EscrowRewardsClaimDeferred(uint256 indexed loanId, bytes reason);
+    /// @notice Emitted whenever escrow rewards are paid out to the loan's beneficiary
+    ///         (borrower if repaid, lender if defaulted). `payout` may be less than
+    ///         `owed` when the contract holds less than `totalEscrowRewardsOwed`.
+    event EscrowRewardsPaid(uint256 indexed loanId, address indexed recipient, uint256 owed, uint256 payout);
+    /// @notice Records loan-period reward attribution at settlement time.
+    event EscrowRewardsAttributed(uint256 indexed loanId, uint256 amount);
+
     // ─── Errors ──────────────────────────────────────────────────────
 
     error ZeroAddress();
@@ -320,6 +400,18 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///      keeper to refresh the oracle (or call `twap.update(pair)` themselves)
     ///      before `acceptOffer` will succeed for a non-zero ETH floor.
     error OracleStale();
+    /// @dev R014: lender opened an offer at less than `minPrincipal`.
+    error PrincipalTooSmall();
+    /// @dev R014: lender pointed offer at a collateral contract that is not on the
+    ///      whitelist, OR an admin proposed to remove the contract while the offer
+    ///      was being created (handled in createLoanOffer).
+    error CollateralNotAccepted();
+    /// @dev R014: pullEscrowRewards called for a loan with no recoverable rewards.
+    error NoEscrowRewards();
+    /// @dev R014: pullEscrowRewards called by a non-beneficiary.
+    error NotEscrowBeneficiary();
+    /// @dev R014: pullEscrowRewards called before the loan has settled (still active).
+    error LoanStillActive();
 
     // ─── Legacy View Helpers (for test compatibility) ────────────────
     function protocolFeeChangeReadyAt() external view returns (uint256) {
@@ -404,6 +496,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 _minPositionETHValue
     ) external payable whenNotPaused returns (uint256 offerId) {
         if (msg.value == 0) revert ZeroPrincipal();
+        // AUDIT R014: dust-floor — reject offers below `minPrincipal` so the offer
+        // index can't be spammed with microscopic offers.
+        if (msg.value < minPrincipal) revert PrincipalTooSmall();
         if (msg.value > maxPrincipal) revert PrincipalTooLarge();
         if (_aprBps > maxAprBps) revert AprTooHigh();
         // AUDIT H14: enforce minimum APR. Closes the 0% APR free-collateral channel.
@@ -411,6 +506,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (_duration < minDuration) revert DurationTooShort();
         if (_duration > maxDuration) revert DurationTooLong();
         if (_collateralContract == address(0)) revert ZeroAddress();
+        // AUDIT R014: only governance-whitelisted staking contracts may back loans.
+        if (!acceptedCollateralContracts[_collateralContract]) revert CollateralNotAccepted();
 
         // AUDIT C7: deduct origination fee from lender's deposit and forward to treasury.
         // The borrower receives (msg.value - origination fee) at acceptOffer time, so the
@@ -593,7 +690,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // repay up to and including deadline + GRACE_PERIOD. Past that window, the
         // lender's claimDefaultedCollateral path opens. Interest continues to accrue
         // through the grace window so the lender isn't penalised by the cushion.
-        if (block.timestamp > loan.deadline + GRACE_PERIOD) revert DeadlineExpired();
+        // AUDIT R014: deadline reads `effectiveDeadline` so admin pauses extend both
+        // sides of the window symmetrically.
+        if (block.timestamp > effectiveDeadline(_loanId) + GRACE_PERIOD) revert DeadlineExpired();
 
         // Calculate protocol fee on interest
         uint256 fee = (interest * protocolFeeBps) / BPS;
@@ -603,7 +702,30 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         ITegridyStaking staking = ITegridyStaking(
             offers[offerId].collateralContract
         );
+
+        // AUDIT R014: snapshot the contract's unsettledRewards balance before the NFT
+        // transfer so we can attribute the loan-period reward delta to the borrower.
+        // The transferFrom triggers TegridyStaking._beforeTokenTransfer which finalises
+        // the position's pending reward into unsettledRewards[from], so the delta is the
+        // exact value accrued while we held the NFT.
+        uint256 unsettledBefore = staking.unsettledRewards(address(this));
         staking.transferFrom(address(this), borrower, tokenId);
+        uint256 unsettledAfter = staking.unsettledRewards(address(this));
+        uint256 delta = unsettledAfter > unsettledBefore ? unsettledAfter - unsettledBefore : 0;
+        if (delta > 0) {
+            escrowRewardsOwed[_loanId] = delta;
+            totalEscrowRewardsOwed += delta;
+            emit EscrowRewardsAttributed(_loanId, delta);
+            // Try to sweep immediately so the borrower can withdraw via pullEscrowRewards
+            // without paying for a second on-chain claim. Deferred via event when the
+            // staking contract is paused or otherwise reverts.
+            try staking.claimUnsettled() {
+                // Successful claim — funds now sit in this contract's TOWELI balance,
+                // accounted for via escrowRewardsOwed/totalEscrowRewardsOwed.
+            } catch (bytes memory reason) {
+                emit EscrowRewardsClaimDeferred(_loanId, reason);
+            }
+        }
 
         // SECURITY FIX: Use WETHFallbackLib to prevent DoS by revert-on-receive lender contracts.
         // A malicious lender could deploy a contract that reverts on ETH receive, permanently blocking
@@ -644,7 +766,10 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (msg.sender != lender) revert NotLoanLender();
         // AUDIT M-1: lender must wait for the post-deadline grace period to expire
         // before claiming the collateral, giving the borrower a 1h cushion to repay.
-        if (block.timestamp <= loan.deadline + GRACE_PERIOD) revert DeadlineNotReached();
+        // AUDIT R014: deadline now reads `effectiveDeadline` so an admin pause
+        // extends the lender's wait by the same amount it extended the borrower's
+        // repay window. Both sides wait through pause symmetrically.
+        if (block.timestamp <= effectiveDeadline(_loanId) + GRACE_PERIOD) revert DeadlineNotReached();
 
         // CEI: state change before external call
         loan.defaultClaimed = true;
@@ -653,7 +778,23 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         ITegridyStaking staking = ITegridyStaking(
             offers[offerId].collateralContract
         );
+
+        // AUDIT R014: snapshot escrow rewards before the NFT transfer so we attribute
+        // the loan-period delta to the lender (defaulted side). Same pattern as repayLoan.
+        uint256 unsettledBefore = staking.unsettledRewards(address(this));
         staking.transferFrom(address(this), lender, tokenId);
+        uint256 unsettledAfter = staking.unsettledRewards(address(this));
+        uint256 delta = unsettledAfter > unsettledBefore ? unsettledAfter - unsettledBefore : 0;
+        if (delta > 0) {
+            escrowRewardsOwed[_loanId] = delta;
+            totalEscrowRewardsOwed += delta;
+            emit EscrowRewardsAttributed(_loanId, delta);
+            try staking.claimUnsettled() {
+                // Funds now sit in this contract's TOWELI balance.
+            } catch (bytes memory reason) {
+                emit EscrowRewardsClaimDeferred(_loanId, reason);
+            }
+        }
 
         emit DefaultClaimed(_loanId, lender, tokenId);
     }
@@ -804,6 +945,17 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // for callers and to keep the staleness window explicit at the call site.
         ITegridyTWAP.Observation memory latest = twap.getLatestObservation(pair);
         if (block.timestamp - latest.timestamp > TWAP_MAX_STALENESS) revert OracleStale();
+
+        // AUDIT R014: dormancy-bypass cooldown. When the TWAP recently absorbed an
+        // observation that skipped the deviation gate (post-dormancy rebootstrap),
+        // the next `TWAP_PERIOD * 2` of consults rely on a single un-gated price
+        // sample. Refuse to value collateral until the cooldown elapses so a
+        // single dormant-then-attacker-chosen observation cannot sole-source the
+        // ETH-floor read. Same surface as the staleness gate — typed OracleStale.
+        uint256 lastBypass = twap.lastBypassUsed(pair);
+        if (lastBypass != 0 && block.timestamp - lastBypass < TWAP_PERIOD * 2) {
+            revert OracleStale();
+        }
 
         // consult(pair, tokenIn=toweli, amountIn=toweliAmount, period=30 min)
         // returns the time-weighted ETH-equivalent over the window. Same return
@@ -998,6 +1150,14 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     }
 
     // ─── Pausable ────────────────────────────────────────────────────
+    //
+    // AUDIT R014: pause-aware deadlines. Both `_pause` and `_unpause` are
+    // overridden so we can record the wall-clock duration the protocol spends
+    // paused. `effectiveDeadline(loanId)` adds the accumulated paused duration
+    // (plus the in-flight pause window) to every loan's nominal deadline so
+    // neither side is forced into default by an admin pause that locks
+    // `claimDefaultedCollateral`. Borrowers can still call `repayLoan` while
+    // paused, but if they do not, the lender's claim path waits.
 
     function pause() external onlyOwner {
         _pause();
@@ -1005,6 +1165,36 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    function _pause() internal override {
+        super._pause();
+        pauseStartTime = block.timestamp;
+    }
+
+    function _unpause() internal override {
+        // Snapshot before clearing so we accrue exactly the elapsed window.
+        uint256 start = pauseStartTime;
+        if (start != 0 && block.timestamp > start) {
+            totalPausedDuration += block.timestamp - start;
+        }
+        pauseStartTime = 0;
+        super._unpause();
+    }
+
+    /// @notice Pause-extended deadline for a loan. Adds `totalPausedDuration` plus,
+    ///         when currently paused, the in-flight pause window. Use this anywhere
+    ///         the contract historically read `loan.deadline` to gate repay/default.
+    /// @dev    Pure view — does not mutate `totalPausedDuration`. Both repayLoan and
+    ///         claimDefaultedCollateral rely on this value. AUDIT R014.
+    function effectiveDeadline(uint256 _loanId) public view returns (uint256) {
+        if (_loanId >= loans.length) revert InvalidLoanId();
+        uint256 base = loans[_loanId].deadline;
+        uint256 pauseExt = totalPausedDuration;
+        if (paused() && pauseStartTime != 0 && block.timestamp > pauseStartTime) {
+            pauseExt += block.timestamp - pauseStartTime;
+        }
+        return base + pauseExt;
     }
 
     // ─── AUDIT C7: Timelocked Origination Fee ────────────────────────
@@ -1057,5 +1247,141 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
     function minAprChangeReadyAt() external view returns (uint256) {
         return _executeAfter[MIN_APR_CHANGE];
+    }
+
+    // ─── AUDIT R014: Escrow Rewards Recovery ──────────────────────────
+    //
+    // While a loan is active, the staking position NFT is held by this contract.
+    // Any rewards that accrue during that window land in
+    // TegridyStaking.unsettledRewards[address(this)] when the NFT is transferred
+    // back at settlement time. We attribute those rewards to the loan's
+    // beneficiary (borrower if repaid, lender if defaulted) and let them pull the
+    // proportional payout via this function.
+    //
+    // The proportional payout (`payout = available >= total ? owed : owed * available / total`)
+    // protects against the case where the staking contract is paused and the
+    // try/catch'd `claimUnsettled` deferred — only some of the cumulative escrow
+    // rewards actually live in this contract. Beneficiaries get their pro-rata share
+    // of whatever is available; the leftover stays claimable.
+
+    /// @notice Pull the escrow-rewards payout for a settled loan. Anyone can call,
+    ///         but only the loan's beneficiary receives funds.
+    ///         - Repaid loan → recipient is the borrower.
+    ///         - Defaulted loan → recipient is the lender.
+    ///         Reverts if the loan is still active or has no recoverable rewards.
+    /// @param _loanId The loan to pull rewards for.
+    function pullEscrowRewards(uint256 _loanId) external nonReentrant {
+        if (_loanId >= loans.length) revert InvalidLoanId();
+        Loan memory loan = loans[_loanId];
+
+        // Reward attribution only makes sense after the NFT has left this contract.
+        if (!loan.repaid && !loan.defaultClaimed) revert LoanStillActive();
+
+        uint256 owed = escrowRewardsOwed[_loanId];
+        if (owed == 0) revert NoEscrowRewards();
+
+        address recipient = loan.repaid ? loan.borrower : loan.lender;
+        if (msg.sender != recipient) revert NotEscrowBeneficiary();
+
+        // Try to top-up by claiming any newly-arrived unsettled rewards. Idempotent —
+        // staking deducts what it pays out, so a no-op claim is cheap. Wrapped in
+        // try/catch so a paused staking contract or unrelated revert does not brick
+        // the legitimate withdrawal path.
+        ITegridyStaking staking = ITegridyStaking(offers[loan.offerId].collateralContract);
+        try staking.claimUnsettled() {
+            // Funds arrive in this contract's TOWELI balance — no further bookkeeping.
+        } catch (bytes memory reason) {
+            emit EscrowRewardsClaimDeferred(_loanId, reason);
+        }
+
+        // Compute the proportional payout. `toweli` is the reward token (snapshotted
+        // at construction). When the contract holds enough to cover everyone, the
+        // beneficiary gets the full `owed`. When it doesn't, payouts shrink pro-rata
+        // so the remaining `owed - payout` stays claimable as more rewards arrive.
+        uint256 available = IERC20(toweli).balanceOf(address(this));
+        uint256 total = totalEscrowRewardsOwed;
+        uint256 payout;
+        if (available == 0 || total == 0) {
+            payout = 0;
+        } else if (available >= total) {
+            payout = owed;
+        } else {
+            payout = (owed * available) / total;
+        }
+
+        // Always decrement the per-loan and global counters by `payout` (zero is a
+        // valid no-op when nothing is available). When the underlying balance grows
+        // later, a subsequent call picks up the next slice.
+        escrowRewardsOwed[_loanId] = owed - payout;
+        if (totalEscrowRewardsOwed >= payout) {
+            totalEscrowRewardsOwed -= payout;
+        } else {
+            totalEscrowRewardsOwed = 0;
+        }
+
+        emit EscrowRewardsPaid(_loanId, recipient, owed, payout);
+
+        if (payout > 0) {
+            IERC20(toweli).safeTransfer(recipient, payout);
+        }
+    }
+
+    // ─── AUDIT R014: Timelocked Min Principal ────────────────────────
+    function proposeMinPrincipal(uint256 _new) external onlyOwner {
+        if (_new == 0) revert ZeroAmount();
+        if (_new > MAX_MIN_PRINCIPAL) revert InvalidCapValue();
+        pendingMinPrincipal = _new;
+        _propose(MIN_PRINCIPAL_CHANGE, CAP_CHANGE_TIMELOCK);
+        emit MinPrincipalProposed(_new, _executeAfter[MIN_PRINCIPAL_CHANGE]);
+    }
+
+    function executeMinPrincipalChange() external onlyOwner {
+        _execute(MIN_PRINCIPAL_CHANGE);
+        uint256 old = minPrincipal;
+        minPrincipal = pendingMinPrincipal;
+        pendingMinPrincipal = 0;
+        emit MinPrincipalChanged(old, minPrincipal);
+    }
+
+    function cancelMinPrincipalChange() external onlyOwner {
+        _cancel(MIN_PRINCIPAL_CHANGE);
+        pendingMinPrincipal = 0;
+    }
+
+    function minPrincipalChangeReadyAt() external view returns (uint256) {
+        return _executeAfter[MIN_PRINCIPAL_CHANGE];
+    }
+
+    // ─── AUDIT R014: Timelocked Accepted-Collateral Whitelist ────────
+    /// @notice Propose adding or removing a collateral contract from the whitelist.
+    ///         48h timelock — same delay used for every other safety cap.
+    /// @param _collateral The collateral contract (TegridyStaking or compatible).
+    /// @param _add True to add, false to remove.
+    function proposeAcceptedCollateral(address _collateral, bool _add) external onlyOwner {
+        if (_collateral == address(0)) revert ZeroAddress();
+        pendingAcceptedCollateral = _collateral;
+        pendingAcceptedCollateralAdd = _add;
+        _propose(ACCEPTED_COLLATERAL_CHANGE, CAP_CHANGE_TIMELOCK);
+        emit AcceptedCollateralProposed(_collateral, _add, _executeAfter[ACCEPTED_COLLATERAL_CHANGE]);
+    }
+
+    function executeAcceptedCollateral() external onlyOwner {
+        _execute(ACCEPTED_COLLATERAL_CHANGE);
+        address collateral = pendingAcceptedCollateral;
+        bool add = pendingAcceptedCollateralAdd;
+        acceptedCollateralContracts[collateral] = add;
+        pendingAcceptedCollateral = address(0);
+        pendingAcceptedCollateralAdd = false;
+        emit AcceptedCollateralChanged(collateral, add);
+    }
+
+    function cancelAcceptedCollateral() external onlyOwner {
+        _cancel(ACCEPTED_COLLATERAL_CHANGE);
+        pendingAcceptedCollateral = address(0);
+        pendingAcceptedCollateralAdd = false;
+    }
+
+    function acceptedCollateralChangeReadyAt() external view returns (uint256) {
+        return _executeAfter[ACCEPTED_COLLATERAL_CHANGE];
     }
 }

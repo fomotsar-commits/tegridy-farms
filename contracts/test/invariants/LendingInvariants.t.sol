@@ -188,6 +188,12 @@ contract LendingInvariantsTest is Test {
             address(0) // sequencer feed: address(0) = mainnet/disabled
         );
 
+        // AUDIT R014: whitelist the staking contract so createLoanOffer accepts it as
+        // collateral. 48h timelock is rolled forward inline.
+        lending.proposeAcceptedCollateral(address(staking), true);
+        vm.warp(block.timestamp + 48 hours + 1);
+        lending.executeAcceptedCollateral();
+
         // Borrower stakes once to mint a position NFT used as collateral.
         toweli.transfer(borrower, 100_000 ether);
         vm.startPrank(borrower);

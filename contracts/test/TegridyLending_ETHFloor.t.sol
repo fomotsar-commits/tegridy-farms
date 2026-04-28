@@ -131,6 +131,21 @@ contract TegridyLending_ETHFloorTest is Test {
 
         lending = new TegridyLending(treasury, 500, address(weth), address(pair), address(twap), address(0));
 
+        // AUDIT R014: whitelist the staking contract so createLoanOffer accepts it as
+        // collateral. 48h timelock is rolled forward inline. We chunk the warp into
+        // sub-DEVIATION_BYPASS_AFTER (1 day) windows and refresh the TWAP between
+        // each so `lastBypassUsed` stays zero — the new TWAP-bypass cooldown gate in
+        // `_positionETHValue` (TWAP_PERIOD * 2) would otherwise fire.
+        lending.proposeAcceptedCollateral(address(staking), true);
+        // Span 48h + 1s in two ~22h hops so neither hop trips the dormancy bypass.
+        skip(22 hours);
+        twap.update(address(pair));
+        skip(22 hours);
+        twap.update(address(pair));
+        skip(4 hours + 1);
+        twap.update(address(pair));
+        lending.executeAcceptedCollateral();
+
         // Fund alice and have her stake for a collateral position.
         toweli.transfer(alice, 100_000 ether);
         vm.startPrank(alice);
@@ -139,9 +154,10 @@ contract TegridyLending_ETHFloorTest is Test {
         aliceTokenId = staking.userTokenId(alice);
         vm.stopPrank();
 
-        // Skip past the staking NFT transfer cooldown. We also re-bootstrap a
-        // fresh TWAP observation so consult() doesn't trip MAX_STALENESS.
-        skip(25 hours);
+        // Skip past the staking NFT transfer cooldown. Chunk again so bypass stays unset.
+        skip(22 hours);
+        twap.update(address(pair));
+        skip(3 hours);
         twap.update(address(pair));
         skip(16 minutes);
         twap.update(address(pair));
@@ -352,6 +368,18 @@ contract TegridyLending_ETHFloorTest is Test {
             address(inverseTwap),
             address(0)
         );
+
+        // AUDIT R014: whitelist the staking contract on the new lending instance and
+        // refresh the inverse-pair TWAP through the 48h timelock so neither the
+        // dormancy-bypass cooldown nor the staleness gate trip in `_positionETHValue`.
+        inverseLending.proposeAcceptedCollateral(address(staking), true);
+        skip(22 hours);
+        inverseTwap.update(address(inversePair));
+        skip(22 hours);
+        inverseTwap.update(address(inversePair));
+        skip(4 hours + 1);
+        inverseTwap.update(address(inversePair));
+        inverseLending.executeAcceptedCollateral();
 
         // Re-approve alice's NFT onto the new lending contract.
         vm.prank(alice);

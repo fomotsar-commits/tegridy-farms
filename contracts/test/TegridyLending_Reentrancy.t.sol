@@ -243,6 +243,12 @@ contract TegridyLending_ReentrancyTest is Test {
         TegridyTWAP twap = new TegridyTWAP(address(0));
         lending = new TegridyLending(treasury, 500, address(weth), address(pair), address(twap), address(0));
 
+        // AUDIT R014: whitelist the staking contract so createLoanOffer accepts it as
+        // collateral. 48h timelock is rolled forward inline.
+        lending.proposeAcceptedCollateral(address(staking), true);
+        vm.warp(block.timestamp + 48 hours + 1);
+        lending.executeAcceptedCollateral();
+
         // Fund alice and have her stake
         toweli.transfer(alice, 100_000 ether);
         vm.startPrank(alice);

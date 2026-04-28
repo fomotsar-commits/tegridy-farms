@@ -124,6 +124,15 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     address public pendingWhitelistAdd;
     address public pendingWhitelistRemove;
 
+    // ─── AUDIT R014: Pause-aware deadlines ───────────────────────────
+    /// @notice Unix timestamp at which the most-recent `_pause()` was called. Zero
+    ///         when the contract has never been paused. Reset to zero on `_unpause()`.
+    uint256 public pauseStartTime;
+    /// @notice Cumulative seconds the contract has spent paused since deployment.
+    ///         Added to every loan's deadline check so neither side is penalised
+    ///         by an admin pause. See `effectiveDeadline`.
+    uint256 public totalPausedDuration;
+
     // ─── Events ──────────────────────────────────────────────────────
 
     event LoanOfferCreated(
@@ -206,6 +215,10 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     error CollectionNotWhitelisted();
     error CollectionAlreadyWhitelisted();
     error CollectionNotCurrentlyWhitelisted();
+    /// @dev R014: createOffer rejected because a removal proposal already targets
+    ///      this collection. Lenders should not be able to lock fresh capital into
+    ///      a collateral type that governance has signalled the intent to delist.
+    error CollectionPendingRemoval();
 
     // ─── Legacy View Helpers (for test compatibility) ────────────────
     function protocolFeeChangeReadyAt() external view returns (uint256) {
@@ -270,6 +283,19 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         if (_duration > MAX_DURATION) revert DurationTooLong();
         if (_collateralContract == address(0)) revert ZeroAddress();
         if (!whitelistedCollections[_collateralContract]) revert CollectionNotWhitelisted();
+        // AUDIT R014: refuse new offers while a removal proposal already targets the
+        // collection. Without this, a lender can still escrow capital between
+        // `proposeRemoveCollection` and `executeRemoveCollection`, exactly the
+        // window in which governance has signalled "this collection is unsafe".
+        // The proposal lasts up to PROPOSAL_VALIDITY (7 days) past readiness; the
+        // window we block is from the moment the proposal is created until the
+        // owner cancels or executes it.
+        if (
+            pendingWhitelistRemove == _collateralContract
+            && _executeAfter[WHITELIST_REMOVE] != 0
+        ) {
+            revert CollectionPendingRemoval();
+        }
 
         // Existence check — the tokenId must exist on the collection. We do NOT
         // require the lender to own it (borrower may own a different wallet).
@@ -422,8 +448,10 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         // Prevent same-block zero-interest repayment
         if (block.timestamp == startTime) revert LoanTooRecent();
 
-        // Enforce deadline with grace window — borrower can still repay up to deadline + GRACE_PERIOD
-        if (block.timestamp > loan.deadline + GRACE_PERIOD) revert LoanNotDefaulted();
+        // Enforce deadline with grace window — borrower can still repay up to deadline + GRACE_PERIOD.
+        // AUDIT R014: deadline reads `effectiveDeadline` so admin pauses extend both the
+        // borrower's repay window and the lender's claim window symmetrically.
+        if (block.timestamp > effectiveDeadline(_loanId) + GRACE_PERIOD) revert LoanNotDefaulted();
 
         uint256 interest = calculateInterest(
             principal,
@@ -483,7 +511,9 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
 
         if (msg.sender != lender) revert NotLoanLender();
         // Lender can only claim after the grace window has closed, matching repayLoan's buffer.
-        if (block.timestamp <= loan.deadline + GRACE_PERIOD) revert LoanNotDefaulted();
+        // AUDIT R014: deadline reads `effectiveDeadline` so admin pauses extend the
+        // lender's wait by exactly the same amount they extend the borrower's repay window.
+        if (block.timestamp <= effectiveDeadline(_loanId) + GRACE_PERIOD) revert LoanNotDefaulted();
 
         // CEI: state change before external call
         loan.defaultClaimed = true;
@@ -721,6 +751,14 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     }
 
     // ─── Pausable ────────────────────────────────────────────────────
+    //
+    // AUDIT R014: pause-aware deadlines. Both `_pause` and `_unpause` are
+    // overridden so the contract records the wall-clock duration spent paused.
+    // `effectiveDeadline(loanId)` adds that accumulated duration (plus the
+    // in-flight pause window) to every loan's nominal deadline so neither side
+    // is forced into default by an admin pause that locks `claimDefault`.
+    // Borrowers can still call `repayLoan` while paused, but if they don't,
+    // the lender's claim path waits.
 
     function pause() external onlyOwner {
         _pause();
@@ -728,6 +766,32 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
 
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    function _pause() internal override {
+        super._pause();
+        pauseStartTime = block.timestamp;
+    }
+
+    function _unpause() internal override {
+        uint256 start = pauseStartTime;
+        if (start != 0 && block.timestamp > start) {
+            totalPausedDuration += block.timestamp - start;
+        }
+        pauseStartTime = 0;
+        super._unpause();
+    }
+
+    /// @notice Pause-extended deadline for a loan. Reads `loan.deadline + totalPausedDuration`
+    ///         plus the in-flight pause window when currently paused. AUDIT R014.
+    function effectiveDeadline(uint256 _loanId) public view returns (uint256) {
+        if (_loanId >= loans.length) revert InvalidLoanId();
+        uint256 base = loans[_loanId].deadline;
+        uint256 pauseExt = totalPausedDuration;
+        if (paused() && pauseStartTime != 0 && block.timestamp > pauseStartTime) {
+            pauseExt += block.timestamp - pauseStartTime;
+        }
+        return base + pauseExt;
     }
 
     // ─── AUDIT C7: Timelocked Origination Fee ────────────────────────
