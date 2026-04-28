@@ -343,6 +343,10 @@ contract Audit195StakingRewards is Test {
         uint256 aliceReceived = token.balanceOf(alice) - aliceBefore;
 
         // Bob claims via claimUnsettledFor (called by owner)
+        // AUDIT R014 M-9: owner-on-behalf path requires the user to be inactive
+        // for USER_INACTIVITY_GATE (90 days). Warp past that window so the
+        // owner branch is reachable; bob's own claim symmetry is unaffected.
+        vm.warp(block.timestamp + 91 days);
         uint256 bobBefore = token.balanceOf(bob);
         vm.prank(staking.owner()); staking.claimUnsettledFor(bob);
         uint256 bobReceived = token.balanceOf(bob) - bobBefore;
@@ -374,6 +378,10 @@ contract Audit195StakingRewards is Test {
 
     /// @notice claimUnsettledFor reverts on zero balance
     function test_claimUnsettledFor_revertsOnZero() public {
+        // AUDIT R014 M-9: owner can only call claimUnsettledFor after the user has
+        // been inactive for USER_INACTIVITY_GATE (90 days). Warp past that window so
+        // we exercise the ZeroAmount path (not the auth gate).
+        vm.warp(block.timestamp + 91 days);
         vm.prank(staking.owner());
         vm.expectRevert(TegridyStaking.ZeroAmount.selector);
         staking.claimUnsettledFor(alice);
@@ -548,6 +556,8 @@ contract Audit195StakingRewards is Test {
         vm.prank(alice); staking.transferFrom(alice, bob, tokenId);
 
         uint256 totalBefore = staking.totalUnsettledRewards();
+        // AUDIT R014 M-9: owner-on-behalf path requires USER_INACTIVITY_GATE elapsed.
+        vm.warp(block.timestamp + 91 days);
         vm.prank(staking.owner()); staking.claimUnsettledFor(alice);
         uint256 totalAfter = staking.totalUnsettledRewards();
 

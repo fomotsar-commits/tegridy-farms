@@ -162,7 +162,10 @@ contract Audit195PremiumHookTest is Test {
         vm.prank(alice);
         premium.subscribe(1, type(uint256).max);
 
-        vm.warp(block.timestamp + 1);
+        // AUDIT R014 M (Wave 2): MIN_HOLDING_PERIOD = 1 day blocks
+        // subscribe-then-cancel-same-block griefing. Warp past it so the
+        // legitimate "cancel after the holding window" path is exercised.
+        vm.warp(block.timestamp + 1 days + 1);
 
         vm.prank(alice);
         premium.cancelSubscription(); // should succeed
@@ -518,7 +521,9 @@ contract Audit195PremiumHookTest is Test {
         premium.subscribe(1, type(uint256).max);
         assertEq(premium.totalSubscribers(), 2);
 
-        vm.warp(block.timestamp + 1);
+        // AUDIT R014 M (Wave 2): MIN_HOLDING_PERIOD = 1 day. Warp past it
+        // so alice's cancel exercises the legitimate path.
+        vm.warp(block.timestamp + 1 days + 1);
 
         vm.prank(alice);
         premium.cancelSubscription();
