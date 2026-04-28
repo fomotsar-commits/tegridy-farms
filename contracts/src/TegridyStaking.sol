@@ -62,6 +62,17 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     uint256 public constant MIN_STAKE = 100e18; // AUDIT FIX #33: Minimum stake amount
     uint256 public constant MIN_NOTIFY_AMOUNT = 1000e18; // AUDIT FIX #61: Minimum fund amount to prevent dust funding
 
+    // AUDIT R014 M-9: Owner can only `claimUnsettledFor(user)` after the user has been
+    // dormant (no claim/getReward/withdraw/increaseAmount/extendLock/NFT-receive) for
+    // USER_INACTIVITY_GATE seconds. Prevents the owner from front-running an active user
+    // and pulling their unsettled rewards out from under them. The restaking contract
+    // path is unchanged — restaking trampolines reward claims for the actual depositor.
+    uint256 public constant USER_INACTIVITY_GATE = 90 days;
+    /// @notice Last block.timestamp at which `user` performed a reward-touching action
+    ///         on this contract (claim, withdraw, increase, NFT receive). Read-only;
+    ///         updated internally by `_touch(user)`.
+    mapping(address => uint256) public lastActivityAt;
+
     // ─── State ────────────────────────────────────────────────────────
     // NOTE (size-reduction sprint 2026-04-26): timelock keys, propose/execute/cancel
     // flow, pending state, and the `*ChangeReadyAt`/`*ChangeTime` view helpers all
@@ -504,6 +515,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         rewardToken.safeTransferFrom(msg.sender, address(this), _amount);
 
         _writeCheckpoint(msg.sender); // AUDIT FIX #1
+        _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
 
         emit Staked(msg.sender, tokenId, _amount, _lockDuration, boost);
     }
@@ -554,6 +566,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         IERC721(address(jbacNFT)).safeTransferFrom(msg.sender, address(this), _jbacTokenId);
 
         _writeCheckpoint(msg.sender);
+        _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
 
         emit Staked(msg.sender, tokenId, _amount, _lockDuration, boost);
     }
@@ -593,6 +606,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         }
 
         _writeCheckpoint(msg.sender); // AUDIT FIX #1
+        _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
 
         emit AutoMaxLockToggled(tokenId, p.autoMaxLock);
     }
@@ -624,6 +638,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         _applyNewBoost(p, newBoost);
 
         _writeCheckpoint(msg.sender); // AUDIT FIX #1
+        _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
 
         emit LockExtended(tokenId, _newLockDuration, p.lockEnd);
     }
@@ -660,6 +675,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
         // Update voting power
         _writeCheckpoint(msg.sender);
+        _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
 
         emit AmountIncreased(tokenId, _additionalAmount, p.amount);
     }
@@ -682,6 +698,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         uint256 amount = _clearPosition(tokenId, p);
 
         rewardToken.safeTransfer(msg.sender, amount);
+        _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
         emit Withdrawn(msg.sender, tokenId, amount);
     }
 
@@ -712,6 +729,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         if (toTreasury > 0) rewardToken.safeTransfer(treasury, toTreasury);
         if (recycled > 0) _creditRewardPool(recycled);
         rewardToken.safeTransfer(msg.sender, userReceives);
+        _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
         emit PenaltySplit(tokenId, toTreasury, recycled);
         emit PenaltySentToTreasury(tokenId, toTreasury); // legacy event for compatibility
         emit EarlyWithdrawn(msg.sender, tokenId, userReceives, penalty);
@@ -730,6 +748,8 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         if (p.autoMaxLock) {
             p.lockEnd = uint64(block.timestamp + MAX_LOCK_DURATION);
         }
+
+        _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
     }
 
     // ─── AUDIT FIX #16: JBAC Boost Revalidation ──────────────────────
@@ -895,12 +915,25 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             }
             userTokenId[to] = tokenId;
             _writeCheckpoint(to);
+            _touch(to); // AUDIT R014 M-9: refresh inactivity gate for new NFT holder
         }
 
         return from;
     }
 
     // ─── Internal ─────────────────────────────────────────────────────
+
+    /// @dev AUDIT R014 M-9: Refresh the user-touch timestamp gating
+    ///      `claimUnsettledFor(user)` by the contract owner. Called from every
+    ///      reward-touching entrypoint that materially affects unsettled rewards
+    ///      for the user (claim, getReward, withdraw, increase, lock-extend,
+    ///      auto-max toggle, NFT receive). Restaking-contract round-trips are
+    ///      intentionally NOT touched here so the restaking path remains
+    ///      unchanged — see TegridyRestaking for the per-restaker bookkeeping.
+    function _touch(address user) internal {
+        if (user == address(0)) return;
+        lastActivityAt[user] = block.timestamp;
+    }
 
     // AUDIT FIX C-03: Safe int256 cast — only transfer if accumulated > rewardDebt
     function _getReward(uint256 tokenId, Position storage p) internal returns (uint256) {
@@ -1003,16 +1036,36 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     /// @dev AUDIT FIX v2: Retains unsettled amount on partial payout instead of zeroing
     function claimUnsettled() external nonReentrant whenNotPaused {
         _claimUnsettledInternal(msg.sender);
+        _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
     }
 
     // V2: reconcilePenaltyDust() removed — penalty drain system was dead code
 
     /// @notice AUDIT FIX M-24: Allow anyone to claim unsettled rewards on behalf of a user.
     ///         Prevents rewards from being indefinitely locked if the original recipient never claims.
+    /// @dev AUDIT R014 M-9: The owner branch is now gated by USER_INACTIVITY_GATE — the
+    ///      contract owner can only claim on behalf of `_user` after the user has been
+    ///      inactive (no claim/withdraw/increase/lock-extend/NFT-receive on this
+    ///      contract) for at least 90 days. The user themselves and the restaking
+    ///      contract path are unchanged. Closes the bypass where the owner could
+    ///      front-run an active user and pull their unsettled rewards out from under
+    ///      them.
     function claimUnsettledFor(address _user) external nonReentrant whenNotPaused {
-        // AUDIT FIX: Authorization check — only user, restaking contract, or owner can claim on behalf
-        if (msg.sender != _user && msg.sender != restakingContract && msg.sender != owner()) revert Unauthorized();
-        _claimUnsettledInternal(_user);
+        // AUDIT R014 M-9: owner branch requires 90-day user inactivity. The user
+        // themselves and the restaking contract may always claim on the user's behalf.
+        if (msg.sender == _user || msg.sender == restakingContract) {
+            _claimUnsettledInternal(_user);
+            return;
+        }
+        if (msg.sender == owner()) {
+            // Stale fallback: only after the user has been dormant for the full window.
+            if (lastActivityAt[_user] + USER_INACTIVITY_GATE >= block.timestamp) {
+                revert Unauthorized();
+            }
+            _claimUnsettledInternal(_user);
+            return;
+        }
+        revert Unauthorized();
     }
 
     function _claimUnsettledInternal(address _user) private {
@@ -1173,14 +1226,75 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         emit RewardAdded(_amount);
     }
 
-    /// @notice One-shot setter for the sister TegridyStakingAdmin contract (where the
-    ///         timelocked propose/execute/cancel flow lives). Callable once by owner;
-    ///         after that the address is immutable. Set during deployment after the
-    ///         admin contract is constructed.
+    /// @notice First-time setter for the sister TegridyStakingAdmin contract (where the
+    ///         timelocked propose/execute/cancel flow lives). Callable exactly once by
+    ///         the owner — only when `stakingAdmin == address(0)`. Subsequent
+    ///         replacements MUST go through the timelocked propose/execute path
+    ///         (`proposeAdminReplacement` → `executeAdminReplacement`).
+    /// @dev    AUDIT R014 H-2: Prior version was permanently one-shot, so a buggy or
+    ///         compromised admin contract could never be rotated without redeploying
+    ///         TegridyStaking and migrating all positions. Replaceability is now
+    ///         possible behind the same 48-hour timelock that gates every other
+    ///         admin parameter change.
     function setStakingAdmin(address _admin) external onlyOwner {
         if (_admin == address(0)) revert ZeroAddress();
         if (stakingAdmin != address(0)) revert Unauthorized();
         stakingAdmin = _admin;
+        emit StakingAdminReplaced(address(0), _admin);
+    }
+
+    // ─── AUDIT R014 H-2: Admin contract replaceability ───────────────────
+    /// @notice Timelock key for the admin replacement flow.
+    bytes32 public constant ADMIN_REPLACEMENT = keccak256("STAKING_ADMIN_REPLACEMENT");
+    /// @notice Mandatory delay between propose and execute for an admin swap.
+    uint256 public constant ADMIN_REPLACEMENT_TIMELOCK = 48 hours;
+
+    /// @notice Pending replacement admin address. Zero when no proposal is pending.
+    address public pendingStakingAdmin;
+    /// @notice block.timestamp after which `executeAdminReplacement` is callable.
+    ///         Zero when no proposal is pending.
+    uint256 public adminReplacementReadyAt;
+
+    event StakingAdminReplaced(address indexed oldAdmin, address indexed newAdmin);
+    event StakingAdminReplacementProposed(address indexed newAdmin, uint256 executeAfter);
+    event StakingAdminReplacementCancelled(address indexed proposed);
+
+    /// @notice Propose a replacement TegridyStakingAdmin. Reverts if no admin is set
+    ///         yet — the first-time installation path is `setStakingAdmin`.
+    /// @dev    AUDIT R014 H-2: Mirrors the propose/execute/cancel pattern used by
+    ///         every other timelocked parameter on TegridyStakingAdmin. Held inline
+    ///         on the staking contract (rather than on the admin contract) so a
+    ///         broken or compromised admin contract cannot block its own removal.
+    function proposeAdminReplacement(address _newAdmin) external onlyOwner {
+        if (_newAdmin == address(0)) revert ZeroAddress();
+        if (stakingAdmin == address(0)) revert Unauthorized(); // use setStakingAdmin first
+        if (adminReplacementReadyAt != 0) revert Unauthorized(); // existing proposal pending
+        pendingStakingAdmin = _newAdmin;
+        adminReplacementReadyAt = block.timestamp + ADMIN_REPLACEMENT_TIMELOCK;
+        emit StakingAdminReplacementProposed(_newAdmin, adminReplacementReadyAt);
+    }
+
+    /// @notice Execute a previously proposed admin replacement after the 48-hour delay.
+    function executeAdminReplacement() external onlyOwner {
+        uint256 readyAt = adminReplacementReadyAt;
+        if (readyAt == 0) revert Unauthorized(); // no pending proposal
+        if (block.timestamp < readyAt) revert Unauthorized(); // delay not elapsed
+        address newAdmin = pendingStakingAdmin;
+        if (newAdmin == address(0)) revert ZeroAddress(); // defensive
+        address oldAdmin = stakingAdmin;
+        stakingAdmin = newAdmin;
+        pendingStakingAdmin = address(0);
+        adminReplacementReadyAt = 0;
+        emit StakingAdminReplaced(oldAdmin, newAdmin);
+    }
+
+    /// @notice Cancel a pending admin replacement proposal.
+    function cancelAdminReplacement() external onlyOwner {
+        if (adminReplacementReadyAt == 0) revert Unauthorized();
+        address proposed = pendingStakingAdmin;
+        pendingStakingAdmin = address(0);
+        adminReplacementReadyAt = 0;
+        emit StakingAdminReplacementCancelled(proposed);
     }
 
     modifier onlyAdmin() {
