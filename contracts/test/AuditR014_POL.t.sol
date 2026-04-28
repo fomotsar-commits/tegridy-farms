@@ -148,6 +148,7 @@ contract MockTegridyTWAP {
     function getLatestObservation(address) external view returns (ITegridyTWAP.Observation memory) {
         return ITegridyTWAP.Observation({
             timestamp: latestTs,
+            bypassed: false,
             price0Cumulative: 0,
             price1Cumulative: 0
         });

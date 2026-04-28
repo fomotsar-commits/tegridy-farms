@@ -53,7 +53,9 @@ contract TegridyTWAPTest is Test {
         pair.mint(address(this));
 
         // Deploy TWAP oracle
-        twap = new TegridyTWAP(address(0));
+        // AUDIT R014: TegridyTWAP constructor now takes (factory, sequencerFeed). The
+        // factory binding lets `update()` reject forged-pair addresses via factory.isPair.
+        twap = new TegridyTWAP(address(factory), address(0));
 
         // Give alice tokens for swaps
         tokenA.transfer(alice, 10_000 ether);

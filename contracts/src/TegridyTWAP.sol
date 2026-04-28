@@ -4,11 +4,22 @@ pragma solidity ^0.8.26;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SequencerCheck} from "./lib/SequencerCheck.sol";
 
-/// @title ITegridyPair — Minimal interface for TegridyPair reserve queries
+/// @title ITegridyPair — Minimal interface for TegridyPair reserve + cumulative queries
+/// @dev   AUDIT R014 (oracle layer, Wave-014): extended with `price0CumulativeLast` and
+///        `price1CumulativeLast` so the oracle reads the pair's own time-integrated price
+///        rather than re-deriving it from spot reserves at observation cadence.
 interface ITegridyPair {
     function token0() external view returns (address);
     function token1() external view returns (address);
     function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
+    function price0CumulativeLast() external view returns (uint256);
+    function price1CumulativeLast() external view returns (uint256);
+}
+
+/// @title ITegridyFactory — Minimal interface for pair authenticity lookups
+/// @dev   AUDIT R014: read-only `isPair(address)` used to reject `update(forgedPair)` calls.
+interface ITegridyFactoryForTWAP {
+    function isPair(address pair) external view returns (bool);
 }
 
 /// @title TegridyTWAP — Time-Weighted Average Price Oracle
@@ -58,10 +69,22 @@ abstract contract TWAPAdmin {
 contract TegridyTWAP is TWAPAdmin {
     // ─── Types ───────────────────────────────────────────────────────
 
+    /// @notice AUDIT R014 (oracle layer, Wave-014): widened cumulative slots from
+    ///         uint224 → uint256 to eliminate truncation risk on extreme-imbalance pairs
+    ///         where a single integration step could exceed 2^224 (e.g. an 18-decimal /
+    ///         8-decimal pair holding billions of units, integrated over the maximum
+    ///         allowed gap). The pair-native cumulatives feed in as uint256 already, so
+    ///         we no longer narrow the value before storing it.
+    /// @dev    `bypassed == true` flags an observation that was admitted with the
+    ///         deviation gate skipped because the pair had been dormant for longer than
+    ///         `DEVIATION_BYPASS_AFTER`. Downstream consumers can treat such an
+    ///         observation as a "rebootstrap" data point and require a confirming
+    ///         follow-up before trusting the new baseline.
     struct Observation {
         uint32 timestamp;
-        uint224 price0Cumulative; // token1/token0 cumulative (UQ112x112 * seconds)
-        uint224 price1Cumulative; // token0/token1 cumulative (UQ112x112 * seconds)
+        bool bypassed;
+        uint256 price0Cumulative; // token1/token0 cumulative (UQ112x112 * seconds)
+        uint256 price1Cumulative; // token0/token1 cumulative (UQ112x112 * seconds)
     }
 
     // ─── Constants ───────────────────────────────────────────────────
@@ -130,11 +153,25 @@ contract TegridyTWAP is TWAPAdmin {
     ///         the read. 1h matches Aave V3's default grace for stable assets.
     uint256 public constant SEQUENCER_GRACE_PERIOD = 1 hours;
 
+    // ─── AUDIT R014: pair-authenticity factory ──────────────────────
+    /// @notice Immutable reference to the TegridyFactory whose pairs this oracle will
+    ///         observe. `update(pair)` reverts `UnknownPair()` when
+    ///         `factory.isPair(pair) == false`, which prevents an attacker from
+    ///         instantiating a malicious "pair-shaped" contract that returns crafted
+    ///         cumulative prices and poisons the oracle for any consumer that doesn't
+    ///         rigorously cross-check pair provenance themselves.
+    /// @dev    Stored immutable so the factory cannot be hot-swapped post-deploy.
+    ITegridyFactoryForTWAP public immutable factory;
+
     // ─── Constructor ─────────────────────────────────────────────────
-    /// @param _sequencerFeed AUDIT R062 — Chainlink L2 Sequencer Uptime
-    ///        feed; pass `address(0)` for mainnet / non-L2 deployments
-    ///        to disable gating (no-op).
-    constructor(address _sequencerFeed) {
+    /// @param _factory       AUDIT R014 — TegridyFactory whose pairs this oracle observes.
+    ///                       Must be non-zero; revert otherwise.
+    /// @param _sequencerFeed AUDIT R062 — Chainlink L2 Sequencer Uptime feed; pass
+    ///                       `address(0)` for mainnet / non-L2 deployments to disable
+    ///                       gating (no-op).
+    constructor(address _factory, address _sequencerFeed) {
+        if (_factory == address(0)) revert TWAPZeroAddress();
+        factory = ITegridyFactoryForTWAP(_factory);
         // R062: zero permitted (mainnet / non-L2 = gating disabled).
         sequencerFeed = _sequencerFeed;
     }
@@ -159,13 +196,32 @@ contract TegridyTWAP is TWAPAdmin {
     error InsufficientFee();           // AUDIT L7
     error FeeTooHigh();                // AUDIT L7
     error NoFees();                    // AUDIT L7
+    /// @notice AUDIT R014: caller passed a `pair` that the bound TegridyFactory does
+    ///         not recognise. Prevents oracle poisoning from forged "pair-shaped" contracts.
+    error UnknownPair();
 
     // ─── External ────────────────────────────────────────────────────
 
     /// @notice Record a new price observation for a pair.
     /// @dev    AUDIT L7: when updateFee > 0, the caller must send at least updateFee wei.
     ///         Excess is refunded to caller. Fees accumulate in the contract for owner withdrawal.
+    /// @dev    AUDIT R014 (oracle layer, Wave-014): three structural changes vs. the prior
+    ///         implementation:
+    ///           1. `factory.isPair(pair)` is checked first. A forged pair contract can no
+    ///              longer poison the oracle by returning crafted cumulatives.
+    ///           2. The cumulative price written into the observation is the pair's own
+    ///              `price{0,1}CumulativeLast` — *plus* an extra `spotPrice * elapsedSinceLastPairTouch`
+    ///              term to integrate the price across the idle window between the pair's last
+    ///              swap/mint/burn and now. Without that bridging term, an idle pair would
+    ///              report a cumulative that lags the spot price by up to MAX_STALENESS.
+    ///           3. The Observation now carries a `bypassed` flag set whenever the deviation
+    ///              gate is skipped (DEVIATION_BYPASS_AFTER path), so consumers can detect
+    ///              rebootstrap windows.
     function update(address pair) external payable {
+        // AUDIT R014: factory authentication MUST run before any storage writes or external
+        // reads against the (possibly malicious) pair address.
+        if (!factory.isPair(pair)) revert UnknownPair();
+
         if (updateFee > 0) {
             if (msg.value < updateFee) revert InsufficientFee();
             accumulatedFees += updateFee;
@@ -181,52 +237,57 @@ contract TegridyTWAP is TWAPAdmin {
         }
         if (!canUpdate(pair)) revert PeriodNotElapsed();
 
-        (uint112 reserve0, uint112 reserve1,) = ITegridyPair(pair).getReserves();
+        (uint112 reserve0, uint112 reserve1, uint32 pairBlockTs) = ITegridyPair(pair).getReserves();
         if (reserve0 == 0 || reserve1 == 0) revert NoReserves();
 
         uint32 blockTs = uint32(block.timestamp % 2 ** 32);
         uint256 spotPrice0 = (uint256(reserve1) * Q112) / reserve0;
         uint256 spotPrice1 = (uint256(reserve0) * Q112) / reserve1;
 
-        // Compute cumulative prices with unchecked math (intentional overflow wrapping)
-        uint224 price0Cumulative;
-        uint224 price1Cumulative;
+        // AUDIT R014: pair-native cumulatives + idle-window bridge.
+        // The pair stops integrating between mint/burn/swap/sync calls. If the oracle
+        // observes the pair while it is sitting idle, we must extend the integral up to
+        // `block.timestamp` ourselves using the current spot price (which is exactly what
+        // the pair's _update() would write next). This matches the canonical Uniswap V2
+        // OracleLibrary pattern (`currentCumulativePrices`).
+        uint32 elapsedSinceLastPairTouch;
+        unchecked {
+            elapsedSinceLastPairTouch = blockTs - pairBlockTs;
+        }
+        uint256 pairCum0 = ITegridyPair(pair).price0CumulativeLast();
+        uint256 pairCum1 = ITegridyPair(pair).price1CumulativeLast();
+        uint256 price0Cumulative;
+        uint256 price1Cumulative;
+        unchecked {
+            // Modular addition matches Uniswap V2 wrapping accumulator semantics.
+            price0Cumulative = pairCum0 + (spotPrice0 * uint256(elapsedSinceLastPairTouch));
+            price1Cumulative = pairCum1 + (spotPrice1 * uint256(elapsedSinceLastPairTouch));
+        }
 
+        bool bypassed = false;
         uint256 count = observationCount[pair];
         if (count > 0) {
             uint8 lastIdx = observationIndex[pair] == 0 ? MAX_OBSERVATIONS - 1 : observationIndex[pair] - 1;
             Observation memory last = observations[pair][lastIdx];
 
             // R012 (audit 013 H-1 + H-2): Deviation gate fires from observation #2 onward
-            // (i.e. when count >= 1). The previous implementation gated from #3 (count >= 2)
-            // by deriving `prevSpot0` from cumulatives, which left the *second* observation
-            // unguarded — a flash-loan-controlled second update poisoned the baseline.
-            //
-            // Battle-tested fix: compare incoming spot directly against the lastSpot{0,1}
-            // captured at the prior update (Uniswap V3 OracleLibrary applies its checks
-            // from the very first transformation; we follow the same direction-by-direction
-            // discipline). This also closes H-2: spotPrice1 vs lastSpot1 is checked
-            // symmetrically with spotPrice0 vs lastSpot0.
+            // using the spot prices stored at the previous update (lastSpot{0,1}). This is
+            // direction-symmetric and gates the second observation as well as later ones.
             //
             // Wrap-safe elapsed: `blockTs - last.timestamp` is uint32 modular subtraction
             // (Uniswap V2 pattern). Equivalent to (block.timestamp - last.timestamp) for
-            // gaps < 2^32 seconds, but resilient to the year-2106 uint32 rollover.
+            // gaps < 2^32 seconds, resilient to the year-2106 uint32 rollover.
             uint32 elapsed;
             unchecked {
                 elapsed = blockTs - last.timestamp;
             }
 
-            // M-2 (audit 013): if the pair has been dormant for > DEVIATION_BYPASS_AFTER,
-            // skip the deviation gate so a stale baseline cannot self-brick the oracle.
-            // Anything shorter is treated as a normal cadence and gated.
-            //
-            // AUDIT M-2 (post-remediation triage): when the bypass is used, emit
-            // DeviationBypassed and stamp lastBypassUsed[pair] so downstream consumers
-            // (lending, AMM integrators) can detect a re-bootstrap window and either
-            // cool-off their own price reads or require a follow-up confirmation
-            // observation before trusting the new baseline. The bypass itself remains
-            // — without it the oracle would brick if real price moved >50% during a
-            // dormant period — but it is no longer silent.
+            // M-2 (audit 013): dormancy-bypass — if the pair has been dormant for longer
+            // than DEVIATION_BYPASS_AFTER, skip the deviation gate so a stale baseline
+            // cannot self-brick the oracle when real price has drifted >50%. The deviation
+            // gate is defense-in-depth on top of the new pair-native accumulator: the
+            // accumulator itself already integrates price across the entire idle period,
+            // so the gate should not block legitimate post-dormancy refreshes.
             if (uint256(elapsed) <= DEVIATION_BYPASS_AFTER) {
                 uint256 prev0 = lastSpot0[pair];
                 uint256 prev1 = lastSpot1[pair];
@@ -243,20 +304,14 @@ contract TegridyTWAP is TWAPAdmin {
                     if (deviation1 > MAX_DEVIATION_BPS) revert PriceDeviationTooLarge();
                 }
             } else {
-                // AUDIT M-2: rebootstrap path — gate skipped after dormancy
+                // AUDIT M-2 / R014: rebootstrap path — gate skipped after dormancy.
+                // Mark the observation as `bypassed` so consumers can see the flag in
+                // `getLatestObservation()` without having to re-derive it from
+                // `lastBypassUsed`.
+                bypassed = true;
                 lastBypassUsed[pair] = block.timestamp;
                 emit DeviationBypassed(pair, elapsed, spotPrice0, spotPrice1);
             }
-
-            // Unchecked accumulation — intentional overflow wrapping (Uniswap V2 pattern).
-            // Feeding a wrap-safe `elapsed` maintains correctness across the uint32 rollover.
-            unchecked {
-                price0Cumulative = last.price0Cumulative + uint224(spotPrice0 * elapsed);
-                price1Cumulative = last.price1Cumulative + uint224(spotPrice1 * elapsed);
-            }
-        } else {
-            price0Cumulative = 0;
-            price1Cumulative = 0;
         }
 
         // R012: capture the spot prices for the next deviation gate (H-1/H-2).
@@ -266,6 +321,7 @@ contract TegridyTWAP is TWAPAdmin {
         uint8 idx = observationIndex[pair];
         observations[pair][idx] = Observation({
             timestamp: blockTs,
+            bypassed: bypassed,
             price0Cumulative: price0Cumulative,
             price1Cumulative: price1Cumulative
         });
@@ -297,13 +353,15 @@ contract TegridyTWAP is TWAPAdmin {
         bool isToken0 = tokenIn == token0;
         if (!isToken0 && tokenIn != token1) revert InvalidToken();
 
-        (uint224 priceCumStart, uint224 priceCumEnd, uint32 elapsed) =
+        (uint256 priceCumStart, uint256 priceCumEnd, uint32 elapsed) =
             _getCumulativePricesOverPeriod(pair, isToken0, period);
 
-        // AUDIT FIX: unchecked subtraction for correct modular arithmetic on wrapped cumulatives
+        // AUDIT R014 / FIX: unchecked subtraction for correct modular arithmetic on wrapped
+        // cumulatives. Both operands are uint256 now (widened from uint224) so consumers
+        // never lose precision to truncation on extreme-imbalance pairs.
         uint256 priceDiff;
         unchecked {
-            priceDiff = uint256(uint224(priceCumEnd - priceCumStart));
+            priceDiff = priceCumEnd - priceCumStart;
         }
         amountOut = (amountIn * priceDiff) / (uint256(elapsed) * Q112);
     }
@@ -373,10 +431,28 @@ contract TegridyTWAP is TWAPAdmin {
         emit FeesWithdrawn(to, amount);
     }
 
+    /// @dev AUDIT R014 (oracle layer, Wave-014): widened cumulative returns from uint224 → uint256
+    ///      and made the "is observation before target" comparison wrap-aware. The previous
+    ///      `obs.timestamp <= targetTimestamp` direct comparison broke once `targetTimestamp`
+    ///      itself wrapped past zero (year-2106 rollover): every observation that lived BEFORE
+    ///      the wrap had `timestamp` of order 2^32 and would compare *greater* than a
+    ///      post-wrap `targetTimestamp`, so the lookup found nothing and fell back to the
+    ///      oldest entry — silently widening the TWAP window past `period`.
+    ///
+    ///      Wrap-aware definition (Uniswap V2 / V3 oracle pattern): an observation is
+    ///      "before" the target iff the unsigned-mod-2^32 distance from `obs.timestamp` to
+    ///      `targetTimestamp` is less than 2^31 (half the modulus). This treats time as a
+    ///      cyclic group and works correctly across the rollover, provided the period is
+    ///      itself less than 2^31 seconds (~68 years) — see CONSTRAINT below.
+    ///
+    /// @dev CONSTRAINT: `period` MUST be < 2^31 seconds. The constructor / consult()
+    ///      validation already enforces a much tighter bound (MAX_OBSERVATIONS *
+    ///      MIN_PERIOD = 12h), so this is an architectural invariant rather than a runtime
+    ///      check.
     function _getCumulativePricesOverPeriod(address pair, bool isToken0, uint256 period)
         internal
         view
-        returns (uint224 priceCumStart, uint224 priceCumEnd, uint32 elapsed)
+        returns (uint256 priceCumStart, uint256 priceCumEnd, uint32 elapsed)
     {
         uint256 count = observationCount[pair];
         if (count < 2) revert InsufficientObservations();
@@ -397,7 +473,11 @@ contract TegridyTWAP is TWAPAdmin {
         }
         if (uint256(staleness) > MAX_STALENESS) revert StaleOracle();
 
-        uint32 targetTimestamp = latest.timestamp - uint32(period);
+        uint32 targetTimestamp;
+        unchecked {
+            // uint32 modular subtraction — safe across the year-2106 rollover.
+            targetTimestamp = latest.timestamp - uint32(period);
+        }
         Observation memory best;
         bool found = false;
         uint32 bestDiff = type(uint32).max;
@@ -410,8 +490,16 @@ contract TegridyTWAP is TWAPAdmin {
             Observation memory obs = observations[pair][checkIdx];
             if (obs.timestamp == 0) continue;
 
-            if (obs.timestamp <= targetTimestamp) {
-                uint32 diff = targetTimestamp - obs.timestamp;
+            // AUDIT R014: wrap-aware "before" test. `targetTimestamp - obs.timestamp` is
+            // computed unchecked in uint32 (modular). If the modular result is < 2^31 we
+            // are in the half-circle where `obs` precedes the target, which is the
+            // canonical cyclic-time ordering used by Uniswap V2/V3 oracles. Constraint:
+            // `period < 2^31 seconds` — already enforced by PeriodTooLong (12h ceiling).
+            uint32 diff;
+            unchecked {
+                diff = targetTimestamp - obs.timestamp;
+            }
+            if (diff < (uint32(1) << 31)) {
                 if (diff < bestDiff) {
                     bestDiff = diff;
                     best = obs;
@@ -431,7 +519,9 @@ contract TegridyTWAP is TWAPAdmin {
             if (best.timestamp == 0 || best.timestamp == latest.timestamp) revert InsufficientObservations();
         }
 
-        elapsed = latest.timestamp - best.timestamp;
+        unchecked {
+            elapsed = latest.timestamp - best.timestamp;
+        }
         if (elapsed == 0) revert InsufficientObservations();
 
         if (isToken0) {

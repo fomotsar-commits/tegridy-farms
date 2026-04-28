@@ -50,6 +50,16 @@ contract TegridyFactory is TimelockAdmin {
     mapping(address => mapping(address => address)) public getPair;
     address[] public allPairs;
 
+    /// @notice AUDIT R014 (oracle layer, Wave-014): O(1) authenticity lookup for any
+    ///         address claiming to be a TegridyPair created by THIS factory. Used by
+    ///         `TegridyTWAP.update()` to reject `update(forgedPair)` calls — a forged
+    ///         pair could otherwise return arbitrary cumulative prices and poison the
+    ///         oracle. `getPair[token0][token1]` was previously the only authenticity
+    ///         signal, but it requires the caller to know token0/token1 a priori, which
+    ///         a TWAP doesn't have. `isPair[pair]` lets the oracle authenticate by pair
+    ///         address alone in a single SLOAD.
+    mapping(address => bool) public isPair;
+
     /// @notice R064 (LOW): hard ceiling on the total number of pairs this
     ///         factory will create. The on-chain `allPairs` array is
     ///         push-only with no enumeration helper exposed; once it grows
@@ -172,6 +182,9 @@ contract TegridyFactory is TimelockAdmin {
         TegridyPair(pair).initialize(token0, token1);
         getPair[token0][token1] = pair;
         getPair[token1][token0] = pair; // Populate reverse mapping
+        // AUDIT R014: O(1) pair-authenticity registry consumed by TegridyTWAP.update()
+        // to reject forged-pair sources that would otherwise poison the oracle.
+        isPair[pair] = true;
         allPairs.push(pair);
 
         emit PairCreated(token0, token1, pair, allPairs.length);

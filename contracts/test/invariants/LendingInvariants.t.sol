@@ -68,10 +68,14 @@ contract LendingR061Pair {
 ///      which the handler never enables (always passes 0). Returning a
 ///      non-zero, fresh observation lets the constructor succeed regardless.
 contract LendingR061TWAP {
+    // AUDIT R014 (oracle layer, Wave-014): mirror the widened Observation layout
+    // (uint256 cumulatives + bypassed flag) so the mock keeps interface-compatible
+    // with TegridyLending's ITegridyTWAP.
     struct Observation {
         uint32 timestamp;
-        uint224 price0Cumulative;
-        uint224 price1Cumulative;
+        bool bypassed;
+        uint256 price0Cumulative;
+        uint256 price1Cumulative;
     }
     function consult(address, address, uint256 amountIn, uint256) external pure returns (uint256) {
         return amountIn / 1000; // arbitrary 1 TOWELI = 0.001 ETH

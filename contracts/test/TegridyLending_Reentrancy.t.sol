@@ -240,7 +240,9 @@ contract TegridyLending_ReentrancyTest is Test {
         // R003: TegridyLending now consults a TWAP for the optional ETH-floor.
         // Reentrancy tests use minPositionETHValue=0 so the TWAP is never
         // queried — an unbootstrapped instance is fine.
-        TegridyTWAP twap = new TegridyTWAP(address(0));
+        // AUDIT R014: TegridyTWAP requires a factory; this test path never calls
+        // twap.update(), so any non-zero factory address is fine as a placeholder.
+        TegridyTWAP twap = new TegridyTWAP(address(this), address(0));
         lending = new TegridyLending(treasury, 500, address(weth), address(pair), address(twap), address(0));
 
         // AUDIT R014: whitelist the staking contract so createLoanOffer accepts it as

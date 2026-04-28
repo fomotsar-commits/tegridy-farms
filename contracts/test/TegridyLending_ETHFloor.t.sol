@@ -43,26 +43,59 @@ contract MockWETHETHFloor {
 
 /// @dev Mutable TegridyPair mock. Tests seed reserves so the spot price is
 ///      deterministic, then can shift reserves to simulate a price drop.
+/// @dev AUDIT R014: extended with `price0CumulativeLast` / `price1CumulativeLast`
+///      and a real `blockTimestampLast` that only advances on setReserves().
+///      Mirrors TegridyPair._update() — pre-update reserves are integrated over
+///      the elapsed seconds, then the new reserves and timestamp are written.
+///      Without a sticky `blockTimestampLast`, every TWAP read would compute
+///      `elapsedSinceLastPairTouch == 0` and the cumulatives would never grow.
 contract MockTegridyPairETHFloor {
+    uint256 private constant Q112 = 2 ** 112;
+
     address public immutable token0;
     address public immutable token1;
     uint112 public reserve0;
     uint112 public reserve1;
+    uint32 public blockTimestampLast;
+    uint256 public price0CumulativeLast;
+    uint256 public price1CumulativeLast;
 
     constructor(address _token0, address _token1, uint112 _r0, uint112 _r1) {
         token0 = _token0;
         token1 = _token1;
         reserve0 = _r0;
         reserve1 = _r1;
+        blockTimestampLast = uint32(block.timestamp);
     }
 
     function getReserves() external view returns (uint112, uint112, uint32) {
-        return (reserve0, reserve1, uint32(block.timestamp));
+        return (reserve0, reserve1, blockTimestampLast);
     }
 
     function setReserves(uint112 _r0, uint112 _r1) external {
+        // Integrate the pre-update reserves over the elapsed window — same
+        // canonical V2 pattern as TegridyPair._update().
+        uint32 nowTs = uint32(block.timestamp);
+        uint32 elapsed;
+        unchecked { elapsed = nowTs - blockTimestampLast; }
+        if (elapsed > 0 && reserve0 != 0 && reserve1 != 0) {
+            unchecked {
+                price0CumulativeLast += (uint256(reserve1) * Q112 / reserve0) * uint256(elapsed);
+                price1CumulativeLast += (uint256(reserve0) * Q112 / reserve1) * uint256(elapsed);
+            }
+        }
         reserve0 = _r0;
         reserve1 = _r1;
+        blockTimestampLast = nowTs;
+    }
+}
+
+/// @dev AUDIT R014: minimal factory stub for tests that bypass TegridyFactory.
+///      Returns isPair=true for any pair the test owner has explicitly tagged.
+contract MockFactoryForTWAP {
+    mapping(address => bool) public isPair;
+    function tagPair(address _pair) external {
+        isPair[_pair] = true;
     }
 }
 
@@ -121,7 +154,11 @@ contract TegridyLending_ETHFloorTest is Test {
         // wrong cumulative warps when multiple `vm.warp` calls are chained in
         // a single function. `skip()` calls `vm.getBlockTimestamp()` cheatcode
         // each invocation, which is opaque to the optimizer.
-        twap = new TegridyTWAP(address(0));
+        // AUDIT R014: TegridyTWAP now requires a factory whose isPair() vouches
+        // for the pair address. Use a stub factory that whitelists our mock pair.
+        MockFactoryForTWAP fac = new MockFactoryForTWAP();
+        fac.tagPair(address(pair));
+        twap = new TegridyTWAP(address(fac), address(0));
         twap.update(address(pair));
         skip(16 minutes);
         twap.update(address(pair));
@@ -353,7 +390,10 @@ contract TegridyLending_ETHFloorTest is Test {
         );
 
         // Bootstrap a fresh TWAP for the inverse pair — same pattern as setUp.
-        TegridyTWAP inverseTwap = new TegridyTWAP(address(0));
+        // AUDIT R014: stub factory whitelist for the new isPair() check.
+        MockFactoryForTWAP inverseFac = new MockFactoryForTWAP();
+        inverseFac.tagPair(address(inversePair));
+        TegridyTWAP inverseTwap = new TegridyTWAP(address(inverseFac), address(0));
         inverseTwap.update(address(inversePair));
         skip(16 minutes);
         inverseTwap.update(address(inversePair));

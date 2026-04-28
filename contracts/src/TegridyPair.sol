@@ -18,9 +18,13 @@ import {FixedPointMathLib} from "solmate/utils/FixedPointMathLib.sol";
 ///
 ///         LP tokens (this contract is also an ERC20) represent share of pool.
 ///
-/// @dev AUDIT NOTE #64: TWAP (time-weighted average price) accumulators are intentionally not
-///      implemented. Price oracle functionality is out of scope for this AMM. External consumers
-///      requiring TWAP should use Chainlink oracles or an off-chain indexer.
+/// @dev AUDIT R014 (oracle layer, Wave-014): TWAP cumulative price accumulators are now
+///      implemented in `_update()` using the canonical Uniswap V2 pattern (UQ112x112 fixed-point,
+///      intentional unchecked overflow wrapping). `price0CumulativeLast` / `price1CumulativeLast`
+///      are read by `TegridyTWAP.update()` so the oracle stops sampling spot reserves only at
+///      observation cadence and instead receives the integral of price over wall-clock time.
+///      This closes the "stale-pair drift" footgun where an idle pair's TWAP could lag the spot
+///      price for an entire MIN_PERIOD between updates.
 /// @dev AUDIT NOTE #65: EIP-2612 permit is not supported on LP tokens. Adding permit would require
 ///      inheriting ERC20Permit, which is deferred to a future version to avoid redeployment risk.
 /// @dev AUDIT FIX C-01/C-02: Removed decimal normalization entirely. K-invariant now uses raw
@@ -28,9 +32,7 @@ import {FixedPointMathLib} from "solmate/utils/FixedPointMathLib.sol";
 ///      and mint()/burn().
 /// @dev AUDIT FIX (critique 5.6 / battle-tested): blockTimestampLast is now written on every
 ///      _update() for Uniswap V2 interface parity. Third-party integrators performing freshness
-///      checks against this timestamp work correctly. Cumulative price accumulators
-///      (price0CumulativeLast, price1CumulativeLast) remain out of scope — consumers requiring
-///      TWAP should use TegridyTWAP or Chainlink.
+///      checks against this timestamp work correctly.
 /// @dev SECURITY NOTE: ERC-777 tokens and tokens with transfer callbacks are NOT supported.
 ///      The swap() function follows the Uniswap V2 pattern of transferring tokens out before
 ///      updating reserves. While nonReentrant prevents re-entering THIS pair, tokens with
@@ -55,6 +57,21 @@ contract TegridyPair is ERC20, ReentrancyGuard {
     uint32 public blockTimestampLast;
 
     uint256 public kLast; // reserve0 * reserve1, as of immediately after the most recent liquidity event
+
+    /// @notice AUDIT R014 (oracle layer, Wave-014): Uniswap V2-style cumulative price
+    ///         accumulators. Each is the integral of the spot price (UQ112x112 fixed-point)
+    ///         over wall-clock seconds since pair creation, with intentional uint256
+    ///         overflow wrapping (the canonical V2 pattern — consumers compute differences,
+    ///         which remain correct modulo 2^256). Read by `TegridyTWAP` to compute time-
+    ///         weighted prices that include intra-update drift, so a long-idle pair cannot
+    ///         carry a stale spot price into the oracle.
+    uint256 public price0CumulativeLast;
+    uint256 public price1CumulativeLast;
+
+    /// @dev AUDIT R014: UQ112x112 scale factor matching Uniswap V2. Used inside `_update()`
+    ///      to express `reserveOther / reserveThis` as a uint224 fixed-point number that
+    ///      fits inside the uint256 cumulative slot when multiplied by `timeElapsed`.
+    uint256 private constant Q112 = 2 ** 112;
 
     uint256 private constant MINIMUM_LIQUIDITY = 1000;
 
@@ -84,9 +101,9 @@ contract TegridyPair is ERC20, ReentrancyGuard {
     /// @notice Returns the current reserve balances and last update timestamp.
     /// @dev AUDIT FIX (critique 5.6 / battle-tested): _blockTimestampLast is the timestamp of
     ///      the last _update() call (Uniswap V2 parity). Integrators performing freshness checks
-    ///      against this value work correctly. Cumulative price accumulators
-    ///      (price0CumulativeLast, price1CumulativeLast) are NOT implemented — use TegridyTWAP
-    ///      or Chainlink for TWAP data.
+    ///      against this value work correctly.
+    /// @dev AUDIT R014: cumulative price accumulators are now exposed as
+    ///      `price0CumulativeLast()` / `price1CumulativeLast()` and updated inside `_update()`.
     function getReserves() public view returns (uint112 _reserve0, uint112 _reserve1, uint32 _blockTimestampLast) {
         _reserve0 = reserve0;
         _reserve1 = reserve1;
@@ -291,11 +308,43 @@ contract TegridyPair is ERC20, ReentrancyGuard {
     ///      Tokens with supply exceeding uint112.max are not supported.
     /// @dev AUDIT FIX (critique 5.6 / battle-tested): blockTimestampLast is written on every
     ///      update for Uniswap V2 interface parity.
+    /// @dev AUDIT R014 (oracle layer, Wave-014): cumulative price accumulators are integrated
+    ///      using the PRE-update reserves × elapsed seconds. This is the canonical Uniswap V2
+    ///      pattern — the cumulative records the time-weighted spot price *between the previous
+    ///      _update() and now*, which is exactly the integrand TegridyTWAP needs to subtract
+    ///      across two observations to derive the time-weighted average. Math performed in
+    ///      `unchecked` so the uint256 cumulative wraps modulo 2^256, matching V2 semantics —
+    ///      consumers always work with differences, which remain correct under modular wrap.
     function _update(uint256 balance0, uint256 balance1) private {
         require(balance0 <= type(uint112).max && balance1 <= type(uint112).max, "OVERFLOW");
+
+        // AUDIT R014: capture pre-update reserves and integrate cumulative prices.
+        // `_reserveOther / _reserveThis` is the spot price at t = blockTimestampLast,
+        // and we multiply by the elapsed seconds since that timestamp to add the
+        // rectangular integral contribution to the cumulative.
+        uint32 _blockTimestamp = uint32(block.timestamp);
+        uint32 timeElapsed;
+        unchecked {
+            // uint32 modular subtraction (Uniswap V2 pattern) — wrap-safe across the
+            // year-2106 timestamp rollover.
+            timeElapsed = _blockTimestamp - blockTimestampLast;
+        }
+        uint112 _reserve0 = reserve0;
+        uint112 _reserve1 = reserve1;
+        if (timeElapsed > 0 && _reserve0 != 0 && _reserve1 != 0) {
+            unchecked {
+                // Each `(uint256(other) * Q112) / this` fits in uint224 (≤ ~2^224 since
+                // reserves are uint112). Multiplying by uint32 timeElapsed stays well
+                // under uint256 for any realistic interval, but we keep the addition
+                // `unchecked` to allow the canonical V2 wrapping accumulator semantics.
+                price0CumulativeLast += (uint256(_reserve1) * Q112 / _reserve0) * timeElapsed;
+                price1CumulativeLast += (uint256(_reserve0) * Q112 / _reserve1) * timeElapsed;
+            }
+        }
+
         reserve0 = uint112(balance0);
         reserve1 = uint112(balance1);
-        blockTimestampLast = uint32(block.timestamp);
+        blockTimestampLast = _blockTimestamp;
         emit Sync(reserve0, reserve1);
     }
 

@@ -23,9 +23,15 @@ contract DeployTWAPScript is Script {
         //             SEQUENCER_FEED env; address(0) on mainnet / non-L2
         //             (no-op). See lib/SequencerCheck.sol for canonical
         //             Arbitrum / OP / Base feed addresses.
+        // AUDIT R014: TegridyTWAP now requires a TegridyFactory address whose
+        //             isPair() vouches for any pair passed to update(). Set
+        //             FACTORY env to the deployed TegridyFactory.
+        address FACTORY = vm.envAddress("FACTORY");
+        require(FACTORY != address(0), "FACTORY must be set");
         address SEQUENCER_FEED = vm.envOr("SEQUENCER_FEED", address(0));
-        TegridyTWAP twap = new TegridyTWAP(SEQUENCER_FEED);
+        TegridyTWAP twap = new TegridyTWAP(FACTORY, SEQUENCER_FEED);
         console.log("1. TegridyTWAP deployed:", address(twap));
+        console.log("   bound to TegridyFactory:", FACTORY);
 
         vm.stopBroadcast();
 

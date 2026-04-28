@@ -104,10 +104,11 @@ contract R062SequencerCheckTest is Test {
 
         // Sequencer is up, started long ago (well past the grace window).
         seq = new MockSequencerFeed(0, block.timestamp - 7 days);
-        twap = new TegridyTWAP(address(seq));
+        // AUDIT R014: TegridyTWAP constructor now takes (factory, sequencerFeed).
+        twap = new TegridyTWAP(address(factory), address(seq));
 
         // No-feed twap to confirm address(0) → no-op (mainnet posture).
-        twapNoFeed = new TegridyTWAP(address(0));
+        twapNoFeed = new TegridyTWAP(address(factory), address(0));
 
         // Bootstrap 2 observations on each TWAP so consult() is callable.
         _bootstrap(twap);

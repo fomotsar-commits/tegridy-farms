@@ -122,7 +122,10 @@ contract TegridyLendingTest is Test {
         // `minPositionETHValue = 0`, so `_positionETHValue` is never invoked
         // and the TWAP never needs to be bootstrapped. Tests that exercise
         // the floor live in TegridyLending_ETHFloor.t.sol.
-        TegridyTWAP twap = new TegridyTWAP(address(0));
+        // AUDIT R014: TegridyTWAP requires a factory; this test path never calls
+        // twap.update() (minPositionETHValue == 0), so any non-zero factory is fine.
+        // Use the contract address itself as a placeholder — isPair() is unused here.
+        TegridyTWAP twap = new TegridyTWAP(address(this), address(0));
         lending = new TegridyLending(treasury, 500, address(weth), address(pair), address(twap), address(0)); // 5% protocol fee
 
         // AUDIT R014: whitelist the staking contract so createLoanOffer accepts it as

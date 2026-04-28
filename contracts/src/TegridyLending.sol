@@ -46,10 +46,14 @@ interface ITegridyPair {
 ///      TWAP's internal MAX_STALENESS check also reverts, but we surface a typed
 ///      error here so consumers can disambiguate).
 interface ITegridyTWAP {
+    /// @dev AUDIT R014 (oracle layer, Wave-014): cumulative slots widened uint224 → uint256
+    ///      to mirror the TegridyTWAP storage layout. Adds `bypassed` flag downstream
+    ///      consumers can read to detect a rebootstrap-window observation.
     struct Observation {
         uint32 timestamp;
-        uint224 price0Cumulative;
-        uint224 price1Cumulative;
+        bool bypassed;
+        uint256 price0Cumulative;
+        uint256 price1Cumulative;
     }
     function consult(address pair, address tokenIn, uint256 amountIn, uint256 period)
         external view returns (uint256 amountOut);
