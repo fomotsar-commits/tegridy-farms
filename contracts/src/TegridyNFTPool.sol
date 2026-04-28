@@ -51,6 +51,16 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     uint256 public pendingFeeBps;
     uint256 public pendingFeeBpsExecuteAfter;
 
+    // ─── AUDIT R014 M-4: same-block remove-after-swap front-run defense ─
+    /// @notice Block number of the most recent swap (BUY or SELL). LP cannot
+    ///         call `removeLiquidity` in the same block — closes the sandwich
+    ///         vector where an owner observes a profitable swap in the
+    ///         mempool, lets it land, and removes the freshly accumulated
+    ///         ETH/NFTs in the same block (front-running the next LP-share
+    ///         settlement or another LP's deposit). Pattern: Uniswap V2
+    ///         block-locked LP burn / Sudoswap V2 same-block guard.
+    uint256 public lastSwapBlock;
+
     // ─── Constants ──────────────────────────────────────────────────────
     uint256 public constant MAX_FEE_BPS = 9000;       // 90% max LP fee
     uint256 public constant MAX_PROTOCOL_FEE_BPS = 1000; // 10% max protocol fee
@@ -71,6 +81,10 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     error NotFactory();
     error TimelockNotElapsed();
     error NoPendingChange();
+    /// @notice AUDIT R014 M-4: thrown by `removeLiquidity` when called in the
+    ///         same block as a swap. LP must wait one block to remove
+    ///         liquidity after any pool swap (sandwich-MEV defense).
+    error WaitOneBlock();
 
     // ─── Events ─────────────────────────────────────────────────────────
     event PoolInitialized(
@@ -220,6 +234,10 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
             _sendETH(msg.sender, excess);
         }
 
+        // AUDIT R014 M-4: stamp the block so LP cannot pull liquidity in the
+        // same block as a swap (same-block remove-after-swap front-run).
+        lastSwapBlock = block.number;
+
         emit SwapETHForNFTs(msg.sender, tokenIds, inputAmount);
     }
 
@@ -261,6 +279,10 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         // Pay seller
         _sendETH(msg.sender, outputAmount);
 
+        // AUDIT R014 M-4: stamp the block so LP cannot pull liquidity in the
+        // same block as a swap (same-block remove-after-swap front-run).
+        lastSwapBlock = block.number;
+
         emit SwapNFTsForETH(msg.sender, tokenIds, outputAmount);
     }
 
@@ -280,10 +302,19 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     /// @notice Remove ETH and/or NFTs from the pool (owner only)
     /// @param tokenIds NFT token IDs to withdraw
     /// @param ethAmount Amount of ETH to withdraw
+    /// @dev AUDIT R014 M-4: reverts with `WaitOneBlock` if called in the same
+    ///      block as a swap. Blocks the same-block remove-after-swap MEV play
+    ///      where the owner observes a profitable swap in the mempool, lets it
+    ///      land, and pulls the freshly accumulated proceeds before any other
+    ///      LP / quoter can react. Pattern: Uniswap V2 block-locked LP burn.
     function removeLiquidity(
         uint256[] calldata tokenIds,
         uint256 ethAmount
     ) external onlyOwner nonReentrant {
+        // AUDIT R014 M-4: same-block-as-swap defense — must run before any
+        // state read/write so the revert is observable and cheap.
+        if (block.number <= lastSwapBlock) revert WaitOneBlock();
+
         // Withdraw NFTs
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint256 tokenId = tokenIds[i];

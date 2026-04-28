@@ -56,6 +56,13 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///         Reverts when called outside CLOSED phase (prevents mid-ALLOWLIST
     ///         exclusion of pending claimers and atomic swap-mint-swap by the owner).
     error RootRotationBlocked();
+    /// @notice AUDIT R014 H-8: thrown by `setMintPhase` while a merkle-root
+    ///         rotation proposal is pending. The propose/execute window for
+    ///         the root must remain in a non-active phase (CLOSED / CANCELLED
+    ///         / paused) for its full 24h timelock — letting the owner toggle
+    ///         the phase to ALLOWLIST mid-window enables a smuggle path where
+    ///         pending rotation lands inside an active mint.
+    error MerkleRotationPending();
 
     event InitializedV2(
         address indexed creator,
@@ -126,6 +133,19 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     address public platformFeeRecipient;
     uint16 public platformFeeBps;
 
+    /// @notice WETH9 address used by `WETHFallbackLib.safeTransferETHOrWrap`
+    ///         for refunds, withdraw splits, and refund payouts.
+    /// @dev    AUDIT R014 L-4 (single-write invariant): `weth` is set exactly
+    ///         once inside `initialize()` (gated by the OZ Initializable
+    ///         `initializer` modifier — re-init reverts) and is never mutated
+    ///         elsewhere in this contract. There is intentionally NO setter:
+    ///         the address is the WETH9 the factory wired at clone-time and a
+    ///         post-init swap would silently break refund/withdraw routing
+    ///         (potentially diverting ETH to an attacker-controlled fake-WETH
+    ///         that consumes deposits but blocks withdraw). Clones cannot use
+    ///         the `immutable` keyword; this comment is the equivalent
+    ///         security guarantee. Anyone adding a setter must justify it
+    ///         under audit, since doing so reopens this attack surface.
     address public weth;
 
     mapping(address => uint256) public mintedPerWallet;
@@ -402,6 +422,14 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         // mints whose cancel path is already permanently blocked by `withdrawn=true`,
         // reproducing the H9 bypass. Lock phase to CLOSED after withdraw.
         if (withdrawn && phase != MintPhase.CLOSED) revert WithdrawFailed();
+        // AUDIT R014 H-8: while a merkle-root rotation is queued, freeze phase
+        // changes. Otherwise the owner could:
+        //   1. propose root rotation while CLOSED (allowed by _canRotateMerkleRoot)
+        //   2. setMintPhase(ALLOWLIST) — start active mint with old root
+        //   3. wait until 24h elapses and execute the rotation mid-mint
+        // ...exposing exactly the in-flight-claimer exclusion the timelock was
+        // meant to prevent. Owner must `cancelMerkleRoot` first to unfreeze.
+        if (_executeAfter[MERKLE_ROOT_CHANGE] != 0) revert MerkleRotationPending();
         if (phase == MintPhase.DUTCH_AUCTION && dutchDuration == 0) {
             revert DutchAuctionNotActive();
         }
