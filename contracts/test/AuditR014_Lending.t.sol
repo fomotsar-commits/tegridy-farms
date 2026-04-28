@@ -42,29 +42,56 @@ contract R014MockWETH {
 
 /// @dev Configurable TegridyPair-shaped reserve mock used by the floor / TWAP.
 contract R014MockPair {
+    uint256 private constant Q112 = 2 ** 112;
+
     address public immutable token0;
     address public immutable token1;
     uint112 public reserve0;
     uint112 public reserve1;
+    // AUDIT R014 oracle layer: TegridyTWAP.update() now reads pair-native
+    // `price{0,1}CumulativeLast` and computes `elapsedSinceLastPairTouch`
+    // from `blockTimestampLast`. We mirror TegridyPair._update()'s wrap
+    // arithmetic so cumulatives advance the same way the real pair does.
+    uint32 public blockTimestampLast;
+    uint256 public price0CumulativeLast;
+    uint256 public price1CumulativeLast;
+
     constructor(address _t0, address _t1, uint112 _r0, uint112 _r1) {
         token0 = _t0; token1 = _t1;
         reserve0 = _r0; reserve1 = _r1;
+        blockTimestampLast = uint32(block.timestamp);
     }
     function getReserves() external view returns (uint112, uint112, uint32) {
-        return (reserve0, reserve1, uint32(block.timestamp));
+        return (reserve0, reserve1, blockTimestampLast);
     }
     function setReserves(uint112 _r0, uint112 _r1) external {
-        reserve0 = _r0; reserve1 = _r1;
+        // Integrate pre-update reserves over the elapsed window — canonical V2 pattern.
+        uint32 nowTs = uint32(block.timestamp);
+        uint32 elapsed;
+        unchecked { elapsed = nowTs - blockTimestampLast; }
+        if (elapsed > 0 && reserve0 != 0 && reserve1 != 0) {
+            unchecked {
+                price0CumulativeLast += (uint256(reserve1) * Q112 / reserve0) * uint256(elapsed);
+                price1CumulativeLast += (uint256(reserve0) * Q112 / reserve1) * uint256(elapsed);
+            }
+        }
+        reserve0 = _r0;
+        reserve1 = _r1;
+        blockTimestampLast = nowTs;
     }
 }
 
 /// @dev TWAP shim returning a synthetic `lastBypassUsed` so we can drive the
 ///      bypass-cooldown branch without warping past DEVIATION_BYPASS_AFTER.
 contract R014BypassTWAP {
+    // AUDIT R014 oracle layer: Observation cumulatives widened to uint256 +
+    // a `bypassed` flag tagging dormancy-rebootstrap samples. Mirror the
+    // ITegridyTWAP layout used by TegridyLending so abi.decode matches.
     struct Observation {
         uint32 timestamp;
-        uint224 price0Cumulative;
-        uint224 price1Cumulative;
+        uint256 price0Cumulative;
+        uint256 price1Cumulative;
+        bool bypassed;
     }
     address public immutable pair;
     address public immutable toweli;
@@ -91,6 +118,17 @@ contract R014BypassTWAP {
     {
         require(tokenIn == toweli, "wrong token");
         return (amountIn * ETH_PER_TOWELI_NUM) / ETH_PER_TOWELI_DEN;
+    }
+}
+
+/// @dev AUDIT R014 oracle layer: minimal TegridyFactory stub for tests bypassing the real
+///      factory. TegridyTWAP.update() now requires `factory.isPair(target) == true`. Mirror
+///      of MockFactoryForTWAP in TegridyLending_ETHFloor.t.sol — duplicated to keep this
+///      suite self-contained without cross-file imports.
+contract R014MockFactoryForTWAP {
+    mapping(address => bool) public isPair;
+    function tagPair(address _pair) external {
+        isPair[_pair] = true;
     }
 }
 
@@ -142,7 +180,12 @@ contract AuditR014LendingTest is Test {
         staking = new TegridyStaking(address(toweli), address(jbac), treasury, 0.001 ether);
 
         // Bootstrap the TWAP with three observations so consult() over 30 minutes is well-defined.
-        twap = new TegridyTWAP(address(0));
+        // AUDIT R014 oracle layer: TegridyTWAP now requires a factory whose isPair() vouches
+        // for every `update()` target — see MockFactoryForTWAP in TegridyLending_ETHFloor.t.sol.
+        // We mirror the same pattern inline so this test stays self-contained.
+        R014MockFactoryForTWAP fac = new R014MockFactoryForTWAP();
+        fac.tagPair(address(pair));
+        twap = new TegridyTWAP(address(fac), address(0));
         twap.update(address(pair));
         skip(16 minutes);
         twap.update(address(pair));

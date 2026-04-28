@@ -307,15 +307,18 @@ contract Audit195Referral is Test {
     }
 
     function test_circularReferral_beyondDepth_notDetected() public {
-        // Build a chain longer than CIRCULAR_DEPTH (25 after AUDIT TF-17).
+        // Build a chain longer than CIRCULAR_DEPTH.
         // A cycle strictly deeper than the depth constant is still NOT detected —
         // that's the accepted cost of keeping the walk gas-bounded.
-        // Old depth was 10; Spartan flagged that as trivially bypassable by a sybil
-        // ring of 11 addresses, so depth was raised to 25. We prove here that a
-        // legitimate 27-deep chain (with a cycle at the tail) still evades detection,
-        // which is acceptable because sybil rings of 27+ addresses are economically
-        // and coordinationally costly, and referral payouts are stake-gated anyway.
-        uint256 chainLen = 27;
+        // History: depth was 10 → bumped to 25 after Spartan flagged a 11-address
+        // sybil ring → bumped to 100 in R014 M (Wave 2 batch) after the auditor
+        // noted that 26-address rings remained economically tractable. The 100-deep
+        // ceiling means a sybil attacker now needs ≥101 coordinated addresses to
+        // evade detection, which combined with the MIN_REFERRAL_STAKE_POWER gate
+        // (1000 TOWELI per referrer) raises the cost of a successful ring to
+        // 100k+ TOWELI of locked stake. We use chainLen=102 here to prove the
+        // depth-bypass property still holds at the new ceiling.
+        uint256 chainLen = 102;
         address[] memory addrs = new address[](chainLen);
         for (uint256 i = 0; i < chainLen; i++) {
             addrs[i] = makeAddr(string(abi.encodePacked("d", vm.toString(i))));

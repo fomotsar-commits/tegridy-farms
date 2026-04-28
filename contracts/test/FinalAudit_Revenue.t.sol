@@ -648,13 +648,15 @@ contract FinalAuditRevenue is Test {
     // ================================================================
 
     /// @notice Circular-referral detection walks CIRCULAR_DEPTH levels. Any cycle
-    ///         strictly deeper than that still evades detection. After AUDIT TF-17
-    ///         CIRCULAR_DEPTH was raised 10 → 25 — a sybil ring of 27+ addresses is
-    ///         still cheap enough to acknowledge but much harder than the prior
-    ///         11-address bypass. FINDING: accepted residual risk.
+    ///         strictly deeper than that still evades detection. Depth history:
+    ///         10 (original) → 25 (Spartan TF-17, after 11-address bypass) → 100
+    ///         (R014 M, after 26-address bypass on the 25-deep walk). A sybil ring
+    ///         of 102+ addresses still evades — accepted residual risk gated by
+    ///         MIN_REFERRAL_STAKE_POWER (1000 TOWELI per address = 100k+ for a
+    ///         successful ring at the new depth).
     function test_ReferralSplitter_CircularChainBypassBeyondDepth() public {
-        // Chain of 27 addresses: cycle at tail evades CIRCULAR_DEPTH=25 walk.
-        uint256 chainLen = 27;
+        // Chain of 102 addresses: cycle at tail evades CIRCULAR_DEPTH=100 walk.
+        uint256 chainLen = 102;
         address[] memory chain = new address[](chainLen);
         for (uint256 i = 0; i < chainLen; i++) {
             chain[i] = makeAddr(string(abi.encodePacked("chain", vm.toString(i))));
@@ -667,7 +669,7 @@ contract FinalAuditRevenue is Test {
         }
 
         // chain[chainLen-1] -> chain[0] closes the cycle; walk from chain[0] only
-        // reaches chain[25] (25 hops), so the cycle at chain[chainLen-1] isn't seen.
+        // reaches chain[100] (100 hops), so the cycle at chain[chainLen-1] isn't seen.
         vm.prank(chain[chainLen - 1]);
         splitter.setReferrer(chain[0]);
 
