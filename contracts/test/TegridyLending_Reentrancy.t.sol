@@ -498,4 +498,110 @@ contract TegridyLending_ReentrancyTest is Test {
         assertTrue(bob.balance > bobBalanceBefore, "Lender should receive ETH");
         assertEq(weth.balanceOf(bob), 0, "EOA lender should not receive WETH");
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // AUDIT NFT-CL-M1: contract borrower overpayment refund must not brick
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// @notice Pre-fix, repayLoan refunded overpayment via the no-fallback
+    ///         `safeTransferETH` primitive. A contract borrower whose receive()
+    ///         needs more than 0 gas (and refuses raw ETH) would see the entire
+    ///         repay tx revert at the refund step, losing both their NFT (it would
+    ///         be returned mid-tx but reverted on refund failure) and their
+    ///         repayment funds. The fix routes the refund through
+    ///         `safeTransferETHOrWrap` so the refund delivers as WETH when raw
+    ///         ETH transfer fails.
+    ///
+    ///         This test deploys an ETH-rejecting contract borrower, has it repay
+    ///         with a deliberate 1-wei overpayment, and asserts the NFT is
+    ///         returned + the refund arrives as WETH (not as ETH and not by
+    ///         reverting the tx).
+    function test_NFT_CL_M1_overpaymentRefund_succeedsViaWETHFallback() public {
+        // Deploy an ETH-rejecting borrower contract and stake to obtain an NFT.
+        ETHRejectingBorrower attacker = new ETHRejectingBorrower(address(lending), address(staking));
+
+        toweli.mint(address(attacker), 100_000 ether);
+        vm.startPrank(address(attacker));
+        toweli.approve(address(staking), type(uint256).max);
+        staking.stake(10_000 ether, 365 days);
+        uint256 attackerTokenId = staking.userTokenId(address(attacker));
+        vm.stopPrank();
+
+        // Warp past 24h cooldown.
+        vm.warp(block.timestamp + 25 hours);
+
+        vm.prank(address(attacker));
+        staking.approve(address(lending), attackerTokenId);
+
+        // Bob (EOA lender) creates an offer.
+        vm.prank(bob);
+        uint256 offerId = lending.createLoanOffer{value: 1 ether}(
+            1000, 30 days, address(staking), 1000 ether, 0
+        );
+
+        // Attacker accepts — receives principal as WETH (its receive() reverts
+        // so the 10k stipend fails and WETH fallback delivers the principal).
+        vm.prank(address(attacker));
+        uint256 loanId = lending.acceptOffer(offerId, attackerTokenId);
+
+        // Warp forward so interest accrues.
+        vm.warp(block.timestamp + 15 days);
+
+        // Compute exact repayment + a deliberate overpayment.
+        uint256 repaymentAmount = lending.getRepaymentAmount(loanId);
+        uint256 overpayment = 0.05 ether;
+
+        // Fund the attacker so it can pay back.
+        vm.deal(address(attacker), repaymentAmount + overpayment);
+
+        // Snapshot WETH balance + attacker ETH pre-repay so we can prove the
+        // refund hit the WETH leg (not the ETH leg).
+        uint256 wethBefore = weth.balanceOf(address(attacker));
+        uint256 ethBefore = address(attacker).balance;
+
+        // Attacker repays from its OWN balance. Pre-fix this would revert at
+        // the overpayment refund step (safeTransferETH had no fallback, and
+        // the attacker's receive() rejects the wei).
+        vm.prank(address(attacker));
+        attacker.repay{value: repaymentAmount + overpayment}(loanId);
+
+        // Assert: NFT returned to attacker, loan marked repaid.
+        assertEq(staking.ownerOf(attackerTokenId), address(attacker), "NFT returned to borrower");
+        (,,,,,,,, bool repaid,) = lending.getLoan(loanId);
+        assertTrue(repaid, "loan marked repaid");
+
+        // Assert: overpayment landed as WETH (not as ETH, since the contract rejects it).
+        // The attacker's WETH balance should have grown by exactly `overpayment` from
+        // the refund leg — the principal-as-WETH inflow happened earlier (acceptOffer).
+        uint256 wethAfter = weth.balanceOf(address(attacker));
+        assertEq(wethAfter - wethBefore, overpayment, "overpayment refunded as WETH via fallback");
+
+        // Sanity: attacker's ETH balance fell by exactly (repay+overpayment).
+        // Refund landed as WETH so no ETH came back.
+        assertEq(ethBefore - address(attacker).balance, repaymentAmount + overpayment, "all sent ETH consumed; refund came as WETH");
+    }
+}
+
+/// @dev Borrower contract that hard-rejects every raw ETH transfer. Used to
+///      prove NFT-CL-M1: the overpayment-refund leg must fall back to WETH
+///      rather than revert the whole repayLoan tx.
+contract ETHRejectingBorrower {
+    TegridyLending public lending;
+    TegridyStaking public staking;
+
+    constructor(address _lending, address _staking) {
+        lending = TegridyLending(_lending);
+        staking = TegridyStaking(_staking);
+    }
+
+    function repay(uint256 loanId) external payable {
+        lending.repayLoan{value: msg.value}(loanId);
+    }
+
+    /// @dev Reject every raw ETH transfer. Forces both the principal payout
+    ///      (acceptOffer) and the overpayment refund (repayLoan) onto the
+    ///      WETH fallback path.
+    receive() external payable {
+        revert("no ETH");
+    }
 }

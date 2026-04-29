@@ -742,10 +742,15 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             WETHFallbackLib.safeTransferETHOrWrap(weth, treasury, fee);
         }
 
-        // Refund overpayment to borrower (borrower is msg.sender, use plain transfer)
+        // AUDIT NFT-CL-M1: refund overpayment via WETH fallback. Plain
+        // safeTransferETH reverts when the borrower is a contract whose
+        // receive() rejects ETH or burns gas — bricking the borrower's
+        // own repay path even though they paid principal + interest in
+        // full. Mirrors the lender/treasury payout pattern above so all
+        // three legs share one robust transfer primitive.
         uint256 overpayment = msg.value - totalRepayment;
         if (overpayment > 0) {
-            WETHFallbackLib.safeTransferETH(msg.sender, overpayment);
+            WETHFallbackLib.safeTransferETHOrWrap(weth, msg.sender, overpayment);
         }
 
         emit LoanRepaid(_loanId, borrower, principal, interest, fee);
