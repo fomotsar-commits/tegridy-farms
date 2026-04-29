@@ -11,6 +11,7 @@ import { PageSkeleton } from './components/PageSkeleton';
 import { SwapSkeleton, FarmSkeleton, DashboardSkeleton } from './components/PageSkeletons';
 import { safeSetItem } from './lib/storage';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
+import { usePageTitle } from './hooks/usePageTitle';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const FarmPage = lazy(() => import('./pages/FarmPage'));
@@ -84,6 +85,7 @@ const queryClient = new QueryClient({
 });
 
 function NotFoundPage() {
+  usePageTitle('404 — Page Not Found');
   return (
     <div className="min-h-[60vh] flex items-center justify-center px-6">
       <div className="text-center max-w-sm">

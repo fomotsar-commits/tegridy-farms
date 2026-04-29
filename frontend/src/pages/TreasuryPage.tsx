@@ -78,7 +78,7 @@ function SourceLink({ chainId, address, label }: { chainId: number | undefined; 
 }
 
 export default function TreasuryPage() {
-  usePageTitle('Treasury — Tegridy Farms');
+  usePageTitle('Treasury');
 
   const chainId = useChainId();
   const price = useTOWELIPrice();
