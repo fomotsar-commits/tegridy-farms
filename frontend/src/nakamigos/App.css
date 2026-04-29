@@ -1,4 +1,14 @@
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=IBM+Plex+Mono:wght@300;400;500&family=Sora:wght@300;400;500;600;700&family=Press+Start+2P&display=swap');
+/*
+ * Google Fonts (Press Start 2P + family) used by .nakamigos-app are injected
+ * at runtime by the top-level App component in App.jsx — see the useEffect
+ * there. Loading them via @import here would fire the request on every page
+ * load (this stylesheet is bundled eagerly via main.tsx), and Google Fonts
+ * sometimes 503s; deferring keeps the request scoped to /nakamigos visits.
+ *
+ * Audit note: the only font actually referenced by the rules below is
+ * "Press Start 2P". The other families in the historical @import (Cormorant
+ * Garamond, IBM Plex Mono, Sora) were unused.
+ */
 
 /*
  * ═══ Z-INDEX HIERARCHY ═══
