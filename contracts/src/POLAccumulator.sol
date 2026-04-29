@@ -9,6 +9,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {SequencerCheck} from "./lib/SequencerCheck.sol";
+import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
 
 interface IUniswapV2Router {
     function swapExactETHForTokens(
@@ -635,10 +636,16 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             totalLPCreated = 0;
         }
 
-        // Forward ETH to treasury via gas-bounded call (matches sweepETH pattern).
+        // Forward ETH to treasury via WETH-fallback (matches sister contracts).
+        // AUDIT M-P01 (2026-04-29): replaced raw `treasury.call{value: ethOut}("")`
+        // with WETHFallbackLib.safeTransferETHOrWrap. The raw call had no gas cap
+        // and no fallback, so a treasury upgraded to a contract with a heavy
+        // `receive()` (or one that reverts on receive) would brick the entire
+        // harvest. The lib wraps to WETH and safeTransfers if the ETH path fails,
+        // matching the pattern already used in RevenueDistributor + ReferralSplitter
+        // + CommunityGrants + MemeBountyBoard.
         if (ethOut > 0) {
-            (bool ok,) = treasury.call{value: ethOut}("");
-            require(ok, "ETH_TRANSFER_FAILED");
+            WETHFallbackLib.safeTransferETHOrWrap(weth, treasury, ethOut);
         }
         if (tokenOut > 0) {
             toweli.safeTransfer(treasury, tokenOut);
