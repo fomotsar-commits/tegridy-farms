@@ -760,7 +760,7 @@ function LendTab({ deployed }: { deployed: boolean }) {
         {/* APR */}
         <div>
           <label className="text-[11px] uppercase tracking-wider label-pill text-white mb-1.5 flex items-center gap-1.5">
-            APR (basis points)
+            APR (bps · e.g. 850 = 8.50%)
             <InfoTooltip text="Annual Percentage Rate in basis points. 100 bps = 1%. Example: 850 bps = 8.50% APR. The borrower pays this rate pro-rata — if they repay early, they pay less." />
           </label>
           <div className="flex items-center gap-3">

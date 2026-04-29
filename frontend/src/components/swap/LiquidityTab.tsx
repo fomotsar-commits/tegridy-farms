@@ -11,7 +11,9 @@ import { ArtImg } from '../ArtImg';
 
 type LiquidityMode = 'add' | 'remove';
 
-const SLIPPAGE_BPS = [50, 100, 200] as const;
+// Aligned with TradePage swap presets (0.1, 0.5, 1.0, 2.0%) so the surfaces
+// don't surprise users who toggle between Swap and Liquidity tabs.
+const SLIPPAGE_BPS = [10, 50, 100, 200] as const;
 
 const blockNegativeKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
   if (e.key === '-' || e.key === 'e') e.preventDefault();
