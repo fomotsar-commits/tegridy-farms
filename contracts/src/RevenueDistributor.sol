@@ -740,18 +740,59 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     ///         locks expire without claiming leave ETH permanently trapped in totalEarmarked.
     ///         This function reduces totalEarmarked by a specified amount (capped at 10 ETH per call)
     ///         so it can be swept via sweepDust(). Requires a 48h timelock for safety.
+    ///
+    /// AUDIT REV-H-01 (HIGH): Hard-gate the reclaim amount against the SUM of unclaimed dust
+    /// from epochs whose DUST_RECLAIM_GRACE has elapsed. Without this, the prior `gap` check
+    /// (totalEarmarked - totalClaimed) lets the owner slow-drain still-claimable ETH from
+    /// fresh epochs at up to 10 ETH per 48h cycle, leaving late claimers with insufficient
+    /// balance and permanently-pending withdrawals. Belt-and-braces: a 1% lifetime cap
+    /// (totalForfeitedReclaimed / totalDistributed) bounds owner authority even if the
+    /// per-epoch math is somehow circumvented.
     bytes32 public constant FORFEIT_RECLAIM = keccak256("FORFEIT_RECLAIM");
     uint256 public constant FORFEIT_RECLAIM_DELAY = 48 hours;
+    /// @notice AUDIT REV-H-01: lifetime cap on owner forfeit reclaims, expressed in basis
+    ///         points of totalDistributed. 100 bps = 1% — well above any legitimate dust
+    ///         floor, well below an exploit-grade slow drain.
+    uint256 public constant MAX_LIFETIME_FORFEIT_BPS = 100;
     uint256 public pendingForfeitAmount;
+    /// @notice AUDIT REV-H-01: cumulative ETH reclaimed via the forfeit-reclaim path.
+    ///         Bounded by MAX_LIFETIME_FORFEIT_BPS of totalDistributed.
+    uint256 public totalForfeitedReclaimed;
 
     event ForfeitReclaimed(uint256 amount);
     event ForfeitReclaimProposed(uint256 amount, uint256 executeAfter);
     event ForfeitReclaimCancelled();
 
+    error ForfeitExceedsEligibleDust();
+    error ForfeitExceedsLifetimeCap();
+
+    /// @notice AUDIT REV-H-01: Sum of unclaimed ETH across epochs whose DUST_RECLAIM_GRACE
+    ///         has elapsed. This is the ONLY pool the owner is permitted to forfeit-reclaim.
+    /// @dev Bounded loop scanning every epoch — O(epochs.length). Used in propose-time gate
+    ///      and exposed as a view so off-chain callers can size proposals correctly.
+    function reclaimEligibleAmount() public view returns (uint256 eligible) {
+        uint256 cutoff = block.timestamp > DUST_RECLAIM_GRACE ? block.timestamp - DUST_RECLAIM_GRACE : 0;
+        uint256 len = epochs.length;
+        for (uint256 i = 0; i < len; i++) {
+            Epoch memory ep = epochs[i];
+            if (ep.timestamp >= cutoff) continue; // Still in grace — skip.
+            uint256 unclaimed = ep.totalETH > epochClaimed[i] ? ep.totalETH - epochClaimed[i] : 0;
+            eligible += unclaimed;
+        }
+    }
+
     function proposeForfeitReclaim(uint256 _amount) external onlyOwner {
         require(_amount > 0 && _amount <= 10 ether, "INVALID_AMOUNT");
         uint256 gap = totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0;
         require(_amount <= gap, "EXCEEDS_GAP");
+        // AUDIT REV-H-01 (HIGH): the requested amount must be backed by per-epoch dust
+        // whose grace period has already elapsed. This prevents draining still-claimable
+        // ETH from fresh epochs.
+        if (_amount > reclaimEligibleAmount()) revert ForfeitExceedsEligibleDust();
+        // AUDIT REV-H-01: lifetime cap — total lifetime reclaims may not exceed
+        // MAX_LIFETIME_FORFEIT_BPS of totalDistributed.
+        uint256 lifetimeCap = (totalDistributed * MAX_LIFETIME_FORFEIT_BPS) / 10_000;
+        if (totalForfeitedReclaimed + _amount > lifetimeCap) revert ForfeitExceedsLifetimeCap();
         pendingForfeitAmount = _amount;
         _propose(FORFEIT_RECLAIM, FORFEIT_RECLAIM_DELAY);
         emit ForfeitReclaimProposed(_amount, _executeAfter[FORFEIT_RECLAIM]);
@@ -762,8 +803,13 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         uint256 amount = pendingForfeitAmount;
         uint256 gap = totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0;
         if (amount > gap) amount = gap;
+        // AUDIT REV-H-01: re-check eligible dust at execution time. Defense-in-depth
+        // against the race where epochs appear/are claimed during the 48h delay.
+        uint256 eligible = reclaimEligibleAmount();
+        if (amount > eligible) amount = eligible;
         totalEarmarked -= amount;
         totalForfeited += amount;
+        totalForfeitedReclaimed += amount;
         pendingForfeitAmount = 0;
         emit ForfeitReclaimed(amount);
     }

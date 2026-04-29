@@ -152,13 +152,11 @@ contract R026_RevenueDistributor is Test {
         rd.proposeForfeitReclaim(10 ether + 1);
     }
 
-    // ─── Forfeit reclaim DOES execute at +48h on the current contract ──────
-    //
-    // R026 M-6 (STALE_RECLAIM_WINDOW=56d freshness floor) was deferred. We
-    // pin the current behavior — owner can reclaim 1 ETH from `totalEarmarked`
-    // 48h after a fresh distribution, which is the symptom R026 was meant to
-    // fix. This test will fail (and require update) when R026 lands.
-    function test_forfeitReclaim_AllowedImmediatelyAfterTimelock_DRIFT() public {
+    // ─── Forfeit reclaim is per-epoch-grace-gated (REV-H-01 lands the symptomatic
+    //     fix R026 M-6 was meant to address). Proposing against a fresh epoch now
+    //     reverts ForfeitExceedsEligibleDust(); only after DUST_RECLAIM_GRACE
+    //     elapses does the epoch's unclaimed amount become reclaim-eligible.
+    function test_forfeitReclaim_PerEpochGraceGate() public {
         staking.setTotalBoostedStake(1_000e18);
         staking.setHistoryPower(alice, 1_000e18);
         staking.setPower(alice, 1_000e18);
@@ -166,13 +164,96 @@ contract R026_RevenueDistributor is Test {
         vm.deal(address(rd), 5 ether);
         rd.distribute();
 
+        // Fresh epoch — eligible dust pool is 0, propose must revert.
+        vm.expectRevert(RevenueDistributor.ForfeitExceedsEligibleDust.selector);
         rd.proposeForfeitReclaim(1 ether);
+
+        // After the per-epoch grace window elapses, the epoch's unclaimed pool
+        // becomes eligible — but the lifetime cap (1% of totalDistributed = 0.05 ETH
+        // here) bites. This is the belt-and-braces guard.
+        vm.warp(block.timestamp + 7 days + 1);
+        vm.expectRevert(RevenueDistributor.ForfeitExceedsLifetimeCap.selector);
+        rd.proposeForfeitReclaim(1 ether);
+
+        // Within the lifetime cap (0.05 ETH = 1% * 5 ETH distributed), it succeeds.
+        rd.proposeForfeitReclaim(0.05 ether);
         vm.warp(block.timestamp + 48 hours + 1);
 
         uint256 earmarkedBefore = rd.totalEarmarked();
         rd.executeForfeitReclaim();
-        assertEq(rd.totalEarmarked(), earmarkedBefore - 1 ether, "earmarked drops by 1 ether");
-        assertEq(rd.totalForfeited(), 1 ether, "forfeited bumps by 1 ether");
+        assertEq(rd.totalEarmarked(), earmarkedBefore - 0.05 ether, "earmarked drops by 0.05 ETH");
+        assertEq(rd.totalForfeited(), 0.05 ether, "forfeited bumps by 0.05 ETH");
+        assertEq(rd.totalForfeitedReclaimed(), 0.05 ether, "lifetime reclaim counter bumps");
+    }
+
+    // ─── REV-H-01 — owner cannot slow-drain still-claimable ETH ────────────
+    //
+    // ATTACK MODEL: Without the per-epoch grace gate, owner could call
+    // proposeForfeitReclaim(10 ether) immediately after a fresh distribution
+    // and execute 48h later, permanently moving 10 ETH of still-claimable user
+    // funds out of the contract per cycle (~1825 ETH/year theoretical drain).
+    // Late claimers' inner .call would then return false (insufficient balance),
+    // pushing their share to pendingWithdrawals where withdrawPending also
+    // reverts — funds permanently inaccessible.
+    function test_REV_H_01_proposeForfeitReclaim_revertsOnFreshEpoch() public {
+        staking.setTotalBoostedStake(10_000e18);
+        staking.setHistoryPower(alice, 10_000e18);
+        staking.setPower(alice, 10_000e18);
+
+        // Distribute 10 ETH at t=now. The full 10 ETH is "earmarked" but NOT
+        // yet eligible for forfeit-reclaim because the per-epoch grace window
+        // has not elapsed.
+        vm.deal(address(rd), 10 ether);
+        rd.distribute();
+
+        // The pre-fix contract would have allowed this (gap = 10 ETH >= 10 ETH).
+        // Post-fix, eligible dust = 0 (epoch is fresh) — must revert.
+        vm.expectRevert(RevenueDistributor.ForfeitExceedsEligibleDust.selector);
+        rd.proposeForfeitReclaim(10 ether);
+
+        // Even a tiny request reverts — the entire epoch is in grace.
+        vm.expectRevert(RevenueDistributor.ForfeitExceedsEligibleDust.selector);
+        rd.proposeForfeitReclaim(0.001 ether);
+
+        // Once we cross the DUST_RECLAIM_GRACE boundary, eligibility opens up,
+        // but the 1% lifetime cap (0.1 ETH on 10 ETH distributed) keeps the
+        // owner bounded.
+        vm.warp(block.timestamp + 7 days + 1);
+        vm.expectRevert(RevenueDistributor.ForfeitExceedsLifetimeCap.selector);
+        rd.proposeForfeitReclaim(10 ether);
+
+        // 0.1 ETH (= 1% lifetime cap) is allowed and execution succeeds.
+        rd.proposeForfeitReclaim(0.1 ether);
+        vm.warp(block.timestamp + 48 hours + 1);
+        rd.executeForfeitReclaim();
+        assertEq(rd.totalForfeitedReclaimed(), 0.1 ether, "lifetime reclaim recorded");
+
+        // A second proposal in the same epoch is now blocked by the lifetime cap.
+        vm.expectRevert(RevenueDistributor.ForfeitExceedsLifetimeCap.selector);
+        rd.proposeForfeitReclaim(0.001 ether);
+    }
+
+    // ─── REV-H-01 — eligible-dust math sums multiple epochs correctly ──────
+    function test_REV_H_01_reclaimEligibleAmount_sumsExpiredEpochsOnly() public {
+        staking.setTotalBoostedStake(10_000e18);
+        uint256 t0 = block.timestamp;
+
+        // Epoch 0 at t=t0, then warp 8 days, distribute epoch 1 at t=t0+8d.
+        vm.deal(address(rd), 100 ether);
+        rd.distribute(); // epoch 0: 100 ETH
+
+        vm.warp(t0 + 8 days);
+
+        vm.deal(address(rd), address(rd).balance + 50 ether);
+        rd.distribute(); // epoch 1: 50 ETH (fresh)
+        assertEq(rd.epochCount(), 2, "two epochs");
+
+        // Eligible amount: only epoch 0 is past grace → 100 ETH eligible.
+        assertEq(rd.reclaimEligibleAmount(), 100 ether, "only expired epoch counts");
+
+        // Wait for epoch 1 to also expire — eligible should jump to 150 ETH.
+        vm.warp(t0 + 16 days);
+        assertEq(rd.reclaimEligibleAmount(), 150 ether, "both epochs eligible after grace");
     }
 
     // ─── pendingETH for a single-source user matches claim payout ──────────
