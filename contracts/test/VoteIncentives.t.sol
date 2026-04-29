@@ -91,6 +91,8 @@ contract MockPair {
 /// @dev Mock factory that returns the registered pair for token0/token1
 contract MockFactory {
     mapping(bytes32 => address) internal _pairs;
+    /// @dev AUDIT R016 M-1: VoteIncentives now reads `disabledPairs` during _validatePair.
+    mapping(address => bool) public disabledPairs;
 
     function registerPair(address t0, address t1, address pairAddr) external {
         _pairs[keccak256(abi.encodePacked(t0, t1))] = pairAddr;
@@ -99,6 +101,10 @@ contract MockFactory {
 
     function getPair(address t0, address t1) external view returns (address) {
         return _pairs[keccak256(abi.encodePacked(t0, t1))];
+    }
+
+    function setDisabled(address pair, bool d) external {
+        disabledPairs[pair] = d;
     }
 }
 

@@ -28,8 +28,13 @@ interface IVotingEscrow {
 }
 
 /// @dev Interface for TegridyFactory to validate pair addresses.
+/// @dev AUDIT R016 M-1: extended with `disabledPairs` so `_validatePair` can refuse
+///      bribes against pairs the factory has disabled (timelocked governance OR
+///      guardian emergency disable). Without this gate a briber could waste TOWELI
+///      / ETH on a pair that voters can no longer route swaps through.
 interface ITegridyFactory {
     function getPair(address tokenA, address tokenB) external view returns (address pair);
+    function disabledPairs(address pair) external view returns (bool);
 }
 
 /// @dev Interface for TegridyPair to read token addresses (H-04 fix).
@@ -325,6 +330,12 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         epoch is finalized via `advanceEpoch`. Surfaces clearly in
     ///         vote/claim/preview/dust paths instead of silently zeroing.
     error EpochNotFinalized();
+    /// @notice AUDIT R016 M-1 (MEDIUM): the targeted pair is currently flagged as
+    ///         disabled by the TegridyFactory (governance-timelocked OR guardian
+    ///         emergency disable). Bribes against a disabled pair would be wasted —
+    ///         voters can no longer route swaps through it — so all read/write paths
+    ///         that name a pair refuse it up-front.
+    error PairDisabled();
 
     // ─── Legacy View Helpers (for test/frontend compatibility) ───────
     function feeChangeTime() external view returns (uint256) { return _executeAfter[FEE_CHANGE]; }
@@ -1140,6 +1151,14 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @dev Validate that pair is a registered factory pair (H-04 fix).
     ///      Reads token0/token1 from the pair contract, then verifies with factory.getPair().
     ///      Prevents bribes to arbitrary/non-existent/unregistered addresses.
+    /// @dev AUDIT R016 M-1 (MEDIUM): also rejects pairs the factory has disabled
+    ///      (timelocked governance disable OR guardian emergency disable). Without
+    ///      this gate a briber could waste TOWELI / ETH on a pair that voters can no
+    ///      longer route swaps through — the bribes would sit in the contract until
+    ///      sweep, and any voter who allocates power to the disabled pair burns
+    ///      voting weight that would otherwise have gone to a live pair. Mirrors the
+    ///      same disabled-pair gate already in TegridyPair.swap() (line 201) and
+    ///      TegridyRouter._pairFor (line 455).
     function _validatePair(address pair) internal view {
         if (pair.code.length == 0) revert InvalidPair();
         // H-04 FIX: Verify pair is a registered factory pair by reading its tokens
@@ -1153,6 +1172,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         } catch {
             revert InvalidPair();
         }
+        // AUDIT R016 M-1: refuse disabled pairs.
+        if (factory.disabledPairs(pair)) revert PairDisabled();
     }
 
     /// @dev Check if the staking contract is paused (same pattern as RevenueDistributor).

@@ -79,6 +79,8 @@ contract VISMockEscrow {
 /// @notice Minimal factory that whitelists every pair address we'll vote on.
 contract VISMockFactory {
     mapping(address => bool) public allowed;
+    /// @dev AUDIT R016 M-1: VoteIncentives.disabledPairs gate (never tripped here).
+    mapping(address => bool) public disabledPairs;
     function setPair(address p, bool ok) external { allowed[p] = ok; }
     function getPair(address, address) external pure returns (address) { return address(0); }
     function isPair(address p) external view returns (bool) { return allowed[p]; }

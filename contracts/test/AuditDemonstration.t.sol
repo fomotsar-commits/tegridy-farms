@@ -71,10 +71,13 @@ contract MockEscrow {
 
 contract MockFactoryForBribes {
     mapping(address => mapping(address => address)) public _pair;
+    /// @dev AUDIT R016 M-1: VoteIncentives.disabledPairs gate (never tripped here).
+    mapping(address => bool) public disabledPairs;
     function setPair(address a, address b, address p) external {
         _pair[a][b] = p; _pair[b][a] = p;
     }
     function getPair(address a, address b) external view returns (address) { return _pair[a][b]; }
+    function setDisabled(address pair, bool d) external { disabledPairs[pair] = d; }
 }
 
 contract MockPair {
