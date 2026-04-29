@@ -836,6 +836,61 @@ contract TegridyStakingTest is Test {
         assertGt(bobBalAfter - bobBalBefore, 0, "Rewards claimed during toggle");
     }
 
+    /// @notice AUDIT H-AUDIT-2026-1 (HIGH) regression: an autoMaxLock position
+    ///         that goes silent past its current lockEnd must not be left in a
+    ///         non-earning, locked-forward state when the holder finally calls
+    ///         getReward(). Pre-fix, _decayIfExpired (called from _getReward)
+    ///         would zero p.boostedAmount, then the autoMaxLock branch would
+    ///         advance lockEnd to MAX without restoring the boost — locking the
+    ///         position for another MAX_LOCK_DURATION while it earned zero,
+    ///         exit-able only via the 25% earlyWithdraw penalty.
+    function test_autoMaxLock_doesNotBrickPosition_afterSilentExpiry() public {
+        // 1. Bob stakes 100k TOWELI for 30 days, then enables autoMaxLock
+        //    (which extends lockEnd to MAX_LOCK_DURATION = 4 years).
+        vm.prank(bob);
+        staking.stake(100_000 ether, 30 days);
+        uint256 tokenId = staking.userTokenId(bob);
+        vm.prank(bob);
+        staking.toggleAutoMaxLock(tokenId);
+
+        // Sanity: position is at MAX boost, locked ~4 years out.
+        (, uint256 boostBefore, uint256 lockEndBefore,, bool autoMax,) = staking.getPosition(tokenId);
+        assertEq(boostBefore, 40000, "should be 4.0x max boost");
+        assertTrue(autoMax, "autoMaxLock should be on");
+        uint256 max = staking.MAX_LOCK_DURATION();
+        assertApproxEqAbs(lockEndBefore, block.timestamp + max, 5, "lockEnd should be ~now + MAX");
+
+        // 2. Bob goes silent past his own MAX_LOCK_DURATION (the "set and
+        //    forget" failure mode autoMaxLock is documented to defend against).
+        vm.warp(block.timestamp + max + 1 days);
+
+        // Sanity: lock is now expired in storage (no one called decay yet).
+        (, , uint256 lockEndExpired,,,) = staking.getPosition(tokenId);
+        assertLt(lockEndExpired, block.timestamp, "lock must be expired pre-getReward");
+
+        // 3. Bob finally calls getReward.
+        vm.prank(bob);
+        staking.getReward(tokenId);
+
+        // 4. Post-fix invariants:
+        //    a) Lock is re-extended to (now + MAX) — autoMaxLock honored.
+        //    b) Boost is restored to MAX — position is earning again.
+        //    c) totalBoostedStake reflects the restored boost.
+        //    d) Voting power is non-zero — position contributes to governance.
+        (uint256 amt, uint256 boostAfter, uint256 lockEndAfter,, bool stillAuto,) = staking.getPosition(tokenId);
+        assertEq(amt, 100_000 ether, "principal preserved");
+        assertEq(boostAfter, 40000, "boost restored to 4.0x after decay+autoMax");
+        assertApproxEqAbs(lockEndAfter, block.timestamp + max, 5, "lockEnd extended by MAX");
+        assertTrue(stillAuto, "autoMaxLock unchanged");
+        assertEq(staking.totalBoostedStake(), (100_000 ether * 40000) / 10000, "totalBoostedStake reflects 4.0x");
+        assertGt(staking.votingPowerOf(bob), 0, "voting power restored");
+
+        // 5. Bob earns rewards again going forward — the pre-fix bug left him
+        //    locked-forward at zero boost, so this would have been 0.
+        vm.warp(block.timestamp + 1000);
+        assertGt(staking.earned(tokenId), 0, "position must earn after the fix");
+    }
+
     // ===== PAUSE / UNPAUSE =====
 
     function test_pause_blocksStake() public {

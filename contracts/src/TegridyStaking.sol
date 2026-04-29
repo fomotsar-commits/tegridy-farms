@@ -737,6 +737,16 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
     /// @notice Claim rewards without unstaking.
     /// @return claimed The amount of reward tokens transferred to the caller.
+    /// @dev AUDIT H-AUDIT-2026-1 (HIGH): if the position's lock has already expired
+    ///      when getReward fires, `_getReward` calls `_decayIfExpired` which zeros
+    ///      `boostedAmount` (and decrements `totalBoostedStake`). Pre-fix, the
+    ///      autoMaxLock branch then advanced `lockEnd` to MAX without restoring
+    ///      `boostedAmount`, leaving the position locked forward but earning zero
+    ///      forever — exit-able only via the 25% earlyWithdraw penalty. The fix
+    ///      re-applies the max boost when autoMaxLock fires on a freshly-decayed
+    ///      position, preserving the documented "set and forget — keep max boost
+    ///      perpetually" semantic. `_applyNewBoost` handles the (now-zero)
+    ///      boostedAmount delta correctly via its `totalBoostedStake -= ...` line.
     function getReward(uint256 tokenId) external nonReentrant whenNotPaused updateReward returns (uint256 claimed) {
         if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
         Position storage p = positions[tokenId];
@@ -744,9 +754,17 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
         claimed = _getReward(tokenId, p);
 
-        // Auto-max-lock: extend lock on every claim
+        // Auto-max-lock: extend lock on every claim, restoring max boost if a
+        // silent-past-expiry decay just zeroed boostedAmount (AUDIT H-AUDIT-2026-1).
         if (p.autoMaxLock) {
             p.lockEnd = uint64(block.timestamp + MAX_LOCK_DURATION);
+            p.lockDuration = uint32(MAX_LOCK_DURATION);
+            if (p.boostedAmount == 0 && p.amount > 0) {
+                uint256 newBoost = MAX_BOOST_BPS;
+                if (p.hasJbacBoost) newBoost += JBAC_BONUS_BPS;
+                _applyNewBoost(p, newBoost);
+                _writeCheckpoint(msg.sender);
+            }
         }
 
         _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
