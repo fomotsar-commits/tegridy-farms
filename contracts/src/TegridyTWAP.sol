@@ -333,6 +333,37 @@ contract TegridyTWAP is TWAPAdmin {
     }
 
     /// @notice Query the TWAP-adjusted output amount for a given input over a time period.
+    ///
+    /// @notice AUDIT R016 M-1 (MEDIUM, DOCUMENTATION): post-bypass observations participate
+    ///         in the cumulative immediately. When the deviation gate is skipped because the
+    ///         pair has been dormant for longer than `DEVIATION_BYPASS_AFTER` (1 day), the
+    ///         resulting Observation is flagged with `bypassed == true` and
+    ///         `lastBypassUsed[pair]` is updated to the wall-clock time of the bypass. The
+    ///         observation itself uses the freshly-bridged cumulative (pair-native cumulative
+    ///         + spot * elapsed-since-pair-touch), so the new baseline becomes the TWAP's
+    ///         baseline as soon as a `consult()` call references it.
+    ///
+    /// @notice CONSUMER REQUIREMENT: integrators that price based on `consult()` MUST treat a
+    ///         post-bypass cumulative as PROVISIONAL, not authoritative:
+    ///           1. Read `getLatestObservation(pair).bypassed` and `lastBypassUsed[pair]`.
+    ///           2. If `lastBypassUsed[pair]` is non-zero and within the consumer's risk
+    ///              tolerance window (typical: at least one full MIN_PERIOD must have elapsed
+    ///              AND a non-bypassed observation must be the most recent one), treat the
+    ///              feed as "rebootstrapping" and either:
+    ///                 a) reject the price entirely (lending oracles, Dutch auctions);
+    ///                 b) widen slippage / haircut by your protocol's tolerance; or
+    ///                 c) require an off-chain confirmation feed.
+    ///         Trusting a post-bypass cumulative blindly re-introduces the very gap the
+    ///         deviation gate exists to prevent — the bypass is a controlled rebootstrap, not
+    ///         a "now safe" signal.
+    ///
+    /// @notice We deliberately keep this as a CONSUMER-side invariant rather than building it
+    ///         into the contract: every consumer's risk tolerance for post-dormancy reads is
+    ///         different (a stablecoin lender wants stricter handling than an LP analytics
+    ///         dashboard), and forcing one policy here would either over-restrict legitimate
+    ///         integrations or under-protect cautious ones. Both signals (`bypassed` flag +
+    ///         `lastBypassUsed`) are surfaced verbatim so any consumer can implement its own
+    ///         policy.
     function consult(address pair, address tokenIn, uint256 amountIn, uint256 period)
         external
         view
