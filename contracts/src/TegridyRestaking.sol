@@ -187,6 +187,11 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         non-decreasing by construction; any overriding subclass that violates
     ///         this invariant is malicious and must trip this assertion.
     error AccrueNotMonotone();
+    /// @notice AUDIT NFT-CL-M4: typed-error replacement for the legacy
+    ///         `revert("NO_DECAY")` string in `decayExpiredRestaker`. Raised when
+    ///         the cached boost matches the current staking-side boost (i.e., no
+    ///         decay has happened yet — the helper has nothing to do).
+    error NoDecay();
 
     // ─── Constructor ────────────────────────────────────────────────
     constructor(
@@ -1221,8 +1226,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // Read current position from staking contract (where decay has been applied)
         (, uint256 currentBoosted,,,,,,, , ,) = staking.positions(info.tokenId);
 
-        // Only proceed if the cached value differs (i.e., decay happened)
-        if (currentBoosted == info.boostedAmount) revert("NO_DECAY");
+        // Only proceed if the cached value differs (i.e., decay happened).
+        // AUDIT NFT-CL-M4: typed error replaces legacy revert("NO_DECAY") string.
+        if (currentBoosted == info.boostedAmount) revert NoDecay();
 
         uint256 oldBoosted = info.boostedAmount;
 
