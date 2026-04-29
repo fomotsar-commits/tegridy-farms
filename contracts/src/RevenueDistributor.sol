@@ -72,7 +72,12 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     ///         checkpoint was zeroed (e.g. NFT transferred out, position corrupted) and
     ///         who now revert with NoLockedTokens(). Each proposal is keyed by the
     ///         (user, epoch) pair so multiple recoveries can be in-flight in parallel.
-    bytes32 public constant CLAIM_RECOVERY = keccak256("CLAIM_RECOVERY");
+    /// @dev    AUDIT REV-M-03 (CLEANUP): the prior `CLAIM_RECOVERY` bytes32 constant has
+    ///         been removed. It was never used as a key for `_executeAfter` (recoveries
+    ///         live in `pendingRecoveries[user][epoch]` instead) so it served only as a
+    ///         tag passed to TimelockAdmin's `ProposalNotReady`/`ProposalExpired` errors.
+    ///         Those error paths now use the recovery-specific `RecoveryNotReady` /
+    ///         `RecoveryExpired` errors below for clarity.
     uint256 public constant CLAIM_RECOVERY_DELAY = 48 hours;
 
     // ─── State ────────────────────────────────────────────────────────
@@ -223,6 +228,15 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     error PowerExceedsTotalLocked();
     error NoPendingRecovery();
     error AlreadyClaimed();
+    /// @notice AUDIT REV-M-03 (CLEANUP): recovery-specific replacements for the
+    ///         TimelockAdmin `ProposalNotReady(bytes32)` / `ProposalExpired(bytes32)`
+    ///         errors that the recovery path used to piggyback on. Recoveries live
+    ///         in `pendingRecoveries[user][epoch]` (NOT in `_executeAfter`) so the
+    ///         generic timelock errors were misleading — they implied a key-tagged
+    ///         proposal that never existed. These selectors are payload-free since
+    ///         executeClaimRecovery already takes (user, epoch) as call args.
+    error RecoveryNotReady();
+    error RecoveryExpired();
     // AUDIT R014 M-8: Auto-reconcile errors
     error NoEpochToReconcile();
     error GracePeriodActive();
@@ -1030,8 +1044,12 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     function executeClaimRecovery(address user, uint256 epoch) external nonReentrant {
         PendingRecovery memory p = pendingRecoveries[user][epoch];
         if (p.executeAfter == 0) revert NoPendingRecovery();
-        if (block.timestamp < p.executeAfter) revert ProposalNotReady(CLAIM_RECOVERY);
-        if (block.timestamp > p.executeAfter + PROPOSAL_VALIDITY) revert ProposalExpired(CLAIM_RECOVERY);
+        // AUDIT REV-M-03 (CLEANUP): use recovery-specific errors instead of the generic
+        // TimelockAdmin proposal errors that took a bytes32 key. There is no `_executeAfter`
+        // entry for the recovery — it lives in `pendingRecoveries[user][epoch]` — so the
+        // old key-tagged error was misleading.
+        if (block.timestamp < p.executeAfter) revert RecoveryNotReady();
+        if (block.timestamp > p.executeAfter + PROPOSAL_VALIDITY) revert RecoveryExpired();
         if (recoveryClaimed[user][epoch]) revert AlreadyClaimed();
 
         Epoch memory ep = epochs[epoch];
