@@ -35,8 +35,37 @@ contract TegridyRouter is ReentrancyGuard {
     address public immutable factory;
     address public immutable WETH;
 
-    // AUDIT L-1: raised from 30 minutes to 2 hours to avoid bricking swaps during
-    // sustained congestion periods when base-fee exceeds the user's set priority fee.
+    /// @notice AUDIT L-1: raised from 30 minutes to 2 hours to avoid bricking swaps during
+    ///         sustained congestion periods when base-fee exceeds the user's set priority fee.
+    ///
+    /// @notice AUDIT R016 M-1 (MEDIUM, DOCUMENTATION): The 2-hour `MAX_DEADLINE` cap is a
+    ///         DELIBERATE protocol-level design decision and is known to be incompatible
+    ///         with several aggregator / intent-based integration patterns:
+    ///
+    ///         AFFECTED INTEGRATIONS (incompatible — must route through their own router):
+    ///           - CoW Protocol (CowSwap) batch auctions: solvers settle batches with
+    ///             deadlines well beyond 2 hours; orders signed with longer expiries cannot
+    ///             use this router as a settlement venue.
+    ///           - 1inch Limit Order Protocol: limit orders frequently carry multi-day
+    ///             validity windows; same constraint.
+    ///           - Safe (Gnosis Safe) multisig flows: a queued tx with a long signing window
+    ///             between proposal and execution will exceed the gate. Multisigs SHOULD
+    ///             re-sign with a fresh deadline at execution time.
+    ///           - 0x RFQ / Matcha intent-style orders with > 2h expiries.
+    ///
+    ///         RATIONALE: the cap is the simplest defence against the well-known "long-tail
+    ///         deadline" footgun where a stale order sitting in the mempool for hours/days
+    ///         gets executed under wildly different price conditions, sandbagging the user.
+    ///         Aggregators that need indefinite expiries operate their own settlement layer
+    ///         (CowSwap solvers, 1inch settlement contracts) which post-bake into a swap
+    ///         only at the final settlement second — at that moment a fresh, short deadline
+    ///         can be supplied to this router. Any aggregator integration must therefore
+    ///         wrap rather than directly call `swap*` here.
+    ///
+    ///         NO CODE CHANGE: lifting the cap to (e.g.) 7 days re-opens the long-tail
+    ///         deadline footgun for retail users who are the dominant caller class. The
+    ///         documented integration pattern (aggregator-side router with bounded final
+    ///         deadline) is the right place to absorb this constraint.
     uint256 public constant MAX_DEADLINE = 2 hours;
 
     // H-15: Events for all user-facing operations
