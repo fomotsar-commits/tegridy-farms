@@ -87,6 +87,12 @@ contract TegridyFactory is TimelockAdmin {
     event TokenBlocked(address indexed token, bool blocked);
     event PairDisableProposed(address indexed pair, bool disabled, uint256 executeAfter);
     event PairDisableExecuted(address indexed pair, bool disabled);
+    /// @notice AUDIT R016 L-1 (LOW): emitted when `cancelPairDisabled` voids a pending
+    ///         pair disable/enable proposal. Sister cancel functions
+    ///         (`cancelTokenBlocked`, `cancelFeeToChange`, etc.) all emit cancellation
+    ///         events; this one was silent, leaving off-chain indexers without a clean
+    ///         signal that a previously-proposed pair-disable was cancelled.
+    event PairDisableCancelled(address indexed pair);
     event FeeToSetterProposed(address indexed current, address indexed proposed, uint256 executeAfter);
     event FeeToSetterAccepted(address indexed oldSetter, address indexed newSetter);
     uint256 public constant FEE_TO_SETTER_DELAY = 48 hours;
@@ -389,11 +395,15 @@ contract TegridyFactory is TimelockAdmin {
     }
 
     /// @notice Cancel a pending pair disable/enable proposal
+    /// @dev AUDIT R016 L-1: emits `PairDisableCancelled(pair)` so off-chain
+    ///      indexers see cancellations symmetrically with the sister
+    ///      cancel functions (TokenBlock, FeeTo, Guardian).
     function cancelPairDisabled(address pair) external {
         require(msg.sender == feeToSetter, "FORBIDDEN");
         bytes32 key = keccak256(abi.encodePacked(PAIR_DISABLE_CHANGE, pair));
         _cancel(key);
         delete pendingPairDisableValue[pair];
+        emit PairDisableCancelled(pair);
     }
 
     /// @notice Legacy view helper for test compatibility
