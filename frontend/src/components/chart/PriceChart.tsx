@@ -57,7 +57,8 @@ async function fetchOHLCV(tf: Timeframe, signal?: AbortSignal): Promise<Candlest
       const [ts, o, h, l, c] = bar;
       const vals = { open: Number(o), high: Number(h), low: Number(l), close: Number(c) };
       const time = Math.floor(Number(ts));
-      if (!Number.isFinite(time) || !Number.isFinite(vals.open) || !Number.isFinite(vals.high) || !Number.isFinite(vals.low) || !Number.isFinite(vals.close)) return null;
+      if (!Number.isFinite(time) || time <= 0) return null;
+      if (!Number.isFinite(vals.open) || !Number.isFinite(vals.high) || !Number.isFinite(vals.low) || !Number.isFinite(vals.close)) return null;
       // lightweight-charts throws "Value is null" if OHLC values are 0 or invalid
       if (vals.open <= 0 || vals.high <= 0 || vals.low <= 0 || vals.close <= 0) return null;
       // Ensure OHLC ordering: high must be highest, low must be lowest
@@ -66,7 +67,21 @@ async function fetchOHLCV(tf: Timeframe, signal?: AbortSignal): Promise<Candlest
       return { time: (time as unknown) as Time, ...vals };
     })
     .filter((b): b is CandlestickData<Time> => b !== null);
-  const bars = raw.sort((a, b) => (a.time as number) - (b.time as number));
+  const sorted = raw.sort((a, b) => (a.time as number) - (b.time as number));
+  // lightweight-charts requires strictly ascending unique `time` values on
+  // setData — duplicates trigger an internal assertion ("Value is null")
+  // when the series builds its price-line index. GeckoTerminal occasionally
+  // returns two bars with the same epoch (DST boundaries, low-volume hours
+  // collapsed by their aggregator). Keep the last bar for each timestamp.
+  const bars: CandlestickData<Time>[] = [];
+  for (const bar of sorted) {
+    const last = bars[bars.length - 1];
+    if (last && (last.time as number) === (bar.time as number)) {
+      bars[bars.length - 1] = bar;
+    } else {
+      bars.push(bar);
+    }
+  }
 
   if (Object.keys(ohlcvCache).length > 8) {
     for (const k of Object.keys(ohlcvCache)) delete ohlcvCache[k];
@@ -156,6 +171,13 @@ function PriceChartInner() {
       priceFormat: {
         type: 'custom',
         formatter: formatPrice,
+        // lightweight-charts v5 requires `minMove` on PriceFormatCustom
+        // (the field is non-optional in the typings, but addSeries accepts
+        // a Partial so TS doesn't catch it). Without it the series builds
+        // a null tick step and throws "Value is null" from the internal
+        // price-line constructor on setData. TOWELI prices reach 1e-8, so
+        // pin minMove there to avoid snapping visible bars to one level.
+        minMove: 0.00000001,
       },
     });
 
