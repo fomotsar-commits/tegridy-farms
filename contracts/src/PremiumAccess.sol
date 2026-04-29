@@ -55,8 +55,13 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
 
     mapping(address => Subscription) public subscriptions;
     mapping(address => uint256) public totalPaidByUser; // SECURITY FIX #17: track payments for pro-rata refund
-    // AUDIT FIX M-43: Store the fee rate at subscription time for accurate refunds
-    mapping(address => uint256) public paidFeeRate;
+    /// @dev AUDIT PA-M-02 (2026-04-29): `paidFeeRate` was the M-43 "snapshot fee at
+    ///      subscribe time" mitigation — but the refund path (`cancelSubscription`)
+    ///      always read `userEscrow` (the actually-paid TOWELI), never `paidFeeRate`.
+    ///      The slot was written on subscribe and cleared on cancel and never read.
+    ///      Removed. The slot is preserved as `_deprecated_paidFeeRate_slot` to keep
+    ///      storage layout stable for any deployed instance — DO NOT reuse this slot.
+    mapping(address => uint256) private _deprecated_paidFeeRate_slot;
     mapping(address => uint256) public userEscrow; // CRITICAL FIX: actual TOWELI escrowed per user
     mapping(address => bool) public isActiveSubscriber; // AUDIT FIX L-04: track active status for accurate counter
     uint256 public totalSubscribers; // Currently active subscribers
@@ -253,8 +258,7 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         }
 
         totalPaidByUser[msg.sender] += cost;
-        // AUDIT FIX M-43: Snapshot fee rate at subscription time for accurate refund calculation
-        paidFeeRate[msg.sender] = monthlyFeeToweli;
+        // AUDIT PA-M-02 (2026-04-29): paidFeeRate write removed — was never read in refund.
         // AUDIT FIX L-04: Only increment when transitioning from inactive to active
         if (!isActiveSubscriber[msg.sender]) {
             isActiveSubscriber[msg.sender] = true;
@@ -316,7 +320,7 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
             totalRefundEscrow = 0;
         }
         userEscrow[msg.sender] = 0;
-        paidFeeRate[msg.sender] = 0; // AUDIT FIX M-43: Clear snapshotted fee rate on cancel
+        // AUDIT PA-M-02 (2026-04-29): paidFeeRate clear removed — was never read in refund.
 
         if (refundAmount > 0) {
             if (refundAmount <= totalRevenue) {
