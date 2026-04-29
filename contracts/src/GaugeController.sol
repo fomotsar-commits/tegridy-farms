@@ -386,16 +386,28 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///      reveal window opens, cancellation is forbidden so a user cannot abandon a commit
     ///      after seeing other participants' reveals. Cancelling clears `userActiveCommit`,
     ///      letting the user submit a fresh commit (potentially with a different NFT).
+    /// @dev AUDIT R016 M-1 (MEDIUM): tightened the cancel gate from
+    ///      `block.timestamp + REVEAL_GRACE >= revealOpens` to
+    ///      `block.timestamp + 2*REVEAL_GRACE >= revealOpens`. The reveal-side gate
+    ///      accepts reveals starting at `revealOpens - REVEAL_GRACE` (graced opening),
+    ///      so the prior cancel boundary closed cancellation at exactly the moment the
+    ///      first reveal could be admitted. That left a 0-second-but-nonzero ordering
+    ///      window where a user could observe a same-block reveal and still issue a
+    ///      cancel in the same block (transaction ordering: reveal first, cancel
+    ///      second — the cancel still passes the `>= revealOpens` test by less than
+    ///      REVEAL_GRACE). With the new bound, cancellation closes one full
+    ///      REVEAL_GRACE BEFORE any reveal could possibly be accepted, so see-then-
+    ///      cancel cannot happen even in the same block.
     /// @param epoch The epoch in which the user's active commit was made (usually currentEpoch()).
     function cancelCommit(uint256 epoch) external nonReentrant whenNotPaused {
         bytes32 active = userActiveCommit[msg.sender][epoch];
         if (active == bytes32(0)) revert NoActiveCommit();
 
-        // Cancellation closes once the reveal window opens (with grace). Without this
-        // gate a user could watch other revealers and then null their own commit, which
-        // would reintroduce the post-observation rotation vector this fix is meant to close.
+        // Cancellation closes one full REVEAL_GRACE before any reveal could possibly
+        // be admitted (reveal admits from `revealOpens - REVEAL_GRACE`). Without this
+        // double-grace bound, a user could watch a same-block reveal and still cancel.
         uint256 revealOpens = epochStartTime(epoch) + EPOCH_DURATION - REVEAL_WINDOW;
-        if (block.timestamp + REVEAL_GRACE >= revealOpens) revert CancelWindowClosed();
+        if (block.timestamp + 2 * REVEAL_GRACE >= revealOpens) revert CancelWindowClosed();
 
         uint256 tokenId = userActiveCommitTokenId[msg.sender][epoch];
 
