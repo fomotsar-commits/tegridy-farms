@@ -1150,6 +1150,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
     /// @notice AUDIT FIX C-05: Request an emergency exit (pause-independent, works at any time).
     ///         Initiates a 7-day delay before the exit can be executed. Forfeits all rewards.
+    /// @dev AUDIT M-AUDIT-2026-3: refresh `_touch(msg.sender)` so the owner-side
+    ///      `claimUnsettledFor(msg.sender)` 90-day inactivity gate doesn't fire while
+    ///      the user is mid-emergency-exit. A user actively exiting is clearly active.
     /// @param tokenId The NFT token ID of the staking position
     function requestEmergencyExit(uint256 tokenId) external nonReentrant {
         if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
@@ -1158,15 +1161,18 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         if (emergencyExitRequests[tokenId] != 0) revert EmergencyExitAlreadyRequested();
 
         emergencyExitRequests[tokenId] = block.timestamp;
+        _touch(msg.sender); // AUDIT M-AUDIT-2026-3
         emit EmergencyExitRequested(msg.sender, tokenId, block.timestamp + EMERGENCY_EXIT_DELAY);
     }
 
     /// @notice AUDIT FIX L-09: Cancel a pending emergency exit request.
+    /// @dev AUDIT M-AUDIT-2026-3: refresh `_touch(msg.sender)` (see requestEmergencyExit).
     /// @param tokenId The NFT token ID
     function cancelEmergencyExit(uint256 tokenId) external nonReentrant {
         if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
         if (emergencyExitRequests[tokenId] == 0) revert EmergencyExitNotRequested();
         delete emergencyExitRequests[tokenId];
+        _touch(msg.sender); // AUDIT M-AUDIT-2026-3
         emit EmergencyExitCancelled(msg.sender, tokenId);
     }
 
@@ -1208,6 +1214,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         }
 
         rewardToken.safeTransfer(msg.sender, userReceives);
+        _touch(msg.sender); // AUDIT M-AUDIT-2026-3: refresh inactivity gate post-exit
         emit EmergencyExitPosition(msg.sender, tokenId, userReceives);
     }
 
@@ -1233,8 +1240,16 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
     /// @notice Fund the staking contract with reward tokens.
     /// @dev AUDIT FIX H-06: nonReentrant. AUDIT NEW-S5: caller must be owner or notifier.
+    /// @dev AUDIT M-AUDIT-2026-2: `updateReward` crystallises any accrued rewards under
+    ///      the pre-funding `available - reserved` boundary BEFORE the new funds bump
+    ///      `available`. Today's threat model has the notifier set restricted to owner
+    ///      + explicit allowlist (NEW-S5), so this is defensive hardening: if the
+    ///      notifier set ever expands (e.g., to allow community refunding via
+    ///      POLAccumulator), the pre-existing logic could let a notifier back-run their
+    ///      own funding by claiming a fatter `rewardPool` against elapsed-but-not-yet-
+    ///      credited time. Mirrors Synthetix `RewardsDistributionRecipient` pattern.
     /// @param _amount Amount of reward tokens to deposit (must be >= MIN_NOTIFY_AMOUNT)
-    function notifyRewardAmount(uint256 _amount) external nonReentrant {
+    function notifyRewardAmount(uint256 _amount) external nonReentrant updateReward {
         if (msg.sender != owner() && !rewardNotifiers[msg.sender]) {
             revert NotRewardNotifier();
         }
