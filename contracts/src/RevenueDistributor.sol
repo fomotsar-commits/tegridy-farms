@@ -506,7 +506,26 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // SECURITY FIX C5: Only increment totalClaimed on successful direct transfer.
         // Failed transfers go to pendingWithdrawals — totalClaimed is incremented in withdrawPending().
         // Prevents totalEarmarked drift that permanently locks ETH (MakerDAO DSR pull-pattern).
-        // SECURITY FIX: Use 10k gas stipend to prevent cross-contract reentrancy (Solmate/Seaport pattern)
+        //
+        // ─── AUDIT REV-M-02 (DOCUMENT only): 10k gas stipend tradeoff ────
+        // The fixed 10_000-gas stipend is a deliberate Seaport/Solmate-grade defense
+        // against cross-contract reentrancy. It is sufficient for an EOA receive() and
+        // for minimal `receive() external payable {}` contract recipients (event-only,
+        // no SLOAD/SSTORE), which is the overwhelmingly common case.
+        //
+        // KNOWN DEGRADATION: a future EVM gas reprice (e.g., a new EIP that raises the
+        // base cost of CALL or makes `receive()` more expensive) could flip recipients
+        // whose previously-cheap `receive()` no longer fits in 10k gas into the
+        // pendingWithdrawals queue. Those recipients are NOT rugged — they remain
+        // entitled to the same ETH, and can pull it via `withdrawPending()`, which
+        // forwards through `WETHFallbackLib.safeTransferETHOrWrap` (no stipend cap on
+        // the WETH wrap path). The only observable change is one extra transaction
+        // per claim. Acceptable degradation.
+        //
+        // We intentionally do NOT raise the stipend or remove it: a higher stipend
+        // widens the reentrancy window for a malicious recipient, and an unbounded
+        // `.call` would re-introduce the cross-contract reentrancy class this defense
+        // was added to close in the first place.
         (bool success,) = msg.sender.call{value: totalOwed, gas: 10000}("");
         if (success) {
             totalClaimed += totalOwed;
@@ -550,7 +569,10 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // SECURITY FIX C5: Only increment totalClaimed on successful direct transfer.
         // Failed transfers go to pendingWithdrawals — totalClaimed is incremented in withdrawPending().
         // Prevents totalEarmarked drift that permanently locks ETH (MakerDAO DSR pull-pattern).
-        // SECURITY FIX: Use 10k gas stipend to prevent cross-contract reentrancy (Solmate/Seaport pattern)
+        //
+        // AUDIT REV-M-02 (DOCUMENT only): 10k stipend tradeoff — see claim() above for
+        // the full rationale. Same Seaport/Solmate-grade defense, same WETH-fallback
+        // recovery path via withdrawPending(). Acceptable degradation.
         (bool success,) = msg.sender.call{value: totalOwed, gas: 10000}("");
         if (success) {
             totalClaimed += totalOwed;
@@ -1032,6 +1054,10 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         pendingRecoveryCount[epoch] -= 1;
         epochClaimed[epoch] += share;
 
+        // AUDIT REV-M-02 (DOCUMENT only): 10k stipend tradeoff — see claim() above for
+        // the full rationale. Recovery payouts to recipients whose receive() doesn't fit
+        // in 10k gas land in pendingWithdrawals and are pulled via withdrawPending()'s
+        // WETH-fallback path.
         (bool success,) = user.call{value: share, gas: 10000}("");
         if (success) {
             totalClaimed += share;
