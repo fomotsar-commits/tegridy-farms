@@ -1,8 +1,11 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import type { ArtPiece } from '../../lib/artConfig';
-// R041 + R072: lightbox image goes through the same safe-URL gate as the grid.
-import { safeUrl, PLACEHOLDER_NFT } from '../../lib/imageSafety';
+// R041 + R072: lightbox image renders the trusted artConfig path directly,
+// matching the grid. piece.src is a first-party root-relative URL and would
+// be rejected by safeUrl()'s https/ipfs/ar/data: allowlist (which exists for
+// untrusted on-chain URIs). onError still falls back to PLACEHOLDER_NFT.
+import { PLACEHOLDER_NFT } from '../../lib/imageSafety';
 
 interface ArtLightboxProps {
   pieces: ArtPiece[];
@@ -89,7 +92,7 @@ export function ArtLightbox({ pieces, selectedIndex, onClose, onNavigate }: ArtL
 
             <div className="rounded-xl overflow-hidden">
               <img
-                src={safeUrl(piece.src) ?? PLACEHOLDER_NFT}
+                src={piece.src}
                 alt={piece.title}
                 width={1600}
                 height={1600}

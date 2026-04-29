@@ -5,10 +5,14 @@ import { GALLERY_ORDER } from '../lib/artConfig';
 import { ArtLightbox } from '../components/ui/ArtLightbox';
 import { safeSetItem } from '../lib/storage';
 import { usePageTitle } from '../hooks/usePageTitle';
-// R041 + R072: every gallery <img> resolves through safeUrl + PLACEHOLDER_NFT
-// fallback. Width/height + decoding="async" reserve layout and keep the main
-// thread free. Local /art assets are same-origin, so no referrerPolicy here.
-import { safeUrl, PLACEHOLDER_NFT } from '../lib/imageSafety';
+// R041 + R072: every gallery <img> renders piece.src (from our first-party
+// artConfig — trusted local /art and /splash paths, not attacker-controlled
+// on-chain metadata) and falls back to PLACEHOLDER_NFT via onError if the
+// file is missing. Width/height + decoding="async" reserve layout and keep
+// the main thread free. The safeUrl() allowlist (https/ipfs/ar/data:image)
+// is for untrusted URIs from on-chain calls and would reject same-origin
+// root-relative paths like "/art/sword-of-love.jpg".
+import { PLACEHOLDER_NFT } from '../lib/imageSafety';
 
 function loadUserVotes(address: string | undefined): Record<string, boolean> {
   if (!address) return {};
@@ -105,12 +109,13 @@ export default function GalleryPage() {
               initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }} transition={{ duration: 0.35, delay: (i % 3) * 0.06 }}>
               {/* Fix #7: loading="lazy" on gallery images.
-                  R041 + R072: src goes through safeUrl, falls back to
-                  PLACEHOLDER_NFT on disallowed scheme or 404. width/height
-                  reserve layout to prevent CLS. decoding="async" keeps the
-                  main thread responsive during a column of large images. */}
+                  R041 + R072: piece.src is a trusted local path from
+                  artConfig; onError swaps to PLACEHOLDER_NFT if the file
+                  is missing. width/height reserve layout to prevent CLS.
+                  decoding="async" keeps the main thread responsive during
+                  a column of large images. */}
               <img
-                src={safeUrl(piece.src) ?? PLACEHOLDER_NFT}
+                src={piece.src}
                 alt={piece.title}
                 width={800}
                 height={800}
