@@ -18,7 +18,17 @@ const PROTOCOL_RISKS: Array<{
   {
     title: 'Patched contracts not yet redeployed on-chain',
     status: 'In progress',
-    body: 'Several contracts have fixes merged in the repository but are still running the older bytecode on mainnet: VoteIncentives, TegridyLending, TegridyNFTPool (template + factory), TegridyFeeHook (with the patched constructor), and TegridyLaunchpadV2. Until the redeploys broadcast, the on-chain surfaces carry the pre-fix behaviour — see FIX_STATUS.md for the exact list and blast radius.',
+    body: 'Several contracts have fixes merged in the repository but are still running the older bytecode on mainnet: VoteIncentives, TegridyLending, TegridyNFTPool (template + factory), TegridyFeeHook (with the patched constructor), TegridyLaunchpadV2, and TegridyStaking (autoMaxLock + getReward stuck-state fix landed in commit d8ba708 — affects only positions with autoMaxLock enabled that go silent past their lockEnd). Until the redeploys broadcast, the on-chain surfaces carry the pre-fix behaviour — see FIX_STATUS.md for the exact list and blast radius.',
+  },
+  {
+    title: 'Treasury is an EOA / multisig, not a smart contract',
+    status: 'Active',
+    body: 'The treasury address that receives fee splits, swap-fee surplus, sweep destinations, and the non-recycled portion of early-withdrawal penalties is an externally-owned account or multisig — not a Tegridy contract. There is no on-chain treasury policy, no withdrawal timelock at the treasury layer, and no on-chain audit trail of treasury outflows. Whatever entity controls the treasury key controls those funds outright. The protocol contracts use the standard 24–48h timelock to change the treasury address; the treasury itself is governed off-chain.',
+  },
+  {
+    title: 'Owner can cancel approved community-grant proposals',
+    status: 'Active',
+    body: 'After a CommunityGrants proposal passes its veTOWELI vote and reaches Approved status, the owner has a 3-day permissionless-execution window during which they can call cancelProposal instantly with no timelock. This effectively converts approved community votes from binding to advisory until the permissionless window opens. The owner cannot redirect funds — cancellation refunds the proposer deposit and releases the reserved budget — but the owner can veto. Recovery path: a proposer can re-submit, or any signer can execute the proposal once the 3-day owner-only window elapses.',
   },
   {
     title: 'No paid human audit by a recognised firm',
@@ -289,7 +299,7 @@ export default function RisksPage() {
           className="text-center mt-12"
         >
           <p className="text-white/70 text-xs">
-            Last updated: April 2026
+            Last updated: April 29, 2026
           </p>
         </m.div>
       </div>
