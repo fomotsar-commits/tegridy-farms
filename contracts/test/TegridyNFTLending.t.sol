@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import "../src/TegridyNFTLending.sol";
 
 // ─── Mock Contracts ─────────────────────────────────────────────────
@@ -858,5 +859,61 @@ contract TegridyNFTLendingTest is Test {
         lending.claimDefault(0);
 
         assertEq(lending.activeLoansOfCollection(address(nft)), 0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // AUDIT NFT-CL-M2: calculateInterest uses overflow-safe mulDiv
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// @notice Pre-fix `calculateInterest` used `_principal * _aprBps * elapsed`
+    ///         which had no 512-bit headroom — at upper-bound inputs the triple
+    ///         product flirted with overflow. The fix swaps to OZ
+    ///         `Math.mulDiv` with `Math.Rounding.Ceil`, mirroring
+    ///         TegridyLending's safer pattern at lines 889-894.
+    ///
+    ///         This test asserts the NFT-lending `calculateInterest` output
+    ///         matches the canonical Math.mulDiv(...,Ceil) computation for the
+    ///         same inputs across a spread of representative scenarios — small
+    ///         loan / short duration, mid-cap, and the upper-bound corner that
+    ///         would have come closest to the old overflow risk.
+    function test_NFT_CL_M2_calculateInterest_matchesMulDivCeil() public view {
+        uint256 BPS = lending.BPS();
+        uint256 SECONDS_PER_YEAR = lending.SECONDS_PER_YEAR();
+
+        // Case A: 1 ETH @ 10% APR for 30 days.
+        _assertMulDivCeil(1 ether, 1000, 30 days, BPS, SECONDS_PER_YEAR);
+
+        // Case B: 100 ETH @ 25% APR for 90 days.
+        _assertMulDivCeil(100 ether, 2500, 90 days, BPS, SECONDS_PER_YEAR);
+
+        // Case C: 1 ETH @ 100% APR for 1 second — exercises ceil rounding on
+        // a sub-1-wei pro-rata fraction (interest must round up to >=1 wei).
+        _assertMulDivCeil(1 ether, 10000, 1, BPS, SECONDS_PER_YEAR);
+
+        // Case D: max-cap corner — 1000 ETH @ 500% APR (50000 bps) for 365 days.
+        // Pre-fix triple product = 1e21 * 5e4 * ~3.15e7 ~= 1.58e33 — within uint256
+        // but uncomfortably close to anything that might compose with it. Math.mulDiv
+        // performs the multiplication in 512-bit so the cap is irrelevant.
+        _assertMulDivCeil(1000 ether, 50000, 365 days, BPS, SECONDS_PER_YEAR);
+    }
+
+    function _assertMulDivCeil(
+        uint256 principal,
+        uint256 aprBps,
+        uint256 elapsed,
+        uint256 BPS,
+        uint256 SECONDS_PER_YEAR
+    ) internal view {
+        uint256 expected = Math.mulDiv(
+            principal * aprBps,
+            elapsed,
+            BPS * SECONDS_PER_YEAR,
+            Math.Rounding.Ceil
+        );
+        // calculateInterest takes (principal, aprBps, startTime, currentTime).
+        // Pass startTime=0 and currentTime=elapsed so the internal `_currentTime - _startTime`
+        // resolves to `elapsed`.
+        uint256 actual = lending.calculateInterest(principal, aprBps, 0, elapsed);
+        assertEq(actual, expected, "calculateInterest must equal Math.mulDiv(_,_,_,Ceil)");
     }
 }

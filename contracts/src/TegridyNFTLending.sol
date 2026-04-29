@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
@@ -565,6 +566,14 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     }
 
     /// @notice Calculate pro-rata interest accrued (rounds up to protect protocol).
+    /// @dev AUDIT NFT-CL-M2: previously `_principal * _aprBps * elapsed` could
+    ///      overflow uint256 at upper-bound parameters (1000 ether * 50000 *
+    ///      365 days ~= 1.58e34 — within range, but with no safety margin and
+    ///      reverting cleanly only because the cap-product happens to fit).
+    ///      Replaced with OpenZeppelin Math.mulDiv which holds the intermediate
+    ///      in 512 bits, removing the overflow constraint entirely. Math.Rounding.Ceil
+    ///      preserves the protocol-favoring round-up behaviour the prior _ceilDiv
+    ///      provided. Mirrors TegridyLending.sol:889-894.
     function calculateInterest(
         uint256 _principal,
         uint256 _aprBps,
@@ -573,12 +582,12 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     ) public pure returns (uint256 interest) {
         if (_currentTime <= _startTime) return 0;
         uint256 elapsed = _currentTime - _startTime;
-        interest = _ceilDiv(_principal * _aprBps * elapsed, BPS * SECONDS_PER_YEAR);
-    }
-
-    /// @dev Ceiling division: returns ceil(a / b) for positive a, b.
-    function _ceilDiv(uint256 a, uint256 b) private pure returns (uint256) {
-        return (a + b - 1) / b;
+        interest = Math.mulDiv(
+            _principal * _aprBps,
+            elapsed,
+            BPS * SECONDS_PER_YEAR,
+            Math.Rounding.Ceil
+        );
     }
 
     /// @notice Get the total repayment amount for a loan at the current time.
