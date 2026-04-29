@@ -391,13 +391,60 @@ contract TegridyPairTest is Test {
 
     /// @notice AUDIT NEW-A7: harvest on a pair with no K-growth is a no-op
     ///         (no LP minted to feeTo, but call doesn't revert).
+    /// @dev    AUDIT R016 M-1: warp by HARVEST_INTERVAL between calls so the
+    ///         rate-limit gate is satisfied — without the warp the second
+    ///         harvest now reverts HARVEST_TOO_SOON, which is its own
+    ///         test (test_R016M1_harvestRateLimitWindow).
     function test_NEWA7_harvestIdempotentWithoutVolume() public {
         _addLiquidity(alice, 10_000 ether, 10_000 ether);
         pair.harvest(); // first call triggers _mintFee initial kLast set (K unchanged, no mint)
         uint256 feeToLPAfter1 = pair.balanceOf(feeTo);
-        pair.harvest(); // second call — no K growth, no mint
+        vm.warp(block.timestamp + pair.HARVEST_INTERVAL());
+        pair.harvest(); // second call after gate — no K growth, no mint
         uint256 feeToLPAfter2 = pair.balanceOf(feeTo);
         assertEq(feeToLPAfter1, feeToLPAfter2, "harvest without volume doesn't mint extra");
+    }
+
+    // ─── AUDIT R016 M-1: harvest rate-limit gate ─────────────────────
+
+    /// @notice AUDIT R016 M-1: a second harvest within the HARVEST_INTERVAL
+    ///         window must revert HARVEST_TOO_SOON. Caps the per-pair MEV
+    ///         extraction surface to ~12 calls/hour.
+    function test_R016M1_harvestRateLimitWindow() public {
+        _addLiquidity(alice, 10_000 ether, 10_000 ether);
+        _swapAForB(bob, 1_000 ether);
+
+        pair.harvest(); // ok — first call sets lastHarvestAt
+        vm.expectRevert(bytes("HARVEST_TOO_SOON"));
+        pair.harvest(); // immediate retry — must revert
+
+        // Warp PARTWAY through the window — still rejected.
+        vm.warp(block.timestamp + 4 minutes);
+        vm.expectRevert(bytes("HARVEST_TOO_SOON"));
+        pair.harvest();
+
+        // After full HARVEST_INTERVAL — accepted.
+        vm.warp(block.timestamp + 1 minutes + 1);
+        pair.harvest(); // does not revert
+    }
+
+    /// @notice AUDIT R016 M-1: rate-limit gate doesn't block legitimate
+    ///         feeTo accrual on hot pairs — keepers calling at the gate
+    ///         cadence still capture protocol fees as K grows.
+    function test_R016M1_harvestKeeperCadenceMaterialisesFee() public {
+        _addLiquidity(alice, 10_000 ether, 10_000 ether);
+
+        // First call (initialises kLast).
+        pair.harvest();
+        uint256 lp0 = pair.balanceOf(feeTo);
+
+        // Generate volume, warp through gate, harvest again — feeTo gains LP.
+        _swapAForB(bob, 1_000 ether);
+        _swapAForB(bob, 1_000 ether);
+        vm.warp(block.timestamp + pair.HARVEST_INTERVAL());
+        pair.harvest();
+        uint256 lp1 = pair.balanceOf(feeTo);
+        assertGt(lp1, lp0, "feeTo gains LP after gate-respecting harvest");
     }
 
     receive() external payable {}

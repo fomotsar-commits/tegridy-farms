@@ -68,6 +68,18 @@ contract TegridyPair is ERC20, ReentrancyGuard {
     uint256 public price0CumulativeLast;
     uint256 public price1CumulativeLast;
 
+    /// @notice AUDIT R016 M-1 (MEDIUM): wall-clock timestamp of the last successful
+    ///         `harvest()` call, used to enforce the `HARVEST_INTERVAL` rate-limit gate
+    ///         below. Permissionless `harvest()` would otherwise be MEV-front-runnable
+    ///         (a searcher can sandwich the transaction to capture the protocol fee
+    ///         dilution); the 5-minute cadence makes the resulting profit per attempt
+    ///         smaller than the searcher's gas + priority fee in any realistic
+    ///         block-space market while still letting keepers materialise the protocol
+    ///         fee on a tight cadence on hot pairs. The 1/6th protocol-fee share also
+    ///         caps the MEV upside structurally — see `harvest()` NatSpec.
+    uint256 public lastHarvestAt;
+    uint256 public constant HARVEST_INTERVAL = 5 minutes;
+
     /// @dev AUDIT R014: UQ112x112 scale factor matching Uniswap V2. Used inside `_update()`
     ///      to express `reserveOther / reserveThis` as a uint224 fixed-point number that
     ///      fits inside the uint256 cumulative slot when multiplied by `timeElapsed`.
@@ -294,7 +306,23 @@ contract TegridyPair is ERC20, ReentrancyGuard {
     ///         helper runs `_mintFee` + updates `kLast` so the protocol's LP share
     ///         materialises without waiting for a liquidity event. Balancer V2 /
     ///         Curve both use the same pattern (`claim_admin_fees()`).
+    /// @dev    AUDIT R016 M-1 (MEDIUM): `harvest()` is permissionless and structurally
+    ///         front-runnable for MEV — a searcher could sandwich the call to capture
+    ///         the dilution from the protocol's freshly-minted LP tokens. The MEV upside
+    ///         is bounded TWO ways:
+    ///           1. The protocol fee is only 1/6th of the 0.3% swap fee (~0.05% of
+    ///              swap volume), so the per-call dilution searcher can extract is tiny
+    ///              relative to typical sandwich gas + priority-fee costs.
+    ///           2. The `HARVEST_INTERVAL` gate (5 minutes) caps the call cadence, so
+    ///              even if a searcher were profitable on a single call, the recurring
+    ///              extraction surface is bounded to ~12 calls/hour per pair.
+    ///         The combination makes harvest-MEV uneconomic on any realistic pair:
+    ///         honest keepers (or the protocol itself) can simply call `harvest()` at
+    ///         the gate cadence and capture the fee.
+    /// @dev    Reverts `HARVEST_TOO_SOON` if called before `lastHarvestAt + HARVEST_INTERVAL`.
     function harvest() external nonReentrant {
+        require(block.timestamp >= lastHarvestAt + HARVEST_INTERVAL, "HARVEST_TOO_SOON");
+        lastHarvestAt = block.timestamp;
         (uint112 _reserve0, uint112 _reserve1,) = getReserves();
         bool feeOn = _mintFee(_reserve0, _reserve1);
         if (feeOn) {
