@@ -139,6 +139,6 @@ export function usePoints() {
     referralLink,
     onChainMetrics,
     // R037: precise about which values are on-chain verified vs client estimates.
-    disclaimer: 'On-chain: activityScore (swap count + staking from on-chain reads). Client estimates: points, streak, badges (stored locally in your browser).',
+    disclaimer: 'On-chain: points + badges (derived from swap count, staking, LP balance, referral count). Client-side: streak counter (computed locally from your visit cadence).',
   };
 }
