@@ -38,8 +38,13 @@ contract FOTToken195 is ERC20 {
 /// @dev Mock Uniswap V2 Router – 1:1 swap simulation
 contract MockUniRouter195 {
     address public immutable WETH_ADDR;
+    /// @dev AUDIT SFR-H-01: SwapFeeRouter constructor reads `router.factory()`. Stub
+    ///      is non-zero so the constructor doesn't revert; conversion path tests live
+    ///      in Audit_SFR_H01 — these audit195 tests exercise unrelated surfaces.
+    address public constant FACTORY_STUB = address(0xFAC7);
     constructor(address _weth) { WETH_ADDR = _weth; }
     function WETH() external view returns (address) { return WETH_ADDR; }
+    function factory() external pure returns (address) { return FACTORY_STUB; }
 
     function swapExactETHForTokens(
         uint256 amountOutMin, address[] calldata path, address to, uint256

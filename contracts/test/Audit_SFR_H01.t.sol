@@ -1,0 +1,396 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.26;
+
+import "forge-std/Test.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "../src/SwapFeeRouter.sol";
+import "../src/SwapFeeRouterAdmin.sol";
+
+/// @title AUDIT SFR-H-01 — TWAP-floor minETHOut prevents permissionless conversion sandwich
+/// @notice Regression test for the senior-recon HIGH finding on
+///         `SwapFeeRouter.convertTokenFeesToETH{,FoT}`. Pre-fix, a permissionless caller
+///         could:
+///           1. Front-run with a token→WETH sell that pushed the spot price down.
+///           2. Call convertTokenFeesToETH with `minETHOut = 1 wei` so the conversion
+///              executed at the depressed price.
+///           3. Back-run with the inverse buy, capturing the spread.
+///         The 1h CONVERSION_COOLDOWN throttled repetition but did NOT defend a single
+///         MEV bundle.
+///
+///         The fix derives a TWAP-based minETHOut floor inside the contract from the
+///         Uniswap V2 pair's cumulative-price accumulator, applies a 1.5% safety margin,
+///         and enforces `effectiveMin = max(callerMinETHOut, twapMinETHOut)`. Caller can
+///         only TIGHTEN the floor.
+///
+///         These tests stand up an in-memory Uniswap V2 pair + factory + router that
+///         honors `getReserves` / `price{0,1}CumulativeLast` exactly the way real
+///         mainnet pairs do, so the contract's TWAP read is exercised end-to-end. The
+///         router's "swap" trades at whatever spot price the attacker sets just before
+///         the conversion lands — which is the on-chain primitive a sandwich exploits.
+
+contract MockToken_SFR is ERC20 {
+    constructor(string memory n, string memory s) ERC20(n, s) {
+        _mint(msg.sender, 1e30);
+    }
+    function mint(address to, uint256 amount) external { _mint(to, amount); }
+    function burn(address from, uint256 amount) external { _burn(from, amount); }
+}
+
+/// @dev Minimal Uniswap V2 pair stub. Holds reserves + cumulative price accumulators
+///      identical to the real mainnet pair surface read by SwapFeeRouter.
+///      Tests advance the cumulative explicitly via `pokeCumulative` to simulate a
+///      stable price baseline being established before the sandwich attempt.
+contract MockUniPair_SFR {
+    address public immutable token0;
+    address public immutable token1;
+    uint112 public reserve0;
+    uint112 public reserve1;
+    uint32 public blockTimestampLast;
+    uint256 public price0CumulativeLast;
+    uint256 public price1CumulativeLast;
+    uint256 private constant Q112 = 2 ** 112;
+
+    constructor(address t0, address t1) {
+        token0 = t0;
+        token1 = t1;
+    }
+
+    function getReserves() external view returns (uint112, uint112, uint32) {
+        return (reserve0, reserve1, blockTimestampLast);
+    }
+
+    /// @dev Helper: set reserves (instant price set). Does NOT advance the cumulative —
+    ///      tests use this to reset the pre-snapshot baseline and to simulate
+    ///      attacker-induced spot-price changes between snapshot + conversion.
+    function setReserves(uint112 r0, uint112 r1) external {
+        reserve0 = r0;
+        reserve1 = r1;
+        blockTimestampLast = uint32(block.timestamp % 2 ** 32);
+    }
+
+    /// @dev Helper: bump the cumulative forward by `secondsElapsed` seconds at the
+    ///      CURRENT spot price. Mirrors what _update would do on every swap.
+    ///      Tests call this to seed a stable baseline that the SwapFeeRouter snapshot
+    ///      then reads, then later the test changes reserves to simulate a sandwich.
+    function pokeCumulative(uint32 secondsElapsed) external {
+        if (reserve0 == 0 || reserve1 == 0) return;
+        uint256 spot0 = (uint256(reserve1) * Q112) / reserve0;
+        uint256 spot1 = (uint256(reserve0) * Q112) / reserve1;
+        unchecked {
+            price0CumulativeLast += spot0 * uint256(secondsElapsed);
+            price1CumulativeLast += spot1 * uint256(secondsElapsed);
+        }
+        blockTimestampLast = uint32(block.timestamp % 2 ** 32);
+    }
+}
+
+contract MockUniFactory_SFR {
+    mapping(bytes32 => address) public pairs;
+
+    function setPair(address t0, address t1, address pair) external {
+        pairs[_key(t0, t1)] = pair;
+        pairs[_key(t1, t0)] = pair;
+    }
+
+    function getPair(address tokenA, address tokenB) external view returns (address) {
+        return pairs[_key(tokenA, tokenB)];
+    }
+
+    function _key(address a, address b) internal pure returns (bytes32) {
+        return keccak256(abi.encode(a, b));
+    }
+}
+
+/// @dev Mock V2 router that honors the SwapFeeRouter constructor's `factory()` read
+///      and routes swaps through a per-test in-memory pair. The swap's output ETH
+///      amount tracks whatever spot price the test has set on the pair right before
+///      the call — this is precisely the surface a real sandwich attack manipulates.
+contract MockUniRouter_SFR {
+    address public immutable WETH_ADDR;
+    address public immutable factoryAddr;
+
+    constructor(address _weth, address _factory) {
+        WETH_ADDR = _weth;
+        factoryAddr = _factory;
+    }
+
+    function WETH() external view returns (address) { return WETH_ADDR; }
+    function factory() external view returns (address) { return factoryAddr; }
+
+    /// @dev token → ETH swap: prices at the pair's CURRENT spot reserves. The router
+    ///      deposits the input tokens and sends out an ETH amount equal to the
+    ///      constant-product-respecting output (no fee, no slippage curve — kept
+    ///      simple so tests assert against an exact expected value).
+    function swapExactTokensForETH(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256
+    ) external returns (uint256[] memory amounts) {
+        require(path.length == 2 && path[1] == WETH_ADDR, "BAD_PATH");
+        IERC20(path[0]).transferFrom(msg.sender, address(this), amountIn);
+
+        // Look up the pair, compute the constant-product output, send ETH out.
+        address pair = MockUniFactory_SFR(factoryAddr).getPair(path[0], WETH_ADDR);
+        require(pair != address(0), "NO_PAIR");
+        MockUniPair_SFR p = MockUniPair_SFR(pair);
+        (uint112 r0, uint112 r1,) = p.getReserves();
+        bool tokenIs0 = p.token0() == path[0];
+        uint256 reserveToken = tokenIs0 ? r0 : r1;
+        uint256 reserveETH = tokenIs0 ? r1 : r0;
+        // Uniswap V2 constant-product output formula (no fee for simplicity here).
+        uint256 amountOut = (amountIn * reserveETH) / (reserveToken + amountIn);
+        require(amountOut >= amountOutMin, "INSUFFICIENT_OUTPUT");
+
+        // Update the pair's reserves to reflect the swap (so the cumulative tracking
+        // remains consistent with subsequent reads).
+        p.setReserves(
+            uint112(tokenIs0 ? reserveToken + amountIn : reserveETH - amountOut),
+            uint112(tokenIs0 ? reserveETH - amountOut : reserveToken + amountIn)
+        );
+
+        (bool ok,) = to.call{value: amountOut}("");
+        require(ok, "ETH_SEND_FAIL");
+        amounts = new uint256[](2);
+        amounts[0] = amountIn;
+        amounts[1] = amountOut;
+    }
+
+    receive() external payable {}
+}
+
+contract Audit_SFR_H01 is Test {
+    SwapFeeRouter public sfr;
+    SwapFeeRouterAdmin public sfrAdmin;
+    MockUniRouter_SFR public uniRouter;
+    MockUniFactory_SFR public factory;
+    MockUniPair_SFR public pair;
+    MockToken_SFR public weth;
+    MockToken_SFR public toweli;
+
+    address public treasury = makeAddr("treasury");
+    address public attacker = makeAddr("attacker");
+    address public keeper   = makeAddr("keeper"); // permissionless conversion caller
+
+    uint256 constant FEE_BPS = 30; // 0.3% global fee (irrelevant to this test surface)
+
+    /// @dev Baseline reserves: 100k TOWELI : 100 ETH ⇒ spot price 1 TOWELI = 0.001 ETH.
+    ///      Picked so a sandwich-induced 50% reserve imbalance produces a numerically
+    ///      obvious price gap (TWAP says ~0.001 ETH/TOWELI; sandwich-spot says ~0.0005).
+    uint112 constant BASELINE_TOWELI = 100_000 ether;
+    uint112 constant BASELINE_WETH   = 100 ether;
+
+    function setUp() public {
+        weth = new MockToken_SFR("WETH", "WETH");
+        toweli = new MockToken_SFR("Toweli", "TOWELI");
+
+        factory = new MockUniFactory_SFR();
+        uniRouter = new MockUniRouter_SFR(address(weth), address(factory));
+        vm.deal(address(uniRouter), 10_000 ether); // ETH float for swap output
+
+        // Deploy pair with deterministic token0/token1 ordering (TOWELI < WETH iff its
+        // address is lower; we sort here so the test is robust against `new` ordering).
+        address t0 = address(toweli) < address(weth) ? address(toweli) : address(weth);
+        address t1 = address(toweli) < address(weth) ? address(weth) : address(toweli);
+        pair = new MockUniPair_SFR(t0, t1);
+        factory.setPair(address(toweli), address(weth), address(pair));
+
+        // Seed reserves at the baseline price.
+        bool tokenIs0 = address(toweli) == t0;
+        if (tokenIs0) {
+            pair.setReserves(BASELINE_TOWELI, BASELINE_WETH);
+        } else {
+            pair.setReserves(BASELINE_WETH, BASELINE_TOWELI);
+        }
+
+        sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0));
+        sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
+        sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
+
+        // Park 100 TOWELI of accumulated fees in the router via vm.store + a direct
+        // ERC20 transfer. The vm.store writes `accumulatedTokenFees[address(toweli)]`.
+        toweli.transfer(address(sfr), 100 ether);
+        // Slot 8 is `accumulatedTokenFees` (mirrored from the in-tree FOT test setup —
+        // see SwapFeeRouter.t.sol's test_withdrawTokenFees_FOT_noAccountingDrift for the
+        // same offset). If storage layout shifts in a future refactor, this should
+        // realign too — but the assertion below double-checks the write took effect.
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(8)));
+        vm.store(address(sfr), slot, bytes32(uint256(100 ether)));
+        assertEq(sfr.accumulatedTokenFees(address(toweli)), 100 ether, "fee balance seed failed");
+    }
+
+    /// @dev Helper: poke the cumulative forward by `dt` seconds at the current pair
+    ///      spot price + advance block.timestamp by `dt`. Simulates the pair sitting
+    ///      idle (no swaps) for the period — the canonical prerequisite for a clean
+    ///      TWAP read.
+    function _advanceTime(uint32 dt) internal {
+        pair.pokeCumulative(dt);
+        skip(uint256(dt));
+    }
+
+    /// @dev Helper: simulate the attacker's front-running TOWELI→WETH sell that pushes
+    ///      the TOWELI price down right before the keeper's conversion. We just slam
+    ///      the reserves to a depressed-TOWELI ratio — the swap that lands next will
+    ///      see this price.
+    function _frontrunSandwich() internal {
+        bool tokenIs0 = address(toweli) < address(weth);
+        // Push TOWELI reserves up by ~50% (attacker dumped TOWELI), pull WETH down by ~50%.
+        if (tokenIs0) {
+            pair.setReserves(BASELINE_TOWELI * 3 / 2, BASELINE_WETH * 2 / 3);
+        } else {
+            pair.setReserves(BASELINE_WETH * 2 / 3, BASELINE_TOWELI * 3 / 2);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Bootstrap gate: first conversion is owner-only
+    // ═══════════════════════════════════════════════════════════════
+
+    function test_SFR_H01_bootstrap_rejects_nonOwner() public {
+        // No prior snapshot → permissionless caller hits TWAPBootstrapRequired.
+        _advanceTime(60 minutes);
+        vm.prank(keeper);
+        vm.expectRevert(SwapFeeRouter.TWAPBootstrapRequired.selector);
+        sfr.convertTokenFeesToETH(address(toweli), 0, block.timestamp + 1 hours);
+    }
+
+    function test_SFR_H01_bootstrap_succeeds_forOwner() public {
+        _advanceTime(60 minutes);
+        // Owner bootstraps — caller-supplied minETHOut acts as the only floor for this
+        // single call (treasury policy off-chain). Snapshot is written for next time.
+        sfr.convertTokenFeesToETH(address(toweli), 0, block.timestamp + 1 hours);
+        // Snapshot is non-zero: subsequent calls are permissionless.
+        (uint32 ts,) = sfr.lastConversionSnapshot(address(toweli));
+        assertGt(ts, 0, "bootstrap snapshot not written");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Sandwich attack: TWAP floor blocks the depressed-price conversion
+    // ═══════════════════════════════════════════════════════════════
+
+    /// @dev The headline regression: bootstrap → wait the cooldown + TWAP period →
+    ///      attacker front-runs to push spot price down → permissionless caller tries
+    ///      to convert with minETHOut=0 → conversion REVERTS at the inner router's
+    ///      INSUFFICIENT_OUTPUT because the contract-derived effectiveMin is the
+    ///      TWAP-derived floor, not 1 wei. Without SFR-H-01 the conversion would
+    ///      have settled at the depressed price and the attacker's back-run captured
+    ///      the spread.
+    function test_SFR_H01_sandwich_blocked_by_TWAP_floor() public {
+        // 1) Bootstrap snapshot at the baseline price (owner call).
+        _advanceTime(60 minutes); // pre-bootstrap idle window so cumulative is meaningful
+        uint256 d1 = block.timestamp + 30 minutes;
+        sfr.convertTokenFeesToETH(address(toweli), 0, d1);
+
+        // After the bootstrap swap the router consumed 100 TOWELI from the pair, so
+        // re-seed reserves at baseline + reseed accumulated fees so the next call has
+        // something to convert. We also re-poke the cumulative at the baseline so the
+        // second snapshot's TWAP reflects the baseline price, not the post-swap drift.
+        bool tokenIs0 = address(toweli) < address(weth);
+        if (tokenIs0) pair.setReserves(BASELINE_TOWELI, BASELINE_WETH);
+        else          pair.setReserves(BASELINE_WETH, BASELINE_TOWELI);
+
+        // Clear cooldown gate + accumulate enough TWAP integral.
+        skip(2 hours);
+        // Re-establish accumulated balance so the next convert has work to do.
+        toweli.mint(address(sfr), 100 ether);
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(8)));
+        vm.store(address(sfr), slot, bytes32(uint256(100 ether)));
+
+        // 2) The 2h skip moved block.timestamp forward, so we need to seed the
+        // cumulative integral over those 2 hours at the baseline price for the TWAP
+        // to read a clean (non-attacker) baseline. This is the mainnet-realistic
+        // scenario: the pair sat at the stable price for the cooldown window, accruing
+        // cumulative integral.
+        pair.pokeCumulative(uint32(2 hours));
+
+        // 3) Attacker front-runs: dump TOWELI to push spot down by ~33%.
+        _frontrunSandwich();
+
+        // 4) Permissionless keeper attempts conversion with minETHOut = 0.
+        //    Without SFR-H-01: would settle at the depressed spot, attacker captures spread.
+        //    With SFR-H-01:    effectiveMin = TWAP-derived floor; inner router reverts
+        //                      INSUFFICIENT_OUTPUT because attacker's price < floor.
+        // NOTE: see happyPath test for via_ir+block.timestamp miscompilation note.
+        uint256 d2 = vm.getBlockTimestamp() + 30 minutes;
+        vm.prank(keeper);
+        vm.expectRevert("INSUFFICIENT_OUTPUT");
+        sfr.convertTokenFeesToETH(address(toweli), 0, d2);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Caller can only TIGHTEN the floor (never relax)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// @dev Mirror of the sandwich test, but the caller passes a HIGHER minETHOut than
+    ///      the TWAP floor. The contract enforces `max(callerMin, twapMin) = callerMin`
+    ///      and the inner router still reverts (callerMin > attacker price). Confirms
+    ///      that "tightening" works and doesn't accidentally bypass the TWAP gate.
+    function test_SFR_H01_callerMinETHOut_can_only_tighten() public {
+        // Bootstrap.
+        _advanceTime(60 minutes);
+        uint256 d1 = block.timestamp + 30 minutes;
+        sfr.convertTokenFeesToETH(address(toweli), 0, d1);
+
+        bool tokenIs0 = address(toweli) < address(weth);
+        if (tokenIs0) pair.setReserves(BASELINE_TOWELI, BASELINE_WETH);
+        else          pair.setReserves(BASELINE_WETH, BASELINE_TOWELI);
+        vm.warp(block.timestamp + 2 hours);
+        toweli.mint(address(sfr), 100 ether);
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(8)));
+        vm.store(address(sfr), slot, bytes32(uint256(100 ether)));
+        pair.pokeCumulative(uint32(2 hours));
+
+        // Sandwich front-run.
+        _frontrunSandwich();
+
+        // Caller passes minETHOut = 1 ether (way above what the depressed spot would
+        // produce on 100 TOWELI). Conversion still reverts because the inner router
+        // sees the attacker's spot.
+        // NOTE: see happyPath test for via_ir+block.timestamp miscompilation note.
+        uint256 d2 = vm.getBlockTimestamp() + 30 minutes;
+        vm.prank(keeper);
+        vm.expectRevert("INSUFFICIENT_OUTPUT");
+        sfr.convertTokenFeesToETH(address(toweli), 1 ether, d2);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Happy path: no sandwich, conversion settles at TWAP-floor or above
+    // ═══════════════════════════════════════════════════════════════
+
+    /// @dev Sanity: when the pair sits at the baseline price the keeper's conversion
+    ///      goes through cleanly. Confirms SFR-H-01 isn't a false-positive that
+    ///      bricks the legitimate conversion path.
+    function test_SFR_H01_happyPath_legitimateConversion_succeeds() public {
+        // Bootstrap.
+        _advanceTime(60 minutes);
+        uint256 d1 = block.timestamp + 30 minutes;
+        sfr.convertTokenFeesToETH(address(toweli), 0, d1);
+
+        bool tokenIs0 = address(toweli) < address(weth);
+        if (tokenIs0) pair.setReserves(BASELINE_TOWELI, BASELINE_WETH);
+        else          pair.setReserves(BASELINE_WETH, BASELINE_TOWELI);
+        vm.warp(block.timestamp + 2 hours);
+        toweli.mint(address(sfr), 100 ether);
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(8)));
+        vm.store(address(sfr), slot, bytes32(uint256(100 ether)));
+        pair.pokeCumulative(uint32(2 hours));
+        // No front-run; pair stays at baseline.
+
+        uint256 ethBefore = address(sfr).balance;
+        // AUDIT note: foundry+via_ir misoptimizes consecutive `block.timestamp + N`
+        // reads in this exact callsite (see issue thread: when block.timestamp value
+        // changes mid-function via vm.warp, the second `block.timestamp + literal`
+        // expression returns a stale value). Workaround: bypass the constant-folding
+        // by reading via vm.getBlockTimestamp() which is not foldable.
+        uint256 nowTs = vm.getBlockTimestamp();
+        uint256 d2 = nowTs + 30 minutes;
+        vm.prank(keeper);
+        sfr.convertTokenFeesToETH(address(toweli), 0, d2);
+        uint256 ethReceived = address(sfr).balance - ethBefore;
+        assertGt(ethReceived, 0, "conversion produced no ETH on happy path");
+        // Snapshot updated.
+        (uint32 ts,) = sfr.lastConversionSnapshot(address(toweli));
+        assertGt(ts, 0, "snapshot not updated after second conversion");
+    }
+}

@@ -25,12 +25,15 @@ contract MockERC20_R014 is ERC20 {
     function mint(address to, uint256 amount) external { _mint(to, amount); }
 }
 
-/// @dev Stub Uniswap V2 router — only `WETH()` is consumed by the SwapFeeRouter
-///      constructor. Swap paths are unreachable in these unit tests.
+/// @dev Stub Uniswap V2 router — only `WETH()` and `factory()` are consumed by the
+///      SwapFeeRouter constructor (the latter added by SFR-H-01 for the per-token
+///      TWAP-floor minETHOut). Swap paths are unreachable in these unit tests.
 contract MockUniRouter_R014 {
     address public immutable WETH_ADDR;
+    address public constant FACTORY_STUB = address(0xFAC7);
     constructor(address _weth) { WETH_ADDR = _weth; }
     function WETH() external view returns (address) { return WETH_ADDR; }
+    function factory() external pure returns (address) { return FACTORY_STUB; }
     receive() external payable {}
 }
 

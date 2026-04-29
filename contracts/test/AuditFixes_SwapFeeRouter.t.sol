@@ -30,12 +30,20 @@ contract MockUniswapV2Router {
     uint256 public fixedOutputAmount;
     bool public useFixedOutput;
 
+    /// @dev AUDIT SFR-H-01: SwapFeeRouter constructor reads `router.factory()`. Stub
+    ///      non-zero address so the constructor doesn't revert.
+    address public constant FACTORY_STUB = address(0xFAC7);
+
     constructor(address _weth) {
         WETH_ADDR = _weth;
     }
 
     function WETH() external view returns (address) {
         return WETH_ADDR;
+    }
+
+    function factory() external pure returns (address) {
+        return FACTORY_STUB;
     }
 
     function setFixedOutput(uint256 amount) external {

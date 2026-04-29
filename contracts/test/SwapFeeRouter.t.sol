@@ -20,6 +20,11 @@ contract MockERC20 is ERC20 {
 /// @dev Mock Uniswap V2 Router that simulates swaps at 1:1 rate
 contract MockUniRouter {
     address public immutable WETH_ADDR;
+    /// @dev AUDIT SFR-H-01: SwapFeeRouter constructor now reads `router.factory()`
+    ///      to cache the factory for the per-token TWAP-floor minETHOut. Tests in
+    ///      this file don't exercise the conversion path, so a static stub address
+    ///      is enough — non-zero so the constructor doesn't revert.
+    address public constant FACTORY_STUB = address(0xFAC7);
 
     constructor(address _weth) {
         WETH_ADDR = _weth;
@@ -27,6 +32,10 @@ contract MockUniRouter {
 
     function WETH() external view returns (address) {
         return WETH_ADDR;
+    }
+
+    function factory() external pure returns (address) {
+        return FACTORY_STUB;
     }
 
     function swapExactETHForTokens(
