@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 
 const BASE_TITLE = 'Tegridy Farms';
-const SITE_URL = 'https://tegridyfarms.xyz';
+const SITE_URL = 'https://tegridyfarms.vercel.app';
 const DEFAULT_OG_IMAGE = `${SITE_URL}/art/gallery-collage.jpg`;
 
 function setMetaTag(attr: 'name' | 'property', key: string, content: string) {

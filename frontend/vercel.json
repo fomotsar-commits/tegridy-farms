@@ -61,19 +61,6 @@
       "has": [{ "type": "host", "value": "tegridyfarms-three.vercel.app" }],
       "destination": "https://tegridyfarms.vercel.app/$1",
       "permanent": true
-    },
-    {
-      "source": "/(.*)",
-      "has": [{ "type": "host", "value": "(?<host>.+)\\.vercel\\.app" }],
-      "missing": [{ "type": "host", "value": "tegridyfarms.vercel.app" }],
-      "destination": "https://tegridyfarms.xyz/$1",
-      "permanent": false
-    },
-    {
-      "source": "/(.*)",
-      "has": [{ "type": "host", "value": "tegridyfarms.vercel.app" }],
-      "destination": "https://tegridyfarms.xyz/$1",
-      "permanent": true
     }
   ],
   "rewrites": [
