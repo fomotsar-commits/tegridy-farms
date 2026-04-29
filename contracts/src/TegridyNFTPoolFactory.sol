@@ -456,7 +456,16 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     ///         SECURITY FIX: Factory is now the authorized fee claimer (not protocolFeeRecipient).
     ///         Anyone can trigger claims; fees accumulate in the factory then get forwarded.
     /// @param pool The pool address to claim fees from
-    function claimPoolFees(address pool) external {
+    /// @dev AUDIT NFT-CL-M3: brought into parity with `claimPoolFeesBatch`. Pre-fix
+    ///      this single-pool variant accepted ANY caller-supplied address and had no
+    ///      reentrancy guard. The membership check (`isPool[pool]`) blocks fee-claim
+    ///      routing through pools the factory never deployed (a hostile clone of
+    ///      the pool surface could be passed here to siphon factory ETH on the next
+    ///      `withdrawProtocolFees`). The `nonReentrant` modifier matches the batch
+    ///      variant and guards against any future malicious-pool implementation
+    ///      that re-enters via the `claimProtocolFees` callback.
+    function claimPoolFees(address pool) external nonReentrant {
+        if (!isPool[pool]) revert NotAPool(pool);
         TegridyNFTPool(payable(pool)).claimProtocolFees();
     }
 

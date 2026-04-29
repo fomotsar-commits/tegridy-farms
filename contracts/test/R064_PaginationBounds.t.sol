@@ -228,6 +228,73 @@ contract R064_NFTPoolFactoryBoundsTest is Test {
         address pool = _createTradePool();
         assertTrue(factory.isPool(pool), "deployed pool true");
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // AUDIT NFT-CL-M3: single-pool claimPoolFees parity with batch
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// @notice Pre-fix `claimPoolFees(address)` accepted ANY caller-supplied
+    ///         address. The batch sibling already had `isPool[pool]` membership
+    ///         enforcement (R064/M-064) — the single-pool variant was missing
+    ///         it. This test asserts the variant now rejects non-pool addresses
+    ///         with the same `NotAPool(address)` typed error.
+    function test_NFT_CL_M3_claimPoolFees_rejectsNonPoolAddress() public {
+        address fakePool = makeAddr("fakePool");
+        vm.expectRevert(
+            abi.encodeWithSelector(TegridyNFTPoolFactory.NotAPool.selector, fakePool)
+        );
+        factory.claimPoolFees(fakePool);
+    }
+
+    /// @notice Sanity counter-check: `claimPoolFees` accepts factory-deployed
+    ///         pools (the membership flag is set in createPool).
+    function test_NFT_CL_M3_claimPoolFees_acceptsFactoryPool() public {
+        address pool = _createTradePool();
+        // Should not revert — pool has no accumulated fees so the inner
+        // claimProtocolFees is a no-op, but the outer membership gate succeeds.
+        factory.claimPoolFees(pool);
+    }
+
+    /// @notice Pre-fix `claimPoolFees(address)` had no reentrancy guard.
+    ///         The batch sibling adds `nonReentrant` (R064/M-064 commentary
+    ///         calls this out as a forward-compat guard against malicious
+    ///         pool implementations). This test simulates a hostile pool
+    ///         whose `claimProtocolFees()` re-enters `claimPoolFees` — proving
+    ///         the new `nonReentrant` modifier blocks the re-entry.
+    ///
+    ///         The hostile contract is registered as a "pool" via direct slot
+    ///         write (storage slot 9 = `isPool` mapping) so we can reach the
+    ///         reentrancy guard without faking the full createPool flow.
+    function test_NFT_CL_M3_claimPoolFees_reentrancyBlocked() public {
+        // Deploy a hostile contract whose claimProtocolFees re-enters claimPoolFees.
+        ReentrantHostilePool hostile = new ReentrantHostilePool(address(factory));
+
+        // Storage slot 9 is `isPool` (verified via `forge inspect ... storage`).
+        // Compute slot keccak256(abi.encode(addr, slot)) for the mapping entry.
+        bytes32 isPoolSlot = keccak256(abi.encode(address(hostile), uint256(9)));
+        vm.store(address(factory), isPoolSlot, bytes32(uint256(1)));
+        assertTrue(factory.isPool(address(hostile)), "hostile registered as pool via storage poke");
+
+        // Trigger claimPoolFees → hostile.claimProtocolFees() runs → tries
+        // to re-enter factory.claimPoolFees(hostile). nonReentrant must trip.
+        // The inner call's revert is caught and re-raised as the outer call's
+        // revert (no try/catch around the inner call site).
+        vm.expectRevert(); // ReentrancyGuardReentrantCall (OZ 5.x)
+        factory.claimPoolFees(address(hostile));
+    }
+}
+
+/// @dev Hostile pool used in `test_NFT_CL_M3_claimPoolFees_reentrancyBlocked`.
+///      Its `claimProtocolFees()` recursively calls back into the factory's
+///      `claimPoolFees(self)` — the `nonReentrant` modifier should reject the
+///      re-entry attempt.
+contract ReentrantHostilePool {
+    address payable public immutable factory;
+    constructor(address _factory) { factory = payable(_factory); }
+    function claimProtocolFees() external {
+        // Recursive re-entry into the factory. nonReentrant trips here.
+        TegridyNFTPoolFactory(factory).claimPoolFees(address(this));
+    }
 }
 
 // ─── RevenueDistributor: MAX_CLAIM_EPOCHS lowered to 250 ────────────────────
