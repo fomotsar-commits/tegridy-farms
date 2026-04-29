@@ -199,23 +199,23 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     ///      the correct effective boost; the boost ceiling clamp is preserved as
     ///      defence-in-depth.
     ///
-    ///      Falls back to the old single-pointer path via try/catch in case the staking
-    ///      contract is mid-upgrade and doesn't yet expose aggregateActiveBoostBps.
+    /// @dev AUDIT R016 M-1 (MEDIUM): the legacy single-pointer fallback (try/catch on
+    ///      `aggregateActiveBoostBps`, then `userTokenId(user)` + `positions(tokenId)`)
+    ///      was removed. The fallback was dead code on the deployed staking ABI — the
+    ///      aggregate view has been live since H12 — but it was actively harmful as a
+    ///      contingency: in a hypothetical staking-upgrade scenario where the aggregate
+    ///      view reverted, the catch path would have UNDERCOUNTED multi-NFT contract
+    ///      holders by reading only the most-recently-received NFT's boost while the
+    ///      user actually held N positions. That's the exact gap H12 was meant to close.
+    ///      Keeping the fallback meant the silent-undercount regression could re-appear
+    ///      under any future staking ABI breakage. With the fallback gone, an ABI
+    ///      mismatch loudly reverts at the staking call instead of silently halving
+    ///      reward boost for affected holders.
     function _getEffectiveBalance(address user, uint256 rawAmount) internal view returns (uint256) {
         uint256 boostBps = BASE_BOOST_BPS;
-        try tegridyStaking.aggregateActiveBoostBps(user) returns (uint256 aggBps) {
-            if (aggBps > BASE_BOOST_BPS) {
-                boostBps = aggBps > MAX_BOOST_BPS_CEILING ? MAX_BOOST_BPS_CEILING : aggBps;
-            }
-        } catch {
-            // Legacy fallback: single-pointer behaviour.
-            uint256 tokenId = tegridyStaking.userTokenId(user);
-            if (tokenId != 0) {
-                (uint256 amt,, , uint64 lockEnd, uint16 bps,,,,,,) = tegridyStaking.positions(tokenId);
-                if (amt > 0 && block.timestamp < lockEnd && bps > BASE_BOOST_BPS) {
-                    boostBps = bps > MAX_BOOST_BPS_CEILING ? MAX_BOOST_BPS_CEILING : bps;
-                }
-            }
+        uint256 aggBps = tegridyStaking.aggregateActiveBoostBps(user);
+        if (aggBps > BASE_BOOST_BPS) {
+            boostBps = aggBps > MAX_BOOST_BPS_CEILING ? MAX_BOOST_BPS_CEILING : aggBps;
         }
         return (rawAmount * boostBps) / BOOST_PRECISION;
     }
