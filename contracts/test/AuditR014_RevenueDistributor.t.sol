@@ -238,4 +238,83 @@ contract AuditR014_RevenueDistributorTest is Test {
         vm.expectRevert(RevenueDistributor.NoEpochToReconcile.selector);
         dist.autoReconcileDust();
     }
+
+    // ─── REV-H-02 — autoReconcileDust must NOT brick pending recoveries ─────
+    //
+    // ATTACK MODEL: H-5 claim-recovery is keyed on epochClaimed[epoch]. Once
+    // autoReconcileDust sets epochClaimed[src] = epoch.totalETH, the recovery's
+    // share = 0 → executeClaimRecovery reverts NothingToClaim() forever. The
+    // race: admin proposes recovery → during the 48h delay, an attacker calls
+    // autoReconcileDust on a now-past-grace epoch → recovery permanently bricked.
+    function test_REV_H_02_autoReconcileDust_skipsEpochsWithPendingRecovery() public {
+        // Two epochs with 8d spacing so epoch 0 is past DUST_RECLAIM_GRACE
+        // and epoch 1 is the destination.
+        uint256 t0 = block.timestamp;
+        _distribute(10 ether); // epoch 0 — 10 ETH
+
+        // Corrupt carol BEFORE the second distribute so the normal claim path is
+        // dead and only recovery can rescue her.
+        ve.corrupt(carol);
+
+        vm.warp(t0 + 8 days);
+        _distribute(10 ether); // epoch 1 — destination
+
+        // Admin proposes recovery for carol on the now-past-grace epoch 0.
+        dist.proposeClaimRecovery(carol, 0, 50_000 ether);
+        assertEq(dist.pendingRecoveryCount(0), 1, "counter bumped");
+
+        // Attacker races autoReconcileDust DURING the 48h timelock — pre-fix this
+        // would have set epochClaimed[0] = epoch[0].totalETH and bricked the
+        // recovery. Post-fix, the call succeeds but SKIPS epoch 0.
+        vm.prank(attacker);
+        (uint256 reclaimed, uint256 processed) = dist.autoReconcileDust();
+        assertEq(reclaimed, 0, "epoch 0 was skipped - no dust routed");
+        assertEq(processed, 1, "cursor advanced past skipped epoch");
+        assertEq(dist.lastReconciledEpoch(), 1, "cursor at 1");
+        // Critical: epoch 0's epochClaimed is UNCHANGED — the recovery's source
+        // pool is preserved.
+        assertEq(dist.epochClaimed(0), 0, "epoch 0 untouched");
+
+        // Warp past the recovery timelock and execute. Carol gets her share —
+        // proving the recovery was NOT bricked by the racing reconcile call.
+        vm.warp(block.timestamp + 48 hours + 1);
+        uint256 carolBefore = carol.balance;
+        dist.executeClaimRecovery(carol, 0);
+        // 50_000 / 250_000 * 10 ETH = 2 ETH.
+        assertEq(carol.balance - carolBefore, 2 ether, "carol receives 2 ETH");
+        assertEq(dist.pendingRecoveryCount(0), 0, "counter decremented on execute");
+    }
+
+    function test_REV_H_02_proposeClaimRecovery_revertsOnReconciledEpoch() public {
+        // Two epochs, 8d apart. Reconcile epoch 0 (no pending recoveries).
+        uint256 t0 = block.timestamp;
+        _distribute(10 ether); // epoch 0
+        vm.warp(t0 + 8 days);
+        _distribute(10 ether); // epoch 1
+        dist.autoReconcileDust();
+        assertEq(dist.lastReconciledEpoch(), 1, "epoch 0 was reconciled");
+
+        // Now any new recovery proposal on the reconciled epoch must be
+        // rejected fail-fast — the source pool is empty.
+        vm.expectRevert(RevenueDistributor.EpochAlreadyReconciled.selector);
+        dist.proposeClaimRecovery(carol, 0, 50_000 ether);
+    }
+
+    function test_REV_H_02_cancelClaimRecovery_decrementsCounter() public {
+        _distribute(10 ether);
+        dist.proposeClaimRecovery(carol, 0, 50_000 ether);
+        assertEq(dist.pendingRecoveryCount(0), 1, "counter bumped");
+        dist.cancelClaimRecovery(carol, 0);
+        assertEq(dist.pendingRecoveryCount(0), 0, "counter decremented on cancel");
+    }
+
+    function test_REV_H_02_proposeClaimRecovery_doesNotDoubleCount() public {
+        _distribute(10 ether);
+        dist.proposeClaimRecovery(carol, 0, 50_000 ether);
+        assertEq(dist.pendingRecoveryCount(0), 1, "first propose bumps");
+        // Re-propose for SAME (user, epoch) — should overwrite without
+        // double-counting.
+        dist.proposeClaimRecovery(carol, 0, 40_000 ether);
+        assertEq(dist.pendingRecoveryCount(0), 1, "re-propose does not double-count");
+    }
 }

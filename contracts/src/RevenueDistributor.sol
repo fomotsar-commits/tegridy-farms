@@ -117,6 +117,17 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     // because recovery is for users who can't traverse the normal claim loop).
     mapping(address => mapping(uint256 => bool)) public recoveryClaimed;
 
+    // AUDIT REV-H-02 (HIGH): per-epoch in-flight pending recovery count. Bumped on
+    // proposeClaimRecovery (when the slot was empty), decremented on
+    // executeClaimRecovery and cancelClaimRecovery. Used by autoReconcileDust to
+    // SKIP any epoch with non-zero count so the recovery's source pool is preserved
+    // for executeClaimRecovery to pay out from. Without this, a permissionless
+    // autoReconcileDust call during the 48h timelock would set
+    // epochClaimed[src] = epoch.totalETH, causing executeClaimRecovery to revert
+    // NothingToClaim() forever — irreversibly bricking the recovery and rugging
+    // the corrupted user.
+    mapping(uint256 => uint256) public pendingRecoveryCount;
+
     // Max epochs claimable in a single call / view iteration cap
     // R064 (MEDIUM): lowered from 500 → 250. _calculateClaim runs a binary-search
     // Checkpoints.upperLookup PLUS a try/CALL into restakingContract per
@@ -215,6 +226,8 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     // AUDIT R014 M-8: Auto-reconcile errors
     error NoEpochToReconcile();
     error GracePeriodActive();
+    // AUDIT REV-H-02: propose-time guard for already-reconciled epochs.
+    error EpochAlreadyReconciled();
 
     // ─── Constructor ──────────────────────────────────────────────────
 
@@ -897,6 +910,23 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
             anyEligible = true;
             lastTouched = i;
 
+            // AUDIT REV-H-02 (HIGH): if this epoch has any in-flight pending recovery,
+            // SKIP it — preserve epochClaimed[i] so executeClaimRecovery can pay out
+            // from the source pool. Without this skip, a permissionless caller racing
+            // executeClaimRecovery during the 48h timelock would set epochClaimed[i] =
+            // epoch.totalETH, making the recovery's `share = 0` and reverting it
+            // forever (the cursor is one-way, so the rug is permanent).
+            //
+            // Cursor still advances past the skipped epoch (lastTouched updated above)
+            // — its residual dust is forfeit-orphaned, which is an acceptable tradeoff
+            // versus bricking the recovery. The propose-time guard
+            // (`epoch >= lastReconciledEpoch`) prevents new recoveries on epochs the
+            // cursor has passed, so admins must propose all recoveries for an epoch
+            // before its grace window elapses.
+            if (pendingRecoveryCount[i] > 0) {
+                continue;
+            }
+
             uint256 dust = epoch.totalETH > epochClaimed[i] ? epoch.totalETH - epochClaimed[i] : 0;
             if (dust >= MIN_DUST_RECONCILE) {
                 // Mark the source epoch fully claimed so future claims/views correctly
@@ -935,9 +965,22 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         if (epoch >= epochs.length) revert InvalidEpoch();
         if (power == 0) revert PowerExceedsTotalLocked(); // 0 is not a valid recovery
         if (recoveryClaimed[user][epoch]) revert AlreadyClaimed();
+        // AUDIT REV-H-02 (HIGH): refuse proposals on epochs the auto-reconcile cursor
+        // has already passed. Once epoch < lastReconciledEpoch the source pool may
+        // have been emptied (epochClaimed[epoch] = epoch.totalETH), in which case
+        // executeClaimRecovery would revert NothingToClaim() — fail fast at propose
+        // time so admins do not waste a 48h timelock on a doomed proposal.
+        if (epoch < lastReconciledEpoch) revert EpochAlreadyReconciled();
 
         Epoch memory ep = epochs[epoch];
         if (power > ep.totalLocked) revert PowerExceedsTotalLocked();
+
+        // AUDIT REV-H-02: bump the per-epoch in-flight count ONLY when the slot was
+        // empty. Re-proposing for the same (user, epoch) (e.g. amending the attested
+        // power) overwrites without double-counting.
+        if (pendingRecoveries[user][epoch].executeAfter == 0) {
+            pendingRecoveryCount[epoch] += 1;
+        }
 
         // Overwrite any in-flight proposal for this (user, epoch). Loud event ensures
         // any silent overwrite is auditable on-chain.
@@ -952,6 +995,9 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         PendingRecovery memory p = pendingRecoveries[user][epoch];
         if (p.executeAfter == 0) revert NoPendingRecovery();
         delete pendingRecoveries[user][epoch];
+        // AUDIT REV-H-02: decrement the per-epoch in-flight count so autoReconcileDust
+        // can resume processing this epoch's residual dust.
+        pendingRecoveryCount[epoch] -= 1;
         emit ClaimRecoveryCancelled(user, epoch);
     }
 
@@ -982,6 +1028,8 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // Effects before external interaction (CEI).
         recoveryClaimed[user][epoch] = true;
         delete pendingRecoveries[user][epoch];
+        // AUDIT REV-H-02: decrement the per-epoch in-flight count.
+        pendingRecoveryCount[epoch] -= 1;
         epochClaimed[epoch] += share;
 
         (bool success,) = user.call{value: share, gas: 10000}("");
