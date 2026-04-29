@@ -6,7 +6,7 @@ import { useAddLiquidity } from '../../hooks/useAddLiquidity';
 import { DEFAULT_TOKENS, type TokenInfo } from '../../lib/tokenList';
 import { TokenSelectModal } from './TokenSelectModal';
 import { getTxUrl } from '../../lib/explorer';
-import { formatTokenAmount } from '../../lib/formatting';
+import { formatTokenAmount, formatNumber } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
 
 type LiquidityMode = 'add' | 'remove';
@@ -241,7 +241,9 @@ export function LiquidityTab() {
                 </div>
                 <div className="flex justify-between text-white/70 mb-1">
                   <span>Rate</span>
-                  <span className="text-white font-mono">1 {tokenA.symbol} = {liq.priceRatio > 0 ? liq.priceRatio.toFixed(6) : '—'} {tokenB.symbol}</span>
+                  <span className="text-white font-mono" title={liq.priceRatio > 0 ? `${liq.priceRatio.toFixed(8)} ${tokenB.symbol} per 1 ${tokenA.symbol}` : ''}>
+                    1 {tokenA.symbol} {liq.priceRatio > 0 ? '≈' : '='} {liq.priceRatio > 0 ? formatNumber(liq.priceRatio, 4) : '—'} {tokenB.symbol}
+                  </span>
                 </div>
                 <div className="flex justify-between text-white/70">
                   <span>Your LP tokens</span>
