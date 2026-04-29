@@ -155,7 +155,7 @@ export default function FarmPage() {
       }
 
       // Log points for farm actions
-      points.logAction(actionType, nft.holdsGoldCard);
+      points.logAction(actionType, nft.holdsGoldCard === true);
 
       // Fire confetti on stake or claim success
       if (actionType === 'stake' || actionType === 'claim') {

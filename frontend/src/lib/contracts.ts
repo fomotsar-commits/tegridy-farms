@@ -337,6 +337,10 @@ export const LP_FARMING_ABI = [
   { type: 'function', name: 'rewardPerToken', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'getRewardForDuration', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'lastTimeRewardApplicable', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // F-7 boost surface — required by useLPFarming.refreshBoost + useAutoRefreshBoost.
+  { type: 'function', name: 'rawBalanceOf', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'effectiveBalanceOf', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'refreshBoost', inputs: [{ name: 'account', type: 'address' }], outputs: [], stateMutability: 'nonpayable' },
 ] as const;
 
 export const lpFarmingConfig = {
