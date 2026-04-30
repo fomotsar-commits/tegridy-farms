@@ -71,6 +71,8 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     bytes32 public constant ACCUMULATE_CAP_CHANGE = keccak256("ACCUMULATE_CAP_CHANGE");
     bytes32 public constant BACKSTOP_CHANGE = keccak256("BACKSTOP_CHANGE");
     bytes32 public constant SWEEP_ETH_CHANGE = keccak256("SWEEP_ETH_CHANGE");
+    /// @dev AUDIT M-P02: 48h-timelocked token sweep, symmetric with SWEEP_ETH_CHANGE.
+    bytes32 public constant SWEEP_TOKENS = keccak256("SWEEP_TOKENS");
     bytes32 public constant TREASURY_CHANGE = keccak256("POL_TREASURY_CHANGE");
     bytes32 public constant POL_HARVEST = keccak256("POL_HARVEST"); // AUDIT M12
 
@@ -664,15 +666,74 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         return _executeAfter[POL_HARVEST];
     }
 
-    /// @notice SECURITY FIX: Sweep leftover token dust (e.g., unused TOWELI from addLiquidityETH)
-    // AUDIT FIX: Added nonReentrant for defense-in-depth against malicious token callbacks
-    function sweepTokens(address token) external onlyOwner nonReentrant {
-        // SECURITY FIX: Cannot sweep LP tokens — defeats permanent liquidity invariant
+    // ─── AUDIT M-P02: sweepTokens 48h timelock ─────────────────────────
+    /// @notice 48-hour delay matches SWEEP_ETH_DELAY for symmetry — both
+    ///         protocol-owned-asset sweeps now share the same review window.
+    uint256 public constant SWEEP_TOKENS_DELAY = 48 hours;
+    /// @notice Token whose sweep is queued. address(0) when no proposal pending.
+    address public pendingSweepToken;
+
+    event SweepTokensProposed(address indexed token, uint256 readyAt);
+    event SweepTokensExecuted(address indexed token, address indexed recipient, uint256 amount);
+    event SweepTokensCancelled(address indexed token);
+
+    /// @notice AUDIT M-P02 (2026-04-29): Propose sweeping token dust to the
+    ///         treasury after a 48h timelock. The token address is locked at
+    ///         proposal time; the actual balance swept is read at execution.
+    ///         Mirrors `proposeSweepETH` so both sister sweep paths share the
+    ///         same review/cancel surface — closes the asymmetry where the ETH
+    ///         sweep was timelocked but the token sweep was instant.
+    /// @param  token Token contract whose balance will be swept on execute.
+    function proposeSweepTokens(address token) external onlyOwner {
+        // SECURITY FIX: Cannot sweep LP tokens — defeats permanent liquidity invariant.
+        // Reject at proposal time so the queue cannot stall on a doomed proposal.
         require(token != lpToken, "CANNOT_SWEEP_LP");
+        require(token != address(0), "ZERO_TOKEN");
+        pendingSweepToken = token;
+        _propose(SWEEP_TOKENS, SWEEP_TOKENS_DELAY);
+        emit SweepTokensProposed(token, _executeAfter[SWEEP_TOKENS]);
+    }
+
+    /// @notice Execute a previously-proposed token sweep after the 48h
+    ///         timelock has elapsed. Sweeps the FULL balance of the queued
+    ///         token to `treasury`. Re-enforces the LP-token guard at the
+    ///         executor in case `lpToken` were ever to change (it is
+    ///         immutable today, but the defense-in-depth is cheap and matches
+    ///         the OZ-style invariant chokepoint pattern used elsewhere).
+    function executeSweepTokens() external onlyOwner nonReentrant {
+        _execute(SWEEP_TOKENS);
+        address token = pendingSweepToken;
+        pendingSweepToken = address(0);
+        require(token != lpToken, "CANNOT_SWEEP_LP");
+
         uint256 balance = IERC20(token).balanceOf(address(this));
         if (balance > 0) {
             IERC20(token).safeTransfer(treasury, balance); // AUDIT FIX L-08: Send to treasury, not owner()
         }
+        emit SweepTokensExecuted(token, treasury, balance);
+    }
+
+    /// @notice Cancel a pending token sweep (e.g. wrong token queued, or the
+    ///         dust amount has since been put to productive use).
+    function cancelSweepTokens() external onlyOwner {
+        _cancel(SWEEP_TOKENS);
+        address cancelled = pendingSweepToken;
+        pendingSweepToken = address(0);
+        emit SweepTokensCancelled(cancelled);
+    }
+
+    /// @notice View helper — timestamp at which the queued sweepTokens
+    ///         becomes executable. 0 if no pending sweep.
+    function sweepTokensReadyAt() external view returns (uint256) {
+        return _executeAfter[SWEEP_TOKENS];
+    }
+
+    /// @dev DEPRECATED: instant token sweep replaced by the 48h-timelocked
+    ///      `proposeSweepTokens` → `executeSweepTokens` flow above. Retained
+    ///      as an explicit reverter so any pre-fix integrators surface a
+    ///      typed error instead of silently invoking a no-op.
+    function sweepTokens(address) external pure {
+        revert("Use proposeSweepTokens()");
     }
 
     // ─── R015 helpers ────────────────────────────────────────────────
