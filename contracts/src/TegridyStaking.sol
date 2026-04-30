@@ -1476,11 +1476,16 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     ///         JBAC contract reverted the return transfer (e.g., during JBAC-contract pause).
     /// @dev AUDIT H-1 FIX (2026-04-20): Only the recorded prior owner (the address that held
     ///      the staking position at close time) can reclaim. Wrapped in nonReentrant for safety.
+    /// @dev AUDIT L-AUDIT-2026-2 (2026-04-28): Defensive `jId == 0` check added. Today's JBAC
+    ///      contract has no token id 0, but a future JBAC-equivalent collection could; this
+    ///      guard ensures a non-existent stranded record (where both slots default to zero)
+    ///      can never be misinterpreted as a valid claim, even if `to` is somehow non-zero.
     /// @param tokenId The staking position tokenId whose JBAC return failed.
     function claimStrandedJbac(uint256 tokenId) external nonReentrant {
         address to = strandedJbacOwner[tokenId];
         uint256 jId = strandedJbacTokenId[tokenId];
         if (to == address(0) || msg.sender != to) revert Unauthorized();
+        if (jId == 0) revert ZeroAmount(); // L-AUDIT-2026-2 forward-compat guard
         delete strandedJbacOwner[tokenId];
         delete strandedJbacTokenId[tokenId];
         IERC721(address(jbacNFT)).safeTransferFrom(address(this), to, jId);
