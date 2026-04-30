@@ -343,4 +343,19 @@ contract AuditR014_StakingAdminTest is Test {
 
         assertEq(staking.lastActivityAt(eve), block.timestamp, "NFT receive refreshed eve's activity");
     }
+
+    // ─────────────── ADMIN-1: proposeMaxUnsettledRewards event ───────────────
+
+    /// @notice Mirror the typed event topic so we can `expectEmit` it locally.
+    event MaxUnsettledRewardsProposed(uint256 newCap, uint256 executeAfter);
+
+    /// @notice AUDIT ADMIN-1 (2026-04-28): proposeMaxUnsettledRewards must emit
+    ///         a typed proposal event for parity with all other propose* sisters.
+    function test_admin1_proposeMaxUnsettledRewards_emitsTypedEvent() public {
+        uint256 newCap = 25_000e18;
+        uint256 expectedReadyAt = block.timestamp + admin.UNSETTLED_CAP_TIMELOCK();
+        vm.expectEmit(false, false, false, true, address(admin));
+        emit MaxUnsettledRewardsProposed(newCap, expectedReadyAt);
+        admin.proposeMaxUnsettledRewards(newCap);
+    }
 }

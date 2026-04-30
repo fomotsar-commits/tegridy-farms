@@ -102,6 +102,9 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     /// @notice AUDIT M-AUDIT-2026-1: emitted when a new extend-fee recycle BPS is
     ///         proposed (timelock starts) and when it executes (timelock cleared).
     event ExtendFeeRecycleProposed(uint256 newBps, uint256 executeAfter);
+    /// @notice AUDIT ADMIN-1 (2026-04-28): event-parity fix — `proposeMaxUnsettledRewards`
+    ///         was the only `propose*` function not emitting a typed proposal event.
+    event MaxUnsettledRewardsProposed(uint256 newCap, uint256 executeAfter);
     event ExtendFeeRecycleUpdated(uint256 oldBps, uint256 newBps);
 
     constructor(address _staking) OwnableNoRenounce(msg.sender) {
@@ -191,6 +194,8 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
         if (_newCap < 10_000e18) revert CapTooLow();
         pendingMaxUnsettledRewards = _newCap;
         _propose(UNSETTLED_CAP_CHANGE, UNSETTLED_CAP_TIMELOCK);
+        // AUDIT ADMIN-1 (2026-04-28): emit proposal event for parity with sister proposers.
+        emit MaxUnsettledRewardsProposed(_newCap, _executeAfter[UNSETTLED_CAP_CHANGE]);
     }
 
     function executeMaxUnsettledRewards() external onlyOwner {
