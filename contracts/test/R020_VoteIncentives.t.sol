@@ -182,7 +182,9 @@ contract R020_VoteIncentivesTest is Test {
         assertFalse(ucr, "first epoch is legacy");
 
         // Operator must use the timelock to flip — instant flip removed.
-        vm.expectRevert(bytes("USE_PROPOSE_ENABLE_COMMIT_REVEAL"));
+        // AUDIT L-2 (2026-04-28): expectation updated from string-revert to typed
+        // `UseProposeEnableCommitReveal()` to match the new error convention.
+        vm.expectRevert(VoteIncentives.UseProposeEnableCommitReveal.selector);
         bribes.enableCommitReveal();
 
         // Propose + warp + execute → flag flips to true; subsequent epochs gain commit-reveal.

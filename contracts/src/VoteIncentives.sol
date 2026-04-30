@@ -336,6 +336,10 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         voters can no longer route swaps through it — so all read/write paths
     ///         that name a pair refuse it up-front.
     error PairDisabled();
+    /// @notice AUDIT L-2 (2026-04-28): legacy `enableCommitReveal()` selector reverts
+    ///         with this typed error so any tooling on the old signature fails loudly
+    ///         and clearly redirects callers to the propose/execute flow.
+    error UseProposeEnableCommitReveal();
 
     // ─── Legacy View Helpers (for test/frontend compatibility) ───────
     function feeChangeTime() external view returns (uint256) { return _executeAfter[FEE_CHANGE]; }
@@ -1394,7 +1398,13 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @notice DEPRECATED: use the propose/execute flow above. Retained as a
     ///         descriptive revert so any tooling calling the old signature fails
     ///         loudly instead of silently no-op'ing.
-    function enableCommitReveal() external view onlyOwner {
-        revert("USE_PROPOSE_ENABLE_COMMIT_REVEAL");
+    /// @dev    AUDIT L-2 (2026-04-28): mutability changed from `view` to plain
+    ///         non-payable (a `view` `onlyOwner` function is unusual style — the
+    ///         owner-check itself is a state-affecting concept), and the string
+    ///         revert is replaced with a typed `UseProposeEnableCommitReveal`
+    ///         error matching the rest of this contract's error convention.
+    ///         Selector is preserved for ABI compatibility.
+    function enableCommitReveal() external onlyOwner {
+        revert UseProposeEnableCommitReveal();
     }
 }
