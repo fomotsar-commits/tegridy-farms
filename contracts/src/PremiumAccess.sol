@@ -369,7 +369,12 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
 
     /// @notice AUDIT FIX H-04: Reconcile expired subscriptions to free locked totalRefundEscrow.
     ///         Anyone can call this for any user whose subscription has expired.
-    function reconcileExpired(address _user) external {
+    /// @dev    AUDIT PA-L-01 (2026-04-28): nonReentrant added for parity with the sister
+    ///         `batchReconcileExpired` and `cancelSubscription`, both of which mutate the same
+    ///         `totalRefundEscrow` / `userEscrow` state under nonReentrant. Pure defense-in-depth
+    ///         (no token transfer happens in this function today), but guards against any
+    ///         future code path that adds an external interaction here.
+    function reconcileExpired(address _user) external nonReentrant {
         Subscription memory sub = subscriptions[_user];
         if (sub.expiresAt > block.timestamp) return; // Still active, nothing to do
         uint256 escrow = userEscrow[_user];
