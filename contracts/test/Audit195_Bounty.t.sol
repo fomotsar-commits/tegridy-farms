@@ -96,7 +96,7 @@ contract Audit195Bounty is Test {
         token = new MockToweli195();
         staking = new MockStaking195();
         weth = new MockWETH195();
-        board = new MemeBountyBoard(address(token), address(staking), address(weth), address(0));
+        board = new MemeBountyBoard(address(token), address(staking), address(weth), address(0), address(this));
 
         vm.deal(creator, 100 ether);
         vm.deal(address(this), 100 ether);
@@ -606,7 +606,7 @@ contract Audit195Bounty is Test {
     function test_withdrawPayout_failingWETH_reverts() public {
         // Deploy board with failing WETH
         FailingWETH195 badWeth = new FailingWETH195();
-        MemeBountyBoard badBoard = new MemeBountyBoard(address(token), address(staking), address(badWeth), address(0));
+        MemeBountyBoard badBoard = new MemeBountyBoard(address(token), address(staking), address(badWeth), address(0), address(this));
 
         ETHRejectSubmitter195 rs = new ETHRejectSubmitter195(badBoard);
         staking.setVotingPower(address(rs), 500 ether);
@@ -938,17 +938,23 @@ contract Audit195Bounty is Test {
 
     function test_constructor_revert_zeroVoteToken() public {
         vm.expectRevert(MemeBountyBoard.ZeroAddress.selector);
-        new MemeBountyBoard(address(0), address(staking), address(weth), address(0));
+        new MemeBountyBoard(address(0), address(staking), address(weth), address(0), address(this));
     }
 
     function test_constructor_revert_zeroStaking() public {
         vm.expectRevert(MemeBountyBoard.ZeroAddress.selector);
-        new MemeBountyBoard(address(token), address(0), address(weth), address(0));
+        new MemeBountyBoard(address(token), address(0), address(weth), address(0), address(this));
     }
 
     function test_constructor_revert_zeroWETH() public {
         vm.expectRevert(MemeBountyBoard.ZeroAddress.selector);
-        new MemeBountyBoard(address(token), address(staking), address(0), address(0));
+        new MemeBountyBoard(address(token), address(staking), address(0), address(0), address(this));
+    }
+
+    /// @notice AUDIT M-B01: zero treasury must revert in constructor (sweep destination must always be valid).
+    function test_constructor_revert_zeroTreasury() public {
+        vm.expectRevert(MemeBountyBoard.ZeroAddress.selector);
+        new MemeBountyBoard(address(token), address(staking), address(weth), address(0), address(0));
     }
 
     // ═══════════════════════════════════════════════════════════════════════

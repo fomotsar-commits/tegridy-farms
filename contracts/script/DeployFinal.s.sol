@@ -155,7 +155,7 @@ contract DeployFinalScript is Script {
 
         // 12. MemeBountyBoard (AUDIT R062: pass SEQUENCER_FEED env or 0 for mainnet)
         address SEQUENCER_FEED2 = vm.envOr("SEQUENCER_FEED", address(0));
-        MemeBountyBoard bounty = new MemeBountyBoard(TOWELI, d.staking, WETH, SEQUENCER_FEED2);
+        MemeBountyBoard bounty = new MemeBountyBoard(TOWELI, d.staking, WETH, SEQUENCER_FEED2, TREASURY);
         d.memeBountyBoard = address(bounty);
         console.log("12. MemeBountyBoard:", d.memeBountyBoard);
 

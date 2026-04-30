@@ -32,6 +32,8 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
     // ─── Timelock Operation Keys ─────────────────────────────────────
     bytes32 public constant MIN_REWARD_CHANGE = keccak256("MIN_REWARD_CHANGE");
+    /// @dev AUDIT M-B01: 48h-timelocked treasury rotation key.
+    bytes32 public constant TREASURY_CHANGE = keccak256("BOUNTY_TREASURY_CHANGE");
 
     // ─── State ────────────────────────────────────────────────────────
 
@@ -107,6 +109,19 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     uint256 public constant REFUND_EXPIRY = 365 days; // M-09: Refunds expire after 1 year
     mapping(address => uint256) public pendingPayouts; // FIX 1: Pull-pattern for winners who can't receive ETH
 
+    // ─── AUDIT M-B01: treasury (recipient of expired refund sweeps) ────
+    /// @notice Address that receives expired refund sweeps. Settable via the
+    ///         48h-timelocked propose/execute pattern below. Initialized in the
+    ///         constructor — pass owner() at deploy time if no separate
+    ///         treasury is required, then rotate via the timelock once a
+    ///         multisig / treasury contract is live.
+    address public treasury;
+    /// @notice 48h timelock delay matching the CommunityGrants `FEE_RECEIVER_TIMELOCK`
+    ///         and POLAccumulator `TREASURY_CHANGE_DELAY` siblings.
+    uint256 public constant TREASURY_CHANGE_DELAY = 48 hours;
+    /// @notice Pending replacement queued by `proposeTreasuryChange`.
+    address public pendingTreasury;
+
     // ─── Events ───────────────────────────────────────────────────────
 
     event BountyCreated(uint256 indexed id, address indexed creator, uint256 reward, string description);
@@ -122,6 +137,10 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     event RefundCredited(uint256 indexed bountyId, address indexed creator, uint256 amount); // A3-H-03
     event MinBountyRewardProposed(uint256 newReward, uint256 executeAfter);
     event MinBountyRewardExecuted(uint256 newReward);
+    /// @notice AUDIT M-B01: emitted on each step of the treasury rotation.
+    event TreasuryChangeProposed(address indexed current, address indexed proposed, uint256 readyAt);
+    event TreasuryChanged(address indexed oldTreasury, address indexed newTreasury);
+    event TreasuryChangeCancelled(address indexed cancelled);
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -179,18 +198,61 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
     /// @param _sequencerFeed AUDIT R062 — Chainlink L2 Sequencer Uptime feed;
     ///        pass `address(0)` for mainnet / non-L2 deployments.
-    constructor(address _voteToken, address _stakingContract, address _weth, address _sequencerFeed)
+    /// @param _treasury     AUDIT M-B01 — address that receives expired refund
+    ///        sweeps. MUST be non-zero; deployers can pass owner() and rotate
+    ///        later via `proposeTreasuryChange` if a separate treasury is not
+    ///        yet provisioned.
+    constructor(address _voteToken, address _stakingContract, address _weth, address _sequencerFeed, address _treasury)
         OwnableNoRenounce(msg.sender)
     {
         // L-02: Validate constructor arguments
         if (_voteToken == address(0)) revert ZeroAddress();
         if (_stakingContract == address(0)) revert ZeroAddress();
         if (_weth == address(0)) revert ZeroAddress();
+        // M-B01: treasury must be non-zero so sweepExpiredRefund always has a
+        // valid sink. The 48h timelock on treasury rotation prevents an
+        // immediate post-deploy mistake from being weaponized.
+        if (_treasury == address(0)) revert ZeroAddress();
         voteToken = IERC20(_voteToken);
         stakingContract = IStakingVote(_stakingContract);
         weth = _weth;
         // R062: zero permitted (mainnet / non-L2 = gating disabled).
         sequencerFeed = _sequencerFeed;
+        // M-B01: initial treasury anchor.
+        treasury = _treasury;
+    }
+
+    // ─── AUDIT M-B01: Treasury Timelock ───────────────────────────────
+
+    /// @notice Propose a new treasury address. Takes effect after 48h.
+    function proposeTreasuryChange(address _newTreasury) external onlyOwner {
+        if (_newTreasury == address(0)) revert ZeroAddress();
+        pendingTreasury = _newTreasury;
+        _propose(TREASURY_CHANGE, TREASURY_CHANGE_DELAY);
+        emit TreasuryChangeProposed(treasury, _newTreasury, _executeAfter[TREASURY_CHANGE]);
+    }
+
+    /// @notice Execute the pending treasury change after the timelock elapses.
+    function executeTreasuryChange() external onlyOwner {
+        _execute(TREASURY_CHANGE);
+        address old = treasury;
+        treasury = pendingTreasury;
+        pendingTreasury = address(0);
+        emit TreasuryChanged(old, treasury);
+    }
+
+    /// @notice Cancel a pending treasury change.
+    function cancelTreasuryChange() external onlyOwner {
+        _cancel(TREASURY_CHANGE);
+        address cancelled = pendingTreasury;
+        pendingTreasury = address(0);
+        emit TreasuryChangeCancelled(cancelled);
+    }
+
+    /// @notice View helper — timestamp at which the queued treasury change
+    ///         becomes executable. 0 if no pending change.
+    function treasuryChangeReadyAt() external view returns (uint256) {
+        return _executeAfter[TREASURY_CHANGE];
     }
 
     /// @notice AUDIT R062: returns SEQUENCER_OUTAGE_BUFFER when the L2
@@ -533,8 +595,14 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
     // ─── Expired Refund Sweep (M-09) ───────────────────────────────────
 
-    /// @notice M-09: Sweep expired unclaimed refunds to owner (treasury).
+    /// @notice M-09: Sweep expired unclaimed refunds to the treasury.
     ///         Refunds expire after REFUND_EXPIRY (365 days) of being unclaimed.
+    /// @dev    AUDIT M-B01 (2026-04-29): destination changed from `owner()` to
+    ///         `treasury`. Routing expired sweeps to a separately-controlled
+    ///         treasury address (multisig / dedicated wallet) decouples
+    ///         operational ownership from the proceeds custody — a compromised
+    ///         owner key alone can no longer extract expired refunds without
+    ///         also rotating the treasury through the new 48h timelock.
     /// @param _user The user whose expired refund to sweep
     function sweepExpiredRefund(address _user) external onlyOwner nonReentrant {
         require(pendingRefund[_user] > 0, "NO_REFUND");
@@ -543,7 +611,8 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         pendingRefund[_user] = 0;
         refundTimestamp[_user] = 0;
         // SECURITY FIX: Use WETHFallbackLib instead of full-gas .call (Solmate/Seaport pattern)
-        WETHFallbackLib.safeTransferETHOrWrap(weth, owner(), amount);
+        // AUDIT M-B01: send to `treasury`, not `owner()`.
+        WETHFallbackLib.safeTransferETHOrWrap(weth, treasury, amount);
     }
 
     // ─── View ─────────────────────────────────────────────────────────
