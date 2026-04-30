@@ -12,9 +12,10 @@ interface ISwapFeeRouterApply {
     function applyReferralSplitter(address newSplitter) external;
     /// @dev AUDIT R-014 M-1: canonical per-input-token override hook.
     function applyInputTokenFee(address inputToken, uint256 newFeeBps, bool removal) external;
-    /// @dev AUDIT R-014 M-1: DEPRECATED alias retained for the admin's legacy
-    ///      `executePairFeeChange` flow. Use `applyInputTokenFee` for new integrations.
-    function applyPairFee(address pair, uint256 newFeeBps, bool removal) external;
+    /// @dev AUDIT SFR-M-03 (MEDIUM, 2026-04-28): the legacy `applyPairFee` alias on the
+    ///      router is now a hard revert (DeprecatedUseInputTokenFee). The interface
+    ///      reference is removed so the admin cannot accidentally route through it
+    ///      and brick a pending pair-fee change at execute time.
     function applyPremiumDiscount(uint256 newDiscountBps) external;
     function applyPremiumAccess(address newAccess) external;
     function applyFeeSplit(uint256 stakerShareBps_, uint256 polShareBps_) external;
@@ -50,6 +51,12 @@ contract SwapFeeRouterAdmin is OwnableNoRenounce, TimelockAdmin {
     error SplitInvalid();
     error StakerShareTooLow();
     error PolShareTooHigh();
+    /// @notice AUDIT SFR-M-03 (MEDIUM, 2026-04-28): deprecated mutative aliases (the
+    ///         legacy `proposePairFeeChange` / `executePairFeeChange` /
+    ///         `cancelPairFeeChange` triplet) revert with this so callers migrate to
+    ///         the canonical `proposeInputTokenFeeChange` / `executeInputTokenFeeChange`
+    ///         / `cancelInputTokenFeeChange` flow. Selectors preserved on the ABI.
+    error DeprecatedUseInputTokenFee();
 
     // ─── Timelock keys ────────────────────────────────────────────────
     bytes32 public constant FEE_CHANGE = keccak256("FEE_CHANGE");
@@ -108,8 +115,9 @@ contract SwapFeeRouterAdmin is OwnableNoRenounce, TimelockAdmin {
     /// @dev DEPRECATED — emitted alongside `InputTokenFeeChangeCancelled`.
     event PairFeeChangeCancelled(address indexed pair);
     /// @notice AUDIT R-014 M-1: emitted whenever the legacy `proposePairFeeChange`
-    ///         alias is invoked. Off-chain monitors should alert so callers can
-    ///         migrate to `proposeInputTokenFeeChange`.
+    ///         alias was invoked. Retained on the ABI for indexer compatibility but
+    ///         no longer emitted — the alias now reverts with
+    ///         `DeprecatedUseInputTokenFee` (SFR-M-03, 2026-04-28).
     event ProposePairFeeChangeDeprecated();
     event PremiumDiscountChangeProposed(uint256 newDiscount, uint256 executeAfter);
     event PremiumDiscountChangeCancelled(uint256 cancelledDiscount);
@@ -223,22 +231,16 @@ contract SwapFeeRouterAdmin is OwnableNoRenounce, TimelockAdmin {
         emit PairFeeChangeProposed(inputToken, newFeeBps, removal, _executeAfter[PAIR_FEE_CHANGE]);
     }
 
-    /// @notice DEPRECATED — thin alias for `proposeInputTokenFeeChange`. The `pair`
-    ///         parameter is actually the input-token address (`path[0]`); the
-    ///         misleading legacy name caused the AUDIT R-014 M-1 finding. Emits
-    ///         `ProposePairFeeChangeDeprecated` so off-chain monitors can detect
-    ///         callers still using the legacy name. Body inlined to avoid the
-    ///         `onlyOwner` re-entry check chirp.
-    function proposePairFeeChange(address pair, uint256 newFeeBps, bool removal) external onlyOwner {
-        emit ProposePairFeeChangeDeprecated();
-        if (pair == address(0)) revert ZeroAddress();
-        if (!removal && newFeeBps > router.MAX_FEE_BPS()) revert FeeTooHigh();
-        pendingPairFeeAddress = pair;
-        pendingPairFeeBps = newFeeBps;
-        pendingPairFeeRemoval = removal;
-        _propose(PAIR_FEE_CHANGE, PAIR_FEE_CHANGE_DELAY);
-        emit InputTokenFeeChangeProposed(pair, newFeeBps, removal, _executeAfter[PAIR_FEE_CHANGE]);
-        emit PairFeeChangeProposed(pair, newFeeBps, removal, _executeAfter[PAIR_FEE_CHANGE]);
+    /// @notice DEPRECATED — was a thin alias for `proposeInputTokenFeeChange`. The
+    ///         `pair` parameter was actually the input-token address (`path[0]`); the
+    ///         misleading legacy name caused the AUDIT R-014 M-1 finding.
+    /// @dev    AUDIT SFR-M-03 (MEDIUM, 2026-04-28): the alias is now a HARD revert.
+    ///         Selectors are preserved on the ABI so any in-flight automation that
+    ///         still calls this function fails LOUDLY with `DeprecatedUseInputTokenFee`
+    ///         instead of silently inheriting the canonical behaviour. Migrate to
+    ///         `proposeInputTokenFeeChange`.
+    function proposePairFeeChange(address, uint256, bool) external pure {
+        revert DeprecatedUseInputTokenFee();
     }
 
     /// @notice AUDIT R-014 M-1: canonical execute entry-point. Routes through the
@@ -255,18 +257,11 @@ contract SwapFeeRouterAdmin is OwnableNoRenounce, TimelockAdmin {
         router.applyInputTokenFee(inputToken, bps, removal);
     }
 
-    /// @notice DEPRECATED — alias for `executeInputTokenFeeChange`. Kept callable
-    ///         so any in-flight automation continues to function. Body inlined to
-    ///         avoid the `onlyOwner` re-entry chirp.
-    function executePairFeeChange() external onlyOwner {
-        _execute(PAIR_FEE_CHANGE);
-        address inputToken = pendingPairFeeAddress;
-        uint256 bps = pendingPairFeeBps;
-        bool removal = pendingPairFeeRemoval;
-        pendingPairFeeAddress = address(0);
-        pendingPairFeeBps = 0;
-        pendingPairFeeRemoval = false;
-        router.applyInputTokenFee(inputToken, bps, removal);
+    /// @notice DEPRECATED — was an alias for `executeInputTokenFeeChange`.
+    /// @dev    AUDIT SFR-M-03 (MEDIUM, 2026-04-28): hard revert; see
+    ///         `proposePairFeeChange` above. Use `executeInputTokenFeeChange`.
+    function executePairFeeChange() external pure {
+        revert DeprecatedUseInputTokenFee();
     }
 
     /// @notice AUDIT R-014 M-1: canonical cancel entry-point.
@@ -280,15 +275,11 @@ contract SwapFeeRouterAdmin is OwnableNoRenounce, TimelockAdmin {
         emit PairFeeChangeCancelled(cancelled);
     }
 
-    /// @notice DEPRECATED — alias for `cancelInputTokenFeeChange`. Body inlined.
-    function cancelPairFeeChange() external onlyOwner {
-        _cancel(PAIR_FEE_CHANGE);
-        address cancelled = pendingPairFeeAddress;
-        pendingPairFeeAddress = address(0);
-        pendingPairFeeBps = 0;
-        pendingPairFeeRemoval = false;
-        emit InputTokenFeeChangeCancelled(cancelled);
-        emit PairFeeChangeCancelled(cancelled);
+    /// @notice DEPRECATED — was an alias for `cancelInputTokenFeeChange`.
+    /// @dev    AUDIT SFR-M-03 (MEDIUM, 2026-04-28): hard revert; see
+    ///         `proposePairFeeChange` above. Use `cancelInputTokenFeeChange`.
+    function cancelPairFeeChange() external pure {
+        revert DeprecatedUseInputTokenFee();
     }
 
     function pairFeeChangeTime() external view returns (uint256) {

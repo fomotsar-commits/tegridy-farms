@@ -272,9 +272,10 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     /// @dev DEPRECATED — emitted alongside `InputTokenFeeApplied` for ABI compatibility.
     ///      The `pair` field name is misleading; the value is the input-token address.
     event PairFeeUpdated(address indexed pair, uint256 feeBps, bool removed);
-    /// @notice AUDIT R-014 M-1: emitted whenever the legacy `applyPairFee` alias is
-    ///         invoked. Off-chain monitors should alert so callers (admin contracts,
-    ///         scripts) can migrate to `applyInputTokenFee`.
+    /// @notice AUDIT R-014 M-1: emitted whenever the legacy `applyPairFee` alias was
+    ///         invoked. Retained on the ABI for indexer compatibility but no longer
+    ///         emitted — the alias now reverts with `DeprecatedUseInputTokenFee`
+    ///         (SFR-M-03, 2026-04-28).
     event ApplyPairFeeDeprecated();
     event PremiumDiscountUpdated(uint256 oldDiscount, uint256 newDiscount);
     event PremiumAccessUpdated(address indexed oldAccess, address indexed newAccess);
@@ -353,6 +354,11 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         dust trigger cannot brick legitimate keeper-sized conversions for the
     ///         duration of the per-token cooldown.
     error TokenFeesBelowMinimum();
+    /// @notice AUDIT SFR-M-03 (MEDIUM, 2026-04-28): legacy mutative aliases that previously
+    ///         routed through to `applyInputTokenFee` are now ABI-bait reverters. Callers
+    ///         must migrate to the canonical `applyInputTokenFee` selector (router) and
+    ///         `proposeInputTokenFeeChange` / `executeInputTokenFeeChange` (admin).
+    error DeprecatedUseInputTokenFee();
 
     // Legacy error aliases (kept for test compatibility during V2 migration)
     error UseProposeFeeChange();
@@ -869,17 +875,20 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         }
     }
 
-    /// @notice DEPRECATED — thin alias for `applyInputTokenFee`. The `pair` parameter
-    ///         is actually the input-token address (`path[0]`); the misleading legacy
-    ///         name caused the AUDIT R-014 M-1 finding. Emits `ApplyPairFeeDeprecated`
-    ///         alongside the canonical event so off-chain monitors can detect callers
-    ///         still using the legacy name.
-    /// @dev    Kept callable by the wired admin contract (`SwapFeeRouterAdmin`'s legacy
-    ///         `executePairFeeChange` still routes through this name) for backward
-    ///         compatibility. Prefer `applyInputTokenFee` for new integrations.
-    function applyPairFee(address pair, uint256 newFeeBps, bool removal) external onlyAdmin {
-        emit ApplyPairFeeDeprecated();
-        applyInputTokenFee(pair, newFeeBps, removal);
+    /// @notice DEPRECATED — was a thin alias for `applyInputTokenFee`. The `pair`
+    ///         parameter was actually the input-token address (`path[0]`); the misleading
+    ///         legacy name caused the AUDIT R-014 M-1 finding.
+    /// @dev    AUDIT SFR-M-03 (MEDIUM, 2026-04-28): the alias is now a HARD revert. The
+    ///         selector is preserved on the ABI so any in-flight automation that still
+    ///         calls this function fails LOUDLY with `DeprecatedUseInputTokenFee` instead
+    ///         of silently inheriting the canonical behaviour. Migrate to
+    ///         `applyInputTokenFee` (router) or
+    ///         `proposeInputTokenFeeChange`/`executeInputTokenFeeChange` (admin).
+    ///         Pre-fix this function was an ABI bait — admins who saw `pair` in the
+    ///         signature assumed per-pair scoping, then accidentally registered a
+    ///         GLOBAL override on every WETH-input swap when calling with `path[0] == WETH`.
+    function applyPairFee(address, uint256, bool) external pure {
+        revert DeprecatedUseInputTokenFee();
     }
 
     /// @notice DEPRECATED — ABI-compatible getter that proxies to `inputTokenFeeBps`.
