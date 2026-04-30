@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../src/CommunityGrants.sol";
+import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 
 contract MockTokenGrants is ERC20 {
     constructor() ERC20("Towelie", "TOWELI") {
@@ -565,6 +566,124 @@ contract CommunityGrantsTest is Test {
             ,,,,,,,,,,, uint256 proposerTokenId
         ) = grants.proposals(id);
         assertEq(proposerTokenId, 1, "snapshotted pointer matches setUp value");
+    }
+
+    // ─── AUDIT M-G01: timelocked cancellation of Approved proposals ────
+
+    /// @notice Approved proposals can no longer be instant-cancelled by the
+    ///         owner. The legacy `cancelProposal(id)` reverts with
+    ///         ProposalNotActive when the proposal is in Approved status,
+    ///         forcing the owner through `proposeCancelApproved` →
+    ///         `executeCancelApproved` 24h later.
+    function test_MG01_cancelApproved_revertsInstantOwnerPath() public {
+        grants.createProposal(artist, 1 ether, "approved-then-cancel");
+        _voteThreeFor(0);
+        vm.warp(block.timestamp + 7 days + 1);
+        grants.finalizeProposal(0);
+
+        // Status is Approved.
+        (,,,,,,,CommunityGrants.ProposalStatus status,,) = grants.getProposal(0);
+        assertEq(uint256(status), uint256(CommunityGrants.ProposalStatus.Approved));
+
+        // Owner instant-cancel must be blocked.
+        vm.expectRevert(CommunityGrants.ProposalNotActive.selector);
+        grants.cancelProposal(0);
+    }
+
+    /// @notice Happy path: propose cancel-approved, wait 24h, execute. Status
+    ///         flips to Cancelled, totalApprovedPending releases the locked
+    ///         ETH, the deposit refund pays out, and the proposal cannot be
+    ///         executed afterward.
+    function test_MG01_cancelApproved_executeAfterDelay() public {
+        grants.createProposal(artist, 1 ether, "queue-cancel");
+        _voteThreeFor(0);
+        vm.warp(block.timestamp + 7 days + 1);
+        grants.finalizeProposal(0);
+
+        uint256 lockedBefore = grants.totalApprovedPending();
+        assertEq(lockedBefore, 1 ether);
+
+        grants.proposeCancelApproved(0);
+        // Cannot execute before delay.
+        bytes32 key = keccak256(abi.encode(grants.CANCEL_APPROVED_KEY(), uint256(0)));
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, key));
+        grants.executeCancelApproved(0);
+
+        vm.warp(block.timestamp + 24 hours);
+        grants.executeCancelApproved(0);
+
+        (,,,,,,,CommunityGrants.ProposalStatus status,,) = grants.getProposal(0);
+        assertEq(uint256(status), uint256(CommunityGrants.ProposalStatus.Cancelled));
+        assertEq(grants.totalApprovedPending(), 0, "approved-pending released");
+
+        // Re-execution path is closed by status check.
+        vm.expectRevert(CommunityGrants.NotApproved.selector);
+        grants.executeProposal(0);
+    }
+
+    /// @notice Active and Pending proposals are unaffected by the new
+    ///         timelock — they can still be cancelled instantly via
+    ///         cancelProposal. Only Approved is gated.
+    function test_MG01_activeCancel_stillInstant() public {
+        vm.prank(alice);
+        grants.createProposal(artist, 1 ether, "still-instant");
+        // Active → instant cancel by proposer or owner remains supported.
+        vm.prank(alice);
+        grants.cancelProposal(0);
+        (,,,,,,,CommunityGrants.ProposalStatus status,,) = grants.getProposal(0);
+        assertEq(uint256(status), uint256(CommunityGrants.ProposalStatus.Cancelled));
+    }
+
+    /// @notice Owner can abort a queued cancel-approved before it executes
+    ///         (e.g. recipient resolved the dispute and is willing to wait
+    ///         for normal execution).
+    function test_MG01_cancelApproved_aborted() public {
+        grants.createProposal(artist, 1 ether, "abort-the-cancel");
+        _voteThreeFor(0);
+        vm.warp(block.timestamp + 7 days + 1);
+        grants.finalizeProposal(0);
+
+        grants.proposeCancelApproved(0);
+        assertGt(grants.cancelApprovedReadyAt(0), 0);
+
+        grants.cancelCancelApproved(0);
+        assertEq(grants.cancelApprovedReadyAt(0), 0, "queue cleared");
+
+        // Status remains Approved — proposal can still execute through normal flow.
+        (,,,,,,,CommunityGrants.ProposalStatus status,,) = grants.getProposal(0);
+        assertEq(uint256(status), uint256(CommunityGrants.ProposalStatus.Approved));
+    }
+
+    // ─── AUDIT M-G02: retryExecution permissionless after delay ─────────
+
+    /// @notice After PERMISSIONLESS_EXECUTION_DELAY (3 days post-deadline),
+    ///         anyone can retry a FailedExecution proposal. Pre-fix, this was
+    ///         locked to owner only.
+    function test_MG02_retryExecution_permissionlessAfterDelay() public {
+        ETHRejecter rejecter = new ETHRejecter();
+        grants.createProposal(address(rejecter), 1 ether, "retry-perm");
+        _voteThreeFor(0);
+        vm.warp(block.timestamp + 7 days + 1);
+        grants.finalizeProposal(0);
+
+        // Owner triggers initial execute (now in FailedExecution).
+        vm.warp(block.timestamp + 1 days); // past EXECUTION_DELAY
+        grants.executeProposal(0);
+        (,,,,,,,CommunityGrants.ProposalStatus status,,) = grants.getProposal(0);
+        assertEq(uint256(status), uint256(CommunityGrants.ProposalStatus.FailedExecution));
+
+        // Non-owner before PERMISSIONLESS_EXECUTION_DELAY → revert.
+        vm.prank(alice);
+        vm.expectRevert(bytes("EXECUTION_DELAY_NOT_MET"));
+        grants.retryExecution(0);
+
+        // After 3-day delay (already 1 day past deadline; need 2 more days).
+        vm.warp(block.timestamp + 2 days + 1);
+        // Non-owner can now retry (still fails because rejecter still rejects).
+        vm.prank(alice);
+        grants.retryExecution(0);
+        (,,,,,,,status,,) = grants.getProposal(0);
+        assertEq(uint256(status), uint256(CommunityGrants.ProposalStatus.FailedExecution));
     }
 
     receive() external payable {}
