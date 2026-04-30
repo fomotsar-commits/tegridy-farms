@@ -169,8 +169,10 @@ contract DeploySepoliaScript is Script {
         console.log("14. CommunityGrants:", d.communityGrants);
 
         // AUDIT R062: SEQUENCER_FEED env (set in _deployRevenue).
+        // AUDIT M-B01: deployer doubles as treasury for sweep destination on
+        // Sepolia (matches existing PremiumAccess wiring above).
         address SEQUENCER_FEED2 = vm.envOr("SEQUENCER_FEED", address(0));
-        MemeBountyBoard bounty = new MemeBountyBoard(d.toweli, d.staking, d.weth, SEQUENCER_FEED2);
+        MemeBountyBoard bounty = new MemeBountyBoard(d.toweli, d.staking, d.weth, SEQUENCER_FEED2, deployer);
         d.memeBountyBoard = address(bounty);
         console.log("15. MemeBountyBoard:", d.memeBountyBoard);
 

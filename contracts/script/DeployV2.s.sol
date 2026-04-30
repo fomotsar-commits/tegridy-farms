@@ -136,7 +136,7 @@ contract DeployV2Script is Script {
         // AUDIT R062: per-chain Chainlink L2 Sequencer Uptime feed via SEQUENCER_FEED env;
         //             address(0) on mainnet / non-L2 (no-op).
         address SEQUENCER_FEED = vm.envOr("SEQUENCER_FEED", address(0));
-        MemeBountyBoard bountyBoard = new MemeBountyBoard(TOWELI, address(staking), WETH, SEQUENCER_FEED);
+        MemeBountyBoard bountyBoard = new MemeBountyBoard(TOWELI, address(staking), WETH, SEQUENCER_FEED, TREASURY);
         console.log("8. MemeBountyBoard:", address(bountyBoard));
 
         // ═══════════════════════════════════════════════════════════════

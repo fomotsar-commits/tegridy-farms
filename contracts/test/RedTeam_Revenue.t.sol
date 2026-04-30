@@ -312,7 +312,7 @@ contract RedTeamRevenue is Test {
         // Deploy contracts
         distributor = new RevenueDistributor(address(ve), treasury, address(weth));
         grants = new CommunityGrants(address(veGrants), address(token), feeReceiver, address(weth));
-        bountyBoard = new MemeBountyBoard(address(token), address(staking), address(weth), address(0));
+        bountyBoard = new MemeBountyBoard(address(token), address(staking), address(weth), address(0), treasury);
         splitter = new ReferralSplitter(1000, address(staking), treasury, address(weth));
 
         // Setup: approve splitter caller

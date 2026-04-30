@@ -157,7 +157,7 @@ contract AuditR014_MemeBountyTest is Test {
         staking = new MockStakingR014();
         weth = new MockWETHR014();
         // Constructor: voteToken, staking, weth, sequencerFeed (0 = mainnet).
-        board = new MemeBountyBoard(address(token), address(staking), address(weth), address(0));
+        board = new MemeBountyBoard(address(token), address(staking), address(weth), address(0), address(this));
         // Warp into the future so SNAPSHOT_LOOKBACK doesn't underflow.
         vm.warp(30 days);
         vm.deal(creator, 100 ether);

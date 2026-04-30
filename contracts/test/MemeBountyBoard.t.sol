@@ -97,7 +97,7 @@ contract MemeBountyBoardTest is Test {
         token = new MockToweliBoard();
         staking = new MockStakingVoteBoard();
         weth = new MockWETHBoard();
-        board = new MemeBountyBoard(address(token), address(staking), address(weth), address(0));
+        board = new MemeBountyBoard(address(token), address(staking), address(weth), address(0), address(this));
         vm.deal(creator, 10 ether);
         vm.deal(address(this), 10 ether);
 
@@ -446,5 +446,75 @@ contract MemeBountyBoardTest is Test {
         board.proposeMinBountyReward(0.01 ether);
     }
 
+    // ─── AUDIT M-B01: treasury timelock + sweep destination ────────────
+
+    /// @notice Treasury rotates only via the 48h propose/execute timelock.
+    function test_MB01_treasuryRotation_happyPath() public {
+        address newTreasury = makeAddr("newTreasury");
+        assertEq(board.treasury(), address(this), "initial treasury == deployer");
+
+        board.proposeTreasuryChange(newTreasury);
+        assertEq(board.pendingTreasury(), newTreasury);
+        assertGt(board.treasuryChangeReadyAt(), block.timestamp, "ready time queued");
+
+        // Cannot execute before delay.
+        vm.expectRevert();
+        board.executeTreasuryChange();
+
+        vm.warp(block.timestamp + 48 hours);
+        board.executeTreasuryChange();
+        assertEq(board.treasury(), newTreasury, "treasury rotated");
+        assertEq(board.pendingTreasury(), address(0), "pending cleared");
+    }
+
+    /// @notice sweepExpiredRefund must send funds to `treasury`, not `owner()`.
+    ///         Build up a real pendingRefund via cancelBounty with an ETH
+    ///         rejecter creator, then fast-forward past REFUND_EXPIRY and sweep.
+    function test_MB01_sweepExpiredRefund_goesToTreasury() public {
+        // Rotate treasury so we can verify the destination is treasury, not owner().
+        address newTreasury = makeAddr("newTreasury");
+        board.proposeTreasuryChange(newTreasury);
+        vm.warp(block.timestamp + 48 hours);
+        board.executeTreasuryChange();
+
+        // Use this contract as the bounty creator so the sweep destination check
+        // is unambiguously "treasury" not "owner()" (we are the owner of the
+        // contract; mismatch would be visible).
+        // Create a bounty with a creator that rejects ETH so the cancel
+        // refund credits pendingRefund.
+        ETHRejecterCreator rejecter = new ETHRejecterCreator(board);
+        vm.deal(address(rejecter), 5 ether);
+        rejecter.create{value: 0.5 ether}("rejecter-bounty", block.timestamp + 7 days);
+        // Wait MIN_CANCEL_DELAY then cancel.
+        vm.warp(block.timestamp + 1 hours + 1);
+        rejecter.cancel(0);
+
+        uint256 owedToRejecter = board.pendingRefund(address(rejecter));
+        assertEq(owedToRejecter, 0.5 ether, "refund credited to rejecter");
+
+        // Fast-forward 365+ days, then sweep — must hit the new treasury,
+        // not the owner (this contract).
+        vm.warp(block.timestamp + 366 days);
+        uint256 ownerBalBefore = address(this).balance;
+        uint256 treasuryBalBefore = newTreasury.balance;
+        board.sweepExpiredRefund(address(rejecter));
+        assertEq(newTreasury.balance - treasuryBalBefore, 0.5 ether, "treasury received sweep");
+        assertEq(address(this).balance - ownerBalBefore, 0, "owner received nothing");
+    }
+
     receive() external payable {}
+}
+
+/// @dev Helper: contract that rejects ETH and creates+cancels bounties so the
+///      cancel refund flows into pendingRefund (pull pattern).
+contract ETHRejecterCreator {
+    MemeBountyBoard public board;
+    constructor(MemeBountyBoard _board) { board = _board; }
+    receive() external payable { revert("no ETH"); }
+    function create(string memory _desc, uint256 _deadline) external payable {
+        board.createBounty{value: msg.value}(_desc, _deadline);
+    }
+    function cancel(uint256 _id) external {
+        board.cancelBounty(_id);
+    }
 }

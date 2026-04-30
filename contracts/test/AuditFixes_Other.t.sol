@@ -337,7 +337,7 @@ contract AuditFixes_MemeBountyBoardTest is Test {
         token = new MockTOWELI();
         staking = new MockStakingVote();
         weth = new MockWETHAudit();
-        board = new MemeBountyBoard(address(token), address(staking), address(weth), address(0));
+        board = new MemeBountyBoard(address(token), address(staking), address(weth), address(0), address(this));
 
         vm.deal(creator, 10 ether);
 
