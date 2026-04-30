@@ -32,7 +32,12 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     // ─── Timelock Operation Keys ─────────────────────────────────────
     bytes32 public constant REFERRAL_FEE_CHANGE = keccak256("REFERRAL_FEE_CHANGE");
     bytes32 public constant TREASURY_CHANGE = keccak256("TREASURY_CHANGE");
-    bytes32 public constant CALLER_GRANT = keccak256("CALLER_GRANT");
+    // AUDIT L-R01 (2026-04-28): Removed unused `CALLER_GRANT` constant. The
+    // per-caller propose key is computed inline as
+    // `keccak256(abi.encode("CALLER_GRANT", _caller))`, which never references
+    // the bare constant — the constant's keccak("CALLER_GRANT") preimage is
+    // not byte-equivalent to the encode-based key, so removing the constant
+    // does not affect any existing or future encoded key.
 
     // ─── State ────────────────────────────────────────────────────────
 
