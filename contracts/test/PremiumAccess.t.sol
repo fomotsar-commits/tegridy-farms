@@ -62,9 +62,13 @@ contract PremiumAccessTest is Test {
 
         vm.prank(alice);
         premium.subscribe(1, type(uint256).max); // extend
-        // Approximate: 1 second elapsed consumes a tiny fraction of escrow from first subscription
-        assertApproxEqAbs(premium.userEscrow(alice), 2 * MONTHLY_FEE, 1 ether);
-        assertApproxEqAbs(premium.totalRefundEscrow(), 2 * MONTHLY_FEE, 1 ether);
+        // AUDIT PA-M-01 / R022 (2026-04-29): on extension, the OLD escrow is
+        // forfeit and a fresh per-period escrow is anchored. After extension
+        // userEscrow == cost (1 * MONTHLY_FEE), NOT 2 * MONTHLY_FEE — the
+        // previous "carry remaining escrow into the new period" math allowed
+        // extend-then-cancel refund drift.
+        assertEq(premium.userEscrow(alice), MONTHLY_FEE, "PA-M-01: fresh per-period escrow");
+        assertEq(premium.totalRefundEscrow(), MONTHLY_FEE, "PA-M-01: refund-escrow tracks fresh cost");
     }
 
     function test_subscribe_1month() public {
@@ -343,8 +347,17 @@ contract PremiumAccessTest is Test {
 
         vm.prank(alice);
         premium.subscribe(1, type(uint256).max);
-        // totalRevenue includes consumed portion from first period + new extension cost
-        assertEq(premium.totalRevenue(), 2 * MONTHLY_FEE);
+        // AUDIT PA-M-01 / R022 (2026-04-29): on extension, the unconsumed
+        // remainder of the OLD escrow (~MONTHLY_FEE since only 1s elapsed of
+        // 30 days) is credited to totalRevenue (it became revenue at the
+        // moment the user opted to extend instead of cancel-and-resubscribe).
+        // PLUS the new cost (MONTHLY_FEE) is added by the existing
+        // M-06 unconditional `totalRevenue += cost` line. Net: starting
+        // MONTHLY_FEE + ~MONTHLY_FEE forfeited remainder + MONTHLY_FEE new
+        // cost ≈ 3 * MONTHLY_FEE, with a tiny epsilon from the 1-second
+        // elapsed slice that was implicitly consumed.
+        assertApproxEqAbs(premium.totalRevenue(), 3 * MONTHLY_FEE, 1 ether,
+            "PA-M-01: forfeit-on-extend credits remaining to revenue");
     }
 
     function test_totalRevenue_incrementsOnNewSubscription() public {

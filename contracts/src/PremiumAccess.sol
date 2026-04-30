@@ -228,22 +228,57 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         require(sub.startedAt != block.timestamp || isNewSub, "ALREADY_SUBSCRIBED_THIS_BLOCK");
         uint256 startFrom = isNewSub ? block.timestamp : sub.expiresAt;
 
-        // AUDIT FIX C-03/C-08: Reset startedAt on extension so each period is tracked independently
+        // AUDIT PA-M-01 / R022 (2026-04-29): on extension, reset BOTH `startedAt`
+        // AND `userEscrow` to a fresh per-period anchor. The old behavior kept
+        // `startedAt` from the original subscription and rolled `remainingEscrow`
+        // (the unconsumed pro-rata of the original period) into the new
+        // `userEscrow`, so a user who extended early then cancelled immediately
+        // recovered MORE than per-period pro-rata for the new period — drifting
+        // the refund formula off the actual paid-cost-per-time invariant.
+        //
+        // Fix:
+        //  1. Compute `remainingEscrow` from the OLD period the same way as before.
+        //  2. Forfeit the unconsumed remainder into earned revenue (credit it to
+        //     `totalRevenue`, drop it from `totalRefundEscrow`). This is the
+        //     "user paid for it, the protocol earned it on extension" treatment
+        //     — matches the user-mental-model of "I am committing to a fresh
+        //     period now, the previous period's leftover is non-refundable".
+        //  3. Reset `startedAt = block.timestamp` and `userEscrow = cost`. The
+        //     refund formula then uses a clean (cost, startedAt, expiresAt)
+        //     triple identical to a brand-new subscription.
         // CRITICAL: Calculate remaining escrow BEFORE updating expiresAt to avoid using stale values
         if (!isNewSub) {
-            // Calculate remaining escrow from current period using OLD expiresAt
+            // Calculate remaining escrow from current period using OLD expiresAt.
             uint256 remainingTime = sub.expiresAt - block.timestamp;
             uint256 totalDuration = sub.expiresAt - sub.startedAt;
             // SECURITY FIX M-14: Explicit handling for totalDuration == 0 (extension in same block).
             // If subscribed and extended in the same block, no time has elapsed so full escrow remains.
             uint256 remainingEscrow = totalDuration > 0 ? (userEscrow[msg.sender] * remainingTime) / totalDuration : userEscrow[msg.sender];
-            // Consumed portion is no longer refundable
-            uint256 consumed = userEscrow[msg.sender] - remainingEscrow;
-            totalRefundEscrow -= consumed;
-            // Now update expiresAt for the extension
+
+            // PA-M-01: forfeit the OLD escrow entirely. The consumed portion was
+            // already non-refundable; the unconsumed remainder is now also
+            // forfeit because we are anchoring a fresh per-period escrow on the
+            // extension. Both move out of `totalRefundEscrow`. The unconsumed
+            // remainder is credited to `totalRevenue` (it became revenue at the
+            // moment the user opted to extend rather than refund-and-resubscribe).
+            uint256 oldEscrow = userEscrow[msg.sender];
+            if (oldEscrow > 0) {
+                totalRefundEscrow = totalRefundEscrow > oldEscrow
+                    ? totalRefundEscrow - oldEscrow
+                    : 0;
+            }
+            // Credit only the UNCONSUMED portion to revenue — the consumed
+            // portion was implicit revenue already (subscriber received the
+            // service for that time). totalRevenue is the cumulative-paid
+            // counter; on extension the additional cost is added below.
+            if (remainingEscrow > 0) {
+                totalRevenue += remainingEscrow;
+            }
+
+            // Anchor the fresh per-period state.
             sub.expiresAt = startFrom + (months * MONTH);
-            // Keep original startedAt so refund calculation covers the full escrowed period
-            userEscrow[msg.sender] = remainingEscrow + cost;
+            sub.startedAt = block.timestamp;            // PA-M-01: reset
+            userEscrow[msg.sender] = cost;              // PA-M-01: reset
             totalRefundEscrow += cost;
         } else {
             // AUDIT FIX H-04: Clear expired escrow from totalRefundEscrow before adding new

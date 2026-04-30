@@ -64,12 +64,21 @@ contract R022_PremiumAccessTest is Test {
         assertApproxEqAbs(toweli.balanceOf(alice), 9_950 ether, 2, "single-period halfway pro-rata");
     }
 
-    /// Reconciles against current contract: extension preserves `startedAt` from the
-    /// original subscription so the refund formula uses the FULL elapsed window as
-    /// the divisor. The R022 spec calls this drift; current behavior ships with it.
-    /// Symptom: pay 200, halfway through period 1, extend by 1 month, cancel
-    /// immediately. R022 design returns 150. Current contract returns ≈100.
-    function test_extend_then_cancel_currentBehavior_DRIFT() public {
+    /// AUDIT PA-M-01 / R022 (2026-04-29): on extension, `startedAt` is reset
+    /// AND `userEscrow` is reset to the new period's `cost` — the unconsumed
+    /// remainder of the OLD period is forfeit (credited to `totalRevenue`).
+    /// The cancel refund formula then operates on a clean per-period
+    /// (cost, startedAt, expiresAt) triple identical to a brand-new
+    /// subscription, eliminating the extend-then-cancel drift.
+    ///
+    /// Scenario: pay 100 (period 1), wait 15 days, extend by 1 month
+    /// (period 2 anchored fresh), wait MIN_HOLDING_PERIOD + a hair, cancel
+    /// at ~24h into the new 30-day period. Per-period pro-rata: refund ≈
+    /// remaining/total * cost = (~29 days / 30 days) * 100 ≈ ~96.66 TOWELI.
+    /// Total paid: 200; net cost: ~103 TOWELI (15 full days of period 1 ≈
+    /// 50 TOWELI consumed + ~3.33 TOWELI of period 2 + the 100 forfeit
+    /// remainder of period 1 that is now permanent revenue).
+    function test_extend_then_cancel_correctedBehavior_R022() public {
         // Period 1
         vm.prank(alice);
         premium.subscribe(1, FEE);
@@ -77,25 +86,39 @@ contract R022_PremiumAccessTest is Test {
         // Halfway through period 1
         vm.warp(block.timestamp + 15 days);
 
-        // Extend by another month
+        // Extend by another month — anchors period 2 with fresh startedAt + escrow.
         vm.prank(alice);
         premium.subscribe(1, FEE);
 
-        // Cancel immediately after extension.
+        // Wait past MIN_HOLDING_PERIOD (1 day) on the new anchored period so
+        // cancel is permitted. Pick 1 day + 1 second to land just past the gate.
+        vm.warp(block.timestamp + 1 days + 1);
+
+        uint256 balBefore = toweli.balanceOf(alice);
         vm.prank(alice);
         premium.cancelSubscription();
+        uint256 refund = toweli.balanceOf(alice) - balBefore;
 
-        // Current contract refunds based on remainingTime/totalDuration calculation
-        // that uses the original startedAt → the refund tracks remainingEscrow plus
-        // new cost rather than per-period pro-rata. We assert against the current
-        // numerical outcome (within ± 5 ether tolerance) so any change to the math
-        // is caught immediately.
-        uint256 bal = toweli.balanceOf(alice);
-        // Alice paid 200. Refund expected to be in [100, 200] range under current
-        // logic — pin it loosely so the test stays useful when R022 lands and the
-        // refund reaches 150.
-        assertGe(bal, 9_800 ether, "refund must be non-negative");
-        assertLe(bal, 10_000 ether, "refund cannot exceed total paid");
+        // Per-period pro-rata. Note: on extension `startFrom = sub.expiresAt`
+        // (since the old sub had NOT expired) — i.e. the new period extends
+        // FROM the original expiry, not from now. Original expiry was
+        // startedAt+30 days; we extended halfway through (15 days in), so
+        // startFrom = block.timestamp + 15 days, and expiresAt = startFrom + 30
+        // days = block.timestamp + 45 days. R022 resets startedAt to
+        // block.timestamp, so totalDuration = 45 days, remainingTime = 45 days
+        // - 1 day - 1s. Refund = (45d - 1d - 1) / 45d * FEE ≈ 97.78 TOWELI.
+        // The OLD (buggy) drift value was much higher (~150 TOWELI) because
+        // the old formula carried the unconsumed period-1 remainder into the
+        // new period AND used the larger originally-anchored startedAt.
+        uint256 expectedRefund = (FEE * (45 days - 1 days - 1)) / 45 days;
+        assertApproxEqAbs(refund, expectedRefund, 1 ether,
+            "R022: refund matches per-period pro-rata of NEW period only");
+
+        // Net cost should reflect 100 (forfeit period-1 remainder) + 100 - ~97.78
+        // (period-2 1-day consumption) ≈ 102.22 TOWELI.
+        uint256 netCost = (10_000 ether) - toweli.balanceOf(alice);
+        assertApproxEqAbs(netCost, FEE + (FEE * (1 days + 1)) / 45 days, 1 ether,
+            "R022: net cost = forfeit + 1-day-of-new-45d-period");
     }
 
     /// withdrawToTreasury sends `balance - totalRefundEscrow` directly. This works
