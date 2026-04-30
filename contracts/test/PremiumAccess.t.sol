@@ -374,5 +374,60 @@ contract PremiumAccessTest is Test {
         assertEq(premium.totalRevenue(), 2 * MONTHLY_FEE);
     }
 
+    // ─── AUDIT PA-L-01: reconcileExpired nonReentrant parity ────────────
+
+    /// @notice Happy-path: reconcileExpired clears refundEscrow + decrements
+    ///         the subscriber count after expiry. The behavior is unchanged
+    ///         by adding nonReentrant; this just confirms the modifier did
+    ///         not break the normal path.
+    function test_reconcileExpired_clearsEscrowAfterExpiry() public {
+        vm.prank(alice);
+        premium.subscribe(1, type(uint256).max);
+        assertEq(premium.userEscrow(alice), MONTHLY_FEE);
+        assertEq(premium.totalRefundEscrow(), MONTHLY_FEE);
+        assertTrue(premium.isActiveSubscriber(alice));
+
+        // Expire the subscription
+        vm.warp(block.timestamp + 31 days);
+
+        // Anyone can call (bob does)
+        vm.prank(bob);
+        premium.reconcileExpired(alice);
+
+        assertEq(premium.userEscrow(alice), 0, "PA-L-01: escrow cleared");
+        assertEq(premium.totalRefundEscrow(), 0, "PA-L-01: totalRefundEscrow cleared");
+        assertFalse(premium.isActiveSubscriber(alice), "PA-L-01: subscriber-flag cleared");
+    }
+
+    /// @notice Storage-level proof that `reconcileExpired` honours the OZ
+    ///         ReentrancyGuard. We seed the OZ ERC-7201 storage slot to
+    ///         `ENTERED` (mid-call state) and confirm the function reverts.
+    ///         Pre-fix (no nonReentrant) the function would happily proceed;
+    ///         post-fix it reverts with `ReentrancyGuardReentrantCall`. This
+    ///         is a direct test of the modifier wire, not a behavior proxy.
+    function test_reconcileExpired_revertsWhenGuardEntered() public {
+        // Stage: alice has an expired escrow ready to reconcile.
+        vm.prank(alice);
+        premium.subscribe(1, type(uint256).max);
+        vm.warp(block.timestamp + 31 days);
+
+        // OZ v5.5 ReentrancyGuard storage slot (precomputed ERC-7201):
+        // keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.ReentrancyGuard")) - 1)) & ~bytes32(uint256(0xff))
+        bytes32 guardSlot = 0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00;
+        bytes32 entered = bytes32(uint256(2));
+        bytes32 notEntered = bytes32(uint256(1));
+
+        // Sanity: pre-state is NOT_ENTERED.
+        assertEq(vm.load(address(premium), guardSlot), notEntered, "PA-L-01: pre-state NOT_ENTERED");
+
+        // Set the guard to ENTERED, then attempt reconcileExpired — must revert.
+        vm.store(address(premium), guardSlot, entered);
+        vm.expectRevert(); // OZ ReentrancyGuardReentrantCall
+        premium.reconcileExpired(alice);
+
+        // Restore guard so subsequent assertions don't bleed into other tests.
+        vm.store(address(premium), guardSlot, notEntered);
+    }
+
     receive() external payable {}
 }
