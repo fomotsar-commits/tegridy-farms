@@ -1448,20 +1448,24 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     ///      JBAC is left in this contract and the prior owner can reclaim it later via
     ///      `claimStrandedJbac(tokenId)`. Must be called BEFORE `_clearPosition` since that
     ///      deletes the Position struct.
+    /// @dev AUDIT L-AUDIT-2026-1 (2026-04-28): The stranded-owner / stranded-tokenId writes are
+    ///      now performed ONLY inside the catch branch. The previous version eagerly wrote the
+    ///      stranded-owner slot before the try and then deleted it on the happy path, costing a
+    ///      wasted SSTORE (~25k gas) on every successful unstake-with-JBAC. Both stranded
+    ///      mappings remain zero on the success path, which is exactly what `claimStrandedJbac`
+    ///      reads (it requires a non-zero recorded owner before allowing a reclaim).
     function _returnJbacIfDeposited(uint256 tokenId, address to) private {
         Position storage p = positions[tokenId];
         if (p.jbacDeposited) {
             uint256 jId = p.jbacTokenId;
             p.jbacDeposited = false;
             p.jbacTokenId = 0;
-            strandedJbacOwner[tokenId] = to;
             try IERC721(address(jbacNFT)).safeTransferFrom(address(this), to, jId) {
-                // transfer ok — clear stranded owner
-                delete strandedJbacOwner[tokenId];
-                delete strandedJbacTokenId[tokenId];
+                // transfer ok — nothing to record; both stranded slots stay zero.
                 emit JbacReturned(tokenId, to, jId);
             } catch {
                 // JBAC contract reverted (e.g., paused) — record for later reclaim.
+                strandedJbacOwner[tokenId] = to;
                 strandedJbacTokenId[tokenId] = jId;
                 emit JbacStranded(tokenId, to, jId);
             }
