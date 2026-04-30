@@ -41,6 +41,10 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
     // ─── Timelock Operation Keys ─────────────────────────────────────
     bytes32 public constant FEE_RECEIVER_CHANGE = keccak256("FEE_RECEIVER_CHANGE");
+    /// @dev AUDIT M-G01: per-proposal cancel-approved key. The actual TimelockAdmin key
+    ///      used at the storage layer is `keccak256(abi.encode(CANCEL_APPROVED_KEY, proposalId))`
+    ///      so each proposal gets its own independent timelock entry.
+    bytes32 public constant CANCEL_APPROVED_KEY = keccak256("CANCEL_APPROVED");
 
     // ─── State ────────────────────────────────────────────────────────
 
@@ -121,6 +125,15 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     // ─── Fee Receiver Timelock Constants ─────────────────────────────
     uint256 public constant FEE_RECEIVER_TIMELOCK = 48 hours;
 
+    // ─── Cancel-Approved Timelock (AUDIT M-G01) ──────────────────────
+    /// @notice 24h window between proposing the cancellation of an APPROVED grant
+    ///         proposal and executing it. Active and FailedExecution cancellations
+    ///         remain instant (proposer/owner can still abort governance griefing
+    ///         loops or one-off failures without delay) — only Approved proposals,
+    ///         which already passed quorum + community review and have ETH committed
+    ///         via `totalApprovedPending`, require the additional review window.
+    uint256 public constant CANCEL_APPROVED_TIMELOCK = 24 hours;
+
     // ─── Events ───────────────────────────────────────────────────────
 
     event ProposalCreated(uint256 indexed id, address indexed proposer, address recipient, uint256 amount, string description);
@@ -137,6 +150,11 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     event FeeReceiverChangeProposed(address indexed current, address indexed proposed, uint256 readyAt);
     event FeeReceiverChanged(address indexed oldReceiver, address indexed newReceiver);
     event FeeReceiverChangeCancelled(address indexed cancelled);
+    /// @notice AUDIT M-G01: emitted when owner schedules cancellation of an approved
+    ///         proposal. The cancellation can only be executed after readyAt elapses.
+    event CancelApprovedProposed(uint256 indexed proposalId, uint256 readyAt);
+    /// @notice AUDIT M-G01: emitted when a previously-scheduled cancel-approved is aborted.
+    event CancelApprovedAborted(uint256 indexed proposalId);
     /// @notice AUDIT R014-MEDIUM: emitted when the dry-run 1-wei test transfer to the
     ///         proposed fee receiver fails. The change is auto-cancelled in that case.
     event FeeReceiverChangeRejected(address indexed proposed, string reason);
@@ -424,15 +442,30 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         emit ProposalExecuted(_proposalId, proposal.recipient, proposal.amount);
     }
 
-    /// @notice Retry execution of a proposal that previously failed
+    /// @notice Retry execution of a proposal that previously failed.
+    ///         AUDIT M-G02: Permissionless after the same delay window that
+    ///         executeProposal enforces (EXECUTION_DELAY for owner,
+    ///         PERMISSIONLESS_EXECUTION_DELAY for non-owner). Owner can still
+    ///         retry as soon as the EXECUTION_DELAY elapses post-deadline.
+    ///         Abuse is bounded by the rolling-disbursement cap (30% / 30 days)
+    ///         and the per-grant MAX_GRANT_PERCENT_BPS — same envelope as the
+    ///         primary executeProposal path.
     /// @param _proposalId The ID of the failed proposal to retry
-    function retryExecution(uint256 _proposalId) external onlyOwner nonReentrant {
+    function retryExecution(uint256 _proposalId) external nonReentrant whenNotPaused {
         if (_proposalId >= proposals.length) revert InvalidProposal();
         Proposal storage proposal = proposals[_proposalId];
 
         if (proposal.status != ProposalStatus.FailedExecution) revert NotFailedExecution();
         // AUDIT FIX: Enforce execution deadline on retries too
         if (block.timestamp > proposal.deadline + EXECUTION_DEADLINE) revert ExecutionDeadlineExpired();
+        // AUDIT M-G02: Mirror executeProposal's two-tier delay model. Owner can act as
+        // soon as the mandatory EXECUTION_DELAY elapses; everyone else must wait for
+        // PERMISSIONLESS_EXECUTION_DELAY. Both windows are measured from the voting
+        // deadline, identical to the primary execute path.
+        require(block.timestamp >= proposal.deadline + EXECUTION_DELAY, "EXECUTION_DELAY");
+        if (msg.sender != owner()) {
+            require(block.timestamp >= proposal.deadline + PERMISSIONLESS_EXECUTION_DELAY, "EXECUTION_DELAY_NOT_MET");
+        }
         if (address(this).balance < proposal.amount) revert InsufficientFunds();
         // AUDIT FIX C-01: Exclude this proposal's own amount from totalApprovedPending for cap check
         uint256 otherApproved = totalApprovedPending > proposal.amount
@@ -469,10 +502,17 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         emit ProposalExecuted(_proposalId, proposal.recipient, proposal.amount);
     }
 
-    /// @notice Cancel a proposal (owner or proposer only).
-    ///         AUDIT FIX C-02: Owner can cancel Active AND Approved proposals.
-    ///         Proposer can only cancel Active proposals.
-    ///         This prevents governance griefing where approved proposals freeze treasury for 30 days.
+    /// @notice Cancel a Pending/Active or FailedExecution proposal instantly.
+    ///         AUDIT M-G01: Owner-initiated cancellation of an APPROVED proposal MUST
+    ///         instead go through `proposeCancelApproved` → 24h delay →
+    ///         `executeCancelApproved`. Approved proposals already passed quorum +
+    ///         community review and have ETH reserved via `totalApprovedPending`; an
+    ///         instant owner-side cancel was a unilateral governance-override surface.
+    /// @dev    AUDIT FIX C-02 retained for non-Approved statuses: owner can still
+    ///         instant-cancel Active proposals (Approved cancellation routed through
+    ///         the timelock above). FailedExecution proposals are handled by
+    ///         lapseProposal once the execution deadline has passed; pre-deadline
+    ///         FailedExecution stays in retryExecution territory.
     /// @param _proposalId The ID of the proposal to cancel
     function cancelProposal(uint256 _proposalId) external nonReentrant {
         if (_proposalId >= proposals.length) revert InvalidProposal();
@@ -481,20 +521,16 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // AUDIT FIX H-01: Prevent double-refund if deposit was already consumed
         if (depositRefunded[_proposalId]) revert AlreadyRefunded();
 
-        // AUDIT FIX C-02: Owner can cancel both Active and Approved proposals.
+        // AUDIT FIX C-02: Owner can cancel Active proposals; Approved goes through timelock.
         // Proposer can only cancel their own Active proposals.
         bool isOwner = msg.sender == owner();
         bool isProposer = msg.sender == proposal.proposer;
         if (!isOwner && !isProposer) revert NotAuthorized();
 
-        if (proposal.status == ProposalStatus.Active) {
-            // Anyone authorized can cancel Active proposals
-        } else if (proposal.status == ProposalStatus.Approved && isOwner) {
-            // AUDIT FIX C-02: Only owner can cancel Approved proposals — releases totalApprovedPending
-            totalApprovedPending -= proposal.amount;
-        } else {
-            revert ProposalNotActive();
-        }
+        // AUDIT M-G01: Approved proposals can ONLY be cancelled via the timelocked
+        // executeCancelApproved path. Reject any instant-cancel attempt for Approved.
+        if (proposal.status == ProposalStatus.Approved) revert ProposalNotActive();
+        if (proposal.status != ProposalStatus.Active) revert ProposalNotActive();
 
         uint256 refundable = PROPOSAL_FEE - PROPOSAL_FEE / 2;
         totalRefundableDeposits -= refundable;
@@ -514,6 +550,83 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             emit DepositRedirectedToFeeReceiver(_proposalId, proposal.proposer, refundable);
         }
         emit ProposalCancelled(_proposalId);
+    }
+
+    // ─── AUDIT M-G01: Approved Proposal Cancellation Timelock ─────────
+
+    /// @dev Returns the per-proposal timelock key. Each proposal gets its own
+    ///      independent slot in the TimelockAdmin storage so multiple Approved
+    ///      cancellations can be queued in parallel without collisions.
+    function _cancelApprovedKey(uint256 _proposalId) internal pure returns (bytes32) {
+        return keccak256(abi.encode(CANCEL_APPROVED_KEY, _proposalId));
+    }
+
+    /// @notice AUDIT M-G01: Schedule cancellation of an Approved proposal. After
+    ///         CANCEL_APPROVED_TIMELOCK (24h), the owner — or anyone, since the
+    ///         executor is permissionless to reduce censorship risk on the queue —
+    ///         can call `executeCancelApproved` to finalize the cancel.
+    /// @param  _proposalId The Approved proposal to schedule for cancellation.
+    function proposeCancelApproved(uint256 _proposalId) external onlyOwner {
+        if (_proposalId >= proposals.length) revert InvalidProposal();
+        Proposal storage proposal = proposals[_proposalId];
+        if (proposal.status != ProposalStatus.Approved) revert NotApproved();
+        if (depositRefunded[_proposalId]) revert AlreadyRefunded();
+
+        _propose(_cancelApprovedKey(_proposalId), CANCEL_APPROVED_TIMELOCK);
+        emit CancelApprovedProposed(_proposalId, _proposalReadyAt(_cancelApprovedKey(_proposalId)));
+    }
+
+    /// @notice AUDIT M-G01: Execute a previously-scheduled cancellation of an
+    ///         Approved proposal once the 24h delay has elapsed.
+    /// @param  _proposalId The proposal whose cancellation is being finalized.
+    function executeCancelApproved(uint256 _proposalId) external nonReentrant {
+        if (_proposalId >= proposals.length) revert InvalidProposal();
+        Proposal storage proposal = proposals[_proposalId];
+
+        // Re-check state at execution: status could have moved (e.g. permissionless
+        // executeProposal landed during the delay window) or been refunded already.
+        if (proposal.status != ProposalStatus.Approved) revert NotApproved();
+        if (depositRefunded[_proposalId]) revert AlreadyRefunded();
+
+        // Consume the timelock slot. _execute clears _executeAfter[key] before any
+        // external effects so a re-entrant call would see "no pending" and revert.
+        _execute(_cancelApprovedKey(_proposalId));
+
+        // Same accounting flow that the legacy owner-instant Approved cancel performed.
+        totalApprovedPending -= proposal.amount;
+        uint256 refundable = PROPOSAL_FEE - PROPOSAL_FEE / 2;
+        totalRefundableDeposits -= refundable;
+        depositRefunded[_proposalId] = true;
+        proposal.status = ProposalStatus.Cancelled;
+        activeProposalCount--;
+
+        try toweli.transfer(proposal.proposer, refundable) returns (bool success) {
+            if (success) {
+                emit ProposalFeeRefunded(_proposalId, proposal.proposer, refundable);
+            } else {
+                toweli.safeTransfer(feeReceiver, refundable);
+                emit DepositRedirectedToFeeReceiver(_proposalId, proposal.proposer, refundable);
+            }
+        } catch {
+            toweli.safeTransfer(feeReceiver, refundable);
+            emit DepositRedirectedToFeeReceiver(_proposalId, proposal.proposer, refundable);
+        }
+        emit ProposalCancelled(_proposalId);
+    }
+
+    /// @notice AUDIT M-G01: Owner can cancel a pending cancel-approved proposal
+    ///         before it executes (e.g. mistaken queue entry, governance change of
+    ///         heart, recipient is willing to wait for normal execution).
+    function cancelCancelApproved(uint256 _proposalId) external onlyOwner {
+        if (_proposalId >= proposals.length) revert InvalidProposal();
+        _cancel(_cancelApprovedKey(_proposalId));
+        emit CancelApprovedAborted(_proposalId);
+    }
+
+    /// @notice AUDIT M-G01: View helper — timestamp at which the cancel-approved
+    ///         for `_proposalId` becomes executable. 0 if no pending cancel.
+    function cancelApprovedReadyAt(uint256 _proposalId) external view returns (uint256) {
+        return _proposalReadyAt(_cancelApprovedKey(_proposalId));
     }
 
     /// @notice Lapse an approved proposal whose execution deadline has passed (H-03).
