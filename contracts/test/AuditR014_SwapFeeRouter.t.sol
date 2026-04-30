@@ -99,97 +99,47 @@ contract AuditR014_SwapFeeRouter is Test {
         assertFalse(sfr.hasPairFeeOverride(address(tokenA)), "legacy flag after removal");
     }
 
-    /// @dev Symmetric: drive the legacy `proposePairFeeChange` and confirm both
-    ///      getters reflect the write. This is the path callers will hit if they
-    ///      haven't migrated yet.
-    function test_M1_getters_parity_after_legacy_write() public {
+    /// @dev AUDIT SFR-M-03 (MEDIUM, 2026-04-28): the legacy mutative aliases now
+    ///      revert with `DeprecatedUseInputTokenFee`. Confirm propose/execute/cancel
+    ///      all fail loudly so any in-flight automation breaks instead of silently
+    ///      inheriting canonical behaviour. The view getters
+    ///      (pairFeeBps/hasPairFeeOverride) remain — they're harmless.
+    function test_SFRM03_legacy_propose_reverts() public {
+        vm.expectRevert(SwapFeeRouterAdmin.DeprecatedUseInputTokenFee.selector);
         sfrAdmin.proposePairFeeChange(address(tokenA), OVERRIDE_FEE_BPS, false);
-        skip(sfrAdmin.PAIR_FEE_CHANGE_DELAY());
-        sfrAdmin.executePairFeeChange();
-
-        assertEq(sfr.inputTokenFeeBps(address(tokenA)), OVERRIDE_FEE_BPS, "canonical getter mismatch");
-        assertEq(sfr.pairFeeBps(address(tokenA)), OVERRIDE_FEE_BPS, "legacy getter mismatch");
-        assertTrue(sfr.hasInputTokenFeeOverride(address(tokenA)), "canonical flag mismatch");
-        assertTrue(sfr.hasPairFeeOverride(address(tokenA)), "legacy flag mismatch");
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  2. Same effect — both apply* setters produce identical state
-    // ═══════════════════════════════════════════════════════════════
-
-    /// @dev Two routers seeded identically. One reaches the override via the
-    ///      canonical setter, the other via the legacy alias. Storage and the
-    ///      effective-fee view must match bit-for-bit.
-    function test_M1_apply_paths_produce_identical_effect() public {
-        // Spin up a parallel router/admin pair so we can compare.
-        SwapFeeRouter sfrLegacy = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0));
-        SwapFeeRouterAdmin adminLegacy = new SwapFeeRouterAdmin(address(sfrLegacy));
-        sfrLegacy.setSwapFeeRouterAdmin(address(adminLegacy));
-
-        // Canonical path (sfr / sfrAdmin)
+    function test_SFRM03_legacy_execute_reverts() public {
+        // First land a real proposal via the canonical path so the timelock state
+        // is loaded. `executePairFeeChange` should still revert independent of state.
         sfrAdmin.proposeInputTokenFeeChange(address(tokenA), OVERRIDE_FEE_BPS, false);
         skip(sfrAdmin.PAIR_FEE_CHANGE_DELAY());
-        sfrAdmin.executeInputTokenFeeChange();
-
-        // Legacy path (sfrLegacy / adminLegacy)
-        adminLegacy.proposePairFeeChange(address(tokenA), OVERRIDE_FEE_BPS, false);
-        skip(adminLegacy.PAIR_FEE_CHANGE_DELAY());
-        adminLegacy.executePairFeeChange();
-
-        // Storage parity
-        assertEq(
-            sfr.inputTokenFeeBps(address(tokenA)),
-            sfrLegacy.inputTokenFeeBps(address(tokenA)),
-            "canonical storage diverged across apply paths"
-        );
-        assertEq(
-            sfr.hasInputTokenFeeOverride(address(tokenA)) ? uint256(1) : uint256(0),
-            sfrLegacy.hasInputTokenFeeOverride(address(tokenA)) ? uint256(1) : uint256(0),
-            "override flag diverged across apply paths"
-        );
-
-        // Effective-fee view parity (covers the `_getEffectiveFeeBps` consumer too)
-        assertEq(
-            sfr.getEffectiveFeeBps(address(tokenA), address(0xBEEF)),
-            sfrLegacy.getEffectiveFeeBps(address(tokenA), address(0xBEEF)),
-            "effective fee diverged across apply paths"
-        );
-        // …and the value should be the override, not the global
-        assertEq(
-            sfr.getEffectiveFeeBps(address(tokenA), address(0xBEEF)),
-            OVERRIDE_FEE_BPS,
-            "effective fee did not pick up override"
-        );
+        vm.expectRevert(SwapFeeRouterAdmin.DeprecatedUseInputTokenFee.selector);
+        sfrAdmin.executePairFeeChange();
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  3. Deprecation events fire when legacy names are used
-    // ═══════════════════════════════════════════════════════════════
+    function test_SFRM03_legacy_cancel_reverts() public {
+        sfrAdmin.proposeInputTokenFeeChange(address(tokenA), OVERRIDE_FEE_BPS, false);
+        vm.expectRevert(SwapFeeRouterAdmin.DeprecatedUseInputTokenFee.selector);
+        sfrAdmin.cancelPairFeeChange();
+    }
 
-    /// @dev Calling the legacy `applyPairFee` (router-level) must emit the
-    ///      `ApplyPairFeeDeprecated()` warning event. Off-chain monitors use this
-    ///      to detect callers that haven't migrated. We invoke `applyPairFee`
-    ///      directly from the wired admin contract address via `vm.prank` so we
-    ///      satisfy the `onlyAdmin` gate.
-    function test_M1_applyPairFee_emits_deprecation_event() public {
-        vm.expectEmit(true, false, false, true);
-        emit ApplyPairFeeDeprecated();
-        // The canonical event is also emitted alongside; we only assert on the
-        // deprecation event here for focus.
+    function test_SFRM03_router_legacy_applyPairFee_reverts() public {
+        // Even when called by the wired admin (the only address that previously
+        // satisfied the onlyAdmin gate), the function must hard-revert.
         vm.prank(address(sfrAdmin));
+        vm.expectRevert(SwapFeeRouter.DeprecatedUseInputTokenFee.selector);
         sfr.applyPairFee(address(tokenA), OVERRIDE_FEE_BPS, false);
-
-        // And the write took effect (sanity)
-        assertEq(sfr.inputTokenFeeBps(address(tokenA)), OVERRIDE_FEE_BPS, "write did not land");
     }
 
-    /// @dev Calling the legacy `proposePairFeeChange` on the admin contract must
-    ///      emit `ProposePairFeeChangeDeprecated()`.
-    function test_M1_proposePairFeeChange_emits_deprecation_event() public {
-        vm.expectEmit(true, false, false, true);
-        emit ProposePairFeeChangeDeprecated();
-        sfrAdmin.proposePairFeeChange(address(tokenA), OVERRIDE_FEE_BPS, false);
-    }
+    // ═══════════════════════════════════════════════════════════════
+    //  3. Deprecation events (now RETIRED — aliases revert hard)
+    // ═══════════════════════════════════════════════════════════════
+    //
+    // SFR-M-03 (MEDIUM, 2026-04-28): the prior `test_M1_*_emits_deprecation_event`
+    // tests are removed because the deprecated aliases now revert before any event
+    // fires. The deprecation events themselves remain on the contract ABI for
+    // indexer compatibility, but they are no longer emit-reachable.
 
     /// @dev Conversely, the canonical entry-points must NOT emit the deprecation
     ///      events — we use `vm.recordLogs` to capture every emission and assert
