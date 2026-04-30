@@ -203,6 +203,28 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     ///         TegridyStakingAdmin.
     uint256 public penaltyRecycleBps;
 
+    // ─── AUDIT M-AUDIT-2026-1: extend-fee recycle to active stakers ─────
+    /// @notice AUDIT M-AUDIT-2026-1 (MEDIUM, 2026-04-28): BPS of the `extendLock` /
+    ///         `toggleAutoMaxLock` fee that is recycled into the staker reward pool
+    ///         (rewardPerTokenStored is credited immediately). Remainder goes to
+    ///         treasury — that's the original AUDIT C5 behaviour preserved when this
+    ///         value is 0 (default).
+    ///
+    ///         Pre-fix, EVERY extend-lock / max-lock-enable fee landed at treasury
+    ///         while the boost it bought DILUTED every existing staker's share of
+    ///         the same epoch's rewards. The dilution accrued to the extender;
+    ///         the fee that was supposed to compensate for it accrued to treasury.
+    ///         Stakers got nothing for absorbing the dilution.
+    ///
+    ///         By splitting the extend fee between treasury and the existing-staker
+    ///         reward pool, the diluted parties capture some of the fee in proportion
+    ///         to their pre-extend share. Governance picks the split via 48h timelock
+    ///         on TegridyStakingAdmin (`proposeExtendFeeRecycle` →
+    ///         `executeExtendFeeRecycle`). Capped at `BPS` (100% recycle).
+    ///
+    ///         Storage layout: APPENDED — does not reshuffle existing slots.
+    uint256 public extendFeeRecycleBps;
+
 
     // ─── Events ───────────────────────────────────────────────────────
 
@@ -230,6 +252,10 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     event JbacStranded(uint256 indexed tokenId, address indexed to, uint256 indexed jbacTokenId); // AUDIT H-1
     /// @notice AUDIT C5: emitted when an extend-lock / autoMaxLock fee is collected to treasury.
     event ExtendFeeCollected(uint256 indexed tokenId, address indexed payer, uint256 amount);
+    /// @notice AUDIT M-AUDIT-2026-1: emitted on every extend-fee charge with the split
+    ///         between treasury and the recycled-to-stakers slice. `recycled == 0` when
+    ///         `extendFeeRecycleBps == 0`, preserving the AUDIT C5 NatSpec story.
+    event ExtendFeeSplit(uint256 indexed tokenId, address indexed payer, uint256 toTreasury, uint256 recycledToStakers);
     /// @notice AUDIT C6: emitted on early-withdrawal penalty distribution.
     event PenaltySplit(uint256 indexed tokenId, uint256 toTreasury, uint256 recycledToStakers);
 
@@ -267,6 +293,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     error JbacDeposited(); // AUDIT H-1: revalidateBoost not allowed on deposit-based positions
     error ExtendFeeTooHigh(); // AUDIT C5
     error PenaltyRecycleTooHigh(); // AUDIT C6
+    error ExtendFeeRecycleTooHigh(); // AUDIT M-AUDIT-2026-1
     error OnlyJbacNFT(); // SIZE-OPT: replaces require("only JBAC")
     error NotRewardNotifier(); // SIZE-OPT: replaces revert("NOT_NOTIFIER")
 
@@ -1524,22 +1551,65 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
     // ─── AUDIT C5: Extend-fee helper + timelocked setter ─────────────────
 
-    /// @dev Pull extendFeeBps × positionAmount of TOWELI from the caller and forward to
-    ///      treasury. Caller must approve this contract for the fee amount. No-op when
+    /// @dev Pull extendFeeBps × positionAmount of TOWELI from the caller, then split the
+    ///      fee between treasury and the staker reward pool per `extendFeeRecycleBps`.
+    ///      Caller must approve this contract for the fee amount. No-op when
     ///      extendFeeBps == 0 (default), preserving backward-compatible behaviour.
+    /// @dev AUDIT M-AUDIT-2026-1 (MEDIUM, 2026-04-28): pre-fix the entire fee landed at
+    ///      treasury while the boost it bought DILUTED every existing staker's share.
+    ///      Now we split the fee per `extendFeeRecycleBps`: the recycled slice is
+    ///      pulled into THIS contract (not treasury), then immediately credited via
+    ///      `_creditRewardPool` so it bumps `rewardPerTokenStored` for the existing
+    ///      stakers — exactly the `AUDIT C6` penalty-recycle pattern. When
+    ///      `extendFeeRecycleBps == 0` (default), the entire fee still goes to
+    ///      treasury and behaviour is identical to the C5 baseline.
     function _chargeExtendFee(uint256 tokenId, uint256 positionAmount) internal {
         uint256 bps = extendFeeBps;
         if (bps == 0) return;
         uint256 fee = (positionAmount * bps) / BPS;
         if (fee == 0) return;
-        rewardToken.safeTransferFrom(msg.sender, treasury, fee);
+        (uint256 toTreasury, uint256 recycled) = _splitExtendFee(fee);
+        if (toTreasury > 0) {
+            rewardToken.safeTransferFrom(msg.sender, treasury, toTreasury);
+        }
+        if (recycled > 0) {
+            // Pull the recycled slice into THIS contract so it sits in the reward pool.
+            rewardToken.safeTransferFrom(msg.sender, address(this), recycled);
+            _creditRewardPool(recycled);
+        }
         emit ExtendFeeCollected(tokenId, msg.sender, fee);
+        emit ExtendFeeSplit(tokenId, msg.sender, toTreasury, recycled);
+    }
+
+    /// @dev AUDIT M-AUDIT-2026-1: split an extend fee into (toTreasury, recycled) per
+    ///      `extendFeeRecycleBps`. If `totalBoostedStake == 0` there is no one to
+    ///      recycle to, so the recycled slice is rebated to treasury for safekeeping.
+    ///      Mirrors `_splitPenalty` (AUDIT C6) including the M-24 round-UP semantics
+    ///      so sub-wei dust on small extend fees favors stakers (the recycle pool)
+    ///      rather than treasury.
+    function _splitExtendFee(uint256 fee) internal view returns (uint256 toTreasury, uint256 recycled) {
+        if (fee == 0) return (0, 0);
+        uint256 numerator = fee * extendFeeRecycleBps;
+        recycled = numerator == 0 ? 0 : (numerator + BPS - 1) / BPS;
+        if (recycled > fee) recycled = fee; // defensive (should never fire)
+        if (recycled > 0 && totalBoostedStake == 0) {
+            // Nothing to credit — fall back to treasury so funds aren't stranded.
+            recycled = 0;
+        }
+        toTreasury = fee - recycled;
     }
 
     /// @notice Apply a new extendFeeBps. Caller must be the wired admin contract.
     function applyExtendFee(uint256 _bps) external onlyAdmin {
         if (_bps > EXTEND_FEE_BPS_CEILING) revert ExtendFeeTooHigh();
         extendFeeBps = _bps;
+    }
+
+    /// @notice AUDIT M-AUDIT-2026-1: apply a new extendFeeRecycleBps. Caller must be the
+    ///         wired admin contract. Capped at `BPS` (100% recycle).
+    function applyExtendFeeRecycle(uint256 _bps) external onlyAdmin {
+        if (_bps > BPS) revert ExtendFeeRecycleTooHigh();
+        extendFeeRecycleBps = _bps;
     }
 
     // ─── AUDIT C6: Penalty-recycle helpers + timelocked setter ───────────
