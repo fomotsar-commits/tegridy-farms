@@ -18,6 +18,11 @@ contract MockERC721 is ERC721 {
         _mint(to, id);
         return id;
     }
+
+    /// @dev Test-only burn helper for AUDIT NFT-CL-L3 regression test.
+    function burn(uint256 tokenId) external {
+        _burn(tokenId);
+    }
 }
 
 /// @dev Minimal WETH mock for testing WETHFallbackLib
@@ -915,5 +920,33 @@ contract TegridyNFTLendingTest is Test {
         // resolves to `elapsed`.
         uint256 actual = lending.calculateInterest(principal, aprBps, 0, elapsed);
         assertEq(actual, expected, "calculateInterest must equal Math.mulDiv(_,_,_,Ceil)");
+    }
+
+    // ─── AUDIT NFT-CL-L3: burn-during-flight typed-error regression ──────
+
+    /// @notice If the collateral NFT is burned between offer creation and
+    ///         acceptOffer, the borrower must see the typed
+    ///         `CollateralBurnedSinceOffer` error rather than an opaque
+    ///         underlying-ERC721 revert.
+    function test_acceptOffer_revertsWithTypedError_whenCollateralBurned() public {
+        // Lender creates an offer for bob's specific tokenId.
+        vm.prank(alice);
+        uint256 offerId = lending.createOffer{value: 1 ether}(
+            1 ether,
+            1000,
+            30 days,
+            address(nft),
+            bobTokenId
+        );
+
+        // Burn the NFT (e.g., bob exercises a burn flow on the underlying
+        // collection, perhaps for an unrelated game mechanic).
+        vm.prank(bob);
+        nft.burn(bobTokenId);
+
+        // Bob (or anyone) tries to accept — must hit the typed error.
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTLending.CollateralBurnedSinceOffer.selector);
+        lending.acceptOffer(offerId);
     }
 }

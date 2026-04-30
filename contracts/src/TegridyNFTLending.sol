@@ -220,6 +220,12 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     ///      this collection. Lenders should not be able to lock fresh capital into
     ///      a collateral type that governance has signalled the intent to delist.
     error CollectionPendingRemoval();
+    /// @dev AUDIT NFT-CL-L3 (2026-04-28): acceptOffer reverts when the NFT was
+    ///      burned between offer creation and accept (ownerOf(tokenId) reverts on
+    ///      a non-existent token). Pre-fix the borrower received whatever opaque
+    ///      revert message the underlying ERC721 surfaced; post-fix this typed
+    ///      error provides clear UX: "the collateral no longer exists".
+    error CollateralBurnedSinceOffer();
 
     // ─── Legacy View Helpers (for test compatibility) ────────────────
     function protocolFeeChangeReadyAt() external view returns (uint256) {
@@ -378,8 +384,15 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         // Verify collection is still whitelisted
         if (!whitelistedCollections[collateralContract]) revert CollectionNotWhitelisted();
 
-        // Verify borrower owns the NFT
-        if (IERC721(collateralContract).ownerOf(_tokenId) != msg.sender) revert NotNFTOwner();
+        // Verify borrower owns the NFT.
+        // AUDIT NFT-CL-L3 (2026-04-28): wrapped in try/catch so a token burned
+        // between offer creation and accept surfaces a typed
+        // `CollateralBurnedSinceOffer` rather than an opaque ERC721 revert.
+        try IERC721(collateralContract).ownerOf(_tokenId) returns (address currentOwner) {
+            if (currentOwner != msg.sender) revert NotNFTOwner();
+        } catch {
+            revert CollateralBurnedSinceOffer();
+        }
 
         // CEI: state changes before external calls
         offer.active = false;
