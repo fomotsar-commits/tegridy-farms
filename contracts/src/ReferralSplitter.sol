@@ -27,6 +27,23 @@ interface IStakingForReferral {
 ///  - OwnableNoRenounce: OZ Ownable2Step (industry standard)
 ///  - TimelockAdmin: MakerDAO DSPause pattern (billions TVL, never compromised)
 ///  - WETHFallbackLib: Solmate SafeTransferLib + WETH fallback (Uniswap V3/V4, Seaport)
+///
+/// @dev AUDIT L-R02 OPERATIONAL REQUIREMENT (2026-04-28): the `setupComplete` flag must
+///      be flipped exactly once during deploy via `completeSetup()`. Until it
+///      is set, every external `record*` / `claim*` call reverts. Deploy ops
+///      MUST run `completeSetup()` after the SwapFeeRouter address is wired,
+///      or the contract is functionally inert. The flag is forward-only — once
+///      set, it cannot be reverted.
+///
+/// @dev AUDIT L-R03 CLOCK-START SEMANTIC (2026-04-28): `MIN_REFERRAL_AGE` (7 days) is
+///      counted from the timestamp at which the REFERRER first registered as
+///      a referrer (`referrerRegisteredAt[referrer]`), NOT from when each
+///      referred user signed up under them. Practical effect: a brand-new
+///      referrer who acquires N referred users on day 0 must wait 7 days
+///      before claiming any of those N users' generated credit. After day 7,
+///      the wait is over for ALL of that referrer's downstream — past and
+///      future. This is the intended "minimum age" anti-Sybil filter and
+///      should not be confused with a per-claim cooldown.
 contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
 
     // ─── Timelock Operation Keys ─────────────────────────────────────

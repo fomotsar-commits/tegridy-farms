@@ -198,6 +198,17 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     ///         Prevents flash-loan bypass by returning holders who activated in a prior session.
     ///         Requires activation to be at least 10 blocks old to prevent griefing during
     ///         temporary NFT transfers (marketplace listings, bridges, etc.)
+    /// @dev    AUDIT PA-L-02 (2026-04-28): the 10-minute grace window is INTENTIONAL to
+    ///         smooth normal NFT-marketplace flows (list, brief settlement, hold).
+    ///         During those 10 minutes after the user no longer holds the NFT,
+    ///         `hasPremium(user)` will still report true if their `nftActivationBlock`
+    ///         is past `MIN_ACTIVATION_DELAY`. Downstream integrators MUST use
+    ///         `hasPremiumSecure(user)` for any flash-loan-sensitive on-chain
+    ///         gating — that variant is subscription-only and is multi-block by
+    ///         construction. The grace window's economic risk is bounded to
+    ///         non-valuable UI gating where the 10-minute window is a feature
+    ///         (don't yank a user's premium UX during an in-flight marketplace
+    ///         transaction).
     /// @param user The address to deactivate
     function deactivateNFTPremium(address user) external {
         uint256 activationBlock = nftActivationBlock[user];

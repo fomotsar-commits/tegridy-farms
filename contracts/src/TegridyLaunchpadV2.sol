@@ -53,11 +53,28 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
     bytes32 public constant FEE_CHANGE = keccak256("LAUNCHPAD_FEE_CHANGE");
     bytes32 public constant FEE_RECIPIENT_CHANGE = keccak256("LAUNCHPAD_FEE_RECIPIENT_CHANGE");
     uint256 public constant FEE_CHANGE_DELAY = 48 hours;
+    /// @dev AUDIT L-L02 (2026-04-28): MAX_PROTOCOL_FEE_BPS = 1000 = 10% is the
+    ///      hard ceiling on the per-mint protocol fee. The runtime
+    ///      `protocolFeeBps` setter goes through the 48h timelock AND validates
+    ///      against this constant — owner cannot bypass even via timelock.
+    ///      Chosen as 10% to match the prevailing OpenSea/Blur/Rarible fee
+    ///      band; community drops typically configure 2.5%-5% in practice.
     uint16 public constant MAX_PROTOCOL_FEE_BPS = 1000;
 
     /// @notice Canonical TegridyDropV2 implementation. New constructor call in the
     ///         factory deploys it; v1's `dropTemplate` is a separate address on the
     ///         v1 factory.
+    /// @dev AUDIT L-L03 (2026-04-28): `dropTemplate` is `immutable` — set ONCE
+    ///      in the factory's constructor and never replaceable. Effect: any
+    ///      bug in TegridyDropV2 is permanent for every drop already
+    ///      deployed off this factory. Mitigation is FORWARD-only: deploy a
+    ///      replacement factory with a fixed template; existing drops keep
+    ///      using the old template forever. This is the standard
+    ///      Sudoswap/0xSplits/Foundation-style "templates are constitutional"
+    ///      design — the factory's identity IS the template's identity.
+    ///      Future-drop bugs are addressable by the new factory; live-drop
+    ///      bugs are addressable only via the drop's own pause/migration
+    ///      surface (if any). Plan deployments accordingly.
     address public immutable dropTemplate;
 
     address public immutable weth;
@@ -148,6 +165,14 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
         // abi.encodePacked with multiple dynamic strings is collision-prone. abi.encode
         // ABI-pads each arg with a length prefix, eliminating collisions across the salt
         // space and closing the CREATE2 front-run window.
+        // AUDIT L-L01 (2026-04-28): the choice of `abi.encode` over `abi.encodePacked`
+        // is COLLISION-SAFETY motivated. With encodePacked, `("ab","c")` and
+        // `("a","bc")` produce identical byte sequences; an attacker could craft
+        // a name/symbol pair colliding with a victim's intended salt and
+        // front-run their `createCollection`. encode pads each arg with a
+        // 32-byte length prefix, eliminating the collision class. DO NOT
+        // refactor to encodePacked for "gas savings" — the saving is sub-100
+        // gas and trades it for a real CREATE2 front-run vector.
         bytes32 salt = keccak256(
             abi.encode(msg.sender, allCollections.length, cfg.name, cfg.symbol)
         );

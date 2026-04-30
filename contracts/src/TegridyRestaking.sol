@@ -1284,6 +1284,16 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     /// @dev R014 RETRY: marked `virtual` so audit/red-team subclasses can override
     ///      to demonstrate that the `_accrueBonusChecked` wrapper traps any
     ///      `accBonusPerShare` decrement.
+    /// @dev AUDIT NFT-CL-L5 (2026-04-28): the `virtual` modifier here is part of a
+    ///      DEFENSIVE PATTERN — by exposing `_accrueBonus` as overridable, the
+    ///      `_accrueBonusChecked` wrapper below becomes a meaningful runtime
+    ///      tripwire. The base implementation is monotonically non-decreasing
+    ///      by construction (it only writes via `accBonusPerShare += ...`),
+    ///      so any override that decrements is, by definition, malicious or
+    ///      buggy. This is NOT an extension hook for new product features —
+    ///      it is bait for misbehaving subclasses, and the wrapper is the
+    ///      enforcement mechanism. If you ever need a legitimate accrual
+    ///      reset, do it through a NEW function, not by overriding this one.
     function _accrueBonus() internal virtual {
         if (block.timestamp > lastBonusRewardTime && totalRestaked > 0) {
             uint256 elapsed = block.timestamp - lastBonusRewardTime;
@@ -1315,6 +1325,16 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      a runtime tripwire for malicious or buggy subclasses that override
     ///      `_accrueBonus` to siphon emission. Replace every direct call to
     ///      `_accrueBonus()` in stale-path / R017 code paths with this wrapper.
+    /// @dev AUDIT NFT-CL-L5 (2026-04-28): co-designed with the `virtual` marker
+    ///      on `_accrueBonus` above. Together they form a "trust but verify"
+    ///      pattern — subclasses are PERMITTED to override (the `virtual` lets
+    ///      them), but their override is BOUND by this wrapper to remain
+    ///      monotonic. Any subclass that decrements `accBonusPerShare` (e.g.,
+    ///      to siphon already-accrued share back to itself) trips the
+    ///      `AccrueNotMonotone()` revert and is unable to settle the
+    ///      transaction. This is one of two defense-in-depth layers protecting
+    ///      restaker accounting; the other is the post-hoc settlement-side
+    ///      cap on per-position payouts.
     function _accrueBonusChecked() internal {
         uint256 snapshotPre = accBonusPerShare;
         _accrueBonus();

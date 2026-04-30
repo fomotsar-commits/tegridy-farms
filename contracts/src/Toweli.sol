@@ -41,6 +41,13 @@ contract Toweli is ERC20, ERC20Permit {
     ///      passed through unchanged. There is no burn entrypoint exposed,
     ///      so the to==0 path is unreachable in practice but pass-through
     ///      preserves the correct ERC-20 semantics for completeness.
+    /// @dev AUDIT L-T01 (2026-04-28): a single `bool` slot here is acceptable —
+    ///      this contract has no other state that could pack into the same
+    ///      32-byte slot (OwnableNoRenounce/ERC20Permit/ERC20 each maintain
+    ///      their own slots, and there is no operational need for a future
+    ///      uint128/bool/address neighbour). The 31 bytes of waste are a
+    ///      one-time cost paid at deploy and never again — not worth a
+    ///      pack-game refactor.
     bool private _initialMintDone;
 
     /// @param recipient Address that receives the entire 1B TOWELI supply at deploy.

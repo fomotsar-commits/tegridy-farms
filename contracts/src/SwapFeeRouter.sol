@@ -1365,6 +1365,16 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         Kept onlyOwner because the caller specifies an arbitrary external splitter
     ///         address — the pull is a trusted external call and we don't want a malicious
     ///         caller to direct the contract at arbitrary addresses for griefing.
+    /// @dev    AUDIT SFR-L-02 (2026-04-28): the trust bound for this admin-only
+    ///         pull is THREE-FOLD — (1) `onlyOwner` gates the caller, (2)
+    ///         `nonReentrant` blocks re-entry from the splitter callback, (3)
+    ///         the only state-affecting effect on this contract's accounting
+    ///         is `accumulatedETHFees += recovered`, which is the same accounting
+    ///         lane every other ETH-ingress path (legitimate fees, conversion
+    ///         refunds, dust sweeps) already feeds. Even if a malicious owner
+    ///         called this against a hostile splitter, the worst outcome is
+    ///         that the splitter returns less ETH than expected — never that
+    ///         it can siphon out of this contract.
     function recoverCallerCreditFrom(address oldSplitter) external onlyOwner nonReentrant {
         if (oldSplitter == address(0)) revert ZeroAddress();
         uint256 balBefore = address(this).balance;
@@ -1533,5 +1543,16 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         emit ConversionTWAPFloor(token, effectiveMin, callerMinETHOut, false);
     }
 
+    /// @dev AUDIT SFR-L-01 (2026-04-28): bare `receive()` accepts ETH from any
+    ///      sender without any per-transfer accounting (no `accumulatedETHFees`
+    ///      bump here). The TRUST BOUND is that the legitimate ingress paths
+    ///      —`distribute()` callers, the WETH unwrap inside conversion, the
+    ///      Uniswap V2 router refund — already account for what they push into
+    ///      `accumulatedETHFees` themselves. Anything else that lands here
+    ///      (donations, accidental sends, mistransferred refunds) becomes
+    ///      "unaccounted" balance that gets distributed proportionally on the
+    ///      next `distribute()` along with the legitimate fee balance. The
+    ///      forward-distribute flow itself is `nonReentrant` and only callable
+    ///      after a 24-hour cooldown, which is the actual safety bound.
     receive() external payable {}
 }

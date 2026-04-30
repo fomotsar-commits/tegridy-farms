@@ -40,6 +40,16 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     IERC20 public immutable voteToken; // TOWELI — must hold tokens to vote (anti-sybil)
     IStakingVote public immutable stakingContract; // Staking contract for flash-loan-resistant voting power
     address public immutable weth; // WETH for fallback payout to revert-on-receive winners
+    /// @dev AUDIT L-B01 (2026-04-28): MIN_SUBMIT_BALANCE (500 TOWELI) and
+    ///      MIN_VOTE_BALANCE (1000 TOWELI) are intentionally LOW-BAR thresholds.
+    ///      The product intent is community-meme accessibility — a token
+    ///      holder with under-$10 worth of TOWELI should be able to participate
+    ///      in submission/voting flows. The thresholds exist solely to filter
+    ///      pure zero-cost spam (creating a brand-new wallet with literally
+    ///      nothing). All ECONOMIC anti-Sybil enforcement happens elsewhere
+    ///      (MIN_COMPLETION_VOTES, MIN_UNIQUE_VOTERS, snapshot-based voting
+    ///      power). Do NOT raise these to "real money" levels — that breaks
+    ///      the meme-board UX.
     uint256 public constant MIN_VOTE_BALANCE = 1000 ether; // Must hold 1000 TOWELI to vote
     uint256 public constant MIN_DEADLINE_DURATION = 1 days; // Minimum time between creation and deadline
     uint256 public constant MIN_COMPLETION_VOTES = 3000e18; // AUDIT FIX H-07: Minimum stake-weighted votes for quorum (3000 TOWELI equivalent)
@@ -65,6 +75,15 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     uint256 public constant MIN_BOUNTY_REWARD_TIMELOCK = 24 hours;
     uint256 public pendingMinBountyReward;
     uint256 public constant MIN_CANCEL_DELAY = 1 hours; // FIX 3: minimum time after creation before cancel allowed
+    /// @dev AUDIT L-B03 (2026-04-28): the 7-day post-deadline grace before
+    ///      force-cancel becomes available is the OUTER bound; the M-28
+    ///      voter-diversity gate (MIN_UNIQUE_VOTERS) is the inner bound that
+    ///      prevents this cancel path from being WEAPONIZED by a single
+    ///      whale. Even after 7 days, force-cancel only succeeds when the
+    ///      bounty has NOT yet collected sufficient distinct voters to
+    ///      complete — i.e., it is genuinely abandoned, not deliberately
+    ///      stalled to extract a refund. The two timers MUST be considered
+    ///      together — removing either weakens the model.
     uint256 public constant EMERGENCY_FORCE_CANCEL_DELAY = 7 days; // FIX 2: grace period after deadline for force cancel
 
     enum BountyStatus { Open, Completed, Cancelled }
@@ -98,6 +117,15 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     mapping(uint256 => mapping(uint256 => mapping(address => bool))) public hasVotedOnSubmission;
     mapping(uint256 => mapping(address => bool)) public hasVotedOnBounty; // H-02: per-bounty vote tracking to prevent vote splitting
     mapping(uint256 => uint256) public topSubmissionId; // bountyId => submission index with most votes
+    /// @dev AUDIT L-B02 (2026-04-28): the comparison at the leader-update site
+    ///      is `if (newVotes > topSubmissionVotes[_bountyId])` — STRICTLY
+    ///      greater. Effect: a tie does NOT promote the new submission;
+    ///      whoever crossed the threshold first remains the leader. This is
+    ///      "first-mover wins on ties" semantics and is INTENTIONAL — it
+    ///      removes a griefing vector where a sock-puppet voter could perpetually
+    ///      flip the leader between two tied submissions to delay completion.
+    ///      Submitters tied at the top should rally additional votes to break
+    ///      the tie rather than expect rotation.
     mapping(uint256 => uint256) public topSubmissionVotes; // bountyId => vote count of top submission
     mapping(uint256 => mapping(address => bool)) public hasSubmitted; // AUDIT FIX L-18: one submission per address
     mapping(uint256 => uint256) public totalBountyVotes; // AUDIT FIX M-17: aggregate votes across all submissions
