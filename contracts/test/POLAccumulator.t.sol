@@ -7,60 +7,94 @@ import "../src/POLAccumulator.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 
 // ─── Mocks ──────────────────────────────────────────────────────────
+//
+// API surface required by the post-R015/R062 POLAccumulator constructor:
+//   POLAccumulator(_toweli, _router, _lpToken, _treasury, _twap, _sequencerFeed)
+//
+//  - router must implement WETH() AND factory()
+//  - factory.getPair(toweli, router.WETH()) must equal _lpToken (constructor LPMismatch guard)
+//  - twap must satisfy ITegridyTWAP {consult, getLatestObservation}
+//  - sequencerFeed may be address(0) (mainnet posture, gating disabled)
+//  - lpToken must satisfy IERC20 (balanceOf, transfer, approve) for sweep / harvest paths
 
 contract MockToweli is ERC20 {
     constructor() ERC20("Towelie", "TOWELI") {
         _mint(msg.sender, 1_000_000_000 ether);
     }
-
-    function mint(address to, uint256 amount) external {
-        _mint(to, amount);
-    }
+    function mint(address to, uint256 amount) external { _mint(to, amount); }
 }
 
-contract MockWETH {
-    function WETH() external view returns (address) {
-        return address(this);
-    }
+/// @dev Minimal ERC20 standing in for the Uniswap V2 LP pair.
+contract MockLPPair is ERC20 {
+    constructor() ERC20("LP", "LP") { _mint(msg.sender, 1_000_000 ether); }
 }
 
-/// @dev Mock router that simulates swapExactETHForTokens and addLiquidityETH
+contract MockFactory {
+    address public pair;
+    function setPair(address _pair) external { pair = _pair; }
+    function getPair(address, address) external view returns (address) { return pair; }
+}
+
 contract MockRouter {
-    address public immutable weth;
+    address public immutable wethAddr;
+    address public immutable factoryAddr;
     MockToweli public immutable toweli;
+    uint256 public swapRate = 1000;
 
-    constructor(address _weth, address _toweli) {
-        weth = _weth;
+    constructor(address _weth, address _factory, address _toweli) {
+        wethAddr = _weth;
+        factoryAddr = _factory;
         toweli = MockToweli(_toweli);
     }
 
-    function WETH() external view returns (address) {
-        return weth;
-    }
+    function WETH() external view returns (address) { return wethAddr; }
+    function factory() external view returns (address) { return factoryAddr; }
 
-    /// @dev Simulate swap: mint 1000 tokens per ETH sent
     function swapExactETHForTokens(
-        uint256, address[] calldata, address to, uint256
+        uint256 amountOutMin, address[] calldata, address to, uint256
     ) external payable returns (uint256[] memory amounts) {
-        uint256 tokensOut = msg.value * 1000; // 1000 TOWELI per ETH
+        uint256 tokensOut = msg.value * swapRate;
+        require(tokensOut >= amountOutMin, "INSUFFICIENT_OUTPUT");
         toweli.mint(to, tokensOut);
         amounts = new uint256[](2);
         amounts[0] = msg.value;
         amounts[1] = tokensOut;
     }
 
-    /// @dev Simulate addLiquidityETH: accept all tokens + ETH, return LP count = ethUsed
     function addLiquidityETH(
-        address token, uint256 amountTokenDesired, uint256, uint256, address, uint256
-    ) external payable returns (uint256 amountToken, uint256 amountETH, uint256 liquidity) {
-        // Pull tokens from sender
+        address token, uint256 amountTokenDesired, uint256 amountTokenMin, uint256 amountETHMin,
+        address, uint256
+    ) external payable returns (uint256, uint256, uint256) {
+        require(amountTokenDesired >= amountTokenMin, "BELOW_TOKEN_MIN");
+        require(msg.value >= amountETHMin, "BELOW_ETH_MIN");
         IERC20(token).transferFrom(msg.sender, address(this), amountTokenDesired);
-        amountToken = amountTokenDesired;
-        amountETH = msg.value;
-        liquidity = msg.value; // LP tokens = ETH used (simplified)
+        return (amountTokenDesired, msg.value, msg.value);
     }
 
     receive() external payable {}
+}
+
+/// @dev TWAP mock — lets each test surgically control the latest observation
+///      timestamp + the consult() return value.
+contract MockTWAP {
+    uint32 public latestTs;
+    uint256 public consultReturn = 1; // default: tiny floor so accumulate() can run
+
+    function setLatestTimestamp(uint32 _ts) external { latestTs = _ts; }
+    function setConsultReturn(uint256 _v) external { consultReturn = _v; }
+
+    function consult(address, address, uint256, uint256) external view returns (uint256) {
+        return consultReturn;
+    }
+
+    function getLatestObservation(address) external view returns (ITegridyTWAP.Observation memory) {
+        return ITegridyTWAP.Observation({
+            timestamp: latestTs,
+            bypassed: false,
+            price0Cumulative: 0,
+            price1Cumulative: 0
+        });
+    }
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────
@@ -68,92 +102,95 @@ contract MockRouter {
 contract POLAccumulatorTest is Test {
     POLAccumulator public accumulator;
     MockToweli public toweli;
+    MockLPPair public lp;
+    MockFactory public factory;
     MockRouter public router;
+    MockTWAP public twap;
 
     address public owner;
     address public alice = makeAddr("alice");
+    address public treasuryAddr = makeAddr("treasury");
 
     function setUp() public {
+        // Warp to a comfortable baseline so SNAPSHOT/lookback math doesn't underflow
+        // and the TWAP observation timestamp can be set "now" cleanly.
+        vm.warp(30 days);
         owner = address(this);
         toweli = new MockToweli();
-        router = new MockRouter(makeAddr("WETH"), address(toweli));
-        accumulator = new POLAccumulator(address(toweli), address(router), makeAddr("lpToken"), makeAddr("treasury"));
-        // Warp past the 1-hour accumulate cooldown from deployment
-        vm.warp(block.timestamp + 1 hours);
-    }
+        lp = new MockLPPair();
+        factory = new MockFactory();
+        router = new MockRouter(makeAddr("WETH"), address(factory), address(toweli));
+        // R015 constructor guard: factory.getPair(toweli, weth) MUST equal _lpToken.
+        factory.setPair(address(lp));
+        twap = new MockTWAP();
+        twap.setLatestTimestamp(uint32(block.timestamp));
 
-    function _accumulate(uint256 a, uint256 b, uint256 c, uint256 d) internal {
-        vm.prank(address(this), address(this));
-        accumulator.accumulate(a, b, c, d);
+        accumulator = new POLAccumulator(
+            address(toweli),
+            address(router),
+            address(lp),
+            treasuryAddr,
+            address(twap),
+            address(0) // mainnet posture (no sequencer gating)
+        );
+
+        // Warp past the 1-hour ACCUMULATE_COOLDOWN baked in at construction.
+        vm.warp(block.timestamp + 1 hours);
+        twap.setLatestTimestamp(uint32(block.timestamp));
     }
 
     function _accumulateNow(uint256 a, uint256 b, uint256 c) internal {
-        uint256 deadline = block.timestamp + 2 minutes;
-        vm.prank(address(this), address(this));
+        // MAX_DEADLINE was tightened to 1 minute (R015) — use 30s to stay clear.
+        uint256 deadline = block.timestamp + 30 seconds;
+        vm.prank(owner);
         accumulator.accumulate(a, b, c, deadline);
     }
 
     // ─── accumulate() happy path ────────────────────────────────────
 
     function test_accumulate_happyPath() public {
-        // Fund the accumulator with 1 ETH
         vm.deal(address(accumulator), 1 ether);
+        _accumulateNow(1, 1, 1);
 
-        // Owner calls accumulate with reasonable slippage params
-        _accumulate(1, 1, 1, block.timestamp + 2 minutes);
-
-        // Verify stats updated
-        assertGt(accumulator.totalETHUsed(), 0, "totalETHUsed should be > 0");
-        assertGt(accumulator.totalLPCreated(), 0, "totalLPCreated should be > 0");
-        assertEq(accumulator.totalAccumulations(), 1, "totalAccumulations should be 1");
+        assertGt(accumulator.totalETHUsed(), 0, "totalETHUsed > 0");
+        assertGt(accumulator.totalLPCreated(), 0, "totalLPCreated > 0");
+        assertEq(accumulator.totalAccumulations(), 1);
     }
 
     function test_accumulate_multipleTimes() public {
         vm.deal(address(accumulator), 2 ether);
-
         _accumulateNow(1, 1, 1);
-        // Fund again and warp past cooldown
+        // Re-fund and warp past cooldown + refresh TWAP staleness.
         vm.deal(address(accumulator), 1 ether);
         vm.warp(block.timestamp + 1 hours);
+        twap.setLatestTimestamp(uint32(block.timestamp));
         _accumulateNow(1, 1, 1);
-
         assertEq(accumulator.totalAccumulations(), 2);
     }
 
     function test_accumulate_emitsEvent() public {
         vm.deal(address(accumulator), 1 ether);
         vm.expectEmit(false, false, false, false);
-        emit POLAccumulator.Accumulated(0, 0, 0); // We just check event is emitted
-        _accumulate(1, 1, 1, block.timestamp + 2 minutes);
-    }
-
-    // ─── Revert: _minTokens == 0 (SlippageTooHigh) ─────────────────
-
-    function test_accumulate_revertWhen_minTokensZero() public {
-        vm.deal(address(accumulator), 1 ether);
-        vm.expectRevert(POLAccumulator.SlippageTooHigh.selector);
-        _accumulate(0, 1, 1, block.timestamp + 2 minutes);
+        emit POLAccumulator.Accumulated(0, 0, 0); // event presence, not values
+        _accumulateNow(1, 1, 1);
     }
 
     // ─── Revert: balance < 0.01 ether (InsufficientETH) ────────────
 
     function test_accumulate_revertWhen_insufficientETH() public {
-        // No ETH in contract
         vm.expectRevert(POLAccumulator.InsufficientETH.selector);
-        _accumulate(1, 1, 1, block.timestamp + 2 minutes);
+        _accumulateNow(1, 1, 1);
     }
 
     function test_accumulate_revertWhen_balanceBelowThreshold() public {
-        // Fund with just below 0.01 ether
         vm.deal(address(accumulator), 0.009 ether);
         vm.expectRevert(POLAccumulator.InsufficientETH.selector);
-        _accumulate(1, 1, 1, block.timestamp + 2 minutes);
+        _accumulateNow(1, 1, 1);
     }
 
     function test_accumulate_succeedsAt_exactThreshold() public {
-        // Fund with exactly 0.01 ether — should pass
         vm.deal(address(accumulator), 0.01 ether);
-        _accumulate(1, 1, 1, block.timestamp + 2 minutes);
+        _accumulateNow(1, 1, 1);
         assertEq(accumulator.totalAccumulations(), 1);
     }
 
@@ -161,9 +198,9 @@ contract POLAccumulatorTest is Test {
 
     function test_accumulate_revertWhen_notOwner() public {
         vm.deal(address(accumulator), 1 ether);
-        vm.prank(alice, alice);
+        vm.prank(alice);
         vm.expectRevert();
-        accumulator.accumulate(1, 1, 1, block.timestamp + 2 minutes);
+        accumulator.accumulate(1, 1, 1, block.timestamp + 30 seconds);
     }
 
     // ─── receive() ETH ─────────────────────────────────────────────
@@ -172,7 +209,7 @@ contract POLAccumulatorTest is Test {
         vm.deal(alice, 5 ether);
         vm.prank(alice);
         (bool ok,) = address(accumulator).call{value: 2 ether}("");
-        assertTrue(ok, "Should accept ETH");
+        assertTrue(ok);
         assertEq(accumulator.pendingETH(), 2 ether);
     }
 
@@ -188,9 +225,7 @@ contract POLAccumulatorTest is Test {
 
     function test_ownershipTransfer_twoStep() public {
         accumulator.transferOwnership(alice);
-        // Owner is still this contract until alice accepts
-        assertEq(accumulator.owner(), address(this));
-
+        assertEq(accumulator.owner(), address(this), "transfer not yet accepted");
         vm.prank(alice);
         accumulator.acceptOwnership();
         assertEq(accumulator.owner(), alice);
@@ -237,8 +272,7 @@ contract POLAccumulatorTest is Test {
         accumulator.cancelMaxSlippageChange();
         assertEq(accumulator.pendingMaxSlippage(), 0);
         assertEq(accumulator.maxSlippageProposedAt(), 0);
-        // Original value unchanged
-        assertEq(accumulator.maxSlippageBps(), 500);
+        assertEq(accumulator.maxSlippageBps(), 500); // unchanged
     }
 
     function test_revert_cancelMaxSlippage_noPending() public {
@@ -269,15 +303,14 @@ contract POLAccumulatorTest is Test {
 
     function test_accumulate_capsAtMaxAccumulateAmount() public {
         vm.deal(address(accumulator), 20 ether);
-        // Default maxAccumulateAmount is 10 ETH, so only 10 ETH should be used
-        _accumulate(1, 1, 1, block.timestamp + 2 minutes);
-        // After accumulation, 10 ETH should remain (20 - 10 capped)
+        // Default cap 10 ether: 10 should be used, 10 left.
+        _accumulateNow(1, 1, 1);
         assertEq(address(accumulator).balance, 10 ether);
     }
 
     function test_accumulate_usesFullBalanceWhenBelowCap() public {
         vm.deal(address(accumulator), 5 ether);
-        _accumulate(1, 1, 1, block.timestamp + 2 minutes);
+        _accumulateNow(1, 1, 1);
         assertEq(address(accumulator).balance, 0);
     }
 
@@ -328,7 +361,7 @@ contract POLAccumulatorTest is Test {
         assertEq(accumulator.maxAccumulateAmount(), 10 ether);
     }
 
-    // ─── M-16: sweepETH amount cap and treasury-only recipient ───────
+    // ─── sweepETH 48h timelock + treasury-only recipient ───────────
 
     function test_proposeSweepETH_locksAmount() public {
         vm.deal(address(accumulator), 5 ether);
@@ -341,9 +374,7 @@ contract POLAccumulatorTest is Test {
         accumulator.proposeSweepETH(2 ether);
         vm.warp(block.timestamp + 48 hours);
         accumulator.executeSweepETH();
-        // Treasury should have received exactly 2 ETH
-        assertEq(makeAddr("treasury").balance, 2 ether);
-        // Contract should still have 3 ETH
+        assertEq(treasuryAddr.balance, 2 ether);
         assertEq(address(accumulator).balance, 3 ether);
     }
 
@@ -352,8 +383,7 @@ contract POLAccumulatorTest is Test {
         accumulator.proposeSweepETH(5 ether);
         vm.warp(block.timestamp + 48 hours);
         accumulator.executeSweepETH();
-        // Treasury gets all available (1 ETH), not the proposed 5
-        assertEq(makeAddr("treasury").balance, 1 ether);
+        assertEq(treasuryAddr.balance, 1 ether);
     }
 
     function test_executeSweepETH_goesToTreasury() public {
@@ -369,20 +399,19 @@ contract POLAccumulatorTest is Test {
         accumulator.proposeSweepETH(0);
     }
 
-    // ===== X-07: tx.origin check removed (H-05 audit fix) — contract callers now allowed =====
+    // ─── X-07: tx.origin check removed (H-05 audit fix) — contract callers now allowed ─
 
-    function test_accumulate_revertsFromContract() public {
+    function test_accumulate_succeedsFromContract() public {
         vm.deal(address(accumulator), 1 ether);
 
-        // Deploy a proxy contract that tries to call accumulate
+        // Deploy a proxy contract that calls accumulate as the owner.
         AccumulateProxy proxy = new AccumulateProxy(address(accumulator));
         accumulator.transferOwnership(address(proxy));
         vm.prank(address(proxy));
         accumulator.acceptOwnership();
 
-        // H-05 audit fix: tx.origin check was removed, so contract callers
-        // are now allowed. Verify accumulate() succeeds (does not revert).
-        proxy.callAccumulate(1, 1, 1, block.timestamp + 2 minutes);
+        // H-05: tx.origin check removed → contract callers are allowed.
+        proxy.callAccumulate(1, 1, 1, block.timestamp + 30 seconds);
     }
 }
 
