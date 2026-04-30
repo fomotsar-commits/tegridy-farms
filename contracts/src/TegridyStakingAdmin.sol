@@ -14,14 +14,19 @@ interface ITegridyStakingApply {
     function applyLendingContract(address _lending, bool _approved) external;
     function applyExtendFee(uint256 _bps) external;
     function applyPenaltyRecycle(uint256 _bps) external;
+    /// @dev AUDIT M-AUDIT-2026-1 (MEDIUM, 2026-04-28): apply hook for the extend-fee
+    ///      recycle BPS. Caller must be the wired admin contract.
+    function applyExtendFeeRecycle(uint256 _bps) external;
     function MAX_REWARD_RATE() external view returns (uint256);
     function EXTEND_FEE_BPS_CEILING() external view returns (uint256);
+    function BPS() external view returns (uint256);
     function rewardRate() external view returns (uint256);
     function treasury() external view returns (address);
     function restakingContract() external view returns (address);
     function maxUnsettledRewards() external view returns (uint256);
     function extendFeeBps() external view returns (uint256);
     function penaltyRecycleBps() external view returns (uint256);
+    function extendFeeRecycleBps() external view returns (uint256);
 }
 
 /// @title TegridyStakingAdmin — Sister contract holding timelocked admin flow
@@ -38,6 +43,9 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     error CapTooLow();
     error ExtendFeeTooHigh();
     error PenaltyRecycleTooHigh();
+    /// @notice AUDIT M-AUDIT-2026-1 (MEDIUM, 2026-04-28): the proposed extend-fee
+    ///         recycle bps exceeds `BPS` (10000 = 100% recycle).
+    error ExtendFeeRecycleTooHigh();
 
     // ─── Timelock keys ────────────────────────────────────────────────
     bytes32 public constant REWARD_RATE_CHANGE = keccak256("REWARD_RATE_CHANGE");
@@ -47,6 +55,8 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     bytes32 public constant LENDING_CONTRACT_CHANGE = keccak256("LENDING_CONTRACT_CHANGE");
     bytes32 public constant EXTEND_FEE_CHANGE = keccak256("EXTEND_FEE_CHANGE");
     bytes32 public constant PENALTY_RECYCLE_CHANGE = keccak256("PENALTY_RECYCLE_CHANGE");
+    /// @notice AUDIT M-AUDIT-2026-1: timelock key for the extend-fee recycle BPS.
+    bytes32 public constant EXTEND_FEE_RECYCLE_CHANGE = keccak256("EXTEND_FEE_RECYCLE_CHANGE");
 
     // ─── Delays (mirror what TegridyStaking previously enforced) ──────
     uint256 public constant REWARD_RATE_TIMELOCK = 48 hours;
@@ -56,6 +66,9 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     uint256 public constant LENDING_CONTRACT_CHANGE_TIMELOCK = 48 hours;
     uint256 public constant EXTEND_FEE_TIMELOCK = 48 hours;
     uint256 public constant PENALTY_RECYCLE_TIMELOCK = 48 hours;
+    /// @notice AUDIT M-AUDIT-2026-1: 48h timelock matching the surrounding parameter
+    ///         ceremony for any change to the extend-fee recycle split.
+    uint256 public constant EXTEND_FEE_RECYCLE_TIMELOCK = 48 hours;
 
     // ─── Pending storage ──────────────────────────────────────────────
     uint256 public pendingRewardRate;
@@ -66,6 +79,8 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     bool public pendingLendingContractApproval;
     uint256 public pendingExtendFeeBps;
     uint256 public pendingPenaltyRecycleBps;
+    /// @notice AUDIT M-AUDIT-2026-1: pending value for the extend-fee recycle BPS.
+    uint256 public pendingExtendFeeRecycleBps;
 
     // ─── Wired staking ────────────────────────────────────────────────
     ITegridyStakingApply public immutable staking;
@@ -84,6 +99,10 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     event ExtendFeeUpdated(uint256 oldBps, uint256 newBps);
     event PenaltyRecycleProposed(uint256 newBps, uint256 executeAfter);
     event PenaltyRecycleUpdated(uint256 oldBps, uint256 newBps);
+    /// @notice AUDIT M-AUDIT-2026-1: emitted when a new extend-fee recycle BPS is
+    ///         proposed (timelock starts) and when it executes (timelock cleared).
+    event ExtendFeeRecycleProposed(uint256 newBps, uint256 executeAfter);
+    event ExtendFeeRecycleUpdated(uint256 oldBps, uint256 newBps);
 
     constructor(address _staking) OwnableNoRenounce(msg.sender) {
         if (_staking == address(0)) revert ZeroAddress();
@@ -267,5 +286,38 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
 
     function penaltyRecycleChangeReadyAt() external view returns (uint256) {
         return _executeAfter[PENALTY_RECYCLE_CHANGE];
+    }
+
+    // ─── AUDIT M-AUDIT-2026-1: Extend-fee recycle (treasury vs stakers split) ─
+    /// @notice Propose a new extend-fee recycle BPS. 48h timelock applies before
+    ///         `executeExtendFeeRecycle()` may write the change to the staking contract.
+    /// @dev    AUDIT M-AUDIT-2026-1 (MEDIUM, 2026-04-28): mirrors the propose/execute/cancel
+    ///         flow used by `proposePenaltyRecycle`. The recycled slice is credited via
+    ///         `_creditRewardPool` on the staking contract, bumping `rewardPerTokenStored`
+    ///         for the existing stakers immediately at fee-charge time. See the
+    ///         `extendFeeRecycleBps` NatSpec on TegridyStaking for the rationale.
+    function proposeExtendFeeRecycle(uint256 _newBps) external onlyOwner {
+        if (_newBps > staking.BPS()) revert ExtendFeeRecycleTooHigh();
+        pendingExtendFeeRecycleBps = _newBps;
+        _propose(EXTEND_FEE_RECYCLE_CHANGE, EXTEND_FEE_RECYCLE_TIMELOCK);
+        emit ExtendFeeRecycleProposed(_newBps, _executeAfter[EXTEND_FEE_RECYCLE_CHANGE]);
+    }
+
+    function executeExtendFeeRecycle() external onlyOwner {
+        _execute(EXTEND_FEE_RECYCLE_CHANGE);
+        uint256 oldBps = staking.extendFeeRecycleBps();
+        uint256 newBps = pendingExtendFeeRecycleBps;
+        pendingExtendFeeRecycleBps = 0;
+        staking.applyExtendFeeRecycle(newBps);
+        emit ExtendFeeRecycleUpdated(oldBps, newBps);
+    }
+
+    function cancelExtendFeeRecycle() external onlyOwner {
+        _cancel(EXTEND_FEE_RECYCLE_CHANGE);
+        pendingExtendFeeRecycleBps = 0;
+    }
+
+    function extendFeeRecycleChangeReadyAt() external view returns (uint256) {
+        return _executeAfter[EXTEND_FEE_RECYCLE_CHANGE];
     }
 }
