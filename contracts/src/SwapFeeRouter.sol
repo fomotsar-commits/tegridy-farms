@@ -163,6 +163,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         comfortably guarantees we always have ≥30 min of integral on the second
     ///         and subsequent calls.
     uint256 public constant MIN_TWAP_PERIOD = 30 minutes;
+
+    /// @notice AUDIT SFR-M-01 (MEDIUM, 2026-04-28): hard cap on caller-supplied
+    ///         conversion paths. 4 hops covers the realistic universe (token → MID0 →
+    ///         MID1 → WETH on the rare deeply-routed token) while bounding the gas
+    ///         + sandwich surface. Above 4 hops, multi-hop slippage compounds badly
+    ///         and the owner-only gate becomes a usability footgun anyway.
+    uint256 public constant MAX_CONVERSION_PATH_LENGTH = 4;
     /// @notice AUDIT SFR-H-01: 1.5% safety margin applied to the TWAP-derived minETHOut.
     ///         Tighter than the legacy MEV bleed (1-3% per cycle on accumulated balance)
     ///         while still tolerating realistic price moves over the 30 min averaging
@@ -315,6 +322,14 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         No swap path means no fee conversion to ETH is possible — `withdrawTokenFees`
     ///         remains as the owner-only escape hatch for tokens without a liquid WETH pair.
     error NoPairForToken();
+    /// @notice AUDIT SFR-M-01 (MEDIUM, 2026-04-28): caller-supplied conversion path is malformed
+    ///         (length out of bounds, doesn't start at `token`, doesn't end at WETH, or
+    ///         contains a duplicate hop).
+    error InvalidConversionPath();
+    /// @notice AUDIT SFR-M-01: caller attempted a multi-hop conversion path (length > 2)
+    ///         while not the contract owner. Multi-hop paths are owner-restricted because
+    ///         the TWAP floor anchors against the direct token/WETH pair only.
+    error MultiHopOwnerOnly();
 
     // Legacy error aliases (kept for test compatibility during V2 migration)
     error UseProposeFeeChange();
@@ -1048,11 +1063,29 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         TIGHTEN the floor, never relax it. Bootstrap path (no prior snapshot for
     ///         `token`) is owner-restricted so the first conversion can't be exploited;
     ///         thereafter the path is permissionless again.
-    /// @param  token        ERC20 token to convert (must have a Uniswap V2 token/WETH pair)
+    /// @dev    AUDIT SFR-M-01 (MEDIUM, 2026-04-28): caller now supplies the swap path so
+    ///         tokens that lack a direct token/WETH pair can still be converted via a
+    ///         multi-hop route (e.g., `[ALT, USDC, WETH]`). The path is validated:
+    ///           - `path[0] == token` and `path[length-1] == WETH`
+    ///           - `2 <= length <= MAX_CONVERSION_PATH_LENGTH (4)`
+    ///           - no duplicate tokens
+    ///         Multi-hop paths (length > 2) are RESTRICTED TO THE OWNER because they
+    ///         are price-anchored against an EXTERNAL pair the contract does not
+    ///         continuously TWAP. The 2-hop direct path (`[token, WETH]`) remains
+    ///         permissionless after the SFR-H-01 bootstrap as before.
+    /// @param  token        ERC20 token to convert (the input token; must equal `path[0]`)
+    /// @param  path         Caller-supplied swap path. Must start at `token` and end at
+    ///                      WETH. Length 2 = direct pair (permissionless after bootstrap);
+    ///                      length 3 or 4 = multi-hop (owner-only).
     /// @param  minETHOut    Caller-supplied minimum ETH (acts as a TIGHTER floor than
     ///                      the contract's TWAP-derived floor; cannot relax below it).
     /// @param  deadline     Standard Uniswap deadline (capped at MAX_DEADLINE)
-    function convertTokenFeesToETH(address token, uint256 minETHOut, uint256 deadline)
+    function convertTokenFeesToETH(
+        address token,
+        address[] calldata path,
+        uint256 minETHOut,
+        uint256 deadline
+    )
         external nonReentrant whenNotPaused
     {
         if (token == address(0) || token == WETH) revert ZeroAddress();
@@ -1064,6 +1097,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // before the inner call (e.g., alternate router integrations).
         if (deadline < block.timestamp) revert("DEADLINE_EXPIRED");
         if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
+        // AUDIT SFR-M-01: validate caller-supplied path and gate multi-hop on owner.
+        _validateConversionPath(token, path);
         // AUDIT NEW-A5 (HIGH): rate-limit per-token conversions so a sandwich attacker
         // cannot repeatedly manipulate the pool, call convertTokenFeesToETH with a
         // MEV-favorable minETHOut, and unwind. With CONVERSION_COOLDOWN per token,
@@ -1080,13 +1115,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         // AUDIT SFR-H-01: derive the internal TWAP-floor minETHOut and pick the tighter of
         // (callerMinETHOut, twapMinETHOut). Bootstrap path is owner-only (see helper).
+        // NB: the TWAP floor is anchored against the DIRECT token/WETH pair regardless of
+        // how many hops the caller chose. For multi-hop paths the owner-only gate above
+        // already restricts callers to a trusted operator.
         (uint256 effectiveMin, uint256 currentCum, uint32 currentTs) =
             _enforceTWAPMinETHOut(token, amount, minETHOut);
 
         IERC20(token).forceApprove(address(router), amount);
-        address[] memory path = new address[](2);
-        path[0] = token;
-        path[1] = WETH;
 
         uint256 ethBefore = address(this).balance;
         // SFR-H-01: forward `effectiveMin` (NOT the raw `minETHOut`) to the inner router so
@@ -1117,13 +1152,23 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         `swapAmount` (the actual on-hand balance) since FoT haircut already reduced
     ///         what we hold; the TWAP gives an upper-bound estimate of expected ETH out
     ///         and the 1.5% safety margin tolerates additional FoT-leg + swap-leg slippage.
-    function convertTokenFeesToETHFoT(address token, uint256 minETHOut, uint256 deadline)
+    /// @dev    AUDIT SFR-M-01 (MEDIUM, 2026-04-28): caller-supplied path with the same
+    ///         validation + multi-hop owner gate as the standard variant. See the
+    ///         convertTokenFeesToETH NatSpec above for the path semantics.
+    function convertTokenFeesToETHFoT(
+        address token,
+        address[] calldata path,
+        uint256 minETHOut,
+        uint256 deadline
+    )
         external nonReentrant whenNotPaused
     {
         if (token == address(0) || token == WETH) revert ZeroAddress();
         // AUDIT NEW-A4 (HIGH): see convertTokenFeesToETH above for rationale.
         if (deadline < block.timestamp) revert("DEADLINE_EXPIRED");
         if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
+        // AUDIT SFR-M-01: validate caller-supplied path and gate multi-hop on owner.
+        _validateConversionPath(token, path);
         // AUDIT NEW-A5 (HIGH): shared cooldown across both variants so switching
         // between them doesn't bypass the rate limit.
         _enforceConversionCooldown(token);
@@ -1144,9 +1189,6 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
             _enforceTWAPMinETHOut(token, swapAmount, minETHOut);
 
         IERC20(token).forceApprove(address(router), swapAmount);
-        address[] memory path = new address[](2);
-        path[0] = token;
-        path[1] = WETH;
 
         uint256 ethBefore = address(this).balance;
         router.swapExactTokensForETHSupportingFeeOnTransferTokens(
@@ -1232,6 +1274,31 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
                 if (path[i] == path[j]) revert DuplicateTokenInPath();
             }
         }
+    }
+
+    /// @dev AUDIT SFR-M-01 (MEDIUM, 2026-04-28): validate the caller-supplied conversion
+    ///      path used by `convertTokenFeesToETH{,FoT}`. Rules:
+    ///        - Length in [2, MAX_CONVERSION_PATH_LENGTH] (caller can pass at most 4 hops)
+    ///        - path[0] must equal the input `token` (no spoofing the input)
+    ///        - path[length-1] must equal WETH (we ALWAYS exit to WETH so the proceeds
+    ///          flow into accumulatedETHFees)
+    ///        - No duplicate hops (rejects cycles, e.g., `[A, B, A, WETH]`)
+    ///      Multi-hop paths (length > 2) are restricted to the contract owner because
+    ///      the SFR-H-01 TWAP anchor is against the direct token/WETH pair only — a
+    ///      permissionless multi-hop call could route through an attacker-controlled
+    ///      pool whose price the TWAP cannot bound.
+    function _validateConversionPath(address token, address[] calldata path) internal view {
+        uint256 len = path.length;
+        if (len < 2 || len > MAX_CONVERSION_PATH_LENGTH) revert InvalidConversionPath();
+        if (path[0] != token) revert InvalidConversionPath();
+        if (path[len - 1] != WETH) revert InvalidConversionPath();
+        // Reject duplicates (also catches `[token, WETH, WETH]` and similar shapes).
+        for (uint256 i = 0; i < len; i++) {
+            for (uint256 j = i + 1; j < len; j++) {
+                if (path[i] == path[j]) revert InvalidConversionPath();
+            }
+        }
+        if (len > 2 && msg.sender != owner()) revert MultiHopOwnerOnly();
     }
 
     /// @dev AUDIT NEW-A5: per-token conversion cooldown to price out sandwich MEV.

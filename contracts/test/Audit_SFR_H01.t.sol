@@ -229,6 +229,15 @@ contract Audit_SFR_H01 is Test {
         skip(uint256(dt));
     }
 
+    /// @dev AUDIT SFR-M-01 (2026-04-28): canonical 2-hop direct path used by every test
+    ///      in this file. Replaces the prior contract-built `[token, WETH]` array now
+    ///      that the path is caller-supplied.
+    function _directPath() internal view returns (address[] memory path) {
+        path = new address[](2);
+        path[0] = address(toweli);
+        path[1] = address(weth);
+    }
+
     /// @dev Helper: simulate the attacker's front-running TOWELI→WETH sell that pushes
     ///      the TOWELI price down right before the keeper's conversion. We just slam
     ///      the reserves to a depressed-TOWELI ratio — the swap that lands next will
@@ -252,14 +261,14 @@ contract Audit_SFR_H01 is Test {
         _advanceTime(60 minutes);
         vm.prank(keeper);
         vm.expectRevert(SwapFeeRouter.TWAPBootstrapRequired.selector);
-        sfr.convertTokenFeesToETH(address(toweli), 0, block.timestamp + 1 hours);
+        sfr.convertTokenFeesToETH(address(toweli), _directPath(), 0, block.timestamp + 1 hours);
     }
 
     function test_SFR_H01_bootstrap_succeeds_forOwner() public {
         _advanceTime(60 minutes);
         // Owner bootstraps — caller-supplied minETHOut acts as the only floor for this
         // single call (treasury policy off-chain). Snapshot is written for next time.
-        sfr.convertTokenFeesToETH(address(toweli), 0, block.timestamp + 1 hours);
+        sfr.convertTokenFeesToETH(address(toweli), _directPath(), 0, block.timestamp + 1 hours);
         // Snapshot is non-zero: subsequent calls are permissionless.
         (uint32 ts,) = sfr.lastConversionSnapshot(address(toweli));
         assertGt(ts, 0, "bootstrap snapshot not written");
@@ -280,7 +289,7 @@ contract Audit_SFR_H01 is Test {
         // 1) Bootstrap snapshot at the baseline price (owner call).
         _advanceTime(60 minutes); // pre-bootstrap idle window so cumulative is meaningful
         uint256 d1 = block.timestamp + 30 minutes;
-        sfr.convertTokenFeesToETH(address(toweli), 0, d1);
+        sfr.convertTokenFeesToETH(address(toweli), _directPath(), 0, d1);
 
         // After the bootstrap swap the router consumed 100 TOWELI from the pair, so
         // re-seed reserves at baseline + reseed accumulated fees so the next call has
@@ -315,7 +324,7 @@ contract Audit_SFR_H01 is Test {
         uint256 d2 = vm.getBlockTimestamp() + 30 minutes;
         vm.prank(keeper);
         vm.expectRevert("INSUFFICIENT_OUTPUT");
-        sfr.convertTokenFeesToETH(address(toweli), 0, d2);
+        sfr.convertTokenFeesToETH(address(toweli), _directPath(), 0, d2);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -330,7 +339,7 @@ contract Audit_SFR_H01 is Test {
         // Bootstrap.
         _advanceTime(60 minutes);
         uint256 d1 = block.timestamp + 30 minutes;
-        sfr.convertTokenFeesToETH(address(toweli), 0, d1);
+        sfr.convertTokenFeesToETH(address(toweli), _directPath(), 0, d1);
 
         bool tokenIs0 = address(toweli) < address(weth);
         if (tokenIs0) pair.setReserves(BASELINE_TOWELI, BASELINE_WETH);
@@ -351,7 +360,7 @@ contract Audit_SFR_H01 is Test {
         uint256 d2 = vm.getBlockTimestamp() + 30 minutes;
         vm.prank(keeper);
         vm.expectRevert("INSUFFICIENT_OUTPUT");
-        sfr.convertTokenFeesToETH(address(toweli), 1 ether, d2);
+        sfr.convertTokenFeesToETH(address(toweli), _directPath(), 1 ether, d2);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -365,7 +374,7 @@ contract Audit_SFR_H01 is Test {
         // Bootstrap.
         _advanceTime(60 minutes);
         uint256 d1 = block.timestamp + 30 minutes;
-        sfr.convertTokenFeesToETH(address(toweli), 0, d1);
+        sfr.convertTokenFeesToETH(address(toweli), _directPath(), 0, d1);
 
         bool tokenIs0 = address(toweli) < address(weth);
         if (tokenIs0) pair.setReserves(BASELINE_TOWELI, BASELINE_WETH);
@@ -386,7 +395,7 @@ contract Audit_SFR_H01 is Test {
         uint256 nowTs = vm.getBlockTimestamp();
         uint256 d2 = nowTs + 30 minutes;
         vm.prank(keeper);
-        sfr.convertTokenFeesToETH(address(toweli), 0, d2);
+        sfr.convertTokenFeesToETH(address(toweli), _directPath(), 0, d2);
         uint256 ethReceived = address(sfr).balance - ethBefore;
         assertGt(ethReceived, 0, "conversion produced no ETH on happy path");
         // Snapshot updated.
