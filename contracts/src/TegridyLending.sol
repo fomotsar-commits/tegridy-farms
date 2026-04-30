@@ -167,6 +167,19 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         malicious lender posts an offer pointing at a fake `ITegridyStaking`
     ///         that mirrors the interface but burns the borrower's NFT on transfer
     ///         (or otherwise grieves repayment).
+    /// @dev    AUDIT NFT-CL-L1 DEPLOY-OPS NOTE (2026-04-28): adding a TegridyStaking
+    ///         (or similar) contract to this whitelist is HALF the wire-up. The
+    ///         OTHER half lives on the staking-side `isLendingContract` allowlist
+    ///         (see TegridyStaking.sol — `_isLendingContract` mapping with sister
+    ///         48h timelock). A loan against staking-position collateral cannot
+    ///         physically settle until BOTH directions are wired:
+    ///           1. lending-side  : `proposeAcceptedCollateral(stakingAddr, true)`
+    ///                              + `executeAcceptedCollateral`
+    ///           2. staking-side  : `proposeLendingContract(thisAddr, true)`
+    ///                              + `executeLendingContract`
+    ///         Wire ordering doesn't matter, but skipping either step bricks
+    ///         all loans in flight against that collateral type until the
+    ///         missing direction lands and clears its 48h delay.
     mapping(address => bool) public acceptedCollateralContracts;
     address public pendingAcceptedCollateral;
     bool public pendingAcceptedCollateralAdd;
@@ -1278,6 +1291,16 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         - Repaid loan → recipient is the borrower.
     ///         - Defaulted loan → recipient is the lender.
     ///         Reverts if the loan is still active or has no recoverable rewards.
+    /// @dev    AUDIT NFT-CL-L2 DONOR WARNING (2026-04-28): TOWELI sent directly to
+    ///         this contract address (i.e., NOT routed through the staking-contract
+    ///         claim path) is NOT refundable — it joins the contract's TOWELI
+    ///         balance and is distributed pro-rata across all settled-loan
+    ///         escrow beneficiaries on their next `pullEscrowRewards` call. Do
+    ///         not airdrop or accidentally transfer TOWELI here. The pro-rata
+    ///         distribution math is intentional (it allows the contract to
+    ///         keep paying beneficiaries even if a staking-side claim deferred),
+    ///         but it makes any direct donation effectively a public good for
+    ///         the current set of escrow holders.
     /// @param _loanId The loan to pull rewards for.
     function pullEscrowRewards(uint256 _loanId) external nonReentrant {
         if (_loanId >= loans.length) revert InvalidLoanId();

@@ -36,6 +36,18 @@ interface ITegridyStakingApply {
 /// @dev    Created during the Wave-1 size-reduction sprint (2026-04-26) to bring
 ///         TegridyStaking under the 24,576-byte EIP-170 limit. Functional
 ///         semantics (delays, ceilings, validity windows) are unchanged.
+/// @dev    AUDIT ADMIN-3 NAMING NOTE (2026-04-28): the legacy view helpers that
+///         expose pending-execute timestamps use TWO naming conventions —
+///         `*ChangeTime` for the older two (`rewardRateChangeTime`,
+///         `treasuryChangeTime`) and `*ChangeReadyAt` for the newer five
+///         (restaking, lendingContract, extendFee, penaltyRecycle,
+///         extendFeeRecycle). The newer convention (`*ChangeReadyAt`) is the
+///         intended forward style — it reads as "ready at this timestamp"
+///         rather than the more ambiguous "change time". The older two are
+///         retained for ABI compatibility with already-deployed test fixtures
+///         and indexers; future helpers should prefer the `*ChangeReadyAt`
+///         pattern. Renaming the legacy two would silently break consumers
+///         and is intentionally NOT done.
 contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     // ─── Errors ───────────────────────────────────────────────────────
     error ZeroAddress();

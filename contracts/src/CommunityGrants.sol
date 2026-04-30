@@ -88,6 +88,14 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     uint256 public constant MIN_QUORUM_BPS = 1000; // At least 10% of total locked must vote
     uint256 public constant MIN_ABSOLUTE_QUORUM = 1000e18; // A4-M-14: Reduced from 10000e18 — old value blocked governance when total stake < 10k tokens
     uint256 public constant MAX_GRANT_PERCENT_BPS = 5000; // H-04: max 50% of contract balance per grant
+    /// @dev AUDIT L-G01 (2026-04-28): the 50-proposal cap is a DoS-economic
+    ///      bound. Each new active proposal SSTOREs ~5 storage slots and
+    ///      contributes to gas cost on `executeProposal` / `cancelProposal`
+    ///      iteration paths. With a 7-day voting period and 50 max active
+    ///      slots, an attacker would need to permanently lock 50 * MIN_PROPOSER_STAKE
+    ///      tokens to cap throughput, AND each blocked slot must remain held for
+    ///      ≥7 days before timing out. The cap is intentionally generous (50,
+    ///      not 10) to prevent legitimate governance from being squeezed.
     uint256 public constant MAX_ACTIVE_PROPOSALS = 50; // AUDIT FIX M-13: Cap to prevent unbounded storage growth
     // SECURITY FIX H-4: Voting delay before votes can be cast (Compound GovernorBravo pattern)
     uint256 public constant VOTING_DELAY = 1 days;
@@ -808,6 +816,17 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///      Returns false if both ETH and WETH transfer fail (for FailedExecution handling).
     ///      AUDIT FIX H-04: If WETH transfer fails after wrapping, unwrap back to ETH to prevent
     ///      WETH from being permanently stuck in the contract (no WETH sweep function).
+    /// @dev AUDIT L-G02 (2026-04-28): Safe / Argent / EIP-4337 contract-wallet
+    ///      recipients DELIBERATELY land in the WETH branch — their `receive()`
+    ///      typically exceeds the 10k-gas stipend, so the raw ETH push fails
+    ///      and the WETH wrap path takes over. From the recipient's POV they
+    ///      get a WETH credit instead of ETH; this is an INTENTIONAL part of
+    ///      the design, not a bug. If a Safe wants raw ETH, they need to
+    ///      pre-deploy a payment splitter that uses receive() with the 10k
+    ///      stipend. The protocol is not in the business of accommodating
+    ///      arbitrary recipient gas budgets — which is also a security feature
+    ///      (a recipient running heavy logic in receive() expands the
+    ///      cross-contract reentrancy surface).
     function _transferETHOrWETH(address recipient, uint256 amount) internal returns (bool) {
         // AUDIT FIX M-2 (battle-tested, 2026-04-20 audit): reduced from 100_000 back to
         // 10_000 gas. 100k allowed the recipient contract to make a full external call during
@@ -894,6 +913,14 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     /// @dev Inclusive `start`, exclusive `end`. Reverts on inverted ranges and clamps
     ///      `end` to `proposals.length` so callers can pass `type(uint256).max` as a
     ///      "to the end" sentinel without overflowing.
+    /// @dev AUDIT L-G03 INDEXER-HELPER (2026-04-28): this view is intended for
+    ///      OFF-CHAIN indexers (subgraphs, snapshots, leaderboards) that
+    ///      page through `proposals` in bounded chunks. Calling it on-chain
+    ///      from another contract is supported but inadvisable — the returned
+    ///      array can be arbitrarily large within `[start, end)` and there is
+    ///      no in-method gas guard. Off-chain callers should pick a chunk
+    ///      size (typical: 50-200) and iterate. There is no economic reason
+    ///      for an on-chain consumer to read the full historical proposal log.
     /// @param start The first proposal ID to include (inclusive).
     /// @param end   One past the last proposal ID to include (exclusive). Clamped to
     ///              `proposals.length`.

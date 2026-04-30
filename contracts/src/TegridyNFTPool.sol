@@ -244,6 +244,16 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     // ─── Swap: Sell NFTs for ETH ────────────────────────────────────────
 
     /// @notice Sell NFTs to the pool and receive ETH
+    /// @dev    AUDIT NFT-CL-L4 SPREAD ASYMMETRY (2026-04-28): the bonding curve
+    ///         is intentionally asymmetric across the spot — buying the FIRST
+    ///         item costs `spotPrice`, but selling the FIRST item earns
+    ///         `spotPrice - delta` (the next-after-decrement price). This is
+    ///         the standard Sudoswap convention: the bid/ask spread is
+    ///         exactly `delta` wide at the spot. Naive integrators sometimes
+    ///         expect a symmetric `(buy first = sell first = spotPrice)`
+    ///         model — this contract does NOT use that. See `_getSellPrice`
+    ///         for the exact sum: each item i (0-indexed) sold pays
+    ///         `spotPrice - delta * (i + 1)`.
     /// @param tokenIds The NFT token IDs to sell
     /// @param minOutput Minimum ETH the seller expects to receive (slippage protection)
     /// @param deadline Timestamp by which the transaction must be mined
