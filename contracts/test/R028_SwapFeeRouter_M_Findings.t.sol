@@ -393,3 +393,111 @@ contract R028_SFR_M02 is Test {
         sfr.convertTokenFeesToETH(address(toweli), _direct(), 0, block.timestamp + 30 minutes);
     }
 }
+
+/// @title AUDIT SFR-M-04 — Admin replaceability with 7d timelock
+contract R028_SFR_M04 is Test {
+    SwapFeeRouter public sfr;
+    SwapFeeRouterAdmin public sfrAdmin;
+    MockUniRouter_R028 public uniRouter;
+    MockUniFactory_R028 public factory;
+    MockToken_R028 public weth;
+
+    address public treasury = makeAddr("treasury");
+    uint256 constant FEE_BPS = 30;
+
+    function setUp() public {
+        weth = new MockToken_R028("WETH", "WETH");
+        factory = new MockUniFactory_R028();
+        uniRouter = new MockUniRouter_R028(address(weth), address(factory));
+        sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0));
+        sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
+        sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
+    }
+
+    function test_SFRM04_proposeAdminReplacement_setsState() public {
+        SwapFeeRouterAdmin newAdmin = new SwapFeeRouterAdmin(address(sfr));
+        sfr.proposeAdminReplacement(address(newAdmin));
+        assertEq(sfr.pendingSwapFeeRouterAdmin(), address(newAdmin));
+        assertEq(sfr.adminReplacementReadyAt(), block.timestamp + sfr.ADMIN_REPLACEMENT_TIMELOCK());
+    }
+
+    function test_SFRM04_executeBeforeTimelock_reverts() public {
+        SwapFeeRouterAdmin newAdmin = new SwapFeeRouterAdmin(address(sfr));
+        sfr.proposeAdminReplacement(address(newAdmin));
+        // Try to execute before timelock matures.
+        vm.expectRevert(SwapFeeRouter.AdminReplacementUnavailable.selector);
+        sfr.executeAdminReplacement();
+    }
+
+    function test_SFRM04_executeAfterTimelock_swapsAdmin() public {
+        SwapFeeRouterAdmin newAdmin = new SwapFeeRouterAdmin(address(sfr));
+        sfr.proposeAdminReplacement(address(newAdmin));
+        skip(sfr.ADMIN_REPLACEMENT_TIMELOCK() + 1);
+        sfr.executeAdminReplacement();
+        assertEq(sfr.swapFeeRouterAdmin(), address(newAdmin));
+        // Pending state cleared.
+        assertEq(sfr.pendingSwapFeeRouterAdmin(), address(0));
+        assertEq(sfr.adminReplacementReadyAt(), 0);
+    }
+
+    function test_SFRM04_cancelClearsProposal() public {
+        SwapFeeRouterAdmin newAdmin = new SwapFeeRouterAdmin(address(sfr));
+        sfr.proposeAdminReplacement(address(newAdmin));
+        sfr.cancelAdminReplacement();
+        assertEq(sfr.pendingSwapFeeRouterAdmin(), address(0));
+        assertEq(sfr.adminReplacementReadyAt(), 0);
+    }
+
+    function test_SFRM04_cannotProposeWhileAnotherPending() public {
+        SwapFeeRouterAdmin newAdmin1 = new SwapFeeRouterAdmin(address(sfr));
+        SwapFeeRouterAdmin newAdmin2 = new SwapFeeRouterAdmin(address(sfr));
+        sfr.proposeAdminReplacement(address(newAdmin1));
+        vm.expectRevert(SwapFeeRouter.AdminReplacementUnavailable.selector);
+        sfr.proposeAdminReplacement(address(newAdmin2));
+    }
+
+    function test_SFRM04_cannotProposeIfNoAdminSet() public {
+        // Deploy a fresh router without setting swapFeeRouterAdmin.
+        SwapFeeRouter fresh = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0));
+        SwapFeeRouterAdmin adm = new SwapFeeRouterAdmin(address(fresh));
+        vm.expectRevert(SwapFeeRouter.Unauthorized.selector);
+        fresh.proposeAdminReplacement(address(adm));
+    }
+
+    function test_SFRM04_setSwapFeeRouterAdmin_stillOneShot() public {
+        SwapFeeRouterAdmin other = new SwapFeeRouterAdmin(address(sfr));
+        // Already set in setUp(); calling setSwapFeeRouterAdmin again must revert.
+        vm.expectRevert(SwapFeeRouter.Unauthorized.selector);
+        sfr.setSwapFeeRouterAdmin(address(other));
+    }
+
+    function test_SFRM04_buggyAdminCannotBlockReplacement() public {
+        // Demonstrate the inline state design: even if the admin contract is
+        // entirely broken, the router's own proposeAdminReplacement /
+        // executeAdminReplacement remain callable by the owner.
+        SwapFeeRouterAdmin newAdmin = new SwapFeeRouterAdmin(address(sfr));
+
+        // Simulate a buggy admin by setting the wired admin to an address that
+        // reverts on any call (a contract with no fallback). We do this via
+        // proposing then executing a replacement to that "bad" address.
+        BadAdmin bad = new BadAdmin();
+        sfr.proposeAdminReplacement(address(bad));
+        skip(sfr.ADMIN_REPLACEMENT_TIMELOCK() + 1);
+        sfr.executeAdminReplacement();
+        assertEq(sfr.swapFeeRouterAdmin(), address(bad));
+
+        // Now propose REPLACEMENT of the bad admin. The propose lives ON THE
+        // ROUTER, not the admin, so the buggy admin cannot block its own removal.
+        sfr.proposeAdminReplacement(address(newAdmin));
+        skip(sfr.ADMIN_REPLACEMENT_TIMELOCK() + 1);
+        sfr.executeAdminReplacement();
+        assertEq(sfr.swapFeeRouterAdmin(), address(newAdmin));
+    }
+}
+
+/// @dev Stub used by `test_SFRM04_buggyAdminCannotBlockReplacement` to model an
+///      entirely-broken admin contract that has no fallback / doesn't honor the
+///      ISwapFeeRouterApply interface. The router's replacement path must still work.
+contract BadAdmin {
+    // No functions — every call reverts.
+}
