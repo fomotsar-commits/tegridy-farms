@@ -105,11 +105,14 @@ contract Audit195PremiumHookTest is Test {
         vm.prank(alice);
         premium.subscribe(1, type(uint256).max);
 
-        // After extension: remaining escrow from first period + new cost
-        // First period: 15 days consumed of 30 days => ~500 remaining escrow
-        // Plus new 1000 => ~1500
-        assertApproxEqAbs(premium.userEscrow(alice), 1500 ether, 5 ether);
-        assertApproxEqAbs(premium.totalRefundEscrow(), 1500 ether, 5 ether);
+        // AUDIT PA-M-01 / R022 (2026-04-29): on extension, the OLD escrow
+        // (consumed + remaining) is forfeit and a fresh per-period escrow is
+        // anchored. After extension: userEscrow == cost (MONTHLY_FEE), NOT
+        // 1500. The unconsumed ~500 remainder of period 1 was credited to
+        // totalRevenue, not carried into the new escrow. This is the
+        // corrected R022 behavior — eliminates extend-then-cancel refund drift.
+        assertEq(premium.userEscrow(alice), MONTHLY_FEE, "PA-M-01: fresh per-period escrow");
+        assertEq(premium.totalRefundEscrow(), MONTHLY_FEE, "PA-M-01: refund-escrow tracks fresh cost");
     }
 
     function test_P01_subscribeEscrowConsistency_multiUser() public {
@@ -216,8 +219,13 @@ contract Audit195PremiumHookTest is Test {
 
         vm.prank(alice);
         premium.subscribe(1, type(uint256).max); // extension
-        // M-06: totalRevenue always increments by cost, including on extensions
-        assertEq(premium.totalRevenue(), 2 * MONTHLY_FEE);
+        // AUDIT PA-M-01 / R022 (2026-04-29): on extension the unconsumed
+        // remainder of the OLD escrow (~MONTHLY_FEE since only 1s of 30 days
+        // elapsed) is credited to totalRevenue. PLUS the M-06 unconditional
+        // `totalRevenue += cost` adds the new period's cost. Net: starting
+        // MONTHLY_FEE + ~MONTHLY_FEE forfeited + MONTHLY_FEE new ≈ 3*FEE.
+        assertApproxEqAbs(premium.totalRevenue(), 3 * MONTHLY_FEE, 1 ether,
+            "PA-M-01: forfeit-on-extend credits remaining to revenue");
     }
 
     // ═══════════════════════════════════════════════════════════════
