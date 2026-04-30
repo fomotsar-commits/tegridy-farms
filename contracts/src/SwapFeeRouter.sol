@@ -164,6 +164,24 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         and subsequent calls.
     uint256 public constant MIN_TWAP_PERIOD = 30 minutes;
 
+    /// @notice AUDIT SFR-M-02 (MEDIUM, 2026-04-28): minimum accumulated token-fee balance
+    ///         required to enter the per-token conversion cooldown. Without this gate, an
+    ///         attacker could trigger the 1h cooldown on a target token with 1-wei worth of
+    ///         accumulated fees, bricking the keeper bot's legitimately-sized conversion
+    ///         until the cooldown lapses.
+    ///
+    ///         1e18 picks a generous floor: for 18-decimal tokens (~$0.50 to $5,000 per
+    ///         token-unit) this is one full token — meaningful but not gas-prohibitive
+    ///         to accumulate. For 6-decimal tokens like USDC/USDT, 1e18 corresponds to
+    ///         ~$1 trillion, which is intentionally restrictive — operators should set a
+    ///         per-token policy (e.g., separate convertTokenFeesToETHFor6Decimal() helper
+    ///         in a future patch) for stablecoin fee conversions, or simply withdraw via
+    ///         the owner-only `withdrawTokenFees` path (which routes 100% to treasury).
+    ///
+    ///         Storage layout: this is a `constant` (no slot consumed). If we need a
+    ///         per-token override later, that lands as a new mapping APPENDED to state.
+    uint256 public constant MIN_TOKEN_FEE_FOR_CONVERSION = 1e18;
+
     /// @notice AUDIT SFR-M-01 (MEDIUM, 2026-04-28): hard cap on caller-supplied
     ///         conversion paths. 4 hops covers the realistic universe (token → MID0 →
     ///         MID1 → WETH on the rare deeply-routed token) while bounding the gas
@@ -330,6 +348,11 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         while not the contract owner. Multi-hop paths are owner-restricted because
     ///         the TWAP floor anchors against the direct token/WETH pair only.
     error MultiHopOwnerOnly();
+    /// @notice AUDIT SFR-M-02 (MEDIUM, 2026-04-28): accumulated token fees for `token` are
+    ///         below `MIN_TOKEN_FEE_FOR_CONVERSION`. Conversion is refused so a 1-wei
+    ///         dust trigger cannot brick legitimate keeper-sized conversions for the
+    ///         duration of the per-token cooldown.
+    error TokenFeesBelowMinimum();
 
     // Legacy error aliases (kept for test compatibility during V2 migration)
     error UseProposeFeeChange();
@@ -1099,6 +1122,12 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
         // AUDIT SFR-M-01: validate caller-supplied path and gate multi-hop on owner.
         _validateConversionPath(token, path);
+        // AUDIT SFR-M-02 (MEDIUM, 2026-04-28): refuse conversions on dust accumulation
+        // BEFORE the cooldown stamp is updated. Without this gate, an attacker could
+        // trigger the 1h cooldown timer with 1-wei worth of accumulated fees, bricking
+        // the keeper bot's legitimate-sized conversion until the cooldown lapses.
+        uint256 amount = accumulatedTokenFees[token];
+        if (amount < MIN_TOKEN_FEE_FOR_CONVERSION) revert TokenFeesBelowMinimum();
         // AUDIT NEW-A5 (HIGH): rate-limit per-token conversions so a sandwich attacker
         // cannot repeatedly manipulate the pool, call convertTokenFeesToETH with a
         // MEV-favorable minETHOut, and unwind. With CONVERSION_COOLDOWN per token,
@@ -1107,8 +1136,6 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // Keeper bots still get a wide window (1h is long enough for most fills).
         _enforceConversionCooldown(token);
 
-        uint256 amount = accumulatedTokenFees[token];
-        if (amount == 0) revert ZeroAmount();
         // CEI: zero accounting BEFORE the swap so a malicious token's transfer hook can't
         // re-enter and double-spend the same accumulated balance.
         accumulatedTokenFees[token] = 0;
@@ -1169,12 +1196,16 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
         // AUDIT SFR-M-01: validate caller-supplied path and gate multi-hop on owner.
         _validateConversionPath(token, path);
+        // AUDIT SFR-M-02 (MEDIUM, 2026-04-28): see convertTokenFeesToETH above. Note we
+        // gate against accumulated bookkeeping rather than balanceOf to keep the rule
+        // consistent across both variants — a dust-laden balance triggered by a malicious
+        // direct transfer is NOT enough to enter the cooldown either way.
+        uint256 amount = accumulatedTokenFees[token];
+        if (amount < MIN_TOKEN_FEE_FOR_CONVERSION) revert TokenFeesBelowMinimum();
         // AUDIT NEW-A5 (HIGH): shared cooldown across both variants so switching
         // between them doesn't bypass the rate limit.
         _enforceConversionCooldown(token);
 
-        uint256 amount = accumulatedTokenFees[token];
-        if (amount == 0) revert ZeroAmount();
         accumulatedTokenFees[token] = 0;
 
         // For FoT tokens we approve the actual on-hand balance because the contract may

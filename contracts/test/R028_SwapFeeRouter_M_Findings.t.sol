@@ -284,3 +284,112 @@ contract R028_SFR_M01 is Test {
         assertGt(sfr.accumulatedETHFees(), 0, "owner multi-hop should produce ETH");
     }
 }
+
+/// @title AUDIT SFR-M-02 — Minimum token-fee balance gate before cooldown
+contract R028_SFR_M02 is Test {
+    SwapFeeRouter public sfr;
+    SwapFeeRouterAdmin public sfrAdmin;
+    MockUniRouter_R028 public uniRouter;
+    MockUniFactory_R028 public factory;
+    MockUniPair_R028 public pair;
+    MockToken_R028 public weth;
+    MockToken_R028 public toweli;
+
+    address public treasury = makeAddr("treasury");
+    address public attacker = makeAddr("attacker");
+    address public keeper   = makeAddr("keeper");
+
+    uint256 constant FEE_BPS = 30;
+    uint112 constant BASELINE_TOWELI = 100_000 ether;
+    uint112 constant BASELINE_WETH   = 100 ether;
+
+    function setUp() public {
+        weth = new MockToken_R028("WETH", "WETH");
+        toweli = new MockToken_R028("Toweli", "TOWELI");
+        factory = new MockUniFactory_R028();
+        uniRouter = new MockUniRouter_R028(address(weth), address(factory));
+        vm.deal(address(uniRouter), 10_000 ether);
+
+        address t0 = address(toweli) < address(weth) ? address(toweli) : address(weth);
+        address t1 = address(toweli) < address(weth) ? address(weth) : address(toweli);
+        pair = new MockUniPair_R028(t0, t1);
+        factory.setPair(address(toweli), address(weth), address(pair));
+        bool tokenIs0 = address(toweli) == t0;
+        if (tokenIs0) pair.setReserves(BASELINE_TOWELI, BASELINE_WETH);
+        else          pair.setReserves(BASELINE_WETH, BASELINE_TOWELI);
+
+        sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0));
+        sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
+        sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
+    }
+
+    function _direct() internal view returns (address[] memory path) {
+        path = new address[](2);
+        path[0] = address(toweli);
+        path[1] = address(weth);
+    }
+
+    function _bootstrap() internal {
+        pair.pokeCumulative(uint32(60 minutes));
+        skip(60 minutes);
+        toweli.transfer(address(sfr), 100 ether);
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(8)));
+        vm.store(address(sfr), slot, bytes32(uint256(100 ether)));
+        sfr.convertTokenFeesToETH(address(toweli), _direct(), 0, block.timestamp + 30 minutes);
+        bool tokenIs0 = address(toweli) < address(weth);
+        if (tokenIs0) pair.setReserves(BASELINE_TOWELI, BASELINE_WETH);
+        else          pair.setReserves(BASELINE_WETH, BASELINE_TOWELI);
+        skip(2 hours);
+        pair.pokeCumulative(uint32(2 hours));
+    }
+
+    function test_SFRM02_belowMinimum_reverts() public {
+        _bootstrap();
+        // Drain accumulatedTokenFees down to a dust amount (1 wei) — the bootstrap
+        // zeroed it out, so we just write a sub-MIN value.
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(8)));
+        vm.store(address(sfr), slot, bytes32(uint256(1))); // 1 wei
+        assertEq(sfr.accumulatedTokenFees(address(toweli)), 1);
+
+        // Permissionless caller hits the gate BEFORE the cooldown stamp updates.
+        vm.prank(keeper);
+        vm.expectRevert(SwapFeeRouter.TokenFeesBelowMinimum.selector);
+        sfr.convertTokenFeesToETH(address(toweli), _direct(), 0, block.timestamp + 30 minutes);
+    }
+
+    function test_SFRM02_atMinimum_succeeds() public {
+        _bootstrap();
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(8)));
+        vm.store(address(sfr), slot, bytes32(uint256(1e18))); // exactly the minimum
+        toweli.mint(address(sfr), 1e18);
+
+        vm.prank(keeper);
+        sfr.convertTokenFeesToETH(address(toweli), _direct(), 0, block.timestamp + 30 minutes);
+        assertEq(sfr.accumulatedTokenFees(address(toweli)), 0);
+    }
+
+    /// @notice Headline regression: an attacker can NOT brick the keeper bot's
+    ///         legitimate-sized conversion by triggering the cooldown with dust.
+    ///         Pre-fix, calling convertTokenFeesToETH with 1 wei accumulated would
+    ///         start the 1h cooldown timer for the entire token; post-fix the
+    ///         attempt reverts BEFORE the cooldown stamp is updated.
+    function test_SFRM02_dustTrigger_doesNotBrickLegitimateConversion() public {
+        _bootstrap();
+
+        // Attacker triggers with dust (1 wei). Pre-fix this would have set
+        // lastConvertedAt[token] = block.timestamp.
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(8)));
+        vm.store(address(sfr), slot, bytes32(uint256(1)));
+        vm.prank(attacker);
+        vm.expectRevert(SwapFeeRouter.TokenFeesBelowMinimum.selector);
+        sfr.convertTokenFeesToETH(address(toweli), _direct(), 0, block.timestamp + 30 minutes);
+
+        // Cooldown stamp was NOT updated (attack failed early).
+        // Now the keeper's legitimate conversion (above MIN) should succeed in
+        // the SAME block — pre-fix it would have hit CONVERSION_COOLDOWN_ACTIVE.
+        vm.store(address(sfr), slot, bytes32(uint256(100 ether)));
+        toweli.mint(address(sfr), 100 ether);
+        vm.prank(keeper);
+        sfr.convertTokenFeesToETH(address(toweli), _direct(), 0, block.timestamp + 30 minutes);
+    }
+}
