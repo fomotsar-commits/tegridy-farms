@@ -138,6 +138,18 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     // AUDIT FIX #1: Checkpointing via OZ Checkpoints.Trace208 (timestamp → votingPower)
     mapping(address => Checkpoints.Trace208) private _checkpoints;
 
+    // AUDIT REV-M-01 (MEDIUM, 2026-04-28): timestamp -> totalBoostedStake checkpoints,
+    // used by RevenueDistributor._distribute to read the system-wide boosted-stake
+    // denominator AT (block.timestamp - 1) — the same OZ Checkpoints.upperLookup(T-1)
+    // semantics already used for per-user voting power. Same-block stakes have a
+    // checkpoint key == block.timestamp and are therefore EXCLUDED from a T-1 read,
+    // closing the same-block dilution window that REV C-01 left half-open.
+    //
+    // Storage layout: APPENDED — does NOT reshuffle any existing slots. Trace208 is a
+    // dynamic struct so it occupies a single slot for the trace pointer regardless of
+    // the number of checkpoints written.
+    Checkpoints.Trace208 private _totalBoostedStakeCheckpoints;
+
     uint256 public totalPenaltiesCollected;
     uint256 public totalRewardsFunded;
     mapping(address => uint256) public unsettledRewards; // AUDIT FIX M-04: Accumulated rewards from NFT transfers
@@ -288,6 +300,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             totalBoostedStake -= p.boostedAmount;
             p.boostedAmount = 0;
             _writeCheckpoint(ownerOf(tokenId));
+            _writeTotalBoostedStakeCheckpoint(); // AUDIT REV-M-01
         }
     }
 
@@ -362,6 +375,35 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     /// @notice Number of checkpoints for a user
     function numCheckpoints(address user) external view returns (uint256) {
         return _checkpoints[user].length();
+    }
+
+    /// @notice AUDIT REV-M-01 (MEDIUM, 2026-04-28): historical totalBoostedStake at `ts`.
+    ///         Returns 0 if no checkpoint exists at or before `ts`. Same semantics as
+    ///         `votingPowerAtTimestamp` — uses OZ `Checkpoints.Trace208.upperLookup` so
+    ///         a same-block stake (checkpoint key == block.timestamp) is EXCLUDED from a
+    ///         `block.timestamp - 1` read. Consumed by RevenueDistributor._distribute to
+    ///         pin the epoch denominator at T-1 and close the same-block dilution window
+    ///         that REV C-01 left half-open.
+    function totalBoostedStakeAtTimestamp(uint256 ts) external view returns (uint256) {
+        return _totalBoostedStakeCheckpoints.upperLookup(SafeCast.toUint48(ts));
+    }
+
+    /// @notice AUDIT REV-M-01: number of `_totalBoostedStakeCheckpoints` entries.
+    ///         Exposed for off-chain integrators / dashboards to size pagination.
+    function totalBoostedStakeNumCheckpoints() external view returns (uint256) {
+        return _totalBoostedStakeCheckpoints.length();
+    }
+
+    /// @dev AUDIT REV-M-01: write `totalBoostedStake` to the system-wide Trace208
+    ///      checkpoint at the current block.timestamp. Mirrors the per-user
+    ///      `_writeCheckpoint(user)` no-op-on-unchanged pattern (NEW-S7) so we don't
+    ///      bloat checkpoints when a delta nets to zero (e.g., `_applyNewBoost` that
+    ///      decrements then increments the identical amount on a no-op boost rewrite).
+    function _writeTotalBoostedStakeCheckpoint() internal {
+        uint208 newTotal = SafeCast.toUint208(totalBoostedStake);
+        uint208 last = _totalBoostedStakeCheckpoints.latest();
+        if (last == newTotal) return;
+        _totalBoostedStakeCheckpoints.push(SafeCast.toUint48(block.timestamp), newTotal);
     }
 
     /// @notice AUDIT H12: amount-weighted average active boost across all of `user`'s
@@ -509,6 +551,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
         totalStaked += _amount;
         totalBoostedStake += boosted;
+        _writeTotalBoostedStakeCheckpoint(); // AUDIT REV-M-01
         // AUDIT L-22 / Spartan TF-10: totalLocked tracking removed — was redundant with totalStaked.
 
         _mint(msg.sender, tokenId); // _update() sets userTokenId[msg.sender] = tokenId
@@ -559,6 +602,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
         totalStaked += _amount;
         totalBoostedStake += boosted;
+        _writeTotalBoostedStakeCheckpoint(); // AUDIT REV-M-01
 
         _mint(msg.sender, tokenId); // _update() sets userTokenId[msg.sender] = tokenId
         rewardToken.safeTransferFrom(msg.sender, address(this), _amount);
@@ -1413,6 +1457,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     }
 
     /// @dev Recalculate boost for a position and update totals + rewardDebt.
+    /// @dev AUDIT REV-M-01: write the system-wide totalBoostedStake checkpoint AFTER both
+    ///      the decrement and increment have settled — so the trace records the net post-
+    ///      boost-rewrite total, not an intermediate mid-rewrite value.
     function _applyNewBoost(Position storage p, uint256 newBoost) private {
         totalBoostedStake -= p.boostedAmount;
         if (newBoost > type(uint16).max) revert BoostOverflow();
@@ -1420,6 +1467,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         p.boostedAmount = (p.amount * newBoost) / BOOST_PRECISION;
         totalBoostedStake += p.boostedAmount;
         p.rewardDebt = _safeInt256((p.boostedAmount * rewardPerTokenStored) / ACC_PRECISION);
+        _writeTotalBoostedStakeCheckpoint(); // AUDIT REV-M-01
     }
 
     /// @dev Clear a staking position: update totals, delete position, burn NFT, checkpoint.
@@ -1434,6 +1482,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         userTokenId[msg.sender] = 0;
         _burn(tokenId);
         _writeCheckpoint(msg.sender);
+        _writeTotalBoostedStakeCheckpoint(); // AUDIT REV-M-01
     }
 
     /// @dev Settle unsettled rewards for a user, respecting the global cap.

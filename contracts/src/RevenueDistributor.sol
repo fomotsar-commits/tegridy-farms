@@ -15,6 +15,12 @@ interface IVotingEscrow {
     function votingPowerAtTimestamp(address user, uint256 ts) external view returns (uint256);
     function totalLocked() external view returns (uint256);
     function totalBoostedStake() external view returns (uint256);
+    /// @notice AUDIT REV-M-01 (MEDIUM, 2026-04-28): historical totalBoostedStake at `ts`.
+    ///         Used by `_distribute` to pin the epoch denominator at `block.timestamp - 1`
+    ///         so a same-block stake (Trace208 key == block.timestamp) is EXCLUDED from
+    ///         the read — matching the same-block exclusion already enforced for
+    ///         per-user `votingPowerAtTimestamp(user, T-1)` in `_calculateClaim`.
+    function totalBoostedStakeAtTimestamp(uint256 ts) external view returns (uint256);
     function userTokenId(address user) external view returns (uint256);
     // H-01 FIX: Aligned to actual TegridyStaking.Position struct ABI order
     // AUDIT H-1 (2026-04-20): Position struct extended with jbacTokenId + jbacDeposited.
@@ -298,27 +304,45 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         if (newETH == 0) revert NoETHToDistribute();
         require(newETH >= MIN_DISTRIBUTE_AMOUNT, "AMOUNT_TOO_SMALL");
 
-        // AUDIT FIX C-01: Snapshot denominator and individual power at the SAME timestamp.
-        // OZ Checkpoints.upperLookup(T-1) returns most recent checkpoint with key <= T-1,
-        // excluding same-block stakes (checkpoint key = T > T-1). The denominator must also
-        // exclude same-block stakes to avoid diluting legitimate claimers.
-        //
-        // We read totalBoostedStake() twice (before and after the epoch push) and use the
-        // minimum value to bound any same-block inflation. Combined with the 1-hour cooldown,
-        // flash-stake dilution is economically unprofitable.
-        uint256 locked = votingEscrow.totalBoostedStake();
-        if (locked == 0) revert NoLockedTokens();
-
         uint256 snapshotTime = block.timestamp > 0 ? block.timestamp - 1 : 0;
 
-        // Re-read total to detect same-tx manipulation. Use the lower value to ensure
-        // the denominator is not inflated beyond what claimers can actually account for.
-        uint256 lockedAfter = votingEscrow.totalBoostedStake();
-        uint256 effectiveLocked = locked < lockedAfter ? locked : lockedAfter;
+        // AUDIT REV-M-01 (MEDIUM, 2026-04-28): pin the epoch denominator to the historical
+        // totalBoostedStake AT (block.timestamp - 1) instead of the live spot value. The
+        // staking contract writes a `Checkpoints.Trace208` entry at `block.timestamp` on
+        // every same-block stake/withdraw/boost-rewrite, so `upperLookup(T-1)` returns
+        // ONLY the boosted stake that was already settled before the current block —
+        // closing the same-block dilution window that REV C-01 left half-open (the prior
+        // double-spot-read + min trick still admitted dilution from any same-block stake
+        // that landed BEFORE the distribute() call within the same block).
+        //
+        // Per-user `votingPowerAtTimestamp(user, T-1)` is read at the SAME T-1 inside
+        // `_calculateClaim`, so the numerator and denominator now share a single Trace208
+        // semantic — no more "denom captured fresh stake but numerator did not" race.
+        //
+        // Fallback: if the staking contract doesn't yet have a checkpoint at or before
+        // T-1 (e.g., genesis epoch before any stake settled — the totalBoostedStake() != 0
+        // gate rules this out — or future ABIs missing the new function), fall back to the
+        // live `totalBoostedStake()` so we degrade gracefully instead of bricking
+        // distribution. The try/catch surface keeps RevenueDistributor robust against an
+        // upgraded staking contract that drops the helper.
+        uint256 locked;
+        try votingEscrow.totalBoostedStakeAtTimestamp(snapshotTime) returns (uint256 hist) {
+            locked = hist;
+        } catch {
+            locked = 0;
+        }
+        // If the historical checkpoint reads 0 (no checkpoint at or before T-1), fall back
+        // to the live value so the very first distribution after a fresh deploy doesn't
+        // brick. The live value also serves as the floor when the upgraded staking
+        // contract hasn't yet been wired in.
+        if (locked == 0) {
+            locked = votingEscrow.totalBoostedStake();
+        }
+        if (locked == 0) revert NoLockedTokens();
 
         epochs.push(Epoch({
             totalETH: newETH,
-            totalLocked: effectiveLocked,
+            totalLocked: locked,
             timestamp: snapshotTime
         }));
 
