@@ -489,4 +489,60 @@ contract AuditR014_POLTest is Test {
         vm.expectRevert(bytes("BACKSTOP_TOO_LOW"));
         pol.proposeBackstopChange(belowMin);
     }
+
+    // ─── AUDIT M-P02: sweepTokens 48h timelock ─────────────────────────
+
+    /// @notice The legacy instant `sweepTokens(address)` is now a deprecated
+    ///         reverter. Pre-fix integrators must migrate to the
+    ///         propose/execute flow.
+    function test_MP02_legacySweepTokens_reverts() public {
+        vm.expectRevert(bytes("Use proposeSweepTokens()"));
+        pol.sweepTokens(address(toweli));
+    }
+
+    /// @notice Happy path: propose dust sweep → wait 48h → execute. Treasury
+    ///         receives the full balance.
+    function test_MP02_sweepTokens_proposeExecuteHappyPath() public {
+        // Mint dust into POL.
+        toweli.mint(address(pol), 100 ether);
+        assertEq(toweli.balanceOf(address(pol)), 100 ether);
+        uint256 treasuryBefore = toweli.balanceOf(treasuryAddr);
+
+        pol.proposeSweepTokens(address(toweli));
+        assertEq(pol.pendingSweepToken(), address(toweli));
+        assertGt(pol.sweepTokensReadyAt(), block.timestamp);
+
+        // Cannot execute before delay.
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, pol.SWEEP_TOKENS()));
+        pol.executeSweepTokens();
+
+        vm.warp(block.timestamp + 48 hours);
+        pol.executeSweepTokens();
+        assertEq(toweli.balanceOf(address(pol)), 0, "POL balance drained");
+        assertEq(toweli.balanceOf(treasuryAddr) - treasuryBefore, 100 ether, "treasury credited");
+        assertEq(pol.pendingSweepToken(), address(0), "pending cleared");
+        assertEq(pol.sweepTokensReadyAt(), 0, "queue cleared");
+    }
+
+    /// @notice Cancel path: propose then abort before delay elapses.
+    function test_MP02_sweepTokens_cancel() public {
+        pol.proposeSweepTokens(address(toweli));
+        pol.cancelSweepTokens();
+        assertEq(pol.pendingSweepToken(), address(0), "pending cleared");
+        assertEq(pol.sweepTokensReadyAt(), 0, "queue cleared");
+    }
+
+    /// @notice LP-token sweep is rejected at proposal time (existing invariant).
+    function test_MP02_sweepTokens_rejectsLPAtPropose() public {
+        vm.expectRevert(bytes("CANNOT_SWEEP_LP"));
+        pol.proposeSweepTokens(address(lp));
+    }
+
+    /// @notice Owner-only on the new entry points.
+    function test_MP02_sweepTokens_onlyOwner() public {
+        address eve = makeAddr("eve");
+        vm.prank(eve);
+        vm.expectRevert();
+        pol.proposeSweepTokens(address(toweli));
+    }
 }
