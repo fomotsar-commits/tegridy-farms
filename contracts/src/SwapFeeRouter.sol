@@ -359,6 +359,9 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         must migrate to the canonical `applyInputTokenFee` selector (router) and
     ///         `proposeInputTokenFeeChange` / `executeInputTokenFeeChange` (admin).
     error DeprecatedUseInputTokenFee();
+    /// @notice AUDIT SFR-M-04 (MEDIUM, 2026-04-28): no admin-replacement proposal pending,
+    ///         OR the proposal is still inside its 7-day timelock window.
+    error AdminReplacementUnavailable();
 
     // Legacy error aliases (kept for test compatibility during V2 migration)
     error UseProposeFeeChange();
@@ -819,15 +822,83 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         _;
     }
 
-    /// @notice One-shot setter for the sister SwapFeeRouterAdmin contract (where the
-    ///         timelocked propose/execute/cancel flow lives). Callable once by owner;
-    ///         after that the address is immutable. Set during deployment after the
-    ///         admin contract is constructed.
+    /// @notice First-time setter for the sister SwapFeeRouterAdmin contract (where the
+    ///         timelocked propose/execute/cancel flow lives). Callable exactly once by
+    ///         the owner — only when `swapFeeRouterAdmin == address(0)`. Subsequent
+    ///         replacements MUST go through the timelocked propose/execute path
+    ///         (`proposeAdminReplacement` → `executeAdminReplacement`).
+    /// @dev    AUDIT SFR-M-04 (MEDIUM, 2026-04-28): prior version was permanently
+    ///         one-shot, so a buggy or compromised admin contract could never be
+    ///         rotated without redeploying SwapFeeRouter and migrating every
+    ///         downstream consumer. Mirrors the TegridyStaking R014 H-2 fix:
+    ///         replaceability behind the same timelocked propose/execute flow used
+    ///         for every other admin parameter, with the propose/execute state
+    ///         held INLINE on the router (not on the admin) so a broken admin
+    ///         cannot block its own removal.
     function setSwapFeeRouterAdmin(address _admin) external onlyOwner {
         if (_admin == address(0)) revert ZeroAddress();
         if (swapFeeRouterAdmin != address(0)) revert Unauthorized();
         swapFeeRouterAdmin = _admin;
         emit SwapFeeRouterAdminSet(_admin);
+        emit SwapFeeRouterAdminReplaced(address(0), _admin);
+    }
+
+    // ─── AUDIT SFR-M-04: Admin contract replaceability ──────────────────
+    /// @notice Timelock key for the admin replacement flow.
+    bytes32 public constant ADMIN_REPLACEMENT = keccak256("SFR_ADMIN_REPLACEMENT");
+    /// @notice Mandatory delay between propose and execute for an admin swap.
+    ///         7 days matches the TegridyStaking pattern's intent (rotate carefully)
+    ///         while giving downstream consumers and monitors time to react. Longer
+    ///         than the per-parameter 24-48h timelocks because rotating the entire
+    ///         admin is a much larger change than tweaking a single parameter.
+    uint256 public constant ADMIN_REPLACEMENT_TIMELOCK = 7 days;
+
+    /// @notice Pending replacement admin address. Zero when no proposal is pending.
+    address public pendingSwapFeeRouterAdmin;
+    /// @notice block.timestamp after which `executeAdminReplacement` is callable.
+    ///         Zero when no proposal is pending.
+    uint256 public adminReplacementReadyAt;
+
+    event SwapFeeRouterAdminReplaced(address indexed oldAdmin, address indexed newAdmin);
+    event SwapFeeRouterAdminReplacementProposed(address indexed newAdmin, uint256 executeAfter);
+    event SwapFeeRouterAdminReplacementCancelled(address indexed proposed);
+
+    /// @notice Propose a replacement SwapFeeRouterAdmin. Reverts if no admin is set
+    ///         yet — the first-time installation path is `setSwapFeeRouterAdmin`.
+    /// @dev    AUDIT SFR-M-04: Mirrors the propose/execute/cancel pattern used by
+    ///         every other timelocked parameter on SwapFeeRouterAdmin. Held inline
+    ///         on the router (rather than on the admin contract) so a broken or
+    ///         compromised admin cannot block its own removal.
+    function proposeAdminReplacement(address _newAdmin) external onlyOwner {
+        if (_newAdmin == address(0)) revert ZeroAddress();
+        if (swapFeeRouterAdmin == address(0)) revert Unauthorized(); // use setSwapFeeRouterAdmin first
+        if (adminReplacementReadyAt != 0) revert AdminReplacementUnavailable(); // existing proposal pending
+        pendingSwapFeeRouterAdmin = _newAdmin;
+        adminReplacementReadyAt = block.timestamp + ADMIN_REPLACEMENT_TIMELOCK;
+        emit SwapFeeRouterAdminReplacementProposed(_newAdmin, adminReplacementReadyAt);
+    }
+
+    /// @notice Execute a previously proposed admin replacement after the 7-day delay.
+    function executeAdminReplacement() external onlyOwner {
+        uint256 readyAt = adminReplacementReadyAt;
+        if (readyAt == 0) revert AdminReplacementUnavailable(); // no pending proposal
+        if (block.timestamp < readyAt) revert AdminReplacementUnavailable(); // delay not elapsed
+        address newAdmin = pendingSwapFeeRouterAdmin;
+        if (newAdmin == address(0)) revert ZeroAddress(); // defensive
+        address oldAdmin = swapFeeRouterAdmin;
+        swapFeeRouterAdmin = newAdmin;
+        pendingSwapFeeRouterAdmin = address(0);
+        adminReplacementReadyAt = 0;
+        emit SwapFeeRouterAdminReplaced(oldAdmin, newAdmin);
+    }
+
+    /// @notice Cancel a pending admin replacement proposal.
+    function cancelAdminReplacement() external onlyOwner {
+        if (adminReplacementReadyAt == 0) revert AdminReplacementUnavailable();
+        address proposed = pendingSwapFeeRouterAdmin;
+        pendingSwapFeeRouterAdmin = address(0);
+        adminReplacementReadyAt = 0;
+        emit SwapFeeRouterAdminReplacementCancelled(proposed);
     }
 
     /// @notice Apply a new global fee. Caller must be the wired admin contract.
