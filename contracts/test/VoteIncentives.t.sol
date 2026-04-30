@@ -907,9 +907,11 @@ contract VoteIncentivesTest is Test {
     // ─── AUDIT NEW-G5: propose/execute commit-reveal timelock ──────────────
 
     /// @notice AUDIT NEW-G5: old instant `enableCommitReveal()` now reverts
-    ///         with USE_PROPOSE_ENABLE_COMMIT_REVEAL.
+    ///         with the typed `UseProposeEnableCommitReveal()` error.
+    /// @dev    AUDIT L-2 (2026-04-28): expectation migrated from string-revert
+    ///         to typed-error to match the contract's error convention.
     function test_NEWG5_oldEnableRevertsWithDirection() public {
-        vm.expectRevert(bytes("USE_PROPOSE_ENABLE_COMMIT_REVEAL"));
+        vm.expectRevert(VoteIncentives.UseProposeEnableCommitReveal.selector);
         vi.enableCommitReveal();
     }
 
