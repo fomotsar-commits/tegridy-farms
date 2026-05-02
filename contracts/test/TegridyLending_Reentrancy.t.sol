@@ -342,7 +342,7 @@ contract TegridyLending_ReentrancyTest is Test {
         assertEq(attacker.attackCount(), 0, "attempted reentry OOGed on 10k stipend");
 
         // Offer2 is still active (re-entry was blocked)
-        (,,,,,,, bool active) = lending.getOffer(offer2);
+        (,,,,,,, bool active,,) = lending.getOffer(offer2);
         assertTrue(active, "Offer2 should still be active - re-entry was blocked");
     }
 
@@ -380,7 +380,7 @@ contract TegridyLending_ReentrancyTest is Test {
         assertEq(wethBalance, 1 ether, "Refund should be wrapped as WETH due to re-entry attempt");
 
         // Offer2 is still active (re-entry was blocked)
-        (,,,,,,, bool active) = lending.getOffer(offer2);
+        (,,,,,,, bool active,,) = lending.getOffer(offer2);
         assertTrue(active, "Offer2 should still be active - re-entry was blocked");
     }
 
@@ -424,7 +424,7 @@ contract TegridyLending_ReentrancyTest is Test {
         assertTrue(wethBalance > 0, "Lender payout should be wrapped as WETH");
 
         // Loan is marked as repaid
-        (,,,,,,,,bool repaid,) = lending.getLoan(loanId);
+        (,,,,,,,,bool repaid,,) = lending.getLoan(loanId);
         assertTrue(repaid, "Loan should be marked as repaid");
 
         // NFT returned to alice
@@ -455,7 +455,7 @@ contract TegridyLending_ReentrancyTest is Test {
         assertEq(staking.ownerOf(aliceTokenId), bob);
 
         // Loan is marked as default claimed
-        (,,,,,,,,,bool defaultClaimed) = lending.getLoan(loanId);
+        (,,,,,,,,,bool defaultClaimed,) = lending.getLoan(loanId);
         assertTrue(defaultClaimed);
     }
 
@@ -567,7 +567,7 @@ contract TegridyLending_ReentrancyTest is Test {
 
         // Assert: NFT returned to attacker, loan marked repaid.
         assertEq(staking.ownerOf(attackerTokenId), address(attacker), "NFT returned to borrower");
-        (,,,,,,,, bool repaid,) = lending.getLoan(loanId);
+        (,,,,,,,, bool repaid,,) = lending.getLoan(loanId);
         assertTrue(repaid, "loan marked repaid");
 
         // Assert: overpayment landed as WETH (not as ETH, since the contract rejects it).

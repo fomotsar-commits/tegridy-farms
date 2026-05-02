@@ -172,10 +172,10 @@ contract Deep_R_H01_MultiHop is Test {
         address[] memory path = new address[](3);
         path[0] = address(alt); path[1] = address(mid); path[2] = address(weth);
 
-        // AUDIT FIX: DEEP-R2-M01 — multi-hop now requires a non-zero
-        // minETHOut floor (compromised-owner DOS protection). Use a tiny
-        // floor; the test still proves the multi-hop route works.
-        sfr.convertTokenFeesToETH(address(alt), path, 1, block.timestamp + 30 minutes);
+        // AUDIT FIX V3-DEEP-R3-M01: minOut floor raised from `> 0` to
+        // `>= MIN_MULTIHOP_ETH_OUT_WEI` (1e14 wei) — closes the
+        // `minETHOut = 1` bypass.
+        sfr.convertTokenFeesToETH(address(alt), path, sfr.MIN_MULTIHOP_ETH_OUT_WEI(), block.timestamp + 30 minutes);
 
         assertEq(sfr.accumulatedTokenFees(address(alt)), 0, "fees not consumed");
         assertGt(sfr.accumulatedETHFees(), 0, "no ETH credited");
@@ -186,9 +186,14 @@ contract Deep_R_H01_MultiHop is Test {
         _seedFees(100 ether);
         address[] memory path = new address[](3);
         path[0] = address(alt); path[1] = address(mid); path[2] = address(weth);
+        // Capture the MIN_MULTIHOP_ETH_OUT_WEI BEFORE the prank — vm.prank only
+        // applies to the next CALL, and a staticcall to the public constant
+        // would consume the prank if read inside the convertTokenFeesToETH arg
+        // list.
+        uint256 minOut = sfr.MIN_MULTIHOP_ETH_OUT_WEI();
         vm.prank(address(0xBEEF));
         vm.expectRevert(SwapFeeRouter.MultiHopOwnerOnly.selector);
-        sfr.convertTokenFeesToETH(address(alt), path, 1, block.timestamp + 30 minutes);
+        sfr.convertTokenFeesToETH(address(alt), path, minOut, block.timestamp + 30 minutes);
     }
 }
 

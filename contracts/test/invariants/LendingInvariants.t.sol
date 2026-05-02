@@ -240,7 +240,7 @@ contract LendingInvariantsTest is Test {
                 ,                       // deadline
                 bool repaid,
                 bool defaultClaimed
-            ) = lending.getLoan(i);
+            ,) = lending.getLoan(i);
             if (repaid || defaultClaimed) continue;
             assertEq(
                 staking.ownerOf(tokenId),
@@ -258,7 +258,7 @@ contract LendingInvariantsTest is Test {
         uint256 n = lending.offerCount();
         uint256 owed;
         for (uint256 i = 0; i < n; i++) {
-            (, uint256 principal, , , , , , bool active) = lending.getOffer(i);
+            (, uint256 principal, , , , , , bool active,,) = lending.getOffer(i);
             if (active) owed += principal;
         }
         assertLe(owed, address(lending).balance, "R061 active offer ETH underfunded");

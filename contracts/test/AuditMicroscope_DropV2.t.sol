@@ -178,9 +178,11 @@ contract AuditMicroscope_DropV2Test is Test {
 
         vm.prank(creator);
         drop.proposeMintPrice(0);
+        // AUDIT FIX V3-DROP-02: execute now value-binds expectedExecuteAfter.
+        uint256 expectedExecAfter = block.timestamp + 24 hours;
         vm.warp(block.timestamp + 25 hours);
         vm.prank(creator);
-        drop.executeMintPrice(0);
+        drop.executeMintPrice(0, expectedExecAfter);
         assertEq(drop.mintPrice(), 0);
     }
 

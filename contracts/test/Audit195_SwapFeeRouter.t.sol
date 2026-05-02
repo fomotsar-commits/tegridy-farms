@@ -92,6 +92,11 @@ contract MockSplitter195 {
         (bool ok,) = msg.sender.call{value: c}("");
         require(ok);
     }
+    // AUDIT FIX V3-DEEP-R3-M02: SwapFeeRouter.applyReferralSplitter(address(0))
+    // now reads `referralFeeBps()` on the outgoing splitter to enforce
+    // "must be zeroed before unwiring." Mock returns 0 so the test's
+    // splitter swap to address(0) succeeds.
+    function referralFeeBps() external pure returns (uint256) { return 0; }
     receive() external payable {}
 }
 

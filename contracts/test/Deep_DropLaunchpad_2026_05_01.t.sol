@@ -86,12 +86,16 @@ contract Deep_DropLaunchpad_Test is Test {
         // AUDIT FIX: V2-DROP-03 — owner now wires the curve via the
         // propose/execute timelock (proposeDutchAuction → wait → executeDutchAuction).
         // Execute is value-bound: must pass the EXACT same params used in propose.
-        uint256 startTime = block.timestamp + 25 hours;
+        // AUDIT FIX V3-DROP-02: also bind expectedExecuteAfter.
+        // AUDIT FIX V3-DROP-01: place startTime far enough in the future that
+        // the curve hasn't ended at execute-time (post-warp).
+        uint256 startTime = block.timestamp + 30 hours;
         vm.prank(creator);
         drop.proposeDutchAuction(2 ether, 1 ether, startTime, 12 hours);
+        uint256 execAfter = block.timestamp + 24 hours;
         vm.warp(block.timestamp + 25 hours);
         vm.prank(creator);
-        drop.executeDutchAuction(2 ether, 1 ether, startTime, 12 hours);
+        drop.executeDutchAuction(2 ether, 1 ether, startTime, 12 hours, execAfter);
         assertEq(drop.dutchStartPrice(), 2 ether);
     }
 
@@ -115,11 +119,13 @@ contract Deep_DropLaunchpad_Test is Test {
         drop.initialize(p);
 
         // AUDIT FIX: V2-DROP-01 — propose/execute timelocked path.
+        // AUDIT FIX V3-DROP-02: bind expectedExecuteAfter.
         vm.prank(creator);
         drop.proposeMintPrice(0.1 ether);
+        uint256 execAfter = block.timestamp + 24 hours;
         vm.warp(block.timestamp + 25 hours);
         vm.prank(creator);
-        drop.executeMintPrice(0.1 ether);
+        drop.executeMintPrice(0.1 ether, execAfter);
         assertEq(drop.mintPrice(), 0.1 ether);
     }
 

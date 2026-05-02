@@ -342,8 +342,10 @@ contract AuditR014_NFT_Test is Test {
         // exercise the propose/execute timelocked path instead.
         vm.startPrank(alice);
         drop.proposeMintPrice(0.01 ether);
+        // AUDIT FIX V3-DROP-02: execute now value-binds expectedExecuteAfter.
+        uint256 priceExecAfter = block.timestamp + 24 hours;
         vm.warp(block.timestamp + 25 hours);
-        drop.executeMintPrice(0.01 ether);
+        drop.executeMintPrice(0.01 ether, priceExecAfter);
         drop.setMaxPerWallet(2);
         drop.setBaseURI("ipfs://changed");
         drop.setContractURI("ipfs://changed-collection");

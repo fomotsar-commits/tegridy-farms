@@ -181,7 +181,7 @@ contract TegridyLendingTest is Test {
             uint256 minPositionValue,
             uint256 minPositionETHValue,
             bool active
-        ) = lending.getOffer(0);
+        ,,) = lending.getOffer(0);
 
         assertEq(lender, bob);
         assertEq(principal, 1 ether);
@@ -273,7 +273,7 @@ contract TegridyLendingTest is Test {
         assertEq(bob.balance, bobBalanceBefore + 5 ether);
 
         // Offer is no longer active
-        (,,,,,,, bool active) = lending.getOffer(0);
+        (,,,,,,, bool active,,) = lending.getOffer(0);
         assertFalse(active);
     }
 
@@ -334,7 +334,7 @@ contract TegridyLendingTest is Test {
         assertEq(staking.ownerOf(aliceTokenId), address(lending));
 
         // Offer deactivated
-        (,,,,,,, bool active) = lending.getOffer(offerId);
+        (,,,,,,, bool active,,) = lending.getOffer(offerId);
         assertFalse(active);
 
         // Loan fields populated
@@ -349,7 +349,7 @@ contract TegridyLendingTest is Test {
             uint256 deadline,
             bool repaid,
             bool defaultClaimed
-        ) = lending.getLoan(loanId);
+        ,) = lending.getLoan(loanId);
 
         assertEq(borrower, alice);
         assertEq(lender, bob);
@@ -443,7 +443,7 @@ contract TegridyLendingTest is Test {
         assertEq(staking.ownerOf(aliceTokenId), alice);
 
         // Loan marked repaid
-        (,,,,,,,,bool repaid,) = lending.getLoan(loanId);
+        (,,,,,,,,bool repaid,,) = lending.getLoan(loanId);
         assertTrue(repaid);
     }
 
@@ -521,7 +521,7 @@ contract TegridyLendingTest is Test {
         assertEq(staking.ownerOf(aliceTokenId), bob);
 
         // Loan marked as default claimed
-        (,,,,,,,,,bool defaultClaimed) = lending.getLoan(loanId);
+        (,,,,,,,,,bool defaultClaimed,) = lending.getLoan(loanId);
         assertTrue(defaultClaimed);
 
         // isDefaulted returns false now (it was claimed)
@@ -739,7 +739,7 @@ contract TegridyLendingTest is Test {
         vm.prank(alice);
         lending.repayLoan{value: repaymentAmount}(loanId);
 
-        (,,,,,,,,bool repaid,) = lending.getLoan(loanId);
+        (,,,,,,,,bool repaid,,) = lending.getLoan(loanId);
         assertTrue(repaid);
     }
 
@@ -796,7 +796,7 @@ contract TegridyLendingTest is Test {
         lending.repayLoan{value: repaymentAmount}(loanId);
 
         assertEq(staking.ownerOf(aliceTokenId), alice);
-        (,,,,,,,,bool repaid,) = lending.getLoan(loanId);
+        (,,,,,,,,bool repaid,,) = lending.getLoan(loanId);
         assertTrue(repaid);
     }
 
@@ -865,11 +865,11 @@ contract TegridyLendingTest is Test {
         vm.prank(alice);
         lending.repayLoan{value: repayment1}(loan1);
 
-        (,,,,,,,,bool repaid1,) = lending.getLoan(loan1);
+        (,,,,,,,,bool repaid1,,) = lending.getLoan(loan1);
         assertTrue(repaid1);
 
         // Loan 2 should still be active
-        (,,,,,,,,bool repaid2, bool defaulted2) = lending.getLoan(loan2);
+        (,,,,,,,,bool repaid2, bool defaulted2,) = lending.getLoan(loan2);
         assertFalse(repaid2);
         assertFalse(defaulted2);
 
@@ -879,7 +879,7 @@ contract TegridyLendingTest is Test {
         vm.prank(dave);
         lending.repayLoan{value: repayment2}(loan2);
 
-        (,,,,,,,,bool repaid2After,) = lending.getLoan(loan2);
+        (,,,,,,,,bool repaid2After,,) = lending.getLoan(loan2);
         assertTrue(repaid2After);
     }
 
@@ -912,7 +912,7 @@ contract TegridyLendingTest is Test {
         lending.repayLoan{value: repaymentAmount}(loanId);
 
         // Verify loan is repaid
-        (,,,,,,,,bool repaid,) = lending.getLoan(loanId);
+        (,,,,,,,,bool repaid,,) = lending.getLoan(loanId);
         assertTrue(repaid, "Loan should be repaid even if lender rejects ETH");
 
         // Lender received WETH instead of raw ETH
@@ -1007,7 +1007,7 @@ contract TegridyLendingTest is Test {
         vm.prank(alice);
         uint256 loanId = lending.acceptOffer(49, aliceTokenId);
 
-        (,,uint256 offerId,,,,,,, ) = lending.getLoan(loanId);
+        (,,uint256 offerId,,,,,,, ,) = lending.getLoan(loanId);
         assertEq(offerId, 49);
     }
 
@@ -1033,7 +1033,7 @@ contract TegridyLendingTest is Test {
         uint256 loanId = lending.acceptOffer(offerId, aliceTokenId);
 
         // Loan created with alice as both borrower and lender
-        (address borrower, address lender,,,,,,,,) = lending.getLoan(loanId);
+        (address borrower, address lender,,,,,,,,,) = lending.getLoan(loanId);
         assertEq(borrower, alice);
         assertEq(lender, alice);
 
@@ -1049,7 +1049,7 @@ contract TegridyLendingTest is Test {
         lending.repayLoan{value: repaymentAmount}(loanId);
 
         // Loan is repaid, NFT returned
-        (,,,,,,,,bool repaid,) = lending.getLoan(loanId);
+        (,,,,,,,,bool repaid,,) = lending.getLoan(loanId);
         assertTrue(repaid);
         assertEq(staking.ownerOf(aliceTokenId), alice);
     }
@@ -1130,7 +1130,7 @@ contract TegridyLendingTest is Test {
         vm.prank(alice);
         lending.repayLoan{value: repaymentAmount}(loanId);
 
-        (,,,,,,,,bool repaid,) = lending.getLoan(loanId);
+        (,,,,,,,,bool repaid,,) = lending.getLoan(loanId);
         assertTrue(repaid);
     }
 
@@ -1160,7 +1160,7 @@ contract TegridyLendingTest is Test {
         lending.repayLoan{value: repaymentAmount}(loanId);
 
         // Treasury fee should be 8% of interest (new fee)
-        (,,,,,,uint256 startTime,,,) = lending.getLoan(loanId);
+        (,,,,,,uint256 startTime,,,,) = lending.getLoan(loanId);
         uint256 interest = lending.calculateInterest(1 ether, 1000, startTime, block.timestamp);
         uint256 expectedFee = (interest * 800) / 10000;
 
@@ -1205,7 +1205,7 @@ contract TegridyLendingTest is Test {
         uint256 offerId = lending.createLoanOffer{value: 1000 ether}(
             1000, 30 days, address(staking), 1000 ether, 0
         );
-        (,uint256 principal,,,,,,) = lending.getOffer(offerId);
+        (,uint256 principal,,,,,,,,) = lending.getOffer(offerId);
         assertEq(principal, 1000 ether);
 
         // 1001 ether should revert
@@ -1226,7 +1226,7 @@ contract TegridyLendingTest is Test {
             1000 ether,
             0
         );
-        (,,uint256 aprBps,,,,,) = lending.getOffer(offerId);
+        (,,uint256 aprBps,,,,,,,) = lending.getOffer(offerId);
         assertEq(aprBps, 50000);
 
         // 50001 should revert
@@ -1258,7 +1258,7 @@ contract TegridyLendingTest is Test {
         uint256 loanId = lending.acceptOffer(offerId, aliceTokenId);
 
         // Record the deadline from the loan struct
-        (,,,,,,, uint256 deadline,,) = lending.getLoan(loanId);
+        (,,,,,,, uint256 deadline,,,) = lending.getLoan(loanId);
 
         // Warp to 1 second before the deadline
         vm.warp(deadline - 1);
@@ -1293,7 +1293,7 @@ contract TegridyLendingTest is Test {
         assertEq(staking.ownerOf(aliceTokenId), bob);
 
         // Verify loan marked as default claimed
-        (,,,,,,,,,bool defaultClaimed) = lending.getLoan(loanId);
+        (,,,,,,,,,bool defaultClaimed,) = lending.getLoan(loanId);
         assertTrue(defaultClaimed);
     }
 }

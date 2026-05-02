@@ -278,8 +278,8 @@ contract R028_SFR_M01 is Test {
     function test_SFRM01_multiHop_allowedForOwner() public {
         _bootstrap();
         _seedFees(100 ether);
-        // AUDIT FIX: DEEP-R2-M01 — multi-hop now requires non-zero minETHOut.
-        sfr.convertTokenFeesToETH(address(toweli), _multiHop3(), 1, block.timestamp + 30 minutes);
+        // AUDIT FIX V3-DEEP-R3-M01: minOut floor now `>= MIN_MULTIHOP_ETH_OUT_WEI`.
+        sfr.convertTokenFeesToETH(address(toweli), _multiHop3(), sfr.MIN_MULTIHOP_ETH_OUT_WEI(), block.timestamp + 30 minutes);
         // ETH was received and folded into accumulatedETHFees.
         assertGt(sfr.accumulatedETHFees(), 0, "owner multi-hop should produce ETH");
     }

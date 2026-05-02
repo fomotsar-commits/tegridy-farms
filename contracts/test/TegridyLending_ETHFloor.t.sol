@@ -234,7 +234,7 @@ contract TegridyLending_ETHFloorTest is Test {
         uint256 loanId = lending.acceptOffer(offerId, aliceTokenId);
 
         assertEq(alice.balance - aliceBalBefore, 1 ether);
-        (,,,,,,,, bool repaid,) = lending.getLoan(loanId);
+        (,,,,,,,, bool repaid,,) = lending.getLoan(loanId);
         assertFalse(repaid);
         assertEq(staking.ownerOf(aliceTokenId), address(lending));
     }
@@ -258,7 +258,7 @@ contract TegridyLending_ETHFloorTest is Test {
         assertEq(staking.ownerOf(aliceTokenId), address(lending));
 
         // Sanity: the offer persists the floor and getOffer surfaces the 7th field.
-        (,,,,,, uint256 minPositionETHValue,) = lending.getOffer(offerId);
+        (,,,,,, uint256 minPositionETHValue,,,) = lending.getOffer(offerId);
         assertEq(minPositionETHValue, 5 ether);
     }
 
@@ -361,7 +361,7 @@ contract TegridyLending_ETHFloorTest is Test {
             uint256 minPositionValue,
             uint256 minPositionETHValue,
             bool active
-        ) = lending.getOffer(offerId);
+        ,,) = lending.getOffer(offerId);
 
         assertEq(lender, bob);
         assertEq(principal, 1 ether);

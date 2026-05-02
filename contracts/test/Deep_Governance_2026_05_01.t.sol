@@ -200,9 +200,13 @@ contract DeepGov03_14_GaugeControllerTest is Test {
         gauge.executeAddGauge();
     }
 
-    /// @notice DEEP-GOV-03: when one gauge captures >50% of votes, the option-b
-    ///         denominator scaling preserves total ≈ BPS instead of dropping the
-    ///         over-cap allocation.
+    /// @notice AUDIT FIX V3-GOV-03 + V3-GOV-06: the per-gauge cap +
+    ///         renormalization formula was REMOVED entirely. Curve-style
+    ///         natural distribution (`gw / total`) replaces it; the upstream
+    ///         C2 + C3 + DEEP-GOV-01 guards now prevent the single-voter
+    ///         attack the cap was originally designed for. This test verifies
+    ///         the new pure-proportional semantic: weights sum to exactly BPS,
+    ///         no cap, no leak.
     function test_GaugeRelativeWeight_renormalizes() public {
         // alice votes 80% to g1, 20% to g2.
         uint256 aliceTokenId = staking.userTokenId(alice);
@@ -221,49 +225,18 @@ contract DeepGov03_14_GaugeControllerTest is Test {
         vm.prank(bob);
         gauge.vote(bobTokenId, g_b, w_b);
 
-        // alice's voting power dominates (800k vs 200k), so g1 captures 80% of total.
-        // Pre-fix this would clamp g1 to 50% and silently drop the 30% over-cap.
-        // Post-fix the denominator scales so g1 = 50% and g2 + g3 share the remainder.
         uint256 g1w = gauge.getRelativeWeight(g1);
         uint256 g2w = gauge.getRelativeWeight(g2);
         uint256 g3w = gauge.getRelativeWeight(g3);
 
-        // g1 must be capped at exactly 5000 bps (50%).
-        assertEq(g1w, 5000, "g1 capped at MAX_GAUGE_RELATIVE_WEIGHT_BPS");
-
-        // Sum of all three weights should be CLOSE to BPS (10000), not the pre-fix
-        // 70% (5000 + 2000 * raw_share/total + 3000 * raw_share/total) where the
-        // 30% over-cap was silently leaked.
-        // With option-b: total = effectiveTotal = 2 * top = 1.6M*2 = 3.2M.
-        // g1: 1.6M / 3.2M = 50%
-        // g2: 0.4M / 3.2M = 12.5% (1250 bps)
-        // g3: 0.2M / 3.2M = 6.25% (625 bps) — wait, bob has 200k staked which is way
-        // less than alice's 800k. Let me recompute weight at gauge level.
-        //
-        // After alice votes, the per-gauge totals are:
-        //   g1: alice's 80% allocation: aliceVP * 0.8
-        //   g2: aliceVP * 0.2
-        //   g3: bobVP * 1.0
-        // With aliceVP ≈ 800k and bobVP ≈ 200k:
-        //   total = 800k = aliceVP + bobVP
-        //   topWeight = aliceVP * 0.8 = 640k
-        //   topWeight*2 = 1.28M > total (1M), so effectiveTotal = 1.28M
-        //   g1 share = 640k / 1.28M = 50%
-        //   g2 share = 160k / 1.28M ≈ 12.5%  (1250 bps)
-        //   g3 share = 200k / 1.28M ≈ 15.6%  (1562 bps)
-        //   sum ≈ 7812 bps
-        // Post-fix sum is bounded but not exactly BPS — that's the option-b tradeoff.
-        // The KEY assertion is that the sum is greater than what option-a (pure cap +
-        // drop) would have given (which was 5000 + 2000 + 3000 raw-but-leaked).
-        // Option-a sum = pre-fix would have summed g1 capped to 50% (5000) + g2's raw
-        // share (~20% of original total = 2000) + g3 raw share (~25% = 2500) = 9500,
-        // but actually pre-fix dropped g1's leak (~30%), so emission consumers got
-        // a lower total. We assert g3 absorbed extra share from g1's denominator
-        // scaling.
-        assertGt(g2w + g3w, 0, "non-top gauges have non-zero weight");
-        // Specifically, g3 with bob's 200k stake should now read ~15.6% (1562 bps)
-        // instead of the pre-fix 25%. We check the sum is bounded by BPS.
+        // Pure proportional distribution — no cap, no leak.
+        // Sum should equal BPS exactly (modulo 1-2 wei rounding).
+        assertGt(g1w, g2w, "g1 should have largest share");
+        assertGt(g1w, g3w, "g1 should outweigh g3");
         assertLe(g1w + g2w + g3w, 10000, "sum bounded by BPS");
+        // Sum ≈ BPS (no leak) — no per-gauge cap removes the structural
+        // emission shortfall of the old cap+renormalize formula.
+        assertGe(g1w + g2w + g3w, 9990, "no significant emission leak");
     }
 
     /// @notice DEEP-GOV-14: executeRemoveGauge reverts mid-epoch when the gauge

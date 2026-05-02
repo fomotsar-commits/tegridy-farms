@@ -420,7 +420,7 @@ contract AuditR014LendingTest is Test {
         vm.prank(alice);
         uint256 loanId = lending.acceptOffer(offerId, aliceTokenId);
 
-        ( , , , , , , , uint256 deadline, , ) = lending.getLoan(loanId);
+        ( , , , , , , , uint256 deadline, , ,) = lending.getLoan(loanId);
         assertEq(lending.effectiveDeadline(loanId), deadline, "no pause yet means deadline unchanged");
 
         // Owner pauses for ~3 days, then unpauses.
@@ -455,7 +455,7 @@ contract AuditR014LendingTest is Test {
         vm.prank(alice);
         lending.repayLoan{value: owed}(loanId);
 
-        ( , , , , , , , , bool repaid, ) = lending.getLoan(loanId);
+        ( , , , , , , , , bool repaid, ,) = lending.getLoan(loanId);
         assertTrue(repaid, "borrower repaid through extended window");
     }
 

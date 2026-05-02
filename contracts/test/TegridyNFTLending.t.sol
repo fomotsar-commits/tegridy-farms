@@ -834,9 +834,10 @@ contract TegridyNFTLendingTest is Test {
         assertEq(lending.activeLoansOfCollection(address(nft)), 1);
 
         // Propose removal — OK; execute must REVERT while loan is active.
+        // AUDIT FIX LD3-L2: typed error replaces the legacy string revert.
         lending.proposeRemoveCollection(address(nft));
         vm.warp(block.timestamp + 25 hours);
-        vm.expectRevert(bytes("ACTIVE_LOANS_PRESENT"));
+        vm.expectRevert(abi.encodeWithSelector(TegridyNFTLending.ActiveLoansPresent.selector, address(nft), 1));
         lending.executeRemoveCollection();
 
         // Borrower repays the loan — now removal can proceed.
