@@ -157,7 +157,7 @@ contract TegridyLaunchpadV2Test is Test {
 
         // alice can mint immediately — no separate setMintPhase tx needed.
         vm.prank(alice);
-        drop.mint{value: MINT_PRICE}(1, new bytes32[](0));
+        drop.mint{value: MINT_PRICE}(1, 0, new bytes32[](0));
 
         assertEq(drop.totalSupply(), 1);
         assertEq(drop.balanceOf(alice), 1);

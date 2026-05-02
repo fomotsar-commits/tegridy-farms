@@ -99,7 +99,7 @@ contract TegridyDropV2Test is Test {
         bytes32[] memory proof;
         vm.prank(alice);
         vm.expectRevert(TegridyDropV2.MintClosed.selector);
-        drop.mint{value: MINT_PRICE}(1, proof);
+        drop.mint{value: MINT_PRICE}(1, 0, proof);
     }
 
     function test_mint_revertsOnZeroQuantity() public {
@@ -107,14 +107,14 @@ contract TegridyDropV2Test is Test {
         bytes32[] memory proof;
         vm.prank(alice);
         vm.expectRevert(TegridyDropV2.ZeroQuantity.selector);
-        drop.mint{value: 0}(0, proof);
+        drop.mint{value: 0}(0, 0, proof);
     }
 
     function test_publicMint_happyPath() public {
         _init(_defaults());
         bytes32[] memory proof;
         vm.prank(alice);
-        drop.mint{value: MINT_PRICE * 2}(2, proof);
+        drop.mint{value: MINT_PRICE * 2}(2, 0, proof);
 
         assertEq(drop.totalSupply(), 2);
         assertEq(drop.balanceOf(alice), 2);
@@ -132,11 +132,11 @@ contract TegridyDropV2Test is Test {
 
         bytes32[] memory proof;
         vm.prank(alice);
-        drop.mint{value: MINT_PRICE * 2}(2, proof);
+        drop.mint{value: MINT_PRICE * 2}(2, 0, proof);
 
         vm.prank(bob);
         vm.expectRevert(TegridyDropV2.ExceedsMaxSupply.selector);
-        drop.mint{value: MINT_PRICE}(1, proof);
+        drop.mint{value: MINT_PRICE}(1, 0, proof);
     }
 
     function test_mint_revertsOnExceedWalletLimit() public {
@@ -144,7 +144,7 @@ contract TegridyDropV2Test is Test {
         bytes32[] memory proof;
         vm.prank(alice);
         vm.expectRevert(TegridyDropV2.ExceedsWalletLimit.selector);
-        drop.mint{value: MINT_PRICE * 6}(6, proof);
+        drop.mint{value: MINT_PRICE * 6}(6, 0, proof);
     }
 
     // ── Payment ────────────────────────────────────────────────────────
@@ -154,7 +154,7 @@ contract TegridyDropV2Test is Test {
         bytes32[] memory proof;
         vm.prank(alice);
         vm.expectRevert(TegridyDropV2.InsufficientPayment.selector);
-        drop.mint{value: MINT_PRICE - 1}(1, proof);
+        drop.mint{value: MINT_PRICE - 1}(1, 0, proof);
     }
 
     function test_mint_refundsOverpayment() public {
@@ -162,7 +162,7 @@ contract TegridyDropV2Test is Test {
         uint256 aliceBefore = alice.balance;
         bytes32[] memory proof;
         vm.prank(alice);
-        drop.mint{value: MINT_PRICE + 0.1 ether}(1, proof);
+        drop.mint{value: MINT_PRICE + 0.1 ether}(1, 0, proof);
 
         // Alice should be down by exactly MINT_PRICE (the 0.1 ether overpay
         // gets refunded via WETHFallbackLib to either ETH or WETH).
@@ -183,18 +183,19 @@ contract TegridyDropV2Test is Test {
         bytes32[] memory emptyProof;
         vm.prank(alice);
         vm.expectRevert(TegridyDropV2.InvalidProof.selector);
-        drop.mint{value: MINT_PRICE}(1, emptyProof);
+        drop.mint{value: MINT_PRICE}(1, 0, emptyProof);
     }
 
     function test_allowlistMint_acceptsValidProof() public {
-        // AUDIT NEW-L5 (MEDIUM): drop now double-hashes leaves (OpenZeppelin v4.9+
-        // recommendation against second-preimage attacks). The tree construction
-        // must apply the same double-hash shape:
-        //   leaf = keccak256( bytes.concat( keccak256( abi.encode(drop, minter) ) ) )
+        // AUDIT FIX: MICROSCOPE C1 — leaf NOW INCLUDES `allowedAmount`. The
+        // tree construction must apply:
+        //   leaf = keccak256( bytes.concat( keccak256( abi.encode(drop, minter, amount) ) ) )
+        // (NEW-L5 double-hash preserved.)
         TegridyDropV2.InitParams memory p = _defaults();
         address dropAddr = address(drop);
+        uint256 allowedAmount = 5;
         bytes32 leaf = keccak256(
-            bytes.concat(keccak256(abi.encode(dropAddr, alice)))
+            bytes.concat(keccak256(abi.encode(dropAddr, alice, allowedAmount)))
         );
         p.merkleRoot = leaf;
         p.initialPhase = TegridyDropV2.MintPhase.ALLOWLIST;
@@ -202,16 +203,18 @@ contract TegridyDropV2Test is Test {
 
         bytes32[] memory proof;
         vm.prank(alice);
-        drop.mint{value: MINT_PRICE}(1, proof);
+        drop.mint{value: MINT_PRICE}(1, allowedAmount, proof);
         assertEq(drop.balanceOf(alice), 1);
     }
 
     function test_allowlistMint_crossUserLeafRejected() public {
-        // alice's leaf as root — bob tries to mint with the same (empty)
-        // proof; the double-hashed leaf doesn't match his address so verification fails.
+        // AUDIT FIX: MICROSCOPE C1 — leaf includes (drop, minter, amount).
+        // alice's leaf as root — bob tries to mint with the same proof; the
+        // double-hashed leaf doesn't match his address so verification fails.
         TegridyDropV2.InitParams memory p = _defaults();
+        uint256 allowedAmount = 5;
         p.merkleRoot = keccak256(
-            bytes.concat(keccak256(abi.encode(address(drop), alice)))
+            bytes.concat(keccak256(abi.encode(address(drop), alice, allowedAmount)))
         );
         p.initialPhase = TegridyDropV2.MintPhase.ALLOWLIST;
         _init(p);
@@ -219,7 +222,7 @@ contract TegridyDropV2Test is Test {
         bytes32[] memory proof;
         vm.prank(bob);
         vm.expectRevert(TegridyDropV2.InvalidProof.selector);
-        drop.mint{value: MINT_PRICE}(1, proof);
+        drop.mint{value: MINT_PRICE}(1, allowedAmount, proof);
     }
 
     // ── Dutch auction ──────────────────────────────────────────────────
@@ -265,7 +268,7 @@ contract TegridyDropV2Test is Test {
         bytes32[] memory proof;
         vm.prank(alice);
         vm.expectRevert(TegridyDropV2.DutchAuctionNotActive.selector);
-        drop.mint{value: 1 ether}(1, proof);
+        drop.mint{value: 1 ether}(1, 0, proof);
     }
 
     // ── Withdraw split ─────────────────────────────────────────────────
@@ -274,7 +277,7 @@ contract TegridyDropV2Test is Test {
         _init(_defaults());
         bytes32[] memory proof;
         vm.prank(alice);
-        drop.mint{value: MINT_PRICE * 4}(4, proof);
+        drop.mint{value: MINT_PRICE * 4}(4, 0, proof);
 
         uint256 total = MINT_PRICE * 4;
         uint256 expectPlatform = (total * PLATFORM_FEE_BPS) / 10000;
@@ -302,7 +305,7 @@ contract TegridyDropV2Test is Test {
         _init(_defaults());
         bytes32[] memory proof;
         vm.prank(alice);
-        drop.mint{value: MINT_PRICE * 4}(4, proof);
+        drop.mint{value: MINT_PRICE * 4}(4, 0, proof);
 
         // Phase is still PUBLIC — withdraw must revert.
         vm.prank(creator);
@@ -324,7 +327,7 @@ contract TegridyDropV2Test is Test {
         _init(_defaults());
         bytes32[] memory proof;
         vm.prank(alice);
-        drop.mint{value: MINT_PRICE * 2}(2, proof);
+        drop.mint{value: MINT_PRICE * 2}(2, 0, proof);
 
         vm.prank(creator);
         drop.setMintPhase(TegridyDropV2.MintPhase.CLOSED);
@@ -337,11 +340,11 @@ contract TegridyDropV2Test is Test {
     }
 
     function test_withdraw_revertsWhenCancelled() public {
+        // AUDIT FIX: DEEP-DROP-05 — cancel is now blocked after ANY mint.
+        // Cancel pre-mint (totalSupply == 0), then verify withdraw reverts
+        // SaleCancelled. The legacy "mint then cancel" flow is no longer
+        // reachable; instead we cancel first.
         _init(_defaults());
-        bytes32[] memory proof;
-        vm.prank(alice);
-        drop.mint{value: MINT_PRICE}(1, proof);
-
         vm.prank(creator);
         drop.cancelSale();
 
@@ -350,46 +353,38 @@ contract TegridyDropV2Test is Test {
         drop.withdraw();
     }
 
-    // ── Cancel + refund ────────────────────────────────────────────────
+    // ── Cancel + refund (DEEP-DROP-05 changed semantics) ───────────────
 
-    function test_cancelAndRefund_happyPath() public {
+    function test_cancelSale_revertsAfterFirstMint() public {
+        // AUDIT FIX: DEEP-DROP-05 — once any mint has occurred, cancel is
+        // permanently disabled. Closes the partial-mint refund-arbitrage
+        // rug primitive.
         _init(_defaults());
         bytes32[] memory proof;
         vm.prank(alice);
-        drop.mint{value: MINT_PRICE * 3}(3, proof);
+        drop.mint{value: MINT_PRICE * 3}(3, 0, proof);
 
         vm.prank(creator);
+        vm.expectRevert(TegridyDropV2.CancelAfterFirstMint.selector);
         drop.cancelSale();
-
-        uint256 aliceBefore = alice.balance;
-        vm.prank(alice);
-        drop.refund();
-
-        uint256 nativeGained = alice.balance - aliceBefore;
-        uint256 wethGained = weth.balanceOf(alice);
-        // Total refund == everything alice paid.
-        assertEq(nativeGained + wethGained, MINT_PRICE * 3, "full refund");
-        // paidPerWallet reset so a second call reverts.
-        vm.prank(alice);
-        vm.expectRevert(TegridyDropV2.NothingToRefund.selector);
-        drop.refund();
     }
 
     function test_refund_revertsWhenNotCancelled() public {
         _init(_defaults());
         bytes32[] memory proof;
         vm.prank(alice);
-        drop.mint{value: MINT_PRICE}(1, proof);
+        drop.mint{value: MINT_PRICE}(1, 0, proof);
         vm.prank(alice);
         vm.expectRevert(TegridyDropV2.SaleNotCancelled.selector);
         drop.refund();
     }
 
     function test_refund_revertsForNonMinter() public {
+        // AUDIT FIX: DEEP-DROP-05 — no minters can exist post-cancel under
+        // the new rules (cancel must precede any mint). bob (or anyone) who
+        // didn't mint would always hit NothingToRefund regardless. We
+        // exercise that invariant via a pre-mint cancel.
         _init(_defaults());
-        bytes32[] memory proof;
-        vm.prank(alice);
-        drop.mint{value: MINT_PRICE}(1, proof);
         vm.prank(creator);
         drop.cancelSale();
 
@@ -404,7 +399,7 @@ contract TegridyDropV2Test is Test {
         _init(_defaults());
         bytes32[] memory proof;
         vm.prank(alice);
-        drop.mint{value: MINT_PRICE}(1, proof);
+        drop.mint{value: MINT_PRICE}(1, 0, proof);
 
         // Pre-reveal: tokenURI is the placeholder.
         assertEq(drop.tokenURI(1), "ipfs://placeholder");

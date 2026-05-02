@@ -198,18 +198,24 @@ contract TegridyTokenURIReaderTest is Test {
         assertTrue(_contains(json, "\"value\":\"Expired\""));
     }
 
-    function test_lockStatus_daysLeft() public {
+    function test_lockStatus_active_returnedForLiveLock() public {
+        // AUDIT FIX: DEEP-URI-03 / H22 — _lockStatus now reports a single
+        // flip enum ("Active" | "Expired" | "Auto-Max" | "Flexible") instead
+        // of a countdown ("10d left", "5h left"). This stops indexer thrash:
+        // tokenURI mutates exactly once per position lifetime (at lockEnd).
+        // Both legacy countdown tests now collapse to the same Active assert.
         vm.warp(1_700_000_000);
         staking.setPosition(1, 1 ether, uint64(block.timestamp + 10 days + 5 hours), 20000, 30 days, false, false);
         string memory json = _decodeJsonURI(reader.tokenURI(1));
-        assertTrue(_contains(json, "\"value\":\"10d left\""));
+        assertTrue(_contains(json, "\"value\":\"Active\""));
     }
 
-    function test_lockStatus_hoursLeft_whenLessThanOneDay() public {
+    function test_lockStatus_active_lessThanOneDay() public {
+        // Same single-flip enum applies whether 10 days or 5 hours remain.
         vm.warp(1_700_000_000);
         staking.setPosition(1, 1 ether, uint64(block.timestamp + 5 hours + 30 minutes), 20000, 30 days, false, false);
         string memory json = _decodeJsonURI(reader.tokenURI(1));
-        assertTrue(_contains(json, "\"value\":\"5h left\""));
+        assertTrue(_contains(json, "\"value\":\"Active\""));
     }
 
     // ── JBAC toggle ──────────────────────────────────────────────────
