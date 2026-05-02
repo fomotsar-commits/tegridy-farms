@@ -67,6 +67,12 @@ interface ISwapFeeRouterUniPair {
 interface IReferralSplitter {
     function recordFee(address _user) external payable;
     function withdrawCallerCredit() external;
+    /// @notice AUDIT FIX: DEEP-R3-M02 — used by `applyReferralSplitter(address(0))` to
+    ///         enforce the same propose-time guard pattern as DEEP-R-M04 on
+    ///         `applyPolAccumulator`: governance must zero the splitter's referral
+    ///         share via the splitter's own timelocked `proposeReferralFeeChange`
+    ///         flow before the splitter address itself can be unset on the router.
+    function referralFeeBps() external view returns (uint256);
 }
 
 interface IPremiumAccess {
@@ -195,6 +201,20 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         reason POLAccumulator's `TWAP_SAFETY_BPS` is hardcoded — changing it
     ///         requires a contract upgrade, not a one-line owner setter.
     uint256 public constant TWAP_SAFETY_BPS = 150;
+    /// @notice AUDIT FIX: DEEP-R3-M01 — absolute floor (in wei) on the caller-supplied
+    ///         `minETHOut` for owner-only multi-hop conversions. The pass-2 fix only
+    ///         rejected the literal value `0`, leaving the trivial bypass `minETHOut = 1`
+    ///         that admitted the same `accumulatedTokenFees[token]` drain under owner-key
+    ///         compromise (any positive integer satisfies a `> 0` check; `ethReceived ≥ 1`
+    ///         is true for almost every non-degenerate swap). Anchoring to a meaningful
+    ///         absolute floor (1e14 wei = 0.0001 ETH ≈ ~$0.30) turns the trivial bypass
+    ///         into a noisy revert without rejecting legitimate small-balance conversions
+    ///         (real conversions accumulate `MIN_TOKEN_FEE_FOR_CONVERSION = 1e18` of token
+    ///         and produce orders of magnitude more ETH on any liquid path).
+    /// @dev    Multi-hop is `_validateConversionPath`-gated to `msg.sender == owner()`,
+    ///         so this floor is defence-in-depth against owner-key compromise / honest
+    ///         operator-script error pasting `1` as a bypass value.
+    uint256 public constant MIN_MULTIHOP_ETH_OUT_WEI = 1e14;
     /// @dev AUDIT SFR-H-01: UQ112x112 fixed-point scale factor, mirrored from Uniswap V2
     ///      / TegridyPair for the cumulative-price math.
     uint256 private constant Q112_SFR = 2 ** 112;
@@ -260,11 +280,14 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         `RECOVER_CALLER_CREDIT_COOLDOWN`, prevents permissionless gas-griefing
     ///         loops where a hostile caller spams the function (and its zero-amount
     ///         events) at the floor cost of ~2.5k gas per call.
-    /// @dev    AUDIT FIX: DEEP-R2-M03 — RETAINED for storage-layout stability across the
-    ///         upgrade but NO LONGER READ. The per-msg.sender keying could be bypassed
-    ///         by spawning N EOAs and calling once per EOA; the global single-slot
-    ///         `lastCallerCreditAt` below replaces it as the authoritative cooldown.
-    mapping(address => uint256) public lastCallerCreditPullAt;
+    /// @dev    AUDIT FIX: DEEP-R3-L02 — REMOVED dead `lastCallerCreditPullAt` mapping.
+    ///         The pass-2 fix retained it "for storage-layout stability across the
+    ///         upgrade", but SwapFeeRouter is constructor-deployed standalone (no UUPS /
+    ///         proxy / Initializable pattern), so storage layout is not a constraint here.
+    ///         Leaving the mapping in place produced a misleading public ABI: the auto-
+    ///         generated `lastCallerCreditPullAt(address)` getter always returned 0, which
+    ///         confused indexers and front-end code that subscribed to it. The
+    ///         authoritative cooldown slot is `lastCallerCreditAt` below.
     /// @notice AUDIT FIX: DEEP-R2-M03 — single-slot global cooldown timestamp for
     ///         `recoverCallerCredit()`. Replaces the per-msg.sender mapping above so an
     ///         attacker spawning N EOAs cannot run N calls per block: every block-level
@@ -412,6 +435,15 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         treasury and break the timelocked fee-split invariant. Governance must
     ///         first explicitly zero the POL share via the proper `feeSplit` timelock.
     error PolShareNonZero();
+    /// @notice AUDIT FIX: DEEP-R3-M02 — `applyReferralSplitter(address(0))` was attempted
+    ///         while the splitter's `referralFeeBps > 0`, which would silently terminate
+    ///         every existing referral relationship (referrer slice would silently fold
+    ///         into `accumulatedETHFees` instead of routing to `pendingETH[referrer]` on
+    ///         the splitter). Governance must first zero the splitter's referral share via
+    ///         the splitter's own timelocked `proposeReferralFeeChange`/`executeReferralFeeChange`
+    ///         flow before the splitter address itself can be unset here. Mirrors the
+    ///         DEEP-R-M04 pattern on `applyPolAccumulator`.
+    error ReferralFeeNonZero();
     /// @notice AUDIT FIX: DEEP-R-L03 — caller invoked `recoverCallerCredit` inside
     ///         the per-caller cooldown window. Soft rate-limit against gas griefing.
     error RecoverCallerCreditCooldown();
@@ -424,6 +456,9 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         owner-key-compromise scenario would let an attacker drain the entire
     ///         accumulated balance for whatever ETH the (sandwich-controllable) multi-hop
     ///         produces. The explicit non-zero check turns that drain into a noisy revert.
+    /// @notice AUDIT FIX: DEEP-R3-M01 — also reverts when caller-supplied `minETHOut`
+    ///         is below `MIN_MULTIHOP_ETH_OUT_WEI` (1e14). The pass-2 `> 0` check was a
+    ///         trivial bypass: `minETHOut = 1` satisfied it and admitted the same drain.
     error ZeroMinOut();
 
     // Legacy error aliases (kept for test compatibility during V2 migration)
@@ -468,6 +503,19 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///      `ReferralFeeRedirectedToTreasury`. 200_000 covers ~10 cold positions plus the
     ///      splitter's own state mutation and event with safe headroom (well below the
     ///      protocol's observed real-world max of ~120k).
+    /// @dev AUDIT FIX: DEEP-R3-H01 — raise the gas cap further from 200_000 to 700_000.
+    ///      The 200k cap covered ~16 cold positions worst-case (200k − ~62k splitter pre-work
+    ///      = 138k for `votingPowerOf`, ÷ 8.4k per position ≈ 16). But TegridyStaking's
+    ///      `MAX_POSITIONS_PER_HOLDER = 50` means a long-tenured whale referrer can legitimately
+    ///      accumulate up to 50 positions, requiring ~420k for the inner `votingPowerOf`
+    ///      staticcall. Any referrer holding ≥17 cold positions silently OOG'd inside the
+    ///      splitter's try/catch under the 200k cap (same shape as pre-DEEP-R2-H01: splitter
+    ///      returned success, referrer slice silently redirected to treasury, no router-side
+    ///      `ReferralFeeRedirectedToTreasury` event). 700_000 covers ~76 cold positions
+    ///      (700k − ~62k = 638k, ÷ 8.4k ≈ 76), giving 50%+ headroom over `MAX_POSITIONS_PER_HOLDER`.
+    ///      The cap is still bounded against a buggy/malicious splitter, but generously
+    ///      above the worst-case legitimate referrer; the 48 h `applyReferralSplitter`
+    ///      timelock remains the primary trust boundary for the splitter address itself.
     /// @dev AUDIT FIX: DEEP-R2-H01 — emit `ReferralFeeRedirectedToTreasury` even on the
     ///      out-of-gas / silent-demotion path (`recordFee` returned success but the splitter
     ///      internally redirected to treasury). The router cannot directly observe that
@@ -479,7 +527,9 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///      the explicit branches keep the door open for a future "alarm on Panic" hook.
     function _recordReferralFee(address _user, uint256 _feeAmount) internal returns (bool) {
         if (address(referralSplitter) == address(0) || _feeAmount == 0) return false;
-        try referralSplitter.recordFee{value: _feeAmount, gas: 200_000}(_user) {
+        // AUDIT FIX: DEEP-R3-H01 — gas cap raised 200_000 → 700_000 to cover whale referrers
+        // up to TegridyStaking.MAX_POSITIONS_PER_HOLDER = 50.
+        try referralSplitter.recordFee{value: _feeAmount, gas: 700_000}(_user) {
             return true;
         } catch Error(string memory) {
             emit ReferralFeeRedirectedToTreasury(_user, _feeAmount);
@@ -542,11 +592,24 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     }
 
     /// @notice AUDIT M-2: off-chain health probe for the premiumAccess integration.
-    /// @return healthy true if premiumAccess is unset (discount feature disabled) OR
-    ///         the call to hasPremiumSecure completed without reverting. false signals a
-    ///         silent outage — premium users are currently paying full fees.
+    /// @dev    AUDIT FIX: DEEP-R3-I01 — `address(0)` (premium discount disabled / unset) now
+    ///         returns `false` instead of `true`. The pre-fix behaviour reported "unset" as
+    ///         "healthy", which contradicted the function's intent: an unset registry means
+    ///         every premium user is silently paying full base fees, which IS a degraded
+    ///         state from the protocol's perspective even though it's fail-OPEN for the user.
+    ///         Off-chain monitors that watch this view as a liveness signal can now alert on
+    ///         the address-zero case as a degraded state, distinct from the "registry set
+    ///         but call reverts" outage signalled by the catch branch.
+    /// @return healthy true ONLY if premiumAccess is set AND the call to hasPremiumSecure
+    ///         completed without reverting. false signals either:
+    ///         (a) `premiumAccess == address(0)` — discount feature is currently disabled;
+    ///             premium users pay full fees and this is observable as a degraded state.
+    ///         (b) `premiumAccess` reverts on probe — silent outage (paused, broken, or
+    ///             upgraded mid-swap). Same fee impact as (a) but a distinct root cause.
     function isPremiumAccessHealthy() external view returns (bool healthy) {
-        if (address(premiumAccess) == address(0)) return true;
+        // AUDIT FIX: DEEP-R3-I01 — unset registry is now reported as `false` (degraded)
+        // so the `apply*(address)` family follows a consistent "unset == not healthy" pattern.
+        if (address(premiumAccess) == address(0)) return false;
         try premiumAccess.hasPremiumSecure(address(0)) returns (bool) {
             return true;
         } catch {
@@ -1080,8 +1143,26 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     }
 
     /// @notice Apply a referral splitter change. address(0) disables referral routing.
+    /// @dev    AUDIT FIX: DEEP-R3-M02 — reject `address(0)` whenever the CURRENT splitter's
+    ///         `referralFeeBps > 0`. Previously, unsetting the splitter while a non-zero
+    ///         referral share was active silently terminated every existing referral
+    ///         relationship: `_recordReferralFee` short-circuits when
+    ///         `referralSplitter == address(0)`, the referrer's slice silently folds into
+    ///         `accumulatedETHFees` instead of routing to `pendingETH[referrer]` on the
+    ///         splitter, and no router-side event distinguishes this fail-mode from
+    ///         "ordinary unregistered referee". Governance must first zero the splitter's
+    ///         `referralFeeBps` via the splitter's own timelocked flow before the splitter
+    ///         address itself can be unset here. Mirrors the DEEP-R-M04 pattern on
+    ///         `applyPolAccumulator`.
     function applyReferralSplitter(address _newSplitter) external onlyAdmin {
         address old = address(referralSplitter);
+        // AUDIT FIX: DEEP-R3-M02 — sibling-miss closure for the DEEP-R-M04 pattern.
+        // Only check when transitioning a live splitter to address(0). The current splitter
+        // must already be set (otherwise there is no `referralFeeBps()` to read) AND the
+        // new splitter must be the zero address.
+        if (_newSplitter == address(0) && old != address(0)) {
+            if (IReferralSplitter(old).referralFeeBps() > 0) revert ReferralFeeNonZero();
+        }
         referralSplitter = IReferralSplitter(_newSplitter);
         emit ReferralSplitterUpdated(old, _newSplitter);
     }
@@ -1426,7 +1507,14 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
             // in depth. A `0` floor admits a full-balance drain under owner-key compromise
             // OR honest operator-script error (stale quote pasted as `0`). This single
             // check turns a silent drain into a revert that off-chain monitoring catches.
-            if (minETHOut == 0) revert ZeroMinOut();
+            // AUDIT FIX: DEEP-R3-M01 — `> 0` was a trivial bypass: `minETHOut = 1` satisfied
+            // the check but admitted the same drain because `ethReceived >= 1` is always
+            // true for any non-degenerate swap. Anchor against the absolute floor
+            // `MIN_MULTIHOP_ETH_OUT_WEI` (1e14 wei = 0.0001 ETH) so the floor is
+            // parameter-meaningful. Realistic conversions accumulate ≥1e18 of token first
+            // (`MIN_TOKEN_FEE_FOR_CONVERSION`) and produce orders of magnitude more ETH
+            // on any liquid path, so legitimate flows are unaffected.
+            if (minETHOut < MIN_MULTIHOP_ETH_OUT_WEI) revert ZeroMinOut();
             effectiveMin = minETHOut;
             // currentCum/currentTs left zero — we only update the snapshot on direct
             // 2-hop conversions (otherwise we'd seed a meaningless zero baseline).
@@ -1518,7 +1606,9 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
             // AUDIT FIX: DEEP-R2-M01 — same non-zero floor as the standard variant. See
             // convertTokenFeesToETH above for the full rationale; both entry points must
             // enforce identical multi-hop guards or an attacker can pick the unlocked door.
-            if (minETHOut == 0) revert ZeroMinOut();
+            // AUDIT FIX: DEEP-R3-M01 — anchor against `MIN_MULTIHOP_ETH_OUT_WEI` to close
+            // the `minETHOut = 1` bypass (mirrors convertTokenFeesToETH above).
+            if (minETHOut < MIN_MULTIHOP_ETH_OUT_WEI) revert ZeroMinOut();
             effectiveMin = minETHOut;
             emit ConversionTWAPFloor(token, effectiveMin, minETHOut, false);
         } else {
@@ -1612,6 +1702,26 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///      EOAs and calling once each — the original grief loop survived. The single
     ///      global slot ensures every block-level loop costs the full cooldown window
     ///      regardless of how many sender keys the attacker controls.
+    /// @dev AUDIT FIX: DEEP-R3-L01 — **DESIGN NOTE on the global cooldown trade-off.**
+    ///      The global slot makes this a strict first-caller-wins per cooldown window.
+    ///      An attacker who repeatedly wins the race can prevent honest keepers from being
+    ///      the address recorded as `puller` in the `CallerCreditRecovered` event. CRITICAL
+    ///      FACTS that bound this grief vector:
+    ///        1. The recovered ETH ALWAYS flows to `accumulatedETHFees` (this contract),
+    ///           regardless of `msg.sender`. The protocol's funds are never at risk.
+    ///        2. The cooldown only sticks on a SUCCESSFUL pull. If the splitter has no
+    ///           credit to release (`NothingToClaim`), the entire transaction reverts AND
+    ///           `lastCallerCreditAt` is rolled back — so the attacker cannot even trigger
+    ///           the cooldown without paying the full pull cost (~62k gas).
+    ///        3. There is no economic incentive: the attacker spends gas to be named in
+    ///           the event but receives no ETH. Pure griefing intent only.
+    ///      The trade-off vs the per-caller mapping: per-caller allows multiple honest
+    ///      keepers to operate independent windows but is bypassable by N-EOA spam (the
+    ///      pre-DEEP-R2-M03 behaviour). The global slot is strictly less keeper-friendly
+    ///      but provides a hard rate-limit that no key-spam can defeat. The architecturally
+    ///      cleaner alternative — a `pendingCallerCredit(address) view` probe on the splitter
+    ///      so callers can short-circuit when there's nothing to pull — is deferred as an
+    ///      out-of-cluster change (see audit DEEP-R3-L01 recommendation (a)).
     function recoverCallerCredit() external nonReentrant whenNotPaused {
         require(address(referralSplitter) != address(0), "NO_SPLITTER");
         uint256 lastPull = lastCallerCreditAt;
