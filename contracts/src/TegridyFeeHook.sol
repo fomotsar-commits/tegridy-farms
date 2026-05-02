@@ -425,6 +425,28 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         emit SyncCancelled(currency);
     }
 
+    /// @notice AUDIT FIX V3-AMM-M2: permissionless cleanup of an expired sync
+    ///         proposal. The pre-fix V2-AMM-M1 design correctly UNGATED claimFees
+    ///         when a proposal expired, but the `_executeAfter[key]`,
+    ///         `pendingSyncCredit`, and `pendingSyncCreditSnapshot` slots stay
+    ///         set forever — meaning the owner can't re-propose without first
+    ///         calling `cancelSyncAccruedFees`, AND any onlooker watching
+    ///         `pendingSyncCredit` sees stale data forever. This function lets
+    ///         anyone clean up the expired state once the proposal validity
+    ///         window has lapsed.
+    /// @param  currency The currency to expire.
+    function expireSyncAccruedFees(address currency) external {
+        bytes32 key = keccak256(abi.encodePacked(SYNC_CHANGE, currency));
+        uint256 readyAt = _proposalReadyAt(key);
+        require(readyAt != 0, "NO_PENDING_SYNC");
+        require(block.timestamp > readyAt + _proposalValidity(), "NOT_EXPIRED");
+        // Clear timelock slot + pending values + snapshot.
+        _cancel(key);
+        pendingSyncCredit[currency] = 0;
+        pendingSyncCreditSnapshot[currency] = 0;
+        emit SyncCancelled(currency);
+    }
+
     /// @notice Legacy view helper for test compatibility
     function syncTime(address currency) external view returns (uint256) {
         bytes32 key = keccak256(abi.encodePacked(SYNC_CHANGE, currency));
@@ -522,18 +544,24 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     /// @dev    AUDIT FIX V2-AMM-M3: restore M-32's protection — the prior
     ///         D-AMM-L4 fix overcorrected by accepting any owner-specified `to`
     ///         address, which erased the original "instant-drain prevention"
-    ///         design. A captured owner could call `sweepETH(attackerEOA)` and
-    ///         exfiltrate the entire ETH balance, bypassing the 48h
-    ///         `proposeDistributorChange` timelock that was meant to gate
-    ///         distributor-class diversions. The allowlist below restricts the
-    ///         recipient to either the live `revenueDistributor` (canonical
-    ///         path) or `owner()` (fallback for the case where
-    ///         `revenueDistributor` is a reverting contract). Both targets are
-    ///         already trusted entities under the protocol's threat model.
-    /// @param  to Recipient of the swept ETH. Must be `revenueDistributor` or
-    ///            `owner()`; reverts `InvalidSweepRecipient` otherwise.
+    ///         design.
+    /// @dev    AUDIT FIX V3-AMM-H1: REMOVE `owner()` from the allowlist. `owner()`
+    ///         IS the compromised principal in M-32's threat model — adding
+    ///         it to the allowlist defeated the very protection M-32 was meant
+    ///         to provide. A captured owner key can sweep directly to themselves
+    ///         (the attacker's address-of-control), bypassing the 48h
+    ///         `proposeDistributorChange` timelock entirely. The fix narrows
+    ///         the allowlist to ONLY `revenueDistributor`. If the distributor
+    ///         is broken/reverting, the owner must first
+    ///         `proposeDistributorChange` (48h timelock) to a recoverable
+    ///         destination, then sweep — which is exactly the M-32 design
+    ///         intent.
+    /// @param  to Recipient of the swept ETH. Must be `revenueDistributor`;
+    ///            reverts `InvalidSweepRecipient` otherwise.
     function sweepETH(address to) external onlyOwner {
-        if (to != revenueDistributor && to != owner()) revert InvalidSweepRecipient();
+        // AUDIT FIX V3-AMM-H1: only `revenueDistributor` is a valid sweep
+        // target. Owner-as-sink defeats the M-32 threat model.
+        if (to != revenueDistributor) revert InvalidSweepRecipient();
         uint256 balance = address(this).balance;
         require(balance > 0, "NO_ETH"); // L-10: Prevent zero-value transfer
         (bool success,) = payable(to).call{value: balance}("");

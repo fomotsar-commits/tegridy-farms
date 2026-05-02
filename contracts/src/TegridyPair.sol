@@ -357,8 +357,17 @@ contract TegridyPair is ERC20, ReentrancyGuard {
         // permanently lock legitimate keepers out of the 5-minute window with
         // HARVEST_TOO_SOON. Pattern: Curve `claim_admin_fees()` aborts on zero-mint
         // without state mutation.
+        // AUDIT FIX V3-AMM-INFO1: zero-reserve pair can't materialise any fee
+        // and would loop in no-op harvests indefinitely. Reject early.
         (uint112 _reserve0, uint112 _reserve1,) = getReserves();
+        require(_reserve0 != 0 && _reserve1 != 0, "EMPTY_PAIR");
         uint256 supplyBefore = totalSupply();
+        // AUDIT FIX V3-AMM-M1: capture kLast pre-mintFee so we can detect the
+        // `feeOn = false && kLast was non-zero` cleanup path. `_mintFee` writes
+        // `kLast = 0` in that case (Uniswap V2 cleanup semantic) — without
+        // tracking the pre-state, the post-fix `NO_FEE_TO_MATERIALIZE` revert
+        // unwinds the cleanup write.
+        uint256 kLastBefore = kLast;
         bool feeOn = _mintFee(_reserve0, _reserve1);
         // AUDIT FIX V2-AMM-M2: allow the bootstrap-only path through.
         //
@@ -381,7 +390,13 @@ contract TegridyPair is ERC20, ReentrancyGuard {
         // bypasses the revert, and `kLast` is then written below to seed the
         // baseline. (b) still reverts as before.
         bool bootstrap = (feeOn && kLast == 0);
-        require(totalSupply() > supplyBefore || bootstrap, "NO_FEE_TO_MATERIALIZE");
+        // AUDIT FIX V3-AMM-M1: also allow the cleanup path (feeOn went false
+        // while kLast was non-zero — `_mintFee` already cleared kLast). Without
+        // this, the require would unwind the cleanup write and the pair would
+        // permanently retain a stale kLast through every subsequent
+        // harvest-after-feeOn-disable.
+        bool cleanup = (!feeOn && kLastBefore != 0);
+        require(totalSupply() > supplyBefore || bootstrap || cleanup, "NO_FEE_TO_MATERIALIZE");
         lastHarvestAt = block.timestamp;
         if (feeOn) {
             kLast = uint256(_reserve0) * uint256(_reserve1);

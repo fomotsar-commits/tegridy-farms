@@ -675,7 +675,17 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         // the consultable range at most MAX_OBSERVATIONS * MIN_PERIOD = 12h
         // later — until then, downstream consumers (lending oracles, Dutch
         // auctions) get a clean revert instead of a manipulated TWAP.
-        if (best.bypassed) revert OracleRebootstrapping();
+        //
+        // AUDIT FIX V3-AMM-L1: fail-open if we ARE in the !found fallback (best
+        // was forced to the oldest slot because no observation satisfies the
+        // requested period) AND that fallback slot is bypassed. If we revert
+        // here, the entire pair's TWAP becomes unconsultable for up to 12h with
+        // no graceful degradation path. The fallback slot is by construction
+        // the LEAST relevant data point we could anchor against, but it's the
+        // only one we have; consumers that explicitly chose to consult on a
+        // sparse pair should accept the diluted result rather than a hard
+        // revert. The honest-anchor case (`found == true`) still reverts.
+        if (best.bypassed && found) revert OracleRebootstrapping();
 
         unchecked {
             elapsed = latest.timestamp - best.timestamp;
