@@ -212,4 +212,106 @@ contract R031_TegridyFeeHook is Test {
         hook.executeSyncAccruedFees(TOKEN1);
         assertEq(hook.accruedFees(TOKEN1), 40_000, "second sync after cooldown");
     }
+
+    // ===== AUDIT FIX C-2: V4 BalanceDelta sign convention regression tests =====
+    //
+    // V4 PoolManager passes `delta` from the SWAPPER's perspective:
+    //   negative delta = swapper paid (input)
+    //   positive delta = swapper received (output)
+    //
+    // The hook fee must be computed from the UNSPECIFIED-side delta (the leg
+    // PoolManager solved for, which is opposite to amountSpecified).
+    //
+    // Pre-fix the hook computed the fee from the WRONG side, which meant for a
+    // decimals-mismatched pair like WETH→USDC the fee was sized in input raw
+    // units (1e18 wei) but credited as output currency raw units (USDC at 6
+    // decimals = $3 BILLION phantom credit) — causing PoolManager settlement
+    // to revert and DoS'ing every swap in that direction.
+    //
+    // These tests use REAL V4-convention deltas to assert the fee is computed
+    // off the unspecified-side delta in absolute terms.
+
+    function test_C2_realV4_exactInput_zeroForOne_feeScalesWithOutput() public {
+        PoolKey memory key = _mkKey();
+        // WETH→USDC exact-input 1 WETH, ~3000 USDC out.
+        // V4 convention: amount0 < 0 (paid), amount1 > 0 (received).
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: true,
+            amountSpecified: -int256(1 ether),
+            sqrtPriceLimitX96: 0
+        });
+        BalanceDelta delta = toBalanceDelta(int128(-int256(1 ether)), int128(int256(3000e6)));
+
+        vm.prank(address(mockPM));
+        (, int128 feeAmount) = hook.afterSwap(address(0), key, params, delta, "");
+
+        // feeBps = 30 (0.3%). Fee should be 30 / 10000 of |output| = 9e6 USDC base units.
+        // Pre-fix this would have been (1e18 * 30 / 10000) = 3e15 USDC base units
+        // (~$3 billion phantom credit) — causing real PoolManager settlement to revert.
+        assertEq(int256(feeAmount), int256(9e6), "fee = output * 30 / 10000");
+        assertEq(hook.accruedFees(TOKEN1), 9e6, "credit on output currency (TOKEN1)");
+        assertEq(hook.accruedFees(TOKEN0), 0, "input currency NOT credited");
+    }
+
+    function test_C2_realV4_exactInput_oneForZero_feeScalesWithOutput() public {
+        PoolKey memory key = _mkKey();
+        // USDC→WETH exact-input 3000 USDC, ~1 WETH out.
+        // V4 convention: amount1 < 0 (paid), amount0 > 0 (received).
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: false,
+            amountSpecified: -int256(3000e6),
+            sqrtPriceLimitX96: 0
+        });
+        BalanceDelta delta = toBalanceDelta(int128(int256(1 ether)), int128(-int256(3000e6)));
+
+        vm.prank(address(mockPM));
+        (, int128 feeAmount) = hook.afterSwap(address(0), key, params, delta, "");
+
+        // Fee should be 30 / 10000 of |output WETH| = 3e15 wei.
+        // Pre-fix this would have been (3000e6 * 30 / 10000) = 9e6 wei
+        // — under-collecting by ~12 orders of magnitude.
+        assertEq(int256(feeAmount), int256(3e15), "fee = output * 30 / 10000");
+        assertEq(hook.accruedFees(TOKEN0), 3e15, "credit on output currency (TOKEN0)");
+        assertEq(hook.accruedFees(TOKEN1), 0, "input currency NOT credited");
+    }
+
+    function test_C2_realV4_exactOutput_zeroForOne_feeScalesWithInput() public {
+        PoolKey memory key = _mkKey();
+        // Want EXACTLY 3000 USDC out (currency1), pay ~1 WETH in (currency0).
+        // V4 convention: amount0 < 0 (paid), amount1 > 0 (received).
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: true,
+            amountSpecified: int256(3000e6),
+            sqrtPriceLimitX96: 0
+        });
+        BalanceDelta delta = toBalanceDelta(int128(-int256(1 ether)), int128(int256(3000e6)));
+
+        vm.prank(address(mockPM));
+        (, int128 feeAmount) = hook.afterSwap(address(0), key, params, delta, "");
+
+        // For exact-output, the unspecified side is the INPUT (currency0).
+        // Fee = 30 / 10000 of |input WETH| = 3e15 wei.
+        assertEq(int256(feeAmount), int256(3e15), "fee = input * 30 / 10000");
+        assertEq(hook.accruedFees(TOKEN0), 3e15, "credit on input currency (TOKEN0)");
+        assertEq(hook.accruedFees(TOKEN1), 0, "output currency NOT credited");
+    }
+
+    function test_C2_realV4_exactOutput_oneForZero_feeScalesWithInput() public {
+        PoolKey memory key = _mkKey();
+        // Want EXACTLY 1 WETH out (currency0), pay ~3000 USDC in (currency1).
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: false,
+            amountSpecified: int256(1 ether),
+            sqrtPriceLimitX96: 0
+        });
+        BalanceDelta delta = toBalanceDelta(int128(int256(1 ether)), int128(-int256(3000e6)));
+
+        vm.prank(address(mockPM));
+        (, int128 feeAmount) = hook.afterSwap(address(0), key, params, delta, "");
+
+        // Fee = 30 / 10000 of |input USDC| = 9e6 USDC base units.
+        assertEq(int256(feeAmount), int256(9e6), "fee = input * 30 / 10000");
+        assertEq(hook.accruedFees(TOKEN1), 9e6, "credit on input currency (TOKEN1)");
+        assertEq(hook.accruedFees(TOKEN0), 0, "output currency NOT credited");
+    }
 }

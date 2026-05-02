@@ -215,70 +215,72 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
             return (IHooks.afterSwap.selector, int128(0));
         }
 
-        // C-04: Fee denomination depends on swap type.
-        // For exact-input swaps (amountSpecified < 0), fee is on the OUTPUT token delta (negative delta).
-        // For exact-output swaps (amountSpecified > 0), fee is on the INPUT token delta (positive delta).
-
-        int128 feeAmount = 0;
-
-        if (params.amountSpecified < 0) {
-            // Exact-input swap: fee on the output (negative delta = user received)
-            if (amount0 < 0) {
-                uint256 absAmount = uint256(int256(-amount0));
-                uint256 feeUint = (absAmount * feeBps) / 10000;
-                require(feeUint <= uint128(type(int128).max), "FEE_OVERFLOW");
-                feeAmount = int128(uint128(feeUint));
-            } else if (amount1 < 0) {
-                uint256 absAmount = uint256(int256(-amount1));
-                uint256 feeUint = (absAmount * feeBps) / 10000;
-                require(feeUint <= uint128(type(int128).max), "FEE_OVERFLOW");
-                feeAmount = int128(uint128(feeUint));
-            }
+        // AUDIT FIX C-2: V4 BalanceDelta is from the SWAPPER's perspective:
+        //   negative delta = swapper paid (input)
+        //   positive delta = swapper received (output)
+        //
+        // The hook fee is taken from the UNSPECIFIED currency (the side the
+        // PoolManager solves for during the swap — opposite to amountSpecified).
+        //
+        //   Exact-input  (amountSpecified < 0): fee on OUTPUT (positive unspecified-side delta)
+        //     - zeroForOne   → specified = currency0, unspecified = currency1
+        //     - !zeroForOne  → specified = currency1, unspecified = currency0
+        //
+        //   Exact-output (amountSpecified > 0): fee on INPUT (negative unspecified-side delta)
+        //     - zeroForOne   → specified = currency1, unspecified = currency0
+        //     - !zeroForOne  → specified = currency0, unspecified = currency1
+        //
+        // Identical structure to the canonical Uniswap V4 FeeTakingHook
+        // (lib/v4-core/src/test/FeeTakingHook.sol:33-51). The earlier version
+        // of this function inverted the convention and computed the fee from
+        // the INPUT raw units while crediting it as OUTPUT raw units — a
+        // decimals-mismatched pair (e.g. WETH↔USDC) DoS'd in one direction
+        // (user owed billions of USDC) and under-collected by ~12 orders of
+        // magnitude in the other.
+        bool specifiedIsZero = (params.amountSpecified < 0) == params.zeroForOne;
+        Currency feeCurrency;
+        int128 swapAmount;
+        if (specifiedIsZero) {
+            feeCurrency = key.currency1;
+            swapAmount = amount1;
         } else {
-            // Exact-output swap (amountSpecified > 0): fee on the input (positive delta = user paid)
-            if (amount0 > 0) {
-                uint256 absAmount = uint256(int256(amount0));
-                uint256 feeUint = (absAmount * feeBps) / 10000;
-                require(feeUint <= uint128(type(int128).max), "FEE_OVERFLOW");
-                feeAmount = int128(uint128(feeUint));
-            } else if (amount1 > 0) {
-                uint256 absAmount = uint256(int256(amount1));
-                uint256 feeUint = (absAmount * feeBps) / 10000;
-                require(feeUint <= uint128(type(int128).max), "FEE_OVERFLOW");
-                feeAmount = int128(uint128(feeUint));
-            }
+            feeCurrency = key.currency0;
+            swapAmount = amount0;
+        }
+        // Take absolute value of the unspecified-side delta so feeBps applies
+        // correctly whether the unspecified side is positive (output, exact-input
+        // case) or negative (input, exact-output case).
+        if (swapAmount < 0) swapAmount = -swapAmount;
+
+        if (swapAmount == 0) {
+            return (IHooks.afterSwap.selector, int128(0));
         }
 
-        // Enforce minimum fee of 1 unit when feeBps > 0 (relevant amount > 1 to avoid dust)
-        if (feeAmount == 0 && feeBps > 0) {
-            uint256 absRelevant;
-            if (params.amountSpecified < 0) {
-                // Exact-input: minimum fee on output
-                absRelevant = amount0 < 0 ? uint256(int256(-amount0)) : (amount1 < 0 ? uint256(int256(-amount1)) : 0);
-            } else {
-                // Exact-output: minimum fee on input
-                absRelevant = amount0 > 0 ? uint256(int256(amount0)) : (amount1 > 0 ? uint256(int256(amount1)) : 0);
-            }
-            if (absRelevant > 1) {
-                feeAmount = 1;
-            }
+        uint256 absAmount = uint256(uint128(swapAmount));
+        uint256 feeUint = (absAmount * feeBps) / 10000;
+
+        // Minimum fee of 1 unit when feeBps > 0 and the swap amount is large
+        // enough that integer-division-down rounded the fee to zero. The
+        // absRelevant > 1 guard avoids charging a fee on a 1-wei dust swap.
+        if (feeUint == 0 && feeBps > 0 && absAmount > 1) {
+            feeUint = 1;
         }
 
-        // AUDIT FIX: Track accrued fees against the UNSPECIFIED currency — this is the
-        // currency the V4 PoolManager will credit to the hook via hookDeltaUnspecified.
-        // For exact-input (amountSpecified < 0): unspecified = output token
-        // For exact-output (amountSpecified > 0): unspecified = input token
-        // The mapping: (amountSpecified < 0 == zeroForOne) ? currency1 is unspecified : currency0 is unspecified
-        if (feeAmount > 0) {
-            bool specifiedIsZero = (params.amountSpecified < 0) == params.zeroForOne;
-            Currency creditCurrency = specifiedIsZero ? key.currency1 : key.currency0;
-            address creditToken = Currency.unwrap(creditCurrency);
-            accruedFees[creditToken] += uint256(int256(feeAmount));
-            emit FeeCollected(creditToken, uint256(int256(feeAmount)));
+        if (feeUint == 0) {
+            return (IHooks.afterSwap.selector, int128(0));
         }
 
-        // The fee is returned as the hook's delta — it reduces what the user receives
-        // The PoolManager will hold this fee, and we can claim it later
+        require(feeUint <= uint128(type(int128).max), "FEE_OVERFLOW");
+        int128 feeAmount = int128(uint128(feeUint));
+
+        address creditToken = Currency.unwrap(feeCurrency);
+        accruedFees[creditToken] += feeUint;
+        emit FeeCollected(creditToken, feeUint);
+
+        // Returned to PoolManager as hookDeltaUnspecified — applied as
+        // `swapDelta -= toBalanceDelta(0, feeAmount)` (or amount0 leg for
+        // !specifiedIsZero), correctly reducing what the user receives /
+        // increasing what the user pays by exactly `feeUint` unspecified-side units.
         return (IHooks.afterSwap.selector, feeAmount);
     }
 
