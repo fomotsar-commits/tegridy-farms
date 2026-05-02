@@ -69,6 +69,10 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     uint256 public constant MAX_PROTOCOL_FEE_BPS = 1000;
     uint256 public constant BPS = 10_000;
     uint256 public constant MAX_DELTA = 10 ether;
+    // AUDIT FIX V3-NFTPOOL-05: cap spotPrice to prevent
+    // `_minLiquidityBuffer`'s `100 * spotPrice` from overflowing Solidity
+    // 0.8.26 checked arithmetic and bricking every withdrawal/swap path.
+    uint256 public constant MAX_SPOT_PRICE = 1_000_000 ether;
     uint256 public constant PARAMETER_TIMELOCK = 24 hours;
 
     // ─── Errors ─────────────────────────────────────────────────────────
@@ -84,6 +88,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     error InvalidPoolType();
     error InvalidFee();
     error InvalidPrice();
+    error SpotPriceTooHigh(); // AUDIT FIX V3-NFTPOOL-05
     error InsufficientETH();
     error InsufficientPayout();
     error NFTNotHeld(uint256 tokenId);
@@ -212,8 +217,13 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
         // AUDIT FIX: DEEP-NFTPOOL-06
         _swapInFlight = true;
-        // AUDIT FIX: V2-NFTPOOL-01
-        _swapCaller = msg.sender;
+        // AUDIT FIX V3-NFTPOOL-01: do NOT set `_swapCaller` in the BUY direction.
+        // V2-NFTPOOL-01's intent was to gate `onERC721Received` deposit inflows
+        // to the SELLER during a `swapNFTsForETH` swap. Setting it here for the
+        // BUYER too lets a buyer's `onERC721Received` callback (fired when the
+        // pool transfers NFTs to them) re-enter via the NFT-collection bridge
+        // and stuff arbitrary tokenIds into `_heldIds` — exactly the V2-fix
+        // exploit shape we tried to close.
 
         (uint256 inputAmount, uint256 protocolFee, uint256 lpFee) = _getBuyPriceFull(numItems);
         if (inputAmount > maxTotalCost) revert MaxCostExceeded();
@@ -246,8 +256,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
         lastSwapBlock = block.number;
         _swapInFlight = false;
-        // AUDIT FIX: V2-NFTPOOL-01
-        _swapCaller = address(0);
+        // AUDIT FIX V3-NFTPOOL-01: no `_swapCaller` clear needed — we never set it.
 
         emit SwapETHForNFTs(msg.sender, tokenIds, inputAmount);
     }
@@ -346,6 +355,14 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
     function proposeSpotPrice(uint256 newPrice) external onlyOwner {
         if (newPrice == 0) revert InvalidPrice();
+        // AUDIT FIX V3-NFTPOOL-05: enforce a maximum spot price. Pre-fix the
+        // setter accepted arbitrary uint256 values; `_minLiquidityBuffer`
+        // computes `100 * spotPrice` (overflows under Solidity 0.8.26 checked
+        // arithmetic at extreme spotPrices), bricking every withdraw / swap
+        // path on the pool. Cap chosen to allow up to 1M ETH per NFT
+        // (well above any realistic floor) while leaving headroom against
+        // the buffer multiplication.
+        if (newPrice > MAX_SPOT_PRICE) revert SpotPriceTooHigh();
         // AUDIT FIX: DEEP-NFTPOOL-02
         if (pendingSpotPriceExecuteAfter != 0) revert ExistingProposalPending();
         pendingSpotPrice = newPrice;
@@ -448,13 +465,18 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         emit OwnerChangeCancelled(cancelled);
     }
 
-    function acceptOwnership() external whenNotPaused {
-        // AUDIT FIX: V2-NFTPOOL-05: also check the factory's emergency-pause
-        // cascade so an in-progress incident response can fully freeze the pool
-        // (including pending owner transitions, not just swaps). Without this,
-        // an attacker who got a 48h owner-change proposal in before detection
-        // could still capture the pool while the protocol is otherwise paused.
-        if (ITegridyNFTPoolFactoryView(factory).emergencyPaused()) revert EmergencyPaused();
+    function acceptOwnership() external {
+        // AUDIT FIX V3-NFTPOOL-04: REMOVE `whenNotPaused` from acceptOwnership.
+        // The pool's own pause + the factory's emergencyPaused gate were both
+        // added by V2-NFTPOOL-05, but combined they brick legitimate
+        // key-loss recovery: if the owner pauses then loses their key, the
+        // pendingOwner cannot rescue via `acceptOwnership` while paused. The
+        // defended threat (attacker-as-current-owner queuing a malicious
+        // pendingOwner) is already mitigated by the existing `cancelOwnerChange`
+        // path (the legitimate owner can always cancel a hostile proposal).
+        // The factory emergencyPaused cascade is also dropped here for the
+        // same reason — it created a permanent ownership-lock vector under
+        // factory-side incidents combined with pool-key loss.
         if (msg.sender != pendingOwner || msg.sender == address(0)) revert NotPendingOwner();
         if (pendingOwnerExecuteAfter == 0 || block.timestamp < pendingOwnerExecuteAfter) {
             revert TimelockNotElapsed();
@@ -462,8 +484,12 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         address oldOwner = owner;
 
         // AUDIT FIX: DEEP-NFTPOOL-05
+        // AUDIT FIX V3-NFTPOOL-06: skip the priorOwner snapshot when the
+        // ownership "transfer" is a self-no-op (pendingOwner == oldOwner).
+        // Pre-fix the snapshot moved accumulatedLPFees → priorOwnerOwed[self]
+        // forcing the owner onto a different claim path with no signal.
         uint256 snapshot = accumulatedLPFees;
-        if (snapshot > 0) {
+        if (snapshot > 0 && pendingOwner != oldOwner) {
             priorOwnerOwed[oldOwner] += snapshot;
             accumulatedLPFees = 0;
             emit PriorOwnerLPFeesSnapshotted(oldOwner, snapshot);
@@ -761,7 +787,14 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         if (maxItems > 100) maxItems = 100;
         uint256 floorAmt = maxItems * spotPrice;
         uint256 lpAvailable = _lpAvailableETH();
-        return floorAmt > lpAvailable ? lpAvailable : floorAmt;
+        // AUDIT FIX V3-NFTPOOL-03: when `floorAmt > lpAvailable` the pool is
+        // already underwater for the requested floor — capping to lpAvailable
+        // (pre-fix) would force `withdrawETH(amount)` checks like
+        // `amount + lpAvailable > lpAvailable` to revert for ANY non-zero
+        // amount. That blocked dust recovery entirely. Returning 0 instead
+        // means the buffer simply doesn't apply when the pool can't cover it
+        // (the underwater state is already a no-op for sells, by design).
+        return floorAmt > lpAvailable ? 0 : floorAmt;
     }
 
     // ─── Internal: Held NFT Tracking ────────────────────────────────────

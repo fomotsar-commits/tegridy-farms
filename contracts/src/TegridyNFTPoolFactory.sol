@@ -630,7 +630,15 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
             revert EmergencyCooldown();
         }
         emergencyPaused = paused;
-        lastEmergencyAt = block.timestamp;
+        // AUDIT FIX V3-NFTPOOL-02: only update `lastEmergencyAt` when ENTERING
+        // the paused state. Pre-fix the timestamp was updated unconditionally
+        // (including on unpause), which armed the pause-cooldown for 6 hours
+        // every time the legitimate operator unpaused — letting an attacker
+        // who briefly captures the key call `setEmergencyPaused(false)` on an
+        // already-unpaused pool just to lock the legitimate owner out of any
+        // future protective pause. The asymmetric pattern matches Compound's
+        // PauseGuardian (instant unpause, rate-limited pause).
+        if (paused) lastEmergencyAt = block.timestamp;
         emit EmergencyPauseSet(paused, msg.sender);
     }
 
