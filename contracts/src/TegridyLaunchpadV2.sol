@@ -24,6 +24,16 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
     error MaxSupplyTooLarge();
     error EmptyName();
     error EmptySymbol();
+    /// @notice AUDIT FIX: DEEP-LP-04: caller's expected fee value did not match
+    ///         the currently-pending value. Mirrors the value-binding pattern
+    ///         from `TegridyDropV2.executeMerkleRoot(bytes32 expectedRoot)`.
+    error FeeMismatch();
+    /// @notice AUDIT FIX: DEEP-LP-04: caller's expected recipient did not match
+    ///         the currently-pending recipient.
+    error RecipientMismatch();
+    /// @notice AUDIT FIX: DEEP-LP-03: pagination request exceeded the per-call
+    ///         maximum (1000 collections / page).
+    error PageLimitExceeded();
 
     /// @notice Legacy-shape event — same topic signature as v1 so existing
     ///         indexers pick up v2 drops without reconfiguration.
@@ -49,6 +59,13 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
     event ProtocolFeeCancelled();
     event ProtocolFeeRecipientProposed(address newRecipient, uint256 executeAfter);
     event ProtocolFeeRecipientChanged(address oldRecipient, address newRecipient);
+    /// @notice AUDIT MICROSCOPE_2026_04_30 M-D4: parity event for the fee-recipient
+    ///         cancellation path. Without it, off-chain subgraphs tracking pending
+    ///         governance state believed a recipient change was still pending after
+    ///         cancellation — leading to stale "fee recipient about to change in
+    ///         T-1h" alerts. All other propose/execute/cancel triplets emit a
+    ///         typed cancellation event; the fee-recipient path was the outlier.
+    event ProtocolFeeRecipientCancelled();
 
     bytes32 public constant FEE_CHANGE = keccak256("LAUNCHPAD_FEE_CHANGE");
     bytes32 public constant FEE_RECIPIENT_CHANGE = keccak256("LAUNCHPAD_FEE_RECIPIENT_CHANGE");
@@ -60,6 +77,15 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
     ///      Chosen as 10% to match the prevailing OpenSea/Blur/Rarible fee
     ///      band; community drops typically configure 2.5%-5% in practice.
     uint16 public constant MAX_PROTOCOL_FEE_BPS = 1000;
+
+    /// @notice AUDIT FIX: DEEP-LP-03: per-call cap on `getCollectionsPaginated`.
+    ///         1000 collections per page comfortably fits inside the 8MB JSON-RPC
+    ///         response cap that Alchemy / Infura enforce, while letting indexers
+    ///         backfill at scale by walking pages. The unbounded `getAllCollections`
+    ///         remains for compatibility but should be considered deprecated past a
+    ///         few thousand entries — once the array crosses the response-size
+    ///         threshold, every off-chain consumer that depends on it breaks.
+    uint256 public constant MAX_PAGINATED_LIMIT = 1000;
 
     /// @notice Canonical TegridyDropV2 implementation. New constructor call in the
     ///         factory deploys it; v1's `dropTemplate` is a separate address on the
@@ -234,8 +260,43 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
         return allCollections.length;
     }
 
+    /// @notice Returns every deployed collection address. Unbounded — see
+    ///         `getCollectionsPaginated` for the indexer-safe alternative.
+    /// @dev    AUDIT FIX: DEEP-LP-03: kept for backwards compatibility with
+    ///         existing subgraph schemas, but documented as scaling-limited.
+    ///         Past a few thousand collections this view will exceed RPC
+    ///         response-size ceilings and effectively become uncallable.
     function getAllCollections() external view returns (address[] memory) {
         return allCollections;
+    }
+
+    /// @notice AUDIT FIX: DEEP-LP-03: paginated counterpart to `getAllCollections`.
+    ///         Returns up to `limit` (capped at MAX_PAGINATED_LIMIT) collection
+    ///         addresses starting at `offset`. Off-chain consumers walk pages by
+    ///         incrementing `offset` until the returned array is short of `limit`.
+    ///         Pattern of record: Uniswap V2 `allPairs(uint256)`, Sudoswap
+    ///         `LSSVMPairFactory.getPaginatedPairsForToken`.
+    /// @param  offset Starting index into `allCollections` (0-based).
+    /// @param  limit  Page size; capped at MAX_PAGINATED_LIMIT. Pass 0 to get
+    ///                an empty array (useful as a sanity probe).
+    /// @return page   Slice of `allCollections[offset:offset+actualLimit]`.
+    function getCollectionsPaginated(uint256 offset, uint256 limit)
+        external
+        view
+        returns (address[] memory page)
+    {
+        if (limit > MAX_PAGINATED_LIMIT) revert PageLimitExceeded();
+        uint256 total = allCollections.length;
+        if (offset >= total || limit == 0) {
+            return new address[](0);
+        }
+        uint256 end = offset + limit;
+        if (end > total) end = total;
+        uint256 size = end - offset;
+        page = new address[](size);
+        for (uint256 i; i < size; ++i) {
+            page[i] = allCollections[offset + i];
+        }
     }
 
     // ─── Admin: Timelocked Fee Change ────────────────────────────────
@@ -247,7 +308,20 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
         emit ProtocolFeeProposed(newFeeBps, _executeAfter[FEE_CHANGE]);
     }
 
-    function executeProtocolFee() external onlyOwner {
+    /// @notice Execute a previously proposed fee change after the 48h timelock.
+    /// @dev AUDIT FIX: DEEP-LP-02: gated by `whenNotPaused` so a guardian-driven
+    ///      emergency pause halts in-flight execute paths during a compromised-key
+    ///      incident (the previous behavior allowed an `onlyOwner` execute to
+    ///      bypass the pause flag — making pause a no-op for the most dangerous
+    ///      setter sequence).
+    /// @dev AUDIT FIX: DEEP-LP-04: takes `expectedFeeBps` and asserts equality
+    ///      against `pendingProtocolFeeBps` so multisig signers can bind their
+    ///      approval to the exact value they reviewed. Mirrors the DropV2
+    ///      `executeMerkleRoot(bytes32 expectedRoot)` value-binding pattern.
+    /// @param expectedFeeBps The fee value the caller expects to land — must
+    ///                       equal `pendingProtocolFeeBps` or revert.
+    function executeProtocolFee(uint16 expectedFeeBps) external onlyOwner whenNotPaused {
+        if (pendingProtocolFeeBps != expectedFeeBps) revert FeeMismatch();
         _execute(FEE_CHANGE);
         uint16 oldFee = protocolFeeBps;
         protocolFeeBps = pendingProtocolFeeBps;
@@ -268,7 +342,16 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
         emit ProtocolFeeRecipientProposed(newRecipient, _executeAfter[FEE_RECIPIENT_CHANGE]);
     }
 
-    function executeProtocolFeeRecipient() external onlyOwner {
+    /// @notice Execute a previously proposed fee-recipient change after the 48h timelock.
+    /// @dev AUDIT FIX: DEEP-LP-02 + DEEP-LP-04 — see `executeProtocolFee`.
+    /// @param expectedRecipient The recipient the caller expects to land — must
+    ///                          equal `pendingProtocolFeeRecipient` or revert.
+    function executeProtocolFeeRecipient(address expectedRecipient)
+        external
+        onlyOwner
+        whenNotPaused
+    {
+        if (pendingProtocolFeeRecipient != expectedRecipient) revert RecipientMismatch();
         _execute(FEE_RECIPIENT_CHANGE);
         address old = protocolFeeRecipient;
         protocolFeeRecipient = pendingProtocolFeeRecipient;
@@ -279,8 +362,37 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
     function cancelProtocolFeeRecipient() external onlyOwner {
         _cancel(FEE_RECIPIENT_CHANGE);
         pendingProtocolFeeRecipient = address(0);
+        emit ProtocolFeeRecipientCancelled();
     }
 
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
+
+    // ─── Owner Management (2-step) ───────────────────────────────────
+    /// @notice AUDIT FIX: DEEP-LP-01: clear any in-flight FEE_CHANGE /
+    ///         FEE_RECIPIENT_CHANGE proposals at ownership-accept. The previous
+    ///         owner could otherwise hand off ownership with hostile fee /
+    ///         recipient proposals waiting in the queue, ready to execute as
+    ///         soon as the 48h delay elapsed — incoming owner inherits the
+    ///         booby-trap. Mirrors `TegridyDropV2.acceptOwnership` MERKLE_ROOT
+    ///         flush. Pattern of record: OZ Governor cancels pending proposals
+    ///         on guardian change; MakerDAO DSPause flushes plots when chief
+    ///         multisig changes.
+    /// @dev    Calls `super.acceptOwnership()` first so the Ownable2Step
+    ///         pendingOwner→owner promotion happens before we wipe any
+    ///         pending proposals (msg.sender is now the new owner; the typed
+    ///         events emit cleanly under their authority).
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[FEE_CHANGE] != 0) {
+            _cancel(FEE_CHANGE);
+            pendingProtocolFeeBps = 0;
+            emit ProtocolFeeCancelled();
+        }
+        if (_executeAfter[FEE_RECIPIENT_CHANGE] != 0) {
+            _cancel(FEE_RECIPIENT_CHANGE);
+            pendingProtocolFeeRecipient = address(0);
+            emit ProtocolFeeRecipientCancelled();
+        }
+    }
 }

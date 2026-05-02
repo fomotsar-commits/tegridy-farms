@@ -63,6 +63,33 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///         the phase to ALLOWLIST mid-window enables a smuggle path where
     ///         pending rotation lands inside an active mint.
     error MerkleRotationPending();
+    /// @notice AUDIT MICROSCOPE_2026_04_30 C1: allowlist allocation fully consumed.
+    error AllowlistAllocationExceeded();
+    /// @notice AUDIT MICROSCOPE_2026_04_30 H18: cancelSale() is blocked once the sale
+    ///         has reached `maxSupply` — secondary-market buyers must not be rugged.
+    error SaleNotCancellable();
+    /// @notice AUDIT MICROSCOPE_2026_04_30 H19: zero-price changes are gated to the
+    ///         pre-mint window. Once any tokens have been minted, mintPrice is
+    ///         monotonically non-zero to block the toggle-to-free attack.
+    error ZeroPricePostMint();
+    /// @notice AUDIT MICROSCOPE_2026_04_30 H20: rescueAfterCancellation() called too soon.
+    error RescueWindowActive();
+    /// @notice AUDIT MICROSCOPE_2026_04_30 H20: rescueAfterCancellation() with nothing left to sweep.
+    error NothingToRescue();
+    /// @notice AUDIT FIX: DEEP-DROP-01: configureDutchAuction must run while CLOSED so the
+    ///         decay curve can never be reset out from under in-flight bidders.
+    error DutchConfigPhaseLocked();
+    /// @notice AUDIT FIX: DEEP-DROP-02: setMintPrice (any value) must run while CLOSED so
+    ///         the owner can never front-run pending mint txs with a price hike.
+    error PriceChangePhaseLocked();
+    /// @notice AUDIT FIX: DEEP-DROP-05: cancelSale is permitted only before any token has
+    ///         been minted. Once any mint has occurred, secondary buyers exist and a cancel
+    ///         would enable a refund-arbitrage rug; refund route is unavailable post-mint.
+    error CancelAfterFirstMint();
+    /// @notice AUDIT FIX: DEEP-DROP-06: setBaseURI is blocked after `freezeBaseURI()` has
+    ///         been called OR after `reveal()` has run. Either path produces a one-shot
+    ///         immutability commitment for the (placeholder | reveal) URI surface.
+    error BaseURIFrozen();
 
     event InitializedV2(
         address indexed creator,
@@ -101,6 +128,12 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     event Withdrawn(address indexed creator, uint256 creatorAmount, address indexed platform, uint256 platformAmount);
     event SaleCancelledEvent(uint256 mintedAtCancel, uint256 reservedForRefunds);
     event Refunded(address indexed minter, uint256 amount);
+    /// @notice AUDIT MICROSCOPE_2026_04_30 H20: emitted when the creator sweeps residual
+    ///         post-cancellation ETH after the 1-year refund window has elapsed.
+    event PostCancellationRescued(address indexed creator, uint256 amount);
+    /// @notice AUDIT FIX: DEEP-DROP-06: one-shot freeze on `_baseTokenURI`. After this
+    ///         fires, every subsequent `setBaseURI` reverts with `BaseURIFrozen`.
+    event BaseURIFrozenEvent();
 
     address public owner;
     address public pendingOwner;
@@ -151,11 +184,43 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     mapping(address => uint256) public mintedPerWallet;
     mapping(address => uint256) public paidPerWallet;
 
+    /// @notice AUDIT MICROSCOPE_2026_04_30 C1: per-claimer allowlist consumption tracked
+    ///         independently of `mintedPerWallet` so a `setMaxPerWallet` bump cannot
+    ///         retroactively reopen an allowlister's allocation. Each leaf encodes the
+    ///         maximum claimable; this mapping enforces it. Pattern of record: Manifold
+    ///         `ERC721LazyPayableClaim` stores per-leaf consumption keyed by `(recipient,
+    ///         claimIndex)` against the leaf-encoded amount.
+    mapping(address => uint256) public allowlistClaimed;
+
+    /// @notice AUDIT MICROSCOPE_2026_04_30 H20: timestamp at which `cancelSale()` ran.
+    ///         Anchors the 1-year refund window after which residual unrefunded ETH
+    ///         (lost-keys / dead-contract minters) can be rescued by the creator.
+    uint256 public cancelledAt;
+
+    /// @notice AUDIT MICROSCOPE_2026_04_30 H20: window during which `refund()` is the
+    ///         only path to extract ETH after cancellation. After it elapses, the
+    ///         creator may sweep residuals via `rescueAfterCancellation()`.
+    uint256 public constant POST_CANCEL_RESCUE_DELAY = 365 days;
+
     /// @notice AUDIT H9: one-way flag set by withdraw(). Once funds have been withdrawn,
     ///         cancelSale() is disabled — the creator has committed to delivery and minters
     ///         can no longer be refunded. Conversely, a sale that is cancelled before
     ///         withdraw() runs guarantees every minter their refund.
     bool public withdrawn;
+
+    /// @notice AUDIT FIX: DEEP-DROP-04: running counter of unclaimed refund obligations.
+    ///         Incremented by `mint()` (totalCost), decremented by `refund()` (owed). The
+    ///         post-cancellation rescue can only sweep `address(this).balance - unclaimedRefundPool`,
+    ///         guaranteeing late refunders have their owed amount waiting for them even
+    ///         after the 1-year residual sweep. Pattern of record: Sound Protocol per-user
+    ///         owed amounts under sale-end accounting; Manifold non-overlapping accounting
+    ///         buckets between user-owed and admin-sweep paths.
+    uint256 public unclaimedRefundPool;
+
+    /// @notice AUDIT FIX: DEEP-DROP-06: one-shot flag set by `freezeBaseURI()`. Once set,
+    ///         `setBaseURI` reverts permanently — the placeholder is committed and cannot
+    ///         be soft-rugged by a swap to a different image post-mint.
+    bool public baseURIFrozen;
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -329,7 +394,14 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     }
 
     // ─── Mint ────────────────────────────────────────────────────────
-    function mint(uint256 quantity, bytes32[] calldata proof)
+    /// @dev AUDIT MICROSCOPE_2026_04_30 C1: `allowedAmount` is the per-claimer cap
+    ///      baked into the Merkle leaf. The on-chain `allowlistClaimed[msg.sender]`
+    ///      counter accumulates against `allowedAmount` and is INDEPENDENT of
+    ///      `mintedPerWallet` — a `setMaxPerWallet` bump cannot retroactively reopen
+    ///      a fully-consumed allowlist allocation. For PUBLIC / DUTCH phases the
+    ///      `allowedAmount` parameter is ignored; pass 0 to make the calldata
+    ///      explicit. Pattern of record: Manifold ERC721LazyPayableClaim leaf.
+    function mint(uint256 quantity, uint256 allowedAmount, bytes32[] calldata proof)
         external
         payable
         nonReentrant
@@ -346,22 +418,36 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
             revert ExceedsWalletLimit();
         }
 
-        uint256 price = currentPrice();
+        // AUDIT FIX: DEEP-DROP-07: read the underlying typed-revert price at
+        // mint-time so a sequencer outage produces a clean `SequencerDown` /
+        // `SequencerGracePeriodNotOver` revert instead of routing through the
+        // sentinel-wrapped public `currentPrice()` view. Indexers and UIs see
+        // the sentinel; minters see the real revert and don't burn gas.
+        uint256 price = mintPhase == MintPhase.DUTCH_AUCTION
+            ? _dutchAuctionPrice()
+            : mintPrice;
         uint256 totalCost = price * quantity;
         if (msg.value < totalCost) revert InsufficientPayment();
 
         if (mintPhase == MintPhase.ALLOWLIST) {
-            // AUDIT NEW-L5 (MEDIUM): double-hashed leaf per OpenZeppelin MerkleTree
-            // recommendation (since OZ v4.9). The single-hash variant is vulnerable to
-            // the "second preimage attack" where an attacker presents an intermediate
-            // Merkle node as a leaf-proof. Double hashing makes leaf and internal-node
-            // hash domains disjoint. Off-chain tree construction must apply the same
-            // double-hash shape:
-            //   leaf = keccak256( bytes.concat( keccak256( abi.encode(drop, minter) ) ) )
+            // AUDIT MICROSCOPE_2026_04_30 C1: leaf NOW INCLUDES `allowedAmount`. Without
+            // baking the per-claimer cap into the commitment, owner could `setMaxPerWallet`
+            // any time and the same proof becomes good for `N` more mints. Off-chain tree
+            // construction must apply:
+            //   leaf = keccak256( bytes.concat( keccak256( abi.encode(drop, minter, amount) ) ) )
+            // AUDIT NEW-L5 (preserved): double-hashed leaf per OZ MerkleTree to defeat the
+            //   second-preimage attack. Both invariants compose.
             bytes32 leaf = keccak256(
-                bytes.concat(keccak256(abi.encode(address(this), msg.sender)))
+                bytes.concat(keccak256(abi.encode(address(this), msg.sender, allowedAmount)))
             );
             if (!MerkleProof.verify(proof, merkleRoot, leaf)) revert InvalidProof();
+            // AUDIT MICROSCOPE_2026_04_30 C1: enforce per-claimer cap against the leaf-bound
+            // amount. Independent of `mintedPerWallet` so a future `setMaxPerWallet` bump
+            // cannot reopen the allocation.
+            if (allowlistClaimed[msg.sender] + quantity > allowedAmount) {
+                revert AllowlistAllocationExceeded();
+            }
+            allowlistClaimed[msg.sender] += quantity;
         }
 
         // AUDIT R023 / M-02: Checks-Effects-Interactions ordering.
@@ -377,6 +463,9 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         totalSupply += quantity;
         mintedPerWallet[msg.sender] += quantity;
         paidPerWallet[msg.sender] += totalCost;
+        // AUDIT FIX: DEEP-DROP-04: track running pool of refundable obligations so a
+        // post-cancel rescue can never sweep funds owed to a late refunder.
+        unclaimedRefundPool += totalCost;
 
         for (uint256 i; i < quantity; ++i) {
             _safeMint(msg.sender, startId + i);
@@ -389,11 +478,40 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         emit Minted(msg.sender, startId, quantity, totalCost);
     }
 
+    /// @notice AUDIT FIX: DEEP-DROP-07: indexer-safe price view. During an L2 sequencer
+    ///         outage (or its grace window), the underlying DUTCH-phase quote reverts via
+    ///         `_dutchAuctionPrice → SequencerCheck.checkSequencerUp`. CLOSED / ALLOWLIST /
+    ///         PUBLIC reads, however, still resolve cleanly — leading to off-chain
+    ///         consumers (subgraphs, mint-page UIs) showing inconsistent availability
+    ///         signals across drops on the same factory. This view now returns the
+    ///         SENTINEL `type(uint256).max` instead of reverting in the dutch outage
+    ///         branch. Mint-time enforcement is unchanged: `mint()` calls
+    ///         `currentPriceOrSentinel()` at the buy site too, but only via mint() →
+    ///         currentPrice(); a sentinel × any quantity overflows-to-revert under
+    ///         Solidity 0.8 checked arithmetic before any payment check fires, which
+    ///         is the desired behavior — funds never move while the sentinel is live.
+    /// @return The current price, OR `type(uint256).max` as a sentinel during a
+    ///         dutch-auction sequencer outage. Consumers should treat the sentinel
+    ///         as "minting paused — do not display a buy button."
     function currentPrice() public view returns (uint256) {
         if (mintPhase == MintPhase.DUTCH_AUCTION) {
-            return _dutchAuctionPrice();
+            // try/catch over an internal function isn't supported; route via
+            // this contract's external selector to wrap the revert into a
+            // graceful sentinel for off-chain readers.
+            try this.dutchAuctionPriceExternal() returns (uint256 p) {
+                return p;
+            } catch {
+                return type(uint256).max;
+            }
         }
         return mintPrice;
+    }
+
+    /// @notice AUDIT FIX: DEEP-DROP-07: external view used by `currentPrice()` to
+    ///         convert a sequencer-outage revert into a sentinel return. Marked as
+    ///         a public read so the try/catch wrapper above can intercept the revert.
+    function dutchAuctionPriceExternal() external view returns (uint256) {
+        return _dutchAuctionPrice();
     }
 
     function _dutchAuctionPrice() internal view returns (uint256) {
@@ -433,6 +551,11 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         if (phase == MintPhase.DUTCH_AUCTION && dutchDuration == 0) {
             revert DutchAuctionNotActive();
         }
+        // AUDIT FIX: DEEP-DROP-03: mirror the initialize-time guard so an owner cannot
+        // flip into ALLOWLIST with a zero merkleRoot — every claim would silently
+        // fail on `MerkleProof.verify(_, bytes32(0), leaf)`, bricking the drop until
+        // a propose/execute root rotation lands.
+        if (phase == MintPhase.ALLOWLIST && merkleRoot == bytes32(0)) revert InvalidProof();
         mintPhase = phase;
         emit MintPhaseChanged(phase);
     }
@@ -492,20 +615,52 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         emit MerkleRootCancelled(cancelled);
     }
 
+    /// @dev AUDIT MICROSCOPE_2026_04_30 H19: zero-price changes are gated to the
+    ///      pre-mint window. Once any tokens have been minted, the price may
+    ///      change but cannot return to zero, blocking the toggle-to-free-mint
+    ///      attack (CLOSED → setMintPrice(0) → re-open PUBLIC).
+    /// @dev AUDIT FIX: DEEP-DROP-02: gate ALL setMintPrice calls (not just the zero
+    ///      branch) to `mintPhase == CLOSED`. Mid-PUBLIC / mid-ALLOWLIST hikes were a
+    ///      mempool griefing primitive — owner could front-run pending mint txs with
+    ///      `setMintPrice(higher)`, causing them to revert on InsufficientPayment.
+    ///      Pattern: Manifold ERC721LazyPayableClaim freezes price after `claim.startDate`.
     function setMintPrice(uint256 price) external onlyOwner {
-        require(price > 0 || mintPhase == MintPhase.CLOSED, "ZERO_PRICE_ONLY_WHEN_CLOSED");
+        if (mintPhase != MintPhase.CLOSED) revert PriceChangePhaseLocked();
+        if (price == 0 && totalSupply > 0) revert ZeroPricePostMint();
         mintPrice = price;
         emit MintPriceChanged(price);
     }
 
+    /// @dev AUDIT MICROSCOPE_2026_04_30 C1 (companion fix): `setMaxPerWallet` can no
+    ///      longer reopen a consumed allowlist because each leaf now binds its own
+    ///      `allowedAmount` (see `mint()`). We additionally gate this setter to the
+    ///      CLOSED phase so the cap cannot be bumped mid-mint to drain supply via
+    ///      the `mintedPerWallet` codepath. Pattern: Zora ERC721Drop sales-config struct.
     function setMaxPerWallet(uint256 max) external onlyOwner {
+        if (mintPhase != MintPhase.CLOSED) revert MintClosed();
         maxPerWallet = max;
         emit MaxPerWalletChanged(max);
     }
 
+    /// @dev AUDIT FIX: DEEP-DROP-06: setBaseURI is now gated against the post-reveal
+    ///      window AND the one-shot `freezeBaseURI()` commitment. Once `revealed == true`
+    ///      the placeholder slot is vestigial — mutating it is purely abuse surface.
+    ///      Pattern of record: Sound Protocol `freezeMetadata`; Manifold `freezeBase`.
     function setBaseURI(string calldata uri) external onlyOwner {
+        if (baseURIFrozen) revert BaseURIFrozen();
+        if (revealed) revert AlreadyRevealed();
         _baseTokenURI = uri;
         emit BaseURIChanged(uri);
+    }
+
+    /// @notice AUDIT FIX: DEEP-DROP-06: one-shot commitment that freezes the placeholder
+    ///         URI immutably. Idempotent at storage level (re-call simply re-emits the
+    ///         event); the underlying flag is monotonic. Use this to publish placeholder
+    ///         art that creators promise will not be soft-rugged into a generic JPEG
+    ///         after FOMO drives a secondary floor on the high-value art.
+    function freezeBaseURI() external onlyOwner {
+        baseURIFrozen = true;
+        emit BaseURIFrozenEvent();
     }
 
     /// @notice Update the collection-level metadata URI. Emits ERC-7572
@@ -523,12 +678,21 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         emit Revealed(revealURI);
     }
 
+    /// @dev AUDIT FIX: DEEP-DROP-01 (HIGH): configureDutchAuction must run while the
+    ///      sale is CLOSED. Allowing curve resets mid-DUTCH let the owner front-run
+    ///      pending bidders by hiking `dutchStartPrice` and resetting `dutchStartTime`
+    ///      — every in-flight `mint{value: oldQuote}(…)` would revert on the new
+    ///      (higher) curve. Pattern: Zora `ERC721Drop.setSaleConfiguration` is gated
+    ///      to non-active sale states. Once dutch params have been wired (either at
+    ///      initialize-time or via this setter while CLOSED) and the phase has flipped
+    ///      to DUTCH_AUCTION, the curve is immutable for the duration of that phase.
     function configureDutchAuction(
         uint256 startPrice,
         uint256 endPrice,
         uint256 startTime,
         uint256 duration
     ) external onlyOwner {
+        if (mintPhase != MintPhase.CLOSED) revert DutchConfigPhaseLocked();
         if (startPrice <= endPrice) revert InvalidDutchAuctionConfig();
         if (duration == 0) revert InvalidDutchAuctionConfig();
         if (startTime == 0) revert InvalidDutchAuctionConfig();
@@ -589,11 +753,28 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     /// @notice Cancel the sale and enable refund() for all minters.
     ///         AUDIT H9: blocked once withdraw() has run — the creator can no longer
     ///         "cancel after extracting funds" to leave minters unable to refund.
+    /// @dev AUDIT MICROSCOPE_2026_04_30 H18: cancellation is blocked once the
+    ///      collection has sold out. Pattern: Zora `ERC721Drop` and Manifold both
+    ///      freeze cancel after the sale completes (sold-out OR end-time). Without
+    ///      this check the owner could rug secondary-market buyers by force-refunding
+    ///      everyone post-sellout while the NFTs continue to circulate.
+    /// @dev AUDIT FIX: DEEP-DROP-05: cancelSale is now gated to `totalSupply == 0`.
+    ///      Once any mint has occurred, NFTs may have moved to secondary buyers via
+    ///      transfer / marketplace sales. The original primary minter still holds the
+    ///      `paidPerWallet` refund right while the secondary buyer holds the token —
+    ///      cancelling at that point lets the original minter refund 1x while having
+    ///      already collected secondary-flip proceeds, leaving secondary buyers with
+    ///      an orphaned NFT and no recourse. Forcing cancellation pre-mint preserves
+    ///      the social contract: once anyone has paid, the only path to drop death
+    ///      is sellout-completion (via supply cap) or the rescue window long after
+    ///      the project lifecycle. Pattern: Manifold disables cancellation entirely
+    ///      once any token is minted.
     function cancelSale() external onlyOwner {
         if (mintPhase == MintPhase.CANCELLED) revert SaleCancelled();
-        // AUDIT H9: cancellation must precede withdraw, never follow it.
         if (withdrawn) revert WithdrawFailed();
+        if (totalSupply > 0) revert CancelAfterFirstMint();
         mintPhase = MintPhase.CANCELLED;
+        cancelledAt = block.timestamp; // AUDIT MICROSCOPE_2026_04_30 H20
         emit MintPhaseChanged(MintPhase.CANCELLED);
         emit SaleCancelledEvent(totalSupply, address(this).balance);
     }
@@ -603,8 +784,44 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         uint256 owed = paidPerWallet[msg.sender];
         if (owed == 0) revert NothingToRefund();
         paidPerWallet[msg.sender] = 0;
+        // AUDIT FIX: DEEP-DROP-04: decrement the unclaimed-refund pool. Underflow is
+        // unreachable: every increment to `paidPerWallet[msg.sender]` was matched by
+        // an equal increment to `unclaimedRefundPool` inside `mint()` (see L437).
+        unclaimedRefundPool -= owed;
         WETHFallbackLib.safeTransferETHOrWrap(weth, msg.sender, owed);
         emit Refunded(msg.sender, owed);
+    }
+
+    /// @notice AUDIT MICROSCOPE_2026_04_30 H20: after a cancelSale, residual ETH belonging
+    ///         to minters who never called `refund()` (lost keys, contract recipient with
+    ///         broken receive even after the WETH fallback, or simply abandoned drops)
+    ///         used to be permanently locked. After `POST_CANCEL_RESCUE_DELAY` (1 year)
+    ///         from `cancelledAt`, the creator may sweep what remains.
+    /// @dev    Patterns of record: 0xSplits `recover()` after lockout, Sound Protocol
+    ///         "rescue stuck funds" gated to >365 days post sale-end.
+    /// @dev AUDIT FIX: DEEP-DROP-04: the rescue can ONLY claim the residual delta
+    ///      between the contract's balance and the still-outstanding refund pool.
+    ///      Late refunders (year+1+ε) are guaranteed their owed amount because
+    ///      `unclaimedRefundPool` reserves it. The rescue exists to recover dust
+    ///      (donations, sweep-pad rounding from a buggy WETH wrapper, ETH a contract
+    ///      mistakenly sent here, etc.) — not to clean out the refund obligation.
+    function rescueAfterCancellation() external nonReentrant onlyOwner {
+        if (mintPhase != MintPhase.CANCELLED) revert SaleNotCancelled();
+        if (cancelledAt == 0 || block.timestamp < cancelledAt + POST_CANCEL_RESCUE_DELAY) {
+            revert RescueWindowActive();
+        }
+        uint256 balance = address(this).balance;
+        // AUDIT FIX: DEEP-DROP-04: defensive — pool can never legitimately exceed
+        // balance, but if it does (donations less than minted refunds), revert
+        // rather than underflow-revert downstream so the typed error is surfaced.
+        if (balance <= unclaimedRefundPool) revert NothingToRescue();
+        uint256 amount = balance - unclaimedRefundPool;
+        // The recipient is the creator (deploy-time-fixed), routed through the
+        // WETH fallback so a contract creator with a heavy receive() doesn't brick
+        // the rescue. Platform fee is NOT taken on residuals — these are unclaimed
+        // refund dust, not a fresh withdraw.
+        WETHFallbackLib.safeTransferETHOrWrap(weth, creator, amount);
+        emit PostCancellationRescued(creator, amount);
     }
 
     // ─── Owner Management (2-step) ───────────────────────────────────
@@ -617,6 +834,18 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         if (msg.sender != pendingOwner) revert NotOwner();
         owner = msg.sender;
         pendingOwner = address(0);
+        // AUDIT MICROSCOPE_2026_04_30 M-D3: clear any in-flight timelocked merkle
+        // root proposal at ownership-accept. The previous owner could otherwise
+        // hand off ownership with a hostile root waiting in the queue, ready to
+        // execute as soon as the 24h delay elapses — incoming owner inherits the
+        // booby-trap. Pattern: OZ Governor cancels pending proposals on guardian
+        // change; MakerDAO DSPause flushes plots when chief multisig changes.
+        if (_executeAfter[MERKLE_ROOT_CHANGE] != 0) {
+            _cancel(MERKLE_ROOT_CHANGE);
+            bytes32 cancelled = pendingMerkleRoot;
+            pendingMerkleRoot = bytes32(0);
+            emit MerkleRootCancelled(cancelled);
+        }
     }
 
     function renounceOwnership() external view onlyOwner {

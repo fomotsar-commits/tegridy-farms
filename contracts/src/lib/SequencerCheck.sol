@@ -45,7 +45,7 @@ interface IChainlinkAggregator {
 /// Consumers MUST store the feed address as `immutable` (single-write, set in
 /// constructor) and pass `address(0)` for chains without an L2 sequencer.
 library SequencerCheck {
-    /// @dev Reverted when the sequencer is currently reporting "down" (answer == 1).
+    /// @dev Reverted when the sequencer is currently reporting "down" (answer != 0).
     error SequencerDown();
 
     /// @dev Reverted when the sequencer just resumed but the post-resume grace window
@@ -53,38 +53,179 @@ library SequencerCheck {
     ///      consumers trust the price.
     error SequencerGracePeriodNotOver();
 
+    /// @notice AUDIT MICROSCOPE_2026_04_30 M-Lib2 / DEEP-LIB-M3: max acceptable
+    ///         staleness on the uptime feed itself. Chainlink's L2 uptime feed is
+    ///         keeper-updated; if the keeper lapses, `latestRoundData` returns a
+    ///         previously-cached round whose `answer` may no longer reflect reality.
+    ///         Aave V3 `PriceOracleSentinel` and the Chainlink "Handling Outages"
+    ///         docs require `block.timestamp - updatedAt <= MAX_FEED_STALENESS`
+    ///         AND `answeredInRound >= roundId` to defend against this. 24h matches
+    ///         Aave's stable-asset default.
+    /// @dev    DEEP-LIB-M3: per-consumer tuning is offered through the `staleness`
+    ///         overload of `checkSequencerUp`. Lending / drop pricing should pick a
+    ///         tighter window (e.g. 4h) so a keeper lapse trips earlier on
+    ///         price-sensitive paths.
+    uint256 internal constant MAX_FEED_STALENESS = 24 hours;
+
+    // ─── Reasons reported by `tryCheckSequencerUp` (DEEP-LIB-M6) ─────
+    /// @dev Sequencer is up AND the post-resume grace window elapsed. Consumer
+    ///      may safely consume the price/observation.
+    uint8 internal constant TRY_OK = 0;
+    /// @dev Round is not yet initialized (`updatedAt == 0`). Treat as "down".
+    uint8 internal constant TRY_ROUND_UNINIT = 1;
+    /// @dev `answeredInRound < roundId` — the answer pre-dates the round.
+    uint8 internal constant TRY_STALE_ROUND = 2;
+    /// @dev `block.timestamp - updatedAt > staleness` — keeper lapse.
+    uint8 internal constant TRY_KEEPER_LAPSED = 3;
+    /// @dev `answer != 0` — sequencer reporting down.
+    uint8 internal constant TRY_SEQ_DOWN = 4;
+    /// @dev `startedAt == 0` — round not yet initialized for the up answer.
+    uint8 internal constant TRY_NO_RESUME = 5;
+    /// @dev `block.timestamp - startedAt < gracePeriod` — within grace window.
+    uint8 internal constant TRY_IN_GRACE = 6;
+
     /// @notice Revert if the L2 sequencer is down or within `gracePeriod` of resume.
     /// @dev    Pass `feed == address(0)` to no-op (Ethereum mainnet and any chain
     ///         without a sequencer concept). `gracePeriod` is the buffer in seconds
     ///         after resume during which reads are still rejected; recommended value
     ///         is 1 hour (matches Aave V3 default for stable assets) but consumers
     ///         may tune up/down per use case.
+    /// @dev    AUDIT FIX: DEEP-LIB-M3 — defaults to `MAX_FEED_STALENESS` (24h);
+    ///         price-sensitive consumers can use the 3-argument overload to pass
+    ///         a tighter staleness window.
     /// @param  feed         Chainlink L2 Sequencer Uptime feed address (or 0 for no-op).
     /// @param  gracePeriod  Seconds after sequencer resume during which reads still revert.
     function checkSequencerUp(address feed, uint256 gracePeriod) internal view {
+        checkSequencerUp(feed, gracePeriod, MAX_FEED_STALENESS);
+    }
+
+    /// @notice AUDIT FIX: DEEP-LIB-M3 — overload that accepts a per-call
+    ///         staleness window. Lending valuation, drop dutch-auction
+    ///         pricing, and POL accumulator should call this with a tighter
+    ///         window (e.g. 4h) so a Chainlink keeper outage trips before
+    ///         the cached uptime answer drifts past safe-to-trust.
+    /// @param  feed         Chainlink L2 Sequencer Uptime feed address (or 0 for no-op).
+    /// @param  gracePeriod  Seconds after sequencer resume during which reads still revert.
+    /// @param  staleness    Max acceptable `block.timestamp - updatedAt` on the feed.
+    function checkSequencerUp(address feed, uint256 gracePeriod, uint256 staleness) internal view {
         // Mainnet / non-L2 deployments: feed = address(0) → skip entirely.
         if (feed == address(0)) return;
 
         (
-            /* uint80 roundId */,
+            uint80 roundId,
             int256 answer,
             uint256 startedAt,
-            /* uint256 updatedAt */,
-            /* uint80 answeredInRound */
+            uint256 updatedAt,
+            uint80 answeredInRound
         ) = IChainlinkAggregator(feed).latestRoundData();
 
-        // answer == 1 → sequencer is reporting "down" right now.
-        if (answer == 1) revert SequencerDown();
+        // AUDIT MICROSCOPE_2026_04_30 M-Lib2: round-validity / freshness checks
+        // PRECEDE the up/down decision so a stale feed can never fall through the
+        // `answer != 0` branch with a cached "up" reading. Pattern of record:
+        // Aave V3 PriceOracleSentinel + Chainlink "Handling Outages" docs.
+        if (updatedAt == 0) revert SequencerGracePeriodNotOver(); // round not initialized
+        if (answeredInRound < roundId) revert SequencerDown();    // answer pre-dates round
+        if (block.timestamp - updatedAt > staleness) revert SequencerDown(); // keeper lapse
 
-        // Sequencer is up (answer == 0) BUT we additionally require that it has
-        // been up for at least `gracePeriod` seconds. `startedAt` is the timestamp
-        // at which the current `answer` was set, i.e. when the sequencer most
-        // recently transitioned to "up". A startedAt of 0 means "no round yet"
-        // (round-not-initialized) and we treat that conservatively as "in grace".
+        // AUDIT MICROSCOPE_2026_04_30 M-Lib3: strict equality to UP. Pre-fix
+        // `answer == 1` only treats exactly 1 as down — values like 2 (a future
+        // "degraded" extension), -1 (typed-bug from a bridged feed), etc. would
+        // pass through as "up". The spec says `0` is up; canonical pattern is
+        // `answer != 0` → fail closed. Aligned with `getResumeTimestamp` below.
+        if (answer != 0) revert SequencerDown();
+
+        // Sequencer is up. Additionally require it has been up for at least
+        // `gracePeriod` seconds. A `startedAt` of 0 is treated as "no round yet".
         if (startedAt == 0) revert SequencerGracePeriodNotOver();
         if (block.timestamp - startedAt < gracePeriod) {
             revert SequencerGracePeriodNotOver();
         }
+    }
+
+    /// @notice AUDIT FIX: DEEP-LIB-M6 — non-reverting sister of `checkSequencerUp`.
+    ///         Returns `(ok, reason)` instead of reverting so view paths
+    ///         (indexers, frontend `eth_call` simulators, aggregator quote paths)
+    ///         can degrade gracefully during a sequencer outage instead of
+    ///         gas-bombing every read.
+    /// @dev    Security-critical write paths (lending liquidation, drop pricing,
+    ///         POL harvest) MUST keep using the reverting `checkSequencerUp`.
+    ///         This helper is for soft-fail UX scenarios only.
+    /// @param  feed         Chainlink L2 Sequencer Uptime feed address (or 0 for no-op).
+    /// @param  gracePeriod  Seconds after sequencer resume during which reads are still considered "in grace".
+    /// @return ok           True iff the sequencer is up and outside the grace window.
+    /// @return reason       One of TRY_OK..TRY_IN_GRACE describing the failure mode (TRY_OK on success).
+    function tryCheckSequencerUp(address feed, uint256 gracePeriod)
+        internal
+        view
+        returns (bool ok, uint8 reason)
+    {
+        return tryCheckSequencerUp(feed, gracePeriod, MAX_FEED_STALENESS);
+    }
+
+    /// @notice AUDIT FIX: DEEP-LIB-M6 — overload that accepts a per-call staleness window.
+    function tryCheckSequencerUp(address feed, uint256 gracePeriod, uint256 staleness)
+        internal
+        view
+        returns (bool ok, uint8 reason)
+    {
+        if (feed == address(0)) return (true, TRY_OK);
+
+        (
+            uint80 roundId,
+            int256 answer,
+            uint256 startedAt,
+            uint256 updatedAt,
+            uint80 answeredInRound
+        ) = IChainlinkAggregator(feed).latestRoundData();
+
+        if (updatedAt == 0) return (false, TRY_ROUND_UNINIT);
+        if (answeredInRound < roundId) return (false, TRY_STALE_ROUND);
+        if (block.timestamp - updatedAt > staleness) return (false, TRY_KEEPER_LAPSED);
+        if (answer != 0) return (false, TRY_SEQ_DOWN);
+        if (startedAt == 0) return (false, TRY_NO_RESUME);
+        if (block.timestamp - startedAt < gracePeriod) return (false, TRY_IN_GRACE);
+        return (true, TRY_OK);
+    }
+
+    /// @notice AUDIT FIX: DEEP-LIB-H2 — canonical "should we extend the grace
+    ///         window?" helper for non-revert contexts. Returns `buffer` if
+    ///         the sequencer is currently down OR within `buffer` of resume,
+    ///         otherwise 0. Same staleness/direction gates as
+    ///         `checkSequencerUp` so re-implementations elsewhere in the
+    ///         protocol can be retired in favour of this single source of
+    ///         truth (closes the M-Lib3 sibling-miss in MemeBountyBoard's
+    ///         duplicated `_sequencerBuffer`).
+    /// @dev    Used by bounty refund / emergency-cancel windows that widen
+    ///         the grace period when an L2 sequencer outage prevented honest
+    ///         participation. Returns 0 when `feed == address(0)` (mainnet no-op).
+    /// @param  feed   Chainlink L2 Sequencer Uptime feed address (or 0 for no-op).
+    /// @param  buffer Seconds to extend the grace window when an outage is
+    ///                detected. Returned as-is on outage; 0 otherwise.
+    function getSequencerOutageBuffer(address feed, uint256 buffer)
+        internal
+        view
+        returns (uint256)
+    {
+        if (feed == address(0)) return 0;
+
+        (
+            uint80 roundId,
+            int256 answer,
+            uint256 startedAt,
+            uint256 updatedAt,
+            uint80 answeredInRound
+        ) = IChainlinkAggregator(feed).latestRoundData();
+
+        // Mirror the same fail-closed gates as `checkSequencerUp`. Any feed
+        // anomaly (uninitialized round, stale answer, keeper lapse, non-zero
+        // answer, missing startedAt) is treated as "outage" → return buffer.
+        if (updatedAt == 0) return buffer;                                 // round not initialized
+        if (answeredInRound < roundId) return buffer;                      // answer pre-dates round
+        if (block.timestamp - updatedAt > MAX_FEED_STALENESS) return buffer; // keeper lapse
+        if (answer != 0) return buffer;                                    // sequencer down
+        if (startedAt == 0) return buffer;                                 // no round yet
+        if (block.timestamp - startedAt < buffer) return buffer;           // within grace
+        return 0;
     }
 
     /// @notice AUDIT R014 H-6: return the wall-clock timestamp at which the
@@ -95,23 +236,7 @@ library SequencerCheck {
     ///         the post-resume grace window has elapsed. It does NOT expose
     ///         WHEN the resume happened — so a downstream consumer can pass the
     ///         gate while still consuming a stale oracle observation that
-    ///         pre-dates the resume. This is the core H-6 staleness gap:
-    ///
-    ///           t0:   sequencer goes down
-    ///           t0+1: TWAP `update()` records observation O1 (pre-outage spot)
-    ///           t1:   sequencer resumes (`startedAt = t1`)
-    ///           t1+G: grace window elapses; `checkSequencerUp` now passes
-    ///                 — but a `consult()` here would still average over O1,
-    ///                 which reflects pre-outage reserves. An attacker who
-    ///                 watched the outage queue can extract value the moment
-    ///                 the gate opens, BEFORE a fresh observation lands.
-    ///
-    ///         Consumers that have access to a per-observation timestamp (POL,
-    ///         lending oracle, drop dutch price) should call this helper after
-    ///         `checkSequencerUp` and reject reads where the observation
-    ///         timestamp is older than `resumeAt + gracePeriod`. Mirrors
-    ///         Aave V3's `PriceOracleSentinel` "isAnswerNotStale" extension.
-    ///
+    ///         pre-dates the resume. This is the core H-6 staleness gap.
     /// @param  feed Chainlink L2 Sequencer Uptime feed address.
     /// @return resumeAt The `startedAt` of the latest round (i.e. when the
     ///         current `answer` was posted). Zero if the sequencer is currently
@@ -124,12 +249,19 @@ library SequencerCheck {
         if (feed == address(0)) return 0;
 
         (
-            /* uint80 roundId */,
+            uint80 roundId,
             int256 answer,
             uint256 startedAt,
-            /* uint256 updatedAt */,
-            /* uint80 answeredInRound */
+            uint256 updatedAt,
+            uint80 answeredInRound
         ) = IChainlinkAggregator(feed).latestRoundData();
+
+        // AUDIT MICROSCOPE_2026_04_30 M-Lib2: same freshness gates as
+        // `checkSequencerUp`. A stale uptime feed must NOT contribute a
+        // post-resume timestamp that consumers then trust as "fresh enough".
+        if (updatedAt == 0) return 0;
+        if (answeredInRound < roundId) return 0;
+        if (block.timestamp - updatedAt > MAX_FEED_STALENESS) return 0;
 
         // If the sequencer is currently down, there is no meaningful "resume"
         // timestamp — return 0 and let `checkSequencerUp` produce the typed

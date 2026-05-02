@@ -39,6 +39,20 @@ contract TegridyTokenURIReader {
     }
 
     function tokenURI(uint256 tokenId) external view returns (string memory) {
+        // AUDIT FIX: DEEP-URI-02: enforce EIP-721 — `tokenURI(_tokenId)` MUST
+        // throw for non-existent NFTs. Without this, the reader synthesises
+        // valid-looking JSON for any tokenId (including unminted IDs), which
+        // is a phishing surface: a scammer crafts a fake marketplace listing
+        // for tsTOWELI #999999 and the reader produces a normal-looking
+        // metadata response. OZ ERC721 reverts in `ownerOf` for non-existent
+        // tokens, so we wrap in try/catch to surface a typed `NONEXISTENT`
+        // revert regardless of the upstream error type.
+        try staking.ownerOf(tokenId) returns (address holder) {
+            require(holder != address(0), "NONEXISTENT");
+        } catch {
+            revert("NONEXISTENT");
+        }
+
         (
             uint256 amount, , ,
             uint64 lockEnd, uint16 boostBps, uint32 lockDuration,
@@ -82,16 +96,40 @@ contract TegridyTokenURIReader {
         return string.concat(whole.toString(), ".", fracStr, "x");
     }
 
+    /// @notice AUDIT MICROSCOPE_2026_04_30 H22: stable status enum for the JSON
+    ///         payload. Returning a time-dependent countdown ("5d left" / "12h left")
+    ///         caused the encoded `tokenURI` data URI to mutate every block, which
+    ///         drives off-chain caches (OpenSea, IPFS pinners, indexers that hash
+    ///         the URI) into thrash mode — they re-fetch on every change and bill
+    ///         the protocol's RPC quota. Discrete enum {Flexible, Auto-Max,
+    ///         Active, Expired} flips at most once per position lifecycle. SVG
+    ///         consumers that want countdown data should query `lockEnd` directly
+    ///         and render off-chain.
+    /// @dev    AUDIT FIX: DEEP-URI-03 (INFO): `_lockStatus` flips exactly once
+    ///         per position lifetime — at the `block.timestamp >= lockEnd`
+    ///         boundary. Indexers and IPFS pinners that hash the encoded data
+    ///         URI to detect content changes will see a single hash mutation
+    ///         around the lockEnd block, then permanent stability thereafter.
+    ///         This is bounded behavior; any future contributor adding a
+    ///         time-dependent field (e.g., "days remaining," "epoch number")
+    ///         MUST keep the same single-flip property or this guarantee
+    ///         degrades. Optionally: emit an off-chain-monitorable event from
+    ///         the staking contract on lockEnd transition so consumers can
+    ///         subscribe rather than poll.
     function _lockStatus(uint64 lockEnd, bool autoMaxLock) internal view returns (string memory) {
         if (autoMaxLock) return "Auto-Max";
         if (lockEnd == 0) return "Flexible";
         if (block.timestamp >= lockEnd) return "Expired";
-        uint256 remaining = lockEnd - block.timestamp;
-        uint256 days_ = remaining / 86400;
-        if (days_ > 0) return string.concat(days_.toString(), "d left");
-        uint256 hours_ = remaining / 3600;
-        return string.concat(hours_.toString(), "h left");
+        return "Active";
     }
+
+    // AUDIT FIX: DEEP-URI-01 (INFO): removed unused `_jsonEscape` helper. It was
+    // a forward-looking guard for a string-injection vector that does not exist
+    // today (every field in `_buildJSON` is numeric / constant). Keeping it
+    // defined-but-uncalled is a footgun: a future contributor adding a string
+    // field has no compile-time signal to wrap it. Re-add IN THE SAME PR that
+    // introduces any attacker-controlled string so reviewers see both halves
+    // together. Pattern of record: lazy guards live with their callers.
 
     function _buildSVG(
         uint256 tokenId, uint256 amount, uint16 boostBps,
