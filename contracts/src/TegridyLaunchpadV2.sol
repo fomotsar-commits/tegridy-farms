@@ -31,6 +31,12 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
     /// @notice AUDIT FIX: DEEP-LP-04: caller's expected recipient did not match
     ///         the currently-pending recipient.
     error RecipientMismatch();
+    /// @notice AUDIT FIX: V2-LP-01: caller's `expectedExecuteAfter` did not match the
+    ///         currently-stored `_executeAfter[FEE_CHANGE]` / `_executeAfter[FEE_RECIPIENT_CHANGE]`.
+    ///         Closes the cancel → re-propose with same value but different ETA race
+    ///         where the original signer could have unwittingly executed the second
+    ///         proposal because the value-binding alone matched.
+    error ExecuteAfterMismatch();
     /// @notice AUDIT FIX: DEEP-LP-03: pagination request exceeded the per-call
     ///         maximum (1000 collections / page).
     error PageLimitExceeded();
@@ -318,10 +324,24 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
     ///      against `pendingProtocolFeeBps` so multisig signers can bind their
     ///      approval to the exact value they reviewed. Mirrors the DropV2
     ///      `executeMerkleRoot(bytes32 expectedRoot)` value-binding pattern.
-    /// @param expectedFeeBps The fee value the caller expects to land — must
-    ///                       equal `pendingProtocolFeeBps` or revert.
-    function executeProtocolFee(uint16 expectedFeeBps) external onlyOwner whenNotPaused {
+    /// @dev AUDIT FIX: V2-LP-01: ALSO takes `expectedExecuteAfter` to bind execution
+    ///      to a specific proposal-creation timestamp. Without this, a cancel →
+    ///      re-propose-with-same-value race could land the SECOND proposal under a
+    ///      signer's approval of the FIRST. Pattern of record: OZ Governor
+    ///      `execute(targets, values, calldatas, descriptionHash)` binds to the full
+    ///      proposal identity hash, not just constituent values.
+    /// @param expectedFeeBps        The fee value the caller expects to land — must
+    ///                              equal `pendingProtocolFeeBps` or revert.
+    /// @param expectedExecuteAfter  The `_executeAfter[FEE_CHANGE]` value the caller
+    ///                              expects — must equal current storage or revert.
+    function executeProtocolFee(uint16 expectedFeeBps, uint256 expectedExecuteAfter)
+        external
+        onlyOwner
+        whenNotPaused
+    {
         if (pendingProtocolFeeBps != expectedFeeBps) revert FeeMismatch();
+        // AUDIT FIX: V2-LP-01: bind execution to the specific proposal ETA the signer reviewed.
+        if (_executeAfter[FEE_CHANGE] != expectedExecuteAfter) revert ExecuteAfterMismatch();
         _execute(FEE_CHANGE);
         uint16 oldFee = protocolFeeBps;
         protocolFeeBps = pendingProtocolFeeBps;
@@ -343,15 +363,19 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
     }
 
     /// @notice Execute a previously proposed fee-recipient change after the 48h timelock.
-    /// @dev AUDIT FIX: DEEP-LP-02 + DEEP-LP-04 — see `executeProtocolFee`.
-    /// @param expectedRecipient The recipient the caller expects to land — must
-    ///                          equal `pendingProtocolFeeRecipient` or revert.
-    function executeProtocolFeeRecipient(address expectedRecipient)
+    /// @dev AUDIT FIX: DEEP-LP-02 + DEEP-LP-04 + V2-LP-01 — see `executeProtocolFee`.
+    /// @param expectedRecipient    The recipient the caller expects to land — must
+    ///                             equal `pendingProtocolFeeRecipient` or revert.
+    /// @param expectedExecuteAfter The `_executeAfter[FEE_RECIPIENT_CHANGE]` value the
+    ///                             caller expects — must equal current storage or revert.
+    function executeProtocolFeeRecipient(address expectedRecipient, uint256 expectedExecuteAfter)
         external
         onlyOwner
         whenNotPaused
     {
         if (pendingProtocolFeeRecipient != expectedRecipient) revert RecipientMismatch();
+        // AUDIT FIX: V2-LP-01: bind execution to the specific proposal ETA the signer reviewed.
+        if (_executeAfter[FEE_RECIPIENT_CHANGE] != expectedExecuteAfter) revert ExecuteAfterMismatch();
         _execute(FEE_RECIPIENT_CHANGE);
         address old = protocolFeeRecipient;
         protocolFeeRecipient = pendingProtocolFeeRecipient;

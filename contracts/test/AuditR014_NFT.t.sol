@@ -338,8 +338,12 @@ contract AuditR014_NFT_Test is Test {
         // setter that touches drop state: each one returns and `weth` is
         // unchanged. Any future setter that mutates `weth` would break
         // this assertion (intentional canary for the L-4 invariant).
+        // AUDIT FIX: V2-DROP-01 — `setMintPrice` is now a deprecated shim;
+        // exercise the propose/execute timelocked path instead.
         vm.startPrank(alice);
-        drop.setMintPrice(0.01 ether);
+        drop.proposeMintPrice(0.01 ether);
+        vm.warp(block.timestamp + 25 hours);
+        drop.executeMintPrice(0.01 ether);
         drop.setMaxPerWallet(2);
         drop.setBaseURI("ipfs://changed");
         drop.setContractURI("ipfs://changed-collection");

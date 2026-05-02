@@ -70,8 +70,10 @@ contract Deep_DropLaunchpad_Test is Test {
         p.initialPhase = TegridyDropV2.MintPhase.DUTCH_AUCTION;
         drop.initialize(p);
 
-        // Attempt to reset the curve mid-DUTCH must revert.
-        vm.expectRevert(TegridyDropV2.DutchConfigPhaseLocked.selector);
+        // AUDIT FIX: V2-DROP-03 — `configureDutchAuction` is now a deprecated
+        // shim that always reverts UseProposeDutchAuction directing callers to
+        // the new propose/execute timelocked API.
+        vm.expectRevert(TegridyDropV2.UseProposeDutchAuction.selector);
         vm.prank(creator);
         drop.configureDutchAuction(2 ether, 1 ether, block.timestamp + 1, 12 hours);
     }
@@ -81,9 +83,15 @@ contract Deep_DropLaunchpad_Test is Test {
         p.initialPhase = TegridyDropV2.MintPhase.CLOSED;
         drop.initialize(p);
 
-        // Owner can wire the curve while CLOSED.
+        // AUDIT FIX: V2-DROP-03 — owner now wires the curve via the
+        // propose/execute timelock (proposeDutchAuction → wait → executeDutchAuction).
+        // Execute is value-bound: must pass the EXACT same params used in propose.
+        uint256 startTime = block.timestamp + 25 hours;
         vm.prank(creator);
-        drop.configureDutchAuction(2 ether, 1 ether, block.timestamp + 1, 12 hours);
+        drop.proposeDutchAuction(2 ether, 1 ether, startTime, 12 hours);
+        vm.warp(block.timestamp + 25 hours);
+        vm.prank(creator);
+        drop.executeDutchAuction(2 ether, 1 ether, startTime, 12 hours);
         assertEq(drop.dutchStartPrice(), 2 ether);
     }
 
@@ -93,8 +101,10 @@ contract Deep_DropLaunchpad_Test is Test {
         TegridyDropV2.InitParams memory p = _defaults();
         drop.initialize(p);
 
-        // Mid-PUBLIC, hike must revert.
-        vm.expectRevert(TegridyDropV2.PriceChangePhaseLocked.selector);
+        // AUDIT FIX: V2-DROP-01 — `setMintPrice` is now a deprecated shim
+        // that always reverts UseProposeMintPrice. Mid-PUBLIC hikes must
+        // route through the new timelocked propose/execute API instead.
+        vm.expectRevert(TegridyDropV2.UseProposeMintPrice.selector);
         vm.prank(creator);
         drop.setMintPrice(0.5 ether);
     }
@@ -104,8 +114,12 @@ contract Deep_DropLaunchpad_Test is Test {
         p.initialPhase = TegridyDropV2.MintPhase.CLOSED;
         drop.initialize(p);
 
+        // AUDIT FIX: V2-DROP-01 — propose/execute timelocked path.
         vm.prank(creator);
-        drop.setMintPrice(0.1 ether);
+        drop.proposeMintPrice(0.1 ether);
+        vm.warp(block.timestamp + 25 hours);
+        vm.prank(creator);
+        drop.executeMintPrice(0.1 ether);
         assertEq(drop.mintPrice(), 0.1 ether);
     }
 
@@ -137,22 +151,12 @@ contract Deep_DropLaunchpad_Test is Test {
     // ─── DEEP-DROP-04 — rescue can never strand late refunders ─────────
 
     function test_DEEP_DROP_04_rescueRespectsUnclaimedRefundPool() public {
-        TegridyDropV2.InitParams memory p = _defaults();
-        drop.initialize(p);
-
-        // Two minters mint; total cost is held by contract.
-        bytes32[] memory proof;
-        vm.prank(alice);
-        drop.mint{value: MINT_PRICE}(1, 0, proof);
-        vm.prank(bob);
-        drop.mint{value: MINT_PRICE}(1, 0, proof);
-
-        assertEq(drop.unclaimedRefundPool(), MINT_PRICE * 2);
-
-        // Cancel before any other state changes (gated to totalSupply==0,
-        // but that fix is DEEP-DROP-05 — we already minted, so cancel must
-        // revert. We pivot to a controlled cancellation where no mint happened
-        // and verify the pool counter is zero.
+        // AUDIT FIX: V2-DROP-02 — the unclaimedRefundPool counter was
+        // removed (dead code; cancelSale is now blocked after any mint per
+        // DEEP-DROP-05, making the refund/rescue plumbing structurally
+        // unreachable for post-mint scenarios). The remaining valid scenario
+        // is "no mints, controlled cancellation, residual is zero" — which
+        // we exercise here via the original drop2 path.
         TegridyDropV2 drop2 = TegridyDropV2(payable(Clones.clone(address(new TegridyDropV2()))));
         TegridyDropV2.InitParams memory p2 = _defaults();
         drop2.initialize(p2);
@@ -302,6 +306,8 @@ contract Deep_DropLaunchpad_Test is Test {
     function test_DEEP_LP_02_pauseBlocksExecuteFee() public {
         vm.prank(creator);
         launchpad.proposeProtocolFee(800);
+        // AUDIT FIX: V2-LP-01 — execute is now value-bound to (fee, executeAfter).
+        uint256 expectedExecAfter = block.timestamp + 48 hours;
         vm.warp(block.timestamp + 49 hours);
 
         vm.prank(creator);
@@ -310,13 +316,14 @@ contract Deep_DropLaunchpad_Test is Test {
         // execute now blocked while paused.
         vm.expectRevert(); // Pausable revert (EnforcedPause)
         vm.prank(creator);
-        launchpad.executeProtocolFee(800);
+        launchpad.executeProtocolFee(800, expectedExecAfter);
     }
 
     function test_DEEP_LP_02_pauseBlocksExecuteRecipient() public {
         address newRec = makeAddr("newRec");
         vm.prank(creator);
         launchpad.proposeProtocolFeeRecipient(newRec);
+        uint256 expectedExecAfter = block.timestamp + 48 hours;
         vm.warp(block.timestamp + 49 hours);
 
         vm.prank(creator);
@@ -324,7 +331,7 @@ contract Deep_DropLaunchpad_Test is Test {
 
         vm.expectRevert();
         vm.prank(creator);
-        launchpad.executeProtocolFeeRecipient(newRec);
+        launchpad.executeProtocolFeeRecipient(newRec, expectedExecAfter);
     }
 
     // ─── DEEP-LP-03 — paginated collections view ───────────────────────
@@ -368,21 +375,23 @@ contract Deep_DropLaunchpad_Test is Test {
     function test_DEEP_LP_04_executeProtocolFee_rejectsMismatch() public {
         vm.prank(creator);
         launchpad.proposeProtocolFee(800);
+        uint256 expectedExecAfter = block.timestamp + 48 hours;
         vm.warp(block.timestamp + 49 hours);
 
         // Pass wrong expected value.
         vm.expectRevert(TegridyLaunchpadV2.FeeMismatch.selector);
         vm.prank(creator);
-        launchpad.executeProtocolFee(900);
+        launchpad.executeProtocolFee(900, expectedExecAfter);
     }
 
     function test_DEEP_LP_04_executeProtocolFee_acceptsExactMatch() public {
         vm.prank(creator);
         launchpad.proposeProtocolFee(800);
+        uint256 expectedExecAfter = block.timestamp + 48 hours;
         vm.warp(block.timestamp + 49 hours);
 
         vm.prank(creator);
-        launchpad.executeProtocolFee(800);
+        launchpad.executeProtocolFee(800, expectedExecAfter);
         assertEq(launchpad.protocolFeeBps(), 800);
     }
 
@@ -391,11 +400,12 @@ contract Deep_DropLaunchpad_Test is Test {
         address rec2 = makeAddr("r2");
         vm.prank(creator);
         launchpad.proposeProtocolFeeRecipient(rec1);
+        uint256 expectedExecAfter = block.timestamp + 48 hours;
         vm.warp(block.timestamp + 49 hours);
 
         vm.expectRevert(TegridyLaunchpadV2.RecipientMismatch.selector);
         vm.prank(creator);
-        launchpad.executeProtocolFeeRecipient(rec2);
+        launchpad.executeProtocolFeeRecipient(rec2, expectedExecAfter);
     }
 
     // ─── DEEP-URI-01 — _jsonEscape removed (compile-time check) ────────

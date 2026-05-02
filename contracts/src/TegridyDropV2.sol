@@ -90,6 +90,26 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///         been called OR after `reveal()` has run. Either path produces a one-shot
     ///         immutability commitment for the (placeholder | reveal) URI surface.
     error BaseURIFrozen();
+    /// @notice AUDIT FIX: V2-DROP-06: `freezeBaseURI()` rejects a freeze on an empty
+    ///         placeholder. Without the guard, a fat-fingered freeze before `setBaseURI`
+    ///         would commit the drop to permanent empty `tokenURI()` returns pre-reveal.
+    error BaseURIEmpty();
+    /// @notice AUDIT FIX: V2-DROP-01 / V2-DROP-03: caller's expected value did not match
+    ///         the currently-pending value for a price / dutch-config execute call.
+    ///         Mirrors `executeMerkleRoot(bytes32 expectedRoot)` value-binding pattern.
+    error MintPriceMismatch();
+    error DutchConfigMismatch();
+    /// @notice AUDIT FIX: V2-DROP-01: setMintPrice is now obsolete (replaced by
+    ///         proposeMintPrice / executeMintPrice). Direct calls revert.
+    error UseProposeMintPrice();
+    /// @notice AUDIT FIX: V2-DROP-03: configureDutchAuction is now obsolete (replaced by
+    ///         proposeDutchAuction / executeDutchAuction). Direct calls revert.
+    error UseProposeDutchAuction();
+    /// @notice AUDIT FIX: V2-DROP-04: `initialize()` with `initialPhase == DUTCH_AUCTION`
+    ///         must not be called with a curve whose decay window has already fully elapsed
+    ///         (`dutchStartTime + dutchDuration <= block.timestamp`). Otherwise the drop
+    ///         silently launches at the floor price.
+    error DutchAuctionAlreadyEnded();
 
     event InitializedV2(
         address indexed creator,
@@ -134,6 +154,21 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     /// @notice AUDIT FIX: DEEP-DROP-06: one-shot freeze on `_baseTokenURI`. After this
     ///         fires, every subsequent `setBaseURI` reverts with `BaseURIFrozen`.
     event BaseURIFrozenEvent();
+    /// @notice AUDIT FIX: V2-DROP-01: lifecycle events for the propose/execute flow on
+    ///         `setMintPrice`. The 24h-timelocked rotation lets pending buyers observe a
+    ///         queued price change and drop their unconfirmed mints if they disagree.
+    event MintPriceProposed(uint256 newPrice, uint256 executeAfter);
+    event MintPriceCancelled(uint256 newPrice);
+    /// @notice AUDIT FIX: V2-DROP-03: lifecycle events for the propose/execute flow on
+    ///         `configureDutchAuction`. Mirrors the merkle-root rotation event shape.
+    event DutchAuctionProposed(
+        uint256 startPrice,
+        uint256 endPrice,
+        uint256 startTime,
+        uint256 duration,
+        uint256 executeAfter
+    );
+    event DutchAuctionCancelled(uint256 startPrice, uint256 endPrice, uint256 startTime, uint256 duration);
 
     address public owner;
     address public pendingOwner;
@@ -208,13 +243,18 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///         withdraw() runs guarantees every minter their refund.
     bool public withdrawn;
 
-    /// @notice AUDIT FIX: DEEP-DROP-04: running counter of unclaimed refund obligations.
-    ///         Incremented by `mint()` (totalCost), decremented by `refund()` (owed). The
-    ///         post-cancellation rescue can only sweep `address(this).balance - unclaimedRefundPool`,
-    ///         guaranteeing late refunders have their owed amount waiting for them even
-    ///         after the 1-year residual sweep. Pattern of record: Sound Protocol per-user
-    ///         owed amounts under sale-end accounting; Manifold non-overlapping accounting
-    ///         buckets between user-owed and admin-sweep paths.
+    /// @notice AUDIT FIX: DEEP-DROP-04 (HISTORICAL — see V2-DROP-02): originally a running
+    ///         counter of unclaimed refund obligations. Post-DEEP-DROP-05 the counter is
+    ///         dead-state — `cancelSale()` is gated to `totalSupply == 0`, so the
+    ///         accumulator can never be incremented along a code path where it would later
+    ///         be read.
+    /// @dev    AUDIT FIX: V2-DROP-02: DEPRECATED — kept ONLY for storage-layout / ABI
+    ///         backward compatibility with existing clones and external indexers. The
+    ///         `mint()` increment was removed; `refund()` and `rescueAfterCancellation()`
+    ///         continue to read the slot but it is permanently zero on any new clone (see
+    ///         the rescue-path NatSpec for why the rescue path is now only meaningful for
+    ///         raw ETH donations to a pre-mint cancelled drop). DO NOT add a new write
+    ///         path here — all reasoning relies on this slot being zero.
     uint256 public unclaimedRefundPool;
 
     /// @notice AUDIT FIX: DEEP-DROP-06: one-shot flag set by `freezeBaseURI()`. Once set,
@@ -293,6 +333,33 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     bytes32 public constant MERKLE_ROOT_CHANGE = keccak256("DROP_MERKLE_ROOT_CHANGE_VB");
     uint256 public constant MERKLE_ROOT_DELAY = 24 hours;
 
+    /// @notice AUDIT FIX: V2-DROP-01: 24h propose/execute timelock for `setMintPrice`,
+    ///         closing the `setMintPhase(CLOSED) → setMintPrice → setMintPhase(PUBLIC)`
+    ///         round-trip bypass that re-opened the original DEEP-DROP-02 attack via an
+    ///         MEV bundle. Pending buyers observe `MintPriceProposed(newPrice, executeAfter)`
+    ///         and have a full day to drop their unconfirmed mint txs before the new price
+    ///         lands. Same shape as MERKLE_ROOT_CHANGE.
+    bytes32 public constant MINT_PRICE_CHANGE = keccak256("DROP_MINT_PRICE_CHANGE_V2");
+    uint256 public constant MINT_PRICE_DELAY = 24 hours;
+    /// @notice AUDIT FIX: V2-DROP-01: pending mint price for the timelocked rotation flow.
+    uint256 public pendingMintPrice;
+
+    /// @notice AUDIT FIX: V2-DROP-03: 24h propose/execute timelock for `configureDutchAuction`,
+    ///         closing the same round-trip bypass on the dutch-curve setter that previously
+    ///         re-opened DEEP-DROP-01.
+    bytes32 public constant DUTCH_CONFIG_CHANGE = keccak256("DROP_DUTCH_CONFIG_CHANGE_V2");
+    uint256 public constant DUTCH_CONFIG_DELAY = 24 hours;
+    /// @notice AUDIT FIX: V2-DROP-03: pending dutch-auction config for the timelocked
+    ///         rotation flow. Stored as a packed struct to keep the propose/execute pair
+    ///         atomic; storage is cleared inside `executeDutchAuction` / `cancelDutchAuction`.
+    struct PendingDutchConfig {
+        uint256 startPrice;
+        uint256 endPrice;
+        uint256 startTime;
+        uint256 duration;
+    }
+    PendingDutchConfig public pendingDutchConfig;
+
     function initialize(InitParams calldata p) external initializer {
         if (p.creator == address(0)) revert ZeroAddress();
         if (p.platformFeeRecipient == address(0)) revert ZeroAddress();
@@ -353,6 +420,17 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
 
         if (p.initialPhase == MintPhase.DUTCH_AUCTION && !dutchConfigured) {
             revert DutchAuctionNotActive();
+        }
+        // AUDIT FIX: V2-DROP-04: refuse to deploy directly into DUTCH_AUCTION with a
+        // curve whose decay window has already fully elapsed at the deploy block. Prior
+        // to this guard, a factory script that mis-computed `dutchStartTime` (e.g. used
+        // a stale block.timestamp from a forked simulation) would silently launch the
+        // drop at `dutchEndPrice` — creator only realises once mints come in at the floor.
+        // Mirror pattern: Sudoswap LSSVMPair rejects expired auctions at entry.
+        if (p.initialPhase == MintPhase.DUTCH_AUCTION && dutchConfigured) {
+            if (p.dutchStartTime + p.dutchDuration <= block.timestamp) {
+                revert DutchAuctionAlreadyEnded();
+            }
         }
         if (p.initialPhase == MintPhase.ALLOWLIST && p.merkleRoot == bytes32(0)) {
             revert InvalidProof();
@@ -463,9 +541,14 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         totalSupply += quantity;
         mintedPerWallet[msg.sender] += quantity;
         paidPerWallet[msg.sender] += totalCost;
-        // AUDIT FIX: DEEP-DROP-04: track running pool of refundable obligations so a
-        // post-cancel rescue can never sweep funds owed to a late refunder.
-        unclaimedRefundPool += totalCost;
+        // AUDIT FIX: V2-DROP-02: removed the `unclaimedRefundPool += totalCost`
+        // accumulator-write previously emitted here under DEEP-DROP-04. Post-DEEP-DROP-05
+        // (cancel gated to `totalSupply == 0`), the entire DEEP-DROP-04 accounting path
+        // is structurally unreachable: cancellation can only happen pre-mint, so neither
+        // `refund()` (read pool slot) nor `rescueAfterCancellation()` (compares balance
+        // against pool slot) ever sees a non-zero value here. Eliminating the SSTORE-warm
+        // write saves ~2.9k gas per mint without weakening any safety property; the
+        // slot is preserved for ABI compatibility (see `unclaimedRefundPool` declaration).
 
         for (uint256 i; i < quantity; ++i) {
             _safeMint(msg.sender, startId + i);
@@ -479,37 +562,39 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     }
 
     /// @notice AUDIT FIX: DEEP-DROP-07: indexer-safe price view. During an L2 sequencer
-    ///         outage (or its grace window), the underlying DUTCH-phase quote reverts via
-    ///         `_dutchAuctionPrice → SequencerCheck.checkSequencerUp`. CLOSED / ALLOWLIST /
-    ///         PUBLIC reads, however, still resolve cleanly — leading to off-chain
-    ///         consumers (subgraphs, mint-page UIs) showing inconsistent availability
-    ///         signals across drops on the same factory. This view now returns the
-    ///         SENTINEL `type(uint256).max` instead of reverting in the dutch outage
-    ///         branch. Mint-time enforcement is unchanged: `mint()` calls
-    ///         `currentPriceOrSentinel()` at the buy site too, but only via mint() →
-    ///         currentPrice(); a sentinel × any quantity overflows-to-revert under
-    ///         Solidity 0.8 checked arithmetic before any payment check fires, which
-    ///         is the desired behavior — funds never move while the sentinel is live.
+    ///         outage (or its grace window), the dutch-phase quote returns the SENTINEL
+    ///         `type(uint256).max` instead of reverting so off-chain consumers (subgraphs,
+    ///         mint-page UIs) see a consistent "paused" signal. CLOSED / ALLOWLIST /
+    ///         PUBLIC reads always resolve cleanly. Mint-time enforcement is unchanged:
+    ///         `mint()` calls `_dutchAuctionPrice()` directly which carries the reverting
+    ///         `SequencerCheck.checkSequencerUp` — funds never move while the sentinel is live.
+    /// @dev    AUDIT FIX: V2-DROP-05: refactored to use `SequencerCheck.tryCheckSequencerUp`
+    ///         directly instead of wrapping `this.dutchAuctionPriceExternal()` in a
+    ///         try/catch. The previous self-call paid ~2,400 gas per view call for the
+    ///         STATICCALL (paid by every indexer / front-end poll across the dutch lifetime)
+    ///         and added an exotic-pattern attack surface that future contributors might
+    ///         unknowingly weaken. The lib already exposes the canonical non-reverting
+    ///         primitive (`tryCheckSequencerUp`); this aligns with the SequencerCheck.sol
+    ///         "single source of truth" guidance.
     /// @return The current price, OR `type(uint256).max` as a sentinel during a
     ///         dutch-auction sequencer outage. Consumers should treat the sentinel
     ///         as "minting paused — do not display a buy button."
     function currentPrice() public view returns (uint256) {
         if (mintPhase == MintPhase.DUTCH_AUCTION) {
-            // try/catch over an internal function isn't supported; route via
-            // this contract's external selector to wrap the revert into a
-            // graceful sentinel for off-chain readers.
-            try this.dutchAuctionPriceExternal() returns (uint256 p) {
-                return p;
-            } catch {
-                return type(uint256).max;
-            }
+            // AUDIT FIX: V2-DROP-05: canonical non-reverting sequencer probe.
+            (bool ok, ) = SequencerCheck.tryCheckSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
+            if (!ok) return type(uint256).max;
+            return _dutchAuctionPriceWithoutSequencerCheck();
         }
         return mintPrice;
     }
 
-    /// @notice AUDIT FIX: DEEP-DROP-07: external view used by `currentPrice()` to
-    ///         convert a sequencer-outage revert into a sentinel return. Marked as
-    ///         a public read so the try/catch wrapper above can intercept the revert.
+    /// @notice AUDIT FIX: DEEP-DROP-07 (compat): external view used by older off-chain
+    ///         tooling to fetch the underlying dutch quote with the reverting sequencer
+    ///         gate. Kept stable for clones / indexers built against the original ABI.
+    /// @dev    AUDIT FIX: V2-DROP-05: still routes through `_dutchAuctionPrice()` so the
+    ///         SequencerDown / SequencerGracePeriodNotOver typed reverts remain available
+    ///         to consumers that explicitly want the revert behaviour.
     function dutchAuctionPriceExternal() external view returns (uint256) {
         return _dutchAuctionPrice();
     }
@@ -523,6 +608,15 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         // mint they could not have submitted during the outage. address(0)
         // sequencerFeed is a no-op (mainnet / non-L2 deployments).
         SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
+        return _dutchAuctionPriceWithoutSequencerCheck();
+    }
+
+    /// @notice AUDIT FIX: V2-DROP-05: dutch curve math with NO sequencer gate. Internal-
+    ///         use only — callers MUST gate on either `checkSequencerUp` (revert path,
+    ///         used by `mint()`) or `tryCheckSequencerUp` (sentinel path, used by
+    ///         `currentPrice()`). Splitting the math out lets `currentPrice()` skip the
+    ///         self-call STATICCALL while keeping the mint-time enforcement strict.
+    function _dutchAuctionPriceWithoutSequencerCheck() internal view returns (uint256) {
         if (block.timestamp < dutchStartTime) return dutchStartPrice;
         uint256 elapsed = block.timestamp - dutchStartTime;
         if (elapsed >= dutchDuration) return dutchEndPrice;
@@ -548,6 +642,17 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         // ...exposing exactly the in-flight-claimer exclusion the timelock was
         // meant to prevent. Owner must `cancelMerkleRoot` first to unfreeze.
         if (_executeAfter[MERKLE_ROOT_CHANGE] != 0) revert MerkleRotationPending();
+        // AUDIT FIX: V2-DROP-01 / V2-DROP-03: same booby-trap rule for the new
+        // mint-price and dutch-config timelocks. If a price hike or dutch-curve reset
+        // is pending, the phase MUST stay in CLOSED until the proposal is either
+        // executed or cancelled — otherwise the owner would re-create the round-trip
+        // bypass by opening to PUBLIC / DUTCH while a hostile change is sitting in the
+        // queue ready to fire. Owner must `cancelMintPrice` / `cancelDutchAuction` to
+        // unfreeze before re-opening. Reuses MerkleRotationPending error type to keep
+        // the typed-revert surface narrow (the semantic is identical: "a queued admin
+        // change is about to fire — cancel it first").
+        if (_executeAfter[MINT_PRICE_CHANGE]   != 0) revert MerkleRotationPending();
+        if (_executeAfter[DUTCH_CONFIG_CHANGE] != 0) revert MerkleRotationPending();
         if (phase == MintPhase.DUTCH_AUCTION && dutchDuration == 0) {
             revert DutchAuctionNotActive();
         }
@@ -615,20 +720,51 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         emit MerkleRootCancelled(cancelled);
     }
 
-    /// @dev AUDIT MICROSCOPE_2026_04_30 H19: zero-price changes are gated to the
-    ///      pre-mint window. Once any tokens have been minted, the price may
-    ///      change but cannot return to zero, blocking the toggle-to-free-mint
-    ///      attack (CLOSED → setMintPrice(0) → re-open PUBLIC).
-    /// @dev AUDIT FIX: DEEP-DROP-02: gate ALL setMintPrice calls (not just the zero
-    ///      branch) to `mintPhase == CLOSED`. Mid-PUBLIC / mid-ALLOWLIST hikes were a
-    ///      mempool griefing primitive — owner could front-run pending mint txs with
-    ///      `setMintPrice(higher)`, causing them to revert on InsufficientPayment.
-    ///      Pattern: Manifold ERC721LazyPayableClaim freezes price after `claim.startDate`.
-    function setMintPrice(uint256 price) external onlyOwner {
+    /// @notice DEPRECATED — direct one-step price change removed.
+    ///         AUDIT FIX: V2-DROP-01: the original DEEP-DROP-02 phase-gate was bypassable
+    ///         via `setMintPhase(CLOSED) → setMintPrice → setMintPhase(PUBLIC)` round-trip
+    ///         delivered as an atomic MEV bundle. Use `proposeMintPrice` / `executeMintPrice`
+    ///         (24h timelock) so pending buyers observe the queued change and can drop
+    ///         their unconfirmed txs.
+    function setMintPrice(uint256) external pure {
+        revert UseProposeMintPrice();
+    }
+
+    /// @notice AUDIT FIX: V2-DROP-01: propose a new mint price. Executes after
+    ///         MINT_PRICE_DELAY (24h). Pre-mint zero-price toggle is preserved by
+    ///         the H19 invariant — `executeMintPrice` re-checks `price == 0 && totalSupply > 0`.
+    ///         Pattern of record: Compound Timelock; same shape as `proposeMerkleRoot`.
+    function proposeMintPrice(uint256 newPrice) external onlyOwner {
         if (mintPhase != MintPhase.CLOSED) revert PriceChangePhaseLocked();
-        if (price == 0 && totalSupply > 0) revert ZeroPricePostMint();
-        mintPrice = price;
-        emit MintPriceChanged(price);
+        if (newPrice == 0 && totalSupply > 0) revert ZeroPricePostMint();
+        pendingMintPrice = newPrice;
+        _propose(MINT_PRICE_CHANGE, MINT_PRICE_DELAY);
+        emit MintPriceProposed(newPrice, _executeAfter[MINT_PRICE_CHANGE]);
+    }
+
+    /// @notice AUDIT FIX: V2-DROP-01: execute a previously proposed mint price after the
+    ///         24h delay. Caller passes the expected value to bind execution to a specific
+    ///         proposal — mirrors `executeMerkleRoot(bytes32 expectedRoot)`.
+    /// @param  expectedPrice Mint price the caller expects to land. Must equal
+    ///                       `pendingMintPrice` or revert with `MintPriceMismatch`.
+    function executeMintPrice(uint256 expectedPrice) external onlyOwner {
+        if (pendingMintPrice != expectedPrice) revert MintPriceMismatch();
+        // Re-check the H19 invariant at execute-time too: if a mint happened during the
+        // 24h delay (impossible today since we require CLOSED at propose, but defensive
+        // for future relaxations), zero-price is still rejected.
+        if (expectedPrice == 0 && totalSupply > 0) revert ZeroPricePostMint();
+        _execute(MINT_PRICE_CHANGE);
+        mintPrice = expectedPrice;
+        pendingMintPrice = 0;
+        emit MintPriceChanged(expectedPrice);
+    }
+
+    /// @notice AUDIT FIX: V2-DROP-01: cancel a pending mint-price proposal.
+    function cancelMintPrice() external onlyOwner {
+        uint256 cancelled = pendingMintPrice;
+        _cancel(MINT_PRICE_CHANGE);
+        pendingMintPrice = 0;
+        emit MintPriceCancelled(cancelled);
     }
 
     /// @dev AUDIT MICROSCOPE_2026_04_30 C1 (companion fix): `setMaxPerWallet` can no
@@ -658,7 +794,15 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///         event); the underlying flag is monotonic. Use this to publish placeholder
     ///         art that creators promise will not be soft-rugged into a generic JPEG
     ///         after FOMO drives a secondary floor on the high-value art.
+    /// @dev    AUDIT FIX: V2-DROP-06: refuse to fire on an empty `_baseTokenURI`.
+    ///         Without this guard, an owner who fat-fingers `freezeBaseURI()` BEFORE
+    ///         `setBaseURI(realPlaceholder)` permanently commits the drop to an empty
+    ///         placeholder — pre-reveal `tokenURI(id)` would return "" forever, and there
+    ///         is no governance recovery path (the freeze flag is monotonic). Pattern of
+    ///         record: Sound Protocol `freezeMetadata` requires non-empty URI; Manifold
+    ///         `freezeBase` ditto.
     function freezeBaseURI() external onlyOwner {
+        if (bytes(_baseTokenURI).length == 0) revert BaseURIEmpty();
         baseURIFrozen = true;
         emit BaseURIFrozenEvent();
     }
@@ -678,15 +822,21 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         emit Revealed(revealURI);
     }
 
-    /// @dev AUDIT FIX: DEEP-DROP-01 (HIGH): configureDutchAuction must run while the
-    ///      sale is CLOSED. Allowing curve resets mid-DUTCH let the owner front-run
-    ///      pending bidders by hiking `dutchStartPrice` and resetting `dutchStartTime`
-    ///      — every in-flight `mint{value: oldQuote}(…)` would revert on the new
-    ///      (higher) curve. Pattern: Zora `ERC721Drop.setSaleConfiguration` is gated
-    ///      to non-active sale states. Once dutch params have been wired (either at
-    ///      initialize-time or via this setter while CLOSED) and the phase has flipped
-    ///      to DUTCH_AUCTION, the curve is immutable for the duration of that phase.
-    function configureDutchAuction(
+    /// @notice DEPRECATED — direct one-step dutch curve change removed.
+    ///         AUDIT FIX: V2-DROP-03: the original DEEP-DROP-01 phase-gate was bypassable
+    ///         via `setMintPhase(CLOSED) → configureDutchAuction(...) → setMintPhase(DUTCH_AUCTION)`
+    ///         delivered as an atomic MEV bundle. Use `proposeDutchAuction` /
+    ///         `executeDutchAuction` (24h timelock) so pending bidders observe the queued
+    ///         curve change and can drop their unconfirmed txs.
+    function configureDutchAuction(uint256, uint256, uint256, uint256) external pure {
+        revert UseProposeDutchAuction();
+    }
+
+    /// @notice AUDIT FIX: V2-DROP-03: propose a new dutch auction curve. Executes after
+    ///         DUTCH_CONFIG_DELAY (24h). Same per-field validation as the legacy setter;
+    ///         `executeDutchAuction` re-validates at execute time so a mid-delay state
+    ///         change cannot smuggle an invalid curve.
+    function proposeDutchAuction(
         uint256 startPrice,
         uint256 endPrice,
         uint256 startTime,
@@ -698,12 +848,47 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         if (startTime == 0) revert InvalidDutchAuctionConfig();
         if (startPrice - endPrice < duration) revert InvalidDutchAuctionConfig();
 
-        dutchStartPrice = startPrice;
-        dutchEndPrice = endPrice;
-        dutchStartTime = startTime;
-        dutchDuration = duration;
+        pendingDutchConfig = PendingDutchConfig({
+            startPrice: startPrice,
+            endPrice: endPrice,
+            startTime: startTime,
+            duration: duration
+        });
+        _propose(DUTCH_CONFIG_CHANGE, DUTCH_CONFIG_DELAY);
+        emit DutchAuctionProposed(startPrice, endPrice, startTime, duration, _executeAfter[DUTCH_CONFIG_CHANGE]);
+    }
 
-        emit DutchAuctionConfigured(startPrice, endPrice, startTime, duration);
+    /// @notice AUDIT FIX: V2-DROP-03: execute a previously proposed dutch curve after the
+    ///         24h delay. Caller passes the full expected curve to bind execution to a
+    ///         specific proposal — mirrors `executeMerkleRoot(bytes32)`.
+    function executeDutchAuction(
+        uint256 expectedStartPrice,
+        uint256 expectedEndPrice,
+        uint256 expectedStartTime,
+        uint256 expectedDuration
+    ) external onlyOwner {
+        PendingDutchConfig memory cached = pendingDutchConfig;
+        if (cached.startPrice != expectedStartPrice ||
+            cached.endPrice   != expectedEndPrice   ||
+            cached.startTime  != expectedStartTime  ||
+            cached.duration   != expectedDuration) {
+            revert DutchConfigMismatch();
+        }
+        _execute(DUTCH_CONFIG_CHANGE);
+        dutchStartPrice = expectedStartPrice;
+        dutchEndPrice   = expectedEndPrice;
+        dutchStartTime  = expectedStartTime;
+        dutchDuration   = expectedDuration;
+        delete pendingDutchConfig;
+        emit DutchAuctionConfigured(expectedStartPrice, expectedEndPrice, expectedStartTime, expectedDuration);
+    }
+
+    /// @notice AUDIT FIX: V2-DROP-03: cancel a pending dutch curve proposal.
+    function cancelDutchAuction() external onlyOwner {
+        PendingDutchConfig memory cached = pendingDutchConfig;
+        _cancel(DUTCH_CONFIG_CHANGE);
+        delete pendingDutchConfig;
+        emit DutchAuctionCancelled(cached.startPrice, cached.endPrice, cached.startTime, cached.duration);
     }
 
     function pause() external onlyOwner { _pause(); }
@@ -779,14 +964,25 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         emit SaleCancelledEvent(totalSupply, address(this).balance);
     }
 
+    /// @notice Refund a minter their `paidPerWallet[msg.sender]` post-cancellation.
+    /// @dev    AUDIT FIX: V2-DROP-02: STRUCTURALLY UNREACHABLE under current rules.
+    ///         `cancelSale()` requires `totalSupply == 0`, so by the time `mintPhase ==
+    ///         CANCELLED` no minter can have a non-zero `paidPerWallet[]` entry — every
+    ///         caller hits `NothingToRefund`. The function is preserved for ABI / clone
+    ///         compatibility AND to remain well-formed if a future reversal of DEEP-DROP-05
+    ///         re-enables post-mint cancellation. The `unclaimedRefundPool -= owed` line
+    ///         remains a no-op subtract-zero on any new clone (see V2-DROP-02 NatSpec on
+    ///         the storage slot).
     function refund() external nonReentrant {
         if (mintPhase != MintPhase.CANCELLED) revert SaleNotCancelled();
         uint256 owed = paidPerWallet[msg.sender];
         if (owed == 0) revert NothingToRefund();
         paidPerWallet[msg.sender] = 0;
-        // AUDIT FIX: DEEP-DROP-04: decrement the unclaimed-refund pool. Underflow is
-        // unreachable: every increment to `paidPerWallet[msg.sender]` was matched by
-        // an equal increment to `unclaimedRefundPool` inside `mint()` (see L437).
+        // AUDIT FIX: DEEP-DROP-04 (HISTORICAL): decrement the unclaimed-refund pool.
+        // Post-V2-DROP-02 this slot is permanently zero on new clones (no mint-time
+        // increment), so this is effectively a no-op. Kept for storage-layout parity
+        // with deployed clones and as defensive accounting if the increment is ever
+        // re-introduced under a future cancellation-policy reversal.
         unclaimedRefundPool -= owed;
         WETHFallbackLib.safeTransferETHOrWrap(weth, msg.sender, owed);
         emit Refunded(msg.sender, owed);
@@ -805,6 +1001,11 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///      `unclaimedRefundPool` reserves it. The rescue exists to recover dust
     ///      (donations, sweep-pad rounding from a buggy WETH wrapper, ETH a contract
     ///      mistakenly sent here, etc.) — not to clean out the refund obligation.
+    /// @dev AUDIT FIX: V2-DROP-02: post-V2-DROP-02 the use case is now narrowed to
+    ///      DUST ONLY — the only path that can produce balance > 0 in a CANCELLED drop
+    ///      is a raw-ETH donation (since `cancelSale()` requires `totalSupply == 0` and
+    ///      `unclaimedRefundPool` is no longer incremented at mint time). The rescue
+    ///      exists exclusively to recover those donations after the 1-year window.
     function rescueAfterCancellation() external nonReentrant onlyOwner {
         if (mintPhase != MintPhase.CANCELLED) revert SaleNotCancelled();
         if (cancelledAt == 0 || block.timestamp < cancelledAt + POST_CANCEL_RESCUE_DELAY) {
@@ -845,6 +1046,27 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
             bytes32 cancelled = pendingMerkleRoot;
             pendingMerkleRoot = bytes32(0);
             emit MerkleRootCancelled(cancelled);
+        }
+        // AUDIT FIX: V2-DROP-01: same booby-trap pattern for the new mint-price
+        // timelock — cancel any pending proposal at handoff so the incoming owner
+        // doesn't inherit a queued price change.
+        if (_executeAfter[MINT_PRICE_CHANGE] != 0) {
+            uint256 cancelledPrice = pendingMintPrice;
+            _cancel(MINT_PRICE_CHANGE);
+            pendingMintPrice = 0;
+            emit MintPriceCancelled(cancelledPrice);
+        }
+        // AUDIT FIX: V2-DROP-03: same for the dutch-config timelock.
+        if (_executeAfter[DUTCH_CONFIG_CHANGE] != 0) {
+            PendingDutchConfig memory cancelledDutch = pendingDutchConfig;
+            _cancel(DUTCH_CONFIG_CHANGE);
+            delete pendingDutchConfig;
+            emit DutchAuctionCancelled(
+                cancelledDutch.startPrice,
+                cancelledDutch.endPrice,
+                cancelledDutch.startTime,
+                cancelledDutch.duration
+            );
         }
     }
 

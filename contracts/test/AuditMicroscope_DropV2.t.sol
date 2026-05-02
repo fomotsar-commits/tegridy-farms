@@ -155,22 +155,32 @@ contract AuditMicroscope_DropV2Test is Test {
         vm.prank(alice);
         drop.mint{value: MINT_PRICE}(1, 0, proof);
 
-        // Owner tries the toggle attack: CLOSED → setMintPrice(0) → re-open PUBLIC.
+        // AUDIT FIX: V2-DROP-01 — `setMintPrice` is now a deprecated shim
+        // that always reverts UseProposeMintPrice (closes the round-trip
+        // bypass via setMintPhase). The H19 invariant "post-mint zero price
+        // is rejected" is now subsumed by "any post-mint price change must
+        // route through the timelocked propose/execute path, which itself
+        // gates on phase + zero-price rules."
         vm.prank(creator);
         drop.setMintPhase(TegridyDropV2.MintPhase.CLOSED);
-        vm.expectRevert(TegridyDropV2.ZeroPricePostMint.selector);
+        vm.expectRevert(TegridyDropV2.UseProposeMintPrice.selector);
         vm.prank(creator);
         drop.setMintPrice(0);
     }
 
     function test_H19_setMintPriceZeroAllowedPreMint() public {
-        // Pre-mint, while CLOSED, zero price IS allowed (free-drop deploy path).
+        // AUDIT FIX: V2-DROP-01 — pre-mint zero price is set via
+        // proposeMintPrice + executeMintPrice. The deprecated shim
+        // unconditionally reverts.
         TegridyDropV2.InitParams memory p = _defaults();
         p.initialPhase = TegridyDropV2.MintPhase.CLOSED;
         drop.initialize(p);
 
         vm.prank(creator);
-        drop.setMintPrice(0);
+        drop.proposeMintPrice(0);
+        vm.warp(block.timestamp + 25 hours);
+        vm.prank(creator);
+        drop.executeMintPrice(0);
         assertEq(drop.mintPrice(), 0);
     }
 

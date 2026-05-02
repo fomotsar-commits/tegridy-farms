@@ -47,6 +47,14 @@ contract TegridyTokenURIReader {
         // metadata response. OZ ERC721 reverts in `ownerOf` for non-existent
         // tokens, so we wrap in try/catch to surface a typed `NONEXISTENT`
         // revert regardless of the upstream error type.
+        // AUDIT FIX: V2-URI-01 (INFO, cross-cluster verified): `TegridyStaking._nextTokenId`
+        // is initialized to `1` (see TegridyStaking.sol — `uint256 private _nextTokenId = 1;`).
+        // Token ID 0 is therefore never minted by the staking contract; `ownerOf(0)`
+        // always reverts with `ERC721NonexistentToken(0)`, and this function correctly
+        // produces the typed `NONEXISTENT` revert. If a future migration or replacement
+        // staking contract changes the initial counter to 0, this reader's behaviour for
+        // tokenId == 0 must be revisited — the `holder != address(0)` post-check would
+        // also need to differentiate between "non-existent" and "exists but zero-init holder".
         try staking.ownerOf(tokenId) returns (address holder) {
             require(holder != address(0), "NONEXISTENT");
         } catch {
