@@ -504,9 +504,19 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     }
 
     /// @notice Instantly revoke an approved caller (no timelock for safety)
+    /// @dev AUDIT FIX V3-DR3-M-04: also clear any in-flight `proposeApprovedCaller`
+    ///      grant for the same address. Pre-fix, an attacker could:
+    ///      `proposeApprovedCaller(X) → revokeApprovedCaller(X) → wait 24h →
+    ///      executeApprovedCaller(X)` to resurrect the approval after the revoke.
+    ///      Clearing the pending grant on revoke closes that race.
     function revokeApprovedCaller(address _caller) external onlyOwner {
         if (_caller == address(0)) revert ZeroAddress();
         approvedCallers[_caller] = false;
+        if (pendingCallerGrant[_caller]) {
+            bytes32 key = keccak256(abi.encode("CALLER_GRANT", _caller));
+            _cancel(key);
+            pendingCallerGrant[_caller] = false;
+        }
         emit ApprovedCallerSet(_caller, false);
     }
 

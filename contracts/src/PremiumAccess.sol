@@ -508,21 +508,17 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         uint256 payout = owed > available ? available : owed;
         shortfallOwed[msg.sender] = owed - payout;
         totalShortfallOwed -= payout;
-        // AUDIT FIX: V2-DR-L-03 — decrement `totalRevenue` here for accounting
-        // parity with `cancelSubscription`'s refund decrement. Without this,
-        // `totalRevenue` becomes a high-water-mark counter (extension flow
-        // M-06 adds `consumedEscrow + cost` on every extend; the refund/
-        // shortfall payouts only decrement on the immediate-refund path).
-        // After many extension+cancel+shortfall+claim cycles `totalRevenue`
-        // would overstate true unspent revenue for off-chain dashboards. The
-        // `withdrawToTreasury` path does NOT consult `totalRevenue` (uses
-        // `balance - totalRefundEscrow - totalShortfallOwed`), so fund-safety
-        // is preserved either way — this is purely a bookkeeping fix.
-        if (payout <= totalRevenue) {
-            totalRevenue -= payout;
-        } else {
-            totalRevenue = 0;
-        }
+        // AUDIT FIX V3-DR3-M-02: REMOVED the `totalRevenue` decrement here.
+        // V2-DR-L-03 added it for "accounting parity" but `cancelSubscription`
+        // ALREADY decrements `totalRevenue` by the full refundable amount —
+        // including the slice that's being shortfall-deferred. Decrementing
+        // again on `claimShortfall` was a double-decrement: an aggressive
+        // pattern of cancel + shortfall + later claim drove `totalRevenue`
+        // toward 0 below the true unspent revenue. With V3 in place,
+        // `totalRevenue` is decremented exactly once per refund-cycle (at
+        // cancelSubscription time); the shortfall claim is a deferred payout
+        // that doesn't touch the counter.
+        // V3-DR3-M-02: do NOT decrement totalRevenue (cancelSubscription owns it).
         toweli.safeTransfer(msg.sender, payout);
         emit ShortfallClaimed(msg.sender, payout);
     }
