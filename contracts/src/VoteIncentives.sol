@@ -302,6 +302,12 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     event VoteRevealed(address indexed user, uint256 indexed epoch, uint256 commitIndex, address indexed pair, uint256 power);
     event BondRefunded(address indexed user, uint256 indexed epoch, uint256 commitIndex, uint256 amount);
     event BondForfeited(address indexed user, uint256 indexed epoch, uint256 commitIndex, uint256 amount);
+    /// @notice AUDIT FIX: V2-GOV-01 — emitted when a voter abandons a commit whose pair
+    ///         was disabled by the factory after commit time. Bond is refunded (not
+    ///         forfeited) because the voter is being kicked off through no fault of
+    ///         their own; `committedPower` is decremented so the voter regains the
+    ///         power they cannot reveal.
+    event CommitForfeitedOnDisabledPair(address indexed user, uint256 indexed epoch, uint256 commitIndex, address indexed pair, uint256 power, uint256 bond);
     event CommitRevealEnabled(bool enabled);
 
     // ─── Errors ──────────────────────────────────────────────────────
@@ -346,6 +352,10 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         with this typed error so any tooling on the old signature fails loudly
     ///         and clearly redirects callers to the propose/execute flow.
     error UseProposeEnableCommitReveal();
+    /// @notice AUDIT FIX: V2-GOV-01 — `forfeitCommitOnDisabledPair` was called against
+    ///         a pair that is currently NOT disabled. Refusing here forces voters to
+    ///         honour live commits via the normal reveal path.
+    error PairNotDisabled();
 
     // ─── Legacy View Helpers (for test/frontend compatibility) ───────
     function feeChangeTime() external view returns (uint256) { return _executeAfter[FEE_CHANGE]; }
@@ -1379,16 +1389,24 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // allocation on a pair they cannot route swaps through.
         _validatePair(pair);
 
-        // Same cap enforcement as legacy vote(): total across all commits +
-        // legacy votes in this epoch cannot exceed user's snapshot voting power.
-        // AUDIT FIX: DEEP-GOV-01 — min(historical, current) clamp on reveal too,
-        // mirroring the commit/vote sites so a divested voter cannot reveal stale
-        // aggregate power.
-        uint256 historicalPower = votingEscrow.votingPowerAtTimestamp(msg.sender, ep.timestamp);
-        uint256 currentPower = votingEscrow.votingPowerOf(msg.sender);
-        uint256 userPower = historicalPower < currentPower ? historicalPower : currentPower;
-        if (userPower == 0) revert NothingToClaim();
-        require(userTotalVotes[msg.sender][epoch] + power <= userPower, "EXCEEDS_POWER");
+        // AUDIT FIX: V2-GOV-10 — at reveal time, cap against `committedPower`
+        // (the sum of declared commit-time powers, already capped at
+        // `min(historical, current)` AT COMMIT TIME via the C2 fix), NOT against
+        // a freshly-resampled `min(historical, current)`. Pre-fix, the reveal
+        // cap was the dynamic min-clamp, so a voter who divested between commit
+        // and reveal would fail the reveal even though their commit was valid at
+        // commit time — losing both bond and slot. Anchoring on
+        // `committedPower` keeps commit-time and reveal-time semantics consistent
+        // (Compound Bravo `castVote` snapshots `getPriorVotes` once per proposal,
+        // used everywhere downstream). The post-divest power-leak risk is bounded
+        // because the C2 cap was already applied at commit time — voter cannot
+        // reveal more than they declared.
+        // AUDIT FIX: DEEP-GOV-01 — historical clamp at COMMIT time (via
+        // committedPower) is preserved; this is purely a consistency fix on the
+        // reveal-side cap source.
+        uint256 cap = committedPower[msg.sender][epoch];
+        if (cap == 0) revert NothingToClaim();
+        require(userTotalVotes[msg.sender][epoch] + power <= cap, "EXCEEDS_POWER");
 
         // Apply vote (same effect as legacy vote()).
         gaugeVotes[msg.sender][epoch][pair] += power;
@@ -1410,6 +1428,89 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             }
             toweli.safeTransfer(msg.sender, bond);
             emit BondRefunded(msg.sender, epoch, commitIndex, bond);
+        }
+    }
+
+    /// @notice AUDIT FIX: V2-GOV-01 + V2-GOV-02 — escape path for voters whose committed
+    ///         pair is currently disabled. Handles two cases uniformly:
+    ///           (a) V2-GOV-01: pair was live at commit time and was disabled by the
+    ///               factory before the reveal window — without this path the
+    ///               monotonic `committedPower` cap combined with `_validatePair` at
+    ///               reveal-time produced a permanent epoch-scoped lockup (user could
+    ///               neither reveal nor commit again, AND lost the bond on sweep).
+    ///           (b) V2-GOV-02: pair was already disabled when the user (or a
+    ///               malicious tx-builder) committed. `commitVote` cannot validate
+    ///               the hashed pair, so the bad commit was accepted; this path lets
+    ///               the voter unwind it BEFORE the sweep deadline so they recover
+    ///               both bond AND committedPower for fresh commits.
+    ///         Voter proves the commit's preimage, contract decrements
+    ///         `committedPower`, refunds the bond, and marks the slot revealed (no
+    ///         double-claim). Callable any time between commit and the bond-sweep
+    ///         deadline. Permissionless caller (a keeper could unwind on the
+    ///         voter's behalf), but the bond + power refund always go to the
+    ///         original committer (`user`).
+    /// @param user        Voter who placed the commit (also recipient of the bond refund).
+    /// @param epoch       Commit-reveal epoch index.
+    /// @param commitIndex Index returned by commitVote.
+    /// @param pair        Pair the commit was for (validated against the hash).
+    /// @param power       Voting power declared at commit (validated against the hash).
+    /// @param salt        Salt used at commit time (validated against the hash).
+    function forfeitCommitOnDisabledPair(
+        address user,
+        uint256 epoch,
+        uint256 commitIndex,
+        address pair,
+        uint256 power,
+        bytes32 salt
+    ) external nonReentrant whenNotPaused {
+        if (epoch >= epochs.length) revert InvalidEpoch();
+        EpochInfo memory ep = epochs[epoch];
+        if (!ep.usesCommitReveal) revert NotCommitRevealEpoch();
+
+        CommitInfo[] storage commits = voterCommits[user][epoch];
+        if (commitIndex >= commits.length) revert CommitNotFound();
+        CommitInfo storage c = commits[commitIndex];
+        if (c.revealed) revert AlreadyRevealed();
+
+        // Validate the (pair, power, salt) match the committed hash. This is the
+        // proof that the caller is unwinding THIS commit and not a different one.
+        if (pair == address(0)) revert InvalidPair();
+        if (power == 0) revert ZeroAmount();
+        bytes32 expected = computeCommitHash(user, epoch, pair, power, salt);
+        if (expected != c.commitHash) revert CommitHashMismatch();
+
+        // Refuse the escape path if the pair is still live. Voters can't bail out
+        // of a live commit just because they've changed their minds — the normal
+        // reveal/sweep windows govern that case.
+        if (!factory.disabledPairs(pair)) revert PairNotDisabled();
+
+        // CEI: state first, transfer last. Mark revealed (no double-claim) AND zero
+        // the bond before the external transfer.
+        c.revealed = true;
+        uint96 bond = c.bond;
+        c.bond = 0;
+
+        // Decrement committedPower so the voter is no longer locked out of further
+        // commits this epoch (the central point of the fix).
+        if (committedPower[user][epoch] >= power) {
+            committedPower[user][epoch] -= power;
+        } else {
+            // Defensive: if accounting somehow drifted, clear to zero rather than
+            // underflow. Cannot happen under current logic — committedPower only
+            // ever increases by `power` at commit time.
+            committedPower[user][epoch] = 0;
+        }
+
+        emit CommitForfeitedOnDisabledPair(user, epoch, commitIndex, pair, power, bond);
+
+        if (bond > 0) {
+            if (totalCommitBonds >= bond) {
+                totalCommitBonds -= bond;
+            }
+            // Refund (not forfeit) — voter is being kicked off through no fault of
+            // their own, so they get the bond back.
+            toweli.safeTransfer(user, bond);
+            emit BondRefunded(user, epoch, commitIndex, bond);
         }
     }
 

@@ -218,6 +218,12 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///         is auto-cancelled — owner must `proposeFeeReceiver` again with a different
     ///         address.
     error FeeReceiverDryRunFailed();
+    /// @notice AUDIT FIX: V2-GOV-11 — `holdsToken` reverted (e.g. staking contract
+    ///         mid-upgrade). Fail closed instead of falling back to the legacy
+    ///         single-pointer check, which is the very M13 bypass `holdsToken`
+    ///         was designed to close. Voters must wait for the staking contract
+    ///         upgrade to complete before voting on this proposal.
+    error HoldsTokenCheckFailed();
 
     // Legacy error aliases (kept for test compatibility)
     error NoFeeReceiverChangePending();
@@ -343,14 +349,22 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // for multi-NFT contract holders (Safes, vaults). Single-pointer userTokenId can be
         // overwritten by a later inbound NFT, silently letting the original proposer vote
         // with a different "current" tokenId while still holding the snapshotted one.
-        // try/catch falls back to the legacy single-pointer check if the staking contract
-        // is mid-upgrade and doesn't yet expose holdsToken.
+        // AUDIT FIX: V2-GOV-11 — fail closed if `holdsToken` reverts (e.g. staking
+        // contract mid-upgrade). Pre-fix the catch branch fell back to the legacy
+        // single-pointer `userTokenId` check, which is the very M13 bypass
+        // `holdsToken` was designed to close: a proposer routes one NFT to a sybil
+        // address whose `userTokenId` no longer matches the proposer's snapshot,
+        // the fallback says "doesn't hold", vote allowed. Removing the fallback
+        // means voters must wait for the upgrade to complete — which is acceptable
+        // because staking contract upgrades go through their own timelock and are
+        // publicly announced. Pattern: fail-closed on safety-critical checks
+        // (Curve veCRV abstain on dead infra, Compound ban votes during upgrades).
         if (proposal.proposerTokenId != 0) {
             bool holds;
             try votingEscrow.holdsToken(msg.sender, proposal.proposerTokenId) returns (bool h) {
                 holds = h;
             } catch {
-                holds = (votingEscrow.userTokenId(msg.sender) == proposal.proposerTokenId);
+                revert HoldsTokenCheckFailed();
             }
             require(!holds, "PROPOSER_POSITION_CANNOT_VOTE");
         }
@@ -479,6 +493,15 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (proposal.amount > proposal.absoluteCap) revert AmountTooLarge();
 
         // Rolling treasury depletion limit: max 30% of current balance in any 30-day window
+        // AUDIT FIX: V2-GOV-12 (INFO) — DELIBERATE SEMANTIC: the rolling window
+        // tracks SUCCESSFULLY DISBURSED ETH, not approved-but-failed attempts.
+        // If `_transferETHOrWETH` returns false (extremely unlikely because the
+        // WETH wrap fallback covers contract recipients that revert on raw
+        // ETH), the proposal moves to `FailedExecution` and `_recordDisbursement`
+        // is NOT called. `retryExecution` re-prunes the rolling window and
+        // re-cap-checks at retry time, so the cap remains exact for actually-
+        // paid amounts. `MAX_ROLLING_DISBURSEMENT_BPS` is therefore "max
+        // DISBURSED in 30 days", not "max APPROVED" or "max ATTEMPTED".
         uint256 currentRolling = _pruneAndGetRollingDisbursed();
         uint256 maxRolling = (address(this).balance * MAX_ROLLING_DISBURSEMENT_BPS) / 10000;
         if (currentRolling + proposal.amount > maxRolling) revert RollingDisbursementExceeded();
@@ -533,6 +556,9 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (proposal.amount > proposal.absoluteCap) revert AmountTooLarge();
 
         // Rolling treasury depletion limit: max 30% of current balance in any 30-day window
+        // AUDIT FIX: V2-GOV-12 (INFO) — see executeProposal for the rationale of
+        // tracking only SUCCESSFULLY DISBURSED ETH in the rolling window. Mirroring
+        // the same accounting here keeps retry semantics aligned with the primary path.
         uint256 currentRolling = _pruneAndGetRollingDisbursed();
         uint256 maxRolling = (address(this).balance * MAX_ROLLING_DISBURSEMENT_BPS) / 10000;
         if (currentRolling + proposal.amount > maxRolling) revert RollingDisbursementExceeded();

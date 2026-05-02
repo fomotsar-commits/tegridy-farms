@@ -466,10 +466,22 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // be locked out because default `topSubmissionId == 0` would block all
         // non-zero submissions from ever promoting. Pattern: Snapshot off-chain voting
         // closes 24h before display deadline; Compound Bravo vote-queue extension.
+        // AUDIT FIX: V2-GOV-08 — additionally require the leader to be ESTABLISHED
+        // (topSubmissionVotes >= MIN_COMPLETION_VOTES) for the freeze protection to
+        // apply. Pre-fix, a sock-puppet who voted MIN_VOTE_BALANCE for an unwanted
+        // submission BEFORE freeze would lock out the rest of the epoch — even
+        // 100,000 TOWELI of legitimate late votes for a different submission could
+        // not displace a 1,000 TOWELI sock-puppet leader. With the established-
+        // threshold gate, a tiny leader can still be displaced; once any submission
+        // crosses the completion threshold, the freeze kicks in to prevent late-flip
+        // griefing. Pattern: Snapshot established-thresholds for late-vote protection.
         bool inFreeze = block.timestamp + TOP_FREEZE_WINDOW >= bounties[_bountyId].deadline;
         if (newVotes > topSubmissionVotes[_bountyId]) {
-            // DEEP-GOV-04: only protect the leader during freeze when one exists.
-            if (!inFreeze || topSubmissionVotes[_bountyId] == 0 || _submissionId == topSubmissionId[_bountyId]) {
+            // V2-GOV-08: only protect the leader during freeze when an ESTABLISHED
+            // leader exists (>= MIN_COMPLETION_VOTES). Tiny pre-freeze sock-puppet
+            // leaders can still be displaced.
+            bool hasEstablishedLeader = topSubmissionVotes[_bountyId] >= MIN_COMPLETION_VOTES;
+            if (!inFreeze || !hasEstablishedLeader || _submissionId == topSubmissionId[_bountyId]) {
                 topSubmissionVotes[_bountyId] = newVotes;
                 topSubmissionId[_bountyId] = _submissionId;
             }
@@ -545,7 +557,24 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (block.timestamp > bounty.deadline) revert CannotCancelAfterDeadline();
         if (msg.sender != bounty.creator && msg.sender != owner()) revert NotCreatorOrOwner();
         // FIX 3: Prevent creator from front-running submitWork — must wait MIN_CANCEL_DELAY after creation
-        if (block.timestamp < bounty.createdAt + MIN_CANCEL_DELAY) revert CancelTooEarly();
+        // AUDIT FIX: V2-GOV-09 — scale the cancel delay for short-deadline bounties so
+        // a 1-day-deadline bounty isn't permanently uncancellable. Pre-fix the
+        // MIN_CANCEL_DELAY=24h floor combined with MIN_DEADLINE_DURATION=1d created
+        // bounties whose entire cancel window was zero (cancel opens at createdAt+24h
+        // == deadline, hits CannotCancelAfterDeadline). The original DEEP-GOV-11
+        // attack only requires a delay long enough to discourage front-run cancels;
+        // 1 hour suffices for the anti-frontrun goal even on the shortest bounty.
+        // For longer bounties (deadline > createdAt + 25h), the full 24h floor still
+        // applies. Pattern: bounded delay with a sensible minimum (Gitcoin grant
+        // boards apply tiered cancel windows by bounty length).
+        uint256 bountyDuration = bounty.deadline - bounty.createdAt;
+        uint256 effectiveCancelDelay = MIN_CANCEL_DELAY;
+        if (bountyDuration < MIN_CANCEL_DELAY + 1 hours) {
+            // Short bounty: leave at least 1h between cancel-open and deadline so the
+            // creator has SOME window. 1h is the original (pre-DEEP-GOV-11) MIN_CANCEL_DELAY.
+            effectiveCancelDelay = bountyDuration > 1 hours ? bountyDuration - 1 hours : 0;
+        }
+        if (block.timestamp < bounty.createdAt + effectiveCancelDelay) revert CancelTooEarly();
         // SECURITY FIX M-10: Cannot cancel after receiving submissions — prevents
         // creator from viewing submitted work (on-chain URIs), copying it, then cancelling.
         if (bounty.submissionCount > 0) revert CannotCancelWithSubmissions();

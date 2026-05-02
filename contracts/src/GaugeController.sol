@@ -88,6 +88,21 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     /// @notice Total voting power cast across all gauges in a given epoch
     mapping(uint256 => uint256) public totalWeightByEpoch;
 
+    /// @notice AUDIT FIX: V2-GOV-05 — cached per-epoch top gauge weight. Updated
+    ///         incrementally during `vote()` and `revealVote()` so that
+    ///         `_getRelativeWeightAt` is O(1) per call instead of O(n) over the
+    ///         entire `gaugeList`. With MAX_TOTAL_GAUGES = 50 the pre-fix scan was
+    ///         up to 50 SLOADs per relative-weight read; an emission distributor
+    ///         that loops through gauges would inherit O(n²) cost. Cache is
+    ///         monotonically increasing within an epoch — gauge weights only ever
+    ///         grow during votes, never shrink, so we never need a re-scan.
+    /// @dev    AUDIT FIX: V2-GOV-03 — using the cache also closes the past-epoch
+    ///         topWeight undercount: when a gauge is removed via `executeRemoveGauge`
+    ///         (allowed only when current-epoch weight is zero), the cache for past
+    ///         epochs is left intact so historical reads still see the correct top.
+    mapping(uint256 => uint256) public topWeightByEpoch;
+    mapping(uint256 => address) public topGaugeByEpoch;
+
     /// @notice Tracks the epoch in which a tokenId last voted (metadata only; reads 0
     ///         for "never voted" AND for "voted in epoch 0" — do NOT use as a guard).
     mapping(uint256 => uint256) public lastVotedEpoch;
@@ -300,6 +315,9 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             gaugeWeightByEpoch[epoch][gauges[i]] += allocatedPower;
             totalWeightByEpoch[epoch] += allocatedPower;
             _tokenVotes[tokenId].push(VoteAllocation({gauge: gauges[i], weight: weights[i]}));
+            // AUDIT FIX: V2-GOV-05 — maintain the per-epoch top cache so
+            // `_getRelativeWeightAt` is O(1) per call.
+            _updateEpochTop(epoch, gauges[i]);
         }
 
         emit Voted(msg.sender, tokenId, epoch, gauges, weights);
@@ -549,6 +567,9 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             gaugeWeightByEpoch[epoch][gauges[i]] += allocatedPower;
             totalWeightByEpoch[epoch] += allocatedPower;
             _tokenVotes[tokenId].push(VoteAllocation({gauge: gauges[i], weight: weights[i]}));
+            // AUDIT FIX: V2-GOV-05 — maintain the per-epoch top cache so
+            // `_getRelativeWeightAt` is O(1) per call.
+            _updateEpochTop(epoch, gauges[i]);
         }
 
         emit VoteRevealed(msg.sender, tokenId, epoch, gauges, weights);
@@ -561,6 +582,40 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///      graced range so off-chain UIs match on-chain acceptance.
     function isRevealWindowOpen() external view returns (uint256 epoch, bool open, uint256 revealOpensAt, uint256 revealClosesAt) {
         epoch = currentEpoch();
+        revealOpensAt = epochStartTime(epoch) + EPOCH_DURATION - REVEAL_WINDOW;
+        revealClosesAt = epochStartTime(epoch) + EPOCH_DURATION;
+        open = block.timestamp + REVEAL_GRACE >= revealOpensAt
+            && block.timestamp <= revealClosesAt + REVEAL_GRACE;
+    }
+
+    /// @notice AUDIT FIX: V2-GOV-06 — tokenId-aware view that mirrors the
+    ///         `revealVote` epoch-derivation logic in the trailing-grace zone.
+    ///         Pre-fix, `isRevealWindowOpen()` always reported `epoch =
+    ///         currentEpoch()`, but during the trailing REVEAL_GRACE the contract
+    ///         internally accepts reveals targeting `epoch - 1` if the user has
+    ///         no commit in the new epoch but does in the prior one. UIs that
+    ///         consumed the no-arg view in that window saw the wrong epoch and
+    ///         reported "no commit found".
+    /// @param  tokenId The user's tokenId — used to detect whether the active
+    ///         reveal slot should resolve to the current or previous epoch.
+    function isRevealWindowOpenFor(uint256 tokenId) external view returns (uint256 epoch, bool open, uint256 revealOpensAt, uint256 revealClosesAt) {
+        uint256 nowEpoch = currentEpoch();
+        uint256 nowEpochStart = epochStartTime(nowEpoch);
+        // Mirror revealVote's defensive look-back exactly.
+        if (nowEpoch > 0 && block.timestamp >= nowEpochStart) {
+            uint256 prev = nowEpoch - 1;
+            bytes32 commitmentNow = commitmentOf[tokenId][nowEpoch];
+            bytes32 commitmentPrev = commitmentOf[tokenId][prev];
+            uint256 graceBoundary = nowEpochStart + REVEAL_GRACE;
+            if (commitmentNow == bytes32(0) && commitmentPrev != bytes32(0)
+                && block.timestamp <= graceBoundary) {
+                epoch = prev;
+            } else {
+                epoch = nowEpoch;
+            }
+        } else {
+            epoch = nowEpoch;
+        }
         revealOpensAt = epochStartTime(epoch) + EPOCH_DURATION - REVEAL_WINDOW;
         revealClosesAt = epochStartTime(epoch) + EPOCH_DURATION;
         open = block.timestamp + REVEAL_GRACE >= revealOpensAt
@@ -596,28 +651,67 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         return _getRelativeWeightAt(gauge, epoch);
     }
 
-    /// @dev AUDIT FIX: DEEP-GOV-03 — shared denominator-scaling helper.
+    /// @dev AUDIT FIX: V2-GOV-04 + V2-GOV-05 — true renormalization (option-a)
+    ///      with O(1) per-epoch top-weight cache. Pre-fix the option-b
+    ///      denominator scaling left up to 49% of emissions undistributed when
+    ///      the top gauge dominated; this version exact-distributes BPS by
+    ///      capping the top to MAX_GAUGE_RELATIVE_WEIGHT_BPS and proportionally
+    ///      redistributing the over-cap to all other gauges.
+    ///      Pre-fix the topWeight scan was an O(n) loop over the entire
+    ///      `gaugeList`; this version reads the cached `topWeightByEpoch[epoch]`
+    ///      maintained at vote / revealVote sites.
+    /// @dev AUDIT FIX: V2-GOV-03 — past-epoch reads now use the cached top from
+    ///      that epoch, so a post-epoch gauge removal (allowed only when current
+    ///      weight is zero) cannot retroactively change the historical top.
     function _getRelativeWeightAt(address gauge, uint256 epoch) internal view returns (uint256) {
         uint256 total = totalWeightByEpoch[epoch];
         if (total == 0) return 0;
 
-        // Find the top gauge weight in this epoch.
-        uint256 topWeight;
-        uint256 len = gaugeList.length;
-        for (uint256 i; i < len; ++i) {
-            uint256 w = gaugeWeightByEpoch[epoch][gaugeList[i]];
-            if (w > topWeight) topWeight = w;
+        uint256 gw = gaugeWeightByEpoch[epoch][gauge];
+        if (gw == 0) return 0;
+
+        // Read the cached top from the per-epoch storage slot. For freshly-deployed
+        // contracts or the very first vote in an epoch, `topGaugeByEpoch[epoch]`
+        // could lag by exactly one update (set in the same tx that incremented
+        // weight), but the invariant `topWeightByEpoch[epoch] >= max(allWeights)`
+        // is maintained by the update logic so the cap math always holds.
+        uint256 topWeight = topWeightByEpoch[epoch];
+        address topGauge = topGaugeByEpoch[epoch];
+
+        uint256 cap = MAX_GAUGE_RELATIVE_WEIGHT_BPS;
+
+        // Compute what the top WOULD be without renormalization.
+        uint256 topRaw = (topWeight * BPS) / total;
+
+        // No renormalization needed when the top is already at or below the cap.
+        if (topRaw <= cap) {
+            return (gw * BPS) / total;
         }
 
-        // Option-b: when top > 50% of total, set effectiveTotal = 2 * topWeight so
-        // the top is exactly 50% and surviving gauges absorb the remainder.
-        uint256 effectiveTotal = total;
-        if (topWeight * 2 > total) {
-            effectiveTotal = topWeight * 2;
+        // Renormalization branch: top is over-cap.
+        if (gauge == topGauge) {
+            return cap; // Top is capped exactly.
         }
 
-        uint256 raw = (gaugeWeightByEpoch[epoch][gauge] * BPS) / effectiveTotal;
-        return raw > MAX_GAUGE_RELATIVE_WEIGHT_BPS ? MAX_GAUGE_RELATIVE_WEIGHT_BPS : raw;
+        // Other gauges share the (BPS - cap) budget proportionally to their
+        // weight relative to the OTHER-gauges total (= total - topWeight).
+        uint256 othersTotal = total - topWeight;
+        if (othersTotal == 0) {
+            // Only the top gauge has weight in this epoch; nothing for others.
+            return 0;
+        }
+        return (gw * (BPS - cap)) / othersTotal;
+    }
+
+    /// @dev AUDIT FIX: V2-GOV-05 — internal helper to update the per-epoch top
+    ///      cache after a gauge's weight has been incremented. Cheap O(1) compare
+    ///      against the existing top. Called from both `vote()` and `revealVote()`.
+    function _updateEpochTop(uint256 epoch, address gauge) internal {
+        uint256 newWeight = gaugeWeightByEpoch[epoch][gauge];
+        if (newWeight > topWeightByEpoch[epoch]) {
+            topWeightByEpoch[epoch] = newWeight;
+            topGaugeByEpoch[epoch] = gauge;
+        }
     }
 
     /// @notice Returns the vote allocations for a tokenId in its last voted epoch
@@ -679,6 +773,13 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // the epoch. Owner must wait until next epoch (when the gauge has zero
         // weight in the new bucket). Pattern: Curve change_gauge_weight applies
         // at next epoch boundary.
+        // AUDIT FIX: V2-GOV-07 — when current-epoch votes exist, owners now have a
+        // documented escape via `executeRemoveGaugeNextEpoch()` below: it flips
+        // `isGauge` immediately so future votes for the gauge revert
+        // (`InvalidGauge`), but defers the gaugeList swap-and-pop to the natural
+        // epoch boundary. This means a single voter cannot perpetually block
+        // removal by voting at the start of every epoch — the owner can immediately
+        // disarm new votes while the current epoch's emissions finish out cleanly.
         if (gaugeWeightByEpoch[currentEpoch()][gauge] > 0) revert GaugeHasActiveVotes();
         isGauge[gauge] = false;
 
@@ -694,6 +795,58 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
         pendingGaugeRemove = address(0);
         emit GaugeRemoved(gauge);
+    }
+
+    /// @notice AUDIT FIX: V2-GOV-07 — alternative removal path that disables the
+    ///         gauge IMMEDIATELY (no future votes accepted) but defers the
+    ///         gaugeList prune to a manual second step. Closes the
+    ///         "voter-veto-by-perpetual-voting" attack on `executeRemoveGauge`:
+    ///         pre-fix, a single voter calling `vote()` at every epoch start could
+    ///         keep `gaugeWeightByEpoch[currentEpoch][gauge] > 0` forever and
+    ///         cause every owner removal proposal to expire unused.
+    ///         With this path, the owner flips `isGauge` to false the moment the
+    ///         timelock elapses, blocking new votes regardless of any active
+    ///         votes already cast for the current epoch. The current-epoch's
+    ///         emissions still distribute against the cast votes (no retroactive
+    ///         change) — only future votes are blocked.
+    /// @dev    Followed up by `executeRemoveGaugeFinalize()` once the current
+    ///         epoch's votes naturally age out, to prune `gaugeList`.
+    function executeRemoveGaugeNextEpoch() external onlyOwner {
+        _execute(GAUGE_REMOVE);
+        address gauge = pendingGaugeRemove;
+        // Disarm new votes immediately. Existing votes for currentEpoch keep
+        // their weight (no retroactive shrink); finalize() prunes once safe.
+        isGauge[gauge] = false;
+        // pendingGaugeRemove is INTENTIONALLY left set so finalize knows which
+        // gauge to prune from gaugeList. emit signals the change is staged.
+        emit GaugeRemoved(gauge);
+    }
+
+    /// @notice AUDIT FIX: V2-GOV-07 — finalizes the removal staged by
+    ///         `executeRemoveGaugeNextEpoch`: prunes `gaugeList` once the gauge
+    ///         no longer has any current-epoch weight (i.e., the epoch in which
+    ///         the active votes were cast has fully aged out).
+    ///         Permissionless because by the time current-epoch weight is zero,
+    ///         the gauge is already disarmed (`isGauge == false`) and there's
+    ///         nothing to wait on.
+    function executeRemoveGaugeFinalize() external {
+        address gauge = pendingGaugeRemove;
+        if (gauge == address(0)) revert GaugeDoesNotExist();
+        // Allow finalize ONLY after currentEpoch's weight is zero.
+        if (gaugeWeightByEpoch[currentEpoch()][gauge] > 0) revert GaugeHasActiveVotes();
+        // Defensive: must already be disarmed.
+        if (isGauge[gauge]) revert GaugeAlreadyExists();
+
+        uint256 len = gaugeList.length;
+        for (uint256 i; i < len; ++i) {
+            if (gaugeList[i] == gauge) {
+                gaugeList[i] = gaugeList[len - 1];
+                gaugeList.pop();
+                break;
+            }
+        }
+
+        pendingGaugeRemove = address(0);
     }
 
     function cancelRemoveGauge() external onlyOwner {
