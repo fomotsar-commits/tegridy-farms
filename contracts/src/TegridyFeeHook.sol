@@ -71,6 +71,10 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     error SyncReductionTooLarge();
     error AboveOnChainCredit();
     error SyncIncreaseTooLarge(); // AUDIT R014: per-step upward sync ceiling exceeded
+    /// @notice AUDIT FIX V2-AMM-M3: typed error for the restored M-32 recipient
+    ///         allowlist on `sweepETH`. Reverts when the owner-supplied recipient
+    ///         is neither `revenueDistributor` nor `owner()`.
+    error InvalidSweepRecipient();
 
     // SECURITY FIX: Track fees actually earned per token to prevent over-claiming
     mapping(address => uint256) public accruedFees;
@@ -308,9 +312,27 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     /// @dev AUDIT FIX D-AMM-M1: while a sync proposal for `currency` is pending,
     ///      revert `SYNC_PENDING`. Pre-fix a permissionless drain race could push
     ///      `accruedFees[currency]` to 0 during the 24h sync timelock.
+    /// @dev AUDIT FIX V2-AMM-M1: an EXPIRED sync proposal (one whose
+    ///      `_executeAfter[key] + PROPOSAL_VALIDITY < block.timestamp`) no longer
+    ///      blocks `claimFees`. Pre-fix the gate was a raw `_proposalReadyAt(key)
+    ///      == 0` check; an owner who forgot (or was prevented) from cancelling a
+    ///      stale proposal would have permanently bricked claimFees because
+    ///      `_executeAfter[key]` is only cleared by `_execute` or `_cancel`. After
+    ///      the proposal validity window has elapsed, the proposal can no longer
+    ///      be executed (TimelockAdmin._execute would revert ProposalExpired), so
+    ///      treating it as effectively cancelled is safe. The 24h propose-side
+    ///      DoS surface remains: an active malicious owner can re-propose every
+    ///      block and indefinitely block claimFees, but that is the originally-
+    ///      intended timelock semantics — fixing it requires moving the owner to
+    ///      a multisig. Pattern of record: Compound Timelock allows anyone to
+    ///      observe expiration once `eta + GRACE_PERIOD < block.timestamp`.
     function claimFees(address currency, uint256 amount) external nonReentrant whenNotPaused {
         bytes32 syncKey = keccak256(abi.encodePacked(SYNC_CHANGE, currency));
-        require(_proposalReadyAt(syncKey) == 0, "SYNC_PENDING");
+        uint256 readyAt = _proposalReadyAt(syncKey);
+        require(
+            readyAt == 0 || block.timestamp > readyAt + _proposalValidity(),
+            "SYNC_PENDING"
+        );
         if (amount > accruedFees[currency]) revert ExceedsAccrued();
         accruedFees[currency] -= amount;
         // NOTE: If poolManager.take reverts (insufficient credits), the entire tx reverts,
@@ -490,15 +512,28 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
 
     // ─── ETH Recovery ───────────────────────────────────────────────
 
-    /// @notice M-32: Recover accidentally sent ETH. Always sends to revenueDistributor
-    ///         to prevent misuse by a compromised owner.
+    /// @notice M-32: Recover accidentally sent ETH. Recipient is constrained to
+    ///         `revenueDistributor` or `owner()` so a compromised owner cannot
+    ///         instantly drain the ETH balance to an arbitrary attacker address.
     /// @dev    AUDIT FIX D-AMM-L4: accept an owner-specified recipient parameter so
     ///         that if `revenueDistributor` becomes a reverting contract,
     ///         `sweepETH` is not permanently bricked waiting for the 48h
     ///         distributor-rotation timelock. Owner gating prevents misuse.
-    /// @param  to Recipient of the swept ETH. Must be non-zero.
+    /// @dev    AUDIT FIX V2-AMM-M3: restore M-32's protection — the prior
+    ///         D-AMM-L4 fix overcorrected by accepting any owner-specified `to`
+    ///         address, which erased the original "instant-drain prevention"
+    ///         design. A captured owner could call `sweepETH(attackerEOA)` and
+    ///         exfiltrate the entire ETH balance, bypassing the 48h
+    ///         `proposeDistributorChange` timelock that was meant to gate
+    ///         distributor-class diversions. The allowlist below restricts the
+    ///         recipient to either the live `revenueDistributor` (canonical
+    ///         path) or `owner()` (fallback for the case where
+    ///         `revenueDistributor` is a reverting contract). Both targets are
+    ///         already trusted entities under the protocol's threat model.
+    /// @param  to Recipient of the swept ETH. Must be `revenueDistributor` or
+    ///            `owner()`; reverts `InvalidSweepRecipient` otherwise.
     function sweepETH(address to) external onlyOwner {
-        require(to != address(0), "ZERO_ADDR");
+        if (to != revenueDistributor && to != owner()) revert InvalidSweepRecipient();
         uint256 balance = address(this).balance;
         require(balance > 0, "NO_ETH"); // L-10: Prevent zero-value transfer
         (bool success,) = payable(to).call{value: balance}("");

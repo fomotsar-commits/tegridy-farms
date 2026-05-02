@@ -222,15 +222,29 @@ contract DeepAMMTest is Test {
     // ─── D-AMM-L4: sweepETH takes a recipient ──────────────────────
 
     function test_DAmmL4_sweepETH_acceptsRecipient() public {
+        // AUDIT FIX: V2-AMM-M3 — sweepETH(address) is now restricted to
+        // {revenueDistributor, owner()} only. Sweeping to an arbitrary EOA
+        // (the prior test) is rejected; the legitimate paths are these two.
         vm.deal(address(hook), 1 ether);
-        hook.sweepETH(bob);
-        assertEq(bob.balance, 1 ether);
+        hook.sweepETH(distributor); // revenueDistributor in this test setUp
+        assertEq(distributor.balance, 1 ether);
         assertEq(address(hook).balance, 0);
     }
 
-    function test_DAmmL4_sweepETH_zeroRecipient() public {
+    function test_DAmmL4_sweepETH_rejectsArbitraryRecipient() public {
+        // AUDIT FIX: V2-AMM-M3 — arbitrary recipient now reverts
+        // InvalidSweepRecipient (was: D-AMM-L4 originally allowed any owner-
+        // chosen recipient; restored M-32 protection).
         vm.deal(address(hook), 1 ether);
-        vm.expectRevert(bytes("ZERO_ADDR"));
+        vm.expectRevert(TegridyFeeHook.InvalidSweepRecipient.selector);
+        hook.sweepETH(bob);
+    }
+
+    function test_DAmmL4_sweepETH_zeroRecipient() public {
+        // AUDIT FIX: V2-AMM-M3 — zero address is not in the {revenueDistributor,
+        // owner} allowlist, so the same InvalidSweepRecipient applies.
+        vm.deal(address(hook), 1 ether);
+        vm.expectRevert(TegridyFeeHook.InvalidSweepRecipient.selector);
         hook.sweepETH(address(0));
     }
 

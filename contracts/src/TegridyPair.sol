@@ -338,6 +338,16 @@ contract TegridyPair is ERC20, ReentrancyGuard {
     ///         the gate cadence and capture the fee.
     /// @dev    Reverts `HARVEST_TOO_SOON` if called before `lastHarvestAt + HARVEST_INTERVAL`.
     function harvest() external nonReentrant {
+        // AUDIT FIX V2-AMM-M4: parity with mint/swap/sync/skim — `harvest()`
+        // is also a state-mutating path that calls into `_mintFee` and writes
+        // `kLast`. Without these gates, a disabled / blocked-token pair could
+        // still have its protocol-fee LP materialised, which (via feeTo)
+        // re-introduces the disabled pair to the protocol's accounting. The
+        // microscope's M-AMM1 explicitly required this gate; the prior
+        // remediation report claimed it landed but the source did not contain
+        // the check. Closes that persistent regression.
+        require(!ITegridyFactory(factory).disabledPairs(address(this)), "PAIR_DISABLED");
+        require(!ITegridyFactory(factory).blockedTokens(token0) && !ITegridyFactory(factory).blockedTokens(token1), "TOKEN_BLOCKED");
         require(block.timestamp >= lastHarvestAt + HARVEST_INTERVAL, "HARVEST_TOO_SOON");
         // AUDIT FIX D-AMM-M2: only bump `lastHarvestAt` after a fee was actually
         // materialised (totalSupply increased). Previously the timestamp was bumped
@@ -350,7 +360,28 @@ contract TegridyPair is ERC20, ReentrancyGuard {
         (uint112 _reserve0, uint112 _reserve1,) = getReserves();
         uint256 supplyBefore = totalSupply();
         bool feeOn = _mintFee(_reserve0, _reserve1);
-        require(totalSupply() > supplyBefore, "NO_FEE_TO_MATERIALIZE");
+        // AUDIT FIX V2-AMM-M2: allow the bootstrap-only path through.
+        //
+        // DELICATE DISTINCTION: `_mintFee` mints zero LP in two distinct cases:
+        //   (a) Bootstrap: `feeOn == true` but `kLast == 0`. The inner
+        //       `if (_kLast != 0)` guard short-circuits, no LP mints. This is
+        //       the FIRST harvest after `feeTo` was enabled on a previously
+        //       fee-disabled pair — `kLast` MUST be set here so subsequent
+        //       harvests have a baseline to measure K-growth against.
+        //   (b) No-growth: `feeOn == true` and `kLast != 0` and either
+        //       `rootK <= rootKLast` (K shrunk or stayed flat) or
+        //       `numerator / denominator` rounded to zero. No LP mints; no
+        //       state change is needed (the prior `kLast` is still correct).
+        //
+        // The pre-D-AMM-M2 code conflated (a) and (b) and silently advanced
+        // `lastHarvestAt` in both, which created the griefing surface. Strict
+        // `totalSupply() > supplyBefore` (post-fix) blocked (b) correctly but
+        // also blocked (a) — leaving the protocol unable to bootstrap `kLast`
+        // via harvest. The `bootstrap` flag below distinguishes them: only (a)
+        // bypasses the revert, and `kLast` is then written below to seed the
+        // baseline. (b) still reverts as before.
+        bool bootstrap = (feeOn && kLast == 0);
+        require(totalSupply() > supplyBefore || bootstrap, "NO_FEE_TO_MATERIALIZE");
         lastHarvestAt = block.timestamp;
         if (feeOn) {
             kLast = uint256(_reserve0) * uint256(_reserve1);

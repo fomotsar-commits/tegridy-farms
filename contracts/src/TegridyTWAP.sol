@@ -338,6 +338,22 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
                 // every subsequent honest observation against the manipulated
                 // baseline. Permissionless updates resume immediately afterward
                 // since the next observation's `elapsed` will be < DEVIATION_BYPASS_AFTER.
+                //
+                // AUDIT FIX V2-AMM-L1 (NatSpec only — trust assumption):
+                // The bypass branch is owner-trusted. The bypass observation is
+                // marked `bypassed = true` and `consult()` (combined with the
+                // V2-AMM-H1 `best.bypassed` guard inside
+                // `_getCumulativePricesOverPeriod`) refuses to serve any TWAP
+                // whose lookup window contains a bypass observation. A
+                // compromised owner who can wait DEVIATION_BYPASS_AFTER (1 day)
+                // of dormancy COULD admit a manipulated rebootstrap observation,
+                // but it cannot be consumed via `consult()` until at least one
+                // non-bypass observation has overwritten the slot AND the bypass
+                // anchor has rolled out of the MAX_OBSERVATIONS * MIN_PERIOD
+                // window (~12 h). Owners SHOULD be a multisig (Wave 0
+                // hardening) and the bypass branch's only legitimate use is
+                // post-dormancy rebootstrap on tokens whose real price has
+                // drifted >50% during dormancy — see DEVIATION_BYPASS_AFTER.
                 if (msg.sender != owner) revert BypassObservationOwnerOnly();
                 bypassed = true;
                 lastBypassUsed[pair] = block.timestamp;
@@ -415,9 +431,17 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         // provisional — it lacks a deviation-gate confirmation. Consumers must
         // wait for the next non-bypass observation before trusting the new
         // cumulative. Pattern: Aave V3 PriceOracleSentinel.
+        // AUDIT FIX V2-AMM-H1 / V2-AMM-INFO1: tightened to require `_count >= 2`
+        // to match the downstream `_getCumulativePricesOverPeriod` minimum and
+        // elide a dead-code `count == 1` branch. The per-window `best.bypassed`
+        // check below in `_getCumulativePricesOverPeriod` closes the gap where a
+        // buffer's *anchor* observation was bypassed even though `latest` was
+        // not — a captured-owner could otherwise stage one bypass observation
+        // and let honest keepers backfill subsequent slots, returning a TWAP
+        // whose cumulative integrates a manipulated start anchor.
         {
             uint256 _count = observationCount[pair];
-            if (_count > 0) {
+            if (_count >= 2) {
                 uint8 _latestIdx =
                     observationIndex[pair] == 0 ? MAX_OBSERVATIONS - 1 : observationIndex[pair] - 1;
                 if (observations[pair][_latestIdx].bypassed) revert OracleRebootstrapping();
@@ -638,6 +662,20 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
             best = observations[pair][oldestIdx];
             if (best.timestamp == 0 || best.timestamp == latest.timestamp) revert InsufficientObservations();
         }
+
+        // AUDIT FIX V2-AMM-H1: per-window bypass guard. The upstream `consult`
+        // already refuses to serve when `latest.bypassed`, but that does not
+        // protect against a bypass observation sitting at the START of the
+        // lookup window (the cumulative anchor). If `best` (the anchor) was
+        // admitted under bypass, the returned `priceCumEnd - priceCumStart`
+        // integrates across a manipulated reference point. Reverting here
+        // matches the master-report `_safeConsult` recommendation and prevents
+        // a captured-owner-staged bypass from poisoning every consult() whose
+        // window crosses the bypass slot. The bypass observation falls out of
+        // the consultable range at most MAX_OBSERVATIONS * MIN_PERIOD = 12h
+        // later — until then, downstream consumers (lending oracles, Dutch
+        // auctions) get a clean revert instead of a manipulated TWAP.
+        if (best.bypassed) revert OracleRebootstrapping();
 
         unchecked {
             elapsed = latest.timestamp - best.timestamp;
