@@ -888,6 +888,11 @@ contract Audit195Grants is Test {
         vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, grants.FEE_RECEIVER_CHANGE()));
         grants.executeFeeReceiverChange();
 
+        // AUDIT FIX: DEEP-GOV-06 — execute requires `spare > 0` so the
+        // dry-run probe can move 1 wei without underflowing reserved
+        // deposits. Fund the grants contract with TOWELI before execute.
+        token.transfer(address(grants), 1 ether);
+
         // Advance past timelock
         vm.warp(block.timestamp + 48 hours);
         grants.executeFeeReceiverChange();

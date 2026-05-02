@@ -7,7 +7,9 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
-import {SequencerCheck, IChainlinkAggregator} from "./lib/SequencerCheck.sol";
+// AUDIT FIX: DEEP-LIB-H2 — `IChainlinkAggregator` is no longer needed
+// since `_sequencerBuffer` delegates to `SequencerCheck.getSequencerOutageBuffer`.
+import {SequencerCheck} from "./lib/SequencerCheck.sol";
 
 interface IStakingVote {
     function votingPowerOf(address user) external view returns (uint256);
@@ -37,6 +39,12 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
     // ─── State ────────────────────────────────────────────────────────
 
+    /// @dev AUDIT FIX: DEEP-GOV-12 — voteToken is dead state; all voting power
+    ///      resolution goes through `stakingContract.votingPowerAtTimestamp`. This
+    ///      field is retained for ABI compatibility only.
+    /// @custom:deprecated Use stakingContract for voting power. Do NOT add reads
+    ///                    of voteToken — it would silently change voter eligibility
+    ///                    semantics (TOWELI balance instead of staked power).
     IERC20 public immutable voteToken; // TOWELI — must hold tokens to vote (anti-sybil)
     IStakingVote public immutable stakingContract; // Staking contract for flash-loan-resistant voting power
     address public immutable weth; // WETH for fallback payout to revert-on-receive winners
@@ -56,6 +64,11 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     uint256 public constant MIN_UNIQUE_VOTERS = 3; // SECURITY FIX H3: Prevent whale single-handedly completing bounties (Nouns DAO pattern)
     mapping(uint256 => uint256) public uniqueVoterCount; // bountyId => number of unique voters
     uint256 public constant DISPUTE_PERIOD = 2 days; // SECURITY FIX #15: dispute window after deadline
+    /// @notice AUDIT FIX: DEEP-GOV-04 — final-window freeze on the top submission.
+    ///         In the final 24h before deadline, votes STILL count toward each
+    ///         submission's tally, but a non-top submission CANNOT displace the
+    ///         existing top (when one exists). Closes the late-flip primitive.
+    uint256 public constant TOP_FREEZE_WINDOW = 1 days;
     uint256 public constant GRACE_PERIOD = 30 days; // SECURITY FIX: after deadline + dispute, creator has 30 days before anyone can complete
     uint256 public constant MAX_SUBMISSIONS_PER_BOUNTY = 100; // L-05: cap submissions to prevent griefing
     uint256 public constant MIN_SUBMIT_BALANCE = 500 ether; // A4-M-15: Must hold 500 TOWELI to submit (prevents slot griefing)
@@ -74,7 +87,13 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     uint256 public minBountyReward = 0.001 ether;
     uint256 public constant MIN_BOUNTY_REWARD_TIMELOCK = 24 hours;
     uint256 public pendingMinBountyReward;
-    uint256 public constant MIN_CANCEL_DELAY = 1 hours; // FIX 3: minimum time after creation before cancel allowed
+    /// @notice AUDIT FIX: DEEP-GOV-11 — increased from 1h to 24h to mitigate the
+    ///         creator front-run attack: an artist who has gathered material and
+    ///         broadcasts `submitWork` in a contention window could be front-run by
+    ///         the creator's `cancelBounty` (creator pays gas, gets refund, artist's
+    ///         submission tx reverts with BountyNotOpen). 24h aligns with the
+    ///         industry-standard grant-board cancel grace (Gitcoin Grants).
+    uint256 public constant MIN_CANCEL_DELAY = 24 hours;
     /// @dev AUDIT L-B03 (2026-04-28): the 7-day post-deadline grace before
     ///      force-cancel becomes available is the OUTER bound; the M-28
     ///      voter-diversity gate (MIN_UNIQUE_VOTERS) is the inner bound that
@@ -289,20 +308,17 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///         (mainnet / non-L2). Used by `refundStaleBounty` and
     ///         `emergencyForceCancel` to widen the grace window when an
     ///         outage prevented honest participation.
+    /// @dev    AUDIT FIX: DEEP-LIB-H2 — delegates to the canonical
+    ///         `SequencerCheck.getSequencerOutageBuffer` helper. The previous
+    ///         in-line implementation duplicated the sequencer-uptime logic
+    ///         and missed the M-Lib2 (round-validity / staleness) and
+    ///         M-Lib3 (`answer != 0` strict-equality) updates that were
+    ///         applied to the canonical lib. Replaced with a one-liner so
+    ///         any future hardening of `getSequencerOutageBuffer` propagates
+    ///         here automatically — single source of truth for sequencer
+    ///         gating across the protocol.
     function _sequencerBuffer() internal view returns (uint256) {
-        if (sequencerFeed == address(0)) return 0;
-        (
-            ,
-            int256 answer,
-            uint256 startedAt,
-            ,
-        ) = IChainlinkAggregator(sequencerFeed).latestRoundData();
-        if (answer == 1) return SEQUENCER_OUTAGE_BUFFER;
-        if (startedAt == 0) return SEQUENCER_OUTAGE_BUFFER;
-        if ((block.timestamp - startedAt) < SEQUENCER_OUTAGE_BUFFER) {
-            return SEQUENCER_OUTAGE_BUFFER;
-        }
-        return 0;
+        return SequencerCheck.getSequencerOutageBuffer(sequencerFeed, SEQUENCER_OUTAGE_BUFFER);
     }
 
     // ─── Pausable ────────────────────────────────────────────────────
@@ -420,7 +436,13 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // snapshot field — invariant-grade rejection, immune to any future creator
         // mutation. We also keep the live `creator` check for defense-in-depth.
         if (msg.sender == bounties[_bountyId].originalCreator || msg.sender == bounties[_bountyId].creator) revert CreatorCannotVote();
-        uint256 voterPower = stakingContract.votingPowerAtTimestamp(msg.sender, bounties[_bountyId].snapshotTimestamp);
+        // AUDIT FIX: DEEP-GOV-01 — min(historical, current) clamp. Closes the snapshot/
+        // possession decoupling: a voter who held an NFT at snapshot but transferred
+        // most of it post-snapshot (keeping a 1-wei sentinel) cannot apply the full
+        // pre-divest aggregate to amplify a confederate's submission.
+        uint256 historicalPower = stakingContract.votingPowerAtTimestamp(msg.sender, bounties[_bountyId].snapshotTimestamp);
+        uint256 currentPower = stakingContract.votingPowerOf(msg.sender);
+        uint256 voterPower = historicalPower < currentPower ? historicalPower : currentPower;
         if (voterPower < MIN_VOTE_BALANCE) revert InsufficientVoteBalance();
 
         // H-02: Set both mappings — per-bounty (primary check) and per-submission (backwards compat)
@@ -435,9 +457,22 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
         // Track top submission to avoid unbounded loop in completeBounty
         // AUDIT FIX M-03: Use strict > so first submission to reach a vote count keeps its position (fair tie-breaking)
+        // AUDIT FIX: DEEP-GOV-04 — top-submission freeze window. In the final
+        // TOP_FREEZE_WINDOW (24h) before deadline, votes still accumulate per-submission
+        // but a non-top submission cannot displace the existing top. Closes the
+        // late-flip primitive (snapshot-pinned voting power flipping the result at the
+        // buzzer). The freeze ONLY activates when there's already a leader — without
+        // the `topSubmissionVotes > 0` guard, bounties with no pre-freeze votes would
+        // be locked out because default `topSubmissionId == 0` would block all
+        // non-zero submissions from ever promoting. Pattern: Snapshot off-chain voting
+        // closes 24h before display deadline; Compound Bravo vote-queue extension.
+        bool inFreeze = block.timestamp + TOP_FREEZE_WINDOW >= bounties[_bountyId].deadline;
         if (newVotes > topSubmissionVotes[_bountyId]) {
-            topSubmissionVotes[_bountyId] = newVotes;
-            topSubmissionId[_bountyId] = _submissionId;
+            // DEEP-GOV-04: only protect the leader during freeze when one exists.
+            if (!inFreeze || topSubmissionVotes[_bountyId] == 0 || _submissionId == topSubmissionId[_bountyId]) {
+                topSubmissionVotes[_bountyId] = newVotes;
+                topSubmissionId[_bountyId] = _submissionId;
+            }
         }
 
         emit SubmissionVoted(_bountyId, _submissionId, msg.sender);

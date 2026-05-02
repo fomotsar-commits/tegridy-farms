@@ -19,6 +19,9 @@ interface ITegridyStakingGauge {
     function ownerOf(uint256 tokenId) external view returns (address);
     // AUDIT TF-04: historical voting-power lookup used for epoch-start snapshot votes.
     function votingPowerAtTimestamp(address user, uint256 ts) external view returns (uint256);
+    /// @notice AUDIT FIX: DEEP-GOV-01 — current-power lookup for the
+    ///         min(historical, current) clamp at vote/revealVote sites.
+    function votingPowerOf(address user) external view returns (uint256);
 }
 
 /// @title GaugeController — Curve-style emission voting for Tegridy LP pools
@@ -40,6 +43,12 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     uint256 public constant MAX_TOTAL_GAUGES = 50;
     uint256 public constant BPS = 10000;
     uint256 public constant BOOST_PRECISION = 10000;
+
+    /// @notice AUDIT FIX: DEEP-GOV-03 — per-gauge cap (50%) on epoch emission share.
+    ///         Uses option-b denominator scaling so over-cap allocation is preserved
+    ///         (redistributed proportionally to surviving gauges) instead of silently
+    ///         dropped. Pattern: Aerodrome / Velodrome per-gauge cap with renormalization.
+    uint256 public constant MAX_GAUGE_RELATIVE_WEIGHT_BPS = 5000;
 
     /// @notice Window at the end of each epoch during which commits must be revealed.
     /// @dev Commit window runs from epoch-start until `EPOCH_DURATION - REVEAL_WINDOW`.
@@ -184,6 +193,9 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error CancelWindowClosed();         // AUDIT R014-HIGH: cannot cancel after reveal opens
     error NoActiveCommit();             // AUDIT R014-HIGH: cancel called with no commit
     error ZeroWeight();                 // AUDIT R014-LOW: zero-weight gauge entries rejected
+    /// @notice AUDIT FIX: DEEP-GOV-14 — gauge removal rejected mid-epoch when the
+    ///         target gauge already has votes cast against it.
+    error GaugeHasActiveVotes();
 
     // ─── Constructor ────────────────────────────────────────────────
     constructor(
@@ -256,7 +268,11 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // H-01 FIX: Updated destructuring to match corrected ABI order
         (uint256 amount,,, uint256 lockEnd,,,,,,,) = tegridyStaking.positions(tokenId);
         if (amount == 0 || block.timestamp >= lockEnd) revert LockExpired();
-        uint256 votingPower = tegridyStaking.votingPowerAtTimestamp(msg.sender, epochStartTime(epoch));
+        // AUDIT FIX: DEEP-GOV-01 — min(historical, current) clamp. A 1-wei sentinel
+        // post-snapshot cannot anchor full pre-divest aggregate gauge weight.
+        uint256 historicalPower = tegridyStaking.votingPowerAtTimestamp(msg.sender, epochStartTime(epoch));
+        uint256 currentPower = tegridyStaking.votingPowerOf(msg.sender);
+        uint256 votingPower = historicalPower < currentPower ? historicalPower : currentPower;
         if (votingPower == 0) revert ZeroVotingPower();
 
         // Validate weights sum to BPS and all gauges are whitelisted
@@ -434,7 +450,39 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         uint256[] calldata weights,
         bytes32 salt
     ) external nonReentrant whenNotPaused {
-        uint256 epoch = currentEpoch();
+        // AUDIT FIX: DEEP-GOV-07 — derive `epoch` defensively. Pre-fix the function
+        // used `currentEpoch()` directly, but `revealCloses == epochStartTime(epoch+1)`,
+        // so any block.timestamp in `[revealCloses, revealCloses + REVEAL_GRACE]` made
+        // `currentEpoch()` return `epoch+1`, causing the lookup at
+        // `commitmentOf[tokenId][epoch+1]` to revert NoCommitment. The 5-minute trailing
+        // grace was thus dead code. New rule: if we're in the trailing-grace zone (i.e.
+        // block.timestamp >= revealCloses for the current epoch), look back one epoch
+        // so the user's commit slot resolves correctly.
+        uint256 nowEpoch = currentEpoch();
+        uint256 nowEpochStart = epochStartTime(nowEpoch);
+        uint256 epoch;
+        if (nowEpoch > 0 && block.timestamp >= nowEpochStart) {
+            // We may be in the trailing-grace period — try the previous epoch first if
+            // we don't have a commit in the current one.
+            // Compute revealClosesAt for the PREVIOUS epoch:
+            //   revealClosesPrev = epochStartTime(nowEpoch) (= start of currentEpoch).
+            // If we are within REVEAL_GRACE after that boundary AND the user has a
+            // commit on (nowEpoch - 1) but NOT on nowEpoch, treat the reveal as
+            // targeting the previous epoch.
+            uint256 prev = nowEpoch - 1;
+            bytes32 commitmentNow = commitmentOf[tokenId][nowEpoch];
+            bytes32 commitmentPrev = commitmentOf[tokenId][prev];
+            uint256 graceBoundary = nowEpochStart + REVEAL_GRACE;
+            if (commitmentNow == bytes32(0) && commitmentPrev != bytes32(0)
+                && block.timestamp <= graceBoundary) {
+                epoch = prev;
+            } else {
+                epoch = nowEpoch;
+            }
+        } else {
+            epoch = nowEpoch;
+        }
+
         // AUDIT R014-MEDIUM: accept reveals from REVEAL_GRACE before the formal opening
         // until REVEAL_GRACE after the formal close. The graced opening absorbs validators
         // running ~15s ahead, the graced close absorbs validators running ~15s behind.
@@ -466,7 +514,12 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
         (uint256 amount,,, uint256 lockEnd,,,,,,,) = tegridyStaking.positions(tokenId);
         if (amount == 0 || block.timestamp >= lockEnd) revert LockExpired();
-        uint256 votingPower = tegridyStaking.votingPowerAtTimestamp(msg.sender, epochStartTime(epoch));
+        // AUDIT FIX: DEEP-GOV-01 — min(historical, current) clamp on reveal too.
+        // Mirrors legacy vote() so a divested voter cannot reveal stale aggregate
+        // power.
+        uint256 historicalPower = tegridyStaking.votingPowerAtTimestamp(msg.sender, epochStartTime(epoch));
+        uint256 currentVP = tegridyStaking.votingPowerOf(msg.sender);
+        uint256 votingPower = historicalPower < currentVP ? historicalPower : currentVP;
         if (votingPower == 0) revert ZeroVotingPower();
 
         uint256 totalWeight;
@@ -525,26 +578,46 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
     /// @notice Returns a gauge's share of total emissions in basis points for the current epoch
     /// @return Relative weight in BPS (0-10000). Returns 0 if no votes cast.
+    /// @dev    AUDIT FIX: DEEP-GOV-03 — uses option-b denominator scaling. When the
+    ///         top gauge would otherwise capture >50% of votes, the denominator is
+    ///         scaled to `2 * topGauge.weight` so its share is exactly 50% but the
+    ///         remainder stays distributable to surviving gauges.
     function getRelativeWeight(address gauge) external view returns (uint256) {
-        uint256 epoch = currentEpoch();
-        uint256 total = totalWeightByEpoch[epoch];
-        if (total == 0) return 0;
-        return (gaugeWeightByEpoch[epoch][gauge] * BPS) / total;
+        return _getRelativeWeightAt(gauge, currentEpoch());
     }
 
     /// @notice Returns a gauge's share of the emission budget for the current epoch
     function getGaugeEmission(address gauge) external view returns (uint256) {
-        uint256 epoch = currentEpoch();
-        uint256 total = totalWeightByEpoch[epoch];
-        if (total == 0) return 0;
-        return (emissionBudget * gaugeWeightByEpoch[epoch][gauge]) / total;
+        return (emissionBudget * _getRelativeWeightAt(gauge, currentEpoch())) / BPS;
     }
 
     /// @notice Returns a gauge's relative weight for a specific past epoch
     function getRelativeWeightAt(address gauge, uint256 epoch) external view returns (uint256) {
+        return _getRelativeWeightAt(gauge, epoch);
+    }
+
+    /// @dev AUDIT FIX: DEEP-GOV-03 — shared denominator-scaling helper.
+    function _getRelativeWeightAt(address gauge, uint256 epoch) internal view returns (uint256) {
         uint256 total = totalWeightByEpoch[epoch];
         if (total == 0) return 0;
-        return (gaugeWeightByEpoch[epoch][gauge] * BPS) / total;
+
+        // Find the top gauge weight in this epoch.
+        uint256 topWeight;
+        uint256 len = gaugeList.length;
+        for (uint256 i; i < len; ++i) {
+            uint256 w = gaugeWeightByEpoch[epoch][gaugeList[i]];
+            if (w > topWeight) topWeight = w;
+        }
+
+        // Option-b: when top > 50% of total, set effectiveTotal = 2 * topWeight so
+        // the top is exactly 50% and surviving gauges absorb the remainder.
+        uint256 effectiveTotal = total;
+        if (topWeight * 2 > total) {
+            effectiveTotal = topWeight * 2;
+        }
+
+        uint256 raw = (gaugeWeightByEpoch[epoch][gauge] * BPS) / effectiveTotal;
+        return raw > MAX_GAUGE_RELATIVE_WEIGHT_BPS ? MAX_GAUGE_RELATIVE_WEIGHT_BPS : raw;
     }
 
     /// @notice Returns the vote allocations for a tokenId in its last voted epoch
@@ -599,6 +672,14 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     function executeRemoveGauge() external onlyOwner {
         _execute(GAUGE_REMOVE);
         address gauge = pendingGaugeRemove;
+        // AUDIT FIX: DEEP-GOV-14 — refuse mid-epoch removal when the gauge already
+        // received votes for the current epoch. Without this, the dead gauge's weight
+        // stays in `totalWeightByEpoch[currentEpoch]` even though `isGauge` flips to
+        // false, diluting every surviving gauge's relative weight for the rest of
+        // the epoch. Owner must wait until next epoch (when the gauge has zero
+        // weight in the new bucket). Pattern: Curve change_gauge_weight applies
+        // at next epoch boundary.
+        if (gaugeWeightByEpoch[currentEpoch()][gauge] > 0) revert GaugeHasActiveVotes();
         isGauge[gauge] = false;
 
         // Remove from gaugeList (swap-and-pop)

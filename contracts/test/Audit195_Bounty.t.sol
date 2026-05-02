@@ -293,7 +293,7 @@ contract Audit195Bounty is Test {
     function test_submit_revert_bountyNotOpen() public {
         uint256 id = _create();
         // Cancel it first
-        vm.warp(block.timestamp + 1 hours + 1);
+        vm.warp(block.timestamp + 24 hours + 1);
         vm.prank(creator);
         board.cancelBounty(id);
         vm.prank(artist1);
@@ -583,7 +583,7 @@ contract Audit195Bounty is Test {
     function test_withdrawRefund_WETHFallback() public {
         ETHRejecter195 rej = new ETHRejecter195(board);
         rej.createBounty{value: 10 ether}("rej bounty", block.timestamp + SEVEN_DAYS);
-        vm.warp(block.timestamp + 1 hours + 1);
+        vm.warp(block.timestamp + 24 hours + 1);
         board.emergencyCancel(0);
         assertEq(board.pendingRefund(address(rej)), 10 ether);
         rej.withdrawRefund();
@@ -643,7 +643,7 @@ contract Audit195Bounty is Test {
 
     function test_cancel_beforeDeadlineNoSubmissions() public {
         uint256 id = _create();
-        vm.warp(block.timestamp + 1 hours + 1);
+        vm.warp(block.timestamp + 24 hours + 1);
         uint256 balBefore = creator.balance;
         vm.prank(creator);
         board.cancelBounty(id);
@@ -660,7 +660,7 @@ contract Audit195Bounty is Test {
 
     function test_cancel_revert_withSubmissions() public {
         uint256 id = _createAndSubmit();
-        vm.warp(block.timestamp + 1 hours + 1);
+        vm.warp(block.timestamp + 24 hours + 1);
         vm.prank(creator);
         vm.expectRevert(MemeBountyBoard.CannotCancelWithSubmissions.selector);
         board.cancelBounty(id);
@@ -675,7 +675,7 @@ contract Audit195Bounty is Test {
 
     function test_cancel_revert_notCreatorOrOwner() public {
         uint256 id = _create();
-        vm.warp(block.timestamp + 1 hours + 1);
+        vm.warp(block.timestamp + 24 hours + 1);
         vm.prank(nobody);
         vm.expectRevert(MemeBountyBoard.NotCreatorOrOwner.selector);
         board.cancelBounty(id);
@@ -683,7 +683,7 @@ contract Audit195Bounty is Test {
 
     function test_cancel_ownerCanCancel() public {
         uint256 id = _create();
-        vm.warp(block.timestamp + 1 hours + 1);
+        vm.warp(block.timestamp + 24 hours + 1);
         uint256 balBefore = creator.balance;
         // owner is address(this)
         board.cancelBounty(id);
@@ -692,7 +692,7 @@ contract Audit195Bounty is Test {
 
     function test_cancel_revert_alreadyCancelled() public {
         uint256 id = _create();
-        vm.warp(block.timestamp + 1 hours + 1);
+        vm.warp(block.timestamp + 24 hours + 1);
         vm.prank(creator);
         board.cancelBounty(id);
         vm.prank(creator);
@@ -1055,7 +1055,7 @@ contract Audit195Bounty is Test {
     function test_withdrawRefund_noEventEmitted() public {
         ETHRejecter195 rej = new ETHRejecter195(board);
         rej.createBounty{value: 5 ether}("no event", block.timestamp + SEVEN_DAYS);
-        vm.warp(block.timestamp + 1 hours + 1);
+        vm.warp(block.timestamp + 24 hours + 1);
         board.emergencyCancel(0);
 
         // Record logs during withdrawRefund
@@ -1071,8 +1071,13 @@ contract Audit195Bounty is Test {
                 foundRefundEvent = true;
             }
         }
-        // FINDING: No event emitted from the board contract during withdrawRefund
-        assertFalse(foundRefundEvent, "Expected no board events from withdrawRefund");
+        // AUDIT FIX: DEEP-LIB-L1 — WETHFallbackLib emits ETHTransferred on the
+        // raw-ETH success path AND ETHToWETHFallback on the wrap fallback path.
+        // Both events emit from the inlining contract (the board), so we now
+        // expect at least one board event during withdrawRefund. This flipped
+        // from the original "no event" finding once the lib added symmetric
+        // observability events.
+        assertTrue(foundRefundEvent, "DEEP-LIB-L1: expected at least one board-emitted event from WETHFallbackLib");
     }
 
     receive() external payable {}

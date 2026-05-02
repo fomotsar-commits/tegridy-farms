@@ -93,6 +93,12 @@ contract MockStakingR014G {
     function votingPowerAtTimestamp(address user, uint256 /*ts*/) external view returns (uint256) {
         return defaultPower[user];
     }
+
+    /// @notice AUDIT FIX: DEEP-GOV-01 — current-power view used by the
+    ///         min(historical, current) clamp at vote / revealVote sites.
+    function votingPowerOf(address user) external view returns (uint256) {
+        return defaultPower[user];
+    }
 }
 
 /// @dev Mock VotingEscrow used by CommunityGrants tests. Mirrors the proposer-pointer

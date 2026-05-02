@@ -73,6 +73,13 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         uint256 snapshotTimestamp; // Timestamp for voting power snapshot (L2-safe)
         uint256 snapshotTotalStake; // SECURITY FIX: snapshot total boosted stake at creation
         uint256 proposerTokenId; // SECURITY FIX: Track proposer's staking NFT to prevent self-vote via transfer
+        /// @notice AUDIT FIX: DEEP-GOV-09 — absolute cap locked at proposal creation
+        ///         time. executeProposal/retryExecution check `amount <= absoluteCap`
+        ///         instead of re-deriving the cap from current balance. Prevents the
+        ///         post-approval DoS where another proposal executes mid-window,
+        ///         dropping the contract's balance and tripping the re-derived cap
+        ///         even though the community already approved the proposal.
+        uint256 absoluteCap;
     }
 
     Proposal[] public proposals;
@@ -192,6 +199,19 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error RollingDisbursementExceeded();
 
     error AlreadyRefunded(); // AUDIT FIX H-01: Deposit already consumed or refunded
+    /// @notice AUDIT FIX: DEEP-GOV-05 — disbursement ring buffer is full and the
+    ///         oldest entry is still within ROLLING_WINDOW. Forces caller to wait
+    ///         for the oldest entry to age out before recording new disbursements,
+    ///         preventing silent cap bypass via unconditional eviction.
+    error RollingBufferFull();
+    /// @notice AUDIT FIX: DEEP-GOV-06 — dry-run validation requires non-zero spare
+    ///         TOWELI; reject rotation if no spare is available so the dry-run can
+    ///         never be silently skipped via a pre-call to sweepFees.
+    error NoSpareForDryRun();
+    /// @notice AUDIT FIX: DEEP-GOV-13 — finalize-time max-balance check failed.
+    ///         Total approved-pending ETH would exceed contract balance if approved;
+    ///         proposal is rejected and deposit refunded.
+    error InsufficientFundsForApproval();
     /// @notice AUDIT R014-MEDIUM: dry-run TOWELI transfer to the proposed fee receiver
     ///         failed (the receiver cannot accept ERC20 transfers, e.g. blacklisted by the
     ///         token, or no balance available for the test transfer). The pending change
@@ -288,7 +308,12 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
                 ? block.timestamp - SNAPSHOT_LOOKBACK
                 : block.timestamp - 1,
             snapshotTotalStake: votingEscrow.totalBoostedStake(), // SECURITY FIX: snapshot quorum denominator
-            proposerTokenId: _proposerTokenId // AUDIT NEW-G7: non-zero pointer guaranteed
+            proposerTokenId: _proposerTokenId, // AUDIT NEW-G7: non-zero pointer guaranteed
+            // AUDIT FIX: DEEP-GOV-09 — lock the per-proposal cap at creation time.
+            // executeProposal/retryExecution validate `amount <= absoluteCap` instead
+            // of re-deriving the cap from current balance, preventing post-approval
+            // DoS via balance drops between approval and execution.
+            absoluteCap: (availableBalance * MAX_GRANT_PERCENT_BPS) / 10000
         }));
 
         activeProposalCount++;
@@ -330,7 +355,15 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             require(!holds, "PROPOSER_POSITION_CANNOT_VOTE");
         }
 
-        uint256 power = votingEscrow.votingPowerAtTimestamp(msg.sender, proposal.snapshotTimestamp);
+        // AUDIT FIX: DEEP-GOV-01 — min(historical, current) clamp. Closes the
+        // snapshot/possession decoupling: a voter who held N power at snapshot and
+        // divested 99.999% of NFTs after snapshot (keeping a 1-wei sentinel) cannot
+        // apply the full pre-divest aggregate to a treasury-draining proposal vote.
+        // Pattern: Curve veCRV non-transferability; Aave aTokens min(checkpointed,
+        // balance) for delegate voting.
+        uint256 historicalPower = votingEscrow.votingPowerAtTimestamp(msg.sender, proposal.snapshotTimestamp);
+        uint256 currentPower = votingEscrow.votingPowerOf(msg.sender);
+        uint256 power = historicalPower < currentPower ? historicalPower : currentPower;
         if (power == 0) revert NoVotingPower();
 
         hasVotedOnProposal[_proposalId][msg.sender] = true;
@@ -373,6 +406,29 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         uint256 refundable = PROPOSAL_FEE - PROPOSAL_FEE / 2; // must match createProposal accounting
 
         if (proposal.votesFor > proposal.votesAgainst) {
+            // AUDIT FIX: DEEP-GOV-13 — refuse approval when total approved-pending ETH
+            // would exceed the contract's balance. Pre-fix, finalizeProposal could
+            // approve an unfundable proposal, leaving the recipient stuck waiting for
+            // EXECUTION_DEADLINE to lapse with no payout. Now: revert to Rejected and
+            // refund the deposit (consistent with the Rejected branch below).
+            if (totalApprovedPending + proposal.amount > address(this).balance) {
+                totalRefundableDeposits -= refundable;
+                depositRefunded[_proposalId] = true;
+                proposal.status = ProposalStatus.Rejected;
+                activeProposalCount--;
+                try toweli.transfer(proposal.proposer, refundable) returns (bool success) {
+                    if (success) {
+                        emit ProposalFeeRefunded(_proposalId, proposal.proposer, refundable);
+                    } else {
+                        toweli.safeTransfer(feeReceiver, refundable);
+                        emit DepositRedirectedToFeeReceiver(_proposalId, proposal.proposer, refundable);
+                    }
+                } catch {
+                    toweli.safeTransfer(feeReceiver, refundable);
+                    emit DepositRedirectedToFeeReceiver(_proposalId, proposal.proposer, refundable);
+                }
+                return;
+            }
             proposal.status = ProposalStatus.Approved;
             // AUDIT FIX H-02: Track approved ETH to prevent serial drain
             totalApprovedPending += proposal.amount;
@@ -415,14 +471,12 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             require(block.timestamp >= proposal.deadline + PERMISSIONLESS_EXECUTION_DELAY, "EXECUTION_DELAY_NOT_MET");
         }
         if (address(this).balance < proposal.amount) revert InsufficientFunds();
-        // AUDIT FIX C-01: Exclude this proposal's own amount from totalApprovedPending when computing cap
-        uint256 otherApproved = totalApprovedPending > proposal.amount
-            ? totalApprovedPending - proposal.amount
-            : 0;
-        uint256 availableForGrant = address(this).balance > otherApproved
-            ? address(this).balance - otherApproved
-            : 0;
-        if (proposal.amount > (availableForGrant * MAX_GRANT_PERCENT_BPS) / 10000) revert AmountTooLarge();
+        // AUDIT FIX: DEEP-GOV-09 — verify against the absolute cap locked at proposal
+        // creation time, NOT against a re-derived cap from current balance. Pre-fix,
+        // a balance drop between approval and execution (another grant executing,
+        // emergencyRecoverETH after pause/unpause) caused the re-derived cap to drop
+        // below the proposal's amount even though the community already approved it.
+        if (proposal.amount > proposal.absoluteCap) revert AmountTooLarge();
 
         // Rolling treasury depletion limit: max 30% of current balance in any 30-day window
         uint256 currentRolling = _pruneAndGetRollingDisbursed();
@@ -475,14 +529,8 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             require(block.timestamp >= proposal.deadline + PERMISSIONLESS_EXECUTION_DELAY, "EXECUTION_DELAY_NOT_MET");
         }
         if (address(this).balance < proposal.amount) revert InsufficientFunds();
-        // AUDIT FIX C-01: Exclude this proposal's own amount from totalApprovedPending for cap check
-        uint256 otherApproved = totalApprovedPending > proposal.amount
-            ? totalApprovedPending - proposal.amount
-            : 0;
-        uint256 availableForRetry = address(this).balance > otherApproved
-            ? address(this).balance - otherApproved
-            : 0;
-        if (proposal.amount > (availableForRetry * MAX_GRANT_PERCENT_BPS) / 10000) revert AmountTooLarge();
+        // AUDIT FIX: DEEP-GOV-09 — same absolute-cap check as executeProposal.
+        if (proposal.amount > proposal.absoluteCap) revert AmountTooLarge();
 
         // Rolling treasury depletion limit: max 30% of current balance in any 30-day window
         uint256 currentRolling = _pruneAndGetRollingDisbursed();
@@ -737,9 +785,14 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
         // AUDIT R014-MEDIUM: dry-run validation. Only run when we have spare TOWELI to
         // burn — refundable deposits MUST stay reserved for proposal refunds.
+        // AUDIT FIX: DEEP-GOV-06 — REVERT when spare == 0 instead of skipping the
+        // dry-run. A compromised owner could otherwise call `sweepFees` first
+        // (draining the buffer to spare == 0), then `executeFeeReceiverChange` would
+        // skip validation and silently rotate to a blackhole/blacklisted receiver.
         uint256 balance = toweli.balanceOf(address(this));
         uint256 spare = balance > totalRefundableDeposits ? balance - totalRefundableDeposits : 0;
-        if (spare >= 1) {
+        if (spare == 0) revert NoSpareForDryRun();
+        {
             // Use a low-level call so a revert doesn't unwind state — we want to detect
             // the failure and auto-cancel rather than propagate. Standard ERC20.transfer
             // returns bool (or reverts). Both failure modes count as a failed dry-run.
@@ -812,6 +865,26 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         return rollingDisbursed;
     }
 
+    /// @notice AUDIT FIX: DEEP-GOV-10 — view-side projection of the rolling
+    ///         disbursement total. Re-implements the prune logic without mutating
+    ///         state so off-chain dashboards / governance UIs can read the
+    ///         post-prune value accurately. Pre-fix, consumers reading the public
+    ///         `rollingDisbursed` saw stale data until the next executeProposal call.
+    function rollingDisbursedView() external view returns (uint256) {
+        uint256 cutoff = block.timestamp > ROLLING_WINDOW ? block.timestamp - ROLLING_WINDOW : 0;
+        uint256 head = disbursementHead;
+        uint256 tail = disbursementTail;
+        uint256 disbursed = rollingDisbursed;
+
+        while (head != tail) {
+            if (disbursementTimestamps[head] >= cutoff) break;
+            disbursed -= disbursementAmounts[head];
+            head = (head + 1) % MAX_DISBURSEMENTS;
+        }
+
+        return disbursed;
+    }
+
     /// @dev Transfer ETH with WETH fallback for contract recipients.
     ///      Returns false if both ETH and WETH transfer fail (for FailedExecution handling).
     ///      AUDIT FIX H-04: If WETH transfer fails after wrapping, unwrap back to ETH to prevent
@@ -853,13 +926,24 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     }
 
     /// @dev H-07 FIX: Record a disbursement in the ring buffer.
-    ///      If buffer is full, the oldest entry is evicted (its amount removed from rollingDisbursed).
+    ///      AUDIT FIX: DEEP-GOV-05 — when the buffer is full, the prior implementation
+    ///      unconditionally evicted the oldest entry, even when it was still within
+    ///      ROLLING_WINDOW. This silently subtracted the evicted amount from
+    ///      rollingDisbursed, effectively bypassing the 30%/30day cap. Now: if buffer
+    ///      is full AND oldest entry is still within ROLLING_WINDOW, revert with
+    ///      RollingBufferFull. If aged out, eviction is benign.
     function _recordDisbursement(uint256 _amount) internal {
         uint256 tail = disbursementTail;
         uint256 nextTail = (tail + 1) % MAX_DISBURSEMENTS;
 
-        // If buffer is full, evict the oldest entry
+        // If buffer is full, evict the oldest entry — but only if it has aged out.
         if (nextTail == disbursementHead) {
+            uint256 cutoff = block.timestamp > ROLLING_WINDOW ? block.timestamp - ROLLING_WINDOW : 0;
+            // DEEP-GOV-05: refuse new disbursement when buffer full + oldest still
+            // within rolling window. Prevents silent cap bypass via eviction.
+            if (disbursementTimestamps[disbursementHead] >= cutoff) {
+                revert RollingBufferFull();
+            }
             rollingDisbursed -= disbursementAmounts[disbursementHead];
             delete disbursementTimestamps[disbursementHead];
             delete disbursementAmounts[disbursementHead];

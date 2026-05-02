@@ -98,12 +98,11 @@ contract R021_GaugeControllerTest is Test {
     // ═══════════════════════════════════════════════════════════════
 
     function test_executeRemoveGauge_PreservesDenominator() public {
-        // DRIFT (RC10): R021 H-1 mid-epoch denominator decrement was deferred.
-        // The current `executeRemoveGauge` flips `isGauge[gauge] = false` and removes it
-        // from `gaugeList` but does NOT clear `gaugeWeightByEpoch[epoch][gauge]` or
-        // decrement `totalWeightByEpoch[epoch]`. We document the current behavior so
-        // the regression is visible: surviving gauges share less than 100% of the
-        // budget for the remainder of the epoch.
+        // AUDIT FIX: DEEP-GOV-14 — `executeRemoveGauge` now reverts when the
+        // gauge has active-epoch votes (the H-1 fix). The pre-fix behavior was
+        // to silently complete the removal while leaving the dead gauge's weight
+        // in `totalWeightByEpoch`, diluting every surviving gauge. This test now
+        // verifies the new revert path.
         uint256 aliceId = aliceTokenId;
         uint256 bobId = bobTokenId;
 
@@ -119,25 +118,15 @@ contract R021_GaugeControllerTest is Test {
         vm.prank(bob);
         gauge.vote(bobId, bobGauges, bobWeights);
 
-        uint256 epoch = gauge.currentEpoch();
-        uint256 totalBefore = gauge.totalWeightByEpoch(epoch);
-        uint256 g1Before = gauge.gaugeWeightByEpoch(epoch, gauge1);
-        uint256 g2Before = gauge.gaugeWeightByEpoch(epoch, gauge2);
-        assertEq(totalBefore, g1Before + g2Before, "sanity: total == sum of gauges");
-        assertGt(g1Before, 0, "gauge1 had votes");
-        assertGt(g2Before, 0, "gauge2 had votes");
-
         gauge.proposeRemoveGauge(gauge1);
         vm.warp(block.timestamp + 24 hours + 1);
+
+        // DEEP-GOV-14: removal is rejected mid-epoch when votes exist for gauge1.
+        vm.expectRevert(GaugeController.GaugeHasActiveVotes.selector);
         gauge.executeRemoveGauge();
 
-        // Current behavior: isGauge flipped, gaugeList shortened, but per-epoch
-        // weights preserved. This matches the deferred design — the denominator
-        // decrement is the H-1 fix that hasn't landed.
-        assertFalse(gauge.isGauge(gauge1), "gauge1 deregistered from registry");
-        assertEq(gauge.gaugeWeightByEpoch(epoch, gauge1), g1Before, "weight preserved (drift)");
-        assertEq(gauge.totalWeightByEpoch(epoch), totalBefore, "denominator preserved (drift)");
-        assertEq(gauge.gaugeWeightByEpoch(epoch, gauge2), g2Before, "gauge2 unchanged");
+        // Registry untouched — gauge1 remains active.
+        assertTrue(gauge.isGauge(gauge1), "gauge1 still registered (removal blocked)");
     }
 
     function test_executeRemoveGauge_FreezesGaugeKeepsRegistryEntry() public {

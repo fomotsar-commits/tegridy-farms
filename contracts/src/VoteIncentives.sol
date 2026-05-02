@@ -174,6 +174,12 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
     /// @notice voterCommits[user][epoch][commitIndex]
     mapping(address => mapping(uint256 => CommitInfo[])) public voterCommits;
+    /// @notice AUDIT FIX: MICROSCOPE C2 — sum of declared powers across a user's
+    ///         commits in a given epoch. Capped at `min(historical, current)` voting
+    ///         power at commit time. Closes the multi-commit options-arbitrage primitive
+    ///         where a voter could commit hashes for every candidate pair (10-TOWELI bond
+    ///         per commit) and reveal only the most lucrative subset.
+    mapping(address => mapping(uint256 => uint256)) public committedPower;
 
     // epochBribes[epoch][pair][token] = total bribe amount (after fee)
     //
@@ -441,6 +447,12 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (!epochBribesFinalized[epoch]) revert EpochNotFinalized();
         if (pair == address(0)) revert InvalidPair();
         if (power == 0) revert ZeroAmount();
+        // AUDIT FIX: DEEP-GOV-08 — refuse votes for disabled pairs. Pre-fix, R016 M-1
+        // only gated `depositBribe`; `vote()` accepted disabled pairs, letting voters
+        // waste their `userTotalVotes` allocation on a dead pair (locking out future
+        // votes for live pairs). _validatePair now checks pair registration AND the
+        // factory's disabled-pairs flag.
+        _validatePair(pair);
 
         EpochInfo memory ep = epochs[epoch];
         // AUDIT H-2: epochs tagged with usesCommitReveal MUST use the
@@ -450,7 +462,14 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // SECURITY FIX: Enforce voting deadline — prevents retroactive vote gaming after seeing bribes.
         // Pattern: Aerodrome/Velodrome — votes must be cast within VOTE_DEADLINE of epoch snapshot.
         if (block.timestamp > ep.timestamp + VOTE_DEADLINE) revert VoteDeadlinePassed();
-        uint256 userPower = votingEscrow.votingPowerAtTimestamp(msg.sender, ep.timestamp);
+        // AUDIT FIX: DEEP-GOV-01 — min(historical, current) clamp on vote(). Closes
+        // the snapshot/possession decoupling: a voter who held N power at snapshot and
+        // divested 99.999% of NFTs after snapshot (keeping a 1-wei sentinel) cannot
+        // apply the full pre-divest aggregate. Uses smaller of historical / current.
+        // Pattern: Curve veCRV non-transferability; Aave aTokens min(checkpointed, balance).
+        uint256 historicalPower = votingEscrow.votingPowerAtTimestamp(msg.sender, ep.timestamp);
+        uint256 currentPower = votingEscrow.votingPowerOf(msg.sender);
+        uint256 userPower = historicalPower < currentPower ? historicalPower : currentPower;
         if (userPower == 0) revert NothingToClaim();
 
         // Cap total allocated power at user's voting power for this epoch
@@ -591,6 +610,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // (advance flips both atomically); explicit guard defends future code.
         if (!epochBribesFinalized[epoch]) revert EpochNotFinalized();
         if (pair == address(0)) revert InvalidPair();
+        // AUDIT FIX: DEEP-GOV-08 — refuse claims for disabled pairs.
+        _validatePair(pair);
 
         // V2: Use gauge votes instead of raw voting power
         uint256 userVoteForPair = gaugeVotes[msg.sender][epoch][pair];
@@ -611,7 +632,18 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
             // V2: Share proportional to gauge votes, not raw voting power
             uint256 share = (bribeAmount * userVoteForPair) / totalVotesForPair;
-            if (share == 0) continue;
+            if (share == 0) {
+                // AUDIT FIX: DEEP-GOV-02 — mark claimed AND set anyClaimed even when
+                // share rounds to zero, so the writes persist even if EVERY token's
+                // share rounds to zero. Pre-fix, the all-zeros case hit the
+                // `if (!anyClaimed) revert NothingToClaim();` guard, the EVM rolled
+                // back ALL claimed=true writes, and the small voter was forced to
+                // re-iterate every epoch — pure gas griefing. Pattern: Aerodrome
+                // dustOf forward-carry.
+                claimed[msg.sender][epoch][pair][token] = true;
+                anyClaimed = true;
+                continue;
+            }
 
             claimed[msg.sender][epoch][pair][token] = true;
             anyClaimed = true;
@@ -678,6 +710,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     function claimBribesBatch(uint256 epochStart, uint256 epochEnd, address pair) external nonReentrant whenNotPaused {
         if (_isStakingPaused()) revert StakingPaused();
         if (pair == address(0)) revert InvalidPair();
+        // AUDIT FIX: DEEP-GOV-08 — refuse batch claims for disabled pairs.
+        _validatePair(pair);
         if (epochEnd > epochs.length) epochEnd = epochs.length;
         if (epochStart >= epochEnd) revert NothingToClaim();
         if (epochEnd - epochStart > MAX_CLAIM_EPOCHS) revert TooManyUnclaimedEpochs();
@@ -709,7 +743,14 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
                 // V2: Share proportional to gauge votes
                 uint256 share = (bribeAmount * userVoteForPair) / totalVotesForPair;
-                if (share == 0) continue;
+                if (share == 0) {
+                    // AUDIT FIX: DEEP-GOV-02 — mirror M-G5 in batch path so small voters
+                    // aren't gas-griefed. Mark claimed and set anyClaimed when share
+                    // rounds to zero so the writes persist.
+                    claimed[msg.sender][e][pair][token] = true;
+                    anyClaimed = true;
+                    continue;
+                }
 
                 claimed[msg.sender][e][pair][token] = true;
                 anyClaimed = true;
@@ -911,6 +952,11 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         address token = pendingWhitelistToken;
         bool add = pendingWhitelistAction;
         pendingWhitelistToken = address(0);
+        // AUDIT FIX: DEEP-GOV-16 (info) — clear `pendingWhitelistAction` on execute too,
+        // for hygiene parity with `pendingWhitelistToken`. Not exploitable (the bool is
+        // only read after a successful `_propose` which always overwrites it), but
+        // matches the address-clearing pattern.
+        pendingWhitelistAction = false;
 
         if (add) {
             if (!whitelistedTokens[token]) {
@@ -1115,13 +1161,20 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
     /// @notice Sweep stuck ETH beyond what's owed to claimers and active bribes.
     ///         Reserves: unclaimed ETH bribes + pending pull-pattern withdrawals + accumulated treasury fees.
+    /// @dev    AUDIT FIX: DEEP-GOV-15 — use WETHFallbackLib stipend transfer instead
+    ///         of unbounded `.call`. Pre-fix, the raw call forwarded all gas to the
+    ///         treasury, and a contract treasury could re-enter sibling protocol
+    ///         contracts (RevenueDistributor, GaugeController, MemeBountyBoard) that
+    ///         do not share VoteIncentives' nonReentrant lock. The 10k stipend is
+    ///         enough for receive() + event emit but not arbitrary external calls,
+    ///         and the WETH fallback ensures contract treasuries with heavier
+    ///         receive() logic still get paid (as WETH instead of ETH).
     function sweepExcessETH() external onlyOwner nonReentrant {
         uint256 balance = address(this).balance;
         uint256 reserved = totalUnclaimedETHBribes + totalPendingETH + accumulatedTreasuryETH;
         uint256 sweepable = balance > reserved ? balance - reserved : 0;
         if (sweepable == 0) revert ZeroAmount();
-        (bool ok,) = treasury.call{value: sweepable}("");
-        require(ok, "SWEEP_FAILED");
+        WETHFallbackLib.safeTransferETHOrWrap(address(weth), treasury, sweepable);
     }
 
     /// @notice Sweep stuck ERC20 tokens beyond what's reserved as active bribes.
@@ -1235,7 +1288,14 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @param epoch      The commit-reveal epoch to vote in.
     /// @param commitHash computeCommitHash(msg.sender, epoch, pair, power, salt).
     /// @return commitIndex The index of this commit in voterCommits[user][epoch].
-    function commitVote(uint256 epoch, bytes32 commitHash) external nonReentrant whenNotPaused returns (uint256 commitIndex) {
+    /// @notice Commit a vote — phase 1 of commit-reveal.
+    /// @dev    AUDIT FIX: MICROSCOPE C2 / DEEP-GOV — voter declares the `power`
+    ///         they're committing at commit time so the contract can enforce
+    ///         `sum(committedPower[user][epoch]) <= userPower`. Reveal MUST use
+    ///         the same power (it's part of the hash) — declaring it here lets
+    ///         us cap the multi-commit options-arbitrage primitive without
+    ///         needing to reveal which pair was chosen.
+    function commitVote(uint256 epoch, bytes32 commitHash, uint256 power) external nonReentrant whenNotPaused returns (uint256 commitIndex) {
         if (epoch >= epochs.length) revert InvalidEpoch();
         // AUDIT R014 H-4: refuse commits against epochs whose bribe ledger isn't
         // finalized. Equivalent today to `epoch < epochs.length`.
@@ -1244,11 +1304,20 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (!ep.usesCommitReveal) revert NotCommitRevealEpoch();
         if (block.timestamp <= ep.timestamp) revert CommitWindowNotOpen();
         if (block.timestamp > commitDeadline(epoch)) revert CommitDeadlinePassed();
+        if (power == 0) revert ZeroAmount();
 
-        // Voter needs at least the snapshot-time voting power to participate.
-        // (We don't know at commit time which pair — that's the point — but
-        // we do check that they had any power. Cap enforcement happens at reveal.)
-        if (votingEscrow.votingPowerAtTimestamp(msg.sender, ep.timestamp) == 0) revert NothingToClaim();
+        // AUDIT FIX: MICROSCOPE C2 — `committedPower` cap closes the multi-commit
+        // options-arbitrage primitive (10-TOWELI bond was trivially cheap relative
+        // to bribe value when a voter could commit hashes for every candidate pair
+        // and reveal only the most lucrative subset). The cap also subsumes the
+        // DEEP-GOV-01 min-clamp by anchoring the comparison against the smaller of
+        // the two voting-power figures.
+        uint256 historical = votingEscrow.votingPowerAtTimestamp(msg.sender, ep.timestamp);
+        uint256 current = votingEscrow.votingPowerOf(msg.sender);
+        uint256 userPower = historical < current ? historical : current;
+        if (userPower == 0) revert NothingToClaim();
+        require(committedPower[msg.sender][epoch] + power <= userPower, "EXCEEDS_POWER");
+        committedPower[msg.sender][epoch] += power;
 
         // Transfer bond. Balance-diff safe against FoT TOWELI (unlikely but
         // defensive — matches the depositBribe() pattern elsewhere in this file).
@@ -1304,10 +1373,20 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
         if (pair == address(0)) revert InvalidPair();
         if (power == 0) revert ZeroAmount();
+        // AUDIT FIX: DEEP-GOV-08 — refuse reveals for disabled pairs. Voters who
+        // committed pre-disable can simply abandon the commit (forfeiting bond) —
+        // applying votes to a dead pair would lock out their `userTotalVotes`
+        // allocation on a pair they cannot route swaps through.
+        _validatePair(pair);
 
         // Same cap enforcement as legacy vote(): total across all commits +
         // legacy votes in this epoch cannot exceed user's snapshot voting power.
-        uint256 userPower = votingEscrow.votingPowerAtTimestamp(msg.sender, ep.timestamp);
+        // AUDIT FIX: DEEP-GOV-01 — min(historical, current) clamp on reveal too,
+        // mirroring the commit/vote sites so a divested voter cannot reveal stale
+        // aggregate power.
+        uint256 historicalPower = votingEscrow.votingPowerAtTimestamp(msg.sender, ep.timestamp);
+        uint256 currentPower = votingEscrow.votingPowerOf(msg.sender);
+        uint256 userPower = historicalPower < currentPower ? historicalPower : currentPower;
         if (userPower == 0) revert NothingToClaim();
         require(userTotalVotes[msg.sender][epoch] + power <= userPower, "EXCEEDS_POWER");
 

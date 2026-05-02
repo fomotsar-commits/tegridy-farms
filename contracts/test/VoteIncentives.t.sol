@@ -630,7 +630,7 @@ contract VoteIncentivesTest is Test {
         uint256 aliceBalBefore = bribeToken.balanceOf(alice);
         vm.startPrank(alice);
         bribeToken.approve(address(vi), vi.COMMIT_BOND());
-        uint256 commitIndex = vi.commitVote(epochId, commitHash);
+        uint256 commitIndex = vi.commitVote(epochId, commitHash, power);
         vm.stopPrank();
         assertEq(commitIndex, 0);
         assertEq(bribeToken.balanceOf(alice), aliceBalBefore - vi.COMMIT_BOND());
@@ -660,8 +660,8 @@ contract VoteIncentivesTest is Test {
 
         vm.startPrank(alice);
         bribeToken.approve(address(vi), vi.COMMIT_BOND() * 2);
-        uint256 c1 = vi.commitVote(epochId, h1);
-        uint256 c2 = vi.commitVote(epochId, h2);
+        uint256 c1 = vi.commitVote(epochId, h1, 3000e18);
+        uint256 c2 = vi.commitVote(epochId, h2, 4000e18);
         vm.stopPrank();
 
         vm.warp(vi.commitDeadline(epochId) + 1);
@@ -690,7 +690,7 @@ contract VoteIncentivesTest is Test {
         vm.startPrank(alice);
         bribeToken.approve(address(vi), vi.COMMIT_BOND());
         vm.expectRevert(VoteIncentives.CommitDeadlinePassed.selector);
-        vi.commitVote(epochId, h);
+        vi.commitVote(epochId, h, 7000e18);
         vm.stopPrank();
     }
 
@@ -700,7 +700,7 @@ contract VoteIncentivesTest is Test {
         bytes32 h = vi.computeCommitHash(alice, epochId, pair, 7000e18, salt);
         vm.startPrank(alice);
         bribeToken.approve(address(vi), vi.COMMIT_BOND());
-        uint256 idx = vi.commitVote(epochId, h);
+        uint256 idx = vi.commitVote(epochId, h, 7000e18);
         vm.expectRevert(VoteIncentives.RevealWindowNotOpen.selector);
         vi.revealVote(epochId, idx, pair, 7000e18, salt);
         vm.stopPrank();
@@ -712,7 +712,7 @@ contract VoteIncentivesTest is Test {
         bytes32 h = vi.computeCommitHash(alice, epochId, pair, 7000e18, salt);
         vm.startPrank(alice);
         bribeToken.approve(address(vi), vi.COMMIT_BOND());
-        uint256 idx = vi.commitVote(epochId, h);
+        uint256 idx = vi.commitVote(epochId, h, 7000e18);
         vm.stopPrank();
         vm.warp(vi.revealDeadline(epochId) + 1);
         vm.prank(alice);
@@ -726,7 +726,7 @@ contract VoteIncentivesTest is Test {
         bytes32 h = vi.computeCommitHash(alice, epochId, pair, 7000e18, salt);
         vm.startPrank(alice);
         bribeToken.approve(address(vi), vi.COMMIT_BOND());
-        uint256 idx = vi.commitVote(epochId, h);
+        uint256 idx = vi.commitVote(epochId, h, 7000e18);
         vm.stopPrank();
         vm.warp(vi.commitDeadline(epochId) + 1);
         vm.prank(alice);
@@ -740,7 +740,7 @@ contract VoteIncentivesTest is Test {
         bytes32 h = vi.computeCommitHash(alice, epochId, pair, 7000e18, salt);
         vm.startPrank(alice);
         bribeToken.approve(address(vi), vi.COMMIT_BOND());
-        uint256 idx = vi.commitVote(epochId, h);
+        uint256 idx = vi.commitVote(epochId, h, 7000e18);
         vm.stopPrank();
         vm.warp(vi.commitDeadline(epochId) + 1);
         vm.startPrank(alice);
@@ -755,7 +755,7 @@ contract VoteIncentivesTest is Test {
         bytes32 h = vi.computeCommitHash(alice, epochId, pair, 7000e18, bytes32(uint256(0xDD)));
         vm.startPrank(alice);
         bribeToken.approve(address(vi), vi.COMMIT_BOND());
-        uint256 idx = vi.commitVote(epochId, h);
+        uint256 idx = vi.commitVote(epochId, h, 7000e18);
         vm.stopPrank();
 
         vm.warp(vi.revealDeadline(epochId) + 1);
@@ -770,7 +770,7 @@ contract VoteIncentivesTest is Test {
         bytes32 h = vi.computeCommitHash(alice, epochId, pair, 7000e18, bytes32(uint256(0xEE)));
         vm.startPrank(alice);
         bribeToken.approve(address(vi), vi.COMMIT_BOND());
-        uint256 idx = vi.commitVote(epochId, h);
+        uint256 idx = vi.commitVote(epochId, h, 7000e18);
         vm.stopPrank();
 
         vm.expectRevert(VoteIncentives.BondStillLocked.selector);
@@ -783,7 +783,7 @@ contract VoteIncentivesTest is Test {
         bytes32 h = vi.computeCommitHash(alice, epochId, pair, 7000e18, salt);
         vm.startPrank(alice);
         bribeToken.approve(address(vi), vi.COMMIT_BOND());
-        uint256 idx = vi.commitVote(epochId, h);
+        uint256 idx = vi.commitVote(epochId, h, 7000e18);
         vm.stopPrank();
         vm.warp(vi.commitDeadline(epochId) + 1);
         vm.prank(alice);
@@ -958,7 +958,7 @@ contract VoteIncentivesTest is Test {
         uint256 aliceStartBalance = bribeToken.balanceOf(alice);
         vm.startPrank(alice);
         bribeToken.approve(address(vi), 10e18);
-        vi.commitVote(epochId, bytes32(uint256(0xdeadbeef)));
+        vi.commitVote(epochId, bytes32(uint256(0xdeadbeef)), 7000e18);
         vm.stopPrank();
 
         assertEq(vi.totalCommitBonds(), 10e18, "bond reserved");

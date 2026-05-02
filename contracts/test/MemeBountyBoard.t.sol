@@ -180,8 +180,9 @@ contract MemeBountyBoardTest is Test {
         vm.prank(creator);
         board.createBounty{value: 1 ether}("Contest", block.timestamp + 7 days);
 
-        // Warp past MIN_CANCEL_DELAY (1 hour) to allow cancellation
-        vm.warp(block.timestamp + 1 hours + 1);
+        // AUDIT FIX: DEEP-GOV-11 — MIN_CANCEL_DELAY raised to 24h to mitigate
+        // creator front-run of artist submissions.
+        vm.warp(block.timestamp + 24 hours + 1);
 
         uint256 balBefore = creator.balance;
         vm.prank(creator);
@@ -401,8 +402,9 @@ contract MemeBountyBoardTest is Test {
         // Rejecter creates a bounty (test contract sends ETH which rejecter forwards)
         rejecter.createBounty{value: 10 ether}("Test bounty", block.timestamp + 7 days);
 
-        // Warp past cancel delay, cancel bounty via owner (no submissions)
-        vm.warp(block.timestamp + 1 hours + 1);
+        // Warp past cancel delay, cancel bounty via owner (no submissions).
+        // AUDIT FIX: DEEP-GOV-11 — MIN_CANCEL_DELAY raised to 24h.
+        vm.warp(block.timestamp + 24 hours + 1);
         board.emergencyCancel(0);
 
         // ETH transfer to rejecter failed, so funds are in pendingRefund
@@ -485,8 +487,8 @@ contract MemeBountyBoardTest is Test {
         ETHRejecterCreator rejecter = new ETHRejecterCreator(board);
         vm.deal(address(rejecter), 5 ether);
         rejecter.create{value: 0.5 ether}("rejecter-bounty", block.timestamp + 7 days);
-        // Wait MIN_CANCEL_DELAY then cancel.
-        vm.warp(block.timestamp + 1 hours + 1);
+        // Wait MIN_CANCEL_DELAY then cancel. AUDIT FIX: DEEP-GOV-11 — raised to 24h.
+        vm.warp(block.timestamp + 24 hours + 1);
         rejecter.cancel(0);
 
         uint256 owedToRejecter = board.pendingRefund(address(rejecter));

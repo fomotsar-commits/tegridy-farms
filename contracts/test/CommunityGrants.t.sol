@@ -559,11 +559,10 @@ contract CommunityGrantsTest is Test {
         vm.prank(alice); // alice's pointer was set to 1 in setUp
         grants.createProposal(artist, 1 ether, "with-pointer");
         uint256 id = 0; // first proposal — no other createProposal calls in this test
-        // Proposal struct has 12 fields (address, address, uint256, string,
-        // uint256, uint256, uint256, uint256, ProposalStatus, uint256, uint256,
-        // uint256). Unpack all and assert the snapshotted pointer.
+        // AUDIT FIX: DEEP-GOV-09 — Proposal struct now has 13 fields (added
+        // absoluteCap at the end). Unpack all and assert the snapshotted pointer.
         (
-            ,,,,,,,,,,, uint256 proposerTokenId
+            ,,,,,,,,,,, uint256 proposerTokenId,
         ) = grants.proposals(id);
         assertEq(proposerTokenId, 1, "snapshotted pointer matches setUp value");
     }
