@@ -102,9 +102,14 @@ abstract contract TimelockAdmin {
     ///         TegridyFactory.acceptFeeToSetter clearing a queued
     ///         old-setter proposal) MUST call `_forceCancel(KEY)` rather
     ///         than direct-writing zero. New child contracts SHOULD use
-    ///         `_executeAfterOf(KEY)` for reads to keep the surface
+    ///         `_proposalReadyAt(KEY)` for reads to keep the surface
     ///         consistent. A future major version may demote this slot to
     ///         `private` once all callsites have migrated.
+    /// @dev    AUDIT FIX: v3-LIB-I1 — `_proposalReadyAt` is canonical (used
+    ///         by all 5 in-tree callers across CommunityGrants, TegridyFeeHook,
+    ///         and TegridyTWAP); `_executeAfterOf` is the deprecated alias
+    ///         retained only for backward-compat. See the function-level
+    ///         NatSpec on each accessor below.
     mapping(bytes32 => uint256) internal _executeAfter;
 
     // ─── Internal API ────────────────────────────────────────────────
@@ -178,25 +183,27 @@ abstract contract TimelockAdmin {
         return _executeAfter[key];
     }
 
-    /// @dev AUDIT FIX: V2-LIB-L2 — internal alias kept for back-compat — see
-    ///      `_executeAfterOf` for canonical accessor. Three child contracts
-    ///      (TegridyFeeHook, TegridyTWAP, CommunityGrants) read via this
-    ///      name today; renaming would churn three importers without
-    ///      runtime benefit. New callers MUST use `_executeAfterOf`. A
-    ///      future major-version bump can drop this alias.
+    /// @notice AUDIT FIX: DEEP-LIB-H4 / DEEP-LIB-M5 — canonical read accessor
+    ///         for child contracts. Returns the timestamp after which the
+    ///         pending proposal for `key` becomes executable, or 0 if no
+    ///         proposal is pending. Kept under the "force-cancel + getter"
+    ///         pair so future migrations to `private _executeAfter` can be
+    ///         performed by demoting the storage slot without breaking
+    ///         downstream `_proposalReadyAt` callers.
+    /// @dev    AUDIT FIX: v3-LIB-I1 — declared CANONICAL (over the deprecated
+    ///         `_executeAfterOf` alias below). All 5 in-tree callers
+    ///         (CommunityGrants:658,711, TegridyFeeHook:331, TegridyTWAP:546,575)
+    ///         use this name. New child contracts MUST use `_proposalReadyAt`.
     function _proposalReadyAt(bytes32 key) internal view returns (uint256) {
         return _executeAfter[key];
     }
 
-    /// @notice AUDIT FIX: DEEP-LIB-H4 / DEEP-LIB-M5 — canonical read accessor
-    ///         for child contracts. Functionally identical to
-    ///         `_proposalReadyAt` but kept under the "force-cancel + getter"
-    ///         pair so future migrations to `private _executeAfter` can be
-    ///         performed by demoting the storage slot without breaking
-    ///         downstream `_executeAfterOf` callers.
-    /// @dev    AUDIT FIX: V2-LIB-L2 — declared canonical (over the legacy
-    ///         `_proposalReadyAt` alias above). New child contracts MUST
-    ///         use this accessor.
+    /// @notice DEPRECATED — use `_proposalReadyAt` instead.
+    /// @dev    AUDIT FIX: v3-LIB-I1 — kept as a back-compat alias only;
+    ///         `_proposalReadyAt` is the canonical accessor (5 in-tree callers
+    ///         vs 0 for this name). New code MUST NOT call `_executeAfterOf`.
+    ///         A future major-version bump can drop this alias once all
+    ///         downstream consumers (none in-tree today) have migrated.
     function _executeAfterOf(bytes32 key) internal view returns (uint256) {
         return _executeAfter[key];
     }

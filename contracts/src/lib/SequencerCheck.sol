@@ -132,7 +132,19 @@ library SequencerCheck {
         // Aave V3 PriceOracleSentinel + Chainlink "Handling Outages" docs.
         if (updatedAt == 0) revert SequencerGracePeriodNotOver(); // round not initialized
         if (answeredInRound < roundId) revert SequencerDown();    // answer pre-dates round
-        if (block.timestamp - updatedAt > staleness) revert SequencerDown(); // keeper lapse
+        // AUDIT FIX: v3-LIB-M1 — directional ordering check BEFORE the
+        // subtraction. A future-dated `updatedAt` (sub-second clock skew on
+        // a bridged/relayed feed, common after sequencer replay on
+        // Arbitrum/Base) would have underflowed checked-math with
+        // `Panic(0x11)` — structurally distinct from the typed `SequencerDown`
+        // selector that off-chain decoders / wagmi / ethers / viem branch on.
+        // This restores typed-revert symmetry with `tryCheckSequencerUp` /
+        // `getSequencerOutageBuffer` (closed in v2-LIB-M1) so the same input
+        // class produces the same revert type across all three helpers.
+        if (updatedAt > block.timestamp) revert SequencerDown(); // clock skew → fail-closed
+        unchecked {
+            if (block.timestamp - updatedAt > staleness) revert SequencerDown(); // keeper lapse
+        }
 
         // AUDIT MICROSCOPE_2026_04_30 M-Lib3: strict equality to UP. Pre-fix
         // `answer == 1` only treats exactly 1 as down — values like 2 (a future
@@ -144,8 +156,14 @@ library SequencerCheck {
         // Sequencer is up. Additionally require it has been up for at least
         // `gracePeriod` seconds. A `startedAt` of 0 is treated as "no round yet".
         if (startedAt == 0) revert SequencerGracePeriodNotOver();
-        if (block.timestamp - startedAt < gracePeriod) {
-            revert SequencerGracePeriodNotOver();
+        // AUDIT FIX: v3-LIB-M1 — same future-dated guard for `startedAt` so
+        // a clock-skew event on the resume timestamp also produces the typed
+        // `SequencerGracePeriodNotOver` rather than `Panic(0x11)`.
+        if (startedAt > block.timestamp) revert SequencerGracePeriodNotOver(); // clock skew on grace
+        unchecked {
+            if (block.timestamp - startedAt < gracePeriod) {
+                revert SequencerGracePeriodNotOver();
+            }
         }
     }
 
@@ -314,7 +332,16 @@ library SequencerCheck {
         // post-resume timestamp that consumers then trust as "fresh enough".
         if (updatedAt == 0) return 0;
         if (answeredInRound < roundId) return 0;
-        if (block.timestamp - updatedAt > MAX_FEED_STALENESS) return 0;
+        // AUDIT FIX: v3-LIB-M1 — directional ordering check BEFORE the
+        // subtraction so a future-dated `updatedAt` (clock skew on a
+        // bridged/relayed feed) cannot underflow checked-math and propagate
+        // a `Panic(0x11)` to consumers that expect this helper to return 0
+        // on stale feeds. Treat any future-dated round as stale → return 0
+        // and let the caller skip the H-6 staleness gate.
+        if (updatedAt > block.timestamp) return 0; // clock skew → treat as stale
+        unchecked {
+            if (block.timestamp - updatedAt > MAX_FEED_STALENESS) return 0;
+        }
 
         // If the sequencer is currently down, there is no meaningful "resume"
         // timestamp — return 0 and let `checkSequencerUp` produce the typed

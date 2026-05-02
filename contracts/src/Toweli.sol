@@ -139,6 +139,13 @@ contract Toweli is ERC20, ERC20Permit {
     ///         (the standard 65-byte format `SignatureChecker` accepts).
     ///         Nonce / deadline / typehash semantics are unchanged so client-
     ///         side signing tooling (wagmi/ethers/viem) requires no changes.
+    // AUDIT FIX: v3-LIB-L1 — `virtual` re-added so future Toweli derivatives
+    //   (rebases, fork-deployments, multi-chain bridge wrappers — all stated
+    //   design goals in this contract's NatSpec at lines 24-27) can extend
+    //   the permit logic without losing the v2-LIB-L4 typed-error forwarding.
+    //   OZ's stock `ERC20Permit.permit` is `public virtual`; dropping
+    //   `virtual` here was a forward-compat regression introduced when the
+    //   v2-LIB-L4 fix added the override.
     function permit(
         address owner,
         address spender,
@@ -147,7 +154,7 @@ contract Toweli is ERC20, ERC20Permit {
         uint8 v,
         bytes32 r,
         bytes32 s
-    ) public override {
+    ) public virtual override {
         if (block.timestamp > deadline) {
             revert ERC2612ExpiredSignature(deadline);
         }
@@ -166,45 +173,57 @@ contract Toweli is ERC20, ERC20Permit {
         // opaque `ERC2612InvalidSigner(0x0, owner)`. Wagmi/ethers/viem retry
         // flows branch on these typed errors (e.g. "malleable S → re-sign").
         //
+        // AUDIT FIX: v3-LIB-L2 — gate the ECDSA pre-validation behind
+        //   `owner.code.length == 0` so smart-contract wallets (Safe, Argent,
+        //   AA / 4337) don't pay the wasted ~3000 gas of a discarded secp256k1
+        //   recovery on every permit call. The recovered EOA can never equal
+        //   a contract address, so the result is structurally guaranteed to be
+        //   discarded for SCW owners — and the typed ECDSA error surface is
+        //   EOA-specific (the `(v,r,s)` overload of `tryRecover` can't even
+        //   produce `InvalidSignatureLength` — only the `bytes` overload does).
+        //   For contract owners we go straight to ERC-1271 dispatch via
+        //   `SignatureChecker.isValidSignatureNow`.
+        //
         // Logic:
-        //   1. Call `ECDSA.tryRecover` (non-reverting) to get the typed error.
-        //   2. If `tryRecover` recovered the EXACT `owner`, accept the EOA path.
-        //   3. Otherwise (recovered != owner OR tryRecover errored), fall
-        //      through to `SignatureChecker` so contract wallets (ERC-1271)
-        //      still work — BUT if tryRecover returned a typed ECDSA error
-        //      AND the dispatch couldn't validate via ERC-1271 either,
-        //      surface the canonical typed error so the EOA-signing client
-        //      sees it (the contract-wallet path can't trigger these errors
-        //      on a 65-byte input — they are EOA-specific failure modes).
-        (address recovered, ECDSA.RecoverError ecdsaErr, bytes32 ecdsaErrArg) =
-            ECDSA.tryRecover(hash, v, r, s);
-        if (ecdsaErr == ECDSA.RecoverError.NoError && recovered == owner) {
-            // EOA fast path: typed error surface preserved, no SCW dispatch needed.
-            _approve(owner, spender, value);
-            return;
-        }
-
-        // SignatureChecker dispatches to ECDSA.recover for EOAs and to
-        // ERC-1271 staticcall (`isValidSignature`) for contract wallets.
-        // The EOA branch already failed above (recovered != owner OR tryRecover
-        // errored), so a successful return here implies an ERC-1271 contract
-        // wallet validated the signature.
-        if (!SignatureChecker.isValidSignatureNow(owner, hash, abi.encodePacked(r, s, v))) {
-            // AUDIT FIX: V2-LIB-L4 — surface the typed ECDSA error when the
-            // upstream signature validation failed AND the ERC-1271 fallback
-            // could not save it. This restores compatibility with frontend
-            // tooling that switches on `ECDSAInvalidSignatureS` etc.
+        //   1. EOA owner (`code.length == 0`):
+        //      a. Call `ECDSA.tryRecover` (non-reverting) to get the typed error.
+        //      b. If `tryRecover` recovered the EXACT `owner`, accept the EOA path.
+        //      c. Otherwise surface the typed ECDSA error (or fall through to
+        //         a generic `ERC2612InvalidSigner` for "wrong signer").
+        //   2. Contract owner (`code.length > 0`): dispatch directly to
+        //      ERC-1271 via `SignatureChecker.isValidSignatureNow`.
+        if (owner.code.length == 0) {
+            (address recovered, ECDSA.RecoverError ecdsaErr, bytes32 ecdsaErrArg) =
+                ECDSA.tryRecover(hash, v, r, s);
+            if (ecdsaErr == ECDSA.RecoverError.NoError && recovered == owner) {
+                // EOA fast path: typed error surface preserved, no SCW dispatch needed.
+                _approve(owner, spender, value);
+                return;
+            }
+            // EOA path failed → surface the canonical typed ECDSA error so
+            // wagmi/ethers/viem retry flows can branch on it correctly.
             if (ecdsaErr == ECDSA.RecoverError.InvalidSignatureS) {
                 revert ECDSA.ECDSAInvalidSignatureS(ecdsaErrArg);
             }
             if (ecdsaErr == ECDSA.RecoverError.InvalidSignatureLength) {
+                // Note: structurally unreachable from the `(v,r,s)` overload
+                // of `tryRecover` (only the `bytes` overload returns this
+                // error — see OZ ECDSA.sol). Kept for defense-in-depth in
+                // case OZ ever extends the error surface.
                 revert ECDSA.ECDSAInvalidSignatureLength(uint256(ecdsaErrArg));
             }
             if (ecdsaErr == ECDSA.RecoverError.InvalidSignature) {
                 revert ECDSA.ECDSAInvalidSignature();
             }
-            // No typed ECDSA error AND ERC-1271 returned false → wrong signer.
+            // `NoError` but `recovered != owner` → wrong signer.
             revert ERC2612InvalidSigner(recovered, owner);
+        }
+
+        // AUDIT FIX: v3-LIB-L2 — contract owner: skip the EOA pre-validation
+        //   and go straight to ERC-1271 dispatch. Saves ~3000 gas per SCW
+        //   permit call.
+        if (!SignatureChecker.isValidSignatureNow(owner, hash, abi.encodePacked(r, s, v))) {
+            revert ERC2612InvalidSigner(address(0), owner);
         }
 
         _approve(owner, spender, value);
