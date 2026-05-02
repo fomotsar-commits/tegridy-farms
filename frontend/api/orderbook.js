@@ -13,6 +13,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "crypto";
 import { recoverMessageAddress } from "viem";
 import { checkRateLimit } from "./_lib/ratelimit.js";
+import { verifySeaportSignature, verifyNftOwnership, MAX_PRICE_WEI, priceWeiToEthNumber } from "./_lib/seaport-verify.js";
 
 // Whitelist allowed contract addresses (lowercase)
 const ALLOWED_CONTRACTS = new Set([
@@ -262,28 +263,71 @@ export default async function handler(req, res) {
 
       // Extract total price: for listings, sum ALL consideration items (seller receives + fees = total price)
       // consideration[0] is seller receives, consideration[1..N] are fee items
+      let priceWeiBig;
       let priceWei;
       let currencyAddr;
-      if (isListing) {
-        // Sum all consideration items to get the total listing price
-        const totalWei = params.consideration.reduce(
-          (sum, item) => sum + BigInt(item.startAmount || "0"), 0n
-        );
-        priceWei = totalWei.toString();
-        currencyAddr = (considerationItem?.token)?.toLowerCase() || "0x0000000000000000000000000000000000000000";
-      } else {
-        priceWei = offerItem?.startAmount || "0";
-        currencyAddr = (offerItem?.token)?.toLowerCase() || "0x0000000000000000000000000000000000000000";
+
+      // Parse a single startAmount as BigInt with strict validation. Returns
+      // the BigInt or throws — caller maps to 400.
+      const parseAmount = (raw) => {
+        if (raw == null) return 0n;
+        if (typeof raw !== "string" && typeof raw !== "number" && typeof raw !== "bigint") {
+          throw new Error("amount out of range");
+        }
+        const s = String(raw).trim();
+        if (!/^[0-9]+$/.test(s)) {
+          throw new Error("amount out of range");
+        }
+        return BigInt(s);
+      };
+
+      try {
+        if (isListing) {
+          // AUDIT FIX H-4: all consideration items must share the same currency.
+          // Summing startAmount across mixed currencies produces a meaningless
+          // priceWei (e.g. WETH wei + USDC base units) and lets an attacker
+          // post listings with arbitrary `price_eth` to poison the floor sort.
+          const baseToken = (considerationItem?.token || "").toLowerCase();
+          for (let i = 1; i < params.consideration.length; i++) {
+            const itemToken = (params.consideration[i]?.token || "").toLowerCase();
+            if (itemToken !== baseToken) {
+              return res.status(400).json({ error: "Mixed-currency consideration not supported" });
+            }
+          }
+          // Sum all consideration items to get the total listing price.
+          // Each item is range-validated; cap on sum is enforced below.
+          let totalWei = 0n;
+          for (const item of params.consideration) {
+            const amt = parseAmount(item.startAmount);
+            if (amt > MAX_PRICE_WEI) throw new Error("amount out of range");
+            totalWei += amt;
+          }
+          priceWeiBig = totalWei;
+          currencyAddr = baseToken || "0x0000000000000000000000000000000000000000";
+        } else {
+          priceWeiBig = parseAmount(offerItem?.startAmount);
+          currencyAddr = (offerItem?.token)?.toLowerCase() || "0x0000000000000000000000000000000000000000";
+        }
+      } catch (e) {
+        return res.status(400).json({ error: "startAmount out of range or non-numeric" });
       }
+
+      // AUDIT FIX H-4 / R053: cap aggregate price so a single overflowing
+      // listing can't pollute the `price_eth ASC` floor sort. 10**24 wei =
+      // 1,000,000 ETH equivalent — generous by ~6 orders of magnitude vs the
+      // actual collection floors.
+      if (priceWeiBig > MAX_PRICE_WEI) {
+        return res.status(400).json({ error: "priceWei out of range (exceeds MAX_PRICE_WEI cap)" });
+      }
+      priceWei = priceWeiBig.toString();
+
       const decimals = TOKEN_DECIMALS[currencyAddr];
       if (decimals === undefined) {
         return res.status(400).json({ error: `Unsupported currency: ${currencyAddr}` });
       }
       // Compute price in human-readable units for the token's decimals.
-      // Use 8 decimal places of precision to avoid loss on large values.
-      const divisor = BigInt(10) ** BigInt(decimals);
-      const priceBig = BigInt(priceWei);
-      const priceEth = Number((priceBig * 100000000n) / divisor) / 100000000;
+      // Uses the shared helper so precision rules stay in one place.
+      const priceEth = priceWeiToEthNumber(priceWeiBig, decimals);
 
       // Extract contract + tokenId
       const nftItem = isListing ? offerItem : considerationItem;
@@ -308,6 +352,50 @@ export default async function handler(req, res) {
       }
       if (recoveredCreator !== params.offerer.toLowerCase()) {
         return res.status(403).json({ error: "Signer does not match offerer" });
+      }
+
+      // AUDIT FIX H-1: independently verify the Seaport EIP-712 signature so
+      // an attacker cannot keep their own personal_sign auth while substituting
+      // another user's tokenId / contract / consideration in `params`. The
+      // personal_sign check above only binds offerer + contract + price + times;
+      // every other field of the Seaport order was unauthenticated before.
+      const seaportSig = order.seaportSignature || order.signature;
+      const sigCheck = await verifySeaportSignature({ parameters: params, signature: seaportSig });
+      if (!sigCheck.ok) {
+        // rpc-unavailable → 503 (caller should retry); everything else (signature-mismatch,
+        // bad-signature, bad-parameters) is a client-side problem → 403.
+        const status = sigCheck.error === "rpc-unavailable" ? 503 : 403;
+        return res.status(status).json({ error: `Seaport signature verification failed: ${sigCheck.error}` });
+      }
+
+      // AUDIT FIX H-1: enforce on-chain ownership for ERC721 listings so an
+      // attacker cannot list NFTs they don't actually own. Skipped for offers
+      // (itemType < 2) and for ERC1155 (handled inside verifyNftOwnership).
+      if (isListing) {
+        const ownerCheck = await verifyNftOwnership({ parameters: params });
+        if (!ownerCheck.ok) {
+          // Map error → status:
+          //   rpc-unavailable                                       → 503
+          //   token-not-found / no-offer-item / no-token-id         → 400 (client supplied bad data)
+          //   not-owner (and any other auth failure)                → 403
+          let status, message;
+          if (ownerCheck.error === "rpc-unavailable") {
+            status = 503;
+            message = "On-chain ownership verification temporarily unavailable";
+          } else if (
+            ownerCheck.error === "token-not-found" ||
+            ownerCheck.error === "no-offer-item" ||
+            ownerCheck.error === "no-token-id"
+          ) {
+            status = 400;
+            message = `NFT ownership check failed: ${ownerCheck.error}`;
+          } else {
+            // not-owner et al.
+            status = 403;
+            message = "Offerer does not own this NFT";
+          }
+          return res.status(status).json({ error: message });
+        }
       }
 
       // Prevent duplicate active listings for the same token by the same maker.
@@ -441,7 +529,19 @@ export default async function handler(req, res) {
 
       // Verify the transaction on-chain via Alchemy RPC
       const alchemyKey = process.env.ALCHEMY_API_KEY;
-      if (alchemyKey && alchemyKey !== "demo") {
+      const hasAlchemy = alchemyKey && alchemyKey !== "demo";
+
+      // AUDIT FIX H-2: fail closed in production when Alchemy is unavailable.
+      // The on-chain receipt + topic check is load-bearing — without it, an
+      // attacker can sign `Fill order <real-hash> tx <any-random-hash>` and
+      // mark a legitimate active order as `filled`, denying the real buyer.
+      // Mirrors the policy in `_lib/seaport-verify.js` and `_lib/ratelimit.js`.
+      const IS_PRODUCTION = process.env.NODE_ENV === "production";
+      if (!hasAlchemy && IS_PRODUCTION) {
+        return res.status(503).json({ error: "On-chain verification temporarily unavailable — please retry in a few minutes" });
+      }
+
+      if (hasAlchemy) {
         try {
           const rpcRes = await fetch(`https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`, {
             method: "POST",

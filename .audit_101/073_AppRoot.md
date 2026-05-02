@@ -10,10 +10,10 @@ Total findings: **11** (HIGH 1 · MED 4 · LOW 4 · INFO 2)
 
 ### H-073-1 — Real third-party API key bundled into client JS via `VITE_ETHERSCAN_API_KEY`
 - File: `frontend/.env` line 3
-- Evidence: `VITE_ETHERSCAN_API_KEY=28QIIIRZPGUBJPDA5ZANG2E9Y48SWKACRK`. Anything VITE_-prefixed is inlined into the production bundle (`.env.example` even warns: "Never put secrets you don't want public behind a VITE_ prefix"). The vite proxy block at `vite.config.ts:125-128` says "/api/etherscan is a Vercel serverless function in production… so the API key stays server-side"; the VITE_ duplicate defeats that intent if anything in `src/` reads it.
+- Evidence: `frontend/.env` line 3 declares `VITE_ETHERSCAN_API_KEY=<redacted>` — value intentionally elided from this audit doc to avoid committing a live secret to the repo. Anything VITE_-prefixed is inlined into the production bundle (`.env.example` even warns: "Never put secrets you don't want public behind a VITE_ prefix"). The vite proxy block at `vite.config.ts:125-128` says "/api/etherscan is a Vercel serverless function in production… so the API key stays server-side"; the VITE_ duplicate defeats that intent if anything in `src/` reads it.
 - Impact: Etherscan key is publicly extractable from any deployed bundle → quota exhaustion / abuse charged to the project key.
 - Fix: Drop the `VITE_` prefix (rename to `ETHERSCAN_API_KEY`), confirm no `import.meta.env.VITE_ETHERSCAN_API_KEY` reads exist in `src/`, rotate the key, and route all calls through the `/api/etherscan` Vercel function.
-- Note: `.env` is gitignored (verified via `git check-ignore`). The leak vector is the deployed bundle, not git.
+- Note: `.env` is gitignored (verified via `git check-ignore`). The leak vector is the deployed bundle, not git. The original revision of this audit pasted the full key value as evidence; that value has been redacted in tree but remains in git history — operator must rotate the key on etherscan.io regardless.
 
 ---
 

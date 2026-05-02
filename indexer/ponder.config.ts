@@ -399,6 +399,7 @@ const TegridyLendingAbi = [
       { name: "duration", type: "uint256", indexed: false },
       { name: "collateralContract", type: "address", indexed: false },
       { name: "minPositionValue", type: "uint256", indexed: false },
+      { name: "minPositionETHValue", type: "uint256", indexed: false },
     ],
   },
   {

@@ -34,6 +34,8 @@ function makeQueryResult(data = [], error = null, count = null) {
     gt: vi.fn(() => chain),
     gte: vi.fn(() => chain),
     lt: vi.fn(() => chain),
+    order: vi.fn(() => chain),
+    limit: vi.fn(() => chain),
     single: vi.fn(async () => ({ data: data[0] || null, error })),
     maybeSingle: vi.fn(async () => ({ data: data[0] || null, error })),
     then: (resolve) => resolve({ data, error, count }),

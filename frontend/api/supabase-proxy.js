@@ -14,8 +14,25 @@
  */
 
 import { jwtVerify } from "jose";
+import { createClient } from "@supabase/supabase-js";
 import { checkRateLimit } from "./_lib/ratelimit.js";
 import { validateBody } from "./_lib/proxy-schemas.js";
+
+// AUDIT FIX H-3: lazily initialised service-role client used ONLY for the
+// revoked_jwts revocation check. Never used to forward user-controlled writes
+// (those still flow through the user's own JWT to PostgREST so RLS applies).
+// Service-role bypasses RLS — keep its surface minimal.
+let _serviceClient = null;
+function getServiceClient() {
+  if (_serviceClient) return _serviceClient;
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !serviceKey) return null;
+  _serviceClient = createClient(url, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  return _serviceClient;
+}
 
 // AUDIT R051 H-2: cap Vercel body parser at 32 KB. The largest legitimate
 // row in any of the allowed tables is `messages.text` at 280 chars, so 32 KB
@@ -120,6 +137,7 @@ export default async function handler(req, res) {
   // return the same 401 shape we return for a missing cookie.
   let jwtClaims = null;
   let verifiedWallet = null;
+  let jti = null;
   if (JWT_SECRET) {
     try {
       const secret = new TextEncoder().encode(JWT_SECRET);
@@ -130,9 +148,40 @@ export default async function handler(req, res) {
       });
       jwtClaims = { wallet: payload.wallet || payload.sub };
       verifiedWallet = jwtClaims.wallet ? String(jwtClaims.wallet).toLowerCase() : null;
+      jti = payload.jti ? String(payload.jti) : null;
     } catch {
       return res.status(401).json({ error: "Not authenticated" });
     }
+  }
+
+  // AUDIT FIX H-3: reject revoked JWTs. /api/auth/me already does this, but the
+  // proxy used to forward writes via the user's JWT to PostgREST without ever
+  // consulting the revocation list. Result: a stolen/cached JWT could continue
+  // to UPDATE/INSERT/DELETE rows for the full 24h JWT lifetime even after the
+  // user clicked "logout". Mirrors the check in `api/auth/me.js:103-126`.
+  // Tokens issued before the 003_revoked_jwts.sql migration carry no jti and
+  // skip this check (they age out at their 24h exp).
+  if (jti) {
+    const svc = getServiceClient();
+    if (svc) {
+      const { data: revoked, error: revokedErr } = await svc
+        .from("revoked_jwts")
+        .select("jti")
+        .eq("jti", jti)
+        .maybeSingle();
+      if (revokedErr) {
+        // Fail closed — without DB access we cannot prove the JWT is still
+        // valid. Writes are higher impact than reads (which fail open in me.js)
+        // so the cost of a transient DB hiccup blocking a write is acceptable.
+        console.error("[supabase-proxy] revoked_jwts lookup error:", revokedErr.message);
+        return res.status(503).json({ error: "Authentication temporarily unavailable" });
+      }
+      if (revoked) {
+        return res.status(401).json({ error: "Token revoked" });
+      }
+    }
+    // If service client isn't configured (e.g., dev without SUPABASE_SERVICE_KEY),
+    // the check is skipped — same behaviour as the JWT_SECRET-not-set branch above.
   }
 
   // AUDIT R051 M: stage-2 write bucket — keyed on verified wallet so a NAT

@@ -807,7 +807,7 @@ This document consolidates every finding from the 101 individual agent reports i
 - Source: agent 073
 - Counts: HIGH 1 / MED 4 / LOW 4 / INFO 2
 - HIGH:
-  - **[H-073-1]** Real third-party API key bundled into client JS via VITE_ETHERSCAN_API_KEY — frontend/.env line 3 (`VITE_ETHERSCAN_API_KEY=28QIIIRZPGUBJPDA5ZANG2E9Y48SWKACRK`).
+  - **[H-073-1]** Real third-party API key bundled into client JS via VITE_ETHERSCAN_API_KEY — frontend/.env line 3 (`VITE_ETHERSCAN_API_KEY=<redacted>`; value intentionally elided from this committed audit doc to avoid leaking a live secret. Operator must rotate the etherscan key regardless because the original revision of this report contained the literal value and remains in git history).
 
 ### 074 — Responsive / iOS / iPad Audit
 - Source: agent 074
