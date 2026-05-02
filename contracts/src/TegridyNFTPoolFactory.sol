@@ -30,6 +30,16 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     uint256 public constant MAX_PROTOCOL_FEE_BPS = 1000; // 10%
     uint256 public constant PROTOCOL_FEE_DELAY = 48 hours;
 
+    /// @notice AUDIT FIX: DEEP-NFTPOOL-12: minimum delay between successive
+    ///         calls to `setEmergencyPaused`. Caps the rate at which the
+    ///         factory owner can flip the global circuit breaker.
+    uint256 public constant EMERGENCY_PAUSE_COOLDOWN = 6 hours;
+
+    /// @notice AUDIT FIX: DEEP-NFTPOOL-10: per-day rate limit on withdrawals
+    ///         from the protocol-fee accumulator. Hard cap above which
+    ///         partial withdrawals must wait for the next 24h window.
+    uint256 public constant MAX_DAILY_WITHDRAWAL = 1000 ether;
+
     // ─── State ──────────────────────────────────────────────────────────
     /// @notice Implementation contract used as the clone template
     address public immutable poolImplementation;
@@ -63,6 +73,23 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     ///         Storage-stable: appended after existing slots.
     mapping(address => bool) public isPool;
 
+    /// @notice AUDIT FIX: DEEP-NFTPOOL-12: factory-level emergency pause that
+    ///         CASCADES to every pool. Each pool reads this flag at swap entry
+    ///         and reverts when true. Independent of the factory's
+    ///         OZ Pausable (which only stops `createPool`).
+    bool public emergencyPaused;
+    /// @notice AUDIT FIX: DEEP-NFTPOOL-12: timestamp of the last
+    ///         `setEmergencyPaused` call (rate-limit cooldown).
+    uint256 public lastEmergencyAt;
+
+    /// @notice AUDIT FIX: DEEP-NFTPOOL-10: daily withdrawal accounting for
+    ///         protocol fees. `dayStart` is the timestamp of the start of
+    ///         the current 24h window; `withdrawnToday` is the sum withdrawn
+    ///         within that window. Both reset on the first withdrawal after
+    ///         24h has elapsed.
+    uint256 public dayStart;
+    uint256 public withdrawnToday;
+
     // ─── Events ─────────────────────────────────────────────────────────
     event PoolCreated(
         address indexed pool,
@@ -80,6 +107,13 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     event ProtocolFeeRecipientChangeProposed(address indexed oldRecipient, address indexed newRecipient, uint256 executeAfter);
     event ProtocolFeeRecipientChangeExecuted(address indexed oldRecipient, address indexed newRecipient);
     event ProtocolFeeRecipientChangeCancelled(address indexed cancelledRecipient);
+    /// @notice AUDIT FIX: DEEP-NFTPOOL-11: per-pool fee-claim observability events.
+    event PoolFeesClaimed(address indexed pool, uint256 amount);
+    event PoolFeesClaimFailed(address indexed pool, bytes reason);
+    /// @notice AUDIT FIX: DEEP-NFTPOOL-12: factory-level emergency-pause toggle event.
+    event EmergencyPauseSet(bool paused, address indexed by);
+    /// @notice AUDIT FIX: DEEP-NFTPOOL-10: per-call cap on protocol-fee withdrawals.
+    event ProtocolFeesWithdrawn(address indexed to, uint256 amount, uint256 windowTotal);
 
     // ─── Errors ─────────────────────────────────────────────────────────
     error InvalidFee();
@@ -89,6 +123,12 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     /// @notice R064 (MEDIUM): caller passed an address to `claimPoolFeesBatch`
     ///         that was not deployed by this factory.
     error NotAPool(address pool);
+    /// @notice AUDIT FIX: DEEP-NFTPOOL-12: emergency-pause cooldown not elapsed.
+    error EmergencyCooldown();
+    /// @notice AUDIT FIX: DEEP-NFTPOOL-10: daily-withdrawal cap exceeded.
+    error DailyCapExceeded();
+    /// @notice AUDIT FIX: DEEP-NFTPOOL-10: zero-amount withdrawal request.
+    error ZeroAmount();
 
     // ─── Constructor ────────────────────────────────────────────────────
 
@@ -152,8 +192,19 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
         //   nftCollection   — ties the pool address to the specific collection
         //   _poolType       — ties the address to the chosen pool type
         // initialize() runs in the same transaction so there's no separable hijack window.
+        // AUDIT FIX: DEEP-NFTPOOL-09: include `block.chainid` and
+        // `address(this)` in the salt so cross-chain CREATE2 addresses do not
+        // collide between factories deployed at the same address on different
+        // chains. Closes 009 M-1 (still-open pre-DEEP).
         bytes32 salt = keccak256(
-            abi.encodePacked(msg.sender, _allPools.length, nftCollection, uint8(_poolType))
+            abi.encodePacked(
+                block.chainid,
+                address(this),
+                msg.sender,
+                _allPools.length,
+                nftCollection,
+                uint8(_poolType)
+            )
         );
         pool = poolImplementation.cloneDeterministic(salt);
 
@@ -466,7 +517,11 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     ///      that re-enters via the `claimProtocolFees` callback.
     function claimPoolFees(address pool) external nonReentrant {
         if (!isPool[pool]) revert NotAPool(pool);
+        // AUDIT FIX: DEEP-NFTPOOL-11: emit a factory-level event for observability.
+        uint256 before = address(this).balance;
         TegridyNFTPool(payable(pool)).claimProtocolFees();
+        uint256 received = address(this).balance - before;
+        emit PoolFeesClaimed(pool, received);
     }
 
     /// @notice Batch claim protocol fees from multiple pools.
@@ -489,18 +544,69 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
         for (uint256 i = 0; i < pools.length; i++) {
             address pool = pools[i];
             if (!isPool[pool]) revert NotAPool(pool);
-            try TegridyNFTPool(payable(pool)).claimProtocolFees() {} catch {}
+            // AUDIT FIX: DEEP-NFTPOOL-11: emit success/failure events per pool
+            // so silent failures become observable.
+            uint256 before = address(this).balance;
+            try TegridyNFTPool(payable(pool)).claimProtocolFees() {
+                uint256 received = address(this).balance - before;
+                emit PoolFeesClaimed(pool, received);
+            } catch (bytes memory reason) {
+                emit PoolFeesClaimFailed(pool, reason);
+            }
         }
     }
 
     /// @notice Withdraw accumulated protocol fees to the protocolFeeRecipient (owner only).
-    /// SECURITY FIX: Use WETHFallbackLib to prevent fees getting stuck if recipient can't receive ETH.
-    /// Previously used raw .call{value, gas: 10000} which would revert permanently if recipient
-    /// is a multisig or contract that needs more than 10k gas for receive().
+    /// @dev    AUDIT FIX: DEEP-NFTPOOL-10: legacy "withdraw all" path now feeds
+    ///         through the rate-limited overload so a compromised recipient
+    ///         cannot drain everything in a single transaction.
     function withdrawProtocolFees() external onlyOwner nonReentrant {
         uint256 balance = address(this).balance;
         require(balance > 0, "NO_FEES");
-        WETHFallbackLib.safeTransferETHOrWrap(weth, protocolFeeRecipient, balance);
+        uint256 amt = balance > MAX_DAILY_WITHDRAWAL ? MAX_DAILY_WITHDRAWAL : balance;
+        _withdrawWithRateLimit(amt);
+    }
+
+    /// @notice AUDIT FIX: DEEP-NFTPOOL-10: rate-limited per-call withdraw.
+    ///         Hard caps the cumulative protocol-fee outflow within a 24h
+    ///         rolling window to `MAX_DAILY_WITHDRAWAL`.
+    function withdrawProtocolFees(uint256 amount) external onlyOwner nonReentrant {
+        if (amount == 0) revert ZeroAmount();
+        require(address(this).balance >= amount, "NO_FEES");
+        _withdrawWithRateLimit(amount);
+    }
+
+    /// @dev AUDIT FIX: DEEP-NFTPOOL-10: shared rate-limit + transfer routine.
+    function _withdrawWithRateLimit(uint256 amount) internal {
+        // Roll the 24h window if elapsed.
+        if (block.timestamp >= dayStart + 1 days) {
+            dayStart = block.timestamp;
+            withdrawnToday = 0;
+        } else if (dayStart == 0) {
+            dayStart = block.timestamp;
+        }
+
+        if (withdrawnToday + amount > MAX_DAILY_WITHDRAWAL) revert DailyCapExceeded();
+        withdrawnToday += amount;
+
+        WETHFallbackLib.safeTransferETHOrWrap(weth, protocolFeeRecipient, amount);
+        emit ProtocolFeesWithdrawn(protocolFeeRecipient, amount, withdrawnToday);
+    }
+
+    // ─── AUDIT FIX: DEEP-NFTPOOL-12: factory emergency pause cascade ─────
+
+    /// @notice Toggle the global emergency-pause flag that cascades to every
+    ///         pool. Each pool reads `factory.emergencyPaused()` at swap entry
+    ///         and reverts when true. Rate-limited via a 6-hour cooldown
+    ///         between successive flips so a captured owner key cannot grief
+    ///         pause/unpause-spam against legitimate users.
+    function setEmergencyPaused(bool paused) external onlyOwner {
+        if (lastEmergencyAt != 0 && block.timestamp < lastEmergencyAt + EMERGENCY_PAUSE_COOLDOWN) {
+            revert EmergencyCooldown();
+        }
+        emergencyPaused = paused;
+        lastEmergencyAt = block.timestamp;
+        emit EmergencyPauseSet(paused, msg.sender);
     }
 
     /// @notice Accept ETH (protocol fees sent by pools)

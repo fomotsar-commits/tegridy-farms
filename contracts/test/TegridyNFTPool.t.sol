@@ -895,15 +895,22 @@ contract TegridyNFTPoolTest is Test {
         assertEq(accumulatedFees, protocolFee);
         assertGt(accumulatedFees, 0);
 
-        // Owner can withdraw pool balance minus accumulated protocol fees
-        uint256 withdrawable = poolBalance - accumulatedFees;
+        // AUDIT FIX: DEEP-NFTPOOL-01 / MICROSCOPE H9: withdrawETH carries the
+        // same-block-as-swap guard, so we must roll a block before withdrawing.
+        vm.roll(block.number + 1);
+
+        // Owner can withdraw most of pool balance (a 10% min-liquidity buffer
+        // is reserved per DEEP-NFTPOOL-07).
+        uint256 lpAvailable = poolBalance - accumulatedFees;
+        uint256 buffer = lpAvailable / 10;
+        uint256 withdrawable = lpAvailable - buffer;
         vm.prank(alice);
         p.withdrawETH(withdrawable);
 
-        // Owner cannot withdraw into the protocol fee reserve
+        // Owner cannot withdraw into the protocol fee reserve / buffer
         vm.prank(alice);
-        vm.expectRevert(); // "INVALID_AMOUNT"
-        p.withdrawETH(1);
+        vm.expectRevert(); // MinLiquidityBuffer or INVALID_AMOUNT
+        p.withdrawETH(lpAvailable);
     }
 
     // ===== SWAP REVERT CONDITIONS =====

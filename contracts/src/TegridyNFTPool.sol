@@ -8,20 +8,15 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
 
+/// @notice AUDIT FIX: DEEP-NFTPOOL-12: minimal interface used by pools to read
+///         the factory's emergency-pause flag. Defined externally to keep the
+///         pool clone agnostic of the full factory ABI.
+interface ITegridyNFTPoolFactoryView {
+    function emergencyPaused() external view returns (bool);
+}
+
 /// @title TegridyNFTPool — Sudoswap-inspired NFT AMM pool (clone template)
-/// @notice Each pool trades a single ERC-721 collection against ETH using a linear bonding curve.
-///         Deployed as a minimal proxy clone by TegridyNFTPoolFactory.
-///
-///         Pool types:
-///         - BUY:   Pool holds ETH, buys NFTs from sellers
-///         - SELL:  Pool holds NFTs, sells to buyers
-///         - TRADE: Two-sided market with LP fee
-///
-///         Pricing (linear bonding curve):
-///         - Buy N:  totalCost  = N * spotPrice + delta * N*(N-1)/2, then spotPrice += delta*N
-///         - Sell N: totalPayout = N * spotPrice - delta * N*(N+1)/2, then spotPrice -= delta*N
 contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializable {
-    // ─── Enums ──────────────────────────────────────────────────────────
     enum PoolType { BUY, SELL, TRADE }
 
     // ─── State ──────────────────────────────────────────────────────────
@@ -29,51 +24,48 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     PoolType public poolType;
     uint256 public spotPrice;
     uint256 public delta;
-    uint256 public feeBps;          // LP fee for TRADE pools (basis points, max 9000)
-    uint256 public protocolFeeBps;  // Protocol fee (basis points, max 1000)
+    uint256 public feeBps;
+    uint256 public protocolFeeBps;
     address public owner;
     address public factory;
-    address public weth;            // SECURITY FIX: WETH for safe ETH transfers (Solmate/Seaport pattern)
+    address public weth;
 
-    /// @dev Held NFT token IDs — array for enumeration, mapping for O(1) lookup
     uint256[] internal _heldIds;
-    mapping(uint256 => uint256) internal _idToIndex; // tokenId => index+1 (0 = not held)
+    mapping(uint256 => uint256) internal _idToIndex;
 
-    /// @dev Accumulated protocol fees (pull pattern — factory claims via claimProtocolFees)
     uint256 public accumulatedProtocolFees;
 
-    // ─── AUDIT FIX M-04: Timelock for spotPrice and delta changes ───────
     uint256 public pendingSpotPrice;
     uint256 public pendingSpotPriceExecuteAfter;
     uint256 public pendingDelta;
     uint256 public pendingDeltaExecuteAfter;
-    // ─── AUDIT M9: Timelock for feeBps changes (TRADE pools only) ───────
     uint256 public pendingFeeBps;
     uint256 public pendingFeeBpsExecuteAfter;
 
-    // ─── AUDIT R014 M-4: same-block remove-after-swap front-run defense ─
-    /// @notice Block number of the most recent swap (BUY or SELL). LP cannot
-    ///         call `removeLiquidity` in the same block — closes the sandwich
-    ///         vector where an owner observes a profitable swap in the
-    ///         mempool, lets it land, and removes the freshly accumulated
-    ///         ETH/NFTs in the same block (front-running the next LP-share
-    ///         settlement or another LP's deposit). Pattern: Uniswap V2
-    ///         block-locked LP burn / Sudoswap V2 same-block guard.
     uint256 public lastSwapBlock;
 
-    // ─── Constants ──────────────────────────────────────────────────────
-    uint256 public constant MAX_FEE_BPS = 9000;       // 90% max LP fee
-    uint256 public constant MAX_PROTOCOL_FEE_BPS = 1000; // 10% max protocol fee
-    uint256 public constant BPS = 10_000;
-    // AUDIT TF-15 (Spartan LOW): delta cap tightened 100 ETH → 10 ETH. A linear curve
-    // with delta=100 ETH and spotPrice=1 wei would make the 2nd purchase cost 100 ETH
-    // more than the first — economically nonsensical, creator-footgun territory. 10 ETH
-    // is more than enough headroom for any realistic NFT bonding curve (even rare
-    // collections rarely move >10 ETH per unit on a single curve tick).
-    uint256 public constant MAX_DELTA = 10 ether;
-    uint256 public constant PARAMETER_TIMELOCK = 24 hours; // AUDIT FIX M-04: 24h delay for price/delta changes
+    // AUDIT FIX: DEEP-NFTPOOL-01: forward-direction same-block guard.
+    uint256 public lastWithdrawBlock;
 
-    // ─── Errors (additional) ────────────────────────────────────────────
+    // AUDIT FIX: DEEP-NFTPOOL-05: explicit LP-fee accounting.
+    uint256 public accumulatedLPFees;
+    mapping(address => uint256) public priorOwnerOwed;
+
+    // AUDIT FIX: DEEP-NFTPOOL-03: 48-hour timelock for owner change.
+    address public pendingOwner;
+    uint256 public pendingOwnerExecuteAfter;
+    uint256 public constant OWNER_TIMELOCK = 48 hours;
+
+    // AUDIT FIX: DEEP-NFTPOOL-06: transient flag during swap execution.
+    bool internal _swapInFlight;
+
+    uint256 public constant MAX_FEE_BPS = 9000;
+    uint256 public constant MAX_PROTOCOL_FEE_BPS = 1000;
+    uint256 public constant BPS = 10_000;
+    uint256 public constant MAX_DELTA = 10 ether;
+    uint256 public constant PARAMETER_TIMELOCK = 24 hours;
+
+    // ─── Errors ─────────────────────────────────────────────────────────
     error Expired();
     error MaxCostExceeded();
     error TooManyItems();
@@ -81,10 +73,38 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     error NotFactory();
     error TimelockNotElapsed();
     error NoPendingChange();
-    /// @notice AUDIT R014 M-4: thrown by `removeLiquidity` when called in the
-    ///         same block as a swap. LP must wait one block to remove
-    ///         liquidity after any pool swap (sandwich-MEV defense).
     error WaitOneBlock();
+    error NotOwner();
+    error InvalidPoolType();
+    error InvalidFee();
+    error InvalidPrice();
+    error InsufficientETH();
+    error InsufficientPayout();
+    error NFTNotHeld(uint256 tokenId);
+    error NFTAlreadyHeld(uint256 tokenId);
+    error PriceUnderflow();
+    error PriceUnderflowMaxSellable(uint256 maxSellable);
+    error EmptySwap();
+    error ETHTransferFailed();
+    error PoolTypeMismatch();
+    /// AUDIT FIX: DEEP-NFTPOOL-01
+    error WithdrawalLandedThisBlock();
+    /// AUDIT FIX: DEEP-NFTPOOL-02
+    error ExistingProposalPending();
+    /// AUDIT FIX: DEEP-NFTPOOL-04
+    error ZeroAddress();
+    /// AUDIT FIX: DEEP-NFTPOOL-04
+    error NoPendingOwnerChange();
+    /// AUDIT FIX: DEEP-NFTPOOL-04 / 03
+    error NotPendingOwner();
+    /// AUDIT FIX: DEEP-NFTPOOL-05
+    error NoPriorOwnerCredit();
+    /// AUDIT FIX: DEEP-NFTPOOL-07
+    error MinLiquidityBuffer();
+    /// AUDIT FIX: DEEP-NFTPOOL-08
+    error OnlyFactoryReceive();
+    /// AUDIT FIX: DEEP-NFTPOOL-12
+    error EmergencyPaused();
 
     // ─── Events ─────────────────────────────────────────────────────────
     event PoolInitialized(
@@ -111,44 +131,26 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     event ETHWithdrawn(address indexed to, uint256 amount);
     event NFTsWithdrawn(address indexed to, uint256[] tokenIds);
     event ProtocolFeePaid(address indexed factory, uint256 amount);
+    /// AUDIT FIX: DEEP-NFTPOOL-03
+    event OwnerChangeProposed(address indexed oldOwner, address indexed newOwner, uint256 executeAfter);
+    event OwnerChanged(address indexed oldOwner, address indexed newOwner);
+    /// AUDIT FIX: DEEP-NFTPOOL-04
+    event OwnerChangeCancelled(address indexed cancelledPendingOwner);
+    /// AUDIT FIX: DEEP-NFTPOOL-05
+    event LPFeesAccrued(uint256 amount, uint256 totalAccumulated);
+    event LPFeesClaimed(address indexed claimer, uint256 amount);
+    event PriorOwnerLPFeesSnapshotted(address indexed priorOwner, uint256 amount);
+    event PriorOwnerLPFeesClaimed(address indexed priorOwner, uint256 amount);
 
-    // ─── Errors ─────────────────────────────────────────────────────────
-    error NotOwner();
-    error InvalidPoolType();
-    error InvalidFee();
-    error InvalidPrice();
-    error InsufficientETH();
-    error InsufficientPayout();
-    error NFTNotHeld(uint256 tokenId);
-    error NFTAlreadyHeld(uint256 tokenId);
-    error PriceUnderflow();
-    error PriceUnderflowMaxSellable(uint256 maxSellable);
-    error EmptySwap();
-    error ETHTransferFailed();
-    error PoolTypeMismatch();
-
-    // ─── Modifiers ──────────────────────────────────────────────────────
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
         _;
     }
 
-    // ─── Constructor (disable initializers on template) ──────────────────
     constructor() {
         _disableInitializers();
     }
 
-    // ─── Initialization ─────────────────────────────────────────────────
-
-    /// @notice Initialize the pool (called once by factory after clone deployment)
-    /// @param _nftCollection The ERC-721 collection this pool trades
-    /// @param _poolType BUY, SELL, or TRADE
-    /// @param _spotPrice Initial price in wei for the first item
-    /// @param _delta Price increment/decrement per item traded
-    /// @param _feeBps LP fee in basis points (only used for TRADE pools)
-    /// @param _owner Pool owner (liquidity provider)
-    /// @param _protocolFeeBps Protocol fee in basis points
-    /// @param _factory Factory address (receives protocol fees)
     function initialize(
         address _nftCollection,
         PoolType _poolType,
@@ -168,7 +170,6 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         if (_delta > MAX_DELTA) revert DeltaTooHigh();
         if (_protocolFeeBps > MAX_PROTOCOL_FEE_BPS) revert InvalidFee();
 
-        // Only TRADE pools may have a non-zero LP fee
         if (_poolType == PoolType.TRADE) {
             if (_feeBps > MAX_FEE_BPS) revert InvalidFee();
         } else {
@@ -188,33 +189,30 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         emit PoolInitialized(_nftCollection, _poolType, _spotPrice, _delta, _feeBps, _owner);
     }
 
-    // ─── Swap: Buy NFTs with ETH ────────────────────────────────────────
-
-    /// @notice Buy specific NFTs from the pool by paying ETH
-    /// @param tokenIds The NFT token IDs to purchase
-    /// @param maxTotalCost Maximum ETH the buyer is willing to spend (slippage protection)
-    /// @param deadline Timestamp by which the transaction must be mined
-    /// @dev Excess ETH is refunded to the buyer
     function swapETHForNFTs(
         uint256[] calldata tokenIds,
         uint256 maxTotalCost,
         uint256 deadline
     ) external payable nonReentrant whenNotPaused {
         if (block.timestamp > deadline) revert Expired();
+        // AUDIT FIX: DEEP-NFTPOOL-01: forward-direction same-block guard.
+        if (block.number == lastWithdrawBlock) revert WithdrawalLandedThisBlock();
+        // AUDIT FIX: DEEP-NFTPOOL-12: factory emergency-pause cascade.
+        if (ITegridyNFTPoolFactoryView(factory).emergencyPaused()) revert EmergencyPaused();
         if (poolType == PoolType.BUY) revert PoolTypeMismatch();
         uint256 numItems = tokenIds.length;
         if (numItems == 0) revert EmptySwap();
         if (numItems > 100) revert TooManyItems();
 
-        // Calculate cost using bonding curve
-        (uint256 inputAmount, uint256 protocolFee) = _getBuyPrice(numItems);
+        // AUDIT FIX: DEEP-NFTPOOL-06
+        _swapInFlight = true;
+
+        (uint256 inputAmount, uint256 protocolFee, uint256 lpFee) = _getBuyPriceFull(numItems);
         if (inputAmount > maxTotalCost) revert MaxCostExceeded();
         if (msg.value < inputAmount) revert InsufficientETH();
 
-        // Update spot price
         spotPrice += delta * numItems;
 
-        // Transfer NFTs to buyer
         for (uint256 i = 0; i < numItems; i++) {
             uint256 tokenId = tokenIds[i];
             if (_idToIndex[tokenId] == 0) revert NFTNotHeld(tokenId);
@@ -222,110 +220,87 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
             nftCollection.safeTransferFrom(address(this), msg.sender, tokenId);
         }
 
-        // Accumulate protocol fee (pull pattern)
         if (protocolFee > 0) {
             accumulatedProtocolFees += protocolFee;
             emit ProtocolFeePaid(factory, protocolFee);
         }
 
-        // Refund excess ETH
+        // AUDIT FIX: DEEP-NFTPOOL-05
+        if (lpFee > 0) {
+            accumulatedLPFees += lpFee;
+            emit LPFeesAccrued(lpFee, accumulatedLPFees);
+        }
+
         uint256 excess = msg.value - inputAmount;
         if (excess > 0) {
             _sendETH(msg.sender, excess);
         }
 
-        // AUDIT R014 M-4: stamp the block so LP cannot pull liquidity in the
-        // same block as a swap (same-block remove-after-swap front-run).
         lastSwapBlock = block.number;
+        _swapInFlight = false;
 
         emit SwapETHForNFTs(msg.sender, tokenIds, inputAmount);
     }
 
-    // ─── Swap: Sell NFTs for ETH ────────────────────────────────────────
-
-    /// @notice Sell NFTs to the pool and receive ETH
-    /// @dev    AUDIT NFT-CL-L4 SPREAD ASYMMETRY (2026-04-28): the bonding curve
-    ///         is intentionally asymmetric across the spot — buying the FIRST
-    ///         item costs `spotPrice`, but selling the FIRST item earns
-    ///         `spotPrice - delta` (the next-after-decrement price). This is
-    ///         the standard Sudoswap convention: the bid/ask spread is
-    ///         exactly `delta` wide at the spot. Naive integrators sometimes
-    ///         expect a symmetric `(buy first = sell first = spotPrice)`
-    ///         model — this contract does NOT use that. See `_getSellPrice`
-    ///         for the exact sum: each item i (0-indexed) sold pays
-    ///         `spotPrice - delta * (i + 1)`.
-    /// @param tokenIds The NFT token IDs to sell
-    /// @param minOutput Minimum ETH the seller expects to receive (slippage protection)
-    /// @param deadline Timestamp by which the transaction must be mined
     function swapNFTsForETH(
         uint256[] calldata tokenIds,
         uint256 minOutput,
         uint256 deadline
     ) external nonReentrant whenNotPaused {
         if (block.timestamp > deadline) revert Expired();
+        // AUDIT FIX: DEEP-NFTPOOL-01
+        if (block.number == lastWithdrawBlock) revert WithdrawalLandedThisBlock();
+        // AUDIT FIX: DEEP-NFTPOOL-12
+        if (ITegridyNFTPoolFactoryView(factory).emergencyPaused()) revert EmergencyPaused();
         if (poolType == PoolType.SELL) revert PoolTypeMismatch();
         uint256 numItems = tokenIds.length;
         if (numItems == 0) revert EmptySwap();
         if (numItems > 100) revert TooManyItems();
 
-        // Calculate payout using bonding curve
-        (uint256 outputAmount, uint256 protocolFee) = _getSellPrice(numItems);
+        // AUDIT FIX: DEEP-NFTPOOL-06
+        _swapInFlight = true;
+
+        (uint256 outputAmount, uint256 protocolFee, uint256 lpFee) = _getSellPriceFull(numItems);
         if (outputAmount < minOutput) revert InsufficientPayout();
 
-        // Update spot price
         spotPrice -= delta * numItems;
 
-        // Transfer NFTs from seller to pool (onERC721Received handles _addHeldId)
         for (uint256 i = 0; i < numItems; i++) {
             nftCollection.safeTransferFrom(msg.sender, address(this), tokenIds[i]);
         }
 
-        // Accumulate protocol fee (pull pattern)
         if (protocolFee > 0) {
             accumulatedProtocolFees += protocolFee;
             emit ProtocolFeePaid(factory, protocolFee);
         }
 
-        // Pay seller
+        // AUDIT FIX: DEEP-NFTPOOL-05
+        if (lpFee > 0) {
+            accumulatedLPFees += lpFee;
+            emit LPFeesAccrued(lpFee, accumulatedLPFees);
+        }
+
         _sendETH(msg.sender, outputAmount);
 
-        // AUDIT R014 M-4: stamp the block so LP cannot pull liquidity in the
-        // same block as a swap (same-block remove-after-swap front-run).
         lastSwapBlock = block.number;
+        _swapInFlight = false;
 
         emit SwapNFTsForETH(msg.sender, tokenIds, outputAmount);
     }
 
-    // ─── Liquidity Management ───────────────────────────────────────────
-
-    /// @notice Add ETH and/or NFTs as liquidity (owner only)
-    /// @param tokenIds NFT token IDs to deposit
     function addLiquidity(uint256[] calldata tokenIds) external payable onlyOwner nonReentrant {
-        // Transfer NFTs from owner to pool (onERC721Received handles _addHeldId)
         for (uint256 i = 0; i < tokenIds.length; i++) {
             nftCollection.safeTransferFrom(msg.sender, address(this), tokenIds[i]);
         }
-
         emit LiquidityAdded(msg.sender, tokenIds, msg.value);
     }
 
-    /// @notice Remove ETH and/or NFTs from the pool (owner only)
-    /// @param tokenIds NFT token IDs to withdraw
-    /// @param ethAmount Amount of ETH to withdraw
-    /// @dev AUDIT R014 M-4: reverts with `WaitOneBlock` if called in the same
-    ///      block as a swap. Blocks the same-block remove-after-swap MEV play
-    ///      where the owner observes a profitable swap in the mempool, lets it
-    ///      land, and pulls the freshly accumulated proceeds before any other
-    ///      LP / quoter can react. Pattern: Uniswap V2 block-locked LP burn.
     function removeLiquidity(
         uint256[] calldata tokenIds,
         uint256 ethAmount
     ) external onlyOwner nonReentrant {
-        // AUDIT R014 M-4: same-block-as-swap defense — must run before any
-        // state read/write so the revert is observable and cheap.
         if (block.number <= lastSwapBlock) revert WaitOneBlock();
 
-        // Withdraw NFTs
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint256 tokenId = tokenIds[i];
             if (_idToIndex[tokenId] == 0) revert NFTNotHeld(tokenId);
@@ -333,28 +308,31 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
             nftCollection.safeTransferFrom(address(this), msg.sender, tokenId);
         }
 
-        // Withdraw ETH — SECURITY FIX: exclude protocol fees from available balance (caught in re-audit)
         if (ethAmount > 0) {
-            require(address(this).balance - accumulatedProtocolFees >= ethAmount, "INSUFFICIENT_ETH");
+            // AUDIT FIX: DEEP-NFTPOOL-07
+            uint256 lpAvailable = _lpAvailableETH();
+            uint256 minBuffer = lpAvailable / 10;
+            if (ethAmount + minBuffer > lpAvailable) revert MinLiquidityBuffer();
             _sendETH(msg.sender, ethAmount);
         }
+
+        // AUDIT FIX: DEEP-NFTPOOL-01
+        lastWithdrawBlock = block.number;
 
         emit LiquidityRemoved(msg.sender, tokenIds, ethAmount);
     }
 
     // ─── Owner Parameter Changes ────────────────────────────────────────
 
-    // ─── AUDIT FIX M-04: Timelocked Spot Price Changes (24h) ──────────
-
-    /// @notice Propose a new spot price. Takes effect after 24-hour timelock.
     function proposeSpotPrice(uint256 newPrice) external onlyOwner {
         if (newPrice == 0) revert InvalidPrice();
+        // AUDIT FIX: DEEP-NFTPOOL-02
+        if (pendingSpotPriceExecuteAfter != 0) revert ExistingProposalPending();
         pendingSpotPrice = newPrice;
         pendingSpotPriceExecuteAfter = block.timestamp + PARAMETER_TIMELOCK;
         emit SpotPriceChangeProposed(spotPrice, newPrice, pendingSpotPriceExecuteAfter);
     }
 
-    /// @notice Execute the pending spot price change after timelock has elapsed.
     function executeSpotPriceChange() external onlyOwner {
         if (pendingSpotPriceExecuteAfter == 0) revert NoPendingChange();
         if (block.timestamp < pendingSpotPriceExecuteAfter) revert TimelockNotElapsed();
@@ -365,7 +343,6 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         emit SpotPriceChanged(oldPrice, spotPrice);
     }
 
-    /// @notice Cancel a pending spot price change.
     function cancelSpotPriceChange() external onlyOwner {
         if (pendingSpotPriceExecuteAfter == 0) revert NoPendingChange();
         uint256 cancelled = pendingSpotPrice;
@@ -374,18 +351,15 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         emit SpotPriceChangeCancelled(cancelled);
     }
 
-    // ─── AUDIT FIX M-04: Timelocked Delta Changes (24h) ────────────
-
-    /// @notice Propose a new delta. Takes effect after 24-hour timelock.
-    /// SECURITY FIX: Upper bound check matching initialize cap (Sudoswap V2 pattern)
     function proposeDelta(uint256 newDelta) external onlyOwner {
         if (newDelta > MAX_DELTA) revert DeltaTooHigh();
+        // AUDIT FIX: DEEP-NFTPOOL-02
+        if (pendingDeltaExecuteAfter != 0) revert ExistingProposalPending();
         pendingDelta = newDelta;
         pendingDeltaExecuteAfter = block.timestamp + PARAMETER_TIMELOCK;
         emit DeltaChangeProposed(delta, newDelta, pendingDeltaExecuteAfter);
     }
 
-    /// @notice Execute the pending delta change after timelock has elapsed.
     function executeDeltaChange() external onlyOwner {
         if (pendingDeltaExecuteAfter == 0) revert NoPendingChange();
         if (block.timestamp < pendingDeltaExecuteAfter) revert TimelockNotElapsed();
@@ -396,7 +370,6 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         emit DeltaChanged(oldDelta, delta);
     }
 
-    /// @notice Cancel a pending delta change.
     function cancelDeltaChange() external onlyOwner {
         if (pendingDeltaExecuteAfter == 0) revert NoPendingChange();
         uint256 cancelled = pendingDelta;
@@ -405,22 +378,16 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         emit DeltaChangeCancelled(cancelled);
     }
 
-    // ─── AUDIT M9: Timelocked LP Fee Changes (TRADE pools only, 24h) ─────
-
-    /// @notice Propose an LP fee change. Takes effect after PARAMETER_TIMELOCK (24h).
-    ///         AUDIT M9: instant changeFee was sandwich-MEV vulnerable — owner could
-    ///         spike feeBps to MAX_FEE_BPS right before a victim swap, forcing the buyer
-    ///         to pay 90% fee or revert on slippage. The 24h timelock matches the
-    ///         spotPrice / delta change pattern and removes that vector.
     function proposeFeeChange(uint256 newFee) external onlyOwner {
         if (poolType != PoolType.TRADE) revert PoolTypeMismatch();
         if (newFee > MAX_FEE_BPS) revert InvalidFee();
+        // AUDIT FIX: DEEP-NFTPOOL-02
+        if (pendingFeeBpsExecuteAfter != 0) revert ExistingProposalPending();
         pendingFeeBps = newFee;
         pendingFeeBpsExecuteAfter = block.timestamp + PARAMETER_TIMELOCK;
         emit FeeChangeProposed(feeBps, newFee, pendingFeeBpsExecuteAfter);
     }
 
-    /// @notice Execute the pending LP fee change after timelock has elapsed.
     function executeFeeChange() external onlyOwner {
         if (pendingFeeBpsExecuteAfter == 0) revert NoPendingChange();
         if (block.timestamp < pendingFeeBpsExecuteAfter) revert TimelockNotElapsed();
@@ -431,7 +398,6 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         emit FeeChanged(oldFee, feeBps);
     }
 
-    /// @notice Cancel a pending LP fee change.
     function cancelFeeChange() external onlyOwner {
         if (pendingFeeBpsExecuteAfter == 0) revert NoPendingChange();
         uint256 cancelled = pendingFeeBps;
@@ -440,58 +406,102 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         emit FeeChangeCancelled(cancelled);
     }
 
-    /// @notice DEPRECATED: Use proposeFeeChange() + executeFeeChange().
-    ///         AUDIT M9: instant fee changes removed to prevent sandwich-MEV against swappers.
     function changeFee(uint256) external pure {
         revert("USE_PROPOSE_FEE_CHANGE");
     }
 
-    /// @notice Withdraw ETH from the pool (owner only)
-    /// @dev Cannot withdraw ETH reserved for accumulated protocol fees
-    function withdrawETH(uint256 amount) external onlyOwner nonReentrant {
-        require(amount > 0 && address(this).balance - accumulatedProtocolFees >= amount, "INVALID_AMOUNT");
+    // ─── AUDIT FIX: DEEP-NFTPOOL-03 / 04 / 05: timelocked owner change ───
+
+    function proposeOwnerChange(address newOwner) external onlyOwner {
+        if (newOwner == address(0)) revert ZeroAddress();
+        if (pendingOwnerExecuteAfter != 0) revert ExistingProposalPending();
+        pendingOwner = newOwner;
+        pendingOwnerExecuteAfter = block.timestamp + OWNER_TIMELOCK;
+        emit OwnerChangeProposed(owner, newOwner, pendingOwnerExecuteAfter);
+    }
+
+    function cancelOwnerChange() external onlyOwner {
+        if (pendingOwnerExecuteAfter == 0) revert NoPendingOwnerChange();
+        address cancelled = pendingOwner;
+        pendingOwner = address(0);
+        pendingOwnerExecuteAfter = 0;
+        emit OwnerChangeCancelled(cancelled);
+    }
+
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner || msg.sender == address(0)) revert NotPendingOwner();
+        if (pendingOwnerExecuteAfter == 0 || block.timestamp < pendingOwnerExecuteAfter) {
+            revert TimelockNotElapsed();
+        }
+        address oldOwner = owner;
+
+        // AUDIT FIX: DEEP-NFTPOOL-05
+        uint256 snapshot = accumulatedLPFees;
+        if (snapshot > 0) {
+            priorOwnerOwed[oldOwner] += snapshot;
+            accumulatedLPFees = 0;
+            emit PriorOwnerLPFeesSnapshotted(oldOwner, snapshot);
+        }
+
+        owner = pendingOwner;
+        pendingOwner = address(0);
+        pendingOwnerExecuteAfter = 0;
+        emit OwnerChanged(oldOwner, owner);
+    }
+
+    function claimLPFees() external onlyOwner nonReentrant {
+        uint256 amount = accumulatedLPFees;
+        if (amount == 0) return;
+        accumulatedLPFees = 0;
+        _sendETH(owner, amount);
+        emit LPFeesClaimed(owner, amount);
+    }
+
+    function claimPriorOwnerLPFees() external nonReentrant {
+        uint256 amount = priorOwnerOwed[msg.sender];
+        if (amount == 0) revert NoPriorOwnerCredit();
+        priorOwnerOwed[msg.sender] = 0;
         _sendETH(msg.sender, amount);
+        emit PriorOwnerLPFeesClaimed(msg.sender, amount);
+    }
+
+    function withdrawETH(uint256 amount) external onlyOwner nonReentrant {
+        if (block.number <= lastSwapBlock) revert WaitOneBlock();
+        require(amount > 0, "INVALID_AMOUNT");
+        // AUDIT FIX: DEEP-NFTPOOL-07
+        uint256 lpAvailable = _lpAvailableETH();
+        uint256 minBuffer = lpAvailable / 10;
+        if (amount + minBuffer > lpAvailable) revert MinLiquidityBuffer();
+        _sendETH(msg.sender, amount);
+        // AUDIT FIX: DEEP-NFTPOOL-01
+        lastWithdrawBlock = block.number;
         emit ETHWithdrawn(msg.sender, amount);
     }
 
-    /// @notice Withdraw specific NFTs from the pool (owner only)
     function withdrawNFTs(uint256[] calldata tokenIds) external onlyOwner nonReentrant {
+        if (block.number <= lastSwapBlock) revert WaitOneBlock();
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint256 tokenId = tokenIds[i];
             if (_idToIndex[tokenId] == 0) revert NFTNotHeld(tokenId);
             _removeHeldId(tokenId);
             nftCollection.safeTransferFrom(address(this), msg.sender, tokenId);
         }
+        // AUDIT FIX: DEEP-NFTPOOL-01
+        lastWithdrawBlock = block.number;
         emit NFTsWithdrawn(msg.sender, tokenIds);
     }
 
-    /// @notice AUDIT NEW-L4 (MEDIUM): reconcile on-chain ERC721 ownership with this
-    ///         pool's `_heldIds` tracking. `onERC721Received` is the only path that
-    ///         adds a tokenId to `_heldIds`. If someone deposits via the non-safe
-    ///         `transferFrom` (not `safeTransferFrom`), the pool OWNS the NFT but
-    ///         `_idToIndex` stays 0 — every subsequent `withdrawNFTs` /
-    ///         `swapETHForNFTs` reverts with NFTNotHeld, stranding the NFT forever.
-    ///         This owner-only recovery walks the supplied tokenIds and adds any
-    ///         that are actually owned by this pool but missing from `_heldIds`.
-    ///         Cannot over-register (per-id guard in `_addHeldId`).
     function syncNFTs(uint256[] calldata tokenIds) external onlyOwner {
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint256 tokenId = tokenIds[i];
-            if (_idToIndex[tokenId] != 0) continue; // already tracked
-            // try/catch so non-existent token IDs are silently skipped rather
-            // than reverting the whole batch — callers can pass a superset of
-            // IDs from off-chain indexers without pre-filtering.
+            if (_idToIndex[tokenId] != 0) continue;
             try nftCollection.ownerOf(tokenId) returns (address current) {
                 if (current == address(this)) {
                     _addHeldId(tokenId);
                 }
-            } catch {
-                // Token doesn't exist / collection reverts — skip.
-            }
+            } catch {}
         }
     }
-
-    // ─── Pause (owner only) ─────────────────────────────────────────────
 
     function pause() external onlyOwner {
         _pause();
@@ -501,9 +511,6 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         _unpause();
     }
 
-    // ─── Protocol Fee Claim (pull pattern) ──────────────────────────────
-
-    /// @notice Claim accumulated protocol fees (factory only)
     function claimProtocolFees() external nonReentrant {
         if (msg.sender != factory) revert NotFactory();
         uint256 amount = accumulatedProtocolFees;
@@ -514,36 +521,26 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
     // ─── View Functions ─────────────────────────────────────────────────
 
-    /// @notice Get the total ETH cost to buy `numItems` NFTs from this pool
-    /// @return inputAmount Total cost including all fees
-    /// @return protocolFee Protocol fee portion
     function getBuyQuote(uint256 numItems) external view returns (uint256 inputAmount, uint256 protocolFee) {
         return _getBuyPrice(numItems);
     }
 
-    /// @notice Get the total ETH payout for selling `numItems` NFTs to this pool
-    /// @return outputAmount Net payout after all fees
-    /// @return protocolFee Protocol fee portion
     function getSellQuote(uint256 numItems) external view returns (uint256 outputAmount, uint256 protocolFee) {
         return _getSellPrice(numItems);
     }
 
-    /// @notice Get all NFT token IDs currently held by this pool
     function getHeldTokenIds() external view returns (uint256[] memory) {
         return _heldIds;
     }
 
-    /// @notice Get the number of NFTs held by this pool
     function getHeldCount() external view returns (uint256) {
         return _heldIds.length;
     }
 
-    /// @notice Check if a specific token ID is held by this pool
     function isTokenHeld(uint256 tokenId) external view returns (bool) {
         return _idToIndex[tokenId] != 0;
     }
 
-    /// @notice Get comprehensive pool information
     function getPoolInfo()
         external
         view
@@ -572,135 +569,119 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         );
     }
 
-    /// @notice Get the maximum number of items that can be sold before hitting price underflow
-    /// @return maxSellable Number of items sellable before spotPrice would go to zero or below
     function getMaxSellable() public view returns (uint256 maxSellable) {
         if (delta == 0) {
-            // With zero delta, price never decreases — unlimited sells (capped at practical max)
             return type(uint256).max;
         }
-        // We need: spotPrice > delta * numItems
-        // => numItems < spotPrice / delta
-        // => maxSellable = (spotPrice - 1) / delta  (integer division gives floor)
         maxSellable = (spotPrice - 1) / delta;
     }
 
     // ─── IERC721Receiver ────────────────────────────────────────────────
 
-    /// @notice Handle ERC-721 safe transfers. Only accepts NFTs from the configured collection.
-    /// SECURITY FIX: Restrict deposits to owner + this contract (during swaps) to prevent
-    /// unsolicited NFT deposits that inflate pool inventory and manipulate pricing.
     function onERC721Received(
         address operator,
         address,
         uint256 tokenId,
         bytes calldata
     ) external override returns (bytes4) {
-        // Only accept NFTs from the configured collection
         require(msg.sender == address(nftCollection), "WRONG_COLLECTION");
-        // SECURITY FIX: Only allow deposits from owner (addLiquidity), self (during swapNFTsForETH),
-        // or factory (during createPool initial NFT deposit)
-        require(operator == owner || operator == address(this) || operator == factory, "UNAUTHORIZED_DEPOSIT");
-        // Track the token if not already tracked (direct safeTransferFrom)
+        // AUDIT FIX: DEEP-NFTPOOL-06: also accept deposits when a swap is in flight
+        require(
+            operator == owner ||
+                operator == address(this) ||
+                operator == factory ||
+                _swapInFlight,
+            "UNAUTHORIZED_DEPOSIT"
+        );
         if (_idToIndex[tokenId] == 0) {
             _addHeldId(tokenId);
         }
         return IERC721Receiver.onERC721Received.selector;
     }
 
-    /// @notice Accept ETH deposits (for initial liquidity from factory)
-    receive() external payable {}
+    /// AUDIT FIX: DEEP-NFTPOOL-08: restrict ETH ingress to the factory.
+    receive() external payable {
+        if (msg.sender != factory) revert OnlyFactoryReceive();
+    }
 
     // ─── Internal: Bonding Curve Pricing ────────────────────────────────
 
-    /// @dev Calculate the total cost to buy `numItems` NFTs
-    ///      totalCost = N * spotPrice + delta * N * (N - 1) / 2
-    ///      Then add LP fee (TRADE pools) and protocol fee
     function _getBuyPrice(uint256 numItems)
         internal
         view
         returns (uint256 inputAmount, uint256 protocolFee)
     {
+        (inputAmount, protocolFee, ) = _getBuyPriceFull(numItems);
+    }
+
+    function _getBuyPriceFull(uint256 numItems)
+        internal
+        view
+        returns (uint256 inputAmount, uint256 protocolFee, uint256 lpFee)
+    {
         if (numItems == 0) revert EmptySwap();
 
-        // Base cost from bonding curve
         uint256 baseCost = numItems * spotPrice + delta * numItems * (numItems - 1) / 2;
 
-        // Verify no individual price is zero or negative
-        // The last item price = spotPrice + delta * (numItems - 1)
-        // For buys, prices increase, so the first price (spotPrice) is the minimum
         if (spotPrice == 0) revert PriceUnderflow();
 
-        // LP fee (only for TRADE pools)
-        uint256 lpFee = 0;
         if (poolType == PoolType.TRADE && feeBps > 0) {
             lpFee = baseCost * feeBps / BPS;
         }
 
-        // Protocol fee
         protocolFee = baseCost * protocolFeeBps / BPS;
-
         inputAmount = baseCost + lpFee + protocolFee;
     }
 
-    /// @dev Calculate the total payout for selling `numItems` NFTs
-    ///      totalPayout = N * spotPrice - delta * N * (N + 1) / 2
-    ///      Then subtract LP fee (TRADE pools) and protocol fee
     function _getSellPrice(uint256 numItems)
         internal
         view
         returns (uint256 outputAmount, uint256 protocolFee)
     {
+        (outputAmount, protocolFee, ) = _getSellPriceFull(numItems);
+    }
+
+    function _getSellPriceFull(uint256 numItems)
+        internal
+        view
+        returns (uint256 outputAmount, uint256 protocolFee, uint256 lpFee)
+    {
         if (numItems == 0) revert EmptySwap();
 
-        // Check that the last item price is positive
-        // Last sell price = spotPrice - delta * numItems
-        // (after selling numItems, the new spotPrice would be spotPrice - delta * numItems)
-        // The lowest price paid is for the last item: spotPrice - delta * numItems
-        // But in the sum formula: each item i (0-indexed) has price = spotPrice - delta * (i + 1)
-        // So item 0 pays spotPrice - delta, item 1 pays spotPrice - 2*delta, ..., item N-1 pays spotPrice - N*delta
-        // We need spotPrice - delta * numItems > 0 => spotPrice > delta * numItems
         if (delta * numItems >= spotPrice) {
             uint256 maxSellable = getMaxSellable();
             revert PriceUnderflowMaxSellable(maxSellable);
         }
 
-        // Base payout from bonding curve
-        // Sum = (spotPrice - delta) + (spotPrice - 2*delta) + ... + (spotPrice - N*delta)
-        //     = N * spotPrice - delta * (1 + 2 + ... + N)
-        //     = N * spotPrice - delta * N * (N + 1) / 2
         uint256 basePayout = numItems * spotPrice - delta * numItems * (numItems + 1) / 2;
 
-        // LP fee (only for TRADE pools)
-        uint256 lpFee = 0;
         if (poolType == PoolType.TRADE && feeBps > 0) {
             lpFee = basePayout * feeBps / BPS;
         }
 
-        // Protocol fee
         protocolFee = basePayout * protocolFeeBps / BPS;
-
         outputAmount = basePayout - lpFee - protocolFee;
 
-        // SECURITY FIX: Exclude accumulatedProtocolFees from available balance check.
-        // Prevents protocol fee insolvency where sells drain ETH reserved for protocol fees.
-        // Pattern: Uniswap V3 — separate accounting for protocol vs LP funds.
-        uint256 availableETH = address(this).balance > accumulatedProtocolFees
-            ? address(this).balance - accumulatedProtocolFees
-            : 0;
+        // AUDIT FIX: DEEP-NFTPOOL-05/07: subtract LP-fee accumulator from solvency.
+        uint256 availableETH = _lpAvailableETH();
         require(availableETH >= outputAmount + protocolFee, "POOL_INSUFFICIENT_ETH");
+    }
+
+    function _lpAvailableETH() internal view returns (uint256) {
+        uint256 bal = address(this).balance;
+        uint256 reserved = accumulatedProtocolFees + accumulatedLPFees;
+        if (bal <= reserved) return 0;
+        return bal - reserved;
     }
 
     // ─── Internal: Held NFT Tracking ────────────────────────────────────
 
-    /// @dev Add a token ID to the held set
     function _addHeldId(uint256 tokenId) internal {
         if (_idToIndex[tokenId] != 0) revert NFTAlreadyHeld(tokenId);
         _heldIds.push(tokenId);
-        _idToIndex[tokenId] = _heldIds.length; // Store index+1
+        _idToIndex[tokenId] = _heldIds.length;
     }
 
-    /// @dev Remove a token ID from the held set (swap-and-pop for O(1))
     function _removeHeldId(uint256 tokenId) internal {
         uint256 indexPlusOne = _idToIndex[tokenId];
         if (indexPlusOne == 0) revert NFTNotHeld(tokenId);
@@ -711,7 +692,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         if (removeIndex != lastIndex) {
             uint256 lastId = _heldIds[lastIndex];
             _heldIds[removeIndex] = lastId;
-            _idToIndex[lastId] = indexPlusOne; // Update swapped element's index
+            _idToIndex[lastId] = indexPlusOne;
         }
 
         _heldIds.pop();
@@ -720,9 +701,6 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
     // ─── Internal: ETH Transfer ─────────────────────────────────────────
 
-    /// @dev SECURITY FIX: Replaced full-gas .call{value} with WETHFallbackLib.safeTransferETHOrWrap().
-    ///      Uses 10000 gas stipend to prevent cross-contract reentrancy (Solmate/Seaport pattern).
-    ///      If recipient can't receive ETH (contract without receive()), wraps as WETH (Aave V3 pattern).
     function _sendETH(address to, uint256 amount) internal {
         WETHFallbackLib.safeTransferETHOrWrap(weth, to, amount);
     }
