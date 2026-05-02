@@ -31,20 +31,16 @@ abstract contract OwnableNoRenounce is Ownable2Step {
     }
 
     constructor(address initialOwner) Ownable(initialOwner) {
-        require(initialOwner != address(0), "ZERO_OWNER");
-        // AUDIT FIX: DEEP-LIB-M1 — opt-in contract enforcement at deploy.
-        // Pure-EOA owners are the single largest single-key-compromise risk
-        // in the protocol; subclasses that ALWAYS deploy behind a multisig
-        // (e.g. mainnet-only governance contracts) opt in by overriding
-        // `_ownerMustBeContract` to true. The check is gated on the override
-        // return value so default-false consumers are not affected.
-        // Note: OZ's Ownable constructor already calls `_transferOwnership`
-        // which routes through our override below — but constructor-time
-        // `super._transferOwnership` runs BEFORE our body executes, so we
-        // also enforce here for defense-in-depth on the initial owner.
-        if (_ownerMustBeContract() && initialOwner.code.length == 0) {
-            revert OwnerNotContract(initialOwner);
-        }
+        // AUDIT FIX: V2-LIB-L5 — body checks dropped as unreachable.
+        //   OZ's `Ownable(initialOwner)` constructor invokes
+        //   `_transferOwnership(initialOwner)` BEFORE this body runs.
+        //   Solidity's virtual dispatch routes that call through the
+        //   `_transferOwnership` override below even during construction,
+        //   so the contract-only enforcement (and the OZ-typed
+        //   `OwnableInvalidOwner(0)` revert for `initialOwner == 0`) both
+        //   fire BEFORE control reaches this body. A duplicate check here
+        //   was structurally unreachable defense-in-depth — pure dead code.
+        //   Single source of truth: the `_transferOwnership` override.
     }
 
     /// @notice Disabled. Cannot renounce ownership.
@@ -52,7 +48,15 @@ abstract contract OwnableNoRenounce is Ownable2Step {
     ///         subclasses can override with state reads (e.g. emitting an
     ///         `OwnershipRenounceAttempted` telemetry event for compromised-key
     ///         detection). Behaviour is unchanged: every call still reverts.
-    function renounceOwnership() public view override {
+    /// @dev    AUDIT FIX: V2-LIB-I1 — `onlyOwner` re-added to preserve OZ's
+    ///         contract surface (the L2 `pure → view` migration accidentally
+    ///         dropped the modifier). The function still reverts unconditionally,
+    ///         so the access-control change has no exploitable consequence today
+    ///         — but a future subclass that emits a telemetry event before the
+    ///         revert would otherwise log for ANY caller (event-stream spam by
+    ///         arbitrary actors). `onlyOwner` is `view`-compatible since
+    ///         `_checkOwner` is itself `view`.
+    function renounceOwnership() public view override onlyOwner {
         revert("RENOUNCE_DISABLED");
     }
 
@@ -61,12 +65,21 @@ abstract contract OwnableNoRenounce is Ownable2Step {
     ///      compromised owner cannot then `transferOwnership(new_eoa)` then
     ///      `new_eoa.acceptOwnership()` to escape multisig containment.
     ///      OZ Ownable2Step calls `_transferOwnership` from `acceptOwnership`,
-    ///      so this guard catches both initial transfer and rotation. We
-    ///      explicitly allow `address(0)` to flow through `super` so OZ's
-    ///      internal book-keeping (e.g. `delete _pendingOwner` on accept)
-    ///      isn't broken by our additional guard.
+    ///      so this guard catches both initial transfer and rotation.
+    /// @dev AUDIT FIX: V2-LIB-L1 — removed the `newOwner != address(0)`
+    ///      carve-out. The only path that ever reaches `_transferOwnership(0)`
+    ///      is `Ownable.renounceOwnership()`, which our override above
+    ///      reverts unconditionally — so the carve-out was unreachable dead
+    ///      code AND its rationale comment ("OZ's `delete _pendingOwner`
+    ///      isn't broken by our guard") was factually wrong: OZ's
+    ///      `Ownable2Step._transferOwnership` runs `delete _pendingOwner`
+    ///      UNCONDITIONALLY at the start, with no dependence on `newOwner`.
+    ///      Removing the carve-out tightens the invariant: any future child
+    ///      that adds a "soft-renounce" path which calls `_transferOwnership(0)`
+    ///      directly will now correctly trip `OwnerNotContract` when the
+    ///      subclass opts in to contract-only ownership.
     function _transferOwnership(address newOwner) internal virtual override {
-        if (_ownerMustBeContract() && newOwner != address(0) && newOwner.code.length == 0) {
+        if (_ownerMustBeContract() && newOwner.code.length == 0) {
             revert OwnerNotContract(newOwner);
         }
         super._transferOwnership(newOwner);

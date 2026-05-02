@@ -108,5 +108,12 @@ library WETHFallbackLib {
         if (to == address(0)) revert ZeroRecipient();
         (bool ok,) = to.call{value: amount, gas: 10000}("");
         if (!ok) revert ETHTransferFailed();
+        // AUDIT FIX: V2-LIB-L3 — emit the same success-path event as
+        // `safeTransferETHOrWrap` so off-chain accounting infrastructure
+        // sees a consistent breadcrumb regardless of which variant the
+        // caller picked. Without this, a future caller that explicitly
+        // chooses the no-fallback variant (e.g. an EOA-only refund path)
+        // silently regresses the L1 accounting promise.
+        emit ETHTransferred(to, amount);
     }
 }

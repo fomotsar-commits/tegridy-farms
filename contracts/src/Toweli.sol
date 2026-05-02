@@ -4,6 +4,13 @@ pragma solidity ^0.8.26;
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
+// AUDIT FIX: V2-LIB-L4 — explicit ECDSA import so the EOA path of `permit`
+//   can surface the canonical typed errors (`ECDSAInvalidSignatureS`,
+//   `ECDSAInvalidSignatureLength`, `ECDSAInvalidSignature`) rather than
+//   collapsing every signature-validation failure into a generic
+//   `ERC2612InvalidSigner(0x0, owner)`. Frontend retry logic in wagmi /
+//   ethers / viem branches on these typed errors.
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 /// @title Toweli — Tegridy Farms governance & revenue-accrual token
 /// @notice Fixed-supply ERC-20 token for Tegridy Farms protocol. Immutable supply,
@@ -151,10 +158,53 @@ contract Toweli is ERC20, ERC20Permit {
 
         bytes32 hash = _hashTypedDataV4(structHash);
 
+        // AUDIT FIX: V2-LIB-L4 — pre-validate the EOA path with `ECDSA.tryRecover`
+        // so the canonical typed errors (`ECDSAInvalidSignatureS`,
+        // `ECDSAInvalidSignatureLength`, `ECDSAInvalidSignature`) are surfaced
+        // to clients exactly as OZ's stock `ERC20Permit.permit` would, rather
+        // than collapsing every signature-validation failure into a single
+        // opaque `ERC2612InvalidSigner(0x0, owner)`. Wagmi/ethers/viem retry
+        // flows branch on these typed errors (e.g. "malleable S → re-sign").
+        //
+        // Logic:
+        //   1. Call `ECDSA.tryRecover` (non-reverting) to get the typed error.
+        //   2. If `tryRecover` recovered the EXACT `owner`, accept the EOA path.
+        //   3. Otherwise (recovered != owner OR tryRecover errored), fall
+        //      through to `SignatureChecker` so contract wallets (ERC-1271)
+        //      still work — BUT if tryRecover returned a typed ECDSA error
+        //      AND the dispatch couldn't validate via ERC-1271 either,
+        //      surface the canonical typed error so the EOA-signing client
+        //      sees it (the contract-wallet path can't trigger these errors
+        //      on a 65-byte input — they are EOA-specific failure modes).
+        (address recovered, ECDSA.RecoverError ecdsaErr, bytes32 ecdsaErrArg) =
+            ECDSA.tryRecover(hash, v, r, s);
+        if (ecdsaErr == ECDSA.RecoverError.NoError && recovered == owner) {
+            // EOA fast path: typed error surface preserved, no SCW dispatch needed.
+            _approve(owner, spender, value);
+            return;
+        }
+
         // SignatureChecker dispatches to ECDSA.recover for EOAs and to
         // ERC-1271 staticcall (`isValidSignature`) for contract wallets.
+        // The EOA branch already failed above (recovered != owner OR tryRecover
+        // errored), so a successful return here implies an ERC-1271 contract
+        // wallet validated the signature.
         if (!SignatureChecker.isValidSignatureNow(owner, hash, abi.encodePacked(r, s, v))) {
-            revert ERC2612InvalidSigner(address(0), owner);
+            // AUDIT FIX: V2-LIB-L4 — surface the typed ECDSA error when the
+            // upstream signature validation failed AND the ERC-1271 fallback
+            // could not save it. This restores compatibility with frontend
+            // tooling that switches on `ECDSAInvalidSignatureS` etc.
+            if (ecdsaErr == ECDSA.RecoverError.InvalidSignatureS) {
+                revert ECDSA.ECDSAInvalidSignatureS(ecdsaErrArg);
+            }
+            if (ecdsaErr == ECDSA.RecoverError.InvalidSignatureLength) {
+                revert ECDSA.ECDSAInvalidSignatureLength(uint256(ecdsaErrArg));
+            }
+            if (ecdsaErr == ECDSA.RecoverError.InvalidSignature) {
+                revert ECDSA.ECDSAInvalidSignature();
+            }
+            // No typed ECDSA error AND ERC-1271 returned false → wrong signer.
+            revert ERC2612InvalidSigner(recovered, owner);
         }
 
         _approve(owner, spender, value);

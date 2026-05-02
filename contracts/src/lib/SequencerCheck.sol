@@ -83,6 +83,13 @@ library SequencerCheck {
     uint8 internal constant TRY_NO_RESUME = 5;
     /// @dev `block.timestamp - startedAt < gracePeriod` — within grace window.
     uint8 internal constant TRY_IN_GRACE = 6;
+    // AUDIT FIX: V2-LIB-M1 — feed advertises a future-dated `updatedAt` /
+    //   `startedAt` (clock skew on a bridged/relayed feed can post
+    //   `updatedAt = block.timestamp + 1` on the very block of resume).
+    //   Before this reason byte, the soft-fail path tripped a checked-math
+    //   underflow `Panic(0x11)`, breaking the "non-reverting" promise that
+    //   indexers / quoter eth_calls rely on.
+    uint8 internal constant TRY_CLOCK_SKEW = 7;
 
     /// @notice Revert if the L2 sequencer is down or within `gracePeriod` of resume.
     /// @dev    Pass `feed == address(0)` to no-op (Ethereum mainnet and any chain
@@ -180,10 +187,22 @@ library SequencerCheck {
 
         if (updatedAt == 0) return (false, TRY_ROUND_UNINIT);
         if (answeredInRound < roundId) return (false, TRY_STALE_ROUND);
-        if (block.timestamp - updatedAt > staleness) return (false, TRY_KEEPER_LAPSED);
+        // AUDIT FIX: V2-LIB-M1 — directional ordering check BEFORE the
+        // subtraction. A future-dated `updatedAt` (clock skew on a bridged
+        // feed) made `block.timestamp - updatedAt` underflow with
+        // `Panic(0x11)`, breaking the "non-reverting" promise of this helper.
+        // Treat any future-dated round as a clock-skew event (fail closed).
+        if (updatedAt > block.timestamp) return (false, TRY_CLOCK_SKEW);
+        unchecked {
+            if (block.timestamp - updatedAt > staleness) return (false, TRY_KEEPER_LAPSED);
+        }
         if (answer != 0) return (false, TRY_SEQ_DOWN);
         if (startedAt == 0) return (false, TRY_NO_RESUME);
-        if (block.timestamp - startedAt < gracePeriod) return (false, TRY_IN_GRACE);
+        // AUDIT FIX: V2-LIB-M1 — same future-dated guard for `startedAt`.
+        if (startedAt > block.timestamp) return (false, TRY_CLOCK_SKEW);
+        unchecked {
+            if (block.timestamp - startedAt < gracePeriod) return (false, TRY_IN_GRACE);
+        }
         return (true, TRY_OK);
     }
 
@@ -201,7 +220,29 @@ library SequencerCheck {
     /// @param  feed   Chainlink L2 Sequencer Uptime feed address (or 0 for no-op).
     /// @param  buffer Seconds to extend the grace window when an outage is
     ///                detected. Returned as-is on outage; 0 otherwise.
+    /// @dev    AUDIT FIX: V2-LIB-M2 — defaults to `MAX_FEED_STALENESS` (24h);
+    ///         consumers that need a tighter staleness window (e.g. short-
+    ///         deadline bounty refunds) should use the 3-argument overload
+    ///         below for symmetry with `checkSequencerUp` /
+    ///         `tryCheckSequencerUp`.
     function getSequencerOutageBuffer(address feed, uint256 buffer)
+        internal
+        view
+        returns (uint256)
+    {
+        return getSequencerOutageBuffer(feed, buffer, MAX_FEED_STALENESS);
+    }
+
+    /// @notice AUDIT FIX: V2-LIB-M2 — overload that accepts a per-call
+    ///         staleness window. Matches the (`feed, gracePeriod, staleness`)
+    ///         shape of `checkSequencerUp` / `tryCheckSequencerUp` so the
+    ///         helper trio shares a consistent API surface (closes the
+    ///         M-Lib3 sibling-miss between the H2 helper and the M3
+    ///         staleness fix).
+    /// @param  feed      Chainlink L2 Sequencer Uptime feed address (or 0 for no-op).
+    /// @param  buffer    Seconds to extend the grace window when an outage is detected.
+    /// @param  staleness Max acceptable `block.timestamp - updatedAt` on the feed.
+    function getSequencerOutageBuffer(address feed, uint256 buffer, uint256 staleness)
         internal
         view
         returns (uint256)
@@ -221,10 +262,22 @@ library SequencerCheck {
         // answer, missing startedAt) is treated as "outage" → return buffer.
         if (updatedAt == 0) return buffer;                                 // round not initialized
         if (answeredInRound < roundId) return buffer;                      // answer pre-dates round
-        if (block.timestamp - updatedAt > MAX_FEED_STALENESS) return buffer; // keeper lapse
+        // AUDIT FIX: V2-LIB-M1 — directional ordering check BEFORE the
+        // subtraction. A future-dated `updatedAt` (clock skew on a bridged
+        // feed) would have underflowed with `Panic(0x11)`, breaking the
+        // soft-fail contract this helper offers to non-reverting consumers
+        // (MemeBountyBoard refund / cancel paths).
+        if (updatedAt > block.timestamp) return buffer;                    // clock skew → treat as outage
+        unchecked {
+            if (block.timestamp - updatedAt > staleness) return buffer;    // keeper lapse
+        }
         if (answer != 0) return buffer;                                    // sequencer down
         if (startedAt == 0) return buffer;                                 // no round yet
-        if (block.timestamp - startedAt < buffer) return buffer;           // within grace
+        // AUDIT FIX: V2-LIB-M1 — same future-dated guard for `startedAt`.
+        if (startedAt > block.timestamp) return buffer;                    // clock skew → treat as outage
+        unchecked {
+            if (block.timestamp - startedAt < buffer) return buffer;       // within grace
+        }
         return 0;
     }
 

@@ -178,19 +178,25 @@ abstract contract TimelockAdmin {
         return _executeAfter[key];
     }
 
-    /// @notice Internal alias for `_executeAfter[key]` used by child
-    ///         contracts to surface the ready-at timestamp without
-    ///         exposing the raw mapping slot.
+    /// @dev AUDIT FIX: V2-LIB-L2 — internal alias kept for back-compat — see
+    ///      `_executeAfterOf` for canonical accessor. Three child contracts
+    ///      (TegridyFeeHook, TegridyTWAP, CommunityGrants) read via this
+    ///      name today; renaming would churn three importers without
+    ///      runtime benefit. New callers MUST use `_executeAfterOf`. A
+    ///      future major-version bump can drop this alias.
     function _proposalReadyAt(bytes32 key) internal view returns (uint256) {
         return _executeAfter[key];
     }
 
-    /// @notice AUDIT FIX: DEEP-LIB-H4 / DEEP-LIB-M5 — preferred read accessor
+    /// @notice AUDIT FIX: DEEP-LIB-H4 / DEEP-LIB-M5 — canonical read accessor
     ///         for child contracts. Functionally identical to
     ///         `_proposalReadyAt` but kept under the "force-cancel + getter"
     ///         pair so future migrations to `private _executeAfter` can be
     ///         performed by demoting the storage slot without breaking
     ///         downstream `_executeAfterOf` callers.
+    /// @dev    AUDIT FIX: V2-LIB-L2 — declared canonical (over the legacy
+    ///         `_proposalReadyAt` alias above). New child contracts MUST
+    ///         use this accessor.
     function _executeAfterOf(bytes32 key) internal view returns (uint256) {
         return _executeAfter[key];
     }
