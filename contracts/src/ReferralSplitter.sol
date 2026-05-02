@@ -162,6 +162,18 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     error SetupAlreadyComplete(); // AUDIT FIX M-17
     error ReferralAgeTooRecent();
     error ReferrerBannedError(); // AUDIT FIX: DEEP-DR-L-04 — referrer is on the ban list
+    /// @notice AUDIT FIX: V2-DR-L-01 — replaces the misleading `ZeroAddress()` revert
+    ///         in `unbanReferrer` for callers passing a non-banned (but non-zero)
+    ///         address. Off-chain monitoring can now distinguish input-validation
+    ///         failures (zero address) from state mismatches (address not on the
+    ///         ban list) without grep'ing the call args.
+    error NotBanned();
+    /// @notice AUDIT FIX: V2-DR-L-02 — `proposeBanReferrer` already-banned guard.
+    ///         Prevents owner from burning a 24h timelock slot on a no-op
+    ///         re-ban. Also prevents a second `proposeBanReferrer` for the same
+    ///         address from silently overwriting the in-flight `pendingBanReferrer`
+    ///         slot.
+    error AlreadyBanned();
 
     // Legacy error aliases (kept for test compatibility)
     // Note: ProposalExpired() removed — use TimelockAdmin.ProposalExpired(bytes32) instead
@@ -347,6 +359,18 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
                 // Staking contract reverted — treat as unqualified
             }
         }
+        // AUDIT FIX: V2-DR-M-03 — banned referrers are treated as unqualified for
+        // NEW earnings. The DEEP-DR-L-04 ban flag previously only blocked
+        // `setReferrer` / `updateReferrer`, leaving pre-existing referees of the
+        // banned referrer to continue accruing `pendingETH[bannedReferrer]` on
+        // every fee. That contradicted the implied lifecycle-end semantic of the
+        // 24h-timelocked ban ceremony. With this skip, post-ban accruals route
+        // straight to `accumulatedTreasuryETH` (same path as unstaked / missing
+        // referrers). The companion check in `claimReferralRewards` blocks the
+        // banned referrer from withdrawing any pre-ban accrued balance.
+        if (referrer != address(0) && bannedReferrers[referrer]) {
+            referrerQualified = false;
+        }
         if (!referrerQualified) {
             accumulatedTreasuryETH += referrerShare;
             emit UnclaimableSentToTreasury(referrer, referrerShare);
@@ -387,6 +411,15 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     function claimReferralRewards() external nonReentrant {
         // AUDIT FIX: DEEP-DR-M-07 — gate on setupComplete (L-R02 NatSpec contract).
         require(setupComplete, "SETUP_NOT_COMPLETE");
+        // AUDIT FIX: V2-DR-M-03 — banned referrers cannot claim pre-ban accruals.
+        // Companion to the `recordFee` skip above. Together they implement the
+        // "ban = lifecycle-end" semantic implied by the 24h timelock ceremony:
+        // post-ban no new earnings, pre-ban balance frozen pending owner-side
+        // `forfeitUnclaimedRewards` (which sweeps it to treasury once the
+        // forfeit predicates are met). Without this check, a banned referrer
+        // could simply call `claimReferralRewards` to drain `pendingETH` before
+        // the owner could complete the forfeit ceremony.
+        if (bannedReferrers[msg.sender]) revert ReferrerBannedError();
         // SECURITY FIX H1: Removed voting power requirement from CLAIMING.
         // Stake check is enforced in recordFee() when EARNING new referrals.
         // Earned rewards must always be claimable regardless of current stake.
@@ -420,6 +453,17 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     /// @notice Set or revoke an approved fee recorder (owner-only, for initial setup only)
     /// @dev AUDIT FIX M-17: Reverts after completeSetup() is called — use timelocked path instead.
     ///      AUDIT FIX M5: For post-deployment changes, use proposeApprovedCaller() with 24h timelock.
+    /// @dev AUDIT FIX: V2-DR-M-05 — post-`completeSetup` lifecycle reminder. The
+    ///      timelocked `proposeApprovedCaller` → `executeApprovedCaller` flow is
+    ///      ALWAYS available even after `completeSetup` flips, so a SwapFeeRouter
+    ///      upgrade or migration can still wire a new approved caller (via 24h
+    ///      timelock). The instant-revoke path (`revokeApprovedCaller`) is also
+    ///      always available with no timelock. Operational hygiene: deploy ops
+    ///      must `revokeApprovedCaller(oldRouter)` immediately after any router
+    ///      swap so the old (potentially compromised) router cannot dangle as an
+    ///      approved caller. The contract emits `ApprovedCallerSet` events for
+    ///      every grant/revoke so off-chain monitoring can alert on stale
+    ///      approvals.
     function setApprovedCaller(address _caller, bool _approved) external onlyOwner {
         if (setupComplete) revert SetupAlreadyComplete();
         if (_caller == address(0)) revert ZeroAddress();
@@ -604,6 +648,13 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     /// @param  _referrer  The referrer address to ban.
     function proposeBanReferrer(address _referrer) external onlyOwner {
         if (_referrer == address(0)) revert ZeroAddress();
+        // AUDIT FIX: V2-DR-L-02 — reject already-banned targets at propose time.
+        // Without this check the owner can burn a 24h timelock slot on a no-op
+        // (executing it just re-flips an already-true flag) AND a second
+        // proposeBanReferrer for the same address overwrites the
+        // `pendingBanReferrer` slot, silently cancelling the original proposal
+        // for any in-flight ban target.
+        if (bannedReferrers[_referrer]) revert AlreadyBanned();
         pendingBanReferrer = _referrer;
         _propose(BAN_REFERRER, BAN_REFERRER_DELAY);
         emit BanReferrerProposed(_referrer, _executeAfter[BAN_REFERRER]);
@@ -628,8 +679,12 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
 
     /// @notice Unban a previously-banned referrer (instant, no timelock — releasing
     ///         a ban is always safe).
+    /// @dev    AUDIT FIX: V2-DR-L-01 — was previously reverting `ZeroAddress()` for
+    ///         non-banned (but non-zero) addresses. The new `NotBanned()` typed
+    ///         error lets off-chain monitoring distinguish "input was 0x0" from
+    ///         "address is not on the ban list".
     function unbanReferrer(address _referrer) external onlyOwner {
-        if (!bannedReferrers[_referrer]) revert ZeroAddress();
+        if (!bannedReferrers[_referrer]) revert NotBanned();
         bannedReferrers[_referrer] = false;
         emit ReferrerUnbanned(_referrer);
     }

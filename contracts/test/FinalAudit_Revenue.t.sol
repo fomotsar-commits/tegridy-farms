@@ -110,6 +110,18 @@ contract FA_MockVEGrants {
     function userTokenId(address user) external view returns (uint256) {
         return powers[user] > 0 ? uint256(uint160(user)) : 0;
     }
+
+    // AUDIT FIX: V2-GOV-11 — CommunityGrants now fail-closes on the holdsToken
+    // try/catch (no fallback to the legacy userTokenId single-pointer). The
+    // mock must implement holdsToken AND map tokenId → owner correctly so the
+    // proposer-suppression check (M-29) doesn't reject every voter who has a
+    // non-zero power but a different position from the proposer's snapshot.
+    function holdsToken(address user, uint256 tokenId) external view returns (bool) {
+        // userTokenId(user) returns uint160(user) when power > 0. Match
+        // exactly so each test voter holds only their own tokenId.
+        if (powers[user] == 0) return false;
+        return tokenId == uint256(uint160(user));
+    }
 }
 
 contract FA_MockStaking {

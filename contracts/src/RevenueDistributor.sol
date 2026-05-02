@@ -563,7 +563,21 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
             msg.sender, startEpoch, endEpoch, inGracePeriod, lockEnd
         );
 
-        if (totalOwed == 0) revert NothingToClaim();
+        // AUDIT FIX: V2-DR-M-02 — advance the cursor even when the entire iterated
+        // range was already settled via `executeClaimRecovery` (every epoch has
+        // `claimedAtEpoch[user][i] == true` so the loop `continue`s through and
+        // returns `totalOwed = 0`). Without the explicit advance the cursor stays
+        // parked at `lastClaimedEpoch[user]`, so subsequent `claim()` calls
+        // re-iterate the same recovered range, hit `continue` for each, and revert
+        // again — bricking forward progress for any user with N consecutive
+        // recovered epochs and no fresh claimable share. Mirror the same fix in
+        // `claimUpTo()`.
+        if (totalOwed == 0) {
+            if (actualEndEpoch > startEpoch) {
+                lastClaimedEpoch[msg.sender] = actualEndEpoch;
+            }
+            revert NothingToClaim();
+        }
 
         lastClaimedEpoch[msg.sender] = actualEndEpoch;
 
@@ -626,7 +640,16 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
             msg.sender, startEpoch, endEpoch, inGracePeriod, lockEnd
         );
 
-        if (totalOwed == 0) revert NothingToClaim();
+        // AUDIT FIX: V2-DR-M-02 — sibling-search of the `claim()` cursor-advance fix.
+        // When the requested `maxEpochs` window is entirely composed of
+        // recovery-settled epochs, the cursor must still advance so the user can
+        // make forward progress on subsequent calls.
+        if (totalOwed == 0) {
+            if (actualEndEpoch > startEpoch) {
+                lastClaimedEpoch[msg.sender] = actualEndEpoch;
+            }
+            revert NothingToClaim();
+        }
 
         lastClaimedEpoch[msg.sender] = actualEndEpoch;
 
@@ -907,6 +930,16 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         for (uint256 i = 0; i < len; i++) {
             Epoch memory ep = epochs[i];
             if (ep.timestamp >= cutoff) continue; // Still in grace — skip.
+            // AUDIT FIX: V2-DR-M-04 — exclude pending-recovery epochs from the
+            // forfeit-reclaim eligible pool. Without this skip the owner can
+            // sequence `proposeForfeitReclaim` against an `eligible` figure that
+            // includes a recovery's reserved share, then `executeForfeitReclaim`
+            // → `sweepDust` to drain the contract balance, which would brick the
+            // recovery's payout (its `user.call{value: share}` would fail with
+            // out-of-funds). Mirrors the HALT semantics that DEEP-DR-M-03 added
+            // for `autoReconcileDust` — both consumers of the per-epoch
+            // unclaimed pool now respect `pendingRecoveryCount`.
+            if (pendingRecoveryCount[i] > 0) continue;
             uint256 unclaimed = ep.totalETH > epochClaimed[i] ? ep.totalETH - epochClaimed[i] : 0;
             eligible += unclaimed;
         }
@@ -1095,10 +1128,29 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     ///         checkpoint snapshot the indexer captured before the corruption).
     ///         A 48h timelock applies before executeClaimRecovery() may pay out.
     ///
+    /// @dev    AUDIT FIX: V2-DR-L-04 — recovery is capped at 25% of
+    ///         `epoch.totalLocked` per (user, epoch) pair via
+    ///         `MAX_RECOVERY_POWER_BPS = 2500`. The unified `claimedAtEpoch`
+    ///         flag is set on the FIRST `executeClaimRecovery`, so a holder
+    ///         whose historical power exceeded 25% of `epoch.totalLocked` for a
+    ///         single corrupted epoch CANNOT be made fully whole via this path
+    ///         — subsequent proposals for the same (user, epoch) revert
+    ///         `AlreadyClaimedNormally`. The residual share above the 25% cap is
+    ///         permanently un-recoverable for that user and eventually flows
+    ///         through `forfeitUnclaimedRewards` to the protocol treasury. This
+    ///         is an architectural tradeoff inherited from DEEP-DR-H-02 / M-R6
+    ///         (blast-radius bounding): an unbounded recovery is a one-shot rug
+    ///         vector under owner-key compromise, while a 25% cap converts even
+    ///         a successful exploit into a partial loss the protocol can
+    ///         backfill from treasury via off-chain remediation. Ops must
+    ///         escalate >25% holder corruptions through governance, not the
+    ///         recovery path.
+    ///
     /// @param user  The address whose claim is being recovered.
     /// @param epoch The epoch index to recover (must be < epochs.length).
     /// @param power The user's attested voting power at epoch.timestamp. Must be
-    ///              <= epoch.totalLocked as a sanity bound.
+    ///              <= epoch.totalLocked as a sanity bound, AND <= 25% of
+    ///              `epoch.totalLocked` per V2-DR-L-04 cap above.
     function proposeClaimRecovery(address user, uint256 epoch, uint256 power) external onlyOwner {
         if (user == address(0)) revert ZeroAddress();
         if (epoch >= epochs.length) revert InvalidEpoch();
@@ -1262,6 +1314,13 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
             Epoch memory epoch = epochs[i];
             // In grace period, only count epochs before lock expiry
             if (inGracePeriod && epoch.timestamp >= lockEnd) break;
+            // AUDIT FIX: V2-DR-M-01 — mirror the write-path skip from
+            // `_calculateClaim` (DEEP-DR-M-04). Epochs already settled via
+            // `executeClaimRecovery` (`claimedAtEpoch[user][i] == true`) must NOT
+            // contribute to `pendingETH(user)`; otherwise the view reports phantom
+            // ETH that the corresponding `claim()` call would never actually pay
+            // (the write path skips the same epoch and may revert NothingToClaim).
+            if (claimedAtEpoch[user][i]) continue;
             if (epoch.totalLocked > 0) {
                 uint256 userPower = votingEscrow.votingPowerAtTimestamp(user, epoch.timestamp);
                 // AUDIT NEW-S1: restaker fallback — mirror _calculateClaim so the UI shows

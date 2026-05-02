@@ -409,8 +409,25 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         // AUDIT PA-M-02 (2026-04-29): paidFeeRate clear removed — was never read in refund.
 
         if (refundAmount > 0) {
-            if (refundAmount <= totalRevenue) {
-                totalRevenue -= refundAmount;
+            // AUDIT FIX: V2-DR-L-03 — decrement `totalRevenue` by the FULL
+            // pro-rata refundable portion (immediate refund + recorded
+            // shortfall) rather than just the immediately-paid `refundAmount`.
+            // The contract is committed to honor the shortfall via
+            // `claimShortfall`, so the shortfall portion is no longer "earned"
+            // revenue from the protocol's perspective. Without this,
+            // `totalRevenue` drifts as a high-water-mark counter (claimShortfall
+            // now also decrements). Reconstruct the full pre-cap refundable
+            // amount from the original formula. Cap the decrement at
+            // `totalRevenue` to avoid underflow on edge cases (e.g. revenue
+            // already drawn down by a prior withdrawToTreasury sequence).
+            uint256 fullRefundable = totalDuration == 0
+                ? escrowed
+                : (escrowed * remainingTime) / totalDuration;
+            if (fullRefundable > escrowed) fullRefundable = escrowed;
+            if (fullRefundable <= totalRevenue) {
+                totalRevenue -= fullRefundable;
+            } else {
+                totalRevenue = 0;
             }
             toweli.safeTransfer(msg.sender, refundAmount);
         }
@@ -491,6 +508,21 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         uint256 payout = owed > available ? available : owed;
         shortfallOwed[msg.sender] = owed - payout;
         totalShortfallOwed -= payout;
+        // AUDIT FIX: V2-DR-L-03 — decrement `totalRevenue` here for accounting
+        // parity with `cancelSubscription`'s refund decrement. Without this,
+        // `totalRevenue` becomes a high-water-mark counter (extension flow
+        // M-06 adds `consumedEscrow + cost` on every extend; the refund/
+        // shortfall payouts only decrement on the immediate-refund path).
+        // After many extension+cancel+shortfall+claim cycles `totalRevenue`
+        // would overstate true unspent revenue for off-chain dashboards. The
+        // `withdrawToTreasury` path does NOT consult `totalRevenue` (uses
+        // `balance - totalRefundEscrow - totalShortfallOwed`), so fund-safety
+        // is preserved either way — this is purely a bookkeeping fix.
+        if (payout <= totalRevenue) {
+            totalRevenue -= payout;
+        } else {
+            totalRevenue = 0;
+        }
         toweli.safeTransfer(msg.sender, payout);
         emit ShortfallClaimed(msg.sender, payout);
     }
