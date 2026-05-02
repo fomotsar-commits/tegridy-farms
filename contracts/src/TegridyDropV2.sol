@@ -48,6 +48,7 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     error InvalidRoyaltyBps();
     error InvalidDutchAuctionConfig();
     error DutchAuctionNotActive();
+    error ExecuteAfterMismatch(); // AUDIT FIX V3-DROP-02
     error SaleCancelled();
     error SaleNotCancelled();
     error NothingToRefund();
@@ -702,8 +703,19 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///         a specific proposal — even though _propose stored the value,
     ///         this guards against a re-propose-with-different-root race
     ///         attempted within the same block as execute.
-    function executeMerkleRoot(bytes32 expectedRoot) external onlyOwner {
+    /// @dev AUDIT FIX V3-DROP-03: gated by `whenNotPaused` so a queued merkle
+    ///      root change can't fire mid-pause (sibling-miss vs. LaunchpadV2's
+    ///      DEEP-LP-02 on its execute paths).
+    /// @dev AUDIT FIX V3-DROP-02: `expectedExecuteAfter` value-bind so the
+    ///      multisig signer's approval is bound to a specific proposal ETA
+    ///      (sibling-miss vs. LaunchpadV2's V2-LP-01).
+    /// @dev AUDIT FIX V3-DROP-04: reject `bytes32(0)` execute when phase is
+    ///      ALLOWLIST — silently bricks the drop on unpause; mirror the
+    ///      DEEP-DROP-03 setMintPhase guard.
+    function executeMerkleRoot(bytes32 expectedRoot, uint256 expectedExecuteAfter) external onlyOwner whenNotPaused {
         require(pendingMerkleRoot == expectedRoot, "ROOT_MISMATCH");
+        if (_executeAfter[MERKLE_ROOT_CHANGE] != expectedExecuteAfter) revert ExecuteAfterMismatch();
+        if (expectedRoot == bytes32(0) && mintPhase == MintPhase.ALLOWLIST) revert InvalidProof();
         if (!_canRotateMerkleRoot()) revert RootRotationBlocked();
         _execute(MERKLE_ROOT_CHANGE);
         bytes32 oldRoot = merkleRoot;
@@ -747,8 +759,11 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///         proposal — mirrors `executeMerkleRoot(bytes32 expectedRoot)`.
     /// @param  expectedPrice Mint price the caller expects to land. Must equal
     ///                       `pendingMintPrice` or revert with `MintPriceMismatch`.
-    function executeMintPrice(uint256 expectedPrice) external onlyOwner {
+    /// @dev AUDIT FIX V3-DROP-02: `expectedExecuteAfter` value-bind.
+    /// @dev AUDIT FIX V3-DROP-03: `whenNotPaused`.
+    function executeMintPrice(uint256 expectedPrice, uint256 expectedExecuteAfter) external onlyOwner whenNotPaused {
         if (pendingMintPrice != expectedPrice) revert MintPriceMismatch();
+        if (_executeAfter[MINT_PRICE_CHANGE] != expectedExecuteAfter) revert ExecuteAfterMismatch();
         // Re-check the H19 invariant at execute-time too: if a mint happened during the
         // 24h delay (impossible today since we require CLOSED at propose, but defensive
         // for future relaxations), zero-price is still rejected.
@@ -861,12 +876,17 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     /// @notice AUDIT FIX: V2-DROP-03: execute a previously proposed dutch curve after the
     ///         24h delay. Caller passes the full expected curve to bind execution to a
     ///         specific proposal — mirrors `executeMerkleRoot(bytes32)`.
+    /// @dev AUDIT FIX V3-DROP-02: `expectedExecuteAfter` value-bind.
+    /// @dev AUDIT FIX V3-DROP-03: `whenNotPaused`.
+    /// @dev AUDIT FIX V3-DROP-01: also re-check that the curve has not already
+    ///      ended at execute-time (mirror initialize's V2-DROP-04 guard).
     function executeDutchAuction(
         uint256 expectedStartPrice,
         uint256 expectedEndPrice,
         uint256 expectedStartTime,
-        uint256 expectedDuration
-    ) external onlyOwner {
+        uint256 expectedDuration,
+        uint256 expectedExecuteAfter
+    ) external onlyOwner whenNotPaused {
         PendingDutchConfig memory cached = pendingDutchConfig;
         if (cached.startPrice != expectedStartPrice ||
             cached.endPrice   != expectedEndPrice   ||
@@ -874,6 +894,9 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
             cached.duration   != expectedDuration) {
             revert DutchConfigMismatch();
         }
+        if (_executeAfter[DUTCH_CONFIG_CHANGE] != expectedExecuteAfter) revert ExecuteAfterMismatch();
+        // AUDIT FIX V3-DROP-01: prevent execute of an already-elapsed curve.
+        if (expectedStartTime + expectedDuration <= block.timestamp) revert InvalidDutchAuctionConfig();
         _execute(DUTCH_CONFIG_CHANGE);
         dutchStartPrice = expectedStartPrice;
         dutchEndPrice   = expectedEndPrice;
@@ -978,12 +1001,11 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         uint256 owed = paidPerWallet[msg.sender];
         if (owed == 0) revert NothingToRefund();
         paidPerWallet[msg.sender] = 0;
-        // AUDIT FIX: DEEP-DROP-04 (HISTORICAL): decrement the unclaimed-refund pool.
-        // Post-V2-DROP-02 this slot is permanently zero on new clones (no mint-time
-        // increment), so this is effectively a no-op. Kept for storage-layout parity
-        // with deployed clones and as defensive accounting if the increment is ever
-        // re-introduced under a future cancellation-policy reversal.
-        unclaimedRefundPool -= owed;
+        // AUDIT FIX V3-DROP-06: removed the dead `unclaimedRefundPool -= owed`
+        // decrement. Post-V2-DROP-02 the pool is never incremented, so the
+        // subtract was a no-op AT BEST and a footgun (would underflow if a
+        // future PR partially restored the increment without symmetric
+        // updates). The storage slot is preserved for ABI compat.
         WETHFallbackLib.safeTransferETHOrWrap(weth, msg.sender, owed);
         emit Refunded(msg.sender, owed);
     }
