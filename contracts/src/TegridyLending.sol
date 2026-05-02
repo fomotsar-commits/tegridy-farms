@@ -780,6 +780,15 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (loan.repaid) revert LoanAlreadyRepaid();
         if (loan.defaultClaimed) revert LoanAlreadyDefaultClaimed();
 
+        // AUDIT FIX: DEEP-LIB-H3 — sequencer-uptime gate at the liquidation
+        // entrypoint. Pre-fix the lender could call claimDefaultedCollateral
+        // the instant `block.timestamp > effectiveDeadline + GRACE_PERIOD`
+        // even when a sequencer outage had consumed the entire grace
+        // window, leaving the borrower zero usable repay time. Matches the
+        // symmetric fix on TegridyNFTLending.claimDefault and the existing
+        // _positionETHValue guard.
+        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
+
         // GAS: Cache storage reads into local variables
         address lender = loan.lender;
         uint256 tokenId = loan.tokenId;

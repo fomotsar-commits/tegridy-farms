@@ -610,8 +610,15 @@ contract TegridyNFTLendingTest is Test {
         vm.warp(block.timestamp + 30 days);
         assertFalse(lending.isDefaulted(loanId));
 
-        // Defaulted after deadline
+        // AUDIT FIX: DEEP-LD-M3 — isDefaulted now mirrors the claimDefault
+        // gate: `block.timestamp > effectiveDeadline + GRACE_PERIOD`.
+        // Pre-fix the view fired at deadline + 1; post-fix it requires the
+        // additional grace window to elapse.
         vm.warp(block.timestamp + 1);
+        assertFalse(lending.isDefaulted(loanId));
+
+        // Defaulted after deadline + grace
+        vm.warp(block.timestamp + lending.GRACE_PERIOD());
         assertTrue(lending.isDefaulted(loanId));
     }
 
