@@ -146,6 +146,15 @@ contract TegridyRouter is ReentrancyGuard {
         uint256 liquidity, uint256 amountAMin, uint256 amountBMin,
         address to, uint256 deadline
     ) external nonReentrant ensure(deadline) returns (uint256 amountA, uint256 amountB) {
+        // AUDIT FIX: DEEP-R-L02 — non-ETH variant was missing the zero-recipient check
+        // that `removeLiquidityETH` already enforces. Without it, a `to = 0x0` call would
+        // bottom out as an opaque revert from OZ SafeERC20. Sibling miss with the
+        // `removeLiquidityETH` variant.
+        require(to != address(0), "ZERO_TO");
+        // AUDIT FIX: DEEP-R-M05 — block `to == address(this)` so output cannot be stranded
+        // in the router (no admin sweep on TegridyRouter). Same pattern SwapFeeRouter
+        // enforces on its swap entries.
+        if (to == address(this)) revert InvalidRecipient();
         address pair = ITegridyFactoryRouter(factory).getPair(tokenA, tokenB);
         require(pair != address(0), "PAIR_NOT_FOUND"); // L-07: pair existence check
         require(to != pair, "INVALID_TO");
@@ -165,6 +174,9 @@ contract TegridyRouter is ReentrancyGuard {
         address to, uint256 deadline
     ) external nonReentrant ensure(deadline) returns (uint256 amountToken, uint256 amountETH) {
         require(to != address(0), "ZERO_TO");
+        // AUDIT FIX: DEEP-R-M05 — block `to == address(this)` to mirror the swap entries.
+        // No admin sweep on TegridyRouter, so output to this contract is irrecoverable.
+        if (to == address(this)) revert InvalidRecipient();
         // Remove liquidity to this contract so we can unwrap WETH
         address pair = ITegridyFactoryRouter(factory).getPair(token, WETH);
         require(pair != address(0), "PAIR_NOT_FOUND");
@@ -193,6 +205,8 @@ contract TegridyRouter is ReentrancyGuard {
     ) external nonReentrant ensure(deadline) returns (uint256[] memory amounts) {
         if (path.length < 2) revert InvalidPath();
         if (to == address(0)) revert InvalidRecipient();
+        // AUDIT FIX: DEEP-R-M05 — output to this contract is irrecoverable (no sweep).
+        if (to == address(this)) revert InvalidRecipient();
         // H-09: Prevent swapping output to the pair itself
         if (to == _pairFor(path[path.length - 2], path[path.length - 1])) revert InvalidRecipient();
         // SECURITY FIX H5: Validate path BEFORE any token transfers to prevent
@@ -211,6 +225,8 @@ contract TegridyRouter is ReentrancyGuard {
         if (path.length < 2) revert InvalidPath();
         if (path[0] != WETH) revert InvalidPath();
         if (to == address(0)) revert InvalidRecipient();
+        // AUDIT FIX: DEEP-R-M05 — output to this contract is irrecoverable.
+        if (to == address(this)) revert InvalidRecipient();
         // H-09: Prevent swapping output to the pair itself
         if (to == _pairFor(path[path.length - 2], path[path.length - 1])) revert InvalidRecipient();
         _validatePathNoCycles(path); // SECURITY FIX H5
@@ -229,6 +245,8 @@ contract TegridyRouter is ReentrancyGuard {
         if (path.length < 2) revert InvalidPath();
         if (path[path.length - 1] != WETH) revert InvalidPath();
         if (to == address(0)) revert InvalidRecipient();
+        // AUDIT FIX: DEEP-R-M05 — output to this contract is irrecoverable.
+        if (to == address(this)) revert InvalidRecipient();
         // H-09: Prevent swapping output to the pair itself
         if (to == _pairFor(path[path.length - 2], path[path.length - 1])) revert InvalidRecipient();
         _validatePathNoCycles(path); // SECURITY FIX H5
@@ -261,6 +279,8 @@ contract TegridyRouter is ReentrancyGuard {
     ) external nonReentrant ensure(deadline) returns (uint256[] memory amounts) {
         if (path.length < 2) revert InvalidPath();
         if (to == address(0)) revert InvalidRecipient();
+        // AUDIT FIX: DEEP-R-M05 — output to this contract is irrecoverable.
+        if (to == address(this)) revert InvalidRecipient();
         // H-09: Prevent swapping output to the pair itself
         if (to == _pairFor(path[path.length - 2], path[path.length - 1])) revert InvalidRecipient();
         // SECURITY FIX M-2: Validate path before transfer (matching exact-input swap pattern)
@@ -279,6 +299,8 @@ contract TegridyRouter is ReentrancyGuard {
         if (path.length < 2) revert InvalidPath();
         if (path[path.length - 1] != WETH) revert InvalidPath();
         if (to == address(0)) revert InvalidRecipient();
+        // AUDIT FIX: DEEP-R-M05 — output to this contract is irrecoverable.
+        if (to == address(this)) revert InvalidRecipient();
         // H-09: Prevent swapping output to the pair itself
         if (to == _pairFor(path[path.length - 2], path[path.length - 1])) revert InvalidRecipient();
         // SECURITY FIX M-2: Validate path before transfer (matching exact-input swap pattern)
@@ -299,6 +321,8 @@ contract TegridyRouter is ReentrancyGuard {
         if (path.length < 2) revert InvalidPath();
         if (path[0] != WETH) revert InvalidPath();
         if (to == address(0)) revert InvalidRecipient();
+        // AUDIT FIX: DEEP-R-M05 — output to this contract is irrecoverable.
+        if (to == address(this)) revert InvalidRecipient();
         // H-09: Prevent swapping output to the pair itself
         if (to == _pairFor(path[path.length - 2], path[path.length - 1])) revert InvalidRecipient();
         // SECURITY FIX M-2: Validate path before transfer (matching exact-input swap pattern)
@@ -329,6 +353,8 @@ contract TegridyRouter is ReentrancyGuard {
         if (path.length < 2) revert InvalidPath();
         if (path.length > 10) revert PathTooLong();
         if (to == address(0)) revert InvalidRecipient();
+        // AUDIT FIX: DEEP-R-M05 — output to this contract is irrecoverable.
+        if (to == address(this)) revert InvalidRecipient();
         if (to == _pairFor(path[path.length - 2], path[path.length - 1])) revert InvalidRecipient();
         _validatePathNoCycles(path);
         IERC20(path[0]).safeTransferFrom(msg.sender, _pairFor(path[0], path[1]), amountIn);
@@ -347,6 +373,8 @@ contract TegridyRouter is ReentrancyGuard {
         if (path.length > 10) revert PathTooLong();
         if (path[0] != WETH) revert InvalidPath();
         if (to == address(0)) revert InvalidRecipient();
+        // AUDIT FIX: DEEP-R-M05 — output to this contract is irrecoverable.
+        if (to == address(this)) revert InvalidRecipient();
         if (to == _pairFor(path[path.length - 2], path[path.length - 1])) revert InvalidRecipient();
         _validatePathNoCycles(path);
         uint256 amountIn = msg.value;
@@ -368,6 +396,8 @@ contract TegridyRouter is ReentrancyGuard {
         if (path.length > 10) revert PathTooLong();
         if (path[path.length - 1] != WETH) revert InvalidPath();
         if (to == address(0)) revert InvalidRecipient();
+        // AUDIT FIX: DEEP-R-M05 — output to this contract is irrecoverable.
+        if (to == address(this)) revert InvalidRecipient();
         if (to == _pairFor(path[path.length - 2], path[path.length - 1])) revert InvalidRecipient();
         _validatePathNoCycles(path);
         IERC20(path[0]).safeTransferFrom(msg.sender, _pairFor(path[0], path[1]), amountIn);

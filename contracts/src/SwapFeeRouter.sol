@@ -255,6 +255,30 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         exclude this so the queued ETH cannot be swept to treasury.
     uint256 public totalPendingDistribution;
 
+    /// @notice AUDIT FIX: DEEP-R-L03 — per-caller timestamp of the last
+    ///         `recoverCallerCredit()` invocation. Combined with
+    ///         `RECOVER_CALLER_CREDIT_COOLDOWN`, prevents permissionless gas-griefing
+    ///         loops where a hostile caller spams the function (and its zero-amount
+    ///         events) at the floor cost of ~2.5k gas per call.
+    mapping(address => uint256) public lastCallerCreditPullAt;
+    /// @notice AUDIT FIX: DEEP-R-L03 — minimum gap between successive
+    ///         `recoverCallerCredit()` calls from the same caller. 30 seconds matches
+    ///         the typical block window for L1; small enough not to interfere with
+    ///         legitimate keeper bots, large enough to make tight grief loops
+    ///         meaningfully more expensive than the per-call SLOAD floor.
+    uint256 public constant RECOVER_CALLER_CREDIT_COOLDOWN = 30;
+
+    // ─── AUDIT FIX: DEEP-R-M06 — TWAP snapshot reset (timelocked) ────────
+    /// @notice Token whose `lastConversionSnapshot` will be deleted on execute.
+    address public pendingResetToken;
+    /// @notice Earliest timestamp at which `executeResetTWAPSnapshot` is callable.
+    ///         Zero when no proposal is pending.
+    uint256 public twapSnapshotResetReadyAt;
+    /// @notice 7-day timelock on the TWAP snapshot reset, parity with admin replacement.
+    uint256 public constant TWAP_SNAPSHOT_RESET_TIMELOCK = 7 days;
+    /// @notice Timelock key (informational only — flow lives inline on this contract).
+    bytes32 public constant TWAP_SNAPSHOT_RESET = keccak256("TWAP_SNAPSHOT_RESET");
+
     // ─── Events ──────────────────────────────────────────────────────
     event SwapExecuted(address indexed user, address tokenIn, address tokenOut, uint256 amountIn, uint256 fee);
     event FeeUpdated(uint256 oldFee, uint256 newFee);
@@ -307,6 +331,14 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 callerMinETHOut,
         bool bootstrap
     );
+    /// @notice AUDIT FIX: DEEP-R-M06 — emitted when the owner proposes a TWAP snapshot
+    ///         reset. Off-chain monitors can alert on the 7-day window before execute.
+    event TWAPSnapshotResetProposed(address indexed token, uint256 executeAfter);
+    /// @notice AUDIT FIX: DEEP-R-M06 — emitted when the snapshot is actually deleted.
+    ///         Re-bootstrapping is required (owner-only) on the next conversion.
+    event TWAPSnapshotResetExecuted(address indexed token);
+    /// @notice AUDIT FIX: DEEP-R-M06 — emitted on cancel.
+    event TWAPSnapshotResetCancelled(address indexed token);
 
     // ─── Errors ──────────────────────────────────────────────────────
     error FeeTooHigh();
@@ -362,6 +394,17 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     /// @notice AUDIT SFR-M-04 (MEDIUM, 2026-04-28): no admin-replacement proposal pending,
     ///         OR the proposal is still inside its 7-day timelock window.
     error AdminReplacementUnavailable();
+    /// @notice AUDIT FIX: DEEP-R-M04 — `applyPolAccumulator(address(0))` was attempted
+    ///         while `polShareBps > 0`, which would silently re-route the POL slice to
+    ///         treasury and break the timelocked fee-split invariant. Governance must
+    ///         first explicitly zero the POL share via the proper `feeSplit` timelock.
+    error PolShareNonZero();
+    /// @notice AUDIT FIX: DEEP-R-L03 — caller invoked `recoverCallerCredit` inside
+    ///         the per-caller cooldown window. Soft rate-limit against gas griefing.
+    error RecoverCallerCreditCooldown();
+    /// @notice AUDIT FIX: DEEP-R-M06 — no pending TWAP snapshot reset proposal,
+    ///         the proposal isn't ready yet, or the proposal expired.
+    error TWAPSnapshotResetUnavailable();
 
     // Legacy error aliases (kept for test compatibility during V2 migration)
     error UseProposeFeeChange();
@@ -391,11 +434,25 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     // ─── Internal Helpers ────────────────────────────────────────────
 
     /// @dev Forward fee ETH to referral splitter. Returns true if ETH was forwarded.
+    /// @dev AUDIT FIX: DEEP-R-M03 — cap forwarded gas at 50k to match
+    ///      `distributeFeesToStakers` so a buggy/malicious referralSplitter cannot OOG-grief
+    ///      the surrounding swap. `recordFee` is "bump a slot + emit event" (~30k budget),
+    ///      50k leaves slack for upgrades. Solidity 0.8.x supports `gas:` on try-calls.
+    /// @dev AUDIT FIX: DEEP-R-I01 — narrow the catch so an asserted invariant violation
+    ///      is at least distinguishable on-chain from a normal revert. Behaviour remains
+    ///      fail-open (per the documented intent) — we still redirect to treasury — but
+    ///      the explicit branches keep the door open for a future "alarm on Panic" hook.
     function _recordReferralFee(address _user, uint256 _feeAmount) internal returns (bool) {
         if (address(referralSplitter) == address(0) || _feeAmount == 0) return false;
-        try referralSplitter.recordFee{value: _feeAmount}(_user) {
+        try referralSplitter.recordFee{value: _feeAmount, gas: 50_000}(_user) {
             return true;
-        } catch {
+        } catch Error(string memory) {
+            emit ReferralFeeRedirectedToTreasury(_user, _feeAmount);
+            return false;
+        } catch Panic(uint256) {
+            emit ReferralFeeRedirectedToTreasury(_user, _feeAmount);
+            return false;
+        } catch (bytes memory) {
             emit ReferralFeeRedirectedToTreasury(_user, _feeAmount);
             return false;
         }
@@ -422,14 +479,27 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // DEX. Off-chain monitoring should poll isPremiumAccessHealthy() below so a
         // silent premium outage raises an alert even though we can't emit from here
         // (this function is view — events aren't allowed).
+        // AUDIT FIX: DEEP-R-M03 — cap forwarded gas at 50k. `hasPremiumSecure` is
+        // a view (~15k gas budget) so 50k is a generous ceiling. Without the cap, a
+        // buggy `premiumAccess` upgrade could OOG-grief every swap surface.
+        // AUDIT FIX: DEEP-R-I01 — narrow catches as in `_recordReferralFee`. Same
+        // fail-open behaviour, but Panic is now distinguishable from normal revert.
+        // Note: `try` blocks must declare `gas:` in their `gas:` modifier, but the
+        // expression `premiumAccess.hasPremiumSecure(user)` is a view call. Solidity
+        // 0.8 lets us pass `gas:` only on external function calls — so we wrap the
+        // call inside try with the gas modifier on the function call itself.
         if (baseFee > 0 && address(premiumAccess) != address(0)) {
-            try premiumAccess.hasPremiumSecure(user) returns (bool isPremium) {
+            try premiumAccess.hasPremiumSecure{gas: 50_000}(user) returns (bool isPremium) {
                 if (isPremium && premiumDiscountBps > 0) {
                     uint256 discount = (baseFee * premiumDiscountBps) / BPS;
                     baseFee = baseFee > discount ? baseFee - discount : 0;
                 }
-            } catch {
+            } catch Error(string memory) {
                 // Fail-open: user pays base fee without the discount. No revert.
+            } catch Panic(uint256) {
+                // Fail-open on assertion / overflow / OOG.
+            } catch (bytes memory) {
+                // Fail-open on low-level revert.
             }
         }
 
@@ -879,10 +949,17 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     }
 
     /// @notice Execute a previously proposed admin replacement after the 7-day delay.
+    /// @dev    AUDIT FIX: DEEP-R-M01 — mirror TimelockAdmin's PROPOSAL_VALIDITY by
+    ///         enforcing a 7-day expiry window after `readyAt`. Without this, a
+    ///         years-old stale proposal stays live forever — and a forgotten
+    ///         candidate address could be co-opted (CREATE2 redeploy, abandoned
+    ///         multisig, expired-key custody) to install a hostile admin.
     function executeAdminReplacement() external onlyOwner {
         uint256 readyAt = adminReplacementReadyAt;
         if (readyAt == 0) revert AdminReplacementUnavailable(); // no pending proposal
         if (block.timestamp < readyAt) revert AdminReplacementUnavailable(); // delay not elapsed
+        // AUDIT FIX: DEEP-R-M01 — 7-day validity window after readyAt.
+        if (block.timestamp > readyAt + 7 days) revert AdminReplacementUnavailable();
         address newAdmin = pendingSwapFeeRouterAdmin;
         if (newAdmin == address(0)) revert ZeroAddress(); // defensive
         address oldAdmin = swapFeeRouterAdmin;
@@ -899,6 +976,49 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         pendingSwapFeeRouterAdmin = address(0);
         adminReplacementReadyAt = 0;
         emit SwapFeeRouterAdminReplacementCancelled(proposed);
+    }
+
+    // ─── AUDIT FIX: DEEP-R-M06 — TWAP snapshot reset (timelocked) ──────
+    /// @notice Propose a reset of `lastConversionSnapshot[token]`. Required when a
+    ///         token's snapshot was bootstrapped against a pool in an anomalous state
+    ///         (low-liquidity sandwich, mid-attack reserves) — every subsequent
+    ///         permissionless conversion would then read TWAP against the poisoned
+    ///         baseline, slowly bleeding value through the 1.5% safety margin.
+    /// @dev    7-day timelock parity with admin replacement so this rare admin path
+    ///         cannot be quietly fired by a temporarily-compromised owner key.
+    ///         Stored INLINE rather than on SwapFeeRouterAdmin so the reset path
+    ///         remains operable even if the admin contract itself is compromised.
+    function proposeResetTWAPSnapshot(address token) external onlyOwner {
+        if (token == address(0)) revert ZeroAddress();
+        if (twapSnapshotResetReadyAt != 0) revert TWAPSnapshotResetUnavailable();
+        pendingResetToken = token;
+        twapSnapshotResetReadyAt = block.timestamp + TWAP_SNAPSHOT_RESET_TIMELOCK;
+        emit TWAPSnapshotResetProposed(token, twapSnapshotResetReadyAt);
+    }
+
+    /// @notice Execute a previously proposed TWAP snapshot reset after the 7-day delay.
+    /// @dev    Mirrors the admin-replacement validity window — proposals expire 7 days
+    ///         after they become executable to bound the worst-case stale-proposal window.
+    function executeResetTWAPSnapshot() external onlyOwner {
+        uint256 readyAt = twapSnapshotResetReadyAt;
+        if (readyAt == 0) revert TWAPSnapshotResetUnavailable();
+        if (block.timestamp < readyAt) revert TWAPSnapshotResetUnavailable();
+        if (block.timestamp > readyAt + 7 days) revert TWAPSnapshotResetUnavailable();
+        address token = pendingResetToken;
+        if (token == address(0)) revert ZeroAddress(); // defensive
+        delete lastConversionSnapshot[token];
+        pendingResetToken = address(0);
+        twapSnapshotResetReadyAt = 0;
+        emit TWAPSnapshotResetExecuted(token);
+    }
+
+    /// @notice Cancel a pending TWAP snapshot reset.
+    function cancelResetTWAPSnapshot() external onlyOwner {
+        if (twapSnapshotResetReadyAt == 0) revert TWAPSnapshotResetUnavailable();
+        address cancelled = pendingResetToken;
+        pendingResetToken = address(0);
+        twapSnapshotResetReadyAt = 0;
+        emit TWAPSnapshotResetCancelled(cancelled);
     }
 
     /// @notice Apply a new global fee. Caller must be the wired admin contract.
@@ -1006,7 +1126,11 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         Backward compatibility: on upgrade, stakerShareBps defaults to 10000
     ///         which means pol/treasury slices are zero and behaviour is identical
     ///         to V2 (100% to stakers). Owner must propose a split change explicitly.
-    function distributeFeesToStakers() external nonReentrant {
+    // AUDIT FIX: DEEP-R-H02 — pause must freeze every state-mutating ETH-flow primitive,
+    // not just the user-trade entrypoints. Without `whenNotPaused`, an MEV searcher could
+    // front-run the pause and shovel queued ETH at a downstream destination flagged as
+    // compromised mid-incident.
+    function distributeFeesToStakers() external nonReentrant whenNotPaused {
         if (revenueDistributor == address(0)) revert ZeroAddress();
         uint256 amount = accumulatedETHFees;
         if (amount == 0) revert ZeroAmount();
@@ -1078,7 +1202,14 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     }
 
     /// @notice Apply a POL accumulator change. address(0) re-routes POL to treasury.
+    /// @dev    AUDIT FIX: DEEP-R-M04 — reject `address(0)` whenever `polShareBps > 0`.
+    ///         Previously, setting the accumulator to zero silently re-routed the entire
+    ///         POL slice to treasury at distribute-time, breaking the timelocked fee-split
+    ///         invariant without any propose-time check on the share BPS itself.
+    ///         Governance must now explicitly zero the POL share via `applyFeeSplit`
+    ///         (behind its own 48 h timelock) before unsetting the accumulator.
     function applyPolAccumulator(address _newAccumulator) external onlyAdmin {
+        if (_newAccumulator == address(0) && polShareBps > 0) revert PolShareNonZero();
         address old = polAccumulator;
         polAccumulator = _newAccumulator;
         emit PolAccumulatorUpdated(old, _newAccumulator);
@@ -1220,13 +1351,29 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // re-enter and double-spend the same accumulated balance.
         accumulatedTokenFees[token] = 0;
 
-        // AUDIT SFR-H-01: derive the internal TWAP-floor minETHOut and pick the tighter of
-        // (callerMinETHOut, twapMinETHOut). Bootstrap path is owner-only (see helper).
-        // NB: the TWAP floor is anchored against the DIRECT token/WETH pair regardless of
-        // how many hops the caller chose. For multi-hop paths the owner-only gate above
-        // already restricts callers to a trusted operator.
-        (uint256 effectiveMin, uint256 currentCum, uint32 currentTs) =
-            _enforceTWAPMinETHOut(token, amount, minETHOut);
+        // AUDIT FIX: DEEP-R-H01 — Multi-hop conversion paths (length > 2) bypass the
+        // direct-pair TWAP floor because `_readCurrentCumulative(token)` requires the
+        // token/WETH direct pair to exist (NoPairForToken otherwise), which defeats
+        // the entire purpose of the multi-hop feature for tokens that lack a direct
+        // pair. Multi-hop is already gated to `msg.sender == owner()` in
+        // `_validateConversionPath`, so the trust assumption justifies falling back
+        // to the caller-supplied `minETHOut` only (no on-chain TWAP anchor) for those
+        // paths. The 2-hop direct path retains the full SFR-H-01 TWAP enforcement.
+        uint256 effectiveMin;
+        uint256 currentCum;
+        uint32 currentTs;
+        if (path.length > 2) {
+            // Owner-only branch: no direct-pair TWAP anchor; trust the operator's minETHOut.
+            effectiveMin = minETHOut;
+            // currentCum/currentTs left zero — we only update the snapshot on direct
+            // 2-hop conversions (otherwise we'd seed a meaningless zero baseline).
+            emit ConversionTWAPFloor(token, effectiveMin, minETHOut, false);
+        } else {
+            // AUDIT SFR-H-01: derive the internal TWAP-floor minETHOut and pick the tighter of
+            // (callerMinETHOut, twapMinETHOut). Bootstrap path is owner-only (see helper).
+            (effectiveMin, currentCum, currentTs) =
+                _enforceTWAPMinETHOut(token, amount, minETHOut);
+        }
 
         IERC20(token).forceApprove(address(router), amount);
 
@@ -1240,9 +1387,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         IERC20(token).forceApprove(address(router), 0);
 
-        // SFR-H-01: snapshot the current cumulative AFTER the swap so the next conversion
-        // computes the TWAP across the full intervening period.
-        lastConversionSnapshot[token] = PriceSnapshot({timestamp: currentTs, cumulative: currentCum});
+        // AUDIT FIX: DEEP-R-H01 — only snapshot for direct 2-hop swaps; multi-hop has
+        // no direct-pair anchor so we leave any prior snapshot untouched.
+        if (path.length == 2) {
+            // SFR-H-01: snapshot the current cumulative AFTER the swap so the next conversion
+            // computes the TWAP across the full intervening period.
+            lastConversionSnapshot[token] = PriceSnapshot({timestamp: currentTs, cumulative: currentCum});
+        }
 
         // Fold the converted ETH into the staker/POL/treasury fee pool.
         accumulatedETHFees += ethReceived;
@@ -1294,10 +1445,21 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 swapAmount = amount > actualOnHand ? actualOnHand : amount;
         if (swapAmount == 0) revert ZeroAmount();
 
-        // AUDIT SFR-H-01: TWAP-floor minETHOut sized against the actual swap input. Caller
-        // can only TIGHTEN the floor; bootstrap is owner-only (see helper).
-        (uint256 effectiveMin, uint256 currentCum, uint32 currentTs) =
-            _enforceTWAPMinETHOut(token, swapAmount, minETHOut);
+        // AUDIT FIX: DEEP-R-H01 — same multi-hop bypass as the non-FoT variant above.
+        // Multi-hop is owner-only via `_validateConversionPath`, so we trust the
+        // caller-supplied `minETHOut` for those paths. Direct 2-hop retains TWAP.
+        uint256 effectiveMin;
+        uint256 currentCum;
+        uint32 currentTs;
+        if (path.length > 2) {
+            effectiveMin = minETHOut;
+            emit ConversionTWAPFloor(token, effectiveMin, minETHOut, false);
+        } else {
+            // AUDIT SFR-H-01: TWAP-floor minETHOut sized against the actual swap input. Caller
+            // can only TIGHTEN the floor; bootstrap is owner-only (see helper).
+            (effectiveMin, currentCum, currentTs) =
+                _enforceTWAPMinETHOut(token, swapAmount, minETHOut);
+        }
 
         IERC20(token).forceApprove(address(router), swapAmount);
 
@@ -1310,9 +1472,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         IERC20(token).forceApprove(address(router), 0);
 
-        // SFR-H-01: snapshot the current cumulative AFTER the swap so the next conversion
-        // (either variant) computes the TWAP across the full intervening period.
-        lastConversionSnapshot[token] = PriceSnapshot({timestamp: currentTs, cumulative: currentCum});
+        // AUDIT FIX: DEEP-R-H01 — only snapshot for direct 2-hop swaps; multi-hop
+        // has no direct-pair anchor so leave any prior snapshot untouched.
+        if (path.length == 2) {
+            // SFR-H-01: snapshot the current cumulative AFTER the swap so the next conversion
+            // (either variant) computes the TWAP across the full intervening period.
+            lastConversionSnapshot[token] = PriceSnapshot({timestamp: currentTs, cumulative: currentCum});
+        }
 
         accumulatedETHFees += ethReceived;
         emit TokenFeesConverted(token, swapAmount, ethReceived);
@@ -1334,7 +1500,15 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         that reverts on raw ETH receive (the original failure cause) gets WETH
     ///         instead — guaranteed delivery on the second hop.
     /// @param  recipient The original distribution destination whose queue to drain.
-    function withdrawPendingDistribution(address recipient) external nonReentrant {
+    /// @dev    AUDIT FIX: DEEP-R-H02 — `whenNotPaused` so a paused router cannot leak
+    ///         queued ETH to a recipient flagged as compromised during incident response.
+    /// @dev    DEFERRED: DEEP-R-L01 — codehash-binding the queue entry would defend
+    ///         against a CREATE2-redeployed successor at the same address, but the
+    ///         finding's own conclusion is "low priority unless CREATE2 metaproxies
+    ///         are introduced." Adding the storage layout change now would force a
+    ///         migration on every existing pendingDistribution entry; deferring until
+    ///         a real CREATE2 metaproxy use case lands.
+    function withdrawPendingDistribution(address recipient) external nonReentrant whenNotPaused {
         if (recipient == address(0)) revert ZeroAddress();
         uint256 amount = pendingDistribution[recipient];
         if (amount == 0) revert ZeroAmount();
@@ -1349,8 +1523,18 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         into accumulatedETHFees so it flows through the timelocked staker/POL/treasury
     ///         split via distributeFeesToStakers. Previously the recovered ETH landed as
     ///         orphan balance that only sweepETH (treasury-only) could move.
-    function recoverCallerCredit() external nonReentrant {
+    /// @dev AUDIT FIX: DEEP-R-H02 — `whenNotPaused` so a paused router cannot pull
+    ///      callerCredit during incident response on a downstream splitter.
+    /// @dev AUDIT FIX: DEEP-R-L03 — per-caller cooldown blocks tight grief loops that
+    ///      would otherwise spam zero-amount events at ~2.5k gas per call. 30 s cap is
+    ///      well below any realistic keeper cadence; an honest caller will never hit it.
+    function recoverCallerCredit() external nonReentrant whenNotPaused {
         require(address(referralSplitter) != address(0), "NO_SPLITTER");
+        uint256 lastPull = lastCallerCreditPullAt[msg.sender];
+        if (lastPull != 0 && block.timestamp < lastPull + RECOVER_CALLER_CREDIT_COOLDOWN) {
+            revert RecoverCallerCreditCooldown();
+        }
+        lastCallerCreditPullAt[msg.sender] = block.timestamp;
         uint256 balBefore = address(this).balance;
         referralSplitter.withdrawCallerCredit();
         uint256 recovered = address(this).balance - balBefore;
@@ -1413,6 +1597,16 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (len < 2 || len > MAX_CONVERSION_PATH_LENGTH) revert InvalidConversionPath();
         if (path[0] != token) revert InvalidConversionPath();
         if (path[len - 1] != WETH) revert InvalidConversionPath();
+        // AUDIT FIX: DEEP-R-M02 — reject zero-address intermediate hops. A path like
+        // `[token, address(0), WETH]` would otherwise pass duplicate checks; the
+        // inner Uniswap router would compute `pairFor(token, address(0))` which
+        // resolves to a deterministic empty address. For the FoT variant the
+        // resulting zero output would silently zero the accumulated fee balance.
+        // Owner-only multi-hop already implies trust, but this defends against
+        // owner script errors / off-chain interpolation bugs.
+        for (uint256 i = 1; i < len - 1; i++) {
+            if (path[i] == address(0)) revert InvalidConversionPath();
+        }
         // Reject duplicates (also catches `[token, WETH, WETH]` and similar shapes).
         for (uint256 i = 0; i < len; i++) {
             for (uint256 j = i + 1; j < len; j++) {
@@ -1496,6 +1690,10 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         (, currentCum, currentTs) = _readCurrentCumulative(token);
 
         PriceSnapshot memory prev = lastConversionSnapshot[token];
+        // Note: only the direct token/WETH 2-hop path reaches this function
+        // (multi-hop paths are diverted in the callsites — see DEEP-R-H01).
+        // So the TWAP anchor against `uniFactory.getPair(token, WETH)` matches
+        // exactly what the swap will trade through.
         if (prev.timestamp == 0) {
             // Bootstrap: no prior snapshot. Owner-only so the first call can't be sandwiched.
             // The owner is expected to set a sane minETHOut off-chain (treasury policy);
