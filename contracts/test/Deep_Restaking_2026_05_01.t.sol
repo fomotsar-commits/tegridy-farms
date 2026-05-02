@@ -296,23 +296,23 @@ contract DeepRestakingTest is Test {
     }
 
     // ────────────────────────────────────────────────────────────────
-    // DR-07 regression: cooldown enforcement on propose/cancel.
+    // DR-07 / DR2-05 regression: cooldown enforcement on propose ONLY.
+    // After DR2-05, cancelBonusRateProposal bypasses the cooldown so
+    // the multisig can defensively cancel a hostile proposal
+    // immediately. Propose-side anti-churn protection remains.
     // ────────────────────────────────────────────────────────────────
     function test_proposeBonusRate_enforcesCooldown() public {
         // First call works because `lastBonusRateActionAt == 0` (deploy default).
         uint256 t0 = block.timestamp;
         restaking.proposeBonusRate(0.5 ether);
-        // Cancel must revert immediately due to cooldown
-        vm.expectRevert(TegridyRestaking.BonusRateActionCooldown.selector);
-        restaking.cancelBonusRateProposal();
-        // After 24h, cancel succeeds
-        vm.warp(t0 + 24 hours + 1);
+        // DR2-05: Cancel must succeed IMMEDIATELY (no cooldown gate on cancel).
+        // This was previously expected to revert.
         restaking.cancelBonusRateProposal();
         // Re-propose immediately reverts (cooldown reset on cancel)
         vm.expectRevert(TegridyRestaking.BonusRateActionCooldown.selector);
         restaking.proposeBonusRate(0.6 ether);
-        // After another 24h, propose succeeds
-        vm.warp(t0 + 48 hours + 2);
+        // After 24h, propose succeeds
+        vm.warp(t0 + 24 hours + 1);
         restaking.proposeBonusRate(0.7 ether);
     }
 }

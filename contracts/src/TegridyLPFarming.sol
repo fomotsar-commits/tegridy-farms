@@ -120,6 +120,12 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     event TreasuryUpdated(address oldTreasury, address newTreasury);
     event Recovered(address token, uint256 amount);
     event ForfeitedRewardsReclaimed(address indexed treasury, uint256 amount); // AUDIT M11
+    /// @notice AUDIT FIX: DR2-03 — emitted when reward emission elapses while
+    ///         `totalEffectiveSupply == 0`. The amount represents the (forfeit)
+    ///         emission attributable to the empty period. Synthetix-style
+    ///         empty-window forfeiture is preserved — this event closes the
+    ///         observability gap that DR-09 v1 attempted to fix economically.
+    event RewardsForfeitedDuringEmptyPeriod(uint256 amount);
 
     // ─── Errors ─────────────────────────────────────────────────────
     error ZeroAmount();
@@ -158,27 +164,36 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     // ║  SYNTHETIX REWARD MATH (boosted)                            ║
     // ═══════════════════════════════════════════════════════════════
 
-    /// @dev AUDIT FIX: DEEP-DR-09 — when `totalEffectiveSupply == 0`, holding
-    ///      `lastUpdateTime` allows the first staker after an empty period to
-    ///      capture the elapsed-window emission. Pre-fix, the modifier
-    ///      unconditionally advanced `lastUpdateTime = lastTimeRewardApplicable()`,
-    ///      so any micro-period emission between a funding `notifyRewardAmount`
-    ///      and the first stake was silently forfeited (rewardPerToken returned
-    ///      `rewardPerTokenStored` unchanged because the denominator was zero;
-    ///      then `lastUpdateTime` advanced, dropping the elapsed window). With
-    ///      the gate, `lastUpdateTime` only advances while there's a positive
-    ///      denominator to credit — the first staker after an empty period now
-    ///      picks up from `notifyRewardAmount`'s `lastUpdateTime` snapshot.
+    /// @dev AUDIT FIX: DR2-03 — REVERTED the `if (totalEffectiveSupply > 0)`
+    ///      gate added by DR-09 v1. Holding `lastUpdateTime` during an empty
+    ///      window flipped the failure mode from "silent forfeit" to
+    ///      "first-staker windfall" — a sandwich-extractable MEV vector where
+    ///      an attacker stakes a tiny LP amount immediately after totalEffectiveSupply
+    ///      decays to zero, then claims `(elapsed_empty * rewardRate)` of accrued
+    ///      emission as the sole denominator. Pattern of record: Synthetix
+    ///      `StakingRewards` deliberately forfeits empty-period emission to
+    ///      prevent exactly this attack.
+    ///
+    ///      The legitimate concern DR-09 v1 raised — observability of the
+    ///      forfeited amount — is now addressed by emitting a
+    ///      `RewardsForfeitedDuringEmptyPeriod` event when the modifier detects
+    ///      a non-zero elapsed empty period. Off-chain monitors can sum these
+    ///      events and trigger refunds.
     modifier updateReward(address account) {
-        rewardPerTokenStored = rewardPerToken();
-        // AUDIT FIX: DEEP-DR-09 — only advance `lastUpdateTime` when there's a
-        // non-zero `totalEffectiveSupply` to credit. While the denominator is
-        // zero, `rewardPerToken()` returns `rewardPerTokenStored` unchanged
-        // (no math to do), so advancing the timestamp would silently forfeit
-        // the elapsed-period emission once a first staker arrives.
-        if (totalEffectiveSupply > 0) {
-            lastUpdateTime = lastTimeRewardApplicable();
+        // AUDIT FIX: DR2-03 — emit observability for the forfeited empty-window
+        // emission BEFORE advancing `lastUpdateTime`. The forfeit calculation
+        // matches Synthetix semantics: `elapsed * rewardRate` of emission is
+        // dropped because `rewardPerToken()` returns `rewardPerTokenStored`
+        // unchanged when the denominator is zero (no one to credit).
+        if (totalEffectiveSupply == 0 && lastUpdateTime < lastTimeRewardApplicable()) {
+            uint256 forfeit = (lastTimeRewardApplicable() - lastUpdateTime) * rewardRate;
+            if (forfeit > 0) emit RewardsForfeitedDuringEmptyPeriod(forfeit);
         }
+        rewardPerTokenStored = rewardPerToken();
+        // AUDIT FIX: DR2-03 — restore unconditional `lastUpdateTime` advance
+        // (Synthetix StakingRewards reference behavior). Empty-period emission
+        // is forfeit, not banked for the next staker.
+        lastUpdateTime = lastTimeRewardApplicable();
         if (account != address(0)) {
             rewards[account] = earned(account);
             userRewardPerTokenPaid[account] = rewardPerTokenStored;

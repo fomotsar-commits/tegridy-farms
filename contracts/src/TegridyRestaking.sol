@@ -211,6 +211,15 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         least `BONUS_RATE_ACTION_COOLDOWN` apart so a captured-signer key
     ///         cannot churn rate-change state continuously.
     error BonusRateActionCooldown();
+    /// @notice AUDIT FIX: DR2-08 — distinct typed error for the staking-side
+    ///         per-owner-set divergence check (DR-11 fix). Pre-DR2-08, this
+    ///         shared `NotNFTOwner()` with the ERC721 ownership check, so
+    ///         off-chain monitors couldn't distinguish "ERC721 ownership
+    ///         mismatch" from "TegridyStaking per-owner-set divergence" — the
+    ///         latter being a future-compat tripwire that signals a TegridyStaking
+    ///         ABI/semantics drift. Distinct typed error makes the failure
+    ///         surface diagnosable for Tenderly alerts.
+    error StakingOwnershipDesync();
 
     // ─── Constructor ────────────────────────────────────────────────
     constructor(
@@ -288,7 +297,18 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         if (block.timestamp > lastBonusRewardTime && totalRestaked > 0) {
             uint256 elapsed = block.timestamp - lastBonusRewardTime;
             uint256 reward = elapsed * bonusRewardPerSecond;
-            uint256 available = bonusRewardToken.balanceOf(address(this));
+            // AUDIT FIX: DR2-06 — wrap `bonusRewardToken.balanceOf` in try/catch
+            // for parity with `_accrueBonus` (which DR-06 fix made tolerant).
+            // Without this, a hostile/paused/blacklisted bonus token would
+            // revert this view, breaking every frontend dashboard, off-chain
+            // indexer, and integrator that reads `pendingBonus`/`pendingTotal`.
+            // The mutator path tolerates it; the view should too.
+            uint256 available;
+            try bonusRewardToken.balanceOf(address(this)) returns (uint256 bal) {
+                available = bal;
+            } catch {
+                available = 0;
+            }
             if (reward > available) reward = available;
             currentAcc += (reward * ACC_PRECISION) / totalRestaked;
         }
@@ -372,11 +392,34 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // current)` guarantees no over-credit even when the cache is lazy: the
         // value can only ever be too HIGH due to staleness, never too low.
         // try/catch defends against future staking ABI breakage.
+        //
+        // AUDIT FIX: DR2-02 — the `min(cached, current)` clamp rests on the
+        // assumption that boost monotonically decays over time, so the current
+        // value is a safe upper bound for any past timestamp. That assumption
+        // is FALSE for `autoMaxLock` positions: after `staking.kick(tokenId)`
+        // zeroes `boostedAmount`, the next `staking.getReward(tokenId)` (which
+        // claimAll calls) detects `p.autoMaxLock && p.boostedAmount == 0` and
+        // RE-APPLIES MAX_BOOST. The staking-side `boostedAmount` jumps from 0
+        // back to MAX in the same transaction — non-monotonic restoration.
+        //
+        // Without this carve-out, RevenueDistributor's `_boostedAmountAt`
+        // lookup for an epoch in the kick-window returns
+        // `min(prev_checkpoint_X, MAX) = X` (the inflated pre-kick value)
+        // instead of the correct 0 — reopening the DR-04 over-credit attack
+        // via the user's own `claimAll` trigger.
+        //
+        // Fix: when staking-side `autoMaxLock` is true, the per-checkpoint
+        // historical Trace208 lookup IS the authoritative answer (it was
+        // written at each restaking-side mutation, including the post-kick
+        // claimAll stale-path which correctly recorded the post-kick value).
+        // Skip the live-current clamp and trust the checkpoint.
         uint256 current;
+        bool autoMaxLock;
         try staking.positions(info.tokenId) returns (
-            uint256, uint256 stakingBoosted, int256, uint256, uint256, uint256, bool, bool, uint256, uint256, bool
+            uint256, uint256 stakingBoosted, int256, uint256, uint256, uint256, bool _autoMaxLock, bool, uint256, uint256, bool
         ) {
             current = stakingBoosted;
+            autoMaxLock = _autoMaxLock;
         } catch {
             // If the staking call reverts, fall back to the cached value rather
             // than zeroing — the cache is at worst stale-inflated, never stale-
@@ -384,6 +427,22 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             return cached;
         }
 
+        // AUDIT FIX: DR2-02 — autoMaxLock positions are non-monotonic in
+        // `current` (kick → claimAll restores MAX). The per-checkpoint Trace208
+        // is the authoritative historical record; skip the live-current clamp.
+        if (autoMaxLock) return cached;
+
+        // AUDIT FIX: DR2-07 — KNOWN EDGE CASE: when a user unrestakes and then
+        // restakes a SMALLER position, the trace `upperLookup` for an OLD
+        // epoch returns the (large) old boost, but `current` is the (small)
+        // new boost. `min` returns the (small) new value — under-crediting
+        // the user for the OLD-epoch share. This is documented as accepted
+        // behavior because: (a) the loss is a missed payout, never a fund
+        // drain, (b) the "unrestake → restake smaller" pattern is uncommon,
+        // and (c) the alternative (lockEnd-anchored historical lookup)
+        // requires a deeper checkpoint-cycle refactor. Off-chain consumers
+        // can stitch together the per-cycle history via `Restaked` /
+        // `Unrestaked` events, both of which carry tokenId + user.
         return cached < current ? cached : current;
     }
 
@@ -402,7 +461,11 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // staking upgrade ever wraps ownership through a proxy or share-token,
         // this check guarantees the restaking contract still tracks the staking
         // contract's authoritative ownership view.
-        if (!staking.holdsToken(msg.sender, _tokenId)) revert NotNFTOwner();
+        // AUDIT FIX: DR2-08 — distinct typed error so off-chain monitors can
+        // distinguish this future-compat divergence from a plain ERC721
+        // ownership mismatch. If it ever fires it indicates a TegridyStaking
+        // ABI/semantics drift and should page the team.
+        if (!staking.holdsToken(msg.sender, _tokenId)) revert StakingOwnershipDesync();
 
         // Get position data from TegridyStaking
         (uint256 amount, uint256 boostedAmount,,,,,,, , ,) = staking.positions(_tokenId);
@@ -486,6 +549,23 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
             // R014 RETRY step 2 — update cached values and adjust
             // `totalRestaked` (shrink, in the typical decay case).
+            // AUDIT FIX: DR2-01 — sync `totalActivePrincipal` to the new
+            // cached principal BEFORE overwrite. DR-02 fix sibling-port: every
+            // site that overwrites `info.positionAmount` must adjust the
+            // running `totalActivePrincipal` total by the delta, otherwise
+            // force-closed positions (where `newAmount == 0`) leak `oldAmount`
+            // worth of principal into the reservation pool — silently DOS'ing
+            // `recoverStuckPrincipal` for honest force-closed users.
+            if (oldAmount >= newAmount) {
+                uint256 principalDelta = oldAmount - newAmount;
+                if (principalDelta <= totalActivePrincipal) {
+                    totalActivePrincipal -= principalDelta;
+                } else {
+                    totalActivePrincipal = 0;
+                }
+            } else {
+                totalActivePrincipal += (newAmount - oldAmount);
+            }
             info.positionAmount = newAmount;
             info.boostedAmount = newBoostedAmount;
             _writeBoostCheckpoint(msg.sender, newBoostedAmount); // AUDIT H-8
@@ -569,6 +649,25 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 // the position-zeroed (force-closed) sub-case and the normal
                 // refresh sub-case in a single arithmetic update.
                 uint256 oldAmt = info.positionAmount;
+                // AUDIT FIX: DR2-01 — sync `totalActivePrincipal` to the new
+                // cached `info.positionAmount` BEFORE the overwrite. Pre-fix,
+                // `info.positionAmount = currentAmount` (where currentAmount = 0
+                // for force-closed positions) would orphan `oldAmt` worth of
+                // principal in `totalActivePrincipal`, silently DOS'ing
+                // `recoverStuckPrincipal` for honest force-closed users (the
+                // entrypoint's `othersPrincipal` reservation grows unbounded).
+                // DR-02 fixed this for `emergencyForceReturn`; DR2-01 ports the
+                // same pattern to all four sibling stale-paths.
+                if (oldAmt >= currentAmount) {
+                    uint256 principalDelta = oldAmt - currentAmount;
+                    if (principalDelta <= totalActivePrincipal) {
+                        totalActivePrincipal -= principalDelta;
+                    } else {
+                        totalActivePrincipal = 0;
+                    }
+                } else {
+                    totalActivePrincipal += (currentAmount - oldAmt);
+                }
                 info.positionAmount = currentAmount;
                 info.boostedAmount = currentBoosted;
                 _writeBoostCheckpoint(msg.sender, currentBoosted); // AUDIT H-8
@@ -611,6 +710,53 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             }
         } catch {
             emit BaseClaimFailed(info.tokenId, msg.sender);
+        }
+
+        // AUDIT FIX: DR2-04 — re-read staking-side `boostedAmount` AFTER
+        // `staking.getReward` to detect autoMaxLock-induced boost restoration.
+        // When a previously-decayed autoMaxLock position has its lock extended
+        // by `getReward`, the staking-side branch re-applies MAX_BOOST. Pre-fix,
+        // the stale-path above had just zeroed `info.boostedAmount` and
+        // dropped the user from `totalRestaked`, so the user silently earned
+        // ZERO bonus emission until they manually called `refreshPosition`.
+        // The discovery surface is poor: `pendingBonus` returns 0 honestly,
+        // and most users wouldn't notice the APR drop. Re-syncing here keeps
+        // the restaker in the bonus accrual loop without manual intervention.
+        try staking.positions(info.tokenId) returns (
+            uint256, uint256 postClaimBoosted, int256, uint256, uint256, uint256, bool, bool, uint256, uint256, bool
+        ) {
+            if (postClaimBoosted > 0 && postClaimBoosted != info.boostedAmount) {
+                uint256 oldB = info.boostedAmount;
+                info.boostedAmount = postClaimBoosted;
+                _writeBoostCheckpoint(msg.sender, postClaimBoosted);
+                totalRestaked = totalRestaked - oldB + postClaimBoosted;
+                // Re-anchor bonusDebt at current accBonusPerShare on the new
+                // boost so the restaker doesn't immediately accrue against
+                // emission they haven't earned (the upcoming bonus claim
+                // would otherwise mint a phantom delta).
+                info.bonusDebt = _safeInt256((postClaimBoosted * accBonusPerShare) / ACC_PRECISION);
+                // Sync positionAmount as well in case the staking-side mutated
+                // it during getReward (defensive — typical autoMaxLock branch
+                // doesn't, but keeps the restaking cache consistent).
+                (uint256 postClaimAmount,,,,,,,,, ,) = staking.positions(info.tokenId);
+                if (postClaimAmount != info.positionAmount) {
+                    uint256 oldP = info.positionAmount;
+                    if (oldP >= postClaimAmount) {
+                        uint256 delta = oldP - postClaimAmount;
+                        if (delta <= totalActivePrincipal) {
+                            totalActivePrincipal -= delta;
+                        } else {
+                            totalActivePrincipal = 0;
+                        }
+                    } else {
+                        totalActivePrincipal += (postClaimAmount - oldP);
+                    }
+                    info.positionAmount = postClaimAmount;
+                }
+            }
+        } catch {
+            // If the post-claim re-read reverts, leave the cache as-is — the
+            // user can always call refreshPosition manually.
         }
 
         // AUDIT FIX H-02: Forward any unforwarded base rewards (from revalidateBoost or other external calls)
@@ -658,6 +804,13 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     function unrestake() external nonReentrant {
         RestakeInfo storage info = restakers[msg.sender];
         if (info.tokenId == 0) revert NotRestaked();
+
+        // AUDIT FIX: DR2-01 — capture the cached principal BEFORE the stale-path
+        // can overwrite it. The post-stale-block `totalActivePrincipal -= ...`
+        // decrement (~50 lines below) must use this captured value, not the
+        // post-overwrite `info.positionAmount` (which may be 0 for force-closed
+        // positions, leaking the original principal into `totalActivePrincipal`).
+        uint256 cachedPrincipalAtEntry = info.positionAmount;
 
         // S2-03: Auto-refresh cached position data before bonus calculation (same as claimAll)
         // AUDIT FIX M-07: Also compare boostedAmount to catch boost-only changes
@@ -752,7 +905,17 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
         // Update state
         // AUDIT H-1: release this user's principal reservation before transferring the NFT.
-        totalActivePrincipal -= info.positionAmount;
+        // AUDIT FIX: DR2-01 — use the principal captured BEFORE the stale-path
+        // mutated `info.positionAmount`. Pre-fix, when the stale-path overwrote
+        // `info.positionAmount = currentAmount` (== 0 for force-closed
+        // positions), this decrement subtracted 0 and the original principal
+        // leaked into `totalActivePrincipal` permanently — silently DOS'ing
+        // `recoverStuckPrincipal` for honest force-closed users.
+        if (cachedPrincipalAtEntry <= totalActivePrincipal) {
+            totalActivePrincipal -= cachedPrincipalAtEntry;
+        } else {
+            totalActivePrincipal = 0;
+        }
         totalRestaked -= info.boostedAmount;
         // AUDIT H-06: cache the deposit-time snapshot before deleting RestakeInfo.
         uint256 depositSnapshot = info.unsettledSnapshot;
@@ -907,20 +1070,28 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     }
 
     /// @notice M-03: Cancel a pending bonus rate proposal
-    /// @dev AUDIT FIX: DEEP-DR-07 — gate cancels behind the same 24h cooldown as
-    ///      `proposeBonusRate` so the propose+cancel loop cannot be exercised
-    ///      faster than once per day. A compromised signer can still cancel
-    ///      during the cooldown by waiting it out, but they cannot indefinitely
-    ///      veto every counter-proposal in real time. Same lastBonusRateActionAt-
-    ///      is-zero unblocked-bootstrap pattern as proposeBonusRate.
+    /// @dev AUDIT FIX: DR2-05 — REMOVED the cooldown gate from
+    ///      `cancelBonusRateProposal`. The DR-07 v1 fix gated BOTH propose and
+    ///      cancel behind the same 24h cooldown. While that stopped the
+    ///      propose+cancel churn loop, it also blocked the FIRST cancel within
+    ///      24h of a propose — halving the multisig's defensive responsiveness
+    ///      against a captured-signer malicious propose. The asymmetric trade
+    ///      was wrong: defensive cancel is exactly the action the multisig
+    ///      MUST be able to take immediately when it spots a hostile proposal.
+    ///
+    ///      Fix: cancel is now always allowed. Anti-churn protection remains
+    ///      via the propose-side cooldown — a compromised signer cannot
+    ///      indefinitely re-propose at sub-24h cadence even if they cancel
+    ///      between proposes. Pattern of record: OZ TimelockController allows
+    ///      cancel without cooldown; only propose is rate-limited.
     function cancelBonusRateProposal() external onlyOwner {
-        if (lastBonusRateActionAt != 0 &&
-            block.timestamp < lastBonusRateActionAt + BONUS_RATE_ACTION_COOLDOWN) {
-            revert BonusRateActionCooldown();
-        }
         _cancel(BONUS_RATE_CHANGE);
         uint256 cancelledRate = pendingBonusRate;
         pendingBonusRate = 0;
+        // AUDIT FIX: DR2-05 — still update `lastBonusRateActionAt` on cancel so
+        // the propose-side cooldown observes this cancel as a recent action.
+        // The next propose remains gated by the 24h window from this cancel
+        // (anti-churn). Defensive cancel itself is unblocked.
         lastBonusRateActionAt = block.timestamp;
         emit BonusRateCancelled(cancelledRate);
     }
@@ -1413,6 +1584,24 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
         // Also refresh positionAmount
         (uint256 currentAmount,,,,,,,,, , ) = staking.positions(info.tokenId);
+        // AUDIT FIX: DR2-01 — sync `totalActivePrincipal` to the new cached
+        // principal BEFORE overwrite. Permissionless entrypoint, highest
+        // leverage of the four sibling sites: pre-fix, anyone could call
+        // `decayExpiredRestaker` against a force-closed position to flip the
+        // cached `info.positionAmount` from `oldAmount` to 0 without ever
+        // decrementing `totalActivePrincipal` — orphaning the principal in
+        // the reservation pool and silently DOS'ing `recoverStuckPrincipal`.
+        uint256 oldPositionAmount = info.positionAmount;
+        if (oldPositionAmount >= currentAmount) {
+            uint256 principalDelta = oldPositionAmount - currentAmount;
+            if (principalDelta <= totalActivePrincipal) {
+                totalActivePrincipal -= principalDelta;
+            } else {
+                totalActivePrincipal = 0;
+            }
+        } else {
+            totalActivePrincipal += (currentAmount - oldPositionAmount);
+        }
         info.positionAmount = currentAmount;
 
         emit PositionRefreshed(_restaker, info.tokenId, oldBoosted, currentBoosted);
