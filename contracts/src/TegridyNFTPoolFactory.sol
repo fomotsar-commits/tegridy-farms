@@ -563,7 +563,25 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     function withdrawProtocolFees() external onlyOwner nonReentrant {
         uint256 balance = address(this).balance;
         require(balance > 0, "NO_FEES");
-        uint256 amt = balance > MAX_DAILY_WITHDRAWAL ? MAX_DAILY_WITHDRAWAL : balance;
+        // AUDIT FIX: V2-NFTPOOL-03: cap to `min(balance, MAX_DAILY_WITHDRAWAL
+        // - withdrawnToday)` rather than the absolute `MAX_DAILY_WITHDRAWAL`.
+        // The prior implementation reverted with `DailyCapExceeded` whenever
+        // the day's cap had been partially used (e.g., keeper drained 500 ETH
+        // earlier the same day, balance is now 800 ETH, function tried to
+        // pass 800 to the rate-limiter and overflowed the cap). The legacy
+        // no-arg path is intended as "withdraw what's available" — this fix
+        // restores that behavior by computing the remaining-cap on-chain.
+        uint256 remainingCap;
+        if (block.timestamp >= dayStart + 1 days) {
+            // Window will roll inside `_withdrawWithRateLimit`; full cap is
+            // available for this transaction.
+            remainingCap = MAX_DAILY_WITHDRAWAL;
+        } else {
+            // Within the same window — only the unused portion is withdrawable.
+            remainingCap = MAX_DAILY_WITHDRAWAL - withdrawnToday;
+        }
+        if (remainingCap == 0) revert DailyCapExceeded();
+        uint256 amt = balance < remainingCap ? balance : remainingCap;
         _withdrawWithRateLimit(amt);
     }
 
@@ -601,7 +619,14 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     ///         between successive flips so a captured owner key cannot grief
     ///         pause/unpause-spam against legitimate users.
     function setEmergencyPaused(bool paused) external onlyOwner {
-        if (lastEmergencyAt != 0 && block.timestamp < lastEmergencyAt + EMERGENCY_PAUSE_COOLDOWN) {
+        // AUDIT FIX: V2-NFTPOOL-02: cooldown applies only when ENTERING the
+        // paused state (false -> true). Corrective unpause (true -> false) is
+        // always allowed at any time so a hasty / mistaken pause can be
+        // reverted immediately. Anti-grief still holds: an attacker who flips
+        // pause cannot re-pause within the cooldown window. Pattern matches
+        // Compound's PauseGuardian / Aave's emergency admin (instant unpause,
+        // rate-limited pause).
+        if (paused && lastEmergencyAt != 0 && block.timestamp < lastEmergencyAt + EMERGENCY_PAUSE_COOLDOWN) {
             revert EmergencyCooldown();
         }
         emergencyPaused = paused;

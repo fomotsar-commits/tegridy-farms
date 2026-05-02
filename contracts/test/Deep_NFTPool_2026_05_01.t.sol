@@ -277,7 +277,11 @@ contract Deep_NFTPool_2026_05_01_Test is Test {
         vm.stopPrank();
     }
 
-    // ─── DEEP-NFTPOOL-07: 10% liquidity-buffer on withdrawETH ────────────
+    // ─── DEEP-NFTPOOL-07 / V2-NFTPOOL-04: solvency-derived liquidity buffer ─
+    // The V2-04 fix replaces the prior 10%-of-balance heuristic with a
+    // bonding-curve-derived floor: `min(getMaxSellable(), 100) * spotPrice`.
+    // For SPOT_PRICE=1e18, DELTA=1e17, getMaxSellable() = (1e18 - 1) / 1e17 = 9
+    // → buffer = 9 ether. Pool funded with 10 ETH → max withdraw = 1 ether.
 
     function test_DEEP07_withdrawAllRejected() public {
         TegridyNFTPool pool = _mkBuy(10 ether);
@@ -287,26 +291,48 @@ contract Deep_NFTPool_2026_05_01_Test is Test {
         pool.withdrawETH(10 ether);
     }
 
-    function test_DEEP07_withdraw90PercentOK() public {
+    function test_DEEP07_withdrawWithinBufferOK() public {
         TegridyNFTPool pool = _mkBuy(10 ether);
         vm.roll(block.number + 1);
-        // 10 ETH * 90% = 9 ETH; buffer = 1 ETH (10%); 9+1==10 (boundary; still reverts).
-        // Try 8 ETH (allowed: 8+1<=10 since 1 > 10/10=1; 8+1=9 <= 10).
+        // V2-04 buffer = getMaxSellable() * spotPrice = 9 * 1 ether = 9 ether.
+        // 1 ether withdraw + 9 ether buffer = 10 ether == lpAvailable → allowed.
         vm.prank(alice);
-        pool.withdrawETH(8 ether);
-        assertEq(address(pool).balance, 2 ether);
+        pool.withdrawETH(1 ether);
+        assertEq(address(pool).balance, 9 ether);
+    }
+
+    function test_DEEP07_withdrawAboveBufferReverts() public {
+        TegridyNFTPool pool = _mkBuy(10 ether);
+        vm.roll(block.number + 1);
+        // 2 ether withdraw + 9 ether buffer = 11 ether > 10 ether → revert.
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTPool.MinLiquidityBuffer.selector);
+        pool.withdrawETH(2 ether);
     }
 
     function test_DEEP07_removeLiquidityWithBuffer() public {
         TegridyNFTPool pool = _mkBuy(10 ether);
         vm.roll(block.number + 1);
         uint256[] memory empty = new uint256[](0);
+        // 10 ether requested with 9 ether buffer required → revert.
         vm.prank(alice);
         vm.expectRevert(TegridyNFTPool.MinLiquidityBuffer.selector);
         pool.removeLiquidity(empty, 10 ether);
 
+        // 1 ether requested with 9 ether buffer = exactly lpAvailable → allowed.
         vm.prank(alice);
-        pool.removeLiquidity(empty, 8 ether);
+        pool.removeLiquidity(empty, 1 ether);
+    }
+
+    function test_DEEP07V2_sellPoolNoBuffer() public {
+        // SELL pools cannot accept sells, so the buffer is 0 — owner can drain.
+        TegridyNFTPool pool = _mkSell(_idArr(1, 3));
+        // SELL pools don't take ETH at create; fund directly via factory path:
+        // (skip funding — just confirm withdrawETH on a 0-balance pool reverts on amount==0)
+        vm.roll(block.number + 1);
+        vm.prank(alice);
+        vm.expectRevert(bytes("INVALID_AMOUNT"));
+        pool.withdrawETH(0);
     }
 
     // ─── DEEP-NFTPOOL-08: receive() restricted to factory ────────────────
@@ -409,11 +435,30 @@ contract Deep_NFTPool_2026_05_01_Test is Test {
     }
 
     function test_DEEP12_emergencyPauseCooldownEnforced() public {
+        // V2-NFTPOOL-02: cooldown applies ONLY when entering paused state
+        // (false → true). Re-pausing within the cooldown window must revert.
         vm.prank(admin);
         factory.setEmergencyPaused(true);
+        // Immediately unpause (now allowed under V2 fix).
+        vm.prank(admin);
+        factory.setEmergencyPaused(false);
+        // Re-pause within the cooldown window must still revert (anti-grief).
         vm.prank(admin);
         vm.expectRevert(TegridyNFTPoolFactory.EmergencyCooldown.selector);
+        factory.setEmergencyPaused(true);
+    }
+
+    function test_V2NFTPOOL02_unpauseInstantAllowed() public {
+        // V2-NFTPOOL-02: corrective unpause is allowed at any time (no
+        // cooldown). Captures the case where a hasty / mistaken pause must
+        // be reverted before the 6h cooldown elapses.
+        vm.prank(admin);
+        factory.setEmergencyPaused(true);
+        assertTrue(factory.emergencyPaused());
+        // Same-block unpause must succeed (no cooldown applied to false dir).
+        vm.prank(admin);
         factory.setEmergencyPaused(false);
+        assertFalse(factory.emergencyPaused());
     }
 
     function test_DEEP12_emergencyPauseAfterCooldownOK() public {

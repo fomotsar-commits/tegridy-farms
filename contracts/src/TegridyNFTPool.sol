@@ -59,6 +59,12 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     // AUDIT FIX: DEEP-NFTPOOL-06: transient flag during swap execution.
     bool internal _swapInFlight;
 
+    // AUDIT FIX: V2-NFTPOOL-01: tracks the active swap's caller so that the
+    // `onERC721Received` deposit gate can restrict open-window deposits to the
+    // intended seller's inflow only (not arbitrary attacker-deposits during the
+    // buyer's `onERC721Received` callback in `swapETHForNFTs`).
+    address internal _swapCaller;
+
     uint256 public constant MAX_FEE_BPS = 9000;
     uint256 public constant MAX_PROTOCOL_FEE_BPS = 1000;
     uint256 public constant BPS = 10_000;
@@ -206,6 +212,8 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
         // AUDIT FIX: DEEP-NFTPOOL-06
         _swapInFlight = true;
+        // AUDIT FIX: V2-NFTPOOL-01
+        _swapCaller = msg.sender;
 
         (uint256 inputAmount, uint256 protocolFee, uint256 lpFee) = _getBuyPriceFull(numItems);
         if (inputAmount > maxTotalCost) revert MaxCostExceeded();
@@ -238,6 +246,8 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
         lastSwapBlock = block.number;
         _swapInFlight = false;
+        // AUDIT FIX: V2-NFTPOOL-01
+        _swapCaller = address(0);
 
         emit SwapETHForNFTs(msg.sender, tokenIds, inputAmount);
     }
@@ -259,6 +269,8 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
         // AUDIT FIX: DEEP-NFTPOOL-06
         _swapInFlight = true;
+        // AUDIT FIX: V2-NFTPOOL-01
+        _swapCaller = msg.sender;
 
         (uint256 outputAmount, uint256 protocolFee, uint256 lpFee) = _getSellPriceFull(numItems);
         if (outputAmount < minOutput) revert InsufficientPayout();
@@ -284,6 +296,8 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
         lastSwapBlock = block.number;
         _swapInFlight = false;
+        // AUDIT FIX: V2-NFTPOOL-01
+        _swapCaller = address(0);
 
         emit SwapNFTsForETH(msg.sender, tokenIds, outputAmount);
     }
@@ -309,9 +323,15 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         }
 
         if (ethAmount > 0) {
-            // AUDIT FIX: DEEP-NFTPOOL-07
+            // AUDIT FIX: DEEP-NFTPOOL-07 / V2-NFTPOOL-04: replace heuristic
+            // 10%-of-balance buffer with a solvency-derived floor tied to the
+            // actual bonding-curve worst-case payout. We require the post-
+            // withdraw `lpAvailable` to still cover one full max-batch sell
+            // at the current spot price (100 items = swap maximum). This
+            // ensures the next sell cannot revert on `POOL_INSUFFICIENT_ETH`
+            // due to the owner front-running with a withdrawal.
             uint256 lpAvailable = _lpAvailableETH();
-            uint256 minBuffer = lpAvailable / 10;
+            uint256 minBuffer = _minLiquidityBuffer();
             if (ethAmount + minBuffer > lpAvailable) revert MinLiquidityBuffer();
             _sendETH(msg.sender, ethAmount);
         }
@@ -428,7 +448,13 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         emit OwnerChangeCancelled(cancelled);
     }
 
-    function acceptOwnership() external {
+    function acceptOwnership() external whenNotPaused {
+        // AUDIT FIX: V2-NFTPOOL-05: also check the factory's emergency-pause
+        // cascade so an in-progress incident response can fully freeze the pool
+        // (including pending owner transitions, not just swaps). Without this,
+        // an attacker who got a 48h owner-change proposal in before detection
+        // could still capture the pool while the protocol is otherwise paused.
+        if (ITegridyNFTPoolFactoryView(factory).emergencyPaused()) revert EmergencyPaused();
         if (msg.sender != pendingOwner || msg.sender == address(0)) revert NotPendingOwner();
         if (pendingOwnerExecuteAfter == 0 || block.timestamp < pendingOwnerExecuteAfter) {
             revert TimelockNotElapsed();
@@ -446,6 +472,32 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         owner = pendingOwner;
         pendingOwner = address(0);
         pendingOwnerExecuteAfter = 0;
+
+        // AUDIT FIX: V2-NFTPOOL-07: clear ALL other pending governance
+        // proposals on ownership transition so the new owner does not inherit
+        // a "time-bomb" parameter change (spotPrice/delta/feeBps) queued by
+        // the prior owner. The new owner can re-propose if needed, paying the
+        // 24h timelock again — this is intentional friction to surface the
+        // change to whoever now controls the pool.
+        if (pendingSpotPriceExecuteAfter != 0) {
+            uint256 cancelledSpot = pendingSpotPrice;
+            pendingSpotPrice = 0;
+            pendingSpotPriceExecuteAfter = 0;
+            emit SpotPriceChangeCancelled(cancelledSpot);
+        }
+        if (pendingDeltaExecuteAfter != 0) {
+            uint256 cancelledDelta = pendingDelta;
+            pendingDelta = 0;
+            pendingDeltaExecuteAfter = 0;
+            emit DeltaChangeCancelled(cancelledDelta);
+        }
+        if (pendingFeeBpsExecuteAfter != 0) {
+            uint256 cancelledFee = pendingFeeBps;
+            pendingFeeBps = 0;
+            pendingFeeBpsExecuteAfter = 0;
+            emit FeeChangeCancelled(cancelledFee);
+        }
+
         emit OwnerChanged(oldOwner, owner);
     }
 
@@ -453,8 +505,15 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         uint256 amount = accumulatedLPFees;
         if (amount == 0) return;
         accumulatedLPFees = 0;
-        _sendETH(owner, amount);
-        emit LPFeesClaimed(owner, amount);
+        // AUDIT FIX: V2-NFTPOOL-06: send to msg.sender (the address that
+        // actually passed the `onlyOwner` check this transaction), not to the
+        // live `owner` storage slot. Eliminates the same-block MEV race where
+        // a freshly-`acceptOwnership`d new owner could front-run the prior
+        // owner's `claimLPFees` and redirect those fees to themselves. After
+        // `acceptOwnership` the prior owner can still recover their share via
+        // `claimPriorOwnerLPFees` from the snapshot.
+        _sendETH(msg.sender, amount);
+        emit LPFeesClaimed(msg.sender, amount);
     }
 
     function claimPriorOwnerLPFees() external nonReentrant {
@@ -468,9 +527,12 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     function withdrawETH(uint256 amount) external onlyOwner nonReentrant {
         if (block.number <= lastSwapBlock) revert WaitOneBlock();
         require(amount > 0, "INVALID_AMOUNT");
-        // AUDIT FIX: DEEP-NFTPOOL-07
+        // AUDIT FIX: DEEP-NFTPOOL-07 / V2-NFTPOOL-04: solvency-derived
+        // buffer (see `_minLiquidityBuffer`). Replaces the prior 10%-of-
+        // balance heuristic that scaled disconnected from the actual sell
+        // payout the curve could permit on the next swap.
         uint256 lpAvailable = _lpAvailableETH();
-        uint256 minBuffer = lpAvailable / 10;
+        uint256 minBuffer = _minLiquidityBuffer();
         if (amount + minBuffer > lpAvailable) revert MinLiquidityBuffer();
         _sendETH(msg.sender, amount);
         // AUDIT FIX: DEEP-NFTPOOL-01
@@ -580,19 +642,24 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
     function onERC721Received(
         address operator,
-        address,
+        address from,
         uint256 tokenId,
         bytes calldata
     ) external override returns (bytes4) {
         require(msg.sender == address(nftCollection), "WRONG_COLLECTION");
-        // AUDIT FIX: DEEP-NFTPOOL-06: also accept deposits when a swap is in flight
-        require(
-            operator == owner ||
-                operator == address(this) ||
-                operator == factory ||
-                _swapInFlight,
-            "UNAUTHORIZED_DEPOSIT"
-        );
+        // AUDIT FIX: V2-NFTPOOL-01: tighten the in-flight gate. When a swap is
+        // active we accept deposits ONLY from the swap caller's address (the
+        // intended seller's inflow). This blocks the buyer-callback re-entry
+        // vector where `safeTransferFrom(address(this), buyer, tokenId)` fires
+        // the buyer's `onERC721Received` while `_swapInFlight == true` and the
+        // buyer's hook deposits arbitrary tokenIds back into the pool. The
+        // legacy authorized-operator branch still accepts owner/factory/self
+        // deposits regardless of swap state.
+        bool authorizedOperator = operator == owner ||
+            operator == address(this) ||
+            operator == factory;
+        bool authorizedSwapInflow = _swapInFlight && from == _swapCaller;
+        require(authorizedOperator || authorizedSwapInflow, "UNAUTHORIZED_DEPOSIT");
         if (_idToIndex[tokenId] == 0) {
             _addHeldId(tokenId);
         }
@@ -672,6 +739,29 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         uint256 reserved = accumulatedProtocolFees + accumulatedLPFees;
         if (bal <= reserved) return 0;
         return bal - reserved;
+    }
+
+    /// @dev AUDIT FIX: V2-NFTPOOL-04: derive the post-withdraw liquidity floor
+    ///      from the bonding-curve worst-case sell payout instead of the prior
+    ///      heuristic 10%-of-balance slice. The worst-case sell payout is
+    ///      `min(getMaxSellable(), 100) * spotPrice` — bounded above by both
+    ///      the per-swap cap of 100 items AND the curve's `getMaxSellable()`
+    ///      (beyond which the curve underflows and reverts). This is an upper
+    ///      bound on the next sell's gross payout (LP/protocol fees in TRADE
+    ///      pools further reduce the net outflow, so the floor is intentionally
+    ///      conservative). SELL pools cannot accept sells (`PoolTypeMismatch`
+    ///      revert in `swapNFTsForETH`) so they need no floor. The buffer is
+    ///      capped at `_lpAvailableETH()` so an already-depleted pool can
+    ///      still let the owner withdraw remaining dust without an impossible-
+    ///      to-satisfy floor.
+    function _minLiquidityBuffer() internal view returns (uint256) {
+        if (poolType == PoolType.SELL) return 0;
+        uint256 maxItems = getMaxSellable();
+        if (maxItems == 0) return 0;
+        if (maxItems > 100) maxItems = 100;
+        uint256 floorAmt = maxItems * spotPrice;
+        uint256 lpAvailable = _lpAvailableETH();
+        return floorAmt > lpAvailable ? lpAvailable : floorAmt;
     }
 
     // ─── Internal: Held NFT Tracking ────────────────────────────────────
