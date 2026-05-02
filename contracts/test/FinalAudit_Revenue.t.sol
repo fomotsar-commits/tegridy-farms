@@ -218,6 +218,10 @@ contract FinalAuditRevenue is Test {
         vm.deal(alice, 100 ether);
         vm.deal(bob, 100 ether);
         vm.deal(carol, 100 ether);
+
+        // AUDIT FIX: DEEP-DR-M-07 — recordFee/claim*/withdraw paths require
+        // setupComplete. Tests that exercise those paths run post-setup.
+        splitter.completeSetup();
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -771,9 +775,8 @@ contract FinalAuditRevenue is Test {
     /// @notice Verify that after completeSetup, instant setApprovedCaller is disabled.
     ///         Expected: DEFENDED — SetupAlreadyComplete revert.
     function test_ReferralSplitter_SetupCompleteBlocksInstantGrant() public {
-        splitter.completeSetup();
-
-        // Try instant setApprovedCaller — should revert
+        // setUp() already completed setup. Test that instant setApprovedCaller
+        // is now blocked.
         vm.expectRevert(ReferralSplitter.SetupAlreadyComplete.selector);
         splitter.setApprovedCaller(attacker, true);
 

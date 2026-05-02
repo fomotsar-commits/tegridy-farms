@@ -93,6 +93,16 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     // AUDIT FIX M-17: Once setup is complete, instant setApprovedCaller is disabled — only timelocked path works
     bool public setupComplete;
 
+    /// @notice AUDIT FIX: DEEP-DR-L-04 — banned-referrer set. A referrer who has been
+    ///         forfeited (their pending was sent to treasury) can be permanently
+    ///         blocked from re-earning by the owner via `banReferrer`. Existing
+    ///         `setReferrer` calls reject any banned target. Admin path is timelocked
+    ///         to prevent rug-banning of legitimate referrers.
+    mapping(address => bool) public bannedReferrers;
+    bytes32 public constant BAN_REFERRER = keccak256("BAN_REFERRER");
+    uint256 public constant BAN_REFERRER_DELAY = 24 hours;
+    address public pendingBanReferrer;
+
     // ─── Timelock Constants ──────────────────────────────────────────
     uint256 public constant TREASURY_CHANGE_DELAY = 48 hours;
     uint256 public constant FEE_CHANGE_DELAY = 24 hours;
@@ -129,6 +139,10 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     event BelowStakeMarked(address indexed referrer, uint256 timestamp);
     event CallerCreditPaidWETH(address indexed caller, uint256 amount);
     event UnclaimedSweptWETH(address indexed treasury, uint256 amount);
+    event BanReferrerProposed(address indexed referrer, uint256 executeAfter); // DEEP-DR-L-04
+    event ReferrerBanned(address indexed referrer);                            // DEEP-DR-L-04
+    event BanReferrerCancelled(address indexed referrer);                      // DEEP-DR-L-04
+    event ReferrerUnbanned(address indexed referrer);                          // DEEP-DR-L-04
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -147,6 +161,7 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     error ForfeitureConditionsNotMet();
     error SetupAlreadyComplete(); // AUDIT FIX M-17
     error ReferralAgeTooRecent();
+    error ReferrerBannedError(); // AUDIT FIX: DEEP-DR-L-04 — referrer is on the ban list
 
     // Legacy error aliases (kept for test compatibility)
     // Note: ProposalExpired() removed — use TimelockAdmin.ProposalExpired(bytes32) instead
@@ -194,6 +209,9 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         if (_referrer == msg.sender) revert SelfReferral();
         if (_referrer == address(0)) revert ZeroAddress();
         if (referrerOf[msg.sender] != address(0)) revert AlreadyReferred();
+        // AUDIT FIX: DEEP-DR-L-04 — reject banned referrers. Closes the post-forfeiture
+        // resurrection vector (a forfeited referrer can no longer be set as a target).
+        if (bannedReferrers[_referrer]) revert ReferrerBannedError();
         // AUDIT FIX v3: Walk referral chain up to 5 levels to detect circular references (A→B→C→A)
         _checkCircularReferral(_referrer, msg.sender);
 
@@ -214,6 +232,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         if (referrerOf[msg.sender] == address(0)) revert NoReferrerSet();
         // AUDIT FIX: Use custom error instead of require string for consistency
         if (_newReferrer == referrerOf[msg.sender]) revert SameReferrer();
+        // AUDIT FIX: DEEP-DR-L-04 — reject banned new-referrer targets.
+        if (bannedReferrers[_newReferrer]) revert ReferrerBannedError();
         // AUDIT FIX v3: Walk referral chain up to 5 levels to detect circular references
         _checkCircularReferral(_newReferrer, msg.sender);
         if (block.timestamp < lastReferrerChange[msg.sender] + REFERRER_COOLDOWN) revert CooldownNotElapsed();
@@ -290,6 +310,11 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     ///         A3-M-02 FIX: votingPowerOf wrapped in try/catch to prevent staking DoS.
     /// @param _user The user whose swap fee is being recorded
     function recordFee(address _user) external payable onlyApproved nonReentrant {
+        // AUDIT FIX: DEEP-DR-M-07 — enforce the L-R02 NatSpec contract: until
+        // `completeSetup()` has been called, the contract is operationally inert.
+        // Pre-fix, an accidental `setApprovedCaller(router, true)` followed by a
+        // user-side fee would credit `pendingETH[referrer]` against pre-deploy state.
+        require(setupComplete, "SETUP_NOT_COMPLETE");
         require(_user != address(0), "ZERO_USER");
         if (msg.value == 0) return;
 
@@ -344,6 +369,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     /// @notice SECURITY FIX H-04: Withdraw credited ETH (pull pattern for non-referral returns).
     ///         Approved callers call this to retrieve their non-referral portion after recordFee.
     function withdrawCallerCredit() external nonReentrant {
+        // AUDIT FIX: DEEP-DR-M-07 — gate on setupComplete (L-R02 NatSpec contract).
+        require(setupComplete, "SETUP_NOT_COMPLETE");
         uint256 amount = callerCredit[msg.sender];
         if (amount == 0) revert NothingToClaim();
         callerCredit[msg.sender] = 0;
@@ -358,6 +385,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     ///         A4-C-01 FIX: votingPowerOf wrapped in try/catch — if staking contract reverts,
     ///         claim is blocked (not silently allowed) but funds remain claimable once staking recovers.
     function claimReferralRewards() external nonReentrant {
+        // AUDIT FIX: DEEP-DR-M-07 — gate on setupComplete (L-R02 NatSpec contract).
+        require(setupComplete, "SETUP_NOT_COMPLETE");
         // SECURITY FIX H1: Removed voting power requirement from CLAIMING.
         // Stake check is enforced in recordFee() when EARNING new referrals.
         // Earned rewards must always be claimable regardless of current stake.
@@ -500,6 +529,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     ///         Anyone can call this. Resets if the referrer is actually above threshold.
     /// @param _referrer The referrer to mark
     function markBelowStake(address _referrer) external {
+        // AUDIT FIX: DEEP-DR-M-07 — gate on setupComplete (L-R02 NatSpec contract).
+        require(setupComplete, "SETUP_NOT_COMPLETE");
         // A4-C-01: Wrap in try/catch — if staking reverts, treat as below threshold
         uint256 power;
         try stakingContract.votingPowerOf(_referrer) returns (uint256 p) {
@@ -525,6 +556,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     /// @dev A3-M-01 FIX: Uses pull-pattern (accumulate to treasury ETH) instead of pushing
     ///      ETH directly to treasury, preventing permanent DoS if treasury reverts.
     function forfeitUnclaimedRewards(address _referrer) external onlyOwner nonReentrant {
+        // AUDIT FIX: DEEP-DR-M-07 — gate on setupComplete (L-R02 NatSpec contract).
+        require(setupComplete, "SETUP_NOT_COMPLETE");
         uint256 amount = pendingETH[_referrer];
         if (amount == 0) revert NothingToClaim();
         // Must be below min stake for at least grace period AND inactive for 90 days
@@ -563,6 +596,42 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         emit TreasuryFeesPaidWETH(treasury, amount);
 
         emit TreasuryETHWithdrawn(treasury, amount);
+    }
+
+    /// @notice AUDIT FIX: DEEP-DR-L-04 — propose adding a referrer to the ban list.
+    ///         24h timelock so a captured-owner key cannot rug-ban a legitimate
+    ///         referrer mid-claim cycle without giving the community time to react.
+    /// @param  _referrer  The referrer address to ban.
+    function proposeBanReferrer(address _referrer) external onlyOwner {
+        if (_referrer == address(0)) revert ZeroAddress();
+        pendingBanReferrer = _referrer;
+        _propose(BAN_REFERRER, BAN_REFERRER_DELAY);
+        emit BanReferrerProposed(_referrer, _executeAfter[BAN_REFERRER]);
+    }
+
+    /// @notice Execute a previously-proposed referrer ban after the 24h timelock.
+    function executeBanReferrer() external onlyOwner {
+        _execute(BAN_REFERRER);
+        address banned = pendingBanReferrer;
+        pendingBanReferrer = address(0);
+        bannedReferrers[banned] = true;
+        emit ReferrerBanned(banned);
+    }
+
+    /// @notice Cancel a pending referrer ban proposal.
+    function cancelBanReferrer() external onlyOwner {
+        _cancel(BAN_REFERRER);
+        address cancelled = pendingBanReferrer;
+        pendingBanReferrer = address(0);
+        emit BanReferrerCancelled(cancelled);
+    }
+
+    /// @notice Unban a previously-banned referrer (instant, no timelock — releasing
+    ///         a ban is always safe).
+    function unbanReferrer(address _referrer) external onlyOwner {
+        if (!bannedReferrers[_referrer]) revert ZeroAddress();
+        bannedReferrers[_referrer] = false;
+        emit ReferrerUnbanned(_referrer);
     }
 
     /// @notice Sweep excess ETH (non-referral portion from fees) to treasury.

@@ -58,17 +58,24 @@ contract PremiumAccessTest is Test {
         premium.subscribe(1, type(uint256).max);
         assertEq(premium.userEscrow(alice), MONTHLY_FEE);
 
-        vm.warp(block.timestamp + 1); // advance past startedAt to satisfy ALREADY_SUBSCRIBED_THIS_BLOCK check
+        // DEEP-DR-L-05: extensions must respect MIN_HOLDING_PERIOD (24h) so the
+        // extension can't be used to lock in old fee rates immediately.
+        vm.warp(block.timestamp + premium.MIN_HOLDING_PERIOD() + 1);
 
         vm.prank(alice);
         premium.subscribe(1, type(uint256).max); // extend
-        // AUDIT PA-M-01 / R022 (2026-04-29): on extension, the OLD escrow is
-        // forfeit and a fresh per-period escrow is anchored. After extension
-        // userEscrow == cost (1 * MONTHLY_FEE), NOT 2 * MONTHLY_FEE — the
-        // previous "carry remaining escrow into the new period" math allowed
-        // extend-then-cancel refund drift.
-        assertEq(premium.userEscrow(alice), MONTHLY_FEE, "PA-M-01: fresh per-period escrow");
-        assertEq(premium.totalRefundEscrow(), MONTHLY_FEE, "PA-M-01: refund-escrow tracks fresh cost");
+        // AUDIT PA-M-01 / R022 (2026-04-29) + DEEP-DR-M-06 (2026-05-01):
+        // on extension, the unconsumed pro-rata of the OLD period is credited
+        // back into the fresh per-period escrow (NOT forfeit to revenue). For
+        // a 30-day subscription extended after MIN_HOLDING_PERIOD (~1 day),
+        // ~29/30 of the original escrow remains unconsumed, so userEscrow
+        // post-extension is roughly cost + (29/30 * MONTHLY_FEE).
+        // The exact value depends on MIN_HOLDING_PERIOD, but it is ALWAYS in
+        // (cost, 2 * cost).
+        uint256 escrow = premium.userEscrow(alice);
+        assertGt(escrow, MONTHLY_FEE, "DEEP-DR-M-06: unconsumed credited back");
+        assertLt(escrow, 2 * MONTHLY_FEE, "DEEP-DR-M-06: less than full doubling (consumed portion is forfeit)");
+        assertEq(premium.totalRefundEscrow(), escrow, "DEEP-DR-M-06: refund-escrow tracks fresh anchor");
     }
 
     function test_subscribe_1month() public {
@@ -343,21 +350,28 @@ contract PremiumAccessTest is Test {
         premium.subscribe(1, type(uint256).max);
         assertEq(premium.totalRevenue(), MONTHLY_FEE);
 
-        vm.warp(block.timestamp + 1);
+        // DEEP-DR-L-05: respect MIN_HOLDING_PERIOD before extension.
+        vm.warp(block.timestamp + premium.MIN_HOLDING_PERIOD() + 1);
 
         vm.prank(alice);
         premium.subscribe(1, type(uint256).max);
-        // AUDIT PA-M-01 / R022 (2026-04-29): on extension, the unconsumed
-        // remainder of the OLD escrow (~MONTHLY_FEE since only 1s elapsed of
-        // 30 days) is credited to totalRevenue (it became revenue at the
-        // moment the user opted to extend instead of cancel-and-resubscribe).
-        // PLUS the new cost (MONTHLY_FEE) is added by the existing
-        // M-06 unconditional `totalRevenue += cost` line. Net: starting
-        // MONTHLY_FEE + ~MONTHLY_FEE forfeited remainder + MONTHLY_FEE new
-        // cost ≈ 3 * MONTHLY_FEE, with a tiny epsilon from the 1-second
-        // elapsed slice that was implicitly consumed.
-        assertApproxEqAbs(premium.totalRevenue(), 3 * MONTHLY_FEE, 1 ether,
-            "PA-M-01: forfeit-on-extend credits remaining to revenue");
+        // AUDIT PA-M-01 (2026-04-29) + DEEP-DR-M-06 (2026-05-01): on extension,
+        // ONLY the consumed portion of the OLD escrow (~1/30 of MONTHLY_FEE
+        // since ~1 day elapsed of 30) is credited to totalRevenue. The
+        // unconsumed remainder is rolled into the new per-period escrow.
+        //
+        // PLUS the new cost (MONTHLY_FEE) is added by the existing M-06
+        // unconditional `totalRevenue += cost` line. So total revenue should
+        // be approximately:
+        //   start: MONTHLY_FEE
+        // + consumed portion of OLD escrow: ~MONTHLY_FEE * (1 day / 30 days)
+        // + new cost: MONTHLY_FEE
+        //   ≈ 2 * MONTHLY_FEE + ~3% of MONTHLY_FEE.
+        // Tolerance widened to handle the per-second elapsed slice.
+        uint256 expectedConsumed = MONTHLY_FEE * (premium.MIN_HOLDING_PERIOD() + 1) / 30 days;
+        uint256 expectedTotal = 2 * MONTHLY_FEE + expectedConsumed;
+        assertApproxEqAbs(premium.totalRevenue(), expectedTotal, 1 ether,
+            "DEEP-DR-M-06: only consumed portion enters revenue");
     }
 
     function test_totalRevenue_incrementsOnNewSubscription() public {

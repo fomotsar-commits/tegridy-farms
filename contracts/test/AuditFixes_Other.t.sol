@@ -510,38 +510,54 @@ contract AuditFixes_ReferralSplitterTest is Test {
 
         // Set staking power for referrer (bob)
         staking.setVotingPower(bob, 1000 ether);
+
+        // AUDIT FIX: DEEP-DR-M-07 — recordFee/claim*/withdraw paths require
+        // setupComplete. Tests run post-setup unless they explicitly need
+        // pre-setup state.
+        splitter.completeSetup();
     }
 
     /// @notice #17: Non-approved caller cannot call recordFee.
+    /// @dev Uses a FRESH splitter (no completeSetup) to exercise the
+    ///      pre-setup instant-grant path. The shared `splitter` is
+    ///      post-setup per the DEEP-DR-M-07 enforcement.
     function test_referralSplitter_approvedCallers() public {
+        ReferralSplitter freshSplitter = new ReferralSplitter(1000, address(staking), makeAddr("treasury"), address(wethForSplitter));
+        vm.deal(address(freshSplitter), 100 ether);
+
         vm.deal(randomCaller, 10 ether);
 
-        // Random caller tries to record fee — should revert
-        vm.prank(randomCaller);
-        vm.expectRevert(ReferralSplitter.NotApprovedCaller.selector);
-        splitter.recordFee{value: 1 ether}(alice);
+        // Owner approves a caller (still in pre-completeSetup phase)
+        freshSplitter.setApprovedCaller(randomCaller, true);
 
-        // Owner approves a caller
-        splitter.setApprovedCaller(randomCaller, true);
+        // Now finalise setup so the recordFee gate accepts calls
+        freshSplitter.completeSetup();
+
+        // Random non-approved caller tries to record fee — should revert
+        address unapproved = makeAddr("unapproved");
+        vm.deal(unapproved, 1 ether);
+        vm.prank(unapproved);
+        vm.expectRevert(ReferralSplitter.NotApprovedCaller.selector);
+        freshSplitter.recordFee{value: 1 ether}(alice);
 
         // Set up referral: alice -> bob
         vm.prank(alice);
-        splitter.setReferrer(bob);
+        freshSplitter.setReferrer(bob);
 
         // Now approved caller can record fee
         vm.prank(randomCaller);
-        splitter.recordFee{value: 1 ether}(alice);
+        freshSplitter.recordFee{value: 1 ether}(alice);
 
         // Bob should have pending rewards (10% of 1 ETH = 0.1 ETH)
-        assertEq(splitter.pendingETH(bob), 0.1 ether);
+        assertEq(freshSplitter.pendingETH(bob), 0.1 ether);
 
-        // Revoke approval
-        splitter.setApprovedCaller(randomCaller, false);
+        // Revoke approval (post-setup uses revokeApprovedCaller — instant)
+        freshSplitter.revokeApprovedCaller(randomCaller);
 
-        // Should fail again
+        // Should fail again on the fresh splitter (revoked caller)
         vm.prank(randomCaller);
         vm.expectRevert(ReferralSplitter.NotApprovedCaller.selector);
-        splitter.recordFee{value: 1 ether}(alice);
+        freshSplitter.recordFee{value: 1 ether}(alice);
     }
 
     /// @notice #39: Update referrer after cooldown period.

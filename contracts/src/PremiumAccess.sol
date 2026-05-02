@@ -75,6 +75,17 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     mapping(address => uint256) public nftActivationBlock; // kept name for storage compat, stores timestamp now
     uint256 public constant MIN_ACTIVATION_DELAY = 15 seconds;
 
+    /// @notice AUDIT FIX: DEEP-DR-M-05 — track refund shortfalls when contractBalance
+    ///         caps the cancelSubscription refund. Without this, the user's userEscrow
+    ///         is fully zeroed but they only receive `contractBalance` — silently
+    ///         losing the difference. Now the difference is recorded as a claim
+    ///         against future contract balance via `claimShortfall()`.
+    mapping(address => uint256) public shortfallOwed;
+    /// @notice Aggregate of all outstanding shortfall claims. Reserved against the
+    ///         contract's TOWELI balance so `withdrawToTreasury()` cannot drain
+    ///         funds owed to shortfall claimants.
+    uint256 public totalShortfallOwed;
+
     // ─── Timelock Constants ──────────────────────────────────────────
     uint256 public constant TREASURY_CHANGE_DELAY = 48 hours;
     uint256 public constant FEE_CHANGE_DELAY = 24 hours;
@@ -88,6 +99,12 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     event NFTAccessRevoked(address indexed user);
     event FeeUpdated(uint256 oldFee, uint256 newFee);
     event SubscriptionCancelled(address indexed user, uint256 refundAmount, uint256 remainingTime); // SECURITY FIX #17
+    /// @notice AUDIT FIX: DEEP-DR-M-05 — emitted when cancelSubscription's
+    ///         contractBalance cap fires. Off-chain monitoring should alert on this.
+    event RefundShorted(address indexed user, uint256 expected, uint256 actual);
+    /// @notice AUDIT FIX: DEEP-DR-M-05 — emitted when a user claims a previously
+    ///         shorted refund via `claimShortfall()`.
+    event ShortfallClaimed(address indexed user, uint256 amount);
     event TreasuryUpdated(address oldTreasury, address newTreasury); // SECURITY FIX #19
     event TreasuryChangeProposed(address indexed newTreasury, uint256 executeAfter); // AUDIT FIX #68
     event TreasuryChangeExecuted(address oldTreasury, address newTreasury); // AUDIT FIX #68
@@ -103,6 +120,7 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     error UseProposeTreasuryChange(); // AUDIT FIX #68
     error ZeroFee(); // AUDIT FIX H-06
     error MinHoldingNotMet(); // AUDIT R014: cancel before MIN_HOLDING_PERIOD
+    error NothingToClaim(); // AUDIT FIX: DEEP-DR-M-05 — claimShortfall called with no balance available
 
     // Legacy error aliases (kept for test compatibility)
     // Note: ProposalExpired() removed — use TimelockAdmin.ProposalExpired(bytes32) instead
@@ -237,6 +255,13 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         bool isNewSub = sub.expiresAt <= block.timestamp;
         // AUDIT FIX M-18: Prevent same-block subscribe+cancel for free premium window
         require(sub.startedAt != block.timestamp || isNewSub, "ALREADY_SUBSCRIBED_THIS_BLOCK");
+        // AUDIT FIX: DEEP-DR-L-05 — extensions must respect MIN_HOLDING_PERIOD.
+        // `cancelSubscription` enforces it; `subscribe`'s extension branch did not.
+        // The asymmetry let an attacker subscribe at fee rate F0, immediately extend
+        // (locking F0 into a fresh per-period escrow) just before a `proposeFeeChange
+        // → executeFeeChange` cycle, then cancel at the new rate. Closes the
+        // rate-lock arbitrage by forcing extensions to wait the same 24h.
+        require(isNewSub || block.timestamp >= sub.startedAt + MIN_HOLDING_PERIOD, "TOO_SOON_TO_EXTEND");
         uint256 startFrom = isNewSub ? block.timestamp : sub.expiresAt;
 
         // AUDIT PA-M-01 / R022 (2026-04-29): on extension, reset BOTH `startedAt`
@@ -266,31 +291,37 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
             // If subscribed and extended in the same block, no time has elapsed so full escrow remains.
             uint256 remainingEscrow = totalDuration > 0 ? (userEscrow[msg.sender] * remainingTime) / totalDuration : userEscrow[msg.sender];
 
-            // PA-M-01: forfeit the OLD escrow entirely. The consumed portion was
-            // already non-refundable; the unconsumed remainder is now also
-            // forfeit because we are anchoring a fresh per-period escrow on the
-            // extension. Both move out of `totalRefundEscrow`. The unconsumed
-            // remainder is credited to `totalRevenue` (it became revenue at the
-            // moment the user opted to extend rather than refund-and-resubscribe).
+            // AUDIT FIX: DEEP-DR-M-06 — pro-rate extension fairly. The unconsumed portion
+            // of the OLD escrow is credited BACK to the user via the new `userEscrow`
+            // anchor — NOT forfeit to `totalRevenue`. PA-M-01 originally forfeit it, but
+            // that converted user funds into ungated owner revenue with no rate-limit
+            // (the owner could pull it via `withdrawToTreasury` in the same block).
+            //
+            // The "consumed" portion (escrow * elapsed / oldDuration) IS revenue — the
+            // subscriber received the service for that time. The "unconsumed" portion
+            // remains the user's escrow against a future cancellation/refund.
+            //
+            // New per-period anchor:
+            //   userEscrow[msg.sender] = cost + remainingEscrow
+            //   totalRevenue           += consumedEscrow (only)
+            //   totalRefundEscrow      drops oldEscrow, adds (cost + remainingEscrow)
             uint256 oldEscrow = userEscrow[msg.sender];
+            uint256 consumedEscrow = oldEscrow > remainingEscrow ? oldEscrow - remainingEscrow : 0;
             if (oldEscrow > 0) {
                 totalRefundEscrow = totalRefundEscrow > oldEscrow
                     ? totalRefundEscrow - oldEscrow
                     : 0;
             }
-            // Credit only the UNCONSUMED portion to revenue — the consumed
-            // portion was implicit revenue already (subscriber received the
-            // service for that time). totalRevenue is the cumulative-paid
-            // counter; on extension the additional cost is added below.
-            if (remainingEscrow > 0) {
-                totalRevenue += remainingEscrow;
+            // Only the consumed portion becomes revenue.
+            if (consumedEscrow > 0) {
+                totalRevenue += consumedEscrow;
             }
 
-            // Anchor the fresh per-period state.
+            // Anchor the fresh per-period state — credit unconsumed back to user.
             sub.expiresAt = startFrom + (months * MONTH);
-            sub.startedAt = block.timestamp;            // PA-M-01: reset
-            userEscrow[msg.sender] = cost;              // PA-M-01: reset
-            totalRefundEscrow += cost;
+            sub.startedAt = block.timestamp;
+            userEscrow[msg.sender] = cost + remainingEscrow;
+            totalRefundEscrow += cost + remainingEscrow;
         } else {
             // AUDIT FIX H-04: Clear expired escrow from totalRefundEscrow before adding new
             uint256 oldEscrow = userEscrow[msg.sender];
@@ -345,9 +376,18 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         }
 
         // Cap refund to contract balance to be safe
+        // AUDIT FIX: DEEP-DR-M-05 — when the contractBalance cap fires, record the
+        // shortfall in `shortfallOwed[user]` so the user retains an on-chain claim
+        // against future contract balance. Without this, userEscrow is fully zeroed
+        // below but the user silently loses the missing portion. Add a loud event
+        // so off-chain monitoring detects insolvency immediately.
         uint256 contractBalance = toweli.balanceOf(address(this));
         if (refundAmount > contractBalance) {
+            uint256 shortfall = refundAmount - contractBalance;
             refundAmount = contractBalance;
+            shortfallOwed[msg.sender] += shortfall;
+            totalShortfallOwed += shortfall;
+            emit RefundShorted(msg.sender, refundAmount + shortfall, refundAmount);
         }
 
         // End subscription immediately
@@ -425,10 +465,34 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     // AUDIT FIX: Added nonReentrant for defense-in-depth
     function withdrawToTreasury() external onlyOwner nonReentrant {
         uint256 balance = toweli.balanceOf(address(this));
-        uint256 withdrawable = balance > totalRefundEscrow ? balance - totalRefundEscrow : 0;
+        // AUDIT FIX: DEEP-DR-M-05 — reserve `totalShortfallOwed` so users with a
+        // shorted refund can still claim from the contract balance. Otherwise, the
+        // owner could pull the recovered balance straight to treasury and leave
+        // shortfall claimants with no funds to claim against.
+        uint256 reserved = totalRefundEscrow + totalShortfallOwed;
+        uint256 withdrawable = balance > reserved ? balance - reserved : 0;
         if (withdrawable > 0) {
             toweli.safeTransfer(treasury, withdrawable);
         }
+    }
+
+    /// @notice AUDIT FIX: DEEP-DR-M-05 — claim a previously-shorted refund once
+    ///         contract balance has been restored (e.g. via revenue accrual).
+    ///         The claim is capped by current balance; if balance is still
+    ///         insufficient the unpaid remainder stays recorded for a future call.
+    function claimShortfall() external nonReentrant {
+        uint256 owed = shortfallOwed[msg.sender];
+        if (owed == 0) revert NothingToClaim();
+        uint256 balance = toweli.balanceOf(address(this));
+        // Reserve other obligations so this claim cannot starve them.
+        uint256 reserved = totalRefundEscrow + totalShortfallOwed - owed;
+        uint256 available = balance > reserved ? balance - reserved : 0;
+        if (available == 0) revert NothingToClaim();
+        uint256 payout = owed > available ? available : owed;
+        shortfallOwed[msg.sender] = owed - payout;
+        totalShortfallOwed -= payout;
+        toweli.safeTransfer(msg.sender, payout);
+        emit ShortfallClaimed(msg.sender, payout);
     }
 
     /// @notice DEPRECATED: NFT access is now checked dynamically at query time.
@@ -515,5 +579,15 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         bool nftHolder = jbacNFT.balanceOf(user) > 0;
         // lifetime is true only if user currently holds NFT (checked at query time)
         return (sub.expiresAt, nftHolder, nftHolder || sub.expiresAt > block.timestamp);
+    }
+
+    /// @notice AUDIT FIX: DEEP-DR-L-01 — read-only view onto the orphaned
+    ///         `_deprecated_paidFeeRate_slot` (PA-M-02 made the mapping private but
+    ///         left existing on-chain state inaccessible). Off-chain analytics can
+    ///         use this to recover historical fee-rate data for legacy subscribers.
+    /// @param user The address whose deprecated paidFeeRate slot to read
+    /// @return The deprecated paidFeeRate value (zero for fresh deployments / new users)
+    function getDeprecatedPaidFeeRate(address user) external view returns (uint256) {
+        return _deprecated_paidFeeRate_slot[user];
     }
 }

@@ -58,6 +58,13 @@ contract ReferralSplitterTest is Test {
         vm.deal(address(this), 100 ether);
         mockStaking.setPower(bob, 1000e18);
         mockStaking.setPower(carol, 1000e18);
+        // AUDIT FIX: DEEP-DR-M-07 — recordFee/claim*/withdraw paths require
+        // setupComplete. Pre-approve `address(this)` (the test contract) as
+        // a caller before finalising so most tests can drive recordFee
+        // directly. Tests that need fresh callers post-setup use the
+        // timelocked propose/execute path or deploy a fresh splitter.
+        ref.setApprovedCaller(address(this), true);
+        ref.completeSetup();
     }
 
     // ===== SELF-REFERRAL PREVENTION =====
@@ -256,11 +263,16 @@ contract ReferralSplitterTest is Test {
     }
 
     function test_setApprovedCaller() public {
+        // AUDIT FIX: DEEP-DR-M-07 — post-completeSetup the instant grant
+        // is gone; new callers must go through the 24h timelock. Verify
+        // both the propose+execute path and the instant revoke.
         address feeCollector = makeAddr("feeCollector");
-        ref.setApprovedCaller(feeCollector, true);
+        ref.proposeApprovedCaller(feeCollector);
+        vm.warp(block.timestamp + 24 hours);
+        ref.executeApprovedCaller(feeCollector);
         assertTrue(ref.approvedCallers(feeCollector));
 
-        ref.setApprovedCaller(feeCollector, false);
+        ref.revokeApprovedCaller(feeCollector);
         assertFalse(ref.approvedCallers(feeCollector));
     }
 
@@ -276,9 +288,11 @@ contract ReferralSplitterTest is Test {
     // ===== WETH FALLBACK: withdrawCallerCredit (M-19) =====
 
     function test_withdrawCallerCredit_wethFallback() public {
-        // Deploy an ETH-rejecting contract as the caller
+        // AUDIT FIX: DEEP-DR-M-07 — post-setup, new callers go via timelock.
         ETHRejecter rejecter = new ETHRejecter();
-        ref.setApprovedCaller(address(rejecter), true);
+        ref.proposeApprovedCaller(address(rejecter));
+        vm.warp(block.timestamp + 24 hours);
+        ref.executeApprovedCaller(address(rejecter));
 
         // Use a user with no referrer — referralShare goes to treasury, remainder to callerCredit
         address noRef = makeAddr("noRef");
@@ -324,7 +338,7 @@ contract ReferralSplitterTest is Test {
         vm.prank(alice);
         ref.setReferrer(bob);
 
-        ref.setApprovedCaller(address(this), true);
+        // AUDIT FIX: DEEP-DR-M-07 — setUp now pre-approves address(this).
         ref.recordFee{value: 1 ether}(alice);
 
         vm.prank(bob);
@@ -336,7 +350,7 @@ contract ReferralSplitterTest is Test {
         vm.prank(alice);
         ref.setReferrer(bob);
 
-        ref.setApprovedCaller(address(this), true);
+        // AUDIT FIX: DEEP-DR-M-07 — setUp now pre-approves address(this).
         ref.recordFee{value: 1 ether}(alice);
 
         vm.warp(block.timestamp + 7 days + 1);

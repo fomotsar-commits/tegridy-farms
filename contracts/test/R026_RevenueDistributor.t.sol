@@ -171,7 +171,8 @@ contract R026_RevenueDistributor is Test {
         // After the per-epoch grace window elapses, the epoch's unclaimed pool
         // becomes eligible — but the lifetime cap (1% of totalDistributed = 0.05 ETH
         // here) bites. This is the belt-and-braces guard.
-        vm.warp(block.timestamp + 7 days + 1);
+        // DEEP-DR-M-01: DUST_RECLAIM_GRACE was bumped from 7d → 14d.
+        vm.warp(block.timestamp + rd.DUST_RECLAIM_GRACE() + 1);
         vm.expectRevert(RevenueDistributor.ForfeitExceedsLifetimeCap.selector);
         rd.proposeForfeitReclaim(1 ether);
 
@@ -218,7 +219,8 @@ contract R026_RevenueDistributor is Test {
         // Once we cross the DUST_RECLAIM_GRACE boundary, eligibility opens up,
         // but the 1% lifetime cap (0.1 ETH on 10 ETH distributed) keeps the
         // owner bounded.
-        vm.warp(block.timestamp + 7 days + 1);
+        // DEEP-DR-M-01: DUST_RECLAIM_GRACE was bumped from 7d → 14d.
+        vm.warp(block.timestamp + rd.DUST_RECLAIM_GRACE() + 1);
         vm.expectRevert(RevenueDistributor.ForfeitExceedsLifetimeCap.selector);
         rd.proposeForfeitReclaim(10 ether);
 
@@ -238,11 +240,13 @@ contract R026_RevenueDistributor is Test {
         staking.setTotalBoostedStake(10_000e18);
         uint256 t0 = block.timestamp;
 
-        // Epoch 0 at t=t0, then warp 8 days, distribute epoch 1 at t=t0+8d.
+        // Epoch 0 at t=t0, then warp DUST_RECLAIM_GRACE+1, distribute epoch 1.
+        // DEEP-DR-M-01: DUST_RECLAIM_GRACE was bumped from 7d → 14d.
         vm.deal(address(rd), 100 ether);
         rd.distribute(); // epoch 0: 100 ETH
 
-        vm.warp(t0 + 8 days);
+        uint256 grace = rd.DUST_RECLAIM_GRACE();
+        vm.warp(t0 + grace + 1);
 
         vm.deal(address(rd), address(rd).balance + 50 ether);
         rd.distribute(); // epoch 1: 50 ETH (fresh)
@@ -252,7 +256,7 @@ contract R026_RevenueDistributor is Test {
         assertEq(rd.reclaimEligibleAmount(), 100 ether, "only expired epoch counts");
 
         // Wait for epoch 1 to also expire — eligible should jump to 150 ETH.
-        vm.warp(t0 + 16 days);
+        vm.warp(t0 + 2 * grace + 1);
         assertEq(rd.reclaimEligibleAmount(), 150 ether, "both epochs eligible after grace");
     }
 

@@ -177,9 +177,10 @@ contract AuditR014_RevenueDistributorTest is Test {
     }
 
     function test_autoReconcileDust_routesDustForwardAfterGrace() public {
-        // Distribute 2 ETH at t=t0, wait > 7 days, distribute another 2 ETH at t=t0+8d.
+        // Distribute 2 ETH at t=t0, wait > DUST_RECLAIM_GRACE, distribute another 2 ETH.
+        // DEEP-DR-M-01: DUST_RECLAIM_GRACE was bumped from 7d → 14d.
         _distribute(2 ether); // epoch 0: 2 ETH
-        vm.warp(block.timestamp + 8 days);
+        vm.warp(block.timestamp + dist.DUST_RECLAIM_GRACE() + 1);
         _distribute(2 ether); // epoch 1: 2 ETH (destination)
 
         // Snapshot the destination epoch's totalETH BEFORE reconcile.
@@ -211,9 +212,10 @@ contract AuditR014_RevenueDistributorTest is Test {
             vm.warp(t);
         }
         // Need a 13th epoch as the destination (cannot reconcile the latest into itself).
-        // Wait long enough that all earlier epochs are past their 7-day grace window AND
+        // Wait long enough that all earlier epochs are past their grace window AND
         // that MIN_DISTRIBUTE_INTERVAL has elapsed since the most recent distribute.
-        t += 8 days;
+        // DEEP-DR-M-01: DUST_RECLAIM_GRACE was bumped from 7d → 14d.
+        t += dist.DUST_RECLAIM_GRACE() + 1;
         vm.warp(t);
         _distribute(2 ether); // epoch 12 destination
 
@@ -247,8 +249,9 @@ contract AuditR014_RevenueDistributorTest is Test {
     // race: admin proposes recovery → during the 48h delay, an attacker calls
     // autoReconcileDust on a now-past-grace epoch → recovery permanently bricked.
     function test_REV_H_02_autoReconcileDust_skipsEpochsWithPendingRecovery() public {
-        // Two epochs with 8d spacing so epoch 0 is past DUST_RECLAIM_GRACE
+        // Two epochs with grace+1 spacing so epoch 0 is past DUST_RECLAIM_GRACE
         // and epoch 1 is the destination.
+        // DEEP-DR-M-01: DUST_RECLAIM_GRACE was bumped from 7d → 14d.
         uint256 t0 = block.timestamp;
         _distribute(10 ether); // epoch 0 — 10 ETH
 
@@ -256,7 +259,7 @@ contract AuditR014_RevenueDistributorTest is Test {
         // dead and only recovery can rescue her.
         ve.corrupt(carol);
 
-        vm.warp(t0 + 8 days);
+        vm.warp(t0 + dist.DUST_RECLAIM_GRACE() + 1);
         _distribute(10 ether); // epoch 1 — destination
 
         // Admin proposes recovery for carol on the now-past-grace epoch 0.
@@ -265,14 +268,15 @@ contract AuditR014_RevenueDistributorTest is Test {
 
         // Attacker races autoReconcileDust DURING the 48h timelock — pre-fix this
         // would have set epochClaimed[0] = epoch[0].totalETH and bricked the
-        // recovery. Post-fix, the call succeeds but SKIPS epoch 0.
+        // recovery.
+        // DEEP-DR-M-03: cursor now HALTS at the first pending-recovery epoch
+        // (instead of skipping past it). When the only eligible epoch has a
+        // pending recovery, the call reverts NoEpochToReconcile().
         vm.prank(attacker);
-        (uint256 reclaimed, uint256 processed) = dist.autoReconcileDust();
-        assertEq(reclaimed, 0, "epoch 0 was skipped - no dust routed");
-        assertEq(processed, 1, "cursor advanced past skipped epoch");
-        assertEq(dist.lastReconciledEpoch(), 1, "cursor at 1");
-        // Critical: epoch 0's epochClaimed is UNCHANGED — the recovery's source
-        // pool is preserved.
+        vm.expectRevert(RevenueDistributor.NoEpochToReconcile.selector);
+        dist.autoReconcileDust();
+        // Cursor MUST NOT have advanced.
+        assertEq(dist.lastReconciledEpoch(), 0, "cursor unchanged");
         assertEq(dist.epochClaimed(0), 0, "epoch 0 untouched");
 
         // Warp past the recovery timelock and execute. Carol gets her share —
@@ -283,13 +287,21 @@ contract AuditR014_RevenueDistributorTest is Test {
         // 50_000 / 250_000 * 10 ETH = 2 ETH.
         assertEq(carol.balance - carolBefore, 2 ether, "carol receives 2 ETH");
         assertEq(dist.pendingRecoveryCount(0), 0, "counter decremented on execute");
+
+        // After recovery resolved, autoReconcileDust can now process epoch 0's
+        // residual dust (8 ETH = 10 - 2) — DEEP-DR-M-03 prevents the orphan.
+        (uint256 reclaimed2, uint256 processed2) = dist.autoReconcileDust();
+        assertEq(reclaimed2, 8 ether, "residual dust reclaimed after recovery");
+        assertEq(processed2, 1);
+        assertEq(dist.lastReconciledEpoch(), 1);
     }
 
     function test_REV_H_02_proposeClaimRecovery_revertsOnReconciledEpoch() public {
-        // Two epochs, 8d apart. Reconcile epoch 0 (no pending recoveries).
+        // Two epochs, grace+1 apart. Reconcile epoch 0 (no pending recoveries).
+        // DEEP-DR-M-01: DUST_RECLAIM_GRACE was bumped from 7d → 14d.
         uint256 t0 = block.timestamp;
         _distribute(10 ether); // epoch 0
-        vm.warp(t0 + 8 days);
+        vm.warp(t0 + dist.DUST_RECLAIM_GRACE() + 1);
         _distribute(10 ether); // epoch 1
         dist.autoReconcileDust();
         assertEq(dist.lastReconciledEpoch(), 1, "epoch 0 was reconciled");

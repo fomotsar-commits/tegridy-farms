@@ -392,23 +392,19 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 remainingETH = ethBalance - halfETH;
         uint256 twapMinLPToken = _twapMinOut(weth, remainingETH);
 
-        uint256 slippageMinToken = Math.mulDiv(toweliAmount, 10000 - maxSlippageBps, 10000);
-        uint256 slippageMinETH = Math.mulDiv(remainingETH, 10000 - maxSlippageBps, 10000);
-
-        uint256 backstopMinToken = Math.mulDiv(toweliAmount, backstopBps, 10000);
-        uint256 backstopMinETH = Math.mulDiv(remainingETH, backstopBps, 10000);
-
-        // Token-min: max of {caller-supplied, slippage floor, backstop floor, TWAP floor}.
+        // AUDIT FIX: DEEP-DR-M-08 — REMOVED `slippageMin*` and `backstopMin*` floors.
+        // They were derived from `toweliAmount` (the post-swap output, attacker-controlled
+        // under sandwich) so they offered no real protection — under sandwich, both
+        // toweliAmount AND the derived floors degrade together. The TWAP-anchored
+        // `twapMinLPToken` is the only attacker-independent floor and is now the sole
+        // source of truth for the LP-add token min. The caller-supplied `_minLPTokens`
+        // can still TIGHTEN the TWAP floor; it can never relax below it.
+        //
+        // ETH-min: caller-supplied only. `remainingETH` is ground truth (the ETH we are
+        // depositing) — we cannot be sandwiched out of ETH we own. No TWAP floor needed.
         uint256 minToken = _minLPTokens;
-        if (slippageMinToken > minToken) minToken = slippageMinToken;
-        if (backstopMinToken > minToken) minToken = backstopMinToken;
         if (twapMinLPToken > minToken) minToken = twapMinLPToken;
-        // ETH-min: max of {caller-supplied, slippage floor, backstop floor}. (No TWAP floor on
-        // the ETH leg because remainingETH is the ground truth — we can't be sandwiched out of
-        // ETH we're depositing; the floor exists only to detect router-side misbehaviour.)
         uint256 minETH = _minLPETH;
-        if (slippageMinETH > minETH) minETH = slippageMinETH;
-        if (backstopMinETH > minETH) minETH = backstopMinETH;
 
         (uint256 tokenUsed, uint256 ethUsed, uint256 lpReceived) = router.addLiquidityETH{value: remainingETH}(
             address(toweli),
@@ -534,7 +530,9 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     }
 
     /// @notice Execute the pending ETH sweep after timelock (sends to treasury)
-    function executeSweepETH() external onlyOwner nonReentrant {
+    /// @dev AUDIT FIX: DEEP-DR-M-02 — `whenNotPaused` so the universal kill-switch
+    ///      freezes owner-side mutators alongside accumulate (M-7 sibling-search).
+    function executeSweepETH() external onlyOwner nonReentrant whenNotPaused {
         _execute(SWEEP_ETH_CHANGE);
         uint256 amount = sweepETHProposedAmount;
         uint256 balance = address(this).balance;
@@ -597,8 +595,10 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         vs `accumulate()`. Now the same TWAP-derived floor (with a `maxSlippageBps`
     ///         additive belt-and-braces) gates both legs.
     ///         Recovered TOWELI and ETH both go to treasury.
+    /// @dev AUDIT FIX: DEEP-DR-M-02 — `whenNotPaused` so the universal kill-switch
+    ///      freezes owner-side mutators alongside accumulate (M-7 sibling-search).
     function executeHarvestLP(uint256 minToken, uint256 minETH, uint256 deadline)
-        external onlyOwner nonReentrant
+        external onlyOwner nonReentrant whenNotPaused
     {
         // R062 (HIGH): refuse to harvest when the L2 sequencer is currently
         // down or has just resumed within SEQUENCER_GRACE_PERIOD. Pool reserves
@@ -700,7 +700,9 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         executor in case `lpToken` were ever to change (it is
     ///         immutable today, but the defense-in-depth is cheap and matches
     ///         the OZ-style invariant chokepoint pattern used elsewhere).
-    function executeSweepTokens() external onlyOwner nonReentrant {
+    /// @dev AUDIT FIX: DEEP-DR-M-02 — `whenNotPaused` so the universal kill-switch
+    ///      freezes owner-side mutators alongside accumulate (M-7 sibling-search).
+    function executeSweepTokens() external onlyOwner nonReentrant whenNotPaused {
         _execute(SWEEP_TOKENS);
         address token = pendingSweepToken;
         pendingSweepToken = address(0);

@@ -331,6 +331,10 @@ contract RedTeamRevenue is Test {
         vm.deal(alice, 100 ether);
         vm.deal(bob, 100 ether);
         vm.deal(carol, 100 ether);
+
+        // AUDIT FIX: DEEP-DR-M-07 — recordFee/claim*/withdraw paths require
+        // setupComplete. Tests run post-setup.
+        splitter.completeSetup();
     }
 
     // ================================================================
@@ -671,7 +675,8 @@ contract RedTeamRevenue is Test {
         bountyBoard.createBounty{value: 1 ether}("Task", block.timestamp + 7 days);
 
         // Alice submits work
-        vm.warp(block.timestamp + 1 hours + 1); // past MIN_CANCEL_DELAY
+        // AUDIT FIX: DEEP-GOV-11 — MIN_CANCEL_DELAY raised from 1h to 24h.
+        vm.warp(block.timestamp + 24 hours + 1);
         vm.prank(alice);
         bountyBoard.submitWork(0, "ipfs://work");
 

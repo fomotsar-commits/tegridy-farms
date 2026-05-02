@@ -73,11 +73,15 @@ contract R022_PremiumAccessTest is Test {
     ///
     /// Scenario: pay 100 (period 1), wait 15 days, extend by 1 month
     /// (period 2 anchored fresh), wait MIN_HOLDING_PERIOD + a hair, cancel
-    /// at ~24h into the new 30-day period. Per-period pro-rata: refund ≈
-    /// remaining/total * cost = (~29 days / 30 days) * 100 ≈ ~96.66 TOWELI.
-    /// Total paid: 200; net cost: ~103 TOWELI (15 full days of period 1 ≈
-    /// 50 TOWELI consumed + ~3.33 TOWELI of period 2 + the 100 forfeit
-    /// remainder of period 1 that is now permanent revenue).
+    /// at ~24h into the new 45-day period.
+    ///
+    /// AUDIT FIX: DEEP-DR-M-06 (2026-05-01) — on extension, the UNCONSUMED
+    /// pro-rata of the old period is now credited back into the new
+    /// per-period escrow (rather than being forfeit to revenue). Only the
+    /// CONSUMED portion (15/30 of FEE = 50 TOWELI) becomes revenue.
+    /// Net effect: new escrow = remainingEscrow + cost = 50 + 100 = 150 TOWELI.
+    /// After 1 day of the new 45-day period, refund = 150 * (45d - 1d - 1) / 45d
+    /// ≈ 146.67 TOWELI. Net cost = 200 - 146.67 ≈ 53.33 TOWELI.
     function test_extend_then_cancel_correctedBehavior_R022() public {
         // Period 1
         vm.prank(alice);
@@ -86,7 +90,8 @@ contract R022_PremiumAccessTest is Test {
         // Halfway through period 1
         vm.warp(block.timestamp + 15 days);
 
-        // Extend by another month — anchors period 2 with fresh startedAt + escrow.
+        // Extend by another month — anchors period 2 with fresh startedAt
+        // and unconsumed remainder rolled into the escrow.
         vm.prank(alice);
         premium.subscribe(1, FEE);
 
@@ -99,26 +104,24 @@ contract R022_PremiumAccessTest is Test {
         premium.cancelSubscription();
         uint256 refund = toweli.balanceOf(alice) - balBefore;
 
-        // Per-period pro-rata. Note: on extension `startFrom = sub.expiresAt`
-        // (since the old sub had NOT expired) — i.e. the new period extends
-        // FROM the original expiry, not from now. Original expiry was
-        // startedAt+30 days; we extended halfway through (15 days in), so
-        // startFrom = block.timestamp + 15 days, and expiresAt = startFrom + 30
-        // days = block.timestamp + 45 days. R022 resets startedAt to
-        // block.timestamp, so totalDuration = 45 days, remainingTime = 45 days
-        // - 1 day - 1s. Refund = (45d - 1d - 1) / 45d * FEE ≈ 97.78 TOWELI.
-        // The OLD (buggy) drift value was much higher (~150 TOWELI) because
-        // the old formula carried the unconsumed period-1 remainder into the
-        // new period AND used the larger originally-anchored startedAt.
-        uint256 expectedRefund = (FEE * (45 days - 1 days - 1)) / 45 days;
+        // Per-period pro-rata. Extension: `startFrom = sub.expiresAt` (since
+        // old sub had NOT expired), so startFrom = block.timestamp + 15 days,
+        // expiresAt = startFrom + 30 days = block.timestamp + 45 days.
+        // DR-M-06 resets startedAt to block.timestamp and credits unconsumed
+        // back: new escrow = remainingEscrow_old + cost = 50 + 100 = 150.
+        // totalDuration = 45 days, remainingTime = 45 days - 1 day - 1s.
+        // Refund = 150 * (45d - 1d - 1) / 45d ≈ 146.67 TOWELI.
+        uint256 newEscrow = (FEE * 15 days) / 30 days + FEE; // remaining + cost
+        uint256 expectedRefund = (newEscrow * (45 days - 1 days - 1)) / 45 days;
         assertApproxEqAbs(refund, expectedRefund, 1 ether,
-            "R022: refund matches per-period pro-rata of NEW period only");
+            "DEEP-DR-M-06: refund includes credited-back unconsumed remainder");
 
-        // Net cost should reflect 100 (forfeit period-1 remainder) + 100 - ~97.78
-        // (period-2 1-day consumption) ≈ 102.22 TOWELI.
+        // Net cost = consumed-portion-of-period-1 (50) + consumed-portion-of-new-150-escrow
+        //         ≈ 50 + 150 * (1 day + 1) / 45 days ≈ 53.33 TOWELI.
         uint256 netCost = (10_000 ether) - toweli.balanceOf(alice);
-        assertApproxEqAbs(netCost, FEE + (FEE * (1 days + 1)) / 45 days, 1 ether,
-            "R022: net cost = forfeit + 1-day-of-new-45d-period");
+        uint256 expectedNetCost = (FEE * 15 days) / 30 days + (newEscrow * (1 days + 1)) / 45 days;
+        assertApproxEqAbs(netCost, expectedNetCost, 1 ether,
+            "DEEP-DR-M-06: net cost = consumed portion only");
     }
 
     /// withdrawToTreasury sends `balance - totalRefundEscrow` directly. This works

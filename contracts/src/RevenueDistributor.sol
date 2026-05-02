@@ -127,6 +127,13 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     // Per-(user,epoch) idempotency for recovery executions (separate from lastClaimedEpoch
     // because recovery is for users who can't traverse the normal claim loop).
     mapping(address => mapping(uint256 => bool)) public recoveryClaimed;
+    // AUDIT FIX: DEEP-DR-M-04 — per-(user,epoch) flag set by every normal-claim
+    // iteration (regardless of share size). Replaces the `lastClaimedEpoch[user] > epoch`
+    // proxy in `proposeClaimRecovery` so users with zero historical power who already
+    // ran `claim()` (advancing the cursor past epoch i without setting any per-epoch
+    // marker) cannot be silently locked out of a future legitimate recovery for that
+    // same epoch.
+    mapping(address => mapping(uint256 => bool)) public claimedAtEpoch;
 
     // AUDIT REV-H-02 (HIGH): per-epoch in-flight pending recovery count. Bumped on
     // proposeClaimRecovery (when the slot was empty), decremented on
@@ -162,6 +169,13 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
 
     // Grace period for claiming after lock expiry (7 days)
     uint256 public constant CLAIM_GRACE_PERIOD = 7 days;
+
+    // AUDIT FIX: DEEP-DR-H-02 / M-R6 — cap each individual recovery's attested
+    // power at 25% of `epoch.totalLocked`. Bounds the blast radius of any single
+    // recovery (or owner-key compromise) to one-quarter of the source pool;
+    // legitimate corruption-recovery for a >25% holder must split into multiple
+    // proposals, each timelocked, each visible.
+    uint256 public constant MAX_RECOVERY_POWER_BPS = 2500;
 
     // Treasury change timelock
     uint256 public constant TREASURY_CHANGE_DELAY = 48 hours;
@@ -234,6 +248,16 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     error PowerExceedsTotalLocked();
     error NoPendingRecovery();
     error AlreadyClaimed();
+    // AUDIT FIX: DEEP-DR-M-04 — distinguishes "user already ran normal claim() for
+    // this epoch" from the legacy AlreadyClaimed() (which only fires for
+    // recoveryClaimed double-execution). Lets off-chain ops triage which path the
+    // proposal hit without needing to read state.
+    error AlreadyClaimedNormally();
+    // AUDIT FIX: DEEP-DR-H-02 / M-R6 — recovery's attested power exceeded
+    // `epoch.totalLocked * MAX_RECOVERY_POWER_BPS / 10000`. Distinguished from
+    // PowerExceedsTotalLocked (the absolute upper bound) so off-chain monitors
+    // can flag near-cap proposals without conflating with arithmetic errors.
+    error RecoveryPowerExceedsCap();
     /// @notice AUDIT REV-M-03 (CLEANUP): recovery-specific replacements for the
     ///         TimelockAdmin `ProposalNotReady(bytes32)` / `ProposalExpired(bytes32)`
     ///         errors that the recovery path used to piggyback on. Recoveries live
@@ -383,7 +407,9 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         emit EmergencyWithdrawExcessCancelled();
     }
 
-    function executeEmergencyWithdrawExcess() external onlyOwner nonReentrant {
+    /// @dev AUDIT FIX: DEEP-DR-M-02 — `whenNotPaused` so the universal kill-switch
+    ///      freezes owner-side mutators alongside user claims (M-7 sibling-search).
+    function executeEmergencyWithdrawExcess() external onlyOwner nonReentrant whenNotPaused {
         _execute(EMERGENCY_WITHDRAW_EXCESS);
 
         uint256 unclaimed = totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0;
@@ -637,6 +663,13 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     ) internal returns (uint256 totalOwed, uint256 actualEndEpoch) {
         actualEndEpoch = endEpoch;
 
+        // AUDIT FIX: DEEP-DR-L-03 — cache the user's restaker status outside the
+        // loop. Previously every iteration where `userPower == 0` fell through to
+        // `_restakedPowerAt` which performed a try-CALL into the restaking contract,
+        // so a non-restaker user with N zero-power epochs incurred N redundant CALLs.
+        // Caching the bool once collapses the worst case to a single CALL.
+        bool isRestaker = _isRestaked(user);
+
         for (uint256 i = startEpoch; i < endEpoch; i++) {
             Epoch memory epoch = epochs[i];
 
@@ -646,13 +679,34 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
                 break;
             }
 
+            // AUDIT FIX: DEEP-DR-M-04 — skip epochs already paid via recovery.
+            // The cursor `lastClaimedEpoch[user]` may lag behind `claimedAtEpoch`
+            // when an executeClaimRecovery for an epoch lower than the cursor
+            // landed first; a later normal claim would otherwise re-traverse
+            // the same epoch and double-credit. The unified mapping is the
+            // authoritative "settled" flag for this (user, epoch) pair.
+            if (claimedAtEpoch[user][i]) {
+                continue;
+            }
+
+            // Mark every iterated epoch claimed-normally for this user,
+            // regardless of share size or whether the epoch had any locked
+            // tokens. The cursor advances past i unconditionally, so without
+            // this per-epoch flag a user with zero historical power for
+            // epoch i has no on-chain trace that they ran the normal claim
+            // loop — and `proposeClaimRecovery` would be silently permitted
+            // to refund them on the same (user, epoch).
+            claimedAtEpoch[user][i] = true;
+
             if (epoch.totalLocked > 0) {
                 uint256 userPower = votingEscrow.votingPowerAtTimestamp(user, epoch.timestamp);
                 // AUDIT NEW-S1 (CRITICAL): if staking checkpoint reads 0, fall through
                 // to the restaking contract's historical boostedAmount. Restakers' NFTs
                 // are held by the restaking contract, so their staking checkpoint is
                 // zeroed on transfer-in — without this fallback they silently earn $0.
-                if (userPower == 0) {
+                // AUDIT FIX: DEEP-DR-L-03 — only consult restaking contract if the user
+                // has an active restaker position. Saves N try-CALLs for non-restakers.
+                if (userPower == 0 && isRestaker) {
                     userPower = _restakedPowerAt(user, epoch.timestamp);
                 }
                 if (userPower > 0) {
@@ -753,7 +807,9 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
 
     /// @notice Sweep rounding dust to treasury.
     ///         Only callable by owner. Sends any balance beyond unclaimed + pending withdrawal amounts to treasury.
-    function sweepDust() external onlyOwner nonReentrant {
+    /// @dev AUDIT FIX: DEEP-DR-M-02 — `whenNotPaused` so the universal kill-switch
+    ///      freezes owner-side mutators alongside user claims (M-7 sibling-search).
+    function sweepDust() external onlyOwner nonReentrant whenNotPaused {
         uint256 unclaimed = totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0;
         uint256 reserved = unclaimed + totalPendingWithdrawals;
         uint256 balance = address(this).balance;
@@ -783,7 +839,9 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         emit TokenSweepProposed(token, to, _executeAfter[TOKEN_SWEEP]);
     }
 
-    function executeTokenSweep() external onlyOwner {
+    /// @dev AUDIT FIX: DEEP-DR-M-02 — `whenNotPaused` so the universal kill-switch
+    ///      freezes owner-side mutators alongside user claims (M-7 sibling-search).
+    function executeTokenSweep() external onlyOwner whenNotPaused {
         _execute(TOKEN_SWEEP);
         address token = pendingSweepToken;
         address to = pendingSweepTo;
@@ -871,7 +929,9 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         emit ForfeitReclaimProposed(_amount, _executeAfter[FORFEIT_RECLAIM]);
     }
 
-    function executeForfeitReclaim() external onlyOwner {
+    /// @dev AUDIT FIX: DEEP-DR-M-02 — `whenNotPaused` so the universal kill-switch
+    ///      freezes owner-side mutators alongside user claims (M-7 sibling-search).
+    function executeForfeitReclaim() external onlyOwner whenNotPaused {
         _execute(FORFEIT_RECLAIM);
         uint256 amount = pendingForfeitAmount;
         uint256 gap = totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0;
@@ -880,6 +940,15 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // against the race where epochs appear/are claimed during the 48h delay.
         uint256 eligible = reclaimEligibleAmount();
         if (amount > eligible) amount = eligible;
+        // AUDIT FIX: DEEP-DR-H-02 — re-check the lifetime cap at execute time.
+        // The propose-time cap is computed against `totalDistributed` at propose
+        // time; if that figure changes between propose and execute (or any future
+        // code path decrements it), the cap must still hold. Subsumes DR-M-09.
+        uint256 lifetimeCap = (totalDistributed * MAX_LIFETIME_FORFEIT_BPS) / 10_000;
+        if (totalForfeitedReclaimed + amount > lifetimeCap) {
+            amount = lifetimeCap > totalForfeitedReclaimed ? lifetimeCap - totalForfeitedReclaimed : 0;
+        }
+        if (amount == 0) revert ForfeitExceedsLifetimeCap();
         totalEarmarked -= amount;
         totalForfeited += amount;
         totalForfeitedReclaimed += amount;
@@ -901,7 +970,9 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     ///         function uncallable in a healthy protocol (stakers always present).
     ///         Increased dust cap from 0.01 to 1 ether to handle long-running accumulation.
     ///         The owner-only + gap-cap guards prevent abuse.
-    function reconcileRoundingDust() external onlyOwner {
+    /// @dev AUDIT FIX: DEEP-DR-M-02 — `whenNotPaused` so the universal kill-switch
+    ///      freezes owner-side mutators alongside user claims (M-7 sibling-search).
+    function reconcileRoundingDust() external onlyOwner whenNotPaused {
         uint256 gap = totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0;
         require(gap <= 1 ether, "GAP_TOO_LARGE");
         if (gap == 0) revert NoDustToSweep();
@@ -914,7 +985,14 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     /// @notice Minimum per-epoch dust threshold to consider for auto-reconcile.
     uint256 public constant MIN_DUST_RECONCILE = 0.01 ether;
     /// @notice Grace period after epoch creation before its unclaimed dust can be auto-reclaimed.
-    uint256 public constant DUST_RECLAIM_GRACE = 7 days;
+    /// @dev AUDIT FIX: DEEP-DR-M-01 — bumped 7d → 14d so DUST_RECLAIM_GRACE >= 2 * CLAIM_GRACE_PERIOD.
+    ///      Prevents the owner from forfeit-reclaiming epochs whose dust is still claimable by
+    ///      grace-period users. With CLAIM_GRACE_PERIOD = 7d and the 48h forfeit timelock, a 7d
+    ///      DUST_RECLAIM_GRACE permitted the owner to race a user whose lock just expired
+    ///      (their 7d grace window overlaps the 7d epoch eligibility window). 14d guarantees
+    ///      that any user whose lock expired before the epoch was eligible has had their
+    ///      grace window close before the dust becomes reclaimable.
+    uint256 public constant DUST_RECLAIM_GRACE = 14 days;
     /// @notice Bound on how many epochs a single autoReconcileDust() call may scan.
     uint256 public constant MAX_AUTO_RECONCILE_EPOCHS = 10;
     /// @notice Cursor tracking the next epoch index to attempt auto-reconcile for.
@@ -937,7 +1015,9 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     ///         Routes the reclaimed dust into the latest epoch (epochs[length-1]).
     ///         If there is no current epoch (epochs.length == 0) or only one epoch exists
     ///         (no separate destination available), the call reverts.
-    function autoReconcileDust() external nonReentrant returns (uint256 totalReclaimed, uint256 epochsProcessed) {
+    /// @dev AUDIT FIX: DEEP-DR-M-02 — `whenNotPaused` so this permissionless mutator
+    ///      cannot advance state while the universal kill-switch is engaged.
+    function autoReconcileDust() external nonReentrant whenNotPaused returns (uint256 totalReclaimed, uint256 epochsProcessed) {
         uint256 totalEpochs = epochs.length;
         if (totalEpochs == 0) revert NoEpochToReconcile();
 
@@ -967,25 +1047,24 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
                 break;
             }
 
+            // AUDIT FIX: DEEP-DR-M-03 — pending-recovery epochs HALT the cursor.
+            // Previously the loop `continue`'d past pending-recovery epochs (skipping
+            // their dust) but `lastTouched` had already been updated, so the cursor
+            // advanced past them anyway. After the recovery executed, the residual
+            // dust on those epochs was permanently orphaned (no replay path).
+            //
+            // New semantics: STOP at the first pending-recovery epoch. The cursor
+            // does NOT advance past it. Subsequent calls retry from this epoch
+            // once the recovery resolves (cancel or execute clears the count).
+            // This preserves dust auto-reclaim for the residual portion of the
+            // epoch that the recovery did not consume.
+            if (pendingRecoveryCount[i] > 0) {
+                if (!anyEligible) revert NoEpochToReconcile();
+                break;
+            }
+
             anyEligible = true;
             lastTouched = i;
-
-            // AUDIT REV-H-02 (HIGH): if this epoch has any in-flight pending recovery,
-            // SKIP it — preserve epochClaimed[i] so executeClaimRecovery can pay out
-            // from the source pool. Without this skip, a permissionless caller racing
-            // executeClaimRecovery during the 48h timelock would set epochClaimed[i] =
-            // epoch.totalETH, making the recovery's `share = 0` and reverting it
-            // forever (the cursor is one-way, so the rug is permanent).
-            //
-            // Cursor still advances past the skipped epoch (lastTouched updated above)
-            // — its residual dust is forfeit-orphaned, which is an acceptable tradeoff
-            // versus bricking the recovery. The propose-time guard
-            // (`epoch >= lastReconciledEpoch`) prevents new recoveries on epochs the
-            // cursor has passed, so admins must propose all recoveries for an epoch
-            // before its grace window elapses.
-            if (pendingRecoveryCount[i] > 0) {
-                continue;
-            }
 
             uint256 dust = epoch.totalETH > epochClaimed[i] ? epoch.totalETH - epochClaimed[i] : 0;
             if (dust >= MIN_DUST_RECONCILE) {
@@ -1025,6 +1104,12 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         if (epoch >= epochs.length) revert InvalidEpoch();
         if (power == 0) revert PowerExceedsTotalLocked(); // 0 is not a valid recovery
         if (recoveryClaimed[user][epoch]) revert AlreadyClaimed();
+        // AUDIT FIX: DEEP-DR-M-04 — fail fast if the user already ran normal claim()
+        // for this epoch (regardless of historical power). Replaces the old
+        // `lastClaimedEpoch[user] > epoch` cursor check, which silently permitted
+        // recovery for zero-power-loop visitors and burned a 48h timelock window
+        // before the executeClaimRecovery guards caught it.
+        if (claimedAtEpoch[user][epoch]) revert AlreadyClaimedNormally();
         // AUDIT REV-H-02 (HIGH): refuse proposals on epochs the auto-reconcile cursor
         // has already passed. Once epoch < lastReconciledEpoch the source pool may
         // have been emptied (epochClaimed[epoch] = epoch.totalETH), in which case
@@ -1034,6 +1119,11 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
 
         Epoch memory ep = epochs[epoch];
         if (power > ep.totalLocked) revert PowerExceedsTotalLocked();
+        // AUDIT FIX: DEEP-DR-H-02 / M-R6 — bound power to 25% of epoch.totalLocked
+        // at propose time. A legitimate single-holder recovery for a >25% position
+        // must use multiple proposals — each individually timelocked, each visible.
+        uint256 recoveryCap = (ep.totalLocked * MAX_RECOVERY_POWER_BPS) / 10000;
+        if (power > recoveryCap) revert RecoveryPowerExceedsCap();
 
         // AUDIT REV-H-02: bump the per-epoch in-flight count ONLY when the slot was
         // empty. Re-proposing for the same (user, epoch) (e.g. amending the attested
@@ -1065,7 +1155,15 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     ///         Pays the user as if they had the attested power, decrementing the
     ///         epoch's remaining pool via epochClaimed. Marks (user, epoch) as
     ///         recoveryClaimed so the same proposal cannot be replayed.
-    function executeClaimRecovery(address user, uint256 epoch) external nonReentrant {
+    /// @dev AUDIT FIX: DEEP-DR-H-01 — gated by `whenNotPaused` and the staking-paused
+    ///      check that the normal claim path enforces. The recovery is admin-attested,
+    ///      but pause is the universal kill-switch; recoveries must respect it. Without
+    ///      this gate, a 48h-old proposal would still pay out during a live incident.
+    function executeClaimRecovery(address user, uint256 epoch) external nonReentrant whenNotPaused {
+        // AUDIT FIX: DEEP-DR-H-01 — block recovery payouts when staking is paused
+        // (mirrors `claim()` / `claimUpTo()`). If staking was paused due to a
+        // discovered exploit, recovery payouts using attested power must also halt.
+        if (_isStakingPaused()) revert StakingPaused();
         PendingRecovery memory p = pendingRecoveries[user][epoch];
         if (p.executeAfter == 0) revert NoPendingRecovery();
         // AUDIT REV-M-03 (CLEANUP): use recovery-specific errors instead of the generic
@@ -1075,12 +1173,23 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         if (block.timestamp < p.executeAfter) revert RecoveryNotReady();
         if (block.timestamp > p.executeAfter + PROPOSAL_VALIDITY) revert RecoveryExpired();
         if (recoveryClaimed[user][epoch]) revert AlreadyClaimed();
+        // AUDIT FIX: DEEP-DR-M-04 — defensive: if a normal claim landed
+        // during the 48h timelock window, the user has already been paid.
+        // Refuse the recovery payout to prevent double-credit. This is
+        // defence-in-depth on top of the same propose-time check.
+        if (claimedAtEpoch[user][epoch]) revert AlreadyClaimedNormally();
 
         Epoch memory ep = epochs[epoch];
         if (ep.totalLocked == 0) revert NoLockedTokens();
         // Re-bound power against epoch.totalLocked (defensive — totalLocked is immutable
         // post-distribution but we read fresh state to be safe).
         uint256 power = p.power > ep.totalLocked ? ep.totalLocked : p.power;
+        // AUDIT FIX: DEEP-DR-H-02 / M-R6 — re-apply the 25% cap defensively at
+        // execute time. If a future code path bypasses the propose-time check,
+        // this still enforces the cap. Pure clamp (no revert) — the proposal was
+        // already validated; we just downsize to the cap if state shifted.
+        uint256 recoveryCap = (ep.totalLocked * MAX_RECOVERY_POWER_BPS) / 10000;
+        if (power > recoveryCap) power = recoveryCap;
 
         uint256 share = (ep.totalETH * power) / ep.totalLocked;
 
@@ -1091,6 +1200,12 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
 
         // Effects before external interaction (CEI).
         recoveryClaimed[user][epoch] = true;
+        // AUDIT FIX: DEEP-DR-M-04 — also stamp the unified `claimedAtEpoch`
+        // so a subsequent normal `claim()` from the same user CANNOT
+        // re-traverse this epoch and double-credit. The unified mapping is
+        // the source of truth for "this (user, epoch) is settled" across
+        // both code paths; recovery and normal claim must mark it together.
+        claimedAtEpoch[user][epoch] = true;
         delete pendingRecoveries[user][epoch];
         // AUDIT REV-H-02: decrement the per-epoch in-flight count.
         pendingRecoveryCount[epoch] -= 1;
@@ -1151,7 +1266,9 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
                 uint256 userPower = votingEscrow.votingPowerAtTimestamp(user, epoch.timestamp);
                 // AUDIT NEW-S1: restaker fallback — mirror _calculateClaim so the UI shows
                 // non-zero pendingETH for restakers.
-                if (userPower == 0) {
+                // AUDIT FIX: DEEP-DR-L-03 — only consult restaking contract if user has
+                // an active restaker position (cached in `isRestaked` above the loop).
+                if (userPower == 0 && isRestaked) {
                     userPower = _restakedPowerAt(user, epoch.timestamp);
                 }
                 if (userPower > 0) {
