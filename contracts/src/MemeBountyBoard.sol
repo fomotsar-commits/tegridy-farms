@@ -481,7 +481,22 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             // leader exists (>= MIN_COMPLETION_VOTES). Tiny pre-freeze sock-puppet
             // leaders can still be displaced.
             bool hasEstablishedLeader = topSubmissionVotes[_bountyId] >= MIN_COMPLETION_VOTES;
-            if (!inFreeze || !hasEstablishedLeader || _submissionId == topSubmissionId[_bountyId]) {
+            // AUDIT FIX H-5: during freeze, allow ESTABLISHED challengers to dethrone
+            // established leaders. Pre-fix, an attacker who locked in MIN_COMPLETION_VOTES
+            // with the cheapest possible sybil ring (3 voter wallets staked at
+            // MIN_VOTE_BALANCE each, plus a submitter) had a permanent lock —
+            // even a much larger legitimate late-formed coalition could not
+            // dethrone. The freeze now blocks only UN-established late-flip snipers
+            // (challenger below the completion threshold). Legitimate coalitions of
+            // equal-or-greater established weight can still claim the slot —
+            // turning the previous asymmetric lock-in into a symmetric arms race
+            // bounded by the actual stake distribution.
+            //
+            // Note: outer `newVotes > topSubmissionVotes` already enforces strict
+            // monotonic improvement, so the first established submission still
+            // holds the slot against equal-weight ties (fair tie-breaking).
+            bool challengerEstablished = newVotes >= MIN_COMPLETION_VOTES;
+            if (!inFreeze || !hasEstablishedLeader || challengerEstablished || _submissionId == topSubmissionId[_bountyId]) {
                 topSubmissionVotes[_bountyId] = newVotes;
                 topSubmissionId[_bountyId] = _submissionId;
             }

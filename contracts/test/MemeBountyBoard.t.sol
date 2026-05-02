@@ -393,6 +393,78 @@ contract MemeBountyBoardTest is Test {
         assertEq(board.topSubmissionVotes(0), 20_000 ether);
     }
 
+    // ===== AUDIT FIX H-5: established challenger can dethrone established leader during freeze =====
+    //
+    // Pre-fix exploit: an attacker pre-positioned 3 sybils with MIN_VOTE_BALANCE each
+    // (1000 TOWELI x 3 = 3000 TOWELI total) plus 1 submitter, voted ALL of them for the
+    // attacker's submission BEFORE the 24h freeze window opens, hit the established
+    // threshold (>= MIN_COMPLETION_VOTES = 3000 TOWELI), and the freeze logic then locked
+    // their hostile leader in for the rest of the window. Even a much-larger legitimate
+    // late coalition could not displace them, and `refundStaleBounty` reverted with
+    // WinnerExists. After 32 days the attacker permissionlessly called completeBounty and
+    // walked away with the entire bounty's ETH at near-zero refundable cost.
+    //
+    // After fix: an established challenger (>= MIN_COMPLETION_VOTES) CAN displace an
+    // established leader during freeze. The freeze still blocks UN-established late-flip
+    // snipers (sub-threshold challengers) from buzzer-beating an established leader.
+    function test_H5_establishedChallengerCanDethroneInFreeze() public {
+        _createBountyWithSubmission();
+
+        // Step 1: attacker wallet (voter1, 10_000 TOWELI > MIN_COMPLETION_VOTES)
+        // votes for submission 0 BEFORE the freeze window. This is enough on its
+        // own to make submission 0 an "established leader".
+        _voteForSubmission(0, 0, voter1);
+        assertEq(board.topSubmissionId(0), 0, "sub 0 should be the leader");
+        assertGe(board.topSubmissionVotes(0), board.MIN_COMPLETION_VOTES(), "leader must be established");
+
+        // Step 2: warp into the freeze window (last TOP_FREEZE_WINDOW = 1 day before
+        // the 7-day deadline).
+        vm.warp(block.timestamp + 6 days + 1 hours);
+
+        // Step 3: defender coalition (voter2 + voter3 = 20_000 TOWELI > leader's 10_000)
+        // votes for submission 1. The challenger is itself established AND strictly
+        // exceeds the leader's vote count.
+        _voteForSubmission(0, 1, voter2);
+        _voteForSubmission(0, 1, voter3);
+
+        // Pre-fix: this assertion FAILED — submission 0 stayed locked as leader
+        // because the freeze logic blocked any non-top displacement once the leader
+        // was established, regardless of challenger weight.
+        // Post-fix: submission 1 takes over because it is itself established and
+        // strictly exceeds the leader's votes.
+        assertEq(board.topSubmissionId(0), 1, "established challenger should dethrone established leader");
+        assertEq(board.topSubmissionVotes(0), 20_000 ether, "leader vote count should reflect submission 1");
+    }
+
+    function test_H5_underEstablishedChallengerStillBlockedInFreeze() public {
+        _createBountyWithSubmission();
+
+        // Step 1: voter1 (10k) and voter2 (10k) both vote for submission 0 — leader
+        // is firmly established at 20k TOWELI.
+        _voteForSubmission(0, 0, voter1);
+        _voteForSubmission(0, 0, voter2);
+        assertEq(board.topSubmissionId(0), 0);
+        assertEq(board.topSubmissionVotes(0), 20_000 ether);
+
+        // Step 2: warp into the freeze window.
+        vm.warp(block.timestamp + 6 days + 1 hours);
+
+        // Step 3: a tiny under-established sniper (voter3 with only 2_000 TOWELI of
+        // power — under MIN_COMPLETION_VOTES) tries to flip to submission 1.
+        // Note: we still need MIN_VOTE_BALANCE to vote at all, so the sniper has
+        // exactly MIN_VOTE_BALANCE. Their vote on sub 1 totals 2_000 TOWELI which
+        // is below both the leader (20_000) AND below MIN_COMPLETION_VOTES (3_000).
+        address sniper = makeAddr("sniper");
+        token.transfer(sniper, 2_000 ether);
+        staking.setVotingPower(sniper, 2_000 ether);
+        _voteForSubmission(0, 1, sniper);
+
+        // The freeze STILL protects against under-established late flips: leader
+        // unchanged, even though sniper recorded a vote.
+        assertEq(board.topSubmissionId(0), 0, "sub 0 should remain the leader against tiny sniper in freeze");
+        assertEq(board.topSubmissionVotes(0), 20_000 ether, "leader votes unchanged");
+    }
+
     // ===== H-06: withdrawRefund WETH fallback for contracts that reject ETH =====
 
     function test_withdrawRefund_WETHFallback() public {
