@@ -1023,16 +1023,25 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         uint256 owed = pendingUnsettledRewards[msg.sender];
         if (owed == 0) revert ZeroAmount();
 
-        uint256 currentUnsettled = staking.unsettledRewards(address(this));
-        if (currentUnsettled > 0) {
-            try staking.claimUnsettled() {} catch {}
-        }
-
-        // AUDIT FIX: DEEP-DR-01 — reserve attributions and active principal so
-        // this caller cannot drain rewardToken earmarked for other users. The
-        // reservation INTENTIONALLY does not subtract the caller's own
-        // `pendingUnsettledRewards` share — `totalPendingUnsettled` already
-        // INCLUDES this caller, and the payout below is what releases it.
+        // AUDIT FIX C-1 (follow-up): we INTENTIONALLY do NOT call
+        // `staking.claimUnsettled()` here. The pre-C-1 implementation drained
+        // the entire `unsettledRewards[restakingContract]` bucket, which (after
+        // the C-1 fix) would silently consume per-tokenId attributions belonging
+        // to other restakers — re-introducing the very race the C-1 fix closes.
+        // Per-tokenId pulls happen only via `claimUnsettledForTokenId`, called
+        // from unrestake/emergencyWithdrawNFT for the specific tokenId being
+        // exited.
+        //
+        // For relaunch (no carry-over `pendingUnsettledRewards` entries) this
+        // function is effectively dead code — kept only so any legacy entry can
+        // still be redeemed against local balance once an admin tops the
+        // contract up via `attributeStuckRewards` or by funding directly. If
+        // you see large `pendingUnsettledRewards` accumulating post-relaunch,
+        // that means the staking contract's reward pool was under-funded at
+        // unrestake time AND the per-tokenId path could not fully drain — the
+        // residual lives in `staking.unsettledRewardsByTokenId(tokenId)` and
+        // an operator can recover via `staking.claimUnsettledForTokenId(tokenId, restaker)`
+        // through the restaking contract once the pool is replenished.
         uint256 balance = rewardToken.balanceOf(address(this));
         uint256 reserved = totalUnforwardedBase + totalActivePrincipal;
         uint256 available = balance > reserved ? balance - reserved : 0;
