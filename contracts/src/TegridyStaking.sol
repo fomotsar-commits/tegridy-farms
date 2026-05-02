@@ -257,6 +257,16 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     // was actually credited; the shortfall amounts here are the irrecoverable portions.
     event RewardsForfeitedDuringKick(address indexed holder, uint256 forfeited);
     event KickRewardPoolShortfall(address indexed holder, uint256 expected, uint256 available);
+    // AUDIT FIX DS3-01: parallel event for the _settleRewardsOnTransfer path so
+    // off-chain monitors see the under-funded-pool slice on both kick() and
+    // NFT-transfer code shapes. DS2-02 added the kick() event; this one
+    // closes the missing sibling.
+    event TransferRewardPoolShortfall(address indexed holder, uint256 expected, uint256 available);
+    // AUDIT FIX DS3-03: distinct event for the settled-to-unsettled path —
+    // RewardPaid implies a real wallet transfer (only emitted in `_getReward`),
+    // RewardSettledToUnsettled means rewards were booked into the unsettled
+    // mapping and await a `claimUnsettled()` call.
+    event RewardSettledToUnsettled(address indexed holder, uint256 indexed tokenId, uint256 amount);
     event JbacReturned(uint256 indexed tokenId, address indexed to, uint256 indexed jbacTokenId); // AUDIT H-1
     event JbacStranded(uint256 indexed tokenId, address indexed to, uint256 indexed jbacTokenId); // AUDIT H-1
     /// @notice AUDIT C5: emitted when an extend-lock / autoMaxLock fee is collected to treasury.
@@ -573,8 +583,14 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     ///      while paused, but resetting here keeps the contract correct even if a
     ///      future change introduces a code path that skips the unconditional advance.
     function unpause() external onlyOwner {
-        _unpause();
+        // AUDIT FIX DS3-07: move `lastUpdateTime = block.timestamp` BEFORE
+        // `_unpause()` to close a TOCTOU window. Pre-fix, the order was unpause
+        // then assign — if a future Pausable hook fired logic between
+        // `_unpause()` and the assignment, that logic would observe the
+        // unpaused state with the stale `lastUpdateTime`. With the assignment
+        // first, any post-unpause callback already sees the correct anchor.
         lastUpdateTime = block.timestamp;
+        _unpause();
     }
 
     // ─── User Functions ───────────────────────────────────────────────
@@ -693,6 +709,14 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
         Position storage p = positions[tokenId];
         bool wasOn = p.autoMaxLock;
+        // AUDIT FIX DS3-02: completes the LockExpired guard family (DS-06 on
+        // extendLock, DS2-07 on revalidateBoost) — toggleAutoMaxLock's enable
+        // path was the missed third sibling. The enable branch below extends
+        // `lockEnd` to MAX and pays an extend fee, which on an already-expired
+        // position is the equivalent of reviving a dead lock for free boost.
+        // Reject the enable path on expired positions; users must `withdraw`
+        // and re-stake fresh to restore boost.
+        if (!wasOn && p.lockEnd > 0 && block.timestamp >= p.lockEnd) revert LockExpired();
         p.autoMaxLock = !wasOn;
 
         // If enabling, extend lock to max immediately
@@ -977,9 +1001,19 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
                 emit RewardsForfeited(holder, forfeitedTotal);
             }
             // AUDIT FIX: DS2-01 — advance p.rewardDebt by ONLY the actually-credited
-            // slice. The forfeited portion stays claimable once room is freed (cap
-            // raised, other users claim, or rewardPool replenished and another
-            // reward-touching path triggers reconciliation).
+            // slice.
+            // AUDIT FIX DS3-04: previous NatSpec falsely claimed "forfeited
+            // portion stays claimable once room is freed" — that's NOT true.
+            // The forfeited slice (`forfeitedTotal`) is PERMANENTLY LOST. When
+            // we advance `p.rewardDebt` by `totalSettled` only, the next
+            // `_getReward` call will compute `accumulated - p.rewardDebt = 0`
+            // (since `accumulated` and `p.rewardDebt` only differ by the
+            // already-credited portion) and the forfeited slice never re-enters
+            // the calc. Implementing the true "claimable later" semantic would
+            // require a per-position forfeit-debt mapping plus reconciliation,
+            // which is out of scope. The honest contract is: holders who want
+            // ALL their rewards must call `getReward` BEFORE lock expiry; kick
+            // is an anti-dilution primitive with explicit forfeit semantics.
             if (totalSettled > 0) {
                 p.rewardDebt = p.rewardDebt + _safeInt256(totalSettled);
                 // AUDIT FIX: DS2-03 — refresh holder's activity timestamp; we just
@@ -992,6 +1026,15 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             }
         }
         _decayIfExpired(tokenId, p);
+        // AUDIT FIX DS3-06: write a checkpoint between settle and decay so the
+        // holder's voting power record correctly reflects the post-decay state.
+        // Without this, RevenueDistributor lookups in the same block could read
+        // a stale checkpoint until the next reward-touching path runs.
+        // _decayIfExpired internally calls _writeCheckpoint(ownerOf(tokenId)),
+        // but we re-call here defensively to ensure the post-state is the
+        // recorded one even if a future _decayIfExpired refactor skips the
+        // checkpoint write.
+        _writeCheckpoint(holder);
         emit PositionKicked(tokenId, msg.sender, prior - p.boostedAmount);
     }
 
@@ -1258,15 +1301,28 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             uint256 rewardPool = available > reserved ? available - reserved : 0;
             // Cap pending to available reward pool
             uint256 cappedPending = pending > rewardPool ? rewardPool : pending;
+            // AUDIT FIX DS3-01 / DS3-05: emit RewardPoolShortfall when the
+            // pool can't cover the full pending amount. DS2-02 added this
+            // event to kick(); the same code-shape exists here in
+            // _settleRewardsOnTransfer (every NFT transfer with under-funded
+            // pool silently strands the post-pool slice). Mirrors the kick()
+            // event so off-chain monitors see the loss on either path.
+            if (pending > rewardPool) {
+                emit TransferRewardPoolShortfall(from, pending, rewardPool);
+            }
             uint256 actualSettled = _settleUnsettled(from, cappedPending);
             // AUDIT FIX C-02: Emit forfeiture event when cap blocks settlement
             uint256 forfeited = cappedPending - actualSettled;
             if (forfeited > 0) {
                 emit RewardsForfeited(from, forfeited);
             }
-            // AUDIT FIX C-04: Only emit actual settled amount, not the full pending
+            // AUDIT FIX DS3-03: emit a distinct event for the
+            // settled-to-unsettled path. RewardPaid implies an actual wallet
+            // transfer; this path only credits the unsettled mapping. Off-chain
+            // tooling now has unambiguous semantics: RewardPaid = ETH/TOWELI
+            // moved; RewardSettledToUnsettled = booked, awaiting claim.
             if (actualSettled > 0) {
-                emit RewardPaid(from, tokenId, actualSettled);
+                emit RewardSettledToUnsettled(from, tokenId, actualSettled);
             }
             // AUDIT FIX: DEEP-DS-04 — refresh `from`'s activity timestamp; we just
             // credited unsettledRewards[from] from a non-claim path (NFT transfer).
