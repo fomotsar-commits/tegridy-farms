@@ -664,43 +664,41 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///      that epoch, so a post-epoch gauge removal (allowed only when current
     ///      weight is zero) cannot retroactively change the historical top.
     function _getRelativeWeightAt(address gauge, uint256 epoch) internal view returns (uint256) {
+        // AUDIT FIX V3-GOV-03 + V3-GOV-06: switch to the Curve-style natural
+        // distribution algorithm. Drop the per-gauge cap + renormalization
+        // entirely.
+        //
+        // The cap+renormalize formula `(gw * (BPS - cap)) / othersTotal` had
+        // two unfixable edges:
+        //   - V3-GOV-03 over-amplification: a 1-wei voter who is the ONLY
+        //     non-top voter received `(1 * 5000) / 1 = 5000` (50% of
+        //     emissions) — wildly disproportionate to their stake.
+        //   - V3-GOV-06 zero-divide leak: when `othersTotal == 0` (single
+        //     gauge has all votes), the function returned 0, silently leaking
+        //     50% of the budget.
+        //
+        // These edges aren't fixable by tweaking the formula — they're
+        // intrinsic to "cap one then redistribute the cap-overflow." The H14
+        // attack scenario the cap was designed to block (a 1-wei voter
+        // controlling 100% of emissions) is already closed UPSTREAM by:
+        //   - C2 commitVote `committedPower` cap (voters can't commit more
+        //     than their userPower)
+        //   - C3 / DEEP-GOV-01 `min(historical, current)` clamp at every
+        //     vote site (voters can't apply post-divest aggregate)
+        // So the cap is now solving a problem that's already solved.
+        //
+        // Pattern of record: Curve `GaugeController.gauge_relative_weight`
+        // returns `gauge_weights[gauge] * 10**18 / total_weight` with NO cap.
+        // The natural distribution is fair because vote weight is
+        // proportional to stake, and the upstream guards prevent
+        // single-actor manipulation.
         uint256 total = totalWeightByEpoch[epoch];
         if (total == 0) return 0;
 
         uint256 gw = gaugeWeightByEpoch[epoch][gauge];
         if (gw == 0) return 0;
 
-        // Read the cached top from the per-epoch storage slot. For freshly-deployed
-        // contracts or the very first vote in an epoch, `topGaugeByEpoch[epoch]`
-        // could lag by exactly one update (set in the same tx that incremented
-        // weight), but the invariant `topWeightByEpoch[epoch] >= max(allWeights)`
-        // is maintained by the update logic so the cap math always holds.
-        uint256 topWeight = topWeightByEpoch[epoch];
-        address topGauge = topGaugeByEpoch[epoch];
-
-        uint256 cap = MAX_GAUGE_RELATIVE_WEIGHT_BPS;
-
-        // Compute what the top WOULD be without renormalization.
-        uint256 topRaw = (topWeight * BPS) / total;
-
-        // No renormalization needed when the top is already at or below the cap.
-        if (topRaw <= cap) {
-            return (gw * BPS) / total;
-        }
-
-        // Renormalization branch: top is over-cap.
-        if (gauge == topGauge) {
-            return cap; // Top is capped exactly.
-        }
-
-        // Other gauges share the (BPS - cap) budget proportionally to their
-        // weight relative to the OTHER-gauges total (= total - topWeight).
-        uint256 othersTotal = total - topWeight;
-        if (othersTotal == 0) {
-            // Only the top gauge has weight in this epoch; nothing for others.
-            return 0;
-        }
-        return (gw * (BPS - cap)) / othersTotal;
+        return (gw * BPS) / total;
     }
 
     /// @dev AUDIT FIX: V2-GOV-05 — internal helper to update the per-epoch top
