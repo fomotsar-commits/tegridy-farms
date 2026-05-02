@@ -251,6 +251,12 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     /// @notice AUDIT MICROSCOPE_2026_04_30 C3/C4 + DEEP-DS-02/03/11: emitted when a
     ///         permissionless caller forces lazy decay of an expired position via `kick()`.
     event PositionKicked(uint256 indexed tokenId, address indexed kicker, uint256 boostDecayed);
+    // AUDIT FIX: DS2-01/DS2-02 — kick-specific shortfall observability so off-chain
+    // monitors can distinguish a kick-time forfeit from the user-initiated `_getReward`
+    // path. Holder remains entitled to the corresponding `unsettledRewards` slice that
+    // was actually credited; the shortfall amounts here are the irrecoverable portions.
+    event RewardsForfeitedDuringKick(address indexed holder, uint256 forfeited);
+    event KickRewardPoolShortfall(address indexed holder, uint256 expected, uint256 available);
     event JbacReturned(uint256 indexed tokenId, address indexed to, uint256 indexed jbacTokenId); // AUDIT H-1
     event JbacStranded(uint256 indexed tokenId, address indexed to, uint256 indexed jbacTokenId); // AUDIT H-1
     /// @notice AUDIT C5: emitted when an extend-lock / autoMaxLock fee is collected to treasury.
@@ -510,9 +516,17 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     // ─── Modifiers ────────────────────────────────────────────────────
 
     /// @dev Accumulate pending rewards into rewardPerTokenStored and advance lastUpdateTime.
+    /// @dev AUDIT FIX: DS2-04 — pause-aware accumulator. When `paused()`, emission is
+    ///      frozen: `lastUpdateTime` advances to `block.timestamp` (so post-unpause
+    ///      elapsed measures from the unpause moment, not the pre-pause moment) but
+    ///      `rewardPerTokenStored` is NOT advanced. Without this guard, any reward-
+    ///      touching call IMMEDIATELY after unpause would credit the entire pause
+    ///      window's `elapsed * rewardRate` to whoever was first to act — letting the
+    ///      front-running claimer capture pause-window emission that the protocol
+    ///      explicitly froze. Mirrors Compound `Comptroller.setMintPaused` semantics.
     function _accumulateRewards() private {
         uint256 _totalBoosted = totalBoostedStake;
-        if (block.timestamp > lastUpdateTime && _totalBoosted > 0) {
+        if (block.timestamp > lastUpdateTime && _totalBoosted > 0 && !paused()) {
             uint256 elapsed = block.timestamp - lastUpdateTime;
             uint256 reward = elapsed * rewardRate;
             uint256 available = rewardToken.balanceOf(address(this));
@@ -527,6 +541,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
                 rewardPerTokenStored += (reward * ACC_PRECISION) / _totalBoosted;
             }
         }
+        // Advance even while paused so the next post-unpause call doesn't credit
+        // the pause window. This is the "skip pause-window emission" half of the
+        // Compound pattern.
         lastUpdateTime = block.timestamp;
     }
 
@@ -538,13 +555,26 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     // ─── Pausable Admin ───────────────────────────────────────────────
 
     /// @notice AUDIT FIX #11/#19: Pause the contract (owner only)
+    /// @dev AUDIT FIX: DS2-04 — crystallise pre-pause emission BEFORE flipping the
+    ///      paused flag. After this point `_accumulateRewards` short-circuits while
+    ///      `paused() == true` (only `lastUpdateTime` advances), so the pause window
+    ///      contributes ZERO additional `rewardPerTokenStored`. Without the pre-pause
+    ///      `_accumulateRewards()` call, the elapsed segment between the last
+    ///      reward-touching call and the pause moment would be lost.
     function pause() external onlyOwner {
+        _accumulateRewards();
         _pause();
     }
 
     /// @notice AUDIT FIX #11/#19: Unpause the contract (owner only)
+    /// @dev AUDIT FIX: DS2-04 — reset `lastUpdateTime` so post-unpause emission
+    ///      measures elapsed time from the unpause moment, not the pre-pause moment.
+    ///      Defense-in-depth — `_accumulateRewards` already advances `lastUpdateTime`
+    ///      while paused, but resetting here keeps the contract correct even if a
+    ///      future change introduces a code path that skips the unconditional advance.
     function unpause() external onlyOwner {
         _unpause();
+        lastUpdateTime = block.timestamp;
     }
 
     // ─── User Functions ───────────────────────────────────────────────
@@ -875,6 +905,28 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     /// @dev    AUDIT FIX: DEEP-DS-07 — fast-revert on phantom IDs and no-op kicks.
     /// @dev    AUDIT FIX: DEEP-DS-11 — `nonReentrant` added; load-bearing once
     ///         the DS-02 settle-unsettled path is in place.
+    /// @dev    AUDIT FIX: DS2-01 + DS2-02 + DS2-03 — kick reward-preservation hardening.
+    ///         (a) `p.rewardDebt` advance is deferred until AFTER `_settleUnsettled`
+    ///         returns and is advanced by ONLY the actually-credited slice. If the
+    ///         unsettled cap was saturated, the un-credited rewardDebt anchor stays
+    ///         where it was — so the holder retains a future claim path once the
+    ///         cap is raised or other claims drain `totalUnsettledRewards`.
+    ///         (b) the rewardPool shortfall (`pending - cappedPending`) is now also
+    ///         routed through `_settleUnsettled` (parity with `_getReward`'s post-
+    ///         critique-5.1 path). When even the unsettled cap can't absorb it, a
+    ///         loud `RewardsForfeitedDuringKick` event fires so off-chain monitors
+    ///         see the forfeit; a `KickRewardPoolShortfall` event also fires when
+    ///         `pending > rewardPool` so monitors detect under-funded reward pools.
+    ///         (c) `_touch(holder)` runs whenever `unsettledRewards[holder]` was
+    ///         written, mirroring DS-04 in `_settleRewardsOnTransfer` so the R014
+    ///         M-9 inactivity-gate invariant is preserved on the kick path too.
+    /// @dev    CALLER NOTICE (per DS2-06): Kick MOVES the holder's pre-expiry rewards
+    ///         from "directly claimable via getReward" to "unsettled, claimable via
+    ///         claimUnsettled" (paused-blockable, capped, may forfeit if either the
+    ///         rewardPool or unsettled cap saturates). Holders who want full control
+    ///         should call `getReward` BEFORE their lock expires. This function exists
+    ///         to close the C3/C4 stale-checkpoint window when the holder is
+    ///         unreachable or unwilling to act.
     function kick(uint256 tokenId) external nonReentrant whenNotPaused {
         Position storage p = positions[tokenId];
         if (p.amount == 0) revert NoPosition(); // DEEP-DS-07
@@ -885,18 +937,58 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         address holder = ownerOf(tokenId);
         int256 accumulated = _safeInt256((prior * rewardPerTokenStored) / ACC_PRECISION);
         int256 diff = accumulated - p.rewardDebt;
-        p.rewardDebt = accumulated;
+        // AUDIT FIX: DS2-01 — DO NOT advance p.rewardDebt yet; we need to know
+        // how much actually got credited before we can advance the anchor safely.
         if (diff > 0) {
             uint256 pending = uint256(diff);
             uint256 available = rewardToken.balanceOf(address(this));
             uint256 reserved = _reserved();
             uint256 rewardPool = available > reserved ? available - reserved : 0;
             uint256 cappedPending = pending > rewardPool ? rewardPool : pending;
+            // AUDIT FIX: DS2-02 — emit rewardPool shortfall event so off-chain monitors
+            // detect under-funded reward pools at kick time (rather than silent drop).
+            if (pending > cappedPending) {
+                emit KickRewardPoolShortfall(holder, pending, cappedPending);
+            }
+            uint256 totalSettled;
             if (cappedPending > 0) {
                 uint256 actualSettled = _settleUnsettled(holder, cappedPending);
-                uint256 forfeited = cappedPending - actualSettled;
-                if (forfeited > 0) emit RewardsForfeited(holder, forfeited);
-                if (actualSettled > 0) emit RewardPaid(holder, tokenId, actualSettled);
+                if (actualSettled > 0) {
+                    emit RewardPaid(holder, tokenId, actualSettled);
+                    totalSettled += actualSettled;
+                }
+            }
+            // AUDIT FIX: DS2-02 — route the rewardPool shortfall through
+            // `_settleUnsettled` too (parity with `_getReward` shortfall handling).
+            // Without this, an under-funded contract silently dropped the entire
+            // post-pool slice on every kick, with no event and no recovery.
+            uint256 shortfall = pending - cappedPending;
+            if (shortfall > 0) {
+                uint256 actualSettledShortfall = _settleUnsettled(holder, shortfall);
+                if (actualSettledShortfall > 0) totalSettled += actualSettledShortfall;
+            }
+            // Final forfeited slice — what neither rewardPool nor unsettled cap absorbed.
+            // Loud kick-specific event so monitors don't miss it.
+            uint256 forfeitedTotal = pending - totalSettled;
+            if (forfeitedTotal > 0) {
+                emit RewardsForfeitedDuringKick(holder, forfeitedTotal);
+                // Keep the legacy RewardsForfeited event firing for backward compat
+                // with off-chain consumers that already index it from _getReward.
+                emit RewardsForfeited(holder, forfeitedTotal);
+            }
+            // AUDIT FIX: DS2-01 — advance p.rewardDebt by ONLY the actually-credited
+            // slice. The forfeited portion stays claimable once room is freed (cap
+            // raised, other users claim, or rewardPool replenished and another
+            // reward-touching path triggers reconciliation).
+            if (totalSettled > 0) {
+                p.rewardDebt = p.rewardDebt + _safeInt256(totalSettled);
+                // AUDIT FIX: DS2-03 — refresh holder's activity timestamp; we just
+                // credited unsettledRewards[holder] from a non-claim, holder-not-
+                // msg.sender path. Mirrors DS-04's _touch(from) in
+                // _settleRewardsOnTransfer so the R014 M-9 invariant ("every reward-
+                // touching path that materially affects unsettled rewards for `user`
+                // must `_touch(user)`") holds on the parallel kick code path.
+                _touch(holder);
             }
         }
         _decayIfExpired(tokenId, p);
@@ -913,12 +1005,23 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     ///      The JBAC boost is cached at stake time, so a flash-loan cannot upgrade beyond the original.
     ///      This makes same-block revalidation safe as there is no exploitable upward manipulation.
     /// @dev AUDIT FIX M-21: Added whenNotPaused to prevent boost manipulation during pause
+    /// @dev AUDIT FIX: DS2-07 — reject expired positions (parity with DS-06's
+    ///      `extendLock` guard and `increaseAmount`). On a legacy grandfathered
+    ///      position past lockEnd, the JBAC-downgrade branch would settle pre-expiry
+    ///      rewards via `_getReward` (which decays boostedAmount to 0), then
+    ///      `_applyNewBoost` would RESTORE boost using the unchanged stale
+    ///      `lockDuration` — granting one extra rewarding-block window on an
+    ///      already-expired lock. Holders whose JBAC was lost AND whose lock has
+    ///      expired must withdraw + re-stake fresh, not get a free post-expiry
+    ///      boost slot.
     function revalidateBoost(uint256 tokenId) external nonReentrant whenNotPaused updateReward {
         address positionOwner = ownerOf(tokenId); // reverts if token doesn't exist
         // AUDIT FIX M-23: Allow restaking contract to call revalidateBoost on behalf of the position owner
         if (msg.sender != positionOwner && msg.sender != restakingContract) revert Unauthorized();
         Position storage p = positions[tokenId];
         if (p.amount == 0) revert NoPosition();
+        // AUDIT FIX: DS2-07 — parity with DS-06's extendLock guard.
+        if (p.lockEnd > 0 && block.timestamp >= p.lockEnd) revert LockExpired();
 
         // AUDIT H-1 FIX (2026-04-20): Deposit-based positions (created via stakeWithBoost) do
         // NOT revalidate. The JBAC is physically held by this contract for the lock duration,
@@ -1081,6 +1184,10 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     ///      auto-max toggle, NFT receive). Restaking-contract round-trips are
     ///      intentionally NOT touched here so the restaking path remains
     ///      unchanged — see TegridyRestaking for the per-restaker bookkeeping.
+    /// @dev AUDIT FIX: DS2-03 — `kick()` is now also enumerated. When a kick credits
+    ///      `unsettledRewards[holder]` (the holder is NOT the kick caller) we still
+    ///      `_touch(holder)` so the 90-day inactivity gate on `claimUnsettledFor`
+    ///      can't be bypassed by an owner-side force-claim immediately after a kick.
     function _touch(address user) internal {
         if (user == address(0)) return;
         lastActivityAt[user] = block.timestamp;
@@ -1514,6 +1621,12 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     ///      escrowed staking NFTs. Otherwise the eventual repay/default round-trip back
     ///      to the borrower hits cooldown/rate-limit/AlreadyHasPosition guards once the
     ///      from-side relaxation is gone, stranding the borrower's collateral.
+    /// @dev AUDIT FIX: DS2-08 — `balanceOf(_lending)` here is the inherited
+    ///      `IERC721(this).balanceOf(_lending)`, i.e. the count of THIS contract's
+    ///      own staking-NFT collection held at `_lending`. It is NOT a generic NFT
+    ///      count and cannot be inflated by other ERC721 collections held at the
+    ///      same address. Only staking NFTs decrement this balance via `_burn` in
+    ///      `_clearPosition`, so the check is sound for actual escrow.
     function applyLendingContract(address _lending, bool _approved) external onlyAdmin {
         if (_lending == address(0)) revert ZeroAddress();
         if (!_approved && balanceOf(_lending) > 0) revert PendingLendingPositions();
@@ -1601,6 +1714,14 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     ///      `userTokenId[msg.sender]`, re-point the legacy single-pointer at any
     ///      remaining position so legacy integrators that read `userTokenId(holder)`
     ///      don't silently misreport "no position" while other positions exist.
+    /// @dev AUDIT FIX: DS2-05 — use `set.at(set.length() - 1)` (most recently inserted
+    ///      surviving position by EnumerableSet append/swap-pop semantics) instead of
+    ///      `set.at(0)`. Preserves the M-5 "latest received" semantic of
+    ///      `userTokenId[holder]` (per `_update`'s `userTokenId[to] = tokenId` write
+    ///      on every inbound transfer). Without this, post-clear the pointer could
+    ///      flip to an OLDER tokenId with stale lockEnd / boost data, causing legacy
+    ///      single-pointer integrators that read `getPosition(userTokenId(holder))`
+    ///      to silently penalize their depositors with the wrong position metadata.
     function _clearPosition(uint256 tokenId, Position storage p) private returns (uint256 amount) {
         amount = p.amount;
         totalStaked -= amount;
@@ -1613,8 +1734,10 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         // `_positionsByOwner[msg.sender]` and zeroed `userTokenId[msg.sender]`. If
         // any positions remain, re-point the legacy pointer at one of them.
         EnumerableSet.UintSet storage set = _positionsByOwner[msg.sender];
-        if (set.length() > 0) {
-            userTokenId[msg.sender] = set.at(0);
+        uint256 setLen = set.length();
+        if (setLen > 0) {
+            // AUDIT FIX: DS2-05 — pick latest surviving position (preserves M-5 semantic).
+            userTokenId[msg.sender] = set.at(setLen - 1);
         }
         _writeCheckpoint(msg.sender);
         _writeTotalBoostedStakeCheckpoint(); // AUDIT REV-M-01
