@@ -1039,6 +1039,10 @@ contract Audit195Restaking is Test {
 
     function test_cancelBonusRateProposal() public {
         restaking.proposeBonusRate(0.5 ether);
+        // AUDIT FIX: DEEP-DR-07 — propose+cancel must be ≥24h apart so a
+        // captured-key signer cannot churn the rate proposal indefinitely.
+        // Legacy test pre-fix expected back-to-back propose+cancel.
+        vm.warp(block.timestamp + 24 hours + 1);
         restaking.cancelBonusRateProposal();
 
         assertEq(restaking.pendingBonusRate(), 0);

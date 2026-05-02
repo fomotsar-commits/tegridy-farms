@@ -19,6 +19,13 @@ interface ITegridyStaking {
     function unsettledRewards(address user) external view returns (uint256);
     function earned(uint256 tokenId) external view returns (uint256);
     function revalidateBoost(uint256 tokenId) external; // M-26
+    /// @dev AUDIT FIX: DEEP-DR-11 — defense-in-depth ownership check to mirror
+    ///      the per-owner enumerable set added in M13. A future TegridyStaking
+    ///      upgrade that wraps ownership through a proxy or share-token would
+    ///      still pass `ownerOf` but may diverge from the staking contract's
+    ///      authoritative `_positionsByOwner` set. Cheap belt-and-suspenders
+    ///      for `restake`.
+    function holdsToken(address user, uint256 tokenId) external view returns (bool);
     // AUDIT H-1 (2026-04-20): Position struct extended with jbacTokenId + jbacDeposited.
     function positions(uint256 tokenId) external view returns (
         uint256 amount,
@@ -134,6 +141,14 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     uint256 public lastForceReturnTime;
     uint256 public constant FORCE_RETURN_COOLDOWN = 1 hours;
 
+    // AUDIT FIX: DEEP-DR-07 — cooldown between bonus-rate propose/cancel sequences
+    // so a captured-key signer cannot churn the rate-change state indefinitely
+    // (preventing legitimate signers from enacting a counter-rate during an
+    // incident). Tracks the timestamp of the most recent propose OR cancel; the
+    // next propose/cancel pair is gated by `BONUS_RATE_ACTION_COOLDOWN`.
+    uint256 public lastBonusRateActionAt;
+    uint256 public constant BONUS_RATE_ACTION_COOLDOWN = 24 hours;
+
     // ─── Events ─────────────────────────────────────────────────────
     event Restaked(address indexed user, uint256 indexed tokenId, uint256 positionAmount);
     event Unrestaked(address indexed user, uint256 indexed tokenId);
@@ -192,6 +207,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         the cached boost matches the current staking-side boost (i.e., no
     ///         decay has happened yet — the helper has nothing to do).
     error NoDecay();
+    /// @notice AUDIT FIX: DEEP-DR-07 — propose/cancel of bonus rate must be at
+    ///         least `BONUS_RATE_ACTION_COOLDOWN` apart so a captured-signer key
+    ///         cannot churn rate-change state continuously.
+    error BonusRateActionCooldown();
 
     // ─── Constructor ────────────────────────────────────────────────
     constructor(
@@ -253,6 +272,14 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     // ─── View Functions ─────────────────────────────────────────────
 
     /// @notice Check pending bonus rewards for a user
+    /// @dev AUDIT FIX: DEEP-DR-08 — route through the clamped historical boost
+    ///      view so frontends/integrators see a value consistent with what the
+    ///      RevenueDistributor (or a `claimAll` after `staking.kick`) would
+    ///      actually settle. Pre-fix, between staking-side lock expiry and the
+    ///      next restaking-side mutation, this view returned the inflated cached
+    ///      `info.boostedAmount` — users would see a "100 TOWELI pending" toast
+    ///      that silently shrinks to ~30 TOWELI on claim because `claimAll`'s
+    ///      stale path correctly clamps to the current staking boost.
     function pendingBonus(address _user) public view returns (uint256) {
         RestakeInfo memory info = restakers[_user];
         if (info.tokenId == 0) return 0;
@@ -266,8 +293,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             currentAcc += (reward * ACC_PRECISION) / totalRestaked;
         }
 
+        // AUDIT FIX: DEEP-DR-08 — use the staleness-clamped boost (min(cached,
+        // current)) instead of the raw cached `info.boostedAmount`. Same fix as
+        // DEEP-DR-04 applied to the pendingBonus view surface.
+        uint256 effectiveBoost = _boostedAmountAt(_user, block.timestamp);
         // M-27: Safe int256 cast via _safeInt256 helper
-        int256 accumulated = _safeInt256((info.boostedAmount * currentAcc) / ACC_PRECISION);
+        int256 accumulated = _safeInt256((effectiveBoost * currentAcc) / ACC_PRECISION);
         int256 diff = accumulated - info.bonusDebt;
         return diff > 0 ? uint256(diff) : 0;
     }
@@ -303,20 +334,57 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         claiming first will forfeit their share for epochs distributed during the
     ///         restake window; frontends should surface a "claim before unrestake" hint.
     function boostedAmountAt(address _user, uint256 _timestamp) external view returns (uint256) {
+        return _boostedAmountAt(_user, _timestamp);
+    }
+
+    /// @dev AUDIT FIX: DEEP-DR-04 / DEEP-DR-08 / DEEP-DR-10 — internal helper used
+    ///      by the public `boostedAmountAt` view AND by `pendingBonus` so both
+    ///      surface the same lazy-decay-safe value.
+    ///
+    ///      The trace-checkpoint cache on this side is only updated by RESTAKING-
+    ///      side mutations (restake / unrestake / refresh / decayExpiredRestaker /
+    ///      revalidateBoost / emergency exits). When TegridyStaking's
+    ///      permissionless `kick(tokenId)` is invoked from the outside (Curve-
+    ///      style decay sweeper) or via `withdraw`/`unstake`, the staking-side
+    ///      `boostedAmount` is zeroed/decayed but our cache and Trace208 stay
+    ///      stuck on the pre-expiry inflated value. RevenueDistributor (and other
+    ///      consumers) calling `boostedAmountAt(user, ts)` with `ts` after the
+    ///      kick used to receive the inflated checkpoint, over-crediting the user.
+    ///
+    ///      Fix: clamp the checkpointed value with the CURRENT staking-side
+    ///      `boostedAmount`. Boost monotonically decays over time, so the current
+    ///      value is a safe upper bound for any past timestamp ≤ now. Wrapping
+    ///      the staking call in try/catch keeps the view robust if the staking
+    ///      contract is ever upgraded with a temporarily-incompatible ABI.
+    function _boostedAmountAt(address _user, uint256 _timestamp) internal view returns (uint256) {
         RestakeInfo memory info = restakers[_user];
         if (info.tokenId == 0) return 0;
         if (info.depositTime > _timestamp) return 0;
-        // AUDIT H-8: prefer the historical boost checkpoint (Trace208.upperLookup) so
-        // RevenueDistributor reads the boost the user actually held at `_timestamp`,
-        // not a post-decay approximation. The fallback to info.boostedAmount preserves
-        // legacy semantics for pre-existing restakers who haven't yet written a
-        // checkpoint (i.e. the contract was upgraded mid-restake). Once any boost-
-        // mutating call runs (restake / unrestake / refresh / decay), checkpoints
-        // start tracking and this branch is dead.
+
+        uint256 cached;
         if (_boostCheckpoints[_user].length() == 0) {
-            return info.boostedAmount;
+            cached = info.boostedAmount;
+        } else {
+            cached = _boostCheckpoints[_user].upperLookup(SafeCast.toUint48(_timestamp));
         }
-        return _boostCheckpoints[_user].upperLookup(SafeCast.toUint48(_timestamp));
+
+        // AUDIT FIX: DEEP-DR-04 — clamp by current staking-side boost. `min(cached,
+        // current)` guarantees no over-credit even when the cache is lazy: the
+        // value can only ever be too HIGH due to staleness, never too low.
+        // try/catch defends against future staking ABI breakage.
+        uint256 current;
+        try staking.positions(info.tokenId) returns (
+            uint256, uint256 stakingBoosted, int256, uint256, uint256, uint256, bool, bool, uint256, uint256, bool
+        ) {
+            current = stakingBoosted;
+        } catch {
+            // If the staking call reverts, fall back to the cached value rather
+            // than zeroing — the cache is at worst stale-inflated, never stale-
+            // deflated, and zero would over-penalize honest users.
+            return cached;
+        }
+
+        return cached < current ? cached : current;
     }
 
     // ─── User Functions ─────────────────────────────────────────────
@@ -328,6 +396,13 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
         // Verify caller owns the NFT
         if (stakingNFT.ownerOf(_tokenId) != msg.sender) revert NotNFTOwner();
+        // AUDIT FIX: DEEP-DR-11 — additionally enforce the staking-side per-owner
+        // enumerable set as the authoritative source of truth (M13 pattern). For
+        // present semantics this is redundant with `ownerOf`, but if a future
+        // staking upgrade ever wraps ownership through a proxy or share-token,
+        // this check guarantees the restaking contract still tracks the staking
+        // contract's authoritative ownership view.
+        if (!staking.holdsToken(msg.sender, _tokenId)) revert NotNFTOwner();
 
         // Get position data from TegridyStaking
         (uint256 amount, uint256 boostedAmount,,,,,,, , ,) = staking.positions(_tokenId);
@@ -740,6 +815,19 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
     /// @notice Recover unsettled rewards that could not be forwarded during a prior unrestake
     ///         (e.g., because another user's concurrent unrestake drained the shared bucket first).
+    /// @dev AUDIT FIX: DEEP-DR-01 — mirror `recoverStuckPrincipal`'s reservation
+    ///      logic. Pre-fix, this entrypoint paid `min(owed, balance)` directly,
+    ///      with no protection for other users' attributed `unforwardedBaseRewards`
+    ///      or for still-active restakers' principal. An attacker (or unlucky
+    ///      sequencing) could drain rewardToken earmarked for honest users:
+    ///      Bob has `unforwardedBaseRewards` after `proposeAttributeStuckRewards`,
+    ///      Carol has shortfall in `pendingUnsettledRewards`, and Carol's
+    ///      `claimPendingUnsettled` payout is computed as `min(owed, balance)` —
+    ///      drains Bob's attributed share AND every active restaker's principal
+    ///      reservation. The fix subtracts `totalUnforwardedBase + totalActivePrincipal`
+    ///      from `available` BEFORE payout. Caller's own pending share is
+    ///      decremented from `totalPendingUnsettled` AFTER computing `available`
+    ///      to keep the reservation honest in the multi-claimer race.
     function claimPendingUnsettled() external nonReentrant {
         uint256 owed = pendingUnsettledRewards[msg.sender];
         if (owed == 0) revert ZeroAmount();
@@ -749,7 +837,14 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             try staking.claimUnsettled() {} catch {}
         }
 
-        uint256 available = rewardToken.balanceOf(address(this));
+        // AUDIT FIX: DEEP-DR-01 — reserve attributions and active principal so
+        // this caller cannot drain rewardToken earmarked for other users. The
+        // reservation INTENTIONALLY does not subtract the caller's own
+        // `pendingUnsettledRewards` share — `totalPendingUnsettled` already
+        // INCLUDES this caller, and the payout below is what releases it.
+        uint256 balance = rewardToken.balanceOf(address(this));
+        uint256 reserved = totalUnforwardedBase + totalActivePrincipal;
+        uint256 available = balance > reserved ? balance - reserved : 0;
         uint256 payout = owed > available ? available : owed;
         pendingUnsettledRewards[msg.sender] = owed - payout;
         // SECURITY FIX: Decrement totalPendingUnsettled by the amount paid out
@@ -777,9 +872,28 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     }
 
     /// @notice SECURITY FIX #13: Propose a new bonus reward rate (subject to 48h timelock)
+    /// @dev AUDIT FIX: DEEP-DR-07 — gate proposals behind a 24h cooldown shared
+    ///      with `cancelBonusRateProposal` so a captured signer cannot loop
+    ///      propose+cancel to keep rate-change state churning indefinitely.
+    ///      Order of checks:
+    ///        1. RateTooHigh (input validation)
+    ///        2. _propose's ExistingProposalPending (legacy back-compat — preserves
+    ///           audit195 test suite expectations)
+    ///        3. cooldown gate (only relevant after a previous propose+cancel)
+    ///      The cooldown only applies AFTER the first action (lastBonusRateActionAt
+    ///      is left zero at deploy so the first rate proposal is unblocked).
     function proposeBonusRate(uint256 _rate) external onlyOwner updateBonus {
         if (_rate > MAX_BONUS_REWARD_RATE) revert RateTooHigh();
+        // _propose handles the ExistingProposalPending check internally.
+        // We delay the cooldown check until AFTER that so the legacy
+        // "second propose reverts with ExistingProposalPending" test passes.
+        if (lastBonusRateActionAt != 0 &&
+            _executeAfter[BONUS_RATE_CHANGE] == 0 &&
+            block.timestamp < lastBonusRateActionAt + BONUS_RATE_ACTION_COOLDOWN) {
+            revert BonusRateActionCooldown();
+        }
         pendingBonusRate = _rate;
+        lastBonusRateActionAt = block.timestamp;
         _propose(BONUS_RATE_CHANGE, BONUS_RATE_TIMELOCK);
         emit BonusRateProposed(_rate, _executeAfter[BONUS_RATE_CHANGE]);
     }
@@ -793,10 +907,21 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     }
 
     /// @notice M-03: Cancel a pending bonus rate proposal
+    /// @dev AUDIT FIX: DEEP-DR-07 — gate cancels behind the same 24h cooldown as
+    ///      `proposeBonusRate` so the propose+cancel loop cannot be exercised
+    ///      faster than once per day. A compromised signer can still cancel
+    ///      during the cooldown by waiting it out, but they cannot indefinitely
+    ///      veto every counter-proposal in real time. Same lastBonusRateActionAt-
+    ///      is-zero unblocked-bootstrap pattern as proposeBonusRate.
     function cancelBonusRateProposal() external onlyOwner {
+        if (lastBonusRateActionAt != 0 &&
+            block.timestamp < lastBonusRateActionAt + BONUS_RATE_ACTION_COOLDOWN) {
+            revert BonusRateActionCooldown();
+        }
         _cancel(BONUS_RATE_CHANGE);
         uint256 cancelledRate = pendingBonusRate;
         pendingBonusRate = 0;
+        lastBonusRateActionAt = block.timestamp;
         emit BonusRateCancelled(cancelledRate);
     }
 
@@ -1022,20 +1147,20 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
         RestakeInfo storage info = restakers[restaker];
 
-        // Settle any pending bonus rewards for the restaker
-        if (totalRestaked > 0 && info.boostedAmount > 0) {
-            // Update bonus accumulator inline (cannot rely on updateBonus modifier in emergency)
-            if (block.timestamp > lastBonusRewardTime) {
-                uint256 elapsed = block.timestamp - lastBonusRewardTime;
-                uint256 reward = elapsed * bonusRewardPerSecond;
-                uint256 available = bonusRewardToken.balanceOf(address(this));
-                if (reward > available) reward = available;
-                if (reward > 0) {
-                    accBonusPerShare += (reward * ACC_PRECISION) / totalRestaked;
-                }
-                lastBonusRewardTime = block.timestamp;
-            }
+        // AUDIT FIX: DEEP-DR-03 / DEEP-DR-06 — delegate accrual to
+        // `_accrueBonusChecked()` instead of inlining the unguarded logic.
+        // The wrapped path:
+        //   - is monotonicity-checked (any subclass that decrements
+        //     accBonusPerShare trips `AccrueNotMonotone()` — DEEP-DR-03), and
+        //   - wraps `bonusRewardToken.balanceOf` in try/catch via `_accrueBonus`
+        //     (so a hostile or paused bonus token cannot brick the emergency
+        //     exit — DEEP-DR-06).
+        // Pre-fix, both protections existed in the modifier path but were absent
+        // from this critical-path inline copy.
+        _accrueBonusChecked();
 
+        // Settle any pending bonus rewards for the restaker
+        if (info.boostedAmount > 0) {
             int256 accumulated = _safeInt256((info.boostedAmount * accBonusPerShare) / ACC_PRECISION);
             int256 diff = accumulated - info.bonusDebt;
             uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
@@ -1061,6 +1186,17 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
         // Clean up restaking state
         totalRestaked -= info.boostedAmount;
+        // AUDIT FIX: DEEP-DR-02 — release this user's principal reservation. Pre-fix,
+        // `emergencyForceReturn` was the ONLY NFT-exit path that omitted this update,
+        // leaving `totalActivePrincipal` permanently inflated by the force-returned
+        // user's principal. The phantom reservation then drove `recoverStuckPrincipal`'s
+        // `othersPrincipal` calculation upward, silently DOS'ing legitimate force-closed
+        // recoveries. Underflow guard mirrors `recoverStuckPrincipal`.
+        if (info.positionAmount <= totalActivePrincipal) {
+            totalActivePrincipal -= info.positionAmount;
+        } else {
+            totalActivePrincipal = 0;
+        }
 
         // Attempt to return the NFT — if staking contract is broken, this may fail
         bool nftReturned;
@@ -1263,7 +1399,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // ran BEFORE the totalRestaked shrink, so the elapsed-period emission
         // was minted into accBonusPerShare against the inflated denominator —
         // letting the expired restaker siphon the delta from honest users.
-        _accrueBonus();
+        // AUDIT FIX: DEEP-DR-03 — use the monotonicity-checked wrapper so a
+        // malicious subclass overriding `_accrueBonus` (the function is
+        // explicitly `virtual` to bait such overrides per AUDIT NFT-CL-L5)
+        // cannot decrement `accBonusPerShare` from this permissionless
+        // entrypoint. The wrapper reverts with `AccrueNotMonotone()`.
+        _accrueBonusChecked();
 
         // R017 RETRY step 4 — re-anchor expired restaker's bonusDebt to the
         // post-accrue accBonusPerShare so residual rounding can't credit them

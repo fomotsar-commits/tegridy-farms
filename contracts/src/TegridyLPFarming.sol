@@ -158,9 +158,27 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     // ║  SYNTHETIX REWARD MATH (boosted)                            ║
     // ═══════════════════════════════════════════════════════════════
 
+    /// @dev AUDIT FIX: DEEP-DR-09 — when `totalEffectiveSupply == 0`, holding
+    ///      `lastUpdateTime` allows the first staker after an empty period to
+    ///      capture the elapsed-window emission. Pre-fix, the modifier
+    ///      unconditionally advanced `lastUpdateTime = lastTimeRewardApplicable()`,
+    ///      so any micro-period emission between a funding `notifyRewardAmount`
+    ///      and the first stake was silently forfeited (rewardPerToken returned
+    ///      `rewardPerTokenStored` unchanged because the denominator was zero;
+    ///      then `lastUpdateTime` advanced, dropping the elapsed window). With
+    ///      the gate, `lastUpdateTime` only advances while there's a positive
+    ///      denominator to credit — the first staker after an empty period now
+    ///      picks up from `notifyRewardAmount`'s `lastUpdateTime` snapshot.
     modifier updateReward(address account) {
         rewardPerTokenStored = rewardPerToken();
-        lastUpdateTime = lastTimeRewardApplicable();
+        // AUDIT FIX: DEEP-DR-09 — only advance `lastUpdateTime` when there's a
+        // non-zero `totalEffectiveSupply` to credit. While the denominator is
+        // zero, `rewardPerToken()` returns `rewardPerTokenStored` unchanged
+        // (no math to do), so advancing the timestamp would silently forfeit
+        // the elapsed-period emission once a first staker arrives.
+        if (totalEffectiveSupply > 0) {
+            lastUpdateTime = lastTimeRewardApplicable();
+        }
         if (account != address(0)) {
             rewards[account] = earned(account);
             userRewardPerTokenPaid[account] = rewardPerTokenStored;
@@ -421,7 +439,16 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
         emit RewardsDurationProposed(_newDuration, block.timestamp + REWARDS_DURATION_TIMELOCK);
     }
 
+    /// @dev AUDIT FIX: DEEP-DR-05 — mirror the `periodFinish` gate from
+    ///      `proposeRewardsDurationChange`. Pre-fix the propose side enforced
+    ///      "no active period" but the execute side did not, allowing the
+    ///      sequence: propose during a quiet window → wait 24h → notifyRewardAmount
+    ///      to start a new period → execute mid-period to rotate `rewardsDuration`
+    ///      under a live period without the timelock that was supposed to gate
+    ///      it. Pattern of record: Synthetix StakingRewards `setRewardsDuration`
+    ///      requires `block.timestamp > periodFinish` at the SETTER side.
     function executeRewardsDurationChange() external onlyOwner {
+        if (block.timestamp < periodFinish) revert PreviousPeriodNotComplete();
         _execute(REWARDS_DURATION_CHANGE);
         uint256 old = rewardsDuration;
         rewardsDuration = pendingRewardsDuration;
