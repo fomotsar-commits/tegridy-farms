@@ -254,20 +254,18 @@ contract AuditR014_FeeHookTest is Test {
 
     function setUp() public {
         pm = new MockPoolManagerR014();
-        // Brute-force a vanity address by deploying churn contracts to bump
-        // the next deploy nonce until it lands on a slot whose low 16 bits
-        // are 0x0044. ~64k tries in the worst case; usually < 1024.
-        TegridyFeeHook tmp;
-        for (uint256 i; i < 4096; i++) {
-            try new TegridyFeeHook(IPoolManager(address(pm)), distributor, 30, owner) returns (TegridyFeeHook h) {
-                tmp = h;
-                break;
-            } catch {
-                new ChurnR014();
-            }
-        }
-        require(address(tmp) != address(0), "vanity-mine failed");
-        hook = tmp;
+        // AUDIT FIX: DEEP-D-AMM-INFO1 — the hook constructor masks
+        // `& 0x3FFF == 0x0044` (probability 1/16384 per try). The original
+        // brute-force loop OOGs at the new mask, so use deployCodeTo at a
+        // pre-mined vanity address whose lower 14 bits are 0x0044.
+        // 0xCAFE0044 satisfies (& 0x3FFF == 0x0044).
+        address HOOK_ADDR = address(uint160(0xCAFE0044));
+        deployCodeTo(
+            "TegridyFeeHook.sol:TegridyFeeHook",
+            abi.encode(IPoolManager(address(pm)), distributor, uint256(30), owner),
+            HOOK_ADDR
+        );
+        hook = TegridyFeeHook(payable(HOOK_ADDR));
     }
 
     function _setAccrued(address t, uint256 amt) internal {

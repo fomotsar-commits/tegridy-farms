@@ -105,14 +105,14 @@ contract Audit195PremiumHookTest is Test {
         vm.prank(alice);
         premium.subscribe(1, type(uint256).max);
 
-        // AUDIT PA-M-01 / R022 (2026-04-29): on extension, the OLD escrow
-        // (consumed + remaining) is forfeit and a fresh per-period escrow is
-        // anchored. After extension: userEscrow == cost (MONTHLY_FEE), NOT
-        // 1500. The unconsumed ~500 remainder of period 1 was credited to
-        // totalRevenue, not carried into the new escrow. This is the
-        // corrected R022 behavior — eliminates extend-then-cancel refund drift.
-        assertEq(premium.userEscrow(alice), MONTHLY_FEE, "PA-M-01: fresh per-period escrow");
-        assertEq(premium.totalRefundEscrow(), MONTHLY_FEE, "PA-M-01: refund-escrow tracks fresh cost");
+        // AUDIT FIX: DEEP-DR-M-06 (supersedes PA-M-01) — extension is now
+        // pro-rated fairly. Consumed portion of old escrow is credited to
+        // totalRevenue; unconsumed portion rolls into the new escrow.
+        // After 15 of 30 days elapsed, half the old escrow rolls forward;
+        // new userEscrow = cost (MONTHLY_FEE) + remainingOld (MONTHLY_FEE/2).
+        uint256 expectedEscrow = MONTHLY_FEE + MONTHLY_FEE / 2;
+        assertEq(premium.userEscrow(alice), expectedEscrow, "DR-M-06: rolled remaining escrow");
+        assertEq(premium.totalRefundEscrow(), expectedEscrow, "DR-M-06: refund-escrow tracks rolled escrow");
     }
 
     function test_P01_subscribeEscrowConsistency_multiUser() public {
@@ -215,17 +215,21 @@ contract Audit195PremiumHookTest is Test {
         uint256 rev1 = premium.totalRevenue();
         assertEq(rev1, MONTHLY_FEE);
 
-        vm.warp(block.timestamp + 1);
+        // AUDIT FIX: DEEP-DR-L-05 — extension respects MIN_HOLDING_PERIOD.
+        // Warp past 1 day to permit the extend; consumed portion of the old
+        // escrow is `oldEscrow * elapsed / totalDuration ≈ MONTHLY_FEE/30`.
+        vm.warp(block.timestamp + 1 days + 1);
 
         vm.prank(alice);
         premium.subscribe(1, type(uint256).max); // extension
-        // AUDIT PA-M-01 / R022 (2026-04-29): on extension the unconsumed
-        // remainder of the OLD escrow (~MONTHLY_FEE since only 1s of 30 days
-        // elapsed) is credited to totalRevenue. PLUS the M-06 unconditional
-        // `totalRevenue += cost` adds the new period's cost. Net: starting
-        // MONTHLY_FEE + ~MONTHLY_FEE forfeited + MONTHLY_FEE new ≈ 3*FEE.
-        assertApproxEqAbs(premium.totalRevenue(), 3 * MONTHLY_FEE, 1 ether,
-            "PA-M-01: forfeit-on-extend credits remaining to revenue");
+
+        // AUDIT FIX: DEEP-DR-M-06 (supersedes PA-M-01) — pro-rated split.
+        // Consumed (~MONTHLY_FEE * 1/30) goes to revenue + new cost
+        // (MONTHLY_FEE) added to revenue. Net ≈ 1*FEE (initial) +
+        // ~FEE/30 (consumed) + 1*FEE (new) ≈ 2.033 * FEE.
+        uint256 expected = (2 * MONTHLY_FEE) + (MONTHLY_FEE / 30);
+        assertApproxEqAbs(premium.totalRevenue(), expected, MONTHLY_FEE / 100,
+            "DR-M-06: pro-rated extension credits consumed portion to revenue");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -548,7 +552,8 @@ contract Audit195PremiumHookTest is Test {
         premium.subscribe(1, type(uint256).max);
         assertEq(premium.totalSubscribers(), 1);
 
-        vm.warp(block.timestamp + 1);
+        // AUDIT FIX: DEEP-DR-L-05 — extension respects MIN_HOLDING_PERIOD.
+        vm.warp(block.timestamp + 1 days + 1);
 
         vm.prank(alice);
         premium.subscribe(1, type(uint256).max); // extension
@@ -860,8 +865,9 @@ contract Audit195PremiumHookTest is Test {
     // ═══════════════════════════════════════════════════════════════
 
     function test_H07_sweepETHToDistributor() public {
+        // AUDIT FIX D-AMM-L4: sweepETH now takes an explicit recipient.
         vm.deal(address(hook), 1 ether);
-        hook.sweepETH();
+        hook.sweepETH(distributor);
         assertEq(address(hook).balance, 0);
         assertEq(distributor.balance, 1 ether);
     }
@@ -870,7 +876,7 @@ contract Audit195PremiumHookTest is Test {
         vm.deal(address(hook), 1 ether);
         vm.prank(alice);
         vm.expectRevert();
-        hook.sweepETH();
+        hook.sweepETH(alice);
     }
 
     // ═══════════════════════════════════════════════════════════════

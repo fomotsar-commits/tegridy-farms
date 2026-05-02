@@ -2,7 +2,9 @@
 pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {SequencerCheck} from "./lib/SequencerCheck.sol";
+import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 
 /// @title ITegridyPair — Minimal interface for TegridyPair reserve + cumulative queries
 /// @dev   AUDIT R014 (oracle layer, Wave-014): extended with `price0CumulativeLast` and
@@ -66,7 +68,12 @@ abstract contract TWAPAdmin {
     }
 }
 
-contract TegridyTWAP is TWAPAdmin {
+/// @dev AUDIT FIX D-AMM-L3: inherit ReentrancyGuard for defense-in-depth on
+///      `update()` (refunds excess ETH) and `withdrawFees()` (sends fees to
+///      recipient). CEI is preserved; nonReentrant is belt-and-suspenders.
+/// @dev AUDIT FIX D-AMM-H3: inherit TimelockAdmin for the new
+///      `adminResetPair(pair)` recovery primitive (24h timelocked).
+contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     // ─── Types ───────────────────────────────────────────────────────
 
     /// @notice AUDIT R014 (oracle layer, Wave-014): widened cumulative slots from
@@ -103,6 +110,11 @@ contract TegridyTWAP is TWAPAdmin {
     uint256 public constant DEVIATION_BYPASS_AFTER = 1 days;
     uint256 private constant Q112 = 2 ** 112;
     uint256 private constant BPS = 10000;
+
+    /// @notice AUDIT FIX D-AMM-H3: timelock key + delay for the pair-reset
+    ///         emergency recovery primitive. 24h matches Compound governance.
+    bytes32 public constant PAIR_RESET = keccak256("PAIR_RESET");
+    uint256 public constant PAIR_RESET_DELAY = 24 hours;
 
     // ─── Storage ─────────────────────────────────────────────────────
 
@@ -182,6 +194,11 @@ contract TegridyTWAP is TWAPAdmin {
     event UpdateFeeChanged(uint256 oldFee, uint256 newFee);
     event FeeRecipientChanged(address indexed oldRecipient, address indexed newRecipient);
     event FeesWithdrawn(address indexed to, uint256 amount);
+    /// @notice AUDIT FIX D-AMM-H3: pair-reset lifecycle events.
+    event PairResetProposed(address indexed pair, uint256 executeAfter);
+    event PairResetExecuted(address indexed pair);
+    event PairResetCancelled(address indexed pair);
+    event PairReset(address indexed pair);
 
     // ─── Errors ──────────────────────────────────────────────────────
 
@@ -199,6 +216,13 @@ contract TegridyTWAP is TWAPAdmin {
     /// @notice AUDIT R014: caller passed a `pair` that the bound TegridyFactory does
     ///         not recognise. Prevents oracle poisoning from forged "pair-shaped" contracts.
     error UnknownPair();
+    /// @notice AUDIT FIX D-AMM-H1: dormancy-bypass observation is owner-only.
+    error BypassObservationOwnerOnly();
+    /// @notice AUDIT FIX D-AMM-M5: `consult()` refuses to serve a price derived from
+    ///         a buffer where the latest observation was admitted under bypass.
+    error OracleRebootstrapping();
+    /// @notice AUDIT FIX D-AMM-H3: zero-address parameter on `proposeAdminResetPair`.
+    error PairResetZeroAddress();
 
     // ─── External ────────────────────────────────────────────────────
 
@@ -217,7 +241,7 @@ contract TegridyTWAP is TWAPAdmin {
     ///           3. The Observation now carries a `bypassed` flag set whenever the deviation
     ///              gate is skipped (DEVIATION_BYPASS_AFTER path), so consumers can detect
     ///              rebootstrap windows.
-    function update(address pair) external payable {
+    function update(address pair) external payable nonReentrant {
         // AUDIT R014: factory authentication MUST run before any storage writes or external
         // reads against the (possibly malicious) pair address.
         if (!factory.isPair(pair)) revert UnknownPair();
@@ -305,9 +329,16 @@ contract TegridyTWAP is TWAPAdmin {
                 }
             } else {
                 // AUDIT M-2 / R014: rebootstrap path — gate skipped after dormancy.
-                // Mark the observation as `bypassed` so consumers can see the flag in
-                // `getLatestObservation()` without having to re-derive it from
-                // `lastBypassUsed`.
+                // AUDIT FIX D-AMM-H1: gate the dormancy-bypass branch behind onlyOwner.
+                // Pre-fix this path was permissionless and overwrote `lastSpot{0,1}`
+                // a few lines down — making it a flash-loan-anchored bootstrap
+                // primitive. An attacker could push reserves to a manipulated state,
+                // call `update()` after the pair had been dormant for >1 day to
+                // admit the observation under a skipped deviation gate, then brick
+                // every subsequent honest observation against the manipulated
+                // baseline. Permissionless updates resume immediately afterward
+                // since the next observation's `elapsed` will be < DEVIATION_BYPASS_AFTER.
+                if (msg.sender != owner) revert BypassObservationOwnerOnly();
                 bypassed = true;
                 lastBypassUsed[pair] = block.timestamp;
                 emit DeviationBypassed(pair, elapsed, spotPrice0, spotPrice1);
@@ -377,6 +408,21 @@ contract TegridyTWAP is TWAPAdmin {
         if (amountIn == 0) revert InvalidAmount();
         if (period == 0) revert InvalidAmount();
         if (period > uint256(MAX_OBSERVATIONS) * MIN_PERIOD) revert PeriodTooLong();
+
+        // AUDIT FIX D-AMM-M5: refuse to serve a price derived from a buffer whose
+        // latest observation was admitted under the dormancy-bypass path. Even
+        // after the H1 owner-only gate, a legitimately-bypassed observation is
+        // provisional — it lacks a deviation-gate confirmation. Consumers must
+        // wait for the next non-bypass observation before trusting the new
+        // cumulative. Pattern: Aave V3 PriceOracleSentinel.
+        {
+            uint256 _count = observationCount[pair];
+            if (_count > 0) {
+                uint8 _latestIdx =
+                    observationIndex[pair] == 0 ? MAX_OBSERVATIONS - 1 : observationIndex[pair] - 1;
+                if (observations[pair][_latestIdx].bypassed) revert OracleRebootstrapping();
+            }
+        }
 
         address token0 = ITegridyPair(pair).token0();
         address token1 = ITegridyPair(pair).token1();
@@ -452,7 +498,8 @@ contract TegridyTWAP is TWAPAdmin {
     }
 
     /// @notice Withdraw accumulated update fees to feeRecipient (or owner if unset).
-    function withdrawFees() external {
+    /// @dev AUDIT FIX D-AMM-L3: nonReentrant for defense-in-depth.
+    function withdrawFees() external nonReentrant {
         uint256 amount = accumulatedFees;
         if (amount == 0) revert NoFees();
         accumulatedFees = 0;
@@ -460,6 +507,48 @@ contract TegridyTWAP is TWAPAdmin {
         (bool ok,) = to.call{value: amount}("");
         require(ok, "WITHDRAW_FAILED");
         emit FeesWithdrawn(to, amount);
+    }
+
+    // ─── AUDIT FIX D-AMM-H3: emergency pair reset (24h timelock) ─────
+
+    /// @notice AUDIT FIX D-AMM-H3: propose a timelocked reset of a pair's TWAP
+    ///         observation state. Used when a poisoning event has left the buffer
+    ///         permanently bricked. Owner-only; 24h timelock so the reset can be
+    ///         observed and contested within the validity window.
+    function proposeAdminResetPair(address pair) external onlyOwner {
+        if (pair == address(0)) revert PairResetZeroAddress();
+        bytes32 key = keccak256(abi.encodePacked(PAIR_RESET, pair));
+        _propose(key, PAIR_RESET_DELAY);
+        emit PairResetProposed(pair, _proposalReadyAt(key));
+    }
+
+    /// @notice AUDIT FIX D-AMM-H3: execute a previously proposed pair reset after
+    ///         the 24h timelock. Clears `observationIndex`, `observationCount`,
+    ///         `lastSpot{0,1}`, `lastBypassUsed` for the pair. The next observation
+    ///         goes through the deviation gate against a freshly-zeroed baseline.
+    function executeAdminResetPair(address pair) external onlyOwner {
+        bytes32 key = keccak256(abi.encodePacked(PAIR_RESET, pair));
+        _execute(key);
+        delete observationIndex[pair];
+        delete observationCount[pair];
+        delete lastSpot0[pair];
+        delete lastSpot1[pair];
+        delete lastBypassUsed[pair];
+        emit PairResetExecuted(pair);
+        emit PairReset(pair);
+    }
+
+    /// @notice AUDIT FIX D-AMM-H3: cancel a pending pair-reset proposal.
+    function cancelAdminResetPair(address pair) external onlyOwner {
+        bytes32 key = keccak256(abi.encodePacked(PAIR_RESET, pair));
+        _cancel(key);
+        emit PairResetCancelled(pair);
+    }
+
+    /// @notice Legacy view helper for pair-reset proposal timestamp.
+    function pairResetTime(address pair) external view returns (uint256) {
+        bytes32 key = keccak256(abi.encodePacked(PAIR_RESET, pair));
+        return _proposalReadyAt(key);
     }
 
     /// @dev AUDIT R014 (oracle layer, Wave-014): widened cumulative returns from uint224 → uint256

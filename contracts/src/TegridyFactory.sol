@@ -264,11 +264,17 @@ contract TegridyFactory is TimelockAdmin {
         feeToSetterChangeTime = 0;
         // SECURITY FIX C6: Clear any pending feeTo change proposed by the old setter
         // Prevents old setter's queued malicious feeTo from executing after transition
+        // AUDIT FIX: DEEP-LIB-M5 — replace direct-write `_executeAfter[KEY]=0`
+        //   with `_forceCancel(KEY)` so the canonical `ProposalCancelled(KEY)`
+        //   event fires alongside the supplemental `FeeToChangeCancelled` one.
+        //   Pre-fix off-chain monitors subscribed to `ProposalCancelled` (the
+        //   protocol-wide standard) silently missed this cancellation; the
+        //   helper restores parity with every other timelock-cancel path.
         if (_executeAfter[FEE_TO_CHANGE] != 0) {
             address cancelledFeeTo = pendingFeeTo;
-            _executeAfter[FEE_TO_CHANGE] = 0;
             pendingFeeTo = address(0);
-            emit FeeToChangeCancelled(cancelledFeeTo); // AUDIT: Make silent cancellation auditable
+            _forceCancel(FEE_TO_CHANGE); // emits ProposalCancelled(FEE_TO_CHANGE)
+            emit FeeToChangeCancelled(cancelledFeeTo); // legacy supplemental event
         }
         emit FeeToSetterAccepted(oldSetter, feeToSetter);
     }
@@ -291,11 +297,17 @@ contract TegridyFactory is TimelockAdmin {
     ///      register ERC-1820 hooks without being a full ERC-777 implementation.
     ///      AUDIT FIX M-35: Documented that this is best-effort and bypassable.
     ///      For maximum safety, maintain an off-chain allowlist of verified ERC-20 tokens.
+    /// @dev AUDIT FIX D-AMM-INFO2: every external `staticcall` against the candidate
+    ///      token (and against ERC-1820 with the candidate token as parameter) is
+    ///      capped at 30_000 gas. Prevents a malicious token whose `supportsInterface`
+    ///      / `granularity` / fallback consumes nearly all available gas from
+    ///      OOG-griefing legitimate `createPair` callers.
     function _rejectERC777(address token) internal view {
         require(!blockedTokens[token], "TOKEN_BLOCKED");
 
         // ERC-777 token interface ID = 0xe58e113c
-        (bool ok, bytes memory result) = token.staticcall(
+        // AUDIT FIX D-AMM-INFO2: 30k gas cap (see function-level NatSpec).
+        (bool ok, bytes memory result) = token.staticcall{gas: 30_000}(
             abi.encodeWithSelector(0x01ffc9a7, bytes4(0xe58e113c)) // supportsInterface(0xe58e113c)
         );
         if (ok && result.length >= 32) {
@@ -305,7 +317,8 @@ contract TegridyFactory is TimelockAdmin {
 
         // Check for granularity() — mandatory ERC-777 function not found in standard ERC-20.
         // If the token implements granularity(), it is likely an ERC-777 token.
-        (bool grOk, bytes memory grResult) = token.staticcall(
+        // AUDIT FIX D-AMM-INFO2: 30k gas cap.
+        (bool grOk, bytes memory grResult) = token.staticcall{gas: 30_000}(
             abi.encodeWithSelector(bytes4(keccak256("granularity()")))
         );
         if (grOk && grResult.length >= 32) {
@@ -326,7 +339,8 @@ contract TegridyFactory is TimelockAdmin {
                 keccak256("ERC777TokensSender")
             ];
             for (uint256 i = 0; i < 3; i++) {
-                (bool regOk, bytes memory regResult) = ERC1820_REGISTRY.staticcall(
+                // AUDIT FIX D-AMM-INFO2: 30k gas cap.
+                (bool regOk, bytes memory regResult) = ERC1820_REGISTRY.staticcall{gas: 30_000}(
                     abi.encodeWithSelector(0xaabbb8ca, token, hashes[i])
                 );
                 if (regOk && regResult.length >= 32) {
@@ -435,8 +449,13 @@ contract TegridyFactory is TimelockAdmin {
 
     /// @notice AUDIT R028 H-01: propose a guardian change (takes effect after 48h).
     ///         _newGuardian == address(0) is allowed and disables emergency powers.
+    /// @dev    AUDIT FIX D-AMM-L2: reject same-guardian no-op proposals so a captured
+    ///         feeToSetter cannot occupy the GUARDIAN_CHANGE proposal slot for 48h
+    ///         and block legitimate rotation. Mirrors the SAME_SETTER guard in
+    ///         `proposeFeeToSetter` and the SAME_VALUE pattern across audit fixes.
     function proposeGuardianChange(address _newGuardian) external {
         require(msg.sender == feeToSetter, "FORBIDDEN");
+        require(_newGuardian != guardian, "SAME_GUARDIAN");
         pendingGuardian = _newGuardian;
         _propose(GUARDIAN_CHANGE, GUARDIAN_CHANGE_DELAY);
         emit GuardianChangeProposed(guardian, _newGuardian, _executeAfter[GUARDIAN_CHANGE]);

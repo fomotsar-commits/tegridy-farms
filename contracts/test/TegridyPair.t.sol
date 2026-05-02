@@ -397,10 +397,17 @@ contract TegridyPairTest is Test {
     ///         test (test_R016M1_harvestRateLimitWindow).
     function test_NEWA7_harvestIdempotentWithoutVolume() public {
         _addLiquidity(alice, 10_000 ether, 10_000 ether);
-        pair.harvest(); // first call triggers _mintFee initial kLast set (K unchanged, no mint)
+        // AUDIT FIX: DEEP-D-AMM-M2 — harvest now reverts NO_FEE_TO_MATERIALIZE
+        // when there is no growth in K to mint against. Pre-fix the no-op
+        // call silently bumped lastHarvestAt, opening a 5-min cadence
+        // griefing surface. Post-fix every no-op reverts and `lastHarvestAt`
+        // only advances when an actual fee was minted.
+        vm.expectRevert(bytes("NO_FEE_TO_MATERIALIZE"));
+        pair.harvest();
         uint256 feeToLPAfter1 = pair.balanceOf(feeTo);
         vm.warp(block.timestamp + pair.HARVEST_INTERVAL());
-        pair.harvest(); // second call after gate — no K growth, no mint
+        vm.expectRevert(bytes("NO_FEE_TO_MATERIALIZE"));
+        pair.harvest();
         uint256 feeToLPAfter2 = pair.balanceOf(feeTo);
         assertEq(feeToLPAfter1, feeToLPAfter2, "harvest without volume doesn't mint extra");
     }
@@ -423,7 +430,9 @@ contract TegridyPairTest is Test {
         vm.expectRevert(bytes("HARVEST_TOO_SOON"));
         pair.harvest();
 
-        // After full HARVEST_INTERVAL — accepted.
+        // After full HARVEST_INTERVAL — accepted, but only with fresh K growth
+        // per DEEP-D-AMM-M2. Generate volume so K grows.
+        _swapAForB(bob, 500 ether);
         vm.warp(block.timestamp + 1 minutes + 1);
         pair.harvest(); // does not revert
     }
@@ -434,11 +443,15 @@ contract TegridyPairTest is Test {
     function test_R016M1_harvestKeeperCadenceMaterialisesFee() public {
         _addLiquidity(alice, 10_000 ether, 10_000 ether);
 
-        // First call (initialises kLast).
+        // AUDIT FIX: DEEP-D-AMM-M2 — first harvest needs prior volume to
+        // materialise non-zero fee LP. Pre-fix the call could no-op succeed
+        // and silently advance lastHarvestAt. Post-fix every harvest must
+        // mint a real LP slice.
+        _swapAForB(bob, 1_000 ether);
         pair.harvest();
         uint256 lp0 = pair.balanceOf(feeTo);
 
-        // Generate volume, warp through gate, harvest again — feeTo gains LP.
+        // Generate more volume, warp through gate, harvest again — feeTo gains LP.
         _swapAForB(bob, 1_000 ether);
         _swapAForB(bob, 1_000 ether);
         vm.warp(block.timestamp + pair.HARVEST_INTERVAL());

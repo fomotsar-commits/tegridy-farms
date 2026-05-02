@@ -281,7 +281,14 @@ contract TegridyPair is ERC20, ReentrancyGuard {
     /// @dev AUDIT NOTE M-05: skim() is permissionless (matches Uniswap V2). Tokens sent to the
     ///      pair in a separate transaction (not via Router) can be skimmed by anyone before mint().
     ///      Always use the Router for atomic transfers + mints. Direct pair interaction is unsafe.
+    /// @dev AUDIT FIX D-AMM-H2: gate skim() behind `disabledPairs` / `blockedTokens`
+    ///      checks. A permissionless skim against a disabled pair could be paired with
+    ///      attacker-donated balances to set up the cumulative-poisoning attack
+    ///      described in D-AMM-H2 (donation primitive — once the disabled pair is
+    ///      re-enabled, the next TWAP update integrates the manipulated reserves).
     function skim(address to) external nonReentrant {
+        require(!ITegridyFactory(factory).disabledPairs(address(this)), "PAIR_DISABLED");
+        require(!ITegridyFactory(factory).blockedTokens(token0) && !ITegridyFactory(factory).blockedTokens(token1), "TOKEN_BLOCKED");
         require(to != address(0) && to != address(this), "INVALID_TO");
         address _token0 = token0;
         address _token1 = token1;
@@ -294,7 +301,17 @@ contract TegridyPair is ERC20, ReentrancyGuard {
     }
 
     /// @notice AUDIT FIX H-02: Force reserves to match balances.
+    /// @dev AUDIT FIX D-AMM-H2: gate sync() behind `disabledPairs` / `blockedTokens`
+    ///      checks. Without this, an attacker can donate tokens to a disabled pair,
+    ///      call `sync()` to integrate the donation-skewed spot into the pair's
+    ///      cumulative price accumulator, then wait for the pair to be re-enabled —
+    ///      the very next TegridyTWAP.update() reads the poisoned cumulative as a
+    ///      legitimate observation. Pattern: every Uniswap V2 fork with a "kill
+    ///      switch" gates state-mutating sync paths behind the same circuit-breaker
+    ///      as swap/mint/burn.
     function sync() external nonReentrant {
+        require(!ITegridyFactory(factory).disabledPairs(address(this)), "PAIR_DISABLED");
+        require(!ITegridyFactory(factory).blockedTokens(token0) && !ITegridyFactory(factory).blockedTokens(token1), "TOKEN_BLOCKED");
         _update(IERC20(token0).balanceOf(address(this)), IERC20(token1).balanceOf(address(this)));
     }
 
@@ -322,9 +339,19 @@ contract TegridyPair is ERC20, ReentrancyGuard {
     /// @dev    Reverts `HARVEST_TOO_SOON` if called before `lastHarvestAt + HARVEST_INTERVAL`.
     function harvest() external nonReentrant {
         require(block.timestamp >= lastHarvestAt + HARVEST_INTERVAL, "HARVEST_TOO_SOON");
-        lastHarvestAt = block.timestamp;
+        // AUDIT FIX D-AMM-M2: only bump `lastHarvestAt` after a fee was actually
+        // materialised (totalSupply increased). Previously the timestamp was bumped
+        // unconditionally — a griefer could call harvest() exactly at the cadence
+        // boundary on a pair where `_mintFee` mints zero (rootK == rootKLast, or
+        // numerator/denominator rounds to zero between two close-cadence calls) and
+        // permanently lock legitimate keepers out of the 5-minute window with
+        // HARVEST_TOO_SOON. Pattern: Curve `claim_admin_fees()` aborts on zero-mint
+        // without state mutation.
         (uint112 _reserve0, uint112 _reserve1,) = getReserves();
+        uint256 supplyBefore = totalSupply();
         bool feeOn = _mintFee(_reserve0, _reserve1);
+        require(totalSupply() > supplyBefore, "NO_FEE_TO_MATERIALIZE");
+        lastHarvestAt = block.timestamp;
         if (feeOn) {
             kLast = uint256(_reserve0) * uint256(_reserve1);
         }

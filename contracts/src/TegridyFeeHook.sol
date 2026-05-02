@@ -92,6 +92,13 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     // 10% of 0 is 0 and the contract would otherwise be unrecoverable.
     uint256 public constant MAX_SYNC_INCREASE_BPS = 1000; // 10%
 
+    /// @notice AUDIT FIX D-AMM-M4: snapshot of `poolManager.balanceOf(this, currency)`
+    ///         captured at `proposeSyncAccruedFees` time. Pre-fix, the on-chain credit
+    ///         was read at execute time, which let a permissionless `claimFees` race
+    ///         drain the credit balance during the 24h timelock — the legitimate
+    ///         drift-correction proposal would then revert AboveOnChainCredit.
+    mapping(address => uint256) public pendingSyncCreditSnapshot;
+
     // Legacy constant kept for test compatibility
     uint256 public constant MAX_PROPOSAL_VALIDITY = 7 days;
 
@@ -115,7 +122,16 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         // if _owner is address(0), so we don't duplicate the check here.
         if (address(_poolManager) == address(0) || _revenueDistributor == address(0)) revert ZeroAddress();
         if (_feeBps > MAX_FEE_BPS) revert FeeTooHigh();
-        require(uint160(address(this)) & 0x0044 == 0x0044, "INVALID_HOOK_ADDRESS");
+        // AUDIT FIX D-AMM-INFO1 (NatSpec only): mask 0x3FFF covers the lower 14 bits
+        // matching V4's current 14 hook permission flags. The exclusive equality
+        // `& 0x3FFF == 0x0044` requires *exactly* afterSwap (0x0040) +
+        // afterSwapReturnsDelta (0x0004), rejecting all other flags. We do NOT
+        // widen the mask to 0xFFFF because V4 currently only assigns 14 hook-flag
+        // bits; if V4 ever adds bits 14+, this constant must be revised in tandem
+        // with v4-core's `Hooks.permissionsToFlags` to keep this constructor
+        // exclusive over the new flag space. Pattern: v4-periphery's
+        // `Hooks.validateHookPermissions` in BaseHook.
+        require(uint160(address(this)) & 0x3FFF == 0x0044, "INVALID_HOOK_ADDRESS");
 
         poolManager = _poolManager;
         revenueDistributor = _revenueDistributor;
@@ -285,7 +301,16 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     /// @param currency The token address to claim fees for
     /// @param amount The amount of fees to claim
     /// @dev AUDIT FIX H-05: Added nonReentrant to prevent reentrancy during PoolManager interaction
-    function claimFees(address currency, uint256 amount) external nonReentrant {
+    /// @dev AUDIT FIX D-AMM-M3: respect `paused()`. The pre-fix pause modifier only
+    ///      halted afterSwap-time fee accrual; permissionless `claimFees` could
+    ///      continue draining `accruedFees` while a distributor-rotation timelock
+    ///      was pending. Pause is a circuit breaker.
+    /// @dev AUDIT FIX D-AMM-M1: while a sync proposal for `currency` is pending,
+    ///      revert `SYNC_PENDING`. Pre-fix a permissionless drain race could push
+    ///      `accruedFees[currency]` to 0 during the 24h sync timelock.
+    function claimFees(address currency, uint256 amount) external nonReentrant whenNotPaused {
+        bytes32 syncKey = keccak256(abi.encodePacked(SYNC_CHANGE, currency));
+        require(_proposalReadyAt(syncKey) == 0, "SYNC_PENDING");
         if (amount > accruedFees[currency]) revert ExceedsAccrued();
         accruedFees[currency] -= amount;
         // NOTE: If poolManager.take reverts (insufficient credits), the entire tx reverts,
@@ -298,9 +323,21 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     ///         Prevents instant fee destruction by a compromised owner.
     /// @param currency The token address to sync
     /// @param actualCredit The actual credit balance from the PoolManager (verified off-chain)
+    /// @dev AUDIT FIX D-AMM-L1: reject same-value no-op proposals (mirrors SAME_VALUE).
+    /// @dev AUDIT FIX D-AMM-M4: snapshot `poolManager.balanceOf(this, currency)` at
+    ///      propose time. At execute time the upward bound is checked against the
+    ///      snapshot rather than a live read, so a permissionless `claimFees` race
+    ///      cannot DoS legitimate drift-correction by draining the on-chain credit
+    ///      between propose and execute.
     function proposeSyncAccruedFees(address currency, uint256 actualCredit) external onlyOwner {
+        require(actualCredit != accruedFees[currency], "SAME_VALUE");
         bytes32 key = keccak256(abi.encodePacked(SYNC_CHANGE, currency));
         pendingSyncCredit[currency] = actualCredit;
+        // AUDIT FIX D-AMM-M4: snapshot on-chain credit at propose time.
+        pendingSyncCreditSnapshot[currency] = poolManager.balanceOf(
+            address(this),
+            CurrencyLibrary.toId(Currency.wrap(currency))
+        );
         _propose(key, SYNC_DELAY);
         emit SyncProposed(currency, actualCredit, _executeAfter[key]);
     }
@@ -320,26 +357,26 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     ///         input alone. The error name is also clarified — the legacy
     ///         "SyncReductionTooLarge" was misleading (it actually fired on increases,
     ///         which are now allowed if bounded by on-chain truth).
-    function executeSyncAccruedFees(address currency) external onlyOwner {
+    /// @dev AUDIT FIX D-AMM-M3: gate execute on `whenNotPaused`. Pause is a circuit
+    ///      breaker; sync executes during a halt are unsafe.
+    /// @dev AUDIT FIX D-AMM-M4: read the upward-sync cap from the propose-time
+    ///      snapshot, not a live `poolManager.balanceOf` read.
+    function executeSyncAccruedFees(address currency) external onlyOwner whenNotPaused {
         bytes32 key = keccak256(abi.encodePacked(SYNC_CHANGE, currency));
         _execute(key);
         require(block.timestamp >= lastSyncExecuted[currency] + SYNC_COOLDOWN, "SYNC_COOLDOWN");
         uint256 actualCredit = pendingSyncCredit[currency];
         uint256 old = accruedFees[currency];
 
-        // H-5: upward syncs are allowed but capped by the on-chain PoolManager
-        // credit balance (the only authoritative source for what the hook can
-        // actually claim).
+        // H-5: upward syncs are allowed but capped by the propose-time snapshot
+        // of the PoolManager credit balance (race-free per D-AMM-M4).
         if (actualCredit > old) {
-            uint256 onChainCredit = poolManager.balanceOf(
-                address(this),
-                CurrencyLibrary.toId(Currency.wrap(currency))
-            );
-            if (actualCredit > onChainCredit) revert AboveOnChainCredit();
+            uint256 onChainCreditSnapshot = pendingSyncCreditSnapshot[currency];
+            if (actualCredit > onChainCreditSnapshot) revert AboveOnChainCredit();
             // AUDIT R014 (MEDIUM, upward-sync ceiling): bound the per-step
             // increase to MAX_SYNC_INCREASE_BPS of the prior value. Bootstrap
-            // case (old == 0): the on-chain-credit cap above is the only
-            // bound, since 10% of 0 would lock the contract permanently.
+            // case (old == 0): the snapshotted on-chain-credit cap above is the
+            // only bound, since 10% of 0 would lock the contract permanently.
             if (old > 0) {
                 uint256 increase = actualCredit - old;
                 uint256 maxIncrease = (old * MAX_SYNC_INCREASE_BPS) / 10000;
@@ -349,15 +386,20 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
 
         accruedFees[currency] = actualCredit;
         pendingSyncCredit[currency] = 0;
+        // AUDIT FIX D-AMM-M4: clear snapshot for fresh capture on next propose.
+        pendingSyncCreditSnapshot[currency] = 0;
         lastSyncExecuted[currency] = block.timestamp;
         emit SyncExecuted(currency, old, accruedFees[currency]);
     }
 
     /// @notice Cancel a pending sync proposal.
+    /// @dev AUDIT FIX D-AMM-M4: clear `pendingSyncCreditSnapshot` so the next
+    ///      propose freshly captures the on-chain credit balance.
     function cancelSyncAccruedFees(address currency) external onlyOwner {
         bytes32 key = keccak256(abi.encodePacked(SYNC_CHANGE, currency));
         _cancel(key);
         pendingSyncCredit[currency] = 0;
+        pendingSyncCreditSnapshot[currency] = 0;
         emit SyncCancelled(currency);
     }
 
@@ -450,12 +492,18 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
 
     /// @notice M-32: Recover accidentally sent ETH. Always sends to revenueDistributor
     ///         to prevent misuse by a compromised owner.
-    function sweepETH() external onlyOwner {
+    /// @dev    AUDIT FIX D-AMM-L4: accept an owner-specified recipient parameter so
+    ///         that if `revenueDistributor` becomes a reverting contract,
+    ///         `sweepETH` is not permanently bricked waiting for the 48h
+    ///         distributor-rotation timelock. Owner gating prevents misuse.
+    /// @param  to Recipient of the swept ETH. Must be non-zero.
+    function sweepETH(address to) external onlyOwner {
+        require(to != address(0), "ZERO_ADDR");
         uint256 balance = address(this).balance;
         require(balance > 0, "NO_ETH"); // L-10: Prevent zero-value transfer
-        (bool success,) = payable(revenueDistributor).call{value: balance}("");
+        (bool success,) = payable(to).call{value: balance}("");
         if (!success) revert SweepFailed();
-        emit ETHSwept(revenueDistributor, balance);
+        emit ETHSwept(to, balance);
     }
 
     // Accept ETH

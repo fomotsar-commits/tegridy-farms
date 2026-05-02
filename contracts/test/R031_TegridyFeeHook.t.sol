@@ -13,7 +13,16 @@ import {TegridyFeeHook} from "../src/TegridyFeeHook.sol";
 ///      in `afterSwap`. We don't exercise `take()` here; the hook logic under test only
 ///      computes feeAmount + accruedFees + return delta, all internal.
 contract MockPoolManagerR031 {
+    // Tracks per-(holder, currencyId) credit balance the FeeHook reads via
+    // `poolManager.balanceOf(...)` in DEEP-D-AMM-M4's propose-time snapshot.
+    mapping(address => mapping(uint256 => uint256)) internal _bal;
     function take(Currency, address, uint256) external pure {}
+    function balanceOf(address holder, uint256 id) external view returns (uint256) {
+        return _bal[holder][id];
+    }
+    function setBalance(address holder, uint256 id, uint256 amount) external {
+        _bal[holder][id] = amount;
+    }
 }
 
 /// @title R031 — TegridyFeeHook V4 hook semantics + sync cooldown
@@ -137,6 +146,11 @@ contract R031_TegridyFeeHook is Test {
         vm.prank(address(mockPM));
         hook.afterSwap(address(0), key, params, delta, "");
 
+        // AUDIT FIX: DEEP-D-AMM-M4 — propose snapshots `poolManager.balanceOf(this, currencyId)`.
+        // Seed the mock so the snapshot >= proposed actualCredit.
+        uint256 currencyId = uint256(uint160(TOKEN1));
+        mockPM.setBalance(address(hook), currencyId, 100_000);
+
         vm.prank(owner);
         hook.proposeSyncAccruedFees(TOKEN1, 50_000);
 
@@ -162,6 +176,10 @@ contract R031_TegridyFeeHook is Test {
         BalanceDelta delta = toBalanceDelta(int128(10_000_000), int128(-20_000_000));
         vm.prank(address(mockPM));
         hook.afterSwap(address(0), key, params, delta, "");
+
+        // AUDIT FIX: DEEP-D-AMM-M4 — seed mock balance for the snapshot cap.
+        uint256 currencyId = uint256(uint160(TOKEN1));
+        mockPM.setBalance(address(hook), currencyId, 100_000);
 
         // First sync
         vm.prank(owner);
