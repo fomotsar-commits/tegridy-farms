@@ -414,12 +414,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // claimAll stale-path which correctly recorded the post-kick value).
         // Skip the live-current clamp and trust the checkpoint.
         uint256 current;
-        bool autoMaxLock;
+        uint256 liveLockEnd;
         try staking.positions(info.tokenId) returns (
-            uint256, uint256 stakingBoosted, int256, uint256, uint256, uint256, bool _autoMaxLock, bool, uint256, uint256, bool
+            uint256, uint256 stakingBoosted, int256, uint256 lockEnd_, uint256, uint256, bool, bool, uint256, uint256, bool
         ) {
             current = stakingBoosted;
-            autoMaxLock = _autoMaxLock;
+            liveLockEnd = lockEnd_;
         } catch {
             // If the staking call reverts, fall back to the cached value rather
             // than zeroing — the cache is at worst stale-inflated, never stale-
@@ -427,23 +427,24 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             return cached;
         }
 
-        // AUDIT FIX: DR2-02 — autoMaxLock positions are non-monotonic in
-        // `current` (kick → claimAll restores MAX). The per-checkpoint Trace208
-        // is the authoritative historical record; skip the live-current clamp.
-        if (autoMaxLock) return cached;
-
-        // AUDIT FIX: DR2-07 — KNOWN EDGE CASE: when a user unrestakes and then
-        // restakes a SMALLER position, the trace `upperLookup` for an OLD
-        // epoch returns the (large) old boost, but `current` is the (small)
-        // new boost. `min` returns the (small) new value — under-crediting
-        // the user for the OLD-epoch share. This is documented as accepted
-        // behavior because: (a) the loss is a missed payout, never a fund
-        // drain, (b) the "unrestake → restake smaller" pattern is uncommon,
-        // and (c) the alternative (lockEnd-anchored historical lookup)
-        // requires a deeper checkpoint-cycle refactor. Off-chain consumers
-        // can stitch together the per-cycle history via `Restaked` /
-        // `Unrestaked` events, both of which carry tokenId + user.
-        return cached < current ? cached : current;
+        // AUDIT FIX DR3-01: lockEnd-anchored clamp. The DR2-02 carve-out
+        // (`if (autoMaxLock) return cached;`) was a NET REGRESSION: it
+        // returned the stale-inflated cache during the kick-window for
+        // autoMaxLock positions, reopening exactly the DR-04 over-credit
+        // attack. Replacement: when the live lock has EXPIRED
+        // (`block.timestamp >= liveLockEnd`), the position is in the
+        // kick-window and `current` is conservative (0 if not yet restored,
+        // post-kick MAX if restored — either way `min(cached, current)`
+        // bounds the over-credit). When the live lock is ACTIVE
+        // (`block.timestamp < liveLockEnd`), the user has a live position —
+        // the per-checkpoint Trace208 cache is the authoritative historical
+        // record, so return `cached` directly (avoids the DR2-07 edge case
+        // for unrestake → restake-smaller flows where current would
+        // under-credit historical epochs).
+        if (block.timestamp >= liveLockEnd) {
+            return cached < current ? cached : current;
+        }
+        return cached;
     }
 
     // ─── User Functions ─────────────────────────────────────────────
@@ -1586,23 +1587,31 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         (uint256 currentAmount,,,,,,,,, , ) = staking.positions(info.tokenId);
         // AUDIT FIX: DR2-01 — sync `totalActivePrincipal` to the new cached
         // principal BEFORE overwrite. Permissionless entrypoint, highest
-        // leverage of the four sibling sites: pre-fix, anyone could call
-        // `decayExpiredRestaker` against a force-closed position to flip the
-        // cached `info.positionAmount` from `oldAmount` to 0 without ever
-        // decrementing `totalActivePrincipal` — orphaning the principal in
-        // the reservation pool and silently DOS'ing `recoverStuckPrincipal`.
-        uint256 oldPositionAmount = info.positionAmount;
-        if (oldPositionAmount >= currentAmount) {
-            uint256 principalDelta = oldPositionAmount - currentAmount;
-            if (principalDelta <= totalActivePrincipal) {
-                totalActivePrincipal -= principalDelta;
+        // leverage of the four sibling sites.
+        // AUDIT FIX DR3-05: skip the totalActivePrincipal/positionAmount sync
+        // entirely when currentAmount == 0 (force-closed staking position).
+        // The pass-2 fix above eagerly synced positionAmount → 0, which broke
+        // `recoverStuckPrincipal` for force-closed users (the recovery path
+        // needs the ORIGINAL deposit amount to know what's recoverable; once
+        // positionAmount is zeroed by a permissionless `decayExpiredRestaker`
+        // call, the principal anchor is lost forever). The correct semantic
+        // for force-closed positions is "unrestake / emergencyForceReturn
+        // owns the cleanup"; this permissionless decay primitive only resyncs
+        // when there's a non-zero principal to sync against.
+        if (currentAmount > 0) {
+            uint256 oldPositionAmount = info.positionAmount;
+            if (oldPositionAmount >= currentAmount) {
+                uint256 principalDelta = oldPositionAmount - currentAmount;
+                if (principalDelta <= totalActivePrincipal) {
+                    totalActivePrincipal -= principalDelta;
+                } else {
+                    totalActivePrincipal = 0;
+                }
             } else {
-                totalActivePrincipal = 0;
+                totalActivePrincipal += (currentAmount - oldPositionAmount);
             }
-        } else {
-            totalActivePrincipal += (currentAmount - oldPositionAmount);
+            info.positionAmount = currentAmount;
         }
-        info.positionAmount = currentAmount;
 
         emit PositionRefreshed(_restaker, info.tokenId, oldBoosted, currentBoosted);
     }
