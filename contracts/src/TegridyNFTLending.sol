@@ -42,6 +42,17 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     ///         priced at one full day. Defeats same-block flash-loan vector.
     uint256 public constant MIN_INTEREST_DURATION = 1 days;
 
+    // ─── AUDIT FIX: DEEP-LD2-H2 — APR-independent interest floor ─────
+    /// @notice Flat principal-percentage interest floor (5 bps = 0.05%) that
+    ///         activates regardless of the offer's `aprBps`. Defeats the 0% APR
+    ///         loophole in DEEP-LD-M6 where `principal * 0 == 0` made the
+    ///         duration-based floor evaluate to zero, leaving same-block flash-
+    ///         borrows free against any 0-APR offer. The 5-bps level is
+    ///         conservatively small for honest 1-day repayments (0.05% of
+    ///         principal per loan, fixed) but enough to make sub-block flash
+    ///         attacks uneconomical when stacked against gas + slippage.
+    uint256 public constant MIN_INTEREST_PRINCIPAL_BPS = 5;
+
     // ─── WETH Fallback ──────────────────────────────────────────────
     address public immutable weth;
 
@@ -89,6 +100,12 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         ///      offer until acceptance. cancelOffer refunds the lender (gross
         ///      principal), acceptOffer forwards to treasury.
         uint256 originationFee;
+        /// @dev AUDIT FIX: DEEP-LD2-M3 — snapshot of `treasury` at offer creation.
+        ///      acceptOffer forwards the held origination fee to THIS address
+        ///      rather than the live treasury, so a treasury change between
+        ///      create and accept cannot silently redirect a lender's fee.
+        ///      Closes the audit-trail-asymmetry and front-running surface.
+        address treasuryAtCreate;
     }
 
     struct Loan {
@@ -295,7 +312,9 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
             collateralContract: _collateralContract,
             tokenId: _tokenId,
             active: true,
-            originationFee: originationFee
+            originationFee: originationFee,
+            // AUDIT FIX: DEEP-LD2-M3 — snapshot the live treasury at offer creation.
+            treasuryAtCreate: treasury
         }));
 
         emit LoanOfferCreated(
@@ -347,6 +366,12 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         address collateralContract = offer.collateralContract;
         uint256 _tokenId = offer.tokenId;
         uint256 originationFee = offer.originationFee;
+        // AUDIT FIX: DEEP-LD2-M3 — use the snapshotted treasury for fee routing
+        // so a treasury change between create and accept cannot redirect the fee.
+        // Migration safety: pre-LD2-M3 offers default to address(0); fall back to
+        // the live treasury so legacy offers remain payable.
+        address feeRecipient = offer.treasuryAtCreate;
+        if (feeRecipient == address(0)) feeRecipient = treasury;
 
         if (!whitelistedCollections[collateralContract]) revert CollectionNotWhitelisted();
 
@@ -386,9 +411,10 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         // AUDIT NEW-L3: register this loan against the collection.
         activeLoansOfCollection[collateralContract] += 1;
 
-        // AUDIT FIX: DEEP-LD-M8 — forward origination fee to treasury at acceptance.
+        // AUDIT FIX: DEEP-LD-M8 — forward origination fee at acceptance.
+        // AUDIT FIX: DEEP-LD2-M3 — route to the snapshotted feeRecipient.
         if (originationFee > 0) {
-            WETHFallbackLib.safeTransferETHOrWrap(weth, treasury, originationFee);
+            WETHFallbackLib.safeTransferETHOrWrap(weth, feeRecipient, originationFee);
             emit OriginationFeeCollected(lender, originationFee);
         }
 
@@ -432,25 +458,43 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         if (msg.sender != borrower) revert NotBorrower();
         if (block.timestamp == startTime) revert LoanTooRecent();
 
-        // AUDIT FIX: DEEP-LD-M10 — sequencer-grace check protects the repay
-        // path during L2 sequencer recovery. address(0) feed = no-op.
-        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
-
-        // Existing CEI ordering — gate-first, mutate-after.
-        if (block.timestamp > effectiveDeadline(_loanId) + GRACE_PERIOD) revert LoanNotDefaulted();
+        // AUDIT FIX: DEEP-LD2-H1 — replace blocking checkSequencerUp on the repay
+        // path with a deadline EXTENSION using getSequencerOutageBuffer. Pre-fix the
+        // borrower's repay window was nullified during sequencer recovery (the gate
+        // reverted while the deadline elapsed). Now an in-flight outage extends
+        // BOTH the borrower's repay window AND the lender's claim window
+        // symmetrically by the buffer (matching value used in claimDefault below).
+        uint256 outageBuffer = SequencerCheck.getSequencerOutageBuffer(
+            sequencerFeed,
+            SEQUENCER_GRACE_PERIOD
+        );
+        if (block.timestamp > effectiveDeadline(_loanId) + GRACE_PERIOD + outageBuffer) {
+            revert LoanNotDefaulted();
+        }
 
         // AUDIT FIX: DEEP-LD-H1 (mirror H11) — pause-adjusted interest so admin
         // pauses don't tax the borrower while simultaneously blocking the
         // lender's claimDefault path.
         uint256 interest = calculateLoanInterest(_loanId);
-        // AUDIT FIX: DEEP-LD-M6 — minimum interest floor.
-        uint256 minInterest = Math.mulDiv(
-            principal * aprBps,
-            MIN_INTEREST_DURATION,
-            BPS * SECONDS_PER_YEAR,
-            Math.Rounding.Ceil
-        );
-        if (interest < minInterest) interest = minInterest;
+        // AUDIT FIX: DEEP-LD2-M2 — skip the floor entirely when the loan was 100%
+        // paused since start (pause-adjusted elapsed == 0). Pre-fix the floor was
+        // taxing borrowers who repaid during a long admin-pause where they had no
+        // chance to use the principal productively.
+        uint256 elapsed = pauseAdjustedElapsed(_loanId);
+        if (elapsed > 0) {
+            // AUDIT FIX: DEEP-LD-M6 — minimum interest floor (1-day APR equivalent).
+            uint256 minInterest = Math.mulDiv(
+                principal * aprBps,
+                MIN_INTEREST_DURATION,
+                BPS * SECONDS_PER_YEAR,
+                Math.Rounding.Ceil
+            );
+            // AUDIT FIX: DEEP-LD2-H2 — APR-independent flat floor (5 bps of principal).
+            // Defeats the 0% APR loophole where the LD-M6 floor evaluates to zero.
+            uint256 flatFloor = (principal * MIN_INTEREST_PRINCIPAL_BPS) / BPS;
+            if (minInterest < flatFloor) minInterest = flatFloor;
+            if (interest < minInterest) interest = minInterest;
+        }
         uint256 totalRepayment = principal + interest;
         if (msg.value < totalRepayment) revert InsufficientRepayment();
 
@@ -502,7 +546,20 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         address collateralContract = loan.collateralContract;
 
         if (msg.sender != lender) revert NotLoanLender();
-        if (block.timestamp <= effectiveDeadline(_loanId) + GRACE_PERIOD) revert LoanNotDefaulted();
+        // AUDIT FIX: DEEP-LD2-H1 — symmetric outage-buffer deadline extension so
+        // both repay and claim see the same effectiveDeadline + grace + outage.
+        // checkSequencerUp above already enforces "sequencer is currently up AND
+        // grace fully elapsed" — getSequencerOutageBuffer here returns 0 in steady
+        // state and only contributes when an outage is actively detected (e.g. a
+        // racy in-flight transition between the two reads, or future buffer-window
+        // adjustments). Keeps the symmetry with repayLoan above intact.
+        uint256 outageBuffer = SequencerCheck.getSequencerOutageBuffer(
+            sequencerFeed,
+            SEQUENCER_GRACE_PERIOD
+        );
+        if (block.timestamp <= effectiveDeadline(_loanId) + GRACE_PERIOD + outageBuffer) {
+            revert LoanNotDefaulted();
+        }
 
         // CEI: state change before external call
         loan.defaultClaimed = true;
@@ -597,17 +654,24 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     /// @notice Get the total repayment amount for a loan at the current time.
     /// @dev    AUDIT FIX: DEEP-LD-H1 — pause-adjusted interest. AUDIT FIX:
     ///         DEEP-LD-M6 — apply minimum interest floor for view parity.
+    ///         AUDIT FIX: DEEP-LD2-H2 — APR-independent flat floor mirrors repayLoan.
+    ///         AUDIT FIX: DEEP-LD2-M2 — skip the floor when loan was 100% paused.
     function getRepaymentAmount(uint256 _loanId) external view returns (uint256 total) {
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan memory l = loans[_loanId];
         uint256 interest = calculateLoanInterest(_loanId);
-        uint256 minInterest = Math.mulDiv(
-            l.principal * l.aprBps,
-            MIN_INTEREST_DURATION,
-            BPS * SECONDS_PER_YEAR,
-            Math.Rounding.Ceil
-        );
-        if (interest < minInterest) interest = minInterest;
+        uint256 elapsed = pauseAdjustedElapsed(_loanId);
+        if (elapsed > 0) {
+            uint256 minInterest = Math.mulDiv(
+                l.principal * l.aprBps,
+                MIN_INTEREST_DURATION,
+                BPS * SECONDS_PER_YEAR,
+                Math.Rounding.Ceil
+            );
+            uint256 flatFloor = (l.principal * MIN_INTEREST_PRINCIPAL_BPS) / BPS;
+            if (minInterest < flatFloor) minInterest = flatFloor;
+            if (interest < minInterest) interest = minInterest;
+        }
         total = l.principal + interest;
     }
 

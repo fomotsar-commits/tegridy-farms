@@ -575,8 +575,13 @@ contract TegridyLendingTest is Test {
         vm.warp(block.timestamp + 30 days);
         assertFalse(lending.isDefaulted(loanId));
 
-        // Defaulted after deadline
+        // AUDIT FIX: DEEP-LD-M3 — view now matches the actual claim path's gate.
+        // Inside the GRACE_PERIOD, isDefaulted is still false (claim would revert).
         vm.warp(block.timestamp + 1);
+        assertFalse(lending.isDefaulted(loanId));
+
+        // Defaulted only after GRACE_PERIOD elapses past the deadline.
+        vm.warp(block.timestamp + 1 hours);
         assertTrue(lending.isDefaulted(loanId));
     }
 

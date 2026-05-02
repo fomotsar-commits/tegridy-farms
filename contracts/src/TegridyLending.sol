@@ -125,11 +125,17 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///      a compromised owner key or a mispriced proposal.
     uint256 public constant MAX_PRINCIPAL_CEILING = 100_000 ether;
     uint256 public constant MAX_APR_BPS_CEILING = 100_000;      // 1000% APR hard cap
-    uint256 public constant MIN_DURATION_FLOOR = 1 hours;       // never lower than 1h
+    // AUDIT FIX: DEEP-LD-L5 — raised from 1h to 4h
+    uint256 public constant MIN_DURATION_FLOOR = 4 hours;       // never lower than 4h
     uint256 public constant MIN_DURATION_CEILING = 7 days;      // never higher than 7d
     uint256 public constant MAX_DURATION_CEILING = 3650 days;   // 10-year hard cap
 
     uint256 public constant CAP_CHANGE_TIMELOCK = 48 hours;
+
+    // ─── AUDIT FIX: DEEP-LD-M6 — minimum interest floor ──────────────
+    /// @notice Minimum interest charged on any repayment, equivalent to 1 full day
+    ///         of accrued interest at the loan's APR. Defeats same-block flash-loan.
+    uint256 public constant MIN_INTEREST_DURATION = 1 days;
 
     // ─── AUDIT C7: origination fee charged on createLoanOffer ────────────
     /// @notice Fee in BPS deducted from the lender's deposited principal at offer creation.
@@ -184,6 +190,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     address public pendingAcceptedCollateral;
     bool public pendingAcceptedCollateralAdd;
 
+    /// @notice AUDIT FIX: DEEP-LD-M1 — active-loan count per collateral contract.
+    mapping(address => uint256) public activeLoansAgainstCollateral;
+
     // Pending proposal storage
     uint256 public pendingMaxPrincipal;
     uint256 public pendingMaxAprBps;
@@ -194,6 +203,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         transient failures (gas spikes, provider outages, wallet delays). Interest
     ///         still accrues through the grace period so the lender isn't penalised.
     uint256 public constant GRACE_PERIOD = 1 hours;
+    /// @notice AUDIT FIX: DEEP-LD-M5 — buffer between deadline and lockEnd.
+    uint256 public constant LIQUIDATION_GRACE = 7 days;
 
     // ─── WETH Fallback ──────────────────────────────────────────────
     address public immutable weth; // WETH for fallback payout to revert-on-receive lenders
@@ -258,6 +269,10 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         ///         Zero = disabled (backward-compatible default — no ETH-floor check applied).
         uint256 minPositionETHValue;
         bool active;
+        /// @dev AUDIT FIX: DEEP-LD-M8 — origination fee held in escrow on the offer
+        ///      until acceptance. cancelOffer refunds principal + this; acceptOffer
+        ///      forwards this to treasury. Closes silent-tax-on-cancel vector.
+        uint256 originationFee;
     }
 
     struct Loan {
@@ -271,6 +286,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 deadline;
         bool repaid;
         bool defaultClaimed;
+        /// @dev AUDIT FIX: DEEP-LD2-M4 (mirror H10) — snapshot of `totalPausedDuration`
+        ///      at loan creation. Only post-loan-start pause time extends deadline.
+        uint256 pausedDurationAtStart;
     }
 
     // ─── State ───────────────────────────────────────────────────────
@@ -505,36 +523,40 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///        `acceptOffer` using current TegridyPair spot reserves. See `_positionETHValue`
     ///        for the caveats on spot-reserve reliance.
     /// @return offerId The ID of the created offer
+    /// @dev AUDIT FIX: DEEP-LD-H3 — `nonReentrant` added to mirror the rest of the
+    ///      ETH-paying surface. AUDIT FIX: DEEP-LD-M8 — origination fee held in
+    ///      LoanOffer struct until acceptance. AUDIT FIX: DEEP-LD-M4 — refuse new
+    ///      offers when collateral has a pending removal proposal.
     function createLoanOffer(
         uint256 _aprBps,
         uint256 _duration,
         address _collateralContract,
         uint256 _minPositionValue,
         uint256 _minPositionETHValue
-    ) external payable whenNotPaused returns (uint256 offerId) {
+    ) external payable nonReentrant whenNotPaused returns (uint256 offerId) {
         if (msg.value == 0) revert ZeroPrincipal();
-        // AUDIT R014: dust-floor — reject offers below `minPrincipal` so the offer
-        // index can't be spammed with microscopic offers.
         if (msg.value < minPrincipal) revert PrincipalTooSmall();
         if (msg.value > maxPrincipal) revert PrincipalTooLarge();
         if (_aprBps > maxAprBps) revert AprTooHigh();
-        // AUDIT H14: enforce minimum APR. Closes the 0% APR free-collateral channel.
         if (_aprBps < minAprBps) revert AprTooLow();
         if (_duration < minDuration) revert DurationTooShort();
         if (_duration > maxDuration) revert DurationTooLong();
         if (_collateralContract == address(0)) revert ZeroAddress();
-        // AUDIT R014: only governance-whitelisted staking contracts may back loans.
         if (!acceptedCollateralContracts[_collateralContract]) revert CollateralNotAccepted();
 
-        // AUDIT C7: deduct origination fee from lender's deposit and forward to treasury.
-        // The borrower receives (msg.value - origination fee) at acceptOffer time, so the
-        // protocol always captures revenue on every accepted offer regardless of repay/default.
+        // AUDIT FIX: DEEP-LD-M4 — refuse new offers when this exact collateral has
+        // a pending removal proposal in the timelock window.
+        if (
+            pendingAcceptedCollateral == _collateralContract
+            && !pendingAcceptedCollateralAdd
+            && _executeAfter[ACCEPTED_COLLATERAL_CHANGE] != 0
+        ) {
+            revert CollateralNotAccepted();
+        }
+
+        // AUDIT FIX: DEEP-LD-M8 — origination fee held on offer struct until accept.
         uint256 originationFee = (msg.value * originationFeeBps) / BPS;
         uint256 effectivePrincipal = msg.value - originationFee;
-        if (originationFee > 0) {
-            WETHFallbackLib.safeTransferETHOrWrap(weth, treasury, originationFee);
-            emit OriginationFeeCollected(msg.sender, originationFee);
-        }
 
         offerId = offers.length;
         offers.push(LoanOffer({
@@ -545,7 +567,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             collateralContract: _collateralContract,
             minPositionValue: _minPositionValue,
             minPositionETHValue: _minPositionETHValue,
-            active: true
+            active: true,
+            originationFee: originationFee
         }));
 
         emit LoanOfferCreated(
@@ -561,7 +584,7 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     }
 
     /// @notice Cancel an active loan offer and refund ETH to lender.
-    /// @param _offerId The ID of the offer to cancel
+    /// @dev    AUDIT FIX: DEEP-LD-M8 — refund principal + held origination fee.
     function cancelOffer(uint256 _offerId) external nonReentrant {
         if (_offerId >= offers.length) revert InvalidOfferId();
         LoanOffer storage offer = offers[_offerId];
@@ -571,9 +594,10 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
         // CEI: state change before external call
         offer.active = false;
-        uint256 refundAmount = offer.principal;
+        // AUDIT FIX: DEEP-LD-M8 — refund principal + held origination fee.
+        uint256 refundAmount = offer.principal + offer.originationFee;
+        offer.originationFee = 0;
 
-        // SECURITY FIX: Use WETHFallbackLib to prevent DoS if lender is a contract that reverts on receive
         WETHFallbackLib.safeTransferETHOrWrap(weth, msg.sender, refundAmount);
 
         emit LoanOfferCancelled(_offerId, msg.sender);
@@ -586,6 +610,13 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @param _offerId The ID of the offer to accept
     /// @param _tokenId The TegridyStaking NFT token ID to use as collateral
     /// @return loanId The ID of the created loan
+    /// @notice IMPORTANT — the optional ETH floor (`minPositionETHValue`) is checked
+    ///         at acceptance, NOT at default. Lender bears price-decline risk over
+    ///         the loan duration. AUDIT FIX: DEEP-LD-M5 — `lockEnd >= deadline +
+    ///         LIQUIDATION_GRACE` (7 days). AUDIT FIX: DEEP-LD-L3 — re-validate
+    ///         whitelist at acceptance. AUDIT FIX: DEEP-LD-M1 — register active
+    ///         loan against collateral. AUDIT FIX: DEEP-LD-M8 — forward escrowed
+    ///         origination fee to treasury at acceptance.
     function acceptOffer(
         uint256 _offerId,
         uint256 _tokenId
@@ -603,32 +634,34 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         address collateralContract = offer.collateralContract;
         uint256 minPositionValue = offer.minPositionValue;
         uint256 minPositionETHValue = offer.minPositionETHValue;
+        uint256 originationFee = offer.originationFee;
+
+        // AUDIT FIX: DEEP-LD-L3 — refuse acceptance if collateral was de-whitelisted.
+        if (!acceptedCollateralContracts[collateralContract]) revert CollateralNotAccepted();
 
         // Validate collateral: check position value meets minimum
         ITegridyStaking staking = ITegridyStaking(collateralContract);
         (uint256 positionAmount,, uint256 lockEnd,,,) = staking.getPosition(_tokenId);
         if (positionAmount < minPositionValue) revert InsufficientCollateralValue();
 
-        // AUDIT critique 5.4: Optional ETH-denominated collateral floor. Only applied
-        // when the lender opts in (non-zero threshold). Uses TegridyPair spot reserves
-        // — see `_positionETHValue` for the sandwich-manipulation caveat.
         if (minPositionETHValue > 0) {
             uint256 ethValue = _positionETHValue(positionAmount);
             if (ethValue < minPositionETHValue) revert InsufficientCollateralValue();
         }
 
-        // Ensure position lock doesn't expire before loan deadline
-        // Prevents lender from receiving worthless unlocked collateral on default
-        // SECURITY FIX: Also reject lockEnd == 0 (unlocked positions) — an unlocked position
-        // could have its underlying tokens withdrawn, leaving the collateral worthless.
+        // AUDIT FIX: DEEP-LD-M5 — require lockEnd >= deadline + LIQUIDATION_GRACE.
         uint256 deadline = block.timestamp + duration;
-        if (lockEnd == 0 || lockEnd < deadline) revert LockExpiresBeforeDeadline();
+        if (lockEnd == 0 || lockEnd < deadline + LIQUIDATION_GRACE) {
+            revert LockExpiresBeforeDeadline();
+        }
 
         // Verify borrower owns the NFT
         if (staking.ownerOf(_tokenId) != msg.sender) revert NotNFTOwner();
 
         // CEI: state changes before external calls
         offer.active = false;
+        // AUDIT FIX: DEEP-LD-M8 — clear escrowed fee on offer.
+        offer.originationFee = 0;
 
         loanId = loans.length;
         loans.push(Loan({
@@ -641,15 +674,23 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             startTime: block.timestamp,
             deadline: deadline,
             repaid: false,
-            defaultClaimed: false
+            defaultClaimed: false,
+            // AUDIT FIX: DEEP-LD2-M4 — snapshot pause budget at loan-create.
+            pausedDurationAtStart: totalPausedDuration
         }));
 
         // Transfer NFT from borrower to this contract (collateral escrow)
         staking.transferFrom(msg.sender, address(this), _tokenId);
 
-        // AUDIT FIX M-7 (battle-tested): unlimited-gas .call replaced with WETHFallbackLib
-        // (10k stipend + WETH wrap). Matches TegridyNFTLending.acceptOffer pattern and closes
-        // the asymmetric reentrancy surface.
+        // AUDIT FIX: DEEP-LD-M1 — register loan against collateral.
+        activeLoansAgainstCollateral[collateralContract] += 1;
+
+        // AUDIT FIX: DEEP-LD-M8 — forward escrowed origination fee to treasury.
+        if (originationFee > 0) {
+            WETHFallbackLib.safeTransferETHOrWrap(weth, treasury, originationFee);
+            emit OriginationFeeCollected(lender, originationFee);
+        }
+
         WETHFallbackLib.safeTransferETHOrWrap(weth, msg.sender, principal);
 
         emit LoanAccepted(
@@ -688,37 +729,44 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 offerId = loan.offerId;
 
         if (msg.sender != borrower) revert NotBorrower();
-        // Prevent same-block zero-interest repayment
         if (block.timestamp == startTime) revert LoanTooRecent();
 
-        uint256 interest = calculateInterest(
-            principal,
-            aprBps,
-            startTime,
-            block.timestamp
-        );
+        // AUDIT FIX: DEEP-LD-M7 — gate on deadline+grace BEFORE state mutation
+        // or interest math. Cheap-checks-first; mirrors NFTLending.repayLoan.
+        if (block.timestamp > effectiveDeadline(_loanId) + GRACE_PERIOD) revert DeadlineExpired();
+
+        // AUDIT FIX: DEEP-LD2-M5 — pause-adjusted interest. AUDIT FIX: DEEP-LD-M6
+        // — minimum interest floor (1-day equivalent). AUDIT FIX: DEEP-LD2-M2 —
+        // skip floor when loan was 100% paused since start.
+        uint256 interest = calculateLoanInterest(_loanId);
+        uint256 elapsed = pauseAdjustedElapsed(_loanId);
+        if (elapsed > 0) {
+            uint256 minInterest = Math.mulDiv(
+                principal * aprBps,
+                MIN_INTEREST_DURATION,
+                BPS * SECONDS_PER_YEAR,
+                Math.Rounding.Ceil
+            );
+            if (interest < minInterest) interest = minInterest;
+        }
         uint256 totalRepayment = principal + interest;
         if (msg.value < totalRepayment) revert InsufficientRepayment();
 
         // CEI: state change before external calls
         loan.repaid = true;
 
-        // SECURITY FIX: Enforce deadline + 1h grace period (AUDIT M-1). Borrower can
-        // repay up to and including deadline + GRACE_PERIOD. Past that window, the
-        // lender's claimDefaultedCollateral path opens. Interest continues to accrue
-        // through the grace window so the lender isn't penalised by the cushion.
-        // AUDIT R014: deadline reads `effectiveDeadline` so admin pauses extend both
-        // sides of the window symmetrically.
-        if (block.timestamp > effectiveDeadline(_loanId) + GRACE_PERIOD) revert DeadlineExpired();
+        // AUDIT FIX: DEEP-LD-M1 — release collateral slot.
+        address collateralContract = offers[offerId].collateralContract;
+        if (activeLoansAgainstCollateral[collateralContract] > 0) {
+            activeLoansAgainstCollateral[collateralContract] -= 1;
+        }
 
         // Calculate protocol fee on interest
         uint256 fee = (interest * protocolFeeBps) / BPS;
         uint256 lenderAmount = principal + interest - fee;
 
         // Return NFT to borrower
-        ITegridyStaking staking = ITegridyStaking(
-            offers[offerId].collateralContract
-        );
+        ITegridyStaking staking = ITegridyStaking(collateralContract);
 
         // AUDIT R014: snapshot the contract's unsettledRewards balance before the NFT
         // transfer so we can attribute the loan-period reward delta to the borrower.
@@ -805,10 +853,14 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // CEI: state change before external call
         loan.defaultClaimed = true;
 
+        // AUDIT FIX: DEEP-LD-M1 — release collateral slot.
+        address collateralContract = offers[offerId].collateralContract;
+        if (activeLoansAgainstCollateral[collateralContract] > 0) {
+            activeLoansAgainstCollateral[collateralContract] -= 1;
+        }
+
         // Transfer NFT to lender
-        ITegridyStaking staking = ITegridyStaking(
-            offers[offerId].collateralContract
-        );
+        ITegridyStaking staking = ITegridyStaking(collateralContract);
 
         // AUDIT R014: snapshot escrow rewards before the NFT transfer so we attribute
         // the loan-period delta to the lender (defaulted side). Same pattern as repayLoan.
@@ -921,23 +973,64 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         );
     }
 
+    /// @notice AUDIT FIX: DEEP-LD2-M5 — pause-adjusted elapsed for a loan.
+    function pauseAdjustedElapsed(uint256 _loanId) public view returns (uint256) {
+        if (_loanId >= loans.length) revert InvalidLoanId();
+        Loan storage loan = loans[_loanId];
+        if (block.timestamp <= loan.startTime) return 0;
+        uint256 raw = block.timestamp - loan.startTime;
+        uint256 pausedSinceStart = totalPausedDuration > loan.pausedDurationAtStart
+            ? totalPausedDuration - loan.pausedDurationAtStart
+            : 0;
+        if (paused() && pauseStartTime != 0 && block.timestamp > pauseStartTime) {
+            pausedSinceStart += block.timestamp - pauseStartTime;
+        }
+        return pausedSinceStart >= raw ? 0 : raw - pausedSinceStart;
+    }
+
+    /// @notice AUDIT FIX: DEEP-LD2-M5 — pause-adjusted interest for a loan.
+    function calculateLoanInterest(uint256 _loanId) public view returns (uint256 interest) {
+        if (_loanId >= loans.length) revert InvalidLoanId();
+        Loan storage loan = loans[_loanId];
+        uint256 elapsed = pauseAdjustedElapsed(_loanId);
+        if (elapsed == 0) return 0;
+        interest = Math.mulDiv(
+            loan.principal * loan.aprBps,
+            elapsed,
+            BPS * SECONDS_PER_YEAR,
+            Math.Rounding.Ceil
+        );
+    }
+
     /// @notice Get the total repayment amount for a loan at the current time.
-    /// @param _loanId The loan ID to query
-    /// @return total The total amount due (principal + interest)
+    /// @dev    AUDIT FIX: DEEP-LD2-M5 — pause-adjusted interest. AUDIT FIX:
+    ///         DEEP-LD-M6 — minimum interest floor. AUDIT FIX: DEEP-LD2-M2 —
+    ///         skip floor when loan was 100% paused.
     function getRepaymentAmount(uint256 _loanId) external view returns (uint256 total) {
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan memory l = loans[_loanId];
-        uint256 interest = calculateInterest(l.principal, l.aprBps, l.startTime, block.timestamp);
+        uint256 interest = calculateLoanInterest(_loanId);
+        uint256 elapsed = pauseAdjustedElapsed(_loanId);
+        if (elapsed > 0) {
+            uint256 minInterest = Math.mulDiv(
+                l.principal * l.aprBps,
+                MIN_INTEREST_DURATION,
+                BPS * SECONDS_PER_YEAR,
+                Math.Rounding.Ceil
+            );
+            if (interest < minInterest) interest = minInterest;
+        }
         total = l.principal + interest;
     }
 
-    /// @notice Check whether a loan has defaulted (deadline passed and not repaid).
-    /// @param _loanId The loan ID to check
-    /// @return Whether the loan is in default
+    /// @notice Check whether a loan has defaulted.
+    /// @dev    AUDIT FIX: DEEP-LD-M3 — view reads `effectiveDeadline + GRACE_PERIOD`.
     function isDefaulted(uint256 _loanId) external view returns (bool) {
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan memory l = loans[_loanId];
-        return !l.repaid && !l.defaultClaimed && block.timestamp > l.deadline;
+        return !l.repaid
+            && !l.defaultClaimed
+            && block.timestamp > effectiveDeadline(_loanId) + GRACE_PERIOD;
     }
 
     /// @notice Get the total number of offers created.
@@ -1106,6 +1199,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     function proposeMaxAprBps(uint256 _new) external onlyOwner {
         if (_new == 0) revert ZeroAmount();
         if (_new > MAX_APR_BPS_CEILING) revert InvalidCapValue();
+        // AUDIT FIX: DEEP-LD-L4 — refuse `_new < minAprBps` to avoid bricking
+        // createLoanOffer (every APR would simultaneously fail < min AND > max).
+        if (_new < minAprBps) revert InvalidCapValue();
         pendingMaxAprBps = _new;
         _propose(MAX_APR_CHANGE, CAP_CHANGE_TIMELOCK);
         emit MaxAprBpsProposed(_new, _executeAfter[MAX_APR_CHANGE]);
@@ -1213,15 +1309,16 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         super._unpause();
     }
 
-    /// @notice Pause-extended deadline for a loan. Adds `totalPausedDuration` plus,
-    ///         when currently paused, the in-flight pause window. Use this anywhere
-    ///         the contract historically read `loan.deadline` to gate repay/default.
-    /// @dev    Pure view — does not mutate `totalPausedDuration`. Both repayLoan and
-    ///         claimDefaultedCollateral rely on this value. AUDIT R014.
+    /// @notice Pause-extended deadline for a loan.
+    /// @dev    AUDIT FIX: DEEP-LD2-M4 — subtract per-loan `pausedDurationAtStart`
+    ///         snapshot so pre-loan pauses cannot retroactively extend deadlines.
     function effectiveDeadline(uint256 _loanId) public view returns (uint256) {
         if (_loanId >= loans.length) revert InvalidLoanId();
-        uint256 base = loans[_loanId].deadline;
-        uint256 pauseExt = totalPausedDuration;
+        Loan storage loan = loans[_loanId];
+        uint256 base = loan.deadline;
+        uint256 pauseExt = totalPausedDuration > loan.pausedDurationAtStart
+            ? totalPausedDuration - loan.pausedDurationAtStart
+            : 0;
         if (paused() && pauseStartTime != 0 && block.timestamp > pauseStartTime) {
             pauseExt += block.timestamp - pauseStartTime;
         }
@@ -1347,7 +1444,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         } else if (available >= total) {
             payout = owed;
         } else {
-            payout = (owed * available) / total;
+            // AUDIT FIX: DEEP-LD-M2 — Math.mulDiv to remove `owed*available` overflow.
+            // Synthetix-pull order-dependency refactor deferred (see DEEP audit).
+            payout = Math.mulDiv(owed, available, total, Math.Rounding.Floor);
         }
 
         // Always decrement the per-loan and global counters by `payout` (zero is a
@@ -1365,6 +1464,52 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (payout > 0) {
             IERC20(toweli).safeTransfer(recipient, payout);
         }
+    }
+
+    // ─── AUDIT FIX: DEEP-LD-M9 — Donated-TOWELI sweep ────────────────
+    bytes32 public constant SWEEP_DONATED_TOWELI = keccak256("LENDING_SWEEP_DONATED_TOWELI");
+    uint256 public pendingSweepAmount;
+    address public pendingSweepTo;
+
+    event SweepDonatedToweliProposed(uint256 amount, address to, uint256 readyAt);
+    event SweepDonatedToweliExecuted(uint256 amount, address to);
+    event SweepDonatedToweliCancelled();
+
+    /// @notice AUDIT FIX: DEEP-LD-M9 — propose a sweep of donated TOWELI (excess
+    ///         over totalEscrowRewardsOwed). 48h-timelocked, reservation-guarded.
+    function proposeSweepDonatedToweli(uint256 _amount, address _to) external onlyOwner {
+        if (_amount == 0) revert ZeroAmount();
+        if (_to == address(0)) revert ZeroAddress();
+        pendingSweepAmount = _amount;
+        pendingSweepTo = _to;
+        _propose(SWEEP_DONATED_TOWELI, CAP_CHANGE_TIMELOCK);
+        emit SweepDonatedToweliProposed(_amount, _to, _executeAfter[SWEEP_DONATED_TOWELI]);
+    }
+
+    function executeSweepDonatedToweli() external onlyOwner nonReentrant {
+        _execute(SWEEP_DONATED_TOWELI);
+        uint256 amount = pendingSweepAmount;
+        address to = pendingSweepTo;
+        pendingSweepAmount = 0;
+        pendingSweepTo = address(0);
+        uint256 bal = IERC20(toweli).balanceOf(address(this));
+        // Reservation guard: sweep MUST leave totalEscrowRewardsOwed fully covered.
+        if (bal < totalEscrowRewardsOwed || bal - totalEscrowRewardsOwed < amount) {
+            revert InsufficientCollateralValue();
+        }
+        IERC20(toweli).safeTransfer(to, amount);
+        emit SweepDonatedToweliExecuted(amount, to);
+    }
+
+    function cancelSweepDonatedToweli() external onlyOwner {
+        _cancel(SWEEP_DONATED_TOWELI);
+        pendingSweepAmount = 0;
+        pendingSweepTo = address(0);
+        emit SweepDonatedToweliCancelled();
+    }
+
+    function sweepDonatedToweliReadyAt() external view returns (uint256) {
+        return _executeAfter[SWEEP_DONATED_TOWELI];
     }
 
     // ─── AUDIT R014: Timelocked Min Principal ────────────────────────
@@ -1410,6 +1555,10 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         _execute(ACCEPTED_COLLATERAL_CHANGE);
         address collateral = pendingAcceptedCollateral;
         bool add = pendingAcceptedCollateralAdd;
+        // AUDIT FIX: DEEP-LD-M1 — refuse removal while loans in flight.
+        if (!add && activeLoansAgainstCollateral[collateral] > 0) {
+            revert("ACTIVE_LOANS_PRESENT");
+        }
         acceptedCollateralContracts[collateral] = add;
         pendingAcceptedCollateral = address(0);
         pendingAcceptedCollateralAdd = false;
