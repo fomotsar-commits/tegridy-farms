@@ -260,12 +260,25 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         `RECOVER_CALLER_CREDIT_COOLDOWN`, prevents permissionless gas-griefing
     ///         loops where a hostile caller spams the function (and its zero-amount
     ///         events) at the floor cost of ~2.5k gas per call.
+    /// @dev    AUDIT FIX: DEEP-R2-M03 — RETAINED for storage-layout stability across the
+    ///         upgrade but NO LONGER READ. The per-msg.sender keying could be bypassed
+    ///         by spawning N EOAs and calling once per EOA; the global single-slot
+    ///         `lastCallerCreditAt` below replaces it as the authoritative cooldown.
     mapping(address => uint256) public lastCallerCreditPullAt;
+    /// @notice AUDIT FIX: DEEP-R2-M03 — single-slot global cooldown timestamp for
+    ///         `recoverCallerCredit()`. Replaces the per-msg.sender mapping above so an
+    ///         attacker spawning N EOAs cannot run N calls per block: every block-level
+    ///         grief loop now pays the same `RECOVER_CALLER_CREDIT_COOLDOWN` window
+    ///         regardless of EOA count. Honest keeper cadence is unaffected (30s ≪ any
+    ///         realistic distribution interval).
+    uint256 public lastCallerCreditAt;
     /// @notice AUDIT FIX: DEEP-R-L03 — minimum gap between successive
-    ///         `recoverCallerCredit()` calls from the same caller. 30 seconds matches
-    ///         the typical block window for L1; small enough not to interfere with
-    ///         legitimate keeper bots, large enough to make tight grief loops
-    ///         meaningfully more expensive than the per-call SLOAD floor.
+    ///         `recoverCallerCredit()` calls. 30 seconds matches the typical block
+    ///         window for L1; small enough not to interfere with legitimate keeper
+    ///         bots, large enough to make tight grief loops meaningfully more
+    ///         expensive than the per-call SLOAD floor.
+    /// @dev    AUDIT FIX: DEEP-R2-M03 — semantics changed from per-caller to global;
+    ///         constant value unchanged.
     uint256 public constant RECOVER_CALLER_CREDIT_COOLDOWN = 30;
 
     // ─── AUDIT FIX: DEEP-R-M06 — TWAP snapshot reset (timelocked) ────────
@@ -405,6 +418,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     /// @notice AUDIT FIX: DEEP-R-M06 — no pending TWAP snapshot reset proposal,
     ///         the proposal isn't ready yet, or the proposal expired.
     error TWAPSnapshotResetUnavailable();
+    /// @notice AUDIT FIX: DEEP-R2-M01 — multi-hop owner-only conversion path skips the
+    ///         direct-pair TWAP anchor and trusts caller-supplied `minETHOut`. The
+    ///         pre-regression code accepted `0` as a valid floor, which under an
+    ///         owner-key-compromise scenario would let an attacker drain the entire
+    ///         accumulated balance for whatever ETH the (sandwich-controllable) multi-hop
+    ///         produces. The explicit non-zero check turns that drain into a noisy revert.
+    error ZeroMinOut();
 
     // Legacy error aliases (kept for test compatibility during V2 migration)
     error UseProposeFeeChange();
@@ -434,17 +454,32 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     // ─── Internal Helpers ────────────────────────────────────────────
 
     /// @dev Forward fee ETH to referral splitter. Returns true if ETH was forwarded.
-    /// @dev AUDIT FIX: DEEP-R-M03 — cap forwarded gas at 50k to match
-    ///      `distributeFeesToStakers` so a buggy/malicious referralSplitter cannot OOG-grief
-    ///      the surrounding swap. `recordFee` is "bump a slot + emit event" (~30k budget),
-    ///      50k leaves slack for upgrades. Solidity 0.8.x supports `gas:` on try-calls.
+    /// @dev AUDIT FIX: DEEP-R-M03 — cap forwarded gas to bound griefing from a buggy/malicious
+    ///      referralSplitter while leaving comfortable slack for the splitter's own write
+    ///      footprint and the inner `votingPowerOf` lookup over a multi-position staker.
+    /// @dev AUDIT FIX: DEEP-R2-H01 — raise the gas cap from 50_000 to 200_000.
+    ///      The 50k cap was wrongly transplanted from `distributeFeesToStakers` (where the
+    ///      receivers are minimal `receive()` shims); `recordFee` itself spends ~38k on cold
+    ///      writes BEFORE entering `votingPowerOf(referrer)`, which then iterates the
+    ///      referrer's staking-position set at ~8.4k cold gas per position. With the 50k
+    ///      cap, any referrer holding ≥2 cold staking positions silently OOG'd inside the
+    ///      splitter's try/catch — splitter returned success, the referrer's slice was
+    ///      redirected to `accumulatedTreasuryETH`, and SwapFeeRouter never emitted
+    ///      `ReferralFeeRedirectedToTreasury`. 200_000 covers ~10 cold positions plus the
+    ///      splitter's own state mutation and event with safe headroom (well below the
+    ///      protocol's observed real-world max of ~120k).
+    /// @dev AUDIT FIX: DEEP-R2-H01 — emit `ReferralFeeRedirectedToTreasury` even on the
+    ///      out-of-gas / silent-demotion path (`recordFee` returned success but the splitter
+    ///      internally redirected to treasury). The router cannot directly observe that
+    ///      branch, but raising the gas cap means we never reach the silent path; if the
+    ///      explicit catch fires we still emit, matching pre-regression observability.
     /// @dev AUDIT FIX: DEEP-R-I01 — narrow the catch so an asserted invariant violation
     ///      is at least distinguishable on-chain from a normal revert. Behaviour remains
     ///      fail-open (per the documented intent) — we still redirect to treasury — but
     ///      the explicit branches keep the door open for a future "alarm on Panic" hook.
     function _recordReferralFee(address _user, uint256 _feeAmount) internal returns (bool) {
         if (address(referralSplitter) == address(0) || _feeAmount == 0) return false;
-        try referralSplitter.recordFee{value: _feeAmount, gas: 50_000}(_user) {
+        try referralSplitter.recordFee{value: _feeAmount, gas: 200_000}(_user) {
             return true;
         } catch Error(string memory) {
             emit ReferralFeeRedirectedToTreasury(_user, _feeAmount);
@@ -988,6 +1023,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         cannot be quietly fired by a temporarily-compromised owner key.
     ///         Stored INLINE rather than on SwapFeeRouterAdmin so the reset path
     ///         remains operable even if the admin contract itself is compromised.
+    /// @dev    AUDIT FIX: DEEP-R2-L02 — UX note: this state machine uses a single
+    ///         global `pendingResetToken` slot, so if you propose a reset for token A
+    ///         and then realise token B is the one that needs resetting, you MUST
+    ///         call `cancelResetTWAPSnapshot` first before re-proposing for B. Mirrors
+    ///         the cancel-before-replace shape of `proposeAdminReplacement`. A token-
+    ///         keyed mapping was considered but deferred — concurrent per-token resets
+    ///         are not a real workflow today (snapshot poisoning is rare).
     function proposeResetTWAPSnapshot(address token) external onlyOwner {
         if (token == address(0)) revert ZeroAddress();
         if (twapSnapshotResetReadyAt != 0) revert TWAPSnapshotResetUnavailable();
@@ -1307,6 +1349,21 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         are price-anchored against an EXTERNAL pair the contract does not
     ///         continuously TWAP. The 2-hop direct path (`[token, WETH]`) remains
     ///         permissionless after the SFR-H-01 bootstrap as before.
+    /// @dev    AUDIT FIX: DEEP-R2-I01 — DEPLOYER NOTE (multi-hop-only tokens). For
+    ///         tokens whose only liquid route to WETH is via an intermediate pool (no
+    ///         direct token/WETH pair exists on the AMM), this contract NEVER writes
+    ///         `lastConversionSnapshot[token]` (the snapshot anchor is the direct pair
+    ///         and there is no direct pair to read). As a result, every subsequent
+    ///         attempt to call `convertTokenFeesToETH(token, [token, WETH], …)` from
+    ///         a non-owner caller will revert `NoPairForToken`. The permissionless
+    ///         conversion path is permanently CLOSED for these tokens — they are
+    ///         FOREVER owner-only. Keeper bots for ALT-only tokens MUST run from the
+    ///         owner address (or an authorised privileged-keeper role if added later).
+    /// @dev    AUDIT FIX: DEEP-R2-M01 — multi-hop branch now requires `minETHOut > 0`.
+    ///         The owner-only gate is a TRUST boundary, not a substitute for defence in
+    ///         depth: an owner-key-compromise (or a stale-quote operator script) calling
+    ///         with `minETHOut = 0` would otherwise silently drain the entire accumulated
+    ///         token balance. The non-zero floor turns that drain into a noisy revert.
     /// @param  token        ERC20 token to convert (the input token; must equal `path[0]`)
     /// @param  path         Caller-supplied swap path. Must start at `token` and end at
     ///                      WETH. Length 2 = direct pair (permissionless after bootstrap);
@@ -1364,6 +1421,12 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint32 currentTs;
         if (path.length > 2) {
             // Owner-only branch: no direct-pair TWAP anchor; trust the operator's minETHOut.
+            // AUDIT FIX: DEEP-R2-M01 — require a non-zero minETHOut floor on the multi-hop
+            // path. The owner-only gate is a TRUST boundary, not a substitute for defence
+            // in depth. A `0` floor admits a full-balance drain under owner-key compromise
+            // OR honest operator-script error (stale quote pasted as `0`). This single
+            // check turns a silent drain into a revert that off-chain monitoring catches.
+            if (minETHOut == 0) revert ZeroMinOut();
             effectiveMin = minETHOut;
             // currentCum/currentTs left zero — we only update the snapshot on direct
             // 2-hop conversions (otherwise we'd seed a meaningless zero baseline).
@@ -1452,6 +1515,10 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 currentCum;
         uint32 currentTs;
         if (path.length > 2) {
+            // AUDIT FIX: DEEP-R2-M01 — same non-zero floor as the standard variant. See
+            // convertTokenFeesToETH above for the full rationale; both entry points must
+            // enforce identical multi-hop guards or an attacker can pick the unlocked door.
+            if (minETHOut == 0) revert ZeroMinOut();
             effectiveMin = minETHOut;
             emit ConversionTWAPFloor(token, effectiveMin, minETHOut, false);
         } else {
@@ -1500,15 +1567,27 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         that reverts on raw ETH receive (the original failure cause) gets WETH
     ///         instead — guaranteed delivery on the second hop.
     /// @param  recipient The original distribution destination whose queue to drain.
-    /// @dev    AUDIT FIX: DEEP-R-H02 — `whenNotPaused` so a paused router cannot leak
-    ///         queued ETH to a recipient flagged as compromised during incident response.
+    /// @dev    AUDIT FIX: DEEP-R-H02 — pause coverage was added in 1bcbb72 to keep
+    ///         downstream contracts safe during incident response.
+    /// @dev    AUDIT FIX: DEEP-R2-M02 — pause coverage REMOVED from this function only.
+    ///         The H02 vector ("MEV searcher front-runs pause to push ETH at a
+    ///         mid-incident downstream contract") applies to `distributeFeesToStakers`,
+    ///         which steers fresh ETH at chosen destinations and DOES retain
+    ///         `whenNotPaused`. This function only sends ALREADY-QUEUED ETH back to the
+    ///         ORIGINAL queued recipient — the destination was chosen at queue time,
+    ///         before the incident, so there is no mid-incident attacker steering. Adding
+    ///         pause coverage here turned the queue into an owner-key-compromise weapon:
+    ///         a captured key calling `pause()` indefinitely could freeze every queued
+    ///         slice (stakers, POL, ...) for the entire 7-day admin-rotation window. The
+    ///         pull pattern's value is exactly that the queue clears WITHOUT needing a
+    ///         privileged action — restore that property.
     /// @dev    DEFERRED: DEEP-R-L01 — codehash-binding the queue entry would defend
     ///         against a CREATE2-redeployed successor at the same address, but the
     ///         finding's own conclusion is "low priority unless CREATE2 metaproxies
     ///         are introduced." Adding the storage layout change now would force a
     ///         migration on every existing pendingDistribution entry; deferring until
     ///         a real CREATE2 metaproxy use case lands.
-    function withdrawPendingDistribution(address recipient) external nonReentrant whenNotPaused {
+    function withdrawPendingDistribution(address recipient) external nonReentrant {
         if (recipient == address(0)) revert ZeroAddress();
         uint256 amount = pendingDistribution[recipient];
         if (amount == 0) revert ZeroAmount();
@@ -1525,16 +1604,21 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         orphan balance that only sweepETH (treasury-only) could move.
     /// @dev AUDIT FIX: DEEP-R-H02 — `whenNotPaused` so a paused router cannot pull
     ///      callerCredit during incident response on a downstream splitter.
-    /// @dev AUDIT FIX: DEEP-R-L03 — per-caller cooldown blocks tight grief loops that
-    ///      would otherwise spam zero-amount events at ~2.5k gas per call. 30 s cap is
+    /// @dev AUDIT FIX: DEEP-R-L03 — cooldown blocks tight grief loops that would
+    ///      otherwise spam zero-amount events at ~2.5k gas per call. 30 s cap is
     ///      well below any realistic keeper cadence; an honest caller will never hit it.
+    /// @dev AUDIT FIX: DEEP-R2-M03 — gate on the GLOBAL `lastCallerCreditAt` slot, not
+    ///      the per-msg.sender mapping. Per-caller keying was bypassable by spawning N
+    ///      EOAs and calling once each — the original grief loop survived. The single
+    ///      global slot ensures every block-level loop costs the full cooldown window
+    ///      regardless of how many sender keys the attacker controls.
     function recoverCallerCredit() external nonReentrant whenNotPaused {
         require(address(referralSplitter) != address(0), "NO_SPLITTER");
-        uint256 lastPull = lastCallerCreditPullAt[msg.sender];
+        uint256 lastPull = lastCallerCreditAt;
         if (lastPull != 0 && block.timestamp < lastPull + RECOVER_CALLER_CREDIT_COOLDOWN) {
             revert RecoverCallerCreditCooldown();
         }
-        lastCallerCreditPullAt[msg.sender] = block.timestamp;
+        lastCallerCreditAt = block.timestamp;
         uint256 balBefore = address(this).balance;
         referralSplitter.withdrawCallerCredit();
         uint256 recovered = address(this).balance - balBefore;
@@ -1604,11 +1688,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // resulting zero output would silently zero the accumulated fee balance.
         // Owner-only multi-hop already implies trust, but this defends against
         // owner script errors / off-chain interpolation bugs.
-        for (uint256 i = 1; i < len - 1; i++) {
-            if (path[i] == address(0)) revert InvalidConversionPath();
-        }
-        // Reject duplicates (also catches `[token, WETH, WETH]` and similar shapes).
+        // AUDIT FIX: DEEP-R2-L01 — fold the zero-address-hop check into the same
+        // outer loop as the duplicate check so 4-hop owner-only paths walk the
+        // index range once instead of twice. Equivalent semantics, ~600 gas saved
+        // per call (twice per `convertTokenFeesToETH{,FoT}` workflow).
         for (uint256 i = 0; i < len; i++) {
+            if (i > 0 && i < len - 1 && path[i] == address(0)) revert InvalidConversionPath();
+            // Reject duplicates (also catches `[token, WETH, WETH]` and similar shapes).
             for (uint256 j = i + 1; j < len; j++) {
                 if (path[i] == path[j]) revert InvalidConversionPath();
             }

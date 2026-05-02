@@ -172,8 +172,10 @@ contract Deep_R_H01_MultiHop is Test {
         address[] memory path = new address[](3);
         path[0] = address(alt); path[1] = address(mid); path[2] = address(weth);
 
-        // Owner runs multi-hop conversion. Pre-fix this reverts NoPairForToken; post-fix succeeds.
-        sfr.convertTokenFeesToETH(address(alt), path, 0, block.timestamp + 30 minutes);
+        // AUDIT FIX: DEEP-R2-M01 — multi-hop now requires a non-zero
+        // minETHOut floor (compromised-owner DOS protection). Use a tiny
+        // floor; the test still proves the multi-hop route works.
+        sfr.convertTokenFeesToETH(address(alt), path, 1, block.timestamp + 30 minutes);
 
         assertEq(sfr.accumulatedTokenFees(address(alt)), 0, "fees not consumed");
         assertGt(sfr.accumulatedETHFees(), 0, "no ETH credited");
@@ -186,7 +188,7 @@ contract Deep_R_H01_MultiHop is Test {
         path[0] = address(alt); path[1] = address(mid); path[2] = address(weth);
         vm.prank(address(0xBEEF));
         vm.expectRevert(SwapFeeRouter.MultiHopOwnerOnly.selector);
-        sfr.convertTokenFeesToETH(address(alt), path, 0, block.timestamp + 30 minutes);
+        sfr.convertTokenFeesToETH(address(alt), path, 1, block.timestamp + 30 minutes);
     }
 }
 

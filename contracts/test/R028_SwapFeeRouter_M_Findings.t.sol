@@ -278,8 +278,8 @@ contract R028_SFR_M01 is Test {
     function test_SFRM01_multiHop_allowedForOwner() public {
         _bootstrap();
         _seedFees(100 ether);
-        // Owner can use a multi-hop path even though the TWAP only knows about the direct pair.
-        sfr.convertTokenFeesToETH(address(toweli), _multiHop3(), 0, block.timestamp + 30 minutes);
+        // AUDIT FIX: DEEP-R2-M01 — multi-hop now requires non-zero minETHOut.
+        sfr.convertTokenFeesToETH(address(toweli), _multiHop3(), 1, block.timestamp + 30 minutes);
         // ETH was received and folded into accumulatedETHFees.
         assertGt(sfr.accumulatedETHFees(), 0, "owner multi-hop should produce ETH");
     }
