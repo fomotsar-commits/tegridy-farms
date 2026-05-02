@@ -248,6 +248,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     event EmergencyExitCancelled(address indexed user, uint256 indexed tokenId); // AUDIT FIX C-05
     event AmountIncreased(uint256 indexed tokenId, uint256 addedAmount, uint256 newTotal);
     event RewardsForfeited(address indexed user, uint256 amount); // AUDIT FIX C-02
+    /// @notice AUDIT MICROSCOPE_2026_04_30 C3/C4 + DEEP-DS-02/03/11: emitted when a
+    ///         permissionless caller forces lazy decay of an expired position via `kick()`.
+    event PositionKicked(uint256 indexed tokenId, address indexed kicker, uint256 boostDecayed);
     event JbacReturned(uint256 indexed tokenId, address indexed to, uint256 indexed jbacTokenId); // AUDIT H-1
     event JbacStranded(uint256 indexed tokenId, address indexed to, uint256 indexed jbacTokenId); // AUDIT H-1
     /// @notice AUDIT C5: emitted when an extend-lock / autoMaxLock fee is collected to treasury.
@@ -296,6 +299,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     error ExtendFeeRecycleTooHigh(); // AUDIT M-AUDIT-2026-1
     error OnlyJbacNFT(); // SIZE-OPT: replaces require("only JBAC")
     error NotRewardNotifier(); // SIZE-OPT: replaces revert("NOT_NOTIFIER")
+    error NoOpKick(); // AUDIT FIX: DEEP-DS-07 — kick on non-expired or already-decayed position
+    error PendingLendingPositions(); // AUDIT FIX: DEEP-DS-10 — revoking lending while NFTs escrowed
+    error NotAContract(); // AUDIT FIX: DEEP-DS-12 — first-time admin setter must be a contract
 
     // ─── Constructor ──────────────────────────────────────────────────
 
@@ -694,8 +700,16 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         if (p.amount == 0) revert NoPosition();
         if (_newLockDuration <= p.lockDuration) revert LockNotExtended();
         if (_newLockDuration > MAX_LOCK_DURATION) revert LockTooLong();
+        // AUDIT FIX: DEEP-DS-06 — reject expired positions, mirroring increaseAmount.
+        // Without this, a user can revive a decayed position by paying the fee on stale
+        // principal and re-anchoring rewardDebt, sidestepping the documented
+        // "use it or lose it" model. User must withdraw → re-stake to re-enter.
+        if (p.lockEnd > 0 && block.timestamp >= p.lockEnd) revert LockExpired();
 
         // AUDIT C5: charge extend fee before any state changes. No-op when extendFeeBps == 0.
+        // AUDIT NOTE: DEEP-DS-09 — DEFERRED: whale-rebate is bounded; full fix requires
+        // denominator-exclusion math in _splitExtendFee (split recycle excluding contributor).
+        // Modest impact at current concentration; tracked for future hardening.
         _chargeExtendFee(tokenId, p.amount);
 
         // SECURITY FIX: Claim pending rewards BEFORE changing boost to avoid loss
@@ -758,9 +772,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         Position storage p = positions[tokenId];
         if (p.amount == 0) revert NoPosition();
         if (block.timestamp < p.lockEnd) revert LockNotExpired();
-        // V2: Clean up expired boost before withdrawal
-        _decayIfExpired(tokenId, p);
-
+        // AUDIT FIX: DEEP-DS-01 — DO NOT pre-decay before _getReward. The pre-decay
+        // call was a vestige from before AUDIT M-01 and defeated that fix on the
+        // most common exit path. _getReward handles decay AFTER computing rewards.
         _getReward(tokenId, p);
 
         // AUDIT H-1 (2026-04-20): return physically-deposited JBAC before clearing position.
@@ -839,6 +853,54 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         }
 
         _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
+    }
+
+    // ─── AUDIT MICROSCOPE_2026_04_30 C3/C4: Permissionless Expired-Position Decay ──
+
+    /// @notice Force the lazy-decay path on an expired position whose owner has not
+    ///         interacted since `lockEnd`. Permissionless — anyone can call.
+    /// @dev    Closes the architectural finding documented in
+    ///         `.audit_101/MICROSCOPE_2026_04_30.md` C3 (snapshot/possession decoupling)
+    ///         + C4 (stale checkpoint trace on expired locks). Pattern of record:
+    ///         Curve `LiquidityGaugeV4.kick(addr)` permissionless poke.
+    ///
+    /// @dev    AUDIT FIX: DEEP-DS-02 — settle holder's pre-expiry rewards as
+    ///         unsettled BEFORE decay, mirroring `_settleRewardsOnTransfer` (C-04).
+    ///         Without this, _decayIfExpired zeros boostedAmount while leaving
+    ///         rewardDebt unchanged, so subsequent _getReward hits the
+    ///         `if (p.boostedAmount == 0) return 0;` short-circuit and the
+    ///         holder's pre-expiry yield is permanently unreachable.
+    /// @dev    AUDIT FIX: DEEP-DS-03 — `whenNotPaused` added so kick is symmetric
+    ///         with the rest of the user-facing reward surface.
+    /// @dev    AUDIT FIX: DEEP-DS-07 — fast-revert on phantom IDs and no-op kicks.
+    /// @dev    AUDIT FIX: DEEP-DS-11 — `nonReentrant` added; load-bearing once
+    ///         the DS-02 settle-unsettled path is in place.
+    function kick(uint256 tokenId) external nonReentrant whenNotPaused {
+        Position storage p = positions[tokenId];
+        if (p.amount == 0) revert NoPosition(); // DEEP-DS-07
+        uint256 prior = p.boostedAmount;
+        if (prior == 0 || p.lockEnd == 0 || block.timestamp < p.lockEnd) revert NoOpKick(); // DEEP-DS-07
+        _accumulateRewards();
+        // DEEP-DS-02: capture and settle pre-expiry rewards BEFORE decay.
+        address holder = ownerOf(tokenId);
+        int256 accumulated = _safeInt256((prior * rewardPerTokenStored) / ACC_PRECISION);
+        int256 diff = accumulated - p.rewardDebt;
+        p.rewardDebt = accumulated;
+        if (diff > 0) {
+            uint256 pending = uint256(diff);
+            uint256 available = rewardToken.balanceOf(address(this));
+            uint256 reserved = _reserved();
+            uint256 rewardPool = available > reserved ? available - reserved : 0;
+            uint256 cappedPending = pending > rewardPool ? rewardPool : pending;
+            if (cappedPending > 0) {
+                uint256 actualSettled = _settleUnsettled(holder, cappedPending);
+                uint256 forfeited = cappedPending - actualSettled;
+                if (forfeited > 0) emit RewardsForfeited(holder, forfeited);
+                if (actualSettled > 0) emit RewardPaid(holder, tokenId, actualSettled);
+            }
+        }
+        _decayIfExpired(tokenId, p);
+        emit PositionKicked(tokenId, msg.sender, prior - p.boostedAmount);
     }
 
     // ─── AUDIT FIX #16: JBAC Boost Revalidation ──────────────────────
@@ -1099,6 +1161,11 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             if (actualSettled > 0) {
                 emit RewardPaid(from, tokenId, actualSettled);
             }
+            // AUDIT FIX: DEEP-DS-04 — refresh `from`'s activity timestamp; we just
+            // credited unsettledRewards[from] from a non-claim path (NFT transfer).
+            // The R014 M-9 invariant requires every reward-touching path that
+            // materially affects unsettled rewards for `user` to `_touch(user)`.
+            _touch(from);
         }
         // AUDIT FIX: Set rewardDebt AFTER the reward pool check to ensure correct accounting
         p.rewardDebt = accumulated;
@@ -1319,15 +1386,25 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     ///      POLAccumulator), the pre-existing logic could let a notifier back-run their
     ///      own funding by claiming a fatter `rewardPool` against elapsed-but-not-yet-
     ///      credited time. Mirrors Synthetix `RewardsDistributionRecipient` pattern.
+    /// @dev AUDIT FIX: DEEP-DS-05 — `whenNotPaused` added. Prevents the kick+notify
+    ///      pause-asymmetry where a notifier could re-shape the rewardPerTokenStored
+    ///      denominator while user reward-claim entrypoints are blocked.
+    /// @dev AUDIT FIX: DEEP-DS-08 — measure actual received delta and re-validate the
+    ///      MIN_NOTIFY_AMOUNT floor. Defends totalRewardsFunded accounting against any
+    ///      future migration to a FoT/rebasing reward token; harmless ~3k gas tax.
     /// @param _amount Amount of reward tokens to deposit (must be >= MIN_NOTIFY_AMOUNT)
-    function notifyRewardAmount(uint256 _amount) external nonReentrant updateReward {
+    function notifyRewardAmount(uint256 _amount) external nonReentrant whenNotPaused updateReward {
         if (msg.sender != owner() && !rewardNotifiers[msg.sender]) {
             revert NotRewardNotifier();
         }
         if (_amount < MIN_NOTIFY_AMOUNT) revert FundAmountTooSmall(); // AUDIT FIX #61
+        // AUDIT FIX: DEEP-DS-08 — delta-measure pattern.
+        uint256 balBefore = rewardToken.balanceOf(address(this));
         rewardToken.safeTransferFrom(msg.sender, address(this), _amount);
-        totalRewardsFunded += _amount;
-        emit RewardAdded(_amount);
+        uint256 received = rewardToken.balanceOf(address(this)) - balBefore;
+        if (received < MIN_NOTIFY_AMOUNT) revert FundAmountTooSmall();
+        totalRewardsFunded += received;
+        emit RewardAdded(received);
     }
 
     /// @notice First-time setter for the sister TegridyStakingAdmin contract (where the
@@ -1343,6 +1420,11 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     function setStakingAdmin(address _admin) external onlyOwner {
         if (_admin == address(0)) revert ZeroAddress();
         if (stakingAdmin != address(0)) revert Unauthorized();
+        // AUDIT FIX: DEEP-DS-12 — reject EOA / non-contract addresses on first-time
+        // wire-up. Catches the typo that points at a wallet instead of a deployed
+        // TegridyStakingAdmin; recovery is otherwise gated by the 48h
+        // `proposeAdminReplacement` timelock.
+        if (_admin.code.length == 0) revert NotAContract();
         stakingAdmin = _admin;
         emit StakingAdminReplaced(address(0), _admin);
     }
@@ -1428,8 +1510,13 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     }
 
     /// @notice Apply a lending-contract whitelist toggle. Caller must be the wired admin contract.
+    /// @dev AUDIT FIX: DEEP-DS-10 — block revoke (false) while lending contract still holds
+    ///      escrowed staking NFTs. Otherwise the eventual repay/default round-trip back
+    ///      to the borrower hits cooldown/rate-limit/AlreadyHasPosition guards once the
+    ///      from-side relaxation is gone, stranding the borrower's collateral.
     function applyLendingContract(address _lending, bool _approved) external onlyAdmin {
         if (_lending == address(0)) revert ZeroAddress();
+        if (!_approved && balanceOf(_lending) > 0) revert PendingLendingPositions();
         isLendingContract[_lending] = _approved;
     }
 
@@ -1508,6 +1595,12 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
     /// @dev Clear a staking position: update totals, delete position, burn NFT, checkpoint.
     /// @return amount The staked principal that was in the position
+    /// @dev AUDIT FIX: DEEP-DS-13 — preserve `userTokenId[msg.sender]` for multi-NFT
+    ///      holders (Safes, vaults). After `_burn` runs `_update`, which removes
+    ///      tokenId from `_positionsByOwner[msg.sender]` and zeros
+    ///      `userTokenId[msg.sender]`, re-point the legacy single-pointer at any
+    ///      remaining position so legacy integrators that read `userTokenId(holder)`
+    ///      don't silently misreport "no position" while other positions exist.
     function _clearPosition(uint256 tokenId, Position storage p) private returns (uint256 amount) {
         amount = p.amount;
         totalStaked -= amount;
@@ -1515,8 +1608,14 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         // AUDIT L-22 / Spartan TF-10: totalLocked tracking removed — was redundant with totalStaked.
         delete positions[tokenId];
         delete emergencyExitRequests[tokenId];
-        userTokenId[msg.sender] = 0;
         _burn(tokenId);
+        // AUDIT FIX: DEEP-DS-13 — `_burn` ran `_update` which removed tokenId from
+        // `_positionsByOwner[msg.sender]` and zeroed `userTokenId[msg.sender]`. If
+        // any positions remain, re-point the legacy pointer at one of them.
+        EnumerableSet.UintSet storage set = _positionsByOwner[msg.sender];
+        if (set.length() > 0) {
+            userTokenId[msg.sender] = set.at(0);
+        }
         _writeCheckpoint(msg.sender);
         _writeTotalBoostedStakeCheckpoint(); // AUDIT REV-M-01
     }

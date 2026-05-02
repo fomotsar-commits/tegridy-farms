@@ -221,8 +221,19 @@ contract TegridyStakingTest is Test {
         vm.prank(bob);
         staking.withdraw(tokenId);
 
-        // V2: Expired locks earn 0 rewards via boost decay — users must re-lock before expiry.
-        // They get back their principal only.
+        // AUDIT FIX: DEEP-DS-01 (2026-05-01) — re-interpreted. PRIOR comment was:
+        // "V2: Expired locks earn 0 rewards via boost decay" — that was the BUG, not
+        // the spec. `withdraw()` was running `_decayIfExpired` BEFORE `_getReward`,
+        // which short-circuited on `boostedAmount == 0` and silently paid only
+        // principal even though M-01 had moved the decay AFTER reward computation
+        // INSIDE `_getReward`. After the DS-01 fix, withdraw correctly pays
+        // pre-expiry accrued rewards alongside the principal. Bob is the only
+        // staker here so totalBoostedStake collapses on his lock-expiry; with no
+        // active staker absorbing the global rewardPerTokenStored bump there can
+        // still be near-zero post-fix accrual (the whole denominator was him).
+        // The strict reward-pays-out assertion lives in
+        // `Deep_Staking_2026_05_01.t.sol::test_withdraw_afterLockExpired_paysAccruedRewards`
+        // where a co-staker keeps `totalBoostedStake > 0` for the active window.
         assertGe(token.balanceOf(bob) - balBefore, 500_000 ether); // At least principal
     }
 
