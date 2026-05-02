@@ -137,6 +137,20 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         of accrued interest at the loan's APR. Defeats same-block flash-loan.
     uint256 public constant MIN_INTEREST_DURATION = 1 days;
 
+    // ─── AUDIT FIX: LD3-H2 — APR-independent interest floor ──────────
+    /// @notice Flat principal-percentage interest floor (5 bps = 0.05%) that
+    ///         activates regardless of the offer's `aprBps`. Mirrors NFTLending's
+    ///         LD2-H2 fix. Defeats the 0% APR loophole in DEEP-LD-M6 where
+    ///         `principal * 0 == 0` made the duration-based floor evaluate to
+    ///         zero, leaving same-block flash-borrows free against any 0-APR
+    ///         offer. The 5-bps level is conservatively small for honest 1-day
+    ///         repayments (0.05% of principal per loan, fixed) but enough to
+    ///         make sub-block flash attacks uneconomical when stacked against
+    ///         gas + slippage. CRITICAL on TegridyLending vs NFTLending: the
+    ///         100x larger MAX_PRINCIPAL_CEILING (100k vs 1k ETH) makes this
+    ///         loophole 100x more attractive without the floor.
+    uint256 public constant MIN_INTEREST_PRINCIPAL_BPS = 5;
+
     // ─── AUDIT C7: origination fee charged on createLoanOffer ────────────
     /// @notice Fee in BPS deducted from the lender's deposited principal at offer creation.
     ///         Sent to treasury immediately. The borrower receives (msg.value - origination fee).
@@ -193,6 +207,15 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @notice AUDIT FIX: DEEP-LD-M1 — active-loan count per collateral contract.
     mapping(address => uint256) public activeLoansAgainstCollateral;
 
+    /// @notice AUDIT FIX: LD3-M3 — cancel-rate-limit per collateral so a captured
+    ///         admin cannot loop cancel-and-re-propose to keep a flagged
+    ///         staking contract on the whitelist indefinitely. Mirrors LD-L2 on
+    ///         TegridyNFTLending. Counter resets on a successful removal
+    ///         execution. Gate uses the LD3-M1 corrected order (gate → cancel)
+    ///         so over-budget reverts don't leave the slot in a stuck state.
+    mapping(address => uint256) public collateralRemovalRetryCount;
+    uint256 public constant COLLATERAL_REMOVAL_MAX_CANCELLATIONS = 3;
+
     // Pending proposal storage
     uint256 public pendingMaxPrincipal;
     uint256 public pendingMaxAprBps;
@@ -204,7 +227,18 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         still accrues through the grace period so the lender isn't penalised.
     uint256 public constant GRACE_PERIOD = 1 hours;
     /// @notice AUDIT FIX: DEEP-LD-M5 — buffer between deadline and lockEnd.
-    uint256 public constant LIQUIDATION_GRACE = 7 days;
+    /// @dev    AUDIT FIX: LD3-M2 — reduced 7d → 1d. The 7-day buffer was
+    ///         structurally locking out borrowers whose `lockEnd == stake_start
+    ///         + max_lock` from max-duration loans (the "natural choice" of
+    ///         lockDuration == loan_duration always failed `lockEnd >= deadline
+    ///         + 7d`). 1 day matches the GRACE_PERIOD philosophy of "small but
+    ///         non-zero cushion" while keeping the lender-protection intent.
+    ///         INFO LD3-INFO1: this buffer is enforced at acceptance only — see
+    ///         claimDefaultedCollateral NatSpec for the 7d-vs-claim-time
+    ///         distinction. Lender's actual usable post-claim window is
+    ///         `lockEnd - block.timestamp_at_claim`, which can be anywhere
+    ///         between `LIQUIDATION_GRACE - GRACE_PERIOD` and 0+.
+    uint256 public constant LIQUIDATION_GRACE = 1 days;
 
     // ─── WETH Fallback ──────────────────────────────────────────────
     address public immutable weth; // WETH for fallback payout to revert-on-receive lenders
@@ -273,6 +307,15 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         ///      until acceptance. cancelOffer refunds principal + this; acceptOffer
         ///      forwards this to treasury. Closes silent-tax-on-cancel vector.
         uint256 originationFee;
+        /// @dev AUDIT FIX: LD3-H3 — snapshot of `treasury` at offer creation.
+        ///      acceptOffer forwards the held origination fee to THIS address
+        ///      rather than the live treasury, so a treasury change between
+        ///      create and accept cannot silently redirect a lender's fee.
+        ///      Mirrors LD2-M3 fix on TegridyNFTLending. Escalated to High here
+        ///      because TegridyLending's MAX_PRINCIPAL_CEILING (100k ETH) +
+        ///      MAX_ORIGINATION_FEE_BPS (200) means a worst-case redirect can
+        ///      reach 2000 ETH per offer (100x NFTLending's blast radius).
+        address treasuryAtCreate;
     }
 
     struct Loan {
@@ -447,6 +490,13 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     error NotEscrowBeneficiary();
     /// @dev R014: pullEscrowRewards called before the loan has settled (still active).
     error LoanStillActive();
+    /// @dev AUDIT FIX: LD3-M3 — rate-limit reached on cancelAcceptedCollateral.
+    error RemovalCancelLimitReached();
+    /// @dev AUDIT FIX: LD3-L2 — typed error for the active-loans-present revert
+    ///      previously emitted as `revert("ACTIVE_LOANS_PRESENT")`. Off-chain
+    ///      monitoring can now select on the 4-byte selector and decode the
+    ///      collateral + count without ABI string handling.
+    error ActiveLoansPresent(address collateral, uint256 count);
 
     // ─── Legacy View Helpers (for test compatibility) ────────────────
     function protocolFeeChangeReadyAt() external view returns (uint256) {
@@ -568,7 +618,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             minPositionValue: _minPositionValue,
             minPositionETHValue: _minPositionETHValue,
             active: true,
-            originationFee: originationFee
+            originationFee: originationFee,
+            // AUDIT FIX: LD3-H3 — snapshot the live treasury at offer creation.
+            treasuryAtCreate: treasury
         }));
 
         emit LoanOfferCreated(
@@ -635,6 +687,12 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 minPositionValue = offer.minPositionValue;
         uint256 minPositionETHValue = offer.minPositionETHValue;
         uint256 originationFee = offer.originationFee;
+        // AUDIT FIX: LD3-H3 — use the snapshotted treasury for fee routing so a
+        // treasury change between create and accept cannot redirect the fee.
+        // Migration safety: pre-LD3-H3 offers default to address(0); fall back
+        // to the live treasury so legacy offers remain payable.
+        address feeRecipient = offer.treasuryAtCreate;
+        if (feeRecipient == address(0)) feeRecipient = treasury;
 
         // AUDIT FIX: DEEP-LD-L3 — refuse acceptance if collateral was de-whitelisted.
         if (!acceptedCollateralContracts[collateralContract]) revert CollateralNotAccepted();
@@ -686,8 +744,10 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         activeLoansAgainstCollateral[collateralContract] += 1;
 
         // AUDIT FIX: DEEP-LD-M8 — forward escrowed origination fee to treasury.
+        // AUDIT FIX: LD3-H3 — route to the snapshotted feeRecipient so a
+        // treasury change between create and accept cannot redirect the fee.
         if (originationFee > 0) {
-            WETHFallbackLib.safeTransferETHOrWrap(weth, treasury, originationFee);
+            WETHFallbackLib.safeTransferETHOrWrap(weth, feeRecipient, originationFee);
             emit OriginationFeeCollected(lender, originationFee);
         }
 
@@ -733,11 +793,24 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
         // AUDIT FIX: DEEP-LD-M7 — gate on deadline+grace BEFORE state mutation
         // or interest math. Cheap-checks-first; mirrors NFTLending.repayLoan.
-        if (block.timestamp > effectiveDeadline(_loanId) + GRACE_PERIOD) revert DeadlineExpired();
+        // AUDIT FIX: LD3-H1 — extend the deadline by `getSequencerOutageBuffer`
+        // so an L2 sequencer outage that consumes part of the grace window does
+        // NOT eat the borrower's repay window. Mirrors LD2-H1 on NFTLending.
+        // checkSequencerUp on the lender path keeps the lender blocked during
+        // grace; this extension restores symmetric outage handling.
+        uint256 outageBuffer = SequencerCheck.getSequencerOutageBuffer(
+            sequencerFeed,
+            SEQUENCER_GRACE_PERIOD
+        );
+        if (block.timestamp > effectiveDeadline(_loanId) + GRACE_PERIOD + outageBuffer) {
+            revert DeadlineExpired();
+        }
 
         // AUDIT FIX: DEEP-LD2-M5 — pause-adjusted interest. AUDIT FIX: DEEP-LD-M6
         // — minimum interest floor (1-day equivalent). AUDIT FIX: DEEP-LD2-M2 —
-        // skip floor when loan was 100% paused since start.
+        // skip floor when loan was 100% paused since start. AUDIT FIX: LD3-H2 —
+        // APR-independent flat floor (5 bps of principal) defeats the 0% APR
+        // loophole where the LD-M6 floor evaluates to zero.
         uint256 interest = calculateLoanInterest(_loanId);
         uint256 elapsed = pauseAdjustedElapsed(_loanId);
         if (elapsed > 0) {
@@ -747,6 +820,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
                 BPS * SECONDS_PER_YEAR,
                 Math.Rounding.Ceil
             );
+            // AUDIT FIX: LD3-H2 — APR-independent flat floor (mirror LD2-H2).
+            uint256 flatFloor = (principal * MIN_INTEREST_PRINCIPAL_BPS) / BPS;
+            if (minInterest < flatFloor) minInterest = flatFloor;
             if (interest < minInterest) interest = minInterest;
         }
         uint256 totalRepayment = principal + interest;
@@ -848,7 +924,18 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // AUDIT R014: deadline now reads `effectiveDeadline` so an admin pause
         // extends the lender's wait by the same amount it extended the borrower's
         // repay window. Both sides wait through pause symmetrically.
-        if (block.timestamp <= effectiveDeadline(_loanId) + GRACE_PERIOD) revert DeadlineNotReached();
+        // AUDIT FIX: LD3-H1 — symmetric outage-buffer extension so both repay
+        // and claim see the same effectiveDeadline + grace + outage window.
+        // checkSequencerUp above enforces the steady-state grace; this returns
+        // a non-zero buffer only during in-flight transitions / future buffer
+        // adjustments. Mirrors LD2-H1 fix on TegridyNFTLending.claimDefault.
+        uint256 outageBuffer = SequencerCheck.getSequencerOutageBuffer(
+            sequencerFeed,
+            SEQUENCER_GRACE_PERIOD
+        );
+        if (block.timestamp <= effectiveDeadline(_loanId) + GRACE_PERIOD + outageBuffer) {
+            revert DeadlineNotReached();
+        }
 
         // CEI: state change before external call
         loan.defaultClaimed = true;
@@ -887,13 +974,19 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @notice Get a loan offer by ID.
     /// @param _offerId The offer ID to query
     /// @return lender The address of the lender
-    /// @return principal The ETH principal amount
+    /// @return principal The ETH principal amount (post origination fee)
     /// @return aprBps The annual percentage rate in basis points
     /// @return duration The loan duration in seconds
     /// @return collateralContract The TegridyStaking contract address
     /// @return minPositionValue The minimum collateral position value (TOWELI)
     /// @return minPositionETHValue Optional ETH-denominated collateral floor (0 = disabled)
     /// @return active Whether the offer is still active
+    /// @return originationFee Origination fee held in escrow on the offer (AUDIT FIX: LD3-L1)
+    /// @return treasuryAtCreate Treasury snapshot at offer creation (AUDIT FIX: LD3-L1)
+    /// @dev    AUDIT FIX: LD3-L1 — view extended with the originationFee and
+    ///         treasuryAtCreate fields added in LD-M8 / LD3-H3 so off-chain
+    ///         integrators can reconcile lender deposits and verify fee routing.
+    ///         Backward-compatible: tuple expansion appends elements at the end.
     function getOffer(uint256 _offerId) external view returns (
         address lender,
         uint256 principal,
@@ -902,7 +995,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         address collateralContract,
         uint256 minPositionValue,
         uint256 minPositionETHValue,
-        bool active
+        bool active,
+        uint256 originationFee,
+        address treasuryAtCreate
     ) {
         if (_offerId >= offers.length) revert InvalidOfferId();
         LoanOffer memory o = offers[_offerId];
@@ -914,7 +1009,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             o.collateralContract,
             o.minPositionValue,
             o.minPositionETHValue,
-            o.active
+            o.active,
+            o.originationFee,
+            o.treasuryAtCreate
         );
     }
 
@@ -930,6 +1027,10 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @return deadline The repayment deadline timestamp
     /// @return repaid Whether the loan has been repaid
     /// @return defaultClaimed Whether the lender has claimed the defaulted collateral
+    /// @return pausedDurationAtStart `totalPausedDuration` snapshot at loan creation (AUDIT FIX: LD3-L1)
+    /// @dev    AUDIT FIX: LD3-L1 — view extended with the pausedDurationAtStart
+    ///         field added in LD2-M4 so off-chain integrators can compute
+    ///         effectiveDeadline locally without an extra contract call.
     function getLoan(uint256 _loanId) external view returns (
         address borrower,
         address lender,
@@ -940,11 +1041,24 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 startTime,
         uint256 deadline,
         bool repaid,
-        bool defaultClaimed
+        bool defaultClaimed,
+        uint256 pausedDurationAtStart
     ) {
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan memory l = loans[_loanId];
-        return (l.borrower, l.lender, l.offerId, l.tokenId, l.principal, l.aprBps, l.startTime, l.deadline, l.repaid, l.defaultClaimed);
+        return (
+            l.borrower,
+            l.lender,
+            l.offerId,
+            l.tokenId,
+            l.principal,
+            l.aprBps,
+            l.startTime,
+            l.deadline,
+            l.repaid,
+            l.defaultClaimed,
+            l.pausedDurationAtStart
+        );
     }
 
     /// @notice Calculate pro-rata interest accrued (rounds up to protect protocol).
@@ -1005,7 +1119,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @notice Get the total repayment amount for a loan at the current time.
     /// @dev    AUDIT FIX: DEEP-LD2-M5 — pause-adjusted interest. AUDIT FIX:
     ///         DEEP-LD-M6 — minimum interest floor. AUDIT FIX: DEEP-LD2-M2 —
-    ///         skip floor when loan was 100% paused.
+    ///         skip floor when loan was 100% paused. AUDIT FIX: LD3-H2 —
+    ///         APR-independent flat floor (mirror LD2-H2) for view parity.
     function getRepaymentAmount(uint256 _loanId) external view returns (uint256 total) {
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan memory l = loans[_loanId];
@@ -1018,6 +1133,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
                 BPS * SECONDS_PER_YEAR,
                 Math.Rounding.Ceil
             );
+            // AUDIT FIX: LD3-H2 — APR-independent flat floor for view parity.
+            uint256 flatFloor = (l.principal * MIN_INTEREST_PRINCIPAL_BPS) / BPS;
+            if (minInterest < flatFloor) minInterest = flatFloor;
             if (interest < minInterest) interest = minInterest;
         }
         total = l.principal + interest;
@@ -1551,21 +1669,51 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         emit AcceptedCollateralProposed(_collateral, _add, _executeAfter[ACCEPTED_COLLATERAL_CHANGE]);
     }
 
+    /// @dev AUDIT FIX: LD3-M5 — pre-flight active-loan gate BEFORE `_execute`.
+    ///      Pre-fix: `_execute` cleared `_executeAfter[KEY] = 0`, then the
+    ///      ACTIVE_LOANS_PRESENT revert rolled the entire tx back. The proposal
+    ///      stayed pending; if the active loans didn't settle within the 7d
+    ///      validity window, the proposal expired AND the slot stayed occupied
+    ///      (because `_propose` rejects an existing pending). Doubly-stuck.
+    ///      Now: gate before `_execute` so admin can retry the moment loans clear.
+    /// @dev AUDIT FIX: LD3-L2 — typed `ActiveLoansPresent` error replaces the
+    ///      string revert for cheaper bytecode and selector-based off-chain monitoring.
+    /// @dev AUDIT FIX: LD3-M3 — reset the cancel-counter on successful removal
+    ///      execution so a future legitimate removal cycle has the full budget.
     function executeAcceptedCollateral() external onlyOwner {
-        _execute(ACCEPTED_COLLATERAL_CHANGE);
         address collateral = pendingAcceptedCollateral;
         bool add = pendingAcceptedCollateralAdd;
-        // AUDIT FIX: DEEP-LD-M1 — refuse removal while loans in flight.
+        // AUDIT FIX: DEEP-LD-M1 / LD3-M5 — refuse removal while loans in flight,
+        // BEFORE `_execute` consumes the proposal slot.
         if (!add && activeLoansAgainstCollateral[collateral] > 0) {
-            revert("ACTIVE_LOANS_PRESENT");
+            // AUDIT FIX: LD3-L2 — typed error.
+            revert ActiveLoansPresent(collateral, activeLoansAgainstCollateral[collateral]);
         }
+        _execute(ACCEPTED_COLLATERAL_CHANGE);
         acceptedCollateralContracts[collateral] = add;
+        // AUDIT FIX: LD3-M3 — reset cancel-counter on successful removal.
+        if (!add) collateralRemovalRetryCount[collateral] = 0;
         pendingAcceptedCollateral = address(0);
         pendingAcceptedCollateralAdd = false;
         emit AcceptedCollateralChanged(collateral, add);
     }
 
+    /// @dev AUDIT FIX: LD3-M3 — cancel-rate-limit on REMOVAL proposals (only).
+    ///      Mirrors NFTLending LD-L2. Add proposals are unrestricted (admin
+    ///      shouldn't be able to brick the protocol by cancelling adds; only
+    ///      removals carry the captured-admin-keeps-flagged-collection vector).
+    ///      Uses the LD3-M1 gate-then-cancel order so over-budget reverts don't
+    ///      leave the slot in a stuck state.
     function cancelAcceptedCollateral() external onlyOwner {
+        address cancelled = pendingAcceptedCollateral;
+        bool wasRemoval = !pendingAcceptedCollateralAdd;
+        // AUDIT FIX: LD3-M3 — gate first (only for removal cancels), THEN cancel.
+        if (wasRemoval && cancelled != address(0)) {
+            if (collateralRemovalRetryCount[cancelled] >= COLLATERAL_REMOVAL_MAX_CANCELLATIONS) {
+                revert RemovalCancelLimitReached();
+            }
+            collateralRemovalRetryCount[cancelled] += 1;
+        }
         _cancel(ACCEPTED_COLLATERAL_CHANGE);
         pendingAcceptedCollateral = address(0);
         pendingAcceptedCollateralAdd = false;

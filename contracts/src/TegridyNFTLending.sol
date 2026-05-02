@@ -118,12 +118,17 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         uint256 aprBps;
         uint256 startTime;
         uint256 deadline;
+        /// @dev AUDIT FIX: LD3-M4 (LD2-L3) — gas-pack: snapshot widened
+        ///      from uint256 to uint64 and moved adjacent to the bools so the
+        ///      compiler can pack all three into a single storage slot. Saves
+        ///      ~20k gas per loan creation, ~5k per loan read. uint64 holds
+        ///      ~584 billion years of seconds — far past any realistic
+        ///      cumulative pause window. Storage-layout change is safe because
+        ///      this contract has not yet been deployed (pre-deploy hardening
+        ///      pass).
+        uint64 pausedDurationAtStart;
         bool repaid;
         bool defaultClaimed;
-        /// @dev AUDIT FIX: DEEP-LD-H2 — snapshot of `totalPausedDuration` at
-        ///      loan creation. Mirrors TegridyLending H10 fix so only post-
-        ///      loan-start pause windows extend the deadline.
-        uint256 pausedDurationAtStart;
     }
 
     // ─── State ───────────────────────────────────────────────────────
@@ -234,6 +239,19 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     error CollateralBurnedSinceOffer();
     /// @dev AUDIT FIX: DEEP-LD-L2 — removal-cancel rate-limit reached.
     error RemovalCancelLimitReached();
+    /// @dev AUDIT FIX: LD3-L2 — typed error for the active-loans-present revert
+    ///      previously emitted as `revert("ACTIVE_LOANS_PRESENT")`. Off-chain
+    ///      monitoring can now select on the 4-byte selector and decode the
+    ///      collection + count without ABI string handling.
+    error ActiveLoansPresent(address collection, uint256 count);
+    /// @dev AUDIT FIX: LD3-M4 (LD2-L2) — fail-loud on the pause-bookkeeping
+    ///      invariant `loan.pausedDurationAtStart <= totalPausedDuration`.
+    ///      The pause counter is monotonically non-decreasing under correct
+    ///      operation, so any inversion implies storage corruption (or a
+    ///      future code path that mis-orders the snapshot/accumulator). Pre-fix
+    ///      the silent `... ? ... : 0` clamp would hide the violation; now we
+    ///      revert so forensics surface the regression immediately.
+    error PauseInvariantViolated();
 
     // ─── Legacy View Helpers (for test compatibility) ────────────────
     function protocolFeeChangeReadyAt() external view returns (uint256) {
@@ -372,6 +390,23 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         // the live treasury so legacy offers remain payable.
         address feeRecipient = offer.treasuryAtCreate;
         if (feeRecipient == address(0)) feeRecipient = treasury;
+        // AUDIT FIX: LD3-M4 (LD2-L1) — apply live rate when it has DROPPED
+        // since offer creation. Pre-fix: lenders paid yesterday's rate after
+        // a fee cut, harming UX fairness. Now: re-compute fee from the offer's
+        // *gross* (principal + originationFee) using the lower of (snapshot,
+        // live) bps. The delta refunds extra principal to the borrower's loan.
+        // Asymmetric design: a fee INCREASE between create and accept does NOT
+        // raise the lender's cost (snapshot wins) — only fee CUTS are honored.
+        if (originationFee > 0) {
+            uint256 grossDeposit = principal + originationFee;
+            uint256 liveFee = (grossDeposit * originationFeeBps) / BPS;
+            if (liveFee < originationFee) {
+                // Fee cut between create and accept — honor the lower rate.
+                // Surplus rejoins the principal flow to the borrower.
+                principal = grossDeposit - liveFee;
+                originationFee = liveFee;
+            }
+        }
 
         if (!whitelistedCollections[collateralContract]) revert CollectionNotWhitelisted();
 
@@ -399,10 +434,14 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
             aprBps: aprBps,
             startTime: block.timestamp,
             deadline: deadline,
-            repaid: false,
-            defaultClaimed: false,
             // AUDIT FIX: DEEP-LD-H2 — snapshot pause budget at loan-create.
-            pausedDurationAtStart: totalPausedDuration
+            // AUDIT FIX: LD3-M4 (LD2-L3) — uint64 cast (gas-pack). uint64
+            // overflow safety: 2^64 seconds is >584 billion years, beyond any
+            // realistic accumulated pause window. Cast is unchecked at the
+            // compiler level (uint256 → uint64) but always correct here.
+            pausedDurationAtStart: uint64(totalPausedDuration),
+            repaid: false,
+            defaultClaimed: false
         }));
 
         // Transfer NFT from borrower to this contract (collateral escrow)
@@ -637,14 +676,16 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     }
 
     /// @notice AUDIT FIX: DEEP-LD-H1 (mirror H11) — total elapsed excluding pauses.
+    /// @dev    AUDIT FIX: LD3-M4 (LD2-L2) — fail-loud on the pause invariant
+    ///         instead of the prior silent ternary clamp. See `PauseInvariantViolated`.
     function pauseAdjustedElapsed(uint256 _loanId) public view returns (uint256) {
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan storage loan = loans[_loanId];
         if (block.timestamp <= loan.startTime) return 0;
         uint256 raw = block.timestamp - loan.startTime;
-        uint256 pausedSinceStart = totalPausedDuration > loan.pausedDurationAtStart
-            ? totalPausedDuration - loan.pausedDurationAtStart
-            : 0;
+        // AUDIT FIX: LD3-M4 (LD2-L2) — invariant check.
+        if (loan.pausedDurationAtStart > totalPausedDuration) revert PauseInvariantViolated();
+        uint256 pausedSinceStart = totalPausedDuration - loan.pausedDurationAtStart;
         if (paused() && pauseStartTime != 0 && block.timestamp > pauseStartTime) {
             pausedSinceStart += block.timestamp - pauseStartTime;
         }
@@ -734,13 +775,21 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         emit CollectionRemovalProposed(_collection, _executeAfter[WHITELIST_REMOVE]);
     }
 
+    /// @dev AUDIT FIX: LD3-M5 — pre-flight active-loan gate BEFORE `_execute`.
+    ///      Pre-fix: `_execute` cleared `_executeAfter[KEY] = 0`, then the
+    ///      ACTIVE_LOANS_PRESENT revert rolled the entire tx back. Combined
+    ///      with the LD3-M1 cancel-rate-limit, this could permanently brick
+    ///      the WHITELIST_REMOVE slot. Now: gate before `_execute` so admin
+    ///      can retry the moment loans clear.
+    /// @dev AUDIT FIX: LD3-L2 — typed `ActiveLoansPresent` error.
     function executeRemoveCollection() external onlyOwner {
-        _execute(WHITELIST_REMOVE);
-
         address collection = pendingWhitelistRemove;
+        // AUDIT FIX: LD3-M5 — gate BEFORE `_execute` consumes the proposal slot.
         if (activeLoansOfCollection[collection] > 0) {
-            revert("ACTIVE_LOANS_PRESENT");
+            // AUDIT FIX: LD3-L2 — typed error replaces string revert.
+            revert ActiveLoansPresent(collection, activeLoansOfCollection[collection]);
         }
+        _execute(WHITELIST_REMOVE);
         whitelistedCollections[collection] = false;
         pendingWhitelistRemove = address(0);
         // AUDIT FIX: DEEP-LD-L2 — reset the cancel-counter on a successful
@@ -756,18 +805,26 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     ///         consecutive cancels per collection so a captured-owner cannot
     ///         loop cancel-and-re-propose to keep a flagged collection alive
     ///         indefinitely. Counter resets on a successful execution.
+    /// @dev    AUDIT FIX: LD3-M1 — gate-then-cancel order: pre-fix the cancel
+    ///         was executed first, then the post-bump revert rolled BACK the
+    ///         _cancel via tx revert, so `_executeAfter[WHITELIST_REMOVE]`
+    ///         stayed non-zero AND the proposal stayed pending forever (since
+    ///         `_propose` rejects an existing pending). Now we check the gate
+    ///         BEFORE _cancel — over-budget cancels revert without leaving
+    ///         the slot in a stuck state.
     function cancelRemoveCollection() external onlyOwner {
-        _cancel(WHITELIST_REMOVE);
-
         address cancelled = pendingWhitelistRemove;
-        pendingWhitelistRemove = address(0);
-        // AUDIT FIX: DEEP-LD-L2 — bump the retry counter on cancel.
+        // AUDIT FIX: LD3-M1 — gate first, THEN cancel; over-limit revert no
+        // longer rolls back a cancel that already cleared the slot.
         if (cancelled != address(0)) {
-            removalRetryCount[cancelled] += 1;
-            if (removalRetryCount[cancelled] > REMOVAL_MAX_CANCELLATIONS) {
+            if (removalRetryCount[cancelled] >= REMOVAL_MAX_CANCELLATIONS) {
                 revert RemovalCancelLimitReached();
             }
+            removalRetryCount[cancelled] += 1;
         }
+
+        _cancel(WHITELIST_REMOVE);
+        pendingWhitelistRemove = address(0);
 
         emit CollectionRemovalCancelled(cancelled);
     }
@@ -859,13 +916,14 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     /// @notice Pause-extended deadline for a loan.
     /// @dev    AUDIT FIX: DEEP-LD-H2 (mirror H10) — only count pause-time
     ///         that occurred AFTER this loan started.
+    /// @dev    AUDIT FIX: LD3-M4 (LD2-L2) — fail-loud on the pause invariant.
     function effectiveDeadline(uint256 _loanId) public view returns (uint256) {
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan storage loan = loans[_loanId];
         uint256 base = loan.deadline;
-        uint256 pauseExt = totalPausedDuration > loan.pausedDurationAtStart
-            ? totalPausedDuration - loan.pausedDurationAtStart
-            : 0;
+        // AUDIT FIX: LD3-M4 (LD2-L2) — invariant check.
+        if (loan.pausedDurationAtStart > totalPausedDuration) revert PauseInvariantViolated();
+        uint256 pauseExt = totalPausedDuration - loan.pausedDurationAtStart;
         if (paused() && pauseStartTime != 0 && block.timestamp > pauseStartTime) {
             pauseExt += block.timestamp - pauseStartTime;
         }
