@@ -17,6 +17,13 @@ interface ITegridyStaking {
     function toggleAutoMaxLock(uint256 tokenId) external;
     function claimUnsettled() external;
     function unsettledRewards(address user) external view returns (uint256);
+    /// @dev AUDIT FIX C-1: per-tokenId attribution claim. Pulls only the
+    ///      `unsettledRewardsByTokenId[tokenId]` slice (capped by holder bucket
+    ///      and reward pool) and transfers directly to `recipient`. Replaces
+    ///      the racy `claimUnsettled()` / snapshot-delta flow so two restakers
+    ///      with kick credits in the same bucket no longer race for each
+    ///      other's share. Returns the actual amount transferred.
+    function claimUnsettledForTokenId(uint256 tokenId, address recipient) external returns (uint256 paid);
     function earned(uint256 tokenId) external view returns (uint256);
     function revalidateBoost(uint256 tokenId) external; // M-26
     /// @dev AUDIT FIX: DEEP-DR-11 — defense-in-depth ownership check to mirror
@@ -918,47 +925,67 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             totalActivePrincipal = 0;
         }
         totalRestaked -= info.boostedAmount;
-        // AUDIT H-06: cache the deposit-time snapshot before deleting RestakeInfo.
-        uint256 depositSnapshot = info.unsettledSnapshot;
         delete tokenIdToRestaker[tokenId];
         delete restakers[msg.sender];
         _writeBoostCheckpoint(msg.sender, 0); // AUDIT H-8: zero historical boost on unrestake
 
-        // Return NFT to user.
-        // AUDIT H-06: compute user's unsettled delta against the deposit-time snapshot
-        // instead of a racy before/after read pair. A concurrent staking.claimUnsettled()
-        // firing between the two reads used to silently undercount this user's share.
-        stakingNFT.safeTransferFrom(address(this), msg.sender, tokenId); // M-16: safeTransferFrom for NFT returns
-        uint256 unsettledAfter = staking.unsettledRewards(address(this));
+        // AUDIT FIX C-1: pull this tokenId's pre-transfer kick credits BEFORE
+        // returning the NFT. Per-tokenId attribution (added to TegridyStaking)
+        // ensures we drain ONLY this tokenId's share of the
+        // `unsettledRewards[restakingContract]` bucket — not other restakers'
+        // shares as the prior snapshot/delta path did under multi-restaker
+        // contention. `claimUnsettledForTokenId` transfers directly to msg.sender
+        // and is a no-op (returns 0) when there's nothing attributed.
+        uint256 prePaid;
+        try staking.claimUnsettledForTokenId(tokenId, msg.sender) returns (uint256 _p) {
+            prePaid = _p;
+        } catch {
+            prePaid = 0;
+        }
 
-        uint256 userUnsettledDelta = unsettledAfter > depositSnapshot ? unsettledAfter - depositSnapshot : 0;
+        // Return NFT to user. The transfer triggers `_settleRewardsOnTransfer`
+        // on the staking side, which credits any final-period accrual to BOTH
+        // the holder bucket AND `unsettledRewardsByTokenId[tokenId]` (for the
+        // restakingContract → user transfer leg).
+        stakingNFT.safeTransferFrom(address(this), msg.sender, tokenId);
 
-        // Include any previously unrecovered unsettled from a prior concurrent unrestake
+        // AUDIT FIX C-1: pull the just-credited per-tokenId share from the
+        // transfer hook, again going directly to msg.sender. Two-step claim
+        // (pre + post) is what makes per-tokenId attribution exact.
+        uint256 postPaid;
+        try staking.claimUnsettledForTokenId(tokenId, msg.sender) returns (uint256 _p2) {
+            postPaid = _p2;
+        } catch {
+            postPaid = 0;
+        }
+
+        uint256 totalUnsettled = prePaid + postPaid;
+
+        // Recover any previously deferred share from a prior under-funded
+        // claim. `pendingUnsettledRewards` is preserved as a deferred-payment
+        // mechanism — orthogonal to the per-tokenId attribution fix. We pull
+        // from this contract's own balance (not from the staking bucket) since
+        // that balance was funded by an earlier per-tokenId pull that the
+        // staking pool couldn't fully service.
         uint256 priorPending = pendingUnsettledRewards[msg.sender];
-        uint256 totalOwed = userUnsettledDelta + priorPending;
-        pendingUnsettledRewards[msg.sender] = 0;
-        // SECURITY FIX: Decrement totalPendingUnsettled by prior amount being rolled into totalOwed
-        if (priorPending > 0) totalPendingUnsettled -= priorPending;
+        if (priorPending > 0) {
+            pendingUnsettledRewards[msg.sender] = 0;
+            totalPendingUnsettled -= priorPending;
+            uint256 localBal = rewardToken.balanceOf(address(this));
+            uint256 paid = priorPending > localBal ? localBal : priorPending;
+            uint256 stillOwed = priorPending - paid;
+            if (stillOwed > 0) {
+                pendingUnsettledRewards[msg.sender] = stillOwed;
+                totalPendingUnsettled += stillOwed;
+            }
+            if (paid > 0) {
+                rewardToken.safeTransfer(msg.sender, paid);
+                totalUnsettled += paid;
+            }
+        }
 
-        if (totalOwed > 0) {
-            uint256 balBeforeUnsettled = rewardToken.balanceOf(address(this));
-            uint256 currentUnsettled = staking.unsettledRewards(address(this));
-            if (currentUnsettled > 0) {
-                try staking.claimUnsettled() {} catch {}
-            }
-            uint256 unsettledGain = rewardToken.balanceOf(address(this)) - balBeforeUnsettled;
-
-            uint256 userPortion = totalOwed > unsettledGain ? unsettledGain : totalOwed;
-            uint256 shortfall = totalOwed - userPortion;
-            if (shortfall > 0) {
-                pendingUnsettledRewards[msg.sender] = shortfall;
-                // SECURITY FIX: Track new shortfall in totalPendingUnsettled
-                totalPendingUnsettled += shortfall;
-            }
-            if (userPortion > 0) {
-                rewardToken.safeTransfer(msg.sender, userPortion);
-                emit UnsettledRecovered(msg.sender, userPortion);
-            }
+        if (totalUnsettled > 0) {
+            emit UnsettledRecovered(msg.sender, totalUnsettled);
         }
 
         // Forward any unforwarded base rewards for this user (from revalidateBoost or other external calls)
@@ -1232,42 +1259,57 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // AUDIT H-1: release this user's principal reservation.
         totalActivePrincipal -= info.positionAmount;
         totalRestaked -= info.boostedAmount;
-        // AUDIT H-06: cache deposit-time snapshot before deleting RestakeInfo.
-        uint256 depositSnapshot = info.unsettledSnapshot;
         delete tokenIdToRestaker[tokenId];
         delete restakers[msg.sender];
         _writeBoostCheckpoint(msg.sender, 0); // AUDIT H-8
 
-        // Return NFT without attempting any reward claims.
-        // AUDIT H-06: use deposit-time snapshot instead of racy before/after reads.
-        stakingNFT.safeTransferFrom(address(this), msg.sender, tokenId); // M-16: safeTransferFrom for NFT returns
-        uint256 unsettledAfter = staking.unsettledRewards(address(this));
+        // AUDIT FIX C-1: pull per-tokenId pre-transfer kick credits before
+        // returning the NFT. Same exact pattern as `unrestake()` — per-NFT
+        // attribution on the staking side (`unsettledRewardsByTokenId`)
+        // prevents the prior multi-restaker race where the snapshot/delta
+        // path drained other restakers' shares from the shared
+        // `unsettledRewards[restakingContract]` bucket.
+        uint256 prePaid;
+        try staking.claimUnsettledForTokenId(tokenId, msg.sender) returns (uint256 _p) {
+            prePaid = _p;
+        } catch {
+            prePaid = 0;
+        }
 
-        uint256 userUnsettledDelta = unsettledAfter > depositSnapshot ? unsettledAfter - depositSnapshot : 0;
+        // Return NFT to user. The transfer triggers `_settleRewardsOnTransfer`
+        // which credits any final-period accrual to BOTH holder bucket AND
+        // `unsettledRewardsByTokenId[tokenId]`.
+        stakingNFT.safeTransferFrom(address(this), msg.sender, tokenId);
+
+        uint256 postPaid;
+        try staking.claimUnsettledForTokenId(tokenId, msg.sender) returns (uint256 _p2) {
+            postPaid = _p2;
+        } catch {
+            postPaid = 0;
+        }
+
+        uint256 totalUnsettled = prePaid + postPaid;
+
+        // Recover any previously deferred share. Same logic as `unrestake()`.
         uint256 priorPending = pendingUnsettledRewards[msg.sender];
-        uint256 totalOwed = userUnsettledDelta + priorPending;
-        pendingUnsettledRewards[msg.sender] = 0;
-        // SECURITY FIX: Decrement totalPendingUnsettled by prior amount being rolled into totalOwed
-        if (priorPending > 0) totalPendingUnsettled -= priorPending;
+        if (priorPending > 0) {
+            pendingUnsettledRewards[msg.sender] = 0;
+            totalPendingUnsettled -= priorPending;
+            uint256 localBal = rewardToken.balanceOf(address(this));
+            uint256 paid = priorPending > localBal ? localBal : priorPending;
+            uint256 stillOwed = priorPending - paid;
+            if (stillOwed > 0) {
+                pendingUnsettledRewards[msg.sender] = stillOwed;
+                totalPendingUnsettled += stillOwed;
+            }
+            if (paid > 0) {
+                rewardToken.safeTransfer(msg.sender, paid);
+                totalUnsettled += paid;
+            }
+        }
 
-        if (totalOwed > 0) {
-            uint256 balBefore = rewardToken.balanceOf(address(this));
-            uint256 currentUnsettled = staking.unsettledRewards(address(this));
-            if (currentUnsettled > 0) {
-                try staking.claimUnsettled() {} catch {}
-            }
-            uint256 unsettledGain = rewardToken.balanceOf(address(this)) - balBefore;
-            uint256 userPortion = totalOwed > unsettledGain ? unsettledGain : totalOwed;
-            uint256 shortfall = totalOwed - userPortion;
-            if (shortfall > 0) {
-                pendingUnsettledRewards[msg.sender] = shortfall;
-                // SECURITY FIX: Track new shortfall in totalPendingUnsettled
-                totalPendingUnsettled += shortfall;
-            }
-            if (userPortion > 0) {
-                rewardToken.safeTransfer(msg.sender, userPortion);
-                emit UnsettledRecovered(msg.sender, userPortion);
-            }
+        if (totalUnsettled > 0) {
+            emit UnsettledRecovered(msg.sender, totalUnsettled);
         }
 
         // S2-05: Forward any unforwarded base rewards before clearing state

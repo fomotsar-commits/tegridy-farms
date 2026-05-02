@@ -156,6 +156,22 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     // SECURITY FIX: Track total unsettled rewards across all users to prevent
     // competing claims from draining each other's unsettled rewards.
     uint256 public totalUnsettledRewards;
+    /// @notice AUDIT FIX C-1: per-tokenId attribution of unsettled rewards.
+    ///         Pre-fix, every credit to `unsettledRewards[restakingContract]` was
+    ///         pooled across ALL restaked positions — when two restakers' kicks
+    ///         landed in the same bucket, whichever called `unrestake()` first
+    ///         drained the entire bucket and stole the second restaker's share.
+    ///
+    ///         Now we ALSO record `unsettledRewardsByTokenId[tokenId]` for credits
+    ///         that arose from a settle/kick on an NFT held by `restakingContract`.
+    ///         The new `claimUnsettledForTokenId(tokenId, recipient)` function
+    ///         pulls only that tokenId's slice (capped by holder bucket + reward
+    ///         pool), so the restaking contract can attribute precisely.
+    ///
+    ///         Non-restaked transfers (e.g. NFT moving to a lending contract or
+    ///         between EOAs) do NOT touch this mapping — only credits routed to
+    ///         the shared restakingContract bucket need per-NFT attribution.
+    mapping(uint256 => uint256) public unsettledRewardsByTokenId;
     // AUDIT FIX L-06: Cap unbounded totalUnsettledRewards growth.
     // If cap is hit, excess rewards are forfeited (sent to treasury on next reconcile).
     // AUDIT FIX C-02: Made admin-adjustable via timelocked setter (was constant 100_000e18).
@@ -267,6 +283,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     // RewardSettledToUnsettled means rewards were booked into the unsettled
     // mapping and await a `claimUnsettled()` call.
     event RewardSettledToUnsettled(address indexed holder, uint256 indexed tokenId, uint256 amount);
+    /// @notice AUDIT FIX C-1: emitted when the restaking contract pulls the
+    ///         per-tokenId share via `claimUnsettledForTokenId`.
+    event UnsettledClaimedForTokenId(uint256 indexed tokenId, address indexed recipient, uint256 amount);
     event JbacReturned(uint256 indexed tokenId, address indexed to, uint256 indexed jbacTokenId); // AUDIT H-1
     event JbacStranded(uint256 indexed tokenId, address indexed to, uint256 indexed jbacTokenId); // AUDIT H-1
     /// @notice AUDIT C5: emitted when an extend-lock / autoMaxLock fee is collected to treasury.
@@ -980,6 +999,13 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
                 if (actualSettled > 0) {
                     emit RewardPaid(holder, tokenId, actualSettled);
                     totalSettled += actualSettled;
+                    // AUDIT FIX C-1: when the credited holder is the restaking
+                    // contract, also record per-tokenId attribution so the
+                    // restaker can later pull only their slice (instead of
+                    // racing the shared bucket via `claimUnsettled()`).
+                    if (holder == restakingContract && restakingContract != address(0)) {
+                        unsettledRewardsByTokenId[tokenId] += actualSettled;
+                    }
                 }
             }
             // AUDIT FIX: DS2-02 — route the rewardPool shortfall through
@@ -989,7 +1015,14 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             uint256 shortfall = pending - cappedPending;
             if (shortfall > 0) {
                 uint256 actualSettledShortfall = _settleUnsettled(holder, shortfall);
-                if (actualSettledShortfall > 0) totalSettled += actualSettledShortfall;
+                if (actualSettledShortfall > 0) {
+                    totalSettled += actualSettledShortfall;
+                    // AUDIT FIX C-1: same per-tokenId attribution for the
+                    // shortfall-path credits.
+                    if (holder == restakingContract && restakingContract != address(0)) {
+                        unsettledRewardsByTokenId[tokenId] += actualSettledShortfall;
+                    }
+                }
             }
             // Final forfeited slice — what neither rewardPool nor unsettled cap absorbed.
             // Loud kick-specific event so monitors don't miss it.
@@ -1323,6 +1356,16 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             // moved; RewardSettledToUnsettled = booked, awaiting claim.
             if (actualSettled > 0) {
                 emit RewardSettledToUnsettled(from, tokenId, actualSettled);
+                // AUDIT FIX C-1: when the prior holder is the restaking contract
+                // (i.e., NFT is being unrestaked back to the user), record
+                // per-tokenId attribution so the restaking contract can pull
+                // exactly this credit via `claimUnsettledForTokenId`. Same
+                // motivation as the kick() instrumentation: prevents one
+                // restaker from draining another's pre-existing kick credits
+                // in the shared `unsettledRewards[restakingContract]` bucket.
+                if (from == restakingContract && restakingContract != address(0)) {
+                    unsettledRewardsByTokenId[tokenId] += actualSettled;
+                }
             }
             // AUDIT FIX: DEEP-DS-04 — refresh `from`'s activity timestamp; we just
             // credited unsettledRewards[from] from a non-claim path (NFT transfer).
@@ -1385,6 +1428,59 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
             return;
         }
         revert Unauthorized();
+    }
+
+    /// @notice AUDIT FIX C-1: Per-tokenId claim of `unsettledRewards[restakingContract]`.
+    ///         Only callable by the restaking contract. Pulls min(per-tokenId credit,
+    ///         restakingContract bucket, available reward pool) and transfers directly
+    ///         to `recipient`. Decrements per-tokenId mapping, holder bucket, and
+    ///         totalUnsettledRewards in lockstep so the global accounting invariants
+    ///         hold.
+    ///
+    ///         This replaces the snapshot/delta race in TegridyRestaking.unrestake:
+    ///         pre-fix, two restakers' kicks both landed in the shared
+    ///         `unsettledRewards[restakingContract]` bucket and whichever called
+    ///         `staking.claimUnsettled()` first via `unrestake()` drained the entire
+    ///         bucket — including the second restaker's share. The second restaker
+    ///         then computed `unsettledAfter - depositSnapshot = 0` and got nothing.
+    ///
+    ///         Returns the actual amount transferred (0 if nothing to claim or pool
+    ///         under-funded — caller should treat as best-effort).
+    function claimUnsettledForTokenId(uint256 tokenId, address recipient)
+        external
+        nonReentrant
+        whenNotPaused
+        returns (uint256 paid)
+    {
+        if (msg.sender != restakingContract || restakingContract == address(0)) revert Unauthorized();
+        if (recipient == address(0)) revert ZeroAddress();
+
+        uint256 amount = unsettledRewardsByTokenId[tokenId];
+        if (amount == 0) return 0;
+
+        // Defensive cap: holder bucket must be at least `amount`. Under normal
+        // accounting the per-tokenId mapping is always <= holder bucket because
+        // every per-tokenId credit was paired with a holder-bucket credit via
+        // _settleUnsettled(holder, ...). The cap defends against any future
+        // refactor that decouples the two writes.
+        uint256 holderUnsettled = unsettledRewards[restakingContract];
+        if (amount > holderUnsettled) amount = holderUnsettled;
+
+        // Apply the same reward-pool cap as `_claimUnsettledInternal`: reserve
+        // totalStaked + other users' unsettled (everything except this claim).
+        uint256 available = rewardToken.balanceOf(address(this));
+        uint256 otherUnsettled = totalUnsettledRewards > amount ? totalUnsettledRewards - amount : 0;
+        uint256 otherReserved = totalStaked + otherUnsettled;
+        uint256 rewardPool = available > otherReserved ? available - otherReserved : 0;
+        paid = amount > rewardPool ? rewardPool : amount;
+
+        if (paid > 0) {
+            unsettledRewardsByTokenId[tokenId] -= paid;
+            unsettledRewards[restakingContract] = holderUnsettled - paid;
+            totalUnsettledRewards = totalUnsettledRewards > paid ? totalUnsettledRewards - paid : 0;
+            rewardToken.safeTransfer(recipient, paid);
+            emit UnsettledClaimedForTokenId(tokenId, recipient, paid);
+        }
     }
 
     function _claimUnsettledInternal(address _user) private {

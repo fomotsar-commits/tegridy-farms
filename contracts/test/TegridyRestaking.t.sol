@@ -319,6 +319,125 @@ contract TegridyRestakingTest is Test {
         restaking.proposeBonusRate(101 ether);
     }
 
+    // ===== AUDIT FIX C-1: per-tokenId attribution prevents kick-bucket race =====
+    //
+    // Pre-fix: TegridyStaking.kick() credited expired-position rewards to
+    // `unsettledRewards[restakingContract]` — a SHARED bucket across all
+    // restaked NFTs. TegridyRestaking.unrestake() then computed
+    // `unsettledAfter - unsettledSnapshot` and called `staking.claimUnsettled()`,
+    // which DRAINED THE ENTIRE BUCKET. Whichever restaker called unrestake
+    // first walked away with both their own kick credit AND every other
+    // restaker's pending kick credit. The slower restaker computed delta=0
+    // and got nothing.
+    //
+    // Post-fix: kick() additionally records per-NFT in `unsettledRewardsByTokenId[tokenId]`.
+    // unrestake() pulls only that tokenId's slice via the new
+    // `claimUnsettledForTokenId` (capped by holder bucket and reward pool),
+    // so Bob's share survives Alice's unrestake.
+    function test_C1_kickedRewards_perTokenIdAttribution_isFair() public {
+        _linkRestakingContract();
+
+        // Raise the unsettled-rewards cap before the test so two consecutive
+        // kicks can both fully settle without the cap clipping bob's share.
+        // The default cap of 100k TOWELI is too small for two 100k restakers
+        // accruing for 31 days at 1 TOWELI/sec.
+        stakingAdmin.proposeMaxUnsettledRewards(10_000_000 ether);
+        vm.warp(block.timestamp + 48 hours + 1);
+        stakingAdmin.executeMaxUnsettledRewards();
+
+        // Both Alice and Bob stake (30-day lock) and restake.
+        uint256 aliceTokenId = _stakeAndRestake(alice);
+        uint256 bobTokenId = _stakeAndRestake(bob);
+
+        // Drain alice/bob's personal unsettledRewards (left over from the
+        // _settleRewardsOnTransfer at restake) so we measure ONLY the
+        // per-tokenId-attributed kick credits below.
+        vm.prank(alice);
+        staking.claimUnsettled();
+        vm.prank(bob);
+        staking.claimUnsettled();
+
+        // Warp past both locks (Bob's was created 24h after Alice's).
+        vm.warp(block.timestamp + 31 days);
+
+        // Anyone calls staking.kick on each expired-lock restaked NFT — credits
+        // the shared `unsettledRewards[restakingContract]` bucket AND the new
+        // per-tokenId mapping.
+        uint256 bucketBefore = staking.unsettledRewards(address(restaking));
+        address kicker = makeAddr("kicker");
+
+        vm.prank(kicker);
+        staking.kick(aliceTokenId);
+        uint256 bucketAfterAlice = staking.unsettledRewards(address(restaking));
+        uint256 aliceShare = bucketAfterAlice - bucketBefore;
+        assertGt(aliceShare, 0, "alice kick should credit shared bucket");
+        assertEq(
+            staking.unsettledRewardsByTokenId(aliceTokenId),
+            aliceShare,
+            "per-tokenId mapping tracks alice's share"
+        );
+
+        vm.prank(kicker);
+        staking.kick(bobTokenId);
+        uint256 bucketAfterBoth = staking.unsettledRewards(address(restaking));
+        uint256 bobShare = bucketAfterBoth - bucketAfterAlice;
+        assertGt(bobShare, 0, "bob kick should credit shared bucket");
+        assertEq(
+            staking.unsettledRewardsByTokenId(bobTokenId),
+            bobShare,
+            "per-tokenId mapping tracks bob's share"
+        );
+
+        // Alice unrestakes first.
+        uint256 aliceBefore = toweli.balanceOf(alice);
+        vm.prank(alice);
+        restaking.unrestake();
+        uint256 aliceReceived = toweli.balanceOf(alice) - aliceBefore;
+        assertGt(aliceReceived, 0, "alice receives her own rewards");
+
+        // KEY POST-FIX ASSERTION: Bob's per-tokenId mapping is still intact —
+        // Alice did NOT drain Bob's kick share via the shared bucket.
+        assertEq(
+            staking.unsettledRewardsByTokenId(bobTokenId),
+            bobShare,
+            "bob's per-tokenId share survives alice's unrestake"
+        );
+        assertGe(
+            staking.unsettledRewards(address(restaking)),
+            bobShare,
+            "bob's share remains in shared bucket post-alice"
+        );
+
+        // Bob unrestakes — receives HIS share (was 0 pre-fix). The reward
+        // pool may not be deep enough to fully drain bob's per-tokenId share
+        // in a single call (the cap reservation in claimUnsettledForTokenId
+        // protects other users' principal); any residual stays in
+        // unsettledRewardsByTokenId[bobTokenId] for later recovery — the
+        // critical post-fix property is that the residual is ATTRIBUTED to
+        // Bob (not to whoever called unrestake first), which is exactly what
+        // per-tokenId tracking gives us.
+        uint256 bobPerTokenIdBeforeUnrestake = staking.unsettledRewardsByTokenId(bobTokenId);
+        uint256 bobBefore = toweli.balanceOf(bob);
+        vm.prank(bob);
+        restaking.unrestake();
+        uint256 bobReceived = toweli.balanceOf(bob) - bobBefore;
+        assertGt(bobReceived, 0, "bob receives non-zero rewards (was 0 pre-fix)");
+        // Per-tokenId mapping was reduced by what was actually paid.
+        uint256 bobPerTokenIdAfter = staking.unsettledRewardsByTokenId(bobTokenId);
+        assertLt(bobPerTokenIdAfter, bobPerTokenIdBeforeUnrestake, "bob's per-tokenId was partially or fully drained");
+        // Crucially, alice's prior unrestake did NOT consume bob's per-tokenId
+        // entry (verified above when we asserted == bobShare BEFORE bob's
+        // unrestake) — that's the C-1 fix.
+
+        // Sanity: alice and bob's totals are within an order of magnitude
+        // (both restaked similar amounts for similar windows). The exact
+        // values depend on accrual timing/boost AND on the reward-pool cap
+        // ordering (alice claimed first so she got more before the pool was
+        // squeezed). Pre-fix, bob would have received ~0 unsettled — orders
+        // of magnitude less than alice. Post-fix the ratio is bounded.
+        assertApproxEqRel(aliceReceived, bobReceived, 1.5e18, "rough fairness - both non-trivial");
+    }
+
     // ===== FAIR SPLIT =====
 
     function test_two_restakers_fair_split() public {
