@@ -30,6 +30,12 @@ interface ITegridyStaking {
     function unsettledRewards(address who) external view returns (uint256);
     /// @notice Sweep the caller's unsettled rewards to its own balance. AUDIT R014.
     function claimUnsettled() external;
+    /// @notice AUDIT FIX D-LD-H1: per-tokenId claim of the caller's unsettled
+    ///         bucket. Lending contract is now a tracked holder in TegridyStaking,
+    ///         so each escrowed loan can pull its OWN slice — no cross-loan
+    ///         drain when an unrelated `kick()` credits unsettledRewards[lending]
+    ///         while another loan settles. Returns the actual amount transferred.
+    function claimUnsettledForTokenId(uint256 tokenId, address recipient) external returns (uint256 paid);
 }
 
 /// @dev Minimal interface for TegridyPair reserve queries (used by the ETH-floor check).
@@ -380,6 +386,11 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 minPositionETHValue
     );
     event LoanOfferCancelled(uint256 indexed offerId, address indexed lender);
+    /// @notice FRESH-EYES L: typed event for accepted-collateral proposal cancellations.
+    ///         Distinguished from the generic `ProposalCancelled(bytes32 key)` (TimelockAdmin)
+    ///         so off-chain alerts can select by the 4-byte selector and decode the
+    ///         collateral address + add/remove flag directly.
+    event AcceptedCollateralCancelled(address indexed collateral, bool wasAdd);
     event LoanAccepted(
         uint256 indexed loanId,
         uint256 indexed offerId,
@@ -693,6 +704,23 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // to the live treasury so legacy offers remain payable.
         address feeRecipient = offer.treasuryAtCreate;
         if (feeRecipient == address(0)) feeRecipient = treasury;
+        // AUDIT FIX D-LD-M1: honor an originationFee CUT between create and
+        // accept (mirrors the LD3-M4 fix on TegridyNFTLending.acceptOffer).
+        // Pre-fix, lenders paid yesterday's bps after a fee-rate cut, harming
+        // UX fairness — and at MAX_PRINCIPAL_CEILING (100k ETH) × MAX_ORIGINATION_FEE_BPS (200bps)
+        // the per-offer overpay reached 2,000 ETH. Now: re-derive the fee from
+        // the offer's *gross* (principal + originationFee) using the lower of
+        // (snapshot, live) bps. Surplus rejoins the borrower's principal flow.
+        // Asymmetric design: a fee INCREASE between create and accept does NOT
+        // raise the lender's cost (snapshot wins) — only fee CUTS are honored.
+        if (originationFee > 0) {
+            uint256 grossDeposit = principal + originationFee;
+            uint256 liveFee = (grossDeposit * originationFeeBps) / BPS;
+            if (liveFee < originationFee) {
+                principal = grossDeposit - liveFee;
+                originationFee = liveFee;
+            }
+        }
 
         // AUDIT FIX: DEEP-LD-L3 — refuse acceptance if collateral was de-whitelisted.
         if (!acceptedCollateralContracts[collateralContract]) revert CollateralNotAccepted();
@@ -844,28 +872,43 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // Return NFT to borrower
         ITegridyStaking staking = ITegridyStaking(collateralContract);
 
-        // AUDIT R014: snapshot the contract's unsettledRewards balance before the NFT
-        // transfer so we can attribute the loan-period reward delta to the borrower.
-        // The transferFrom triggers TegridyStaking._beforeTokenTransfer which finalises
-        // the position's pending reward into unsettledRewards[from], so the delta is the
-        // exact value accrued while we held the NFT.
-        uint256 unsettledBefore = staking.unsettledRewards(address(this));
+        // AUDIT FIX D-LD-H1: per-tokenId attribution replaces the prior
+        // snapshot/delta + claimUnsettled() pattern. Pre-fix, claimUnsettled()
+        // drained the ENTIRE unsettledRewards[lending] bucket — including
+        // pre-existing slices from kicks on OTHER escrowed NFTs whose loans
+        // hadn't settled yet. Those slices then landed in the donated-TOWELI
+        // pool instead of the rightful borrower's owed bucket; the affected
+        // borrower's repay later snapshotted unsettledBefore=0 (because their
+        // pre-kick slice was already drained), recording only their final-
+        // period accrual and silently losing the kick-era portion.
+        //
+        // Post-fix: TegridyStaking now records unsettledRewardsByTokenId[tokenId]
+        // for credits routed through the lending bucket (mirrors the C-1 pattern
+        // for restakingContract). Each loan pulls EXACTLY its own slice via
+        // claimUnsettledForTokenId — no cross-loan donation, no pro-rata
+        // dilution. Two-phase claim (pre + post transferFrom) covers both
+        // (a) any pre-existing per-tokenId residue from kicks during the
+        // loan, AND (b) the final-period accrual credited by the transferFrom
+        // hook itself. Best-effort try/catch preserves the legacy fallback so
+        // a paused staking contract degrades to "borrower retries via
+        // pullEscrowRewards once paused is lifted".
+        uint256 totalEscrowPaid = 0;
+        try staking.claimUnsettledForTokenId(tokenId, borrower) returns (uint256 _prePaid) {
+            totalEscrowPaid += _prePaid;
+        } catch (bytes memory reason) {
+            emit EscrowRewardsClaimDeferred(_loanId, reason);
+        }
+
         staking.transferFrom(address(this), borrower, tokenId);
-        uint256 unsettledAfter = staking.unsettledRewards(address(this));
-        uint256 delta = unsettledAfter > unsettledBefore ? unsettledAfter - unsettledBefore : 0;
-        if (delta > 0) {
-            escrowRewardsOwed[_loanId] = delta;
-            totalEscrowRewardsOwed += delta;
-            emit EscrowRewardsAttributed(_loanId, delta);
-            // Try to sweep immediately so the borrower can withdraw via pullEscrowRewards
-            // without paying for a second on-chain claim. Deferred via event when the
-            // staking contract is paused or otherwise reverts.
-            try staking.claimUnsettled() {
-                // Successful claim — funds now sit in this contract's TOWELI balance,
-                // accounted for via escrowRewardsOwed/totalEscrowRewardsOwed.
-            } catch (bytes memory reason) {
-                emit EscrowRewardsClaimDeferred(_loanId, reason);
-            }
+
+        try staking.claimUnsettledForTokenId(tokenId, borrower) returns (uint256 _postPaid) {
+            totalEscrowPaid += _postPaid;
+        } catch (bytes memory reason) {
+            emit EscrowRewardsClaimDeferred(_loanId, reason);
+        }
+
+        if (totalEscrowPaid > 0) {
+            emit EscrowRewardsAttributed(_loanId, totalEscrowPaid);
         }
 
         // SECURITY FIX: Use WETHFallbackLib to prevent DoS by revert-on-receive lender contracts.
@@ -949,21 +992,28 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // Transfer NFT to lender
         ITegridyStaking staking = ITegridyStaking(collateralContract);
 
-        // AUDIT R014: snapshot escrow rewards before the NFT transfer so we attribute
-        // the loan-period delta to the lender (defaulted side). Same pattern as repayLoan.
-        uint256 unsettledBefore = staking.unsettledRewards(address(this));
+        // AUDIT FIX D-LD-H1: per-tokenId attribution (see repayLoan for full
+        // rationale). Two-phase claim drains pre-existing per-tokenId residue
+        // and the transferFrom-credited final-period accrual directly to the
+        // defaulted-side lender. No bucket-drain race against other still-
+        // active loans' kicks.
+        uint256 totalEscrowPaid = 0;
+        try staking.claimUnsettledForTokenId(tokenId, lender) returns (uint256 _prePaid) {
+            totalEscrowPaid += _prePaid;
+        } catch (bytes memory reason) {
+            emit EscrowRewardsClaimDeferred(_loanId, reason);
+        }
+
         staking.transferFrom(address(this), lender, tokenId);
-        uint256 unsettledAfter = staking.unsettledRewards(address(this));
-        uint256 delta = unsettledAfter > unsettledBefore ? unsettledAfter - unsettledBefore : 0;
-        if (delta > 0) {
-            escrowRewardsOwed[_loanId] = delta;
-            totalEscrowRewardsOwed += delta;
-            emit EscrowRewardsAttributed(_loanId, delta);
-            try staking.claimUnsettled() {
-                // Funds now sit in this contract's TOWELI balance.
-            } catch (bytes memory reason) {
-                emit EscrowRewardsClaimDeferred(_loanId, reason);
-            }
+
+        try staking.claimUnsettledForTokenId(tokenId, lender) returns (uint256 _postPaid) {
+            totalEscrowPaid += _postPaid;
+        } catch (bytes memory reason) {
+            emit EscrowRewardsClaimDeferred(_loanId, reason);
+        }
+
+        if (totalEscrowPaid > 0) {
+            emit EscrowRewardsAttributed(_loanId, totalEscrowPaid);
         }
 
         emit DefaultClaimed(_loanId, lender, tokenId);
@@ -1185,7 +1235,14 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // Defence-in-depth staleness gate. The TWAP itself enforces the same
         // 2-hour bound inside `consult`, but we want a typed `OracleStale` error
         // for callers and to keep the staleness window explicit at the call site.
+        // AUDIT FIX LD-NEW-M4: directional check before subtraction. A bridged feed or
+        // sequencer replay can momentarily produce `latest.timestamp > block.timestamp`
+        // (the V3-LIB-M1 fix already hardened SequencerCheck against this same shape).
+        // Pre-fix, the underflow tripped Solidity 0.8 checked-math `Panic(0x11)`,
+        // bricking every lending operation reading the floor — typed OracleStale lets
+        // callers retry instead of reverting on an opaque panic.
         ITegridyTWAP.Observation memory latest = twap.getLatestObservation(pair);
+        if (latest.timestamp > block.timestamp) revert OracleStale();
         if (block.timestamp - latest.timestamp > TWAP_MAX_STALENESS) revert OracleStale();
 
         // AUDIT R014: dormancy-bypass cooldown. When the TWAP recently absorbed an
@@ -1194,7 +1251,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // sample. Refuse to value collateral until the cooldown elapses so a
         // single dormant-then-attacker-chosen observation cannot sole-source the
         // ETH-floor read. Same surface as the staleness gate — typed OracleStale.
+        // AUDIT FIX LD-NEW-M4: same directional check.
         uint256 lastBypass = twap.lastBypassUsed(pair);
+        if (lastBypass > block.timestamp) revert OracleStale();
         if (lastBypass != 0 && block.timestamp - lastBypass < TWAP_PERIOD * 2) {
             revert OracleStale();
         }
@@ -1533,21 +1592,54 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // Reward attribution only makes sense after the NFT has left this contract.
         if (!loan.repaid && !loan.defaultClaimed) revert LoanStillActive();
 
-        uint256 owed = escrowRewardsOwed[_loanId];
-        if (owed == 0) revert NoEscrowRewards();
-
         address recipient = loan.repaid ? loan.borrower : loan.lender;
         if (msg.sender != recipient) revert NotEscrowBeneficiary();
 
-        // Try to top-up by claiming any newly-arrived unsettled rewards. Idempotent —
-        // staking deducts what it pays out, so a no-op claim is cheap. Wrapped in
-        // try/catch so a paused staking contract or unrelated revert does not brick
-        // the legitimate withdrawal path.
         ITegridyStaking staking = ITegridyStaking(offers[loan.offerId].collateralContract);
-        try staking.claimUnsettled() {
-            // Funds arrive in this contract's TOWELI balance — no further bookkeeping.
-        } catch (bytes memory reason) {
-            emit EscrowRewardsClaimDeferred(_loanId, reason);
+
+        // AUDIT FIX D-LD-H1: per-tokenId pull. After repayLoan/claimDefaultedCollateral
+        // wired the two-phase per-tokenId attribution (D-LD-H1 fix), most settled loans
+        // will have escrowRewardsOwed[loanId] == 0. The per-tokenId path here covers
+        // (a) loans where the repay/claim try/catch deferred (paused staking), and
+        // (b) any kick on this NFT that landed AFTER settlement but before pull
+        // (rare — only relevant if NFT briefly reentered escrow). Best-effort try/catch
+        // matches the deferred-claim semantics.
+        //
+        // AUDIT FIX LD-NEW-H1 (cross-loan drain): refuse the per-tokenId pull when
+        // the NFT is currently re-escrowed at this lending contract — those credits
+        // belong to the active loan and will be drained by ITS repay/default flow.
+        // Pre-fix, an old settled-loan beneficiary could call this fn during a NEW
+        // active loan on the same tokenId and drain the active loan's accruing
+        // kick rewards via the shared `unsettledRewardsByTokenId[tokenId]` mapping.
+        // The check uses ownerOf rather than balanceOf so we can isolate the
+        // specific tokenId; a transient mid-tx state where the NFT briefly returns
+        // to this contract is captured (nonReentrant on this fn closes the window).
+        uint256 directPaid = 0;
+        bool nftHeldHere = false;
+        try staking.ownerOf(loan.tokenId) returns (address currentOwner) {
+            nftHeldHere = (currentOwner == address(this));
+        } catch {
+            // ownerOf reverted — token doesn't exist (burned). Treat as "not held".
+        }
+        if (!nftHeldHere) {
+            try staking.claimUnsettledForTokenId(loan.tokenId, recipient) returns (uint256 _p) {
+                directPaid = _p;
+            } catch (bytes memory reason) {
+                emit EscrowRewardsClaimDeferred(_loanId, reason);
+            }
+        }
+
+        // Legacy path: any pre-fix escrowRewardsOwed entry (set by the prior
+        // snapshot/delta + claimUnsettled flow) gets paid out via the existing
+        // pro-rata math. New loans typically arrive here with owed == 0.
+        uint256 owed = escrowRewardsOwed[_loanId];
+        if (owed == 0) {
+            // No legacy attribution — direct path is the only payout. Revert
+            // ONLY if neither leg paid anything, so a no-op call still gives a
+            // typed error rather than a silent zero-cost succeed.
+            if (directPaid == 0) revert NoEscrowRewards();
+            emit EscrowRewardsPaid(_loanId, recipient, 0, directPaid);
+            return;
         }
 
         // Compute the proportional payout. `toweli` is the reward token (snapshotted
@@ -1577,7 +1669,11 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             totalEscrowRewardsOwed = 0;
         }
 
-        emit EscrowRewardsPaid(_loanId, recipient, owed, payout);
+        // AUDIT FIX D-LD-H1: emit the COMBINED payout (legacy pro-rata + per-
+        // tokenId direct) so off-chain monitors see the full economic effect
+        // of a single pullEscrowRewards call. `owed` reflects the legacy slot
+        // only, matching the existing event ABI.
+        emit EscrowRewardsPaid(_loanId, recipient, owed, payout + directPaid);
 
         if (payout > 0) {
             IERC20(toweli).safeTransfer(recipient, payout);
@@ -1708,15 +1804,30 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         address cancelled = pendingAcceptedCollateral;
         bool wasRemoval = !pendingAcceptedCollateralAdd;
         // AUDIT FIX: LD3-M3 — gate first (only for removal cancels), THEN cancel.
+        // FRESH-EYES L: only count toward the cancel budget when cancelling a STILL-LIVE
+        // proposal. Without this carve-out, a captured admin can `propose → wait for
+        // expiry → cancel` 3 times to consume the COLLATERAL_REMOVAL_MAX_CANCELLATIONS
+        // budget on a flagged collection without ever cancelling a live removal — bricking
+        // legitimate future cancels. The validity window comes from the same hook the
+        // base TimelockAdmin uses for `_execute`'s expiry check, so this stays in sync
+        // if `_proposalValidity()` is ever overridden.
         if (wasRemoval && cancelled != address(0)) {
-            if (collateralRemovalRetryCount[cancelled] >= COLLATERAL_REMOVAL_MAX_CANCELLATIONS) {
-                revert RemovalCancelLimitReached();
+            uint256 readyAt = _executeAfter[ACCEPTED_COLLATERAL_CHANGE];
+            bool stillLive = readyAt != 0 && block.timestamp <= readyAt + _proposalValidity();
+            if (stillLive) {
+                if (collateralRemovalRetryCount[cancelled] >= COLLATERAL_REMOVAL_MAX_CANCELLATIONS) {
+                    revert RemovalCancelLimitReached();
+                }
+                collateralRemovalRetryCount[cancelled] += 1;
             }
-            collateralRemovalRetryCount[cancelled] += 1;
         }
         _cancel(ACCEPTED_COLLATERAL_CHANGE);
         pendingAcceptedCollateral = address(0);
         pendingAcceptedCollateralAdd = false;
+        // FRESH-EYES L: typed cancellation event mirrors NFTLending's `CollectionRemovalCancelled`
+        // so off-chain monitors can subscribe by selector instead of decoding the generic
+        // `ProposalCancelled(bytes32)` and matching keccak256.
+        emit AcceptedCollateralCancelled(cancelled, !wasRemoval);
     }
 
     function acceptedCollateralChangeReadyAt() external view returns (uint256) {

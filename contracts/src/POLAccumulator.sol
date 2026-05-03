@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
@@ -79,6 +80,16 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     // ─── State ────────────────────────────────────────────────────────
 
     IERC20 public immutable toweli;
+    /// @notice AUDIT FIX D-POL-M1: snapshot the TOWELI quote unit at construction
+    ///         (= 10**decimals()) instead of hardcoding 1e18 in the TWAP consult. Pre-fix
+    ///         every twap.consult(_, toweli, 1e18, _) site implicitly assumed 18-decimal
+    ///         TOWELI; if a future redeploy / migration ever points POL at a non-18 token,
+    ///         twapEthPer1eToweli would be off by orders of magnitude and `fairToweli =
+    ///         sqrt(K * 1e18 / P)` would mis-quote the per-leg minimum, either rejecting
+    ///         every legitimate harvest or worse, accepting off-market harvests. Reading
+    ///         once at construction keeps the immutable guarantee while removing the magic
+    ///         number from the math.
+    uint256 public immutable toweliUnit;
     IUniswapV2Router public immutable router;
     address public immutable weth;
     address public immutable lpToken; // LP pair address — cannot be swept
@@ -106,6 +117,18 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         params. 50 bps is tighter than the configurable maxSlippageBps because it is keyed
     ///         off TWAP not spot — TWAP-vs-actual divergence is bounded by TWAP_PERIOD volatility.
     uint256 public constant TWAP_SAFETY_BPS = 50;
+    /// @notice FRESH-EYES H-4: maximum allowed deviation between spot price and TWAP price
+    ///         at the moment of `executeHarvestLP`. Was 200 bps (2%), narrowed to match
+    ///         `TWAP_SAFETY_BPS` (50 bps) per AUDIT FIX MEDIUM-5: pre-fix, an attacker
+    ///         pushing spot 1.99% off TWAP passed the deviation gate but extracted ~1.5%
+    ///         per harvest because the per-leg safety margin was only 0.5%. Aligning the
+    ///         two thresholds means deviation gate now requires reserves within the same
+    ///         tolerance as the per-leg slippage floor, eliminating the bypass window.
+    ///         The TWAP_PERIOD-window consult is ~30 minutes, so genuine volatility rarely
+    ///         exceeds 0.5% within a 30-minute window in liquid pools; if the keeper trips
+    ///         this gate during a stress event, it retries after the next observation.
+    ///         Pattern of record: Compound v2 / Aave v2 oracle sanity checks.
+    uint256 public constant HARVEST_TWAP_DEVIATION_BPS = 50;
     uint256 private constant BPS = 10_000;
 
     uint256 public constant MAX_DEADLINE = 1 minutes; // R015: Tightened from 2m → 1m — narrows MEV sandwich window further; Flashbots inclusion target is the next block (~12s) so 1m is comfortably forgiving for private-mempool relays.
@@ -161,6 +184,11 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     error DeadlineTooFar(); // SECURITY FIX: Deadline exceeds MAX_DEADLINE
     error OracleStale(); // R015: TWAP latest observation older than TWAP_MAX_STALENESS
     error LPMismatch(); // R015: lpToken != factory.getPair(toweli, weth)
+    /// @notice FRESH-EYES H-4: spot reserves deviate from TWAP price by more than
+    ///         `HARVEST_TWAP_DEVIATION_BPS`. Indicates an in-flight sandwich (or genuine
+    ///         volatility) — either way, refusing to harvest at distorted reserves
+    ///         protects the LP's exit value. Keeper retries after the next observation.
+    error ReservesDeviateFromTWAP();
     /// @notice AUDIT R014 H-6: TWAP observation pre-dates the most recent
     ///         sequencer resume (plus grace). Even when `checkSequencerUp`
     ///         passes, a TWAP read whose latest observation was recorded
@@ -242,6 +270,10 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         require(_treasury != address(0), "ZERO_TREASURY");
         require(_twap != address(0), "ZERO_TWAP"); // R015
         toweli = IERC20(_toweli);
+        // AUDIT FIX D-POL-M1: snapshot the quote unit (10**decimals) once at
+        // construction. Reverts if the TOWELI implementation doesn't expose
+        // decimals() — preferable to a silent assumption of 18 decimals.
+        toweliUnit = 10 ** IERC20Metadata(_toweli).decimals();
         router = IUniswapV2Router(_router);
         weth = router.WETH();
         // R015: Constructor-time validation — confirm `_lpToken` is the canonical V2 pair
@@ -822,9 +854,47 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         } else {
             (toweliReserve, ethReserve) = (uint256(r1), uint256(r0));
         }
+        if (toweliReserve == 0 || ethReserve == 0) revert OracleStale();
 
-        uint256 shareToken = (lpAmount * toweliReserve) / totalSupply;
-        uint256 shareETH = (lpAmount * ethReserve) / totalSupply;
+        // FRESH-EYES H-4: derive per-side floors from TWAP-IMPLIED reserves rather than spot.
+        // The pre-fix code multiplied `lpAmount` by raw spot reserves; an attacker could push
+        // those reserves to a skewed ratio in the same block as harvest (sandwich) so the
+        // computed "fair" share collapsed on one leg.
+        //
+        // Battle-tested pattern: Alpha Homora V2 / RAI fair-LP-price oracle. The K = r0*r1
+        // invariant is preserved across swaps (it can only grow ~0.3%/swap from fees), so K
+        // is sandwich-resistant. The TWAP price gives us the un-manipulated ratio. From these
+        // two we reconstruct the fair per-side reserves at the TWAP price:
+        //
+        //   K = r_toweli * r_eth                       (sandwich-invariant)
+        //   P = TWAP price (eth-wei per 1e18 toweli)   (sandwich-resistant via window)
+        //   fair_r_toweli = sqrt(K * 1e18 / P)
+        //   fair_r_eth    = K / fair_r_toweli          (= sqrt(K * P / 1e18) by symmetry)
+        //
+        // Defense-in-depth: also bound spot-vs-TWAP deviation. If spot has been pushed >2%
+        // off TWAP in the harvest tx, revert. Keeper retries after the next observation.
+        // AUDIT FIX D-POL-M1: use snapshot toweliUnit (10**decimals) instead of
+        // hardcoded 1e18. Both consult quote-in and spot quote-in must use the
+        // same unit so the deviation comparison and fairToweli math line up.
+        uint256 twapEthPer1eToweli = twap.consult(lpToken, address(toweli), toweliUnit, TWAP_PERIOD);
+        if (twapEthPer1eToweli == 0) revert OracleStale();
+
+        uint256 spotEthPer1eToweli = (ethReserve * toweliUnit) / toweliReserve;
+        uint256 priceDelta = spotEthPer1eToweli > twapEthPer1eToweli
+            ? spotEthPer1eToweli - twapEthPer1eToweli
+            : twapEthPer1eToweli - spotEthPer1eToweli;
+        if ((priceDelta * BPS) / twapEthPer1eToweli > HARVEST_TWAP_DEVIATION_BPS) {
+            revert ReservesDeviateFromTWAP();
+        }
+
+        uint256 K = toweliReserve * ethReserve;
+        // AUDIT FIX D-POL-M1: use toweliUnit consistent with the consult quote.
+        uint256 fairToweli = Math.sqrt((K * toweliUnit) / twapEthPer1eToweli);
+        if (fairToweli == 0) revert OracleStale();
+        uint256 fairEth = K / fairToweli;
+
+        uint256 shareToken = (lpAmount * fairToweli) / totalSupply;
+        uint256 shareETH = (lpAmount * fairEth) / totalSupply;
         // Apply safety margin.
         floorToken = (shareToken * (BPS - TWAP_SAFETY_BPS)) / BPS;
         floorETH = (shareETH * (BPS - TWAP_SAFETY_BPS)) / BPS;

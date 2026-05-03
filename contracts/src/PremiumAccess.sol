@@ -306,16 +306,28 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
             //   totalRevenue           += consumedEscrow (only)
             //   totalRefundEscrow      drops oldEscrow, adds (cost + remainingEscrow)
             uint256 oldEscrow = userEscrow[msg.sender];
-            uint256 consumedEscrow = oldEscrow > remainingEscrow ? oldEscrow - remainingEscrow : 0;
+            // AUDIT FIX PASS5-PA-L1: `consumedEscrow` no longer needed (the previous
+            // `totalRevenue += consumedEscrow;` is removed below — the original cost
+            // was already counted at first subscribe). Drop the local to avoid an
+            // unused-variable warning.
             if (oldEscrow > 0) {
                 totalRefundEscrow = totalRefundEscrow > oldEscrow
                     ? totalRefundEscrow - oldEscrow
                     : 0;
             }
-            // Only the consumed portion becomes revenue.
-            if (consumedEscrow > 0) {
-                totalRevenue += consumedEscrow;
-            }
+            // AUDIT FIX PASS5-PA-L1: do NOT add `consumedEscrow` to `totalRevenue` here.
+            // The original `cost1` paid at first-subscribe was already counted in
+            // `totalRevenue` (line 345 below ran on the original subscribe). Adding
+            // `consumedEscrow` again at extension would double-count: the consumed slice
+            // was already attributed at the original subscribe's `totalRevenue += cost1`.
+            // Trace: subscribe(cost1) → totalRevenue=cost1; extend(cost2) at half-period →
+            // pre-fix would add consumedEscrow=cost1/2 here, then `cost2` at line 345,
+            // for totalRevenue=cost1 + cost1/2 + cost2; correct value is cost1+cost2.
+            // The drift was upward (LOW severity — refund cap stays satisfied), but
+            // off-chain dashboards / governance proposals citing `totalRevenue` were over-
+            // reporting. Removing the increment makes the high-water-mark semantic
+            // consistent: every sat that ever entered the contract is counted exactly
+            // once at first ingress.
 
             // Anchor the fresh per-period state — credit unconsumed back to user.
             sub.expiresAt = startFrom + (months * MONTH);

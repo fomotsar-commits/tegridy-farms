@@ -1540,10 +1540,26 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         // AUDIT FIX: DEEP-R-H01 — only snapshot for direct 2-hop swaps; multi-hop has
         // no direct-pair anchor so we leave any prior snapshot untouched.
+        //
+        // AUDIT FIX HIGH-4 (multi-hop snapshot drift): on multi-hop branches, INVALIDATE
+        // any existing snapshot rather than silently leaving it stale. Pre-fix, repeated
+        // owner multi-hop calls bumped `lastConvertedAt[token]` (cooldown) but left
+        // `lastConversionSnapshot[token]` frozen. Days later, the next permissionless
+        // 2-hop call's `_enforceTWAPMinETHOut` computed `elapsed = currentTs - prev.timestamp`
+        // over weeks of price drift — the time-averaged TWAP price between the stale
+        // anchor and now diverges sharply from current spot, producing a `twapMin` that
+        // admits sandwich at near-current spot. Setting timestamp=0 forces the next
+        // direct 2-hop call into the bootstrap branch (owner-only with explicit
+        // off-chain minETHOut policy).
         if (path.length == 2) {
             // SFR-H-01: snapshot the current cumulative AFTER the swap so the next conversion
             // computes the TWAP across the full intervening period.
             lastConversionSnapshot[token] = PriceSnapshot({timestamp: currentTs, cumulative: currentCum});
+        } else {
+            // HIGH-4: invalidate any prior snapshot to force bootstrap on next 2-hop.
+            if (lastConversionSnapshot[token].timestamp != 0) {
+                lastConversionSnapshot[token] = PriceSnapshot({timestamp: 0, cumulative: 0});
+            }
         }
 
         // Fold the converted ETH into the staker/POL/treasury fee pool.
@@ -1631,10 +1647,16 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         // AUDIT FIX: DEEP-R-H01 — only snapshot for direct 2-hop swaps; multi-hop
         // has no direct-pair anchor so leave any prior snapshot untouched.
+        // AUDIT FIX HIGH-4: see convertTokenFeesToETH above for the multi-hop drift
+        // rationale. Mirroring the same invalidation here keeps both variants in lockstep.
         if (path.length == 2) {
             // SFR-H-01: snapshot the current cumulative AFTER the swap so the next conversion
             // (either variant) computes the TWAP across the full intervening period.
             lastConversionSnapshot[token] = PriceSnapshot({timestamp: currentTs, cumulative: currentCum});
+        } else {
+            if (lastConversionSnapshot[token].timestamp != 0) {
+                lastConversionSnapshot[token] = PriceSnapshot({timestamp: 0, cumulative: 0});
+            }
         }
 
         accumulatedETHFees += ethReceived;

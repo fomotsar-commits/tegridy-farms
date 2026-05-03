@@ -28,18 +28,16 @@ contract DeployTegridyLPFarmingScript is Script {
         address tegridyStaking = vm.envAddress("TEGRIDY_STAKING");
         require(tegridyStaking != address(0), "Set TEGRIDY_STAKING env var");
 
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(deployerPrivateKey);
-
+        // FRESH-EYES M-13: keystore migration completion. Forge selects sender from --account/--private-key/--ledger CLI flags; reading PRIVATE_KEY from env defeats the keystore path.
         console.log("=== Deploying TegridyLPFarming (C-01 fixed) ===");
-        console.log("Deployer:", deployer);
         console.log("Reward Token (TOWELI):", TOWELI);
         console.log("Staking Token (LP):", tegridyLP);
         console.log("TegridyStaking (boost source):", tegridyStaking);
         console.log("Treasury:", TREASURY);
         console.log("Rewards Duration (sec):", REWARDS_DURATION);
 
-        vm.startBroadcast(deployerPrivateKey);
+        vm.startBroadcast();
+        console.log("Deployer:", msg.sender);
 
         // Deploy the audit-fixed boosted LP farming contract
         TegridyLPFarming farm = new TegridyLPFarming(

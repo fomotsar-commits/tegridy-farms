@@ -19,13 +19,11 @@ contract DeploySwapFeeRouterV2Script is Script {
     function run() external {
         require(block.chainid == 1, "MAINNET_ONLY");
 
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(deployerPrivateKey);
-
+        // FRESH-EYES M-13: keystore migration completion. Forge selects sender from --account/--private-key/--ledger CLI flags; reading PRIVATE_KEY from env defeats the keystore path.
         console.log("=== Deploying SwapFeeRouter V2 ===");
-        console.log("Deployer:", deployer);
 
-        vm.startBroadcast(deployerPrivateKey);
+        vm.startBroadcast();
+        console.log("Deployer:", msg.sender);
 
         // 1. Deploy SwapFeeRouter V2
         SwapFeeRouter sfr = new SwapFeeRouter(

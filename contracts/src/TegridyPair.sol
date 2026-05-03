@@ -390,6 +390,18 @@ contract TegridyPair is ERC20, ReentrancyGuard {
         // bypasses the revert, and `kLast` is then written below to seed the
         // baseline. (b) still reverts as before.
         bool bootstrap = (feeOn && kLast == 0);
+        // FRESH-EYES M-2: bootstrap is the moment kLast is FIRST written (or re-written
+        // after a fee-cleanup cycle). Public callers can flash-loan-manipulate reserves
+        // immediately before harvest to anchor kLast at an inflated K, suppressing the
+        // protocol's _mintFee accrual until natural K growth catches up. Restrict to
+        // feeToSetter so only governance can establish the baseline. The `cleanup` and
+        // normal-fee-mint paths remain permissionless: cleanup zeroes kLast (no manipulation
+        // benefit), normal-fee-mint only increments LP if K actually grew.
+        // Pattern: same authority that controls feeTo also controls bootstrap. No griefing
+        // surface introduced — keepers continue to hit the normal path on every interval.
+        if (bootstrap && msg.sender != ITegridyFactory(factory).feeToSetter()) {
+            revert("HARVEST_BOOTSTRAP_GATED");
+        }
         // AUDIT FIX V3-AMM-M1: also allow the cleanup path (feeOn went false
         // while kLast was non-zero — `_mintFee` already cleared kLast). Without
         // this, the require would unwind the cleanup write and the pair would
@@ -481,6 +493,7 @@ contract TegridyPair is ERC20, ReentrancyGuard {
 
 interface ITegridyFactory {
     function feeTo() external view returns (address);
+    function feeToSetter() external view returns (address); // FRESH-EYES M-2: gate harvest bootstrap
     function disabledPairs(address pair) external view returns (bool);
     function blockedTokens(address token) external view returns (bool); // AUDIT FIX L-05
 }

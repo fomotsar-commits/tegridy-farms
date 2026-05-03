@@ -47,10 +47,12 @@ contract DeployTegridyFeeHook is Script {
     uint160 internal constant REQUIRED_FLAGS_VALUE = uint160(0x0044);
 
     function run() external returns (TegridyFeeHook hook, bytes32 salt) {
-        uint256 pk = vm.envUint("PRIVATE_KEY");
+        // FRESH-EYES M-13: keystore migration completion. Forge selects sender from --account/--private-key/--ledger CLI flags; reading PRIVATE_KEY from env defeats the keystore path.
         address poolManager = vm.envAddress("POOL_MANAGER");
         address revenueDist = vm.envAddress("REVENUE_DIST");
-        address hookOwner = vm.envOr("HOOK_OWNER", vm.addr(pk));
+        // FRESH-EYES M-7: HOOK_OWNER must be set explicitly. Defaulting to deployer EOA
+        // silently leaves the hook owned by an EOA instead of the intended multisig.
+        address hookOwner = vm.envAddress("HOOK_OWNER");
         uint256 feeBps = vm.envOr("TEGRIDY_FEE_HOOK_BPS", uint256(30));
         salt = vm.envBytes32("CREATE2_SALT");
 
@@ -59,13 +61,13 @@ contract DeployTegridyFeeHook is Script {
         require(hookOwner != address(0), "HOOK_OWNER not set");
         require(salt != bytes32(0), "CREATE2_SALT not set (mine off-chain via cast create2)");
 
-        console2.log("Deployer:", vm.addr(pk));
         console2.log("Hook owner:", hookOwner);
         console2.log("PoolManager:", poolManager);
         console2.log("RevenueDist:", revenueDist);
         console2.log("Fee bps:", feeBps);
 
-        vm.startBroadcast(pk);
+        vm.startBroadcast();
+        console2.log("Deployer:", msg.sender);
         hook = new TegridyFeeHook{salt: salt}(
             IPoolManager(poolManager),
             revenueDist,

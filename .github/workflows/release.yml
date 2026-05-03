@@ -95,10 +95,11 @@ jobs:
           TAG: ${{ steps.tag.outputs.value }}
         run: |
           mkdir -p dist
-          # Strip unused test artifacts, keep only src contract outputs
-          tar -czf "dist/contracts-${TAG}.tar.gz" \
-            -C contracts/out \
-            $(ls contracts/out | grep -v '\.t\.sol$' || true) || true
+          # FRESH-EYES CI: tar's native --exclude is safer than `ls | grep`
+          # word-splitting (which breaks on filenames containing whitespace
+          # and was masking failures behind `|| true`). Removing the swallow
+          # also means real packaging errors fail the release loudly.
+          tar -czf "dist/contracts-${TAG}.tar.gz" --exclude='*.t.sol' -C contracts/out .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@c062e08bd532815e2082a85e87e3ef29c3e6d191 # v2.0.8

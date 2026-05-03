@@ -484,6 +484,23 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // for unrestake → restake-smaller flows where current would
         // under-credit historical epochs).
         if (block.timestamp >= liveLockEnd) {
+            // AUDIT FIX F-1 (under-credit on historical lookups in kick window):
+            // The clamp `min(cached, current)` is correct for _timestamps AT OR AFTER
+            // `liveLockEnd` (the lock has decayed; current is the post-decay ceiling).
+            // For _timestamps STRICTLY BEFORE `liveLockEnd`, the position was active
+            // at that historical instant and the per-checkpoint Trace208 cache is the
+            // authoritative record for that snapshot. Pre-fix, when an attacker (or
+            // honest decay sweeper) called staking.kick() to zero `current` after lockEnd,
+            // every historical RevenueDistributor.claim for prior epochs returned
+            // `min(cached, 0) = 0` — wiping out the user's legitimate share for epochs
+            // that had snapshotted them with a non-zero boost. This was a SILENT
+            // under-credit on the restaker, opposite-direction of the original DR-04
+            // over-credit but still a wrong answer. Splitting the predicate keeps the
+            // DR-04 / DR2-02 over-credit defense intact while restoring honest
+            // historical accounting.
+            if (_timestamp < liveLockEnd) {
+                return cached;
+            }
             return cached < current ? cached : current;
         }
         return cached;
@@ -1340,8 +1357,18 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         PendingAttribution memory p = pendingAttribution;
         if (restakers[p.restaker].tokenId == 0) revert NotRestaked();
         // Cap attribution to actual unattributed rewardToken balance.
+        // AUDIT FIX F-2: subtract `totalActivePrincipal` AND `totalPendingUnsettled`
+        // from the unattributed pool. Pre-fix, the cap only excluded `totalUnforwardedBase`,
+        // letting a captured-or-colluding owner credit a chosen restaker with rewards
+        // that were actually backing OTHER users' principal reservations or pending
+        // unsettled deferral. The colluder's subsequent `claimAll`/`unrestake` then
+        // pulled funds that legitimate restakers needed for their `recoverStuckPrincipal`
+        // path — driving honest recoveries to revert with NO_RECOVERABLE_BALANCE.
+        // Three-line subtract keeps the cap honest: only TRULY unbacked balance can
+        // be retro-attributed.
         uint256 balance = rewardToken.balanceOf(address(this));
-        uint256 unattributed = balance > totalUnforwardedBase ? balance - totalUnforwardedBase : 0;
+        uint256 reserved = totalUnforwardedBase + totalActivePrincipal + totalPendingUnsettled;
+        uint256 unattributed = balance > reserved ? balance - reserved : 0;
         require(p.amount <= unattributed, "EXCEEDS_UNATTRIBUTED");
         unforwardedBaseRewards[p.restaker] += p.amount;
         totalUnforwardedBase += p.amount;

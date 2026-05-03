@@ -35,8 +35,8 @@ abstract contract ConfigureFeePolicyBase is Script {
     address constant SWAP_FEE_ROUTER      = 0xea13Cd47a37cC5B59675bfd52BFc8ff8691937A0;
     /// @notice Sister admin contract — owner of all timelocked propose/execute/cancel flow.
     /// @dev    Address set after the size-reduction sprint deploys SwapFeeRouterAdmin.
-    ///         FILL IN before broadcasting Phase 1.
-    address constant SWAP_FEE_ROUTER_ADMIN = address(0); // TODO: set post-deploy
+    ///         FRESH-EYES M-13: read at runtime from SWAP_FEE_ROUTER_ADMIN env so we
+    ///         don't hard-code address(0) and silently revert; constant cannot pull env.
     address constant POL_ACCUMULATOR      = 0x17215f0dfA5E97c33c025E0560eeddffaD87B7Ca;
 
     // Pair addresses that get captive-pricing overrides. Add additional pair addresses
@@ -55,11 +55,13 @@ contract ConfigureFeePolicyPropose is ConfigureFeePolicyBase {
     function run() external {
         require(block.chainid == 1, "MAINNET_ONLY");
 
-        uint256 pk = vm.envUint("PRIVATE_KEY");
-        vm.startBroadcast(pk);
+        // FRESH-EYES M-13: keystore migration completion. Forge selects sender from --account/--private-key/--ledger CLI flags; reading PRIVATE_KEY from env defeats the keystore path.
+        address swapFeeRouterAdmin = vm.envAddress("SWAP_FEE_ROUTER_ADMIN");
+        require(swapFeeRouterAdmin != address(0), "SET_ADMIN_ADDRESS");
 
-        require(SWAP_FEE_ROUTER_ADMIN != address(0), "SET_ADMIN_ADDRESS");
-        SwapFeeRouterAdmin a = SwapFeeRouterAdmin(SWAP_FEE_ROUTER_ADMIN);
+        vm.startBroadcast();
+
+        SwapFeeRouterAdmin a = SwapFeeRouterAdmin(swapFeeRouterAdmin);
 
         // 1. Fee split 70/20/10 (staker/treasury/POL)
         a.proposeFeeSplit(NEW_STAKER_SHARE_BPS, NEW_POL_SHARE_BPS);
@@ -94,11 +96,13 @@ contract ConfigureFeePolicyExecute is ConfigureFeePolicyBase {
     function run() external {
         require(block.chainid == 1, "MAINNET_ONLY");
 
-        uint256 pk = vm.envUint("PRIVATE_KEY");
-        vm.startBroadcast(pk);
+        // FRESH-EYES M-13: keystore migration completion. Forge selects sender from --account/--private-key/--ledger CLI flags; reading PRIVATE_KEY from env defeats the keystore path.
+        address swapFeeRouterAdmin = vm.envAddress("SWAP_FEE_ROUTER_ADMIN");
+        require(swapFeeRouterAdmin != address(0), "SET_ADMIN_ADDRESS");
 
-        require(SWAP_FEE_ROUTER_ADMIN != address(0), "SET_ADMIN_ADDRESS");
-        SwapFeeRouterAdmin a = SwapFeeRouterAdmin(SWAP_FEE_ROUTER_ADMIN);
+        vm.startBroadcast();
+
+        SwapFeeRouterAdmin a = SwapFeeRouterAdmin(swapFeeRouterAdmin);
 
         // 1. execute split
         a.executeFeeSplit();

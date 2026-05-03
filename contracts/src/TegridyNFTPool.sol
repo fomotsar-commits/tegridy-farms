@@ -331,7 +331,18 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         uint256[] calldata tokenIds,
         uint256 ethAmount
     ) external onlyOwner nonReentrant {
-        if (block.number <= lastSwapBlock) revert WaitOneBlock();
+        // AUDIT FIX D-NFTPOOL-H1: same 50-block cooldown as withdrawETH /
+        // withdrawNFTs. Pre-fix this path inherited only the legacy 1-block
+        // gate, so an owner could remove BOTH an NFT and ETH the next block
+        // after a swap — wider blast radius than withdrawETH alone. paused()
+        // and lastSwapBlock==0 carve-outs match the sibling paths.
+        if (
+            lastSwapBlock != 0 &&
+            !paused() &&
+            block.number <= lastSwapBlock + WITHDRAW_NFT_COOLDOWN_BLOCKS
+        ) {
+            revert WaitForNFTWithdrawCooldown();
+        }
 
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint256 tokenId = tokenIds[i];
@@ -560,7 +571,22 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     }
 
     function withdrawETH(uint256 amount) external onlyOwner nonReentrant {
-        if (block.number <= lastSwapBlock) revert WaitOneBlock();
+        // AUDIT FIX D-NFTPOOL-H1: extend the 50-block cooldown (mirroring
+        // withdrawNFTs / DEEP-NFTPOOL-L4) to the ETH-withdraw path. Pre-fix,
+        // an owner who saw a profitable buyer's pending swapETHForNFTs could
+        // let the swap land then drain ETH proceeds in the very next block,
+        // leaving the next seller's payout floored at _minLiquidityBuffer.
+        // The asymmetry (50-block cooldown on NFT side, 1-block on ETH side)
+        // reopened the same MEV window L-4 deliberately closed. Same paused()
+        // bypass + lastSwapBlock==0 carve-out as withdrawNFTs so on-chain
+        // closure signal and pre-trade owner setup remain unblocked.
+        if (
+            lastSwapBlock != 0 &&
+            !paused() &&
+            block.number <= lastSwapBlock + WITHDRAW_NFT_COOLDOWN_BLOCKS
+        ) {
+            revert WaitForNFTWithdrawCooldown();
+        }
         require(amount > 0, "INVALID_AMOUNT");
         // AUDIT FIX: DEEP-NFTPOOL-07 / V2-NFTPOOL-04: solvency-derived
         // buffer (see `_minLiquidityBuffer`). Replaces the prior 10%-of-

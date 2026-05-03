@@ -116,4 +116,56 @@ library WETHFallbackLib {
         // silently regresses the L1 accounting promise.
         emit ETHTransferred(to, amount);
     }
+
+    /// @notice FRESH-EYES M-6: non-reverting variant for BATCHED-PAYEE callers
+    ///         (RevenueDistributor, SwapFeeRouter._distribute, etc.). Returns
+    ///         a success/mode pair instead of reverting on a bad recipient,
+    ///         so a single hostile payee cannot DoS the entire distribution
+    ///         loop. Callers that receive `success == false` should bank the
+    ///         amount in their internal `callerCredit`/pull-pattern state and
+    ///         emit a recognised tombstone event for off-chain monitoring.
+    /// @dev    Modes: 0 = ETH delivered, 1 = WETH delivered (fallback),
+    ///                2 = both legs failed (caller MUST handle).
+    /// @return success true if either ETH or WETH leg delivered the funds.
+    /// @return mode    delivery mode (0=ETH, 1=WETH, 2=failed).
+    function safeTransferETHOrWrapNoRevert(address weth, address to, uint256 amount)
+        internal
+        returns (bool success, uint8 mode)
+    {
+        if (amount == 0) return (true, 0);
+        // Defense-in-depth: even the no-revert variant rejects zero-recipient. Sending to
+        // 0x0 would silently burn ETH; we surface that to the caller as a hard failure
+        // so they can route the amount to credit instead of accidentally accepting a
+        // burn as "success".
+        if (to == address(0)) return (false, 2);
+        if (weth == address(0)) return (false, 2);
+
+        (bool okEth,) = to.call{value: amount, gas: 10000}("");
+        if (okEth) {
+            emit ETHTransferred(to, amount);
+            return (true, 0);
+        }
+
+        // Try-catch the WETH leg too. `IWETH.deposit` is payable; if the canonical
+        // WETH ever pauses or the recipient's WETH-transfer hook reverts, we MUST NOT
+        // bubble — that's the whole point of this variant. Use a low-level call so
+        // we can capture failure without unwinding the caller's tx.
+        (bool okDeposit,) = weth.call{value: amount}(abi.encodeWithSelector(IWETH.deposit.selector));
+        if (!okDeposit) return (false, 2);
+
+        (bool okTransfer, bytes memory data) =
+            weth.call(abi.encodeWithSelector(IWETH.transfer.selector, to, amount));
+        // Standard ERC20 returns bool; a few quirky tokens return nothing. Treat empty
+        // returndata as success only if the call itself didn't revert (parity with
+        // OZ SafeERC20's `_callOptionalReturn`).
+        bool wethOk = okTransfer && (data.length == 0 || abi.decode(data, (bool)));
+        if (!wethOk) {
+            // ETH is now stuck inside this lib's runtime as WETH. Caller MUST handle by
+            // sweeping `IWETH(weth).balanceOf(address(this))` to credit. Returning
+            // `mode = 2` signals the caller to do that.
+            return (false, 2);
+        }
+        emit ETHToWETHFallback(weth, to, amount);
+        return (true, 1);
+    }
 }

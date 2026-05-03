@@ -35,3 +35,11 @@ CODEBASE_OVERVIEW.txt
 # a leading dot (e.g. `.audit_findings.md`, `.spartan_unpacked/`) which is
 # already covered by general dotfile conventions.
 # Do NOT add SECURITY_AUDIT_*.md / findings_*.txt / tegridy_*.docx back to ignore.
+
+# FRESH-EYES L-1: catch-all for secrets in any subdir
+**/.env
+**/.env.*.local
+**/.env.local
+**/keystore/
+**/*.key
+**/wallet.json

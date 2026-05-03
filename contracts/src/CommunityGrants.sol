@@ -80,6 +80,18 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         ///         dropping the contract's balance and tripping the re-derived cap
         ///         even though the community already approved the proposal.
         uint256 absoluteCap;
+        /// @notice AUDIT FIX D-CG-M1: rolling-cap denominator snapshot taken at
+        ///         FINALIZE-APPROVE time (not creation, since balance can grow
+        ///         meaningfully during the voting window). Pre-fix, the rolling
+        ///         cap re-derived from `address(this).balance` at execute time —
+        ///         meaning a proposal approved when the treasury was 100 ETH (cap
+        ///         = 30 ETH at 30% bps) could later execute against a 200 ETH
+        ///         balance with the cap re-derived to 60 ETH, exceeding the
+        ///         community's approval-time spending envelope. Snapshotting at
+        ///         finalize-approve binds the rolling cap to the balance the
+        ///         community actually saw. Zero on legacy proposals (pre-fix
+        ///         finalize); execute paths fall back to live balance for those.
+        uint256 rollingCapBalanceAtFinalize;
     }
 
     Proposal[] public proposals;
@@ -93,7 +105,18 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     uint256 public constant PERMISSIONLESS_EXECUTION_DELAY = 3 days; // H-21: anyone can execute after this delay post-approval
     uint256 public constant MIN_PROPOSAL_AMOUNT = 0.01 ether;
     uint256 public constant MIN_QUORUM_BPS = 1000; // At least 10% of total locked must vote
-    uint256 public constant MIN_ABSOLUTE_QUORUM = 1000e18; // A4-M-14: Reduced from 10000e18 — old value blocked governance when total stake < 10k tokens
+    /// @notice FRESH-EYES M-4: minimum BOOSTED-vote total a proposal must accumulate.
+    ///         The previous value (1000e18) was achievable by a single 4×-max-boost whale
+    ///         with only ~250 raw TOWELI of stake — well below the documented intent of
+    ///         "1000+ raw TOWELI worth of voter conviction". `votingPowerAtTimestamp`
+    ///         returns BOOSTED amount (`boostedAmount` from TegridyStaking.positions),
+    ///         so a max-4× lock multiplies the effective floor by 4×. Raising the floor
+    ///         to 4000e18 ensures that even at max boost the quorum requires the
+    ///         equivalent of ~1000 raw TOWELI of conviction. Still well below the original
+    ///         10000e18 (which was reverted in A4-M-14 because it blocked governance on
+    ///         low-stake networks); 4000e18 is the documented "middle ground" of the
+    ///         A4-M-14 vs. M-13 trade-off.
+    uint256 public constant MIN_ABSOLUTE_QUORUM = 4000e18;
     uint256 public constant MAX_GRANT_PERCENT_BPS = 5000; // H-04: max 50% of contract balance per grant
     /// @dev AUDIT L-G01 (2026-04-28): the 50-proposal cap is a DoS-economic
     ///      bound. Each new active proposal SSTOREs ~5 storage slots and
@@ -319,7 +342,11 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             // executeProposal/retryExecution validate `amount <= absoluteCap` instead
             // of re-deriving the cap from current balance, preventing post-approval
             // DoS via balance drops between approval and execution.
-            absoluteCap: (availableBalance * MAX_GRANT_PERCENT_BPS) / 10000
+            absoluteCap: (availableBalance * MAX_GRANT_PERCENT_BPS) / 10000,
+            // AUDIT FIX D-CG-M1: zero at creation; populated at finalize-approve
+            // with the contract's then-current balance so the rolling cap binds
+            // to the community's approval-time spending envelope.
+            rollingCapBalanceAtFinalize: 0
         }));
 
         activeProposalCount++;
@@ -446,6 +473,14 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             proposal.status = ProposalStatus.Approved;
             // AUDIT FIX H-02: Track approved ETH to prevent serial drain
             totalApprovedPending += proposal.amount;
+            // AUDIT FIX D-CG-M1: snapshot the rolling-cap denominator at the
+            // moment of community approval. This is the balance the community
+            // could see on-chain when their final vote landed, so binding the
+            // 30%/30d rolling cap to it preserves their spending envelope —
+            // future inflows during the EXECUTION_DELAY window cannot retroactively
+            // expand the cap. Zero on legacy proposals (set by createProposal) is
+            // distinguishable at execute time and falls back to live balance.
+            proposal.rollingCapBalanceAtFinalize = address(this).balance;
             // SECURITY FIX: Do NOT decrement totalRefundableDeposits here — deposit tokens
             // must remain reserved until actually consumed (execution) or refunded (lapse/cancel).
             // Decrementing here allowed sweepFees() to sweep tokens still owed for lapse refunds.
@@ -503,7 +538,12 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // paid amounts. `MAX_ROLLING_DISBURSEMENT_BPS` is therefore "max
         // DISBURSED in 30 days", not "max APPROVED" or "max ATTEMPTED".
         uint256 currentRolling = _pruneAndGetRollingDisbursed();
-        uint256 maxRolling = (address(this).balance * MAX_ROLLING_DISBURSEMENT_BPS) / 10000;
+        // AUDIT FIX D-CG-M1: anchor the rolling cap on the FINALIZE-APPROVE
+        // balance snapshot rather than the live balance. Falls back to live
+        // balance for legacy proposals (rollingCapBalanceAtFinalize == 0).
+        uint256 capDenom = proposal.rollingCapBalanceAtFinalize;
+        if (capDenom == 0) capDenom = address(this).balance;
+        uint256 maxRolling = (capDenom * MAX_ROLLING_DISBURSEMENT_BPS) / 10000;
         if (currentRolling + proposal.amount > maxRolling) revert RollingDisbursementExceeded();
 
         // AUDIT FIX M-27: Attempt ETH transfer with WETH fallback for contract recipients
@@ -560,7 +600,12 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // tracking only SUCCESSFULLY DISBURSED ETH in the rolling window. Mirroring
         // the same accounting here keeps retry semantics aligned with the primary path.
         uint256 currentRolling = _pruneAndGetRollingDisbursed();
-        uint256 maxRolling = (address(this).balance * MAX_ROLLING_DISBURSEMENT_BPS) / 10000;
+        // AUDIT FIX D-CG-M1: same finalize-snapshot cap denominator as
+        // executeProposal. Legacy proposals (rollingCapBalanceAtFinalize == 0)
+        // fall back to live balance for backward compat.
+        uint256 capDenom = proposal.rollingCapBalanceAtFinalize;
+        if (capDenom == 0) capDenom = address(this).balance;
+        uint256 maxRolling = (capDenom * MAX_ROLLING_DISBURSEMENT_BPS) / 10000;
         if (currentRolling + proposal.amount > maxRolling) revert RollingDisbursementExceeded();
 
         // AUDIT FIX M-27: Attempt ETH transfer with WETH fallback for contract recipients

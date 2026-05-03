@@ -22,6 +22,13 @@ interface ITegridyPair {
 /// @dev   AUDIT R014: read-only `isPair(address)` used to reject `update(forgedPair)` calls.
 interface ITegridyFactoryForTWAP {
     function isPair(address pair) external view returns (bool);
+    /// @notice FRESH-EYES H-2: surfaced so update() can refuse to record observations
+    /// against pairs that governance has disabled. Without this guard, a flash-loan-funded
+    /// front-run of `emergencyDisablePair` can freeze manipulated reserves into the pair's
+    /// state — and any subsequent caller of update() integrates that manipulated spot into
+    /// the cumulative buffer until re-enable, poisoning every consult() consumer (lending,
+    /// POL accumulator, etc.) for the lifetime of the buffer.
+    function disabledPairs(address pair) external view returns (bool);
 }
 
 /// @title TegridyTWAP — Time-Weighted Average Price Oracle
@@ -216,6 +223,9 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     /// @notice AUDIT R014: caller passed a `pair` that the bound TegridyFactory does
     ///         not recognise. Prevents oracle poisoning from forged "pair-shaped" contracts.
     error UnknownPair();
+    /// @notice FRESH-EYES H-2: factory has disabled this pair. Refusing observations during
+    ///         the disabled window prevents manipulated frozen-reserve poisoning of the buffer.
+    error PairDisabled();
     /// @notice AUDIT FIX D-AMM-H1: dormancy-bypass observation is owner-only.
     error BypassObservationOwnerOnly();
     /// @notice AUDIT FIX D-AMM-M5: `consult()` refuses to serve a price derived from
@@ -245,6 +255,14 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         // AUDIT R014: factory authentication MUST run before any storage writes or external
         // reads against the (possibly malicious) pair address.
         if (!factory.isPair(pair)) revert UnknownPair();
+        // FRESH-EYES H-2: refuse to record observations against disabled pairs. Disabled-pair
+        // reserves are frozen at the moment of disable (swap/mint/burn/sync are all blocked),
+        // so any cumulative we'd integrate from this point forward is `frozenSpot * elapsed` —
+        // and `frozenSpot` may itself be a flash-loan-manipulated value the guardian's disable
+        // tx pinned in place. Reject here so the buffer is not poisoned during the disabled
+        // window. Once governance re-enables the pair, organic swaps will restore an honest
+        // cumulative before the next observation lands.
+        if (factory.disabledPairs(pair)) revert PairDisabled();
 
         if (updateFee > 0) {
             if (msg.value < updateFee) revert InsufficientFee();
@@ -290,7 +308,28 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
 
         bool bypassed = false;
         uint256 count = observationCount[pair];
-        if (count > 0) {
+        if (count == 0) {
+            // FRESH-EYES H-3 (first-observation manipulation): mark the very first
+            // observation as `bypassed = true` so consult() refuses to serve any
+            // TWAP whose lookup window includes it — until at least one non-bypass
+            // observation has overwritten the bootstrap slot AND the bootstrap has
+            // rolled out of the lookup window. Pre-fix, ANY spot price was accepted
+            // as the anchor for a brand-new pair (no prior `lastSpot` to gate
+            // against), letting an attacker create a pool at a manipulated 1:100
+            // ratio, fund it asymmetrically, and call `update()` to permanently
+            // anchor a poisoned baseline. The deviation gate then accepts subsequent
+            // observations within ±50% of the manipulated anchor — and any
+            // downstream consumer (lending oracle, POL harvest) silently reads
+            // the lie. By marking bypassed=true here, we reuse the same fail-safe
+            // path that already guards the dormancy-bypass case (D-AMM-M5 +
+            // V2-AMM-H1 + the `best.bypassed` check inside
+            // `_getCumulativePricesOverPeriod`). The next non-bypass observation
+            // (which DOES enforce deviation against `lastSpot`) restores trust
+            // once two clean observations are present.
+            bypassed = true;
+            lastBypassUsed[pair] = block.timestamp;
+            emit DeviationBypassed(pair, 0, spotPrice0, spotPrice1);
+        } else {
             uint8 lastIdx = observationIndex[pair] == 0 ? MAX_OBSERVATIONS - 1 : observationIndex[pair] - 1;
             Observation memory last = observations[pair][lastIdx];
 
@@ -420,6 +459,17 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         // currently down or has just resumed within SEQUENCER_GRACE_PERIOD.
         // address(0) sequencerFeed is a no-op (mainnet / non-L2 deployments).
         SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
+
+        // FRESH-EYES H-5 (companion to FRESH-EYES H-2 on update): refuse to serve
+        // a TWAP read for a pair that is currently disabled at the factory. Even
+        // if every observation in the buffer was admitted while the pair was live,
+        // the most recent few may have been recorded against reserves that the
+        // factory disabled mid-window — meaning the pair's price{0,1}CumulativeLast
+        // is now frozen at a manipulated spot. Refusing here forces consumers
+        // (POL harvest, lending ETH-floor) to fall back to their fail-closed
+        // paths until governance re-enables and an honest post-resume observation
+        // anchors the next consult. Mirrors the SequencerCheck-style gate.
+        if (factory.disabledPairs(pair)) revert PairDisabled();
 
         if (amountIn == 0) revert InvalidAmount();
         if (period == 0) revert InvalidAmount();
@@ -686,6 +736,23 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         // sparse pair should accept the diluted result rather than a hard
         // revert. The honest-anchor case (`found == true`) still reverts.
         if (best.bypassed && found) revert OracleRebootstrapping();
+
+        // FRESH-EYES M-1: even if `best` is non-bypassed, it may have been recorded DURING
+        // an L2 sequencer outage. `update()` is permitted during outages so the buffer can
+        // refresh, but those observations integrate against potentially stale/manipulated
+        // reserves frozen by the outage. A flash-loaned arb at the front of the resumed
+        // queue can push reserves before any honest swap lands; an `update()` call right
+        // after captures that manipulated spot. Once the 1h grace lifts, `consult()` would
+        // happily anchor at the poisoned slot. Reject any `best` whose timestamp predates
+        // the post-resume grace window. Mirrors the latest-side guard already enforced via
+        // `SequencerCheck.checkSequencerUp` at the consult() entry, but applied to the
+        // anchor end of the window. address(0) sequencerFeed (mainnet) is a no-op.
+        if (sequencerFeed != address(0)) {
+            uint256 resumeAt = SequencerCheck.getResumeTimestamp(sequencerFeed);
+            if (resumeAt != 0 && uint256(best.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
+                revert OracleRebootstrapping();
+            }
+        }
 
         unchecked {
             elapsed = latest.timestamp - best.timestamp;

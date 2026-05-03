@@ -138,6 +138,7 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     error CannotRecoverStakingToken();
     error CannotRecoverRewardToken();
     error PreviousPeriodNotComplete();
+    error RewardEqualsStakingToken();
 
     // ─── Constructor ────────────────────────────────────────────────
     constructor(
@@ -149,6 +150,12 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     ) OwnableNoRenounce(msg.sender) {
         if (_rewardToken == address(0) || _stakingToken == address(0)) revert ZeroAddress();
         if (_tegridyStaking == address(0) || _treasury == address(0)) revert ZeroAddress();
+        // FRESH-EYES H-1: reject the MasterChef-class footgun where rewardToken == stakingToken.
+        // If both pointed at the same ERC20, `rewardToken.balanceOf(this)` would conflate user
+        // deposits with the reward pool, letting `notifyRewardAmount` validate against deposits
+        // and silently approve a rewardRate the contract cannot fund. Withdraws would then drain
+        // the pool that should be paying rewards (insolvency).
+        if (_rewardToken == _stakingToken) revert RewardEqualsStakingToken();
         if (_rewardsDuration < MIN_REWARDS_DURATION || _rewardsDuration > MAX_REWARDS_DURATION) {
             revert DurationOutOfRange();
         }
@@ -371,13 +378,14 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
         uint256 forfeited = earned(msg.sender);
         uint256 effective = effectiveBalanceOf[msg.sender];
 
-        // Zero out user state (CEI)
+        // Zero out user state (CEI). AUDIT FIX D-LPF-L1: removed redundant
+        // `userRewardPerTokenPaid[msg.sender] = rewardPerTokenStored` — the
+        // updateReward(msg.sender) modifier already wrote that exact value.
         totalRawSupply -= amount;
         totalEffectiveSupply -= effective;
         rawBalanceOf[msg.sender] = 0;
         effectiveBalanceOf[msg.sender] = 0;
         rewards[msg.sender] = 0;
-        userRewardPerTokenPaid[msg.sender] = rewardPerTokenStored;
 
         // AUDIT M11: track forfeited reward dust for later treasury reclaim.
         if (forfeited > 0) {

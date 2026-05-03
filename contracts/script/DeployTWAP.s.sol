@@ -10,14 +10,12 @@ import "../src/TegridyTWAP.sol";
 ///      POLAccumulator can then query consult() for safe slippage bounds.
 contract DeployTWAPScript is Script {
     function run() external {
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(deployerPrivateKey);
-
+        // FRESH-EYES M-13: keystore migration completion. Forge selects sender from --account/--private-key/--ledger CLI flags; reading PRIVATE_KEY from env defeats the keystore path.
         console.log("=== Deploying TegridyTWAP Oracle ===");
-        console.log("Deployer:", deployer);
         console.log("Chain ID:", block.chainid);
 
-        vm.startBroadcast(deployerPrivateKey);
+        vm.startBroadcast();
+        console.log("Deployer:", msg.sender);
 
         // AUDIT R062: per-chain Chainlink L2 Sequencer Uptime feed via
         //             SEQUENCER_FEED env; address(0) on mainnet / non-L2

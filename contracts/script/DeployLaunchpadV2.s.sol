@@ -19,19 +19,19 @@ contract DeployLaunchpadV2Script is Script {
     function run() external {
         require(block.chainid == 1, "MAINNET_ONLY");
 
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(deployerPrivateKey);
+        // FRESH-EYES M-13: keystore migration completion. Forge selects sender from --account/--private-key/--ledger CLI flags; reading PRIVATE_KEY from env defeats the keystore path.
         address multisig = vm.envAddress("MULTISIG");
         require(multisig != address(0), "MULTISIG env var required");
 
         console.log("=== Deploying TegridyLaunchpadV2 ===");
-        console.log("Deployer:", deployer);
         console.log("Multisig:", multisig);
         console.log("Fee bps:", LAUNCHPAD_FEE_BPS);
         console.log("Fee recipient (treasury):", TREASURY);
         console.log("WETH:", WETH);
 
-        vm.startBroadcast(deployerPrivateKey);
+        vm.startBroadcast();
+        address deployer = msg.sender;
+        console.log("Deployer:", deployer);
 
         // AUDIT R062: per-chain Chainlink L2 Sequencer Uptime feed via SEQUENCER_FEED env;
         //             address(0) on mainnet / non-L2 (no-op).

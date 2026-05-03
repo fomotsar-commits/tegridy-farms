@@ -18,6 +18,11 @@ abstract contract OwnableNoRenounce is Ownable2Step {
     ///      passes an EOA. Defaults to NOT enforced so existing tests and
     ///      deploy scripts that pass `msg.sender` (an EOA) continue to work.
     error OwnerNotContract(address proposed);
+    /// @dev FRESH-EYES L: typed error replacing the legacy `revert("RENOUNCE_DISABLED")`
+    ///      string. Brings this revert in line with every other rejection in the file
+    ///      (typed selectors), so off-chain alerts and Tenderly filters can subscribe by
+    ///      4-byte selector instead of fragile string parsing.
+    error RenounceDisabled();
 
     /// @dev AUDIT FIX: DEEP-LIB-M1 — opt-in flag (returned by the virtual
     ///      hook below). Children that need contract-only ownership
@@ -57,7 +62,7 @@ abstract contract OwnableNoRenounce is Ownable2Step {
     ///         arbitrary actors). `onlyOwner` is `view`-compatible since
     ///         `_checkOwner` is itself `view`.
     function renounceOwnership() public view override onlyOwner {
-        revert("RENOUNCE_DISABLED");
+        revert RenounceDisabled();
     }
 
     /// @dev AUDIT FIX: DEEP-LIB-M1 — re-applies the contract-only enforcement

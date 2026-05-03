@@ -284,6 +284,11 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     ///      the silent `... ? ... : 0` clamp would hide the violation; now we
     ///      revert so forensics surface the regression immediately.
     error PauseInvariantViolated();
+    /// @dev FRESH-EYES H-3: ERC-721 `transferFrom` returned without moving the NFT into
+    ///      this contract. Catches a no-op transferFrom on a malicious-or-upgradeable
+    ///      whitelisted collection. Without this, a borrower could pocket the principal
+    ///      while keeping the NFT.
+    error CollateralNotEscrowed();
 
     // ─── Legacy View Helpers (for test compatibility) ────────────────
     function protocolFeeChangeReadyAt() external view returns (uint256) {
@@ -491,6 +496,16 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
 
         // Transfer NFT from borrower to this contract (collateral escrow)
         IERC721(collateralContract).transferFrom(msg.sender, address(this), _tokenId);
+        // FRESH-EYES H-3: assert the transfer actually moved ownership to this contract.
+        // A whitelisted-but-malicious or upgradeable ERC-721 could implement `transferFrom`
+        // as a silent no-op (no revert, no transfer) — leaving the borrower with both the
+        // NFT AND the principal we're about to send. Mirrors Uniswap V2 / Sudoswap's
+        // post-transfer balance-of-self pattern. The whitelist is timelocked but this is
+        // belt-and-suspenders against a future compromised admin or a collection that
+        // becomes upgradable post-whitelist.
+        if (IERC721(collateralContract).ownerOf(_tokenId) != address(this)) {
+            revert CollateralNotEscrowed();
+        }
 
         // AUDIT NEW-L3: register this loan against the collection.
         activeLoansOfCollection[collateralContract] += 1;
@@ -597,9 +612,17 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         // their money. Money flows below run unconditionally; if the NFT
         // transfer fails, the recipient (borrower) recovers later via
         // claimStuckCollateral once the collection is healthy.
-        try IERC721(collateralContract).transferFrom(address(this), borrower, tokenId) {
-            // happy path
-        } catch {
+        //
+        // AUDIT FIX LD-NEW-H2: also verify the post-transfer ownership. A malicious
+        // or buggy collection can implement `transferFrom` to no-op (return
+        // without revert AND without moving the token) — the try/catch happy path
+        // would then run, money would flow, and the NFT would stay stuck here
+        // forever with NO `stuckCollateralRecipient` entry, blocking
+        // claimStuckCollateral. Mirror the FRESH-EYES H-3 inbound post-condition
+        // check on the outbound leg: if we still own the token after the call
+        // succeeded, treat it as stuck.
+        bool nftMoved = _safeOutboundTransfer(collateralContract, address(this), borrower, tokenId);
+        if (!nftMoved) {
             stuckCollateralRecipient[_loanId] = borrower;
             emit CollateralStuck(_loanId, borrower, tokenId, collateralContract);
         }
@@ -667,9 +690,10 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         // claim still flips defaultClaimed (preventing double-claim) and the
         // NFT is reserved for them via stuckCollateralRecipient. Recover via
         // claimStuckCollateral once the collection is healthy.
-        try IERC721(collateralContract).transferFrom(address(this), lender, tokenId) {
-            // happy path
-        } catch {
+        //
+        // AUDIT FIX LD-NEW-H2: see repayLoan above for the silent-no-op rationale.
+        bool nftMoved = _safeOutboundTransfer(collateralContract, address(this), lender, tokenId);
+        if (!nftMoved) {
             stuckCollateralRecipient[_loanId] = lender;
             emit CollateralStuck(_loanId, lender, tokenId, collateralContract);
         }
@@ -715,6 +739,58 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
 
         emit StuckCollateralClaimed(_loanId, recipient, tokenId);
     }
+
+    /// @notice AUDIT FIX LD-NEW-H2: outbound NFT transfer with both revert AND
+    ///         silent-no-op detection. A whitelisted ERC-721 implementation that
+    ///         no-ops `transferFrom` (returns without revert AND without moving
+    ///         the token) would silently let a loan settle while leaving the NFT
+    ///         escrowed forever. Returns `true` only when the post-call ownership
+    ///         confirms the transfer landed at `to`. Both ownerOf and transferFrom
+    ///         calls are wrapped to handle hostile collections that revert from
+    ///         either entrypoint. False return triggers the caller's stuck-collateral
+    ///         path.
+    /// @dev    Internal helper kept here (not in WETHFallbackLib) because the
+    ///         fix is collateral-specific and pairs tightly with this contract's
+    ///         stuckCollateralRecipient bookkeeping.
+    function _safeOutboundTransfer(
+        address collection,
+        address from,
+        address to,
+        uint256 tokenId
+    ) internal returns (bool moved) {
+        try IERC721(collection).transferFrom(from, to, tokenId) {
+            // happy path — verify post-condition.
+            try IERC721(collection).ownerOf(tokenId) returns (address newOwner) {
+                moved = (newOwner == to);
+                // If newOwner is some unexpected third party (malicious collection
+                // that redirected the transfer), we ALSO return false — the loan
+                // settlement above stands but the NFT is unrecoverable through
+                // this contract's stuck path. Emit a forensic warning event so
+                // off-chain monitoring can flag the malicious collection.
+                if (!moved && newOwner != from) {
+                    emit CollateralRedirected(tokenId, collection, to, newOwner);
+                }
+            } catch {
+                // ownerOf reverted — token likely burned during transfer or the
+                // collection contract is broken. Treat as not-moved (caller will
+                // mark stuck), but recovery may not be possible.
+                moved = false;
+            }
+        } catch {
+            moved = false;
+        }
+    }
+
+    /// @notice AUDIT FIX LD-NEW-H2: emitted when a malicious whitelisted collection
+    ///         redirects an outbound transfer to a third party instead of the
+    ///         intended recipient. Loan settlement still completes; this event
+    ///         flags the collection for off-chain monitoring + delisting.
+    event CollateralRedirected(
+        uint256 indexed tokenId,
+        address indexed collection,
+        address indexed intendedRecipient,
+        address actualOwner
+    );
 
     // ─── View Functions ──────────────────────────────────────────────
 

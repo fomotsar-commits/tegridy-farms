@@ -24,8 +24,7 @@
     "too-many-digits",
     "constable-states",
     "external-function",
-    "incorrect-shift",
-    "dead-code"
+    "incorrect-shift"
   ],
 
   "_detectors_excluded_rationale": {
@@ -38,8 +37,7 @@
     "too-many-digits": "Constants like 10000 BPS and 1e18 are intentional",
     "constable-states": "Working tree has Wave-014 changes converting some constants to state for timelocked tunability",
     "external-function": "Public-vs-external is review-time call",
-    "incorrect-shift": "False positives on SafeMath patterns",
-    "dead-code": "Many helpers retained for ABI compatibility and future use"
+    "incorrect-shift": "False positives on SafeMath patterns"
   },
 
   "_detectors_promoted": "These are the detectors that catch actual fund-loss patterns. Keep them firing loud.",

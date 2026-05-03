@@ -120,6 +120,14 @@ abstract contract TimelockAdmin {
     /// @dev Reverts if a proposal for this key is already pending. Caller must cancel first.
     function _propose(bytes32 key, uint256 delay) internal {
         uint256 minD = _minDelay();
+        // FRESH-EYES L: protocol-wide hard floor on the override-hook return value. Without
+        // this, a malicious or buggy child could override `_minDelay()` to return 0 and
+        // defeat the entire timelock invariant. The MIN_DELAY constant is the documented
+        // protocol-wide minimum ("1 hour minimum" — see line 51); enforcing it here makes
+        // the hook a UPPER-bound override (children can require longer delays via override,
+        // never shorter). Pattern of record: Compound Timelock.MINIMUM_DELAY is hard-coded
+        // and not overridable.
+        if (minD < MIN_DELAY) minD = MIN_DELAY;
         uint256 maxD = _maxDelay();
         if (delay < minD) revert DelayTooShort(delay, minD);
         // AUDIT MICROSCOPE_2026_04_30 M-Lib1: cap the per-call delay.

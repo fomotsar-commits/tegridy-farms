@@ -895,9 +895,10 @@ contract TegridyNFTPoolTest is Test {
         assertEq(accumulatedFees, protocolFee);
         assertGt(accumulatedFees, 0);
 
-        // AUDIT FIX: DEEP-NFTPOOL-01 / MICROSCOPE H9: withdrawETH carries the
-        // same-block-as-swap guard, so we must roll a block before withdrawing.
-        vm.roll(block.number + 1);
+        // AUDIT FIX D-NFTPOOL-H1: withdrawETH cooldown extended from 1 block to
+        // WITHDRAW_NFT_COOLDOWN_BLOCKS (≈10 min) to mirror withdrawNFTs. Roll
+        // past the new cooldown so the legitimate post-swap withdraw lands.
+        vm.roll(block.number + p.WITHDRAW_NFT_COOLDOWN_BLOCKS() + 1);
 
         // Owner can withdraw most of pool balance (a 10% min-liquidity buffer
         // is reserved per DEEP-NFTPOOL-07).

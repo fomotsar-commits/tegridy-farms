@@ -34,15 +34,14 @@ contract DeployRemainingScript is Script {
     function run() external {
         require(block.chainid == 1, "MAINNET_ONLY");
 
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(deployerPrivateKey);
+        // FRESH-EYES M-13: keystore migration completion. Forge selects sender from --account/--private-key/--ledger CLI flags; reading PRIVATE_KEY from env defeats the keystore path.
         address LP_TOKEN = vm.envAddress("LP_TOKEN");
         address MULTISIG = vm.envAddress("MULTISIG");
 
         console.log("=== COMPLETING DEPLOYMENT ===");
-        console.log("Deployer:", deployer);
 
-        vm.startBroadcast(deployerPrivateKey);
+        vm.startBroadcast();
+        console.log("Deployer:", msg.sender);
 
         // 1. Deploy POLAccumulator (AUDIT R015: TWAP required, AUDIT R062: SEQUENCER_FEED optional)
         address TWAP = vm.envAddress("TWAP");

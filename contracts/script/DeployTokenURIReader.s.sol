@@ -8,13 +8,11 @@ contract DeployTokenURIReaderScript is Script {
     address constant TEGRIDY_STAKING = 0x626644523d34B84818df602c991B4a06789C4819;
 
     function run() external {
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(deployerPrivateKey);
-
-        console.log("Deployer:", deployer);
+        // FRESH-EYES M-13: keystore migration completion. Forge selects sender from --account/--private-key/--ledger CLI flags; reading PRIVATE_KEY from env defeats the keystore path.
         console.log("Staking:", TEGRIDY_STAKING);
 
-        vm.startBroadcast(deployerPrivateKey);
+        vm.startBroadcast();
+        console.log("Deployer:", msg.sender);
 
         TegridyTokenURIReader reader = new TegridyTokenURIReader(TEGRIDY_STAKING);
         console.log("TegridyTokenURIReader:", address(reader));

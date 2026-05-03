@@ -52,15 +52,14 @@ contract DeploySepoliaScript is Script {
     function run() external {
         require(block.chainid == 11155111, "SEPOLIA_ONLY");
 
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(deployerPrivateKey);
-
+        // FRESH-EYES M-13: keystore migration completion. Forge selects sender from --account/--private-key/--ledger CLI flags; reading PRIVATE_KEY from env defeats the keystore path.
         console.log("=== TEGRIDDY FARMS SEPOLIA DEPLOYMENT ===");
-        console.log("Deployer:", deployer);
-        console.log("Deployer balance:", deployer.balance);
         console.log("");
 
-        vm.startBroadcast(deployerPrivateKey);
+        vm.startBroadcast();
+        address deployer = msg.sender;
+        console.log("Deployer:", deployer);
+        console.log("Deployer balance:", deployer.balance);
 
         Deployed memory d;
 

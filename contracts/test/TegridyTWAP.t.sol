@@ -158,10 +158,14 @@ contract TegridyTWAPTest is Test {
     // ─── consult() tests ─────────────────────────────────────────────
 
     function test_consult_returnsCorrectTWAP() public {
-        // Seed 2 observations at stable 1:2 price ratio
-        twap.update(address(pair));
-        vm.warp(block.timestamp + 15 minutes);
-        twap.update(address(pair));
+        // FRESH-EYES H-3: first observation is now marked `bypassed=true` so the lookup
+        // window cannot anchor on a bootstrap-without-deviation-gate. Need ≥3 observations
+        // for the anchor to land on a non-bypass slot when consult period == 15 min.
+        twap.update(address(pair));                             // bypassed bootstrap
+        skip(16 minutes);
+        twap.update(address(pair));                             // non-bypass
+        skip(16 minutes);
+        twap.update(address(pair));                             // non-bypass (latest)
 
         // Consult: 1 tokenA should give ~2 tokenB (price ratio is 1:2)
         uint256 amountOut = twap.consult(address(pair), address(tokenA), 1 ether, 15 minutes);
@@ -194,9 +198,12 @@ contract TegridyTWAPTest is Test {
     }
 
     function test_consult_reverseDirection() public {
-        // Seed observations
+        // FRESH-EYES H-3: see test_consult_returnsCorrectTWAP — need ≥3 obs for the
+        // 15-min lookup window to anchor on a non-bypass slot.
         twap.update(address(pair));
-        vm.warp(block.timestamp + 15 minutes);
+        skip(16 minutes);
+        twap.update(address(pair));
+        skip(16 minutes);
         twap.update(address(pair));
 
         // Consult: 1 tokenB should give ~0.5 tokenA (price ratio is 2:1 from B's perspective)
@@ -207,11 +214,14 @@ contract TegridyTWAPTest is Test {
     // ─── Flash loan manipulation resistance ──────────────────────────
 
     function test_twap_resistsFlashLoanManipulation() public {
-        // Seed several observations at normal 1:2 price ratio
+        // FRESH-EYES H-3: shrink consult period so the lookup window doesn't cross the
+        // bypassed bootstrap observation at index 0. With 6 obs at 15-min intervals,
+        // the bootstrap is at T0 and the latest is at T0+75m; consult(60m) anchors at
+        // T0+15m (non-bypass), the next-non-bypass slot.
         _seedObservations(6, 15 minutes);
 
         // Record pre-manipulation TWAP
-        uint256 normalTWAP = twap.consult(address(pair), address(tokenA), 1 ether, 75 minutes);
+        uint256 normalTWAP = twap.consult(address(pair), address(tokenA), 1 ether, 60 minutes);
 
         // Simulate a large swap that distorts the spot price (flash loan attack)
         // Swap 50 tokenA in (50% of reserves) — massive price impact
@@ -224,15 +234,15 @@ contract TegridyTWAPTest is Test {
         twap.update(address(pair));
 
         // TWAP is unchanged since the manipulated observation was rejected
-        uint256 postAttackTWAP = twap.consult(address(pair), address(tokenA), 1 ether, 75 minutes);
+        uint256 postAttackTWAP = twap.consult(address(pair), address(tokenA), 1 ether, 60 minutes);
         assertEq(postAttackTWAP, normalTWAP, "TWAP should be unchanged when manipulated update is rejected");
     }
 
     function test_twap_singleBlockManipulationMinimal() public {
-        // Seed observations over 75 minutes (6 observations at 15-minute intervals)
+        // FRESH-EYES H-3: see above — consult period must avoid the bypassed bootstrap.
         _seedObservations(6, 15 minutes);
 
-        uint256 normalTWAP = twap.consult(address(pair), address(tokenA), 1 ether, 75 minutes);
+        uint256 normalTWAP = twap.consult(address(pair), address(tokenA), 1 ether, 60 minutes);
 
         // Attacker manipulates price in a single block (no time warp)
         // This simulates what would happen in a flash loan — same block as update
@@ -243,7 +253,7 @@ contract TegridyTWAPTest is Test {
         assertFalse(twap.canUpdate(address(pair)), "Should not be updatable within MIN_PERIOD");
 
         // TWAP is unchanged
-        uint256 postAttackTWAP = twap.consult(address(pair), address(tokenA), 1 ether, 75 minutes);
+        uint256 postAttackTWAP = twap.consult(address(pair), address(tokenA), 1 ether, 60 minutes);
         assertEq(postAttackTWAP, normalTWAP, "TWAP should be unchanged when no new observation recorded");
     }
 
@@ -293,8 +303,9 @@ contract TegridyTWAPTest is Test {
     }
 
     function test_consult_succeedsJustBeforeStaleness() public {
-        // Seed 3 observations at 15-minute intervals
-        _seedObservations(3, 15 minutes);
+        // FRESH-EYES H-3: 4 obs so the 30-min lookup window can anchor on a non-bypass
+        // slot (index 1) rather than the bypassed bootstrap (index 0).
+        _seedObservations(4, 15 minutes);
 
         // Warp to exactly MAX_STALENESS — should still work
         vm.warp(block.timestamp + 2 hours);

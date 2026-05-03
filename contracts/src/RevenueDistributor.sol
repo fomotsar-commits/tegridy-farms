@@ -177,6 +177,20 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     // proposals, each timelocked, each visible.
     uint256 public constant MAX_RECOVERY_POWER_BPS = 2500;
 
+    // AUDIT FIX D-DR-L1: AGGREGATE per-epoch recovery cap. The per-proposal cap
+    // above (25%) was previously the only bound, so a captured owner could fan
+    // out 4 separate proposals each at 25% and reach 100% epoch drain — each
+    // timelock visible but each individually within bounds. The aggregate cap
+    // keeps the legitimate >25%-position recovery path open via 2 proposals
+    // while bounding the captured-key blast radius to half the epoch's pool.
+    uint256 public constant MAX_AGGREGATE_RECOVERY_POWER_BPS = 5000;
+    /// @notice AUDIT FIX D-DR-L1: per-epoch aggregate of in-flight + executed
+    ///         recovery power. Bumped on propose (when slot was empty), adjusted
+    ///         on overwrite, decremented on cancel, RETAINED on execute (executed
+    ///         power counts toward the cap, mirroring the pendingRecoveryCount
+    ///         pattern at REV-H-02).
+    mapping(uint256 => uint256) public aggregateRecoveryPower;
+
     // Treasury change timelock
     uint256 public constant TREASURY_CHANGE_DELAY = 48 hours;
     address public pendingTreasury;
@@ -1185,12 +1199,24 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         uint256 recoveryCap = (ep.totalLocked * MAX_RECOVERY_POWER_BPS) / 10000;
         if (power > recoveryCap) revert RecoveryPowerExceedsCap();
 
+        // AUDIT FIX D-DR-L1: aggregate per-epoch cap. Compute the prospective
+        // aggregate power AFTER this propose lands; reject if it would exceed
+        // 50% of epoch.totalLocked. Mirrors the per-proposal cap structure but
+        // closes the multi-proposal bypass.
+        uint256 oldPower = pendingRecoveries[user][epoch].power;
+        uint256 prospectiveAggregate = aggregateRecoveryPower[epoch] + power - oldPower;
+        uint256 aggregateCap = (ep.totalLocked * MAX_AGGREGATE_RECOVERY_POWER_BPS) / 10000;
+        if (prospectiveAggregate > aggregateCap) revert RecoveryPowerExceedsCap();
+
         // AUDIT REV-H-02: bump the per-epoch in-flight count ONLY when the slot was
         // empty. Re-proposing for the same (user, epoch) (e.g. amending the attested
         // power) overwrites without double-counting.
         if (pendingRecoveries[user][epoch].executeAfter == 0) {
             pendingRecoveryCount[epoch] += 1;
         }
+        // AUDIT FIX D-DR-L1: update aggregate (handles both fresh propose and
+        // overwrite via the (power - oldPower) delta computed above).
+        aggregateRecoveryPower[epoch] = prospectiveAggregate;
 
         // Overwrite any in-flight proposal for this (user, epoch). Loud event ensures
         // any silent overwrite is auditable on-chain.
@@ -1208,6 +1234,14 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // AUDIT REV-H-02: decrement the per-epoch in-flight count so autoReconcileDust
         // can resume processing this epoch's residual dust.
         pendingRecoveryCount[epoch] -= 1;
+        // AUDIT FIX D-DR-L1: free the cancelled power back to the aggregate cap
+        // so legitimate recoveries are not permanently blocked by a previously
+        // proposed-then-cancelled slot.
+        if (aggregateRecoveryPower[epoch] >= p.power) {
+            aggregateRecoveryPower[epoch] -= p.power;
+        } else {
+            aggregateRecoveryPower[epoch] = 0;
+        }
         emit ClaimRecoveryCancelled(user, epoch);
     }
 

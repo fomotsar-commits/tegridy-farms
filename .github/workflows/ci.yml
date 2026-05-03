@@ -33,7 +33,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - run: npm ci
+      # FRESH-EYES CI: --ignore-scripts blocks supply-chain code execution via
+      # postinstall hooks on untrusted PRs. No native modules in this project.
+      - run: npm ci --ignore-scripts
 
       - name: Lint
         run: npm run lint
@@ -61,7 +63,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
 
       # AUDIT R056 HIGH: gate WC secret injection on the PR not coming from a
       # fork. GitHub already withholds secrets on fork PRs, but this is
@@ -106,7 +108,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium

@@ -539,9 +539,16 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         totalPaidOut += reward;
         bounty.status = BountyStatus.Completed;
 
-        // SECURITY FIX: Use WETHFallbackLib with 10k gas stipend (Solmate/Seaport pattern)
+        // SECURITY FIX: Use WETHFallbackLib with gas stipend (Solmate/Seaport pattern)
         // instead of full-gas .call{value} which enabled cross-contract reentrancy.
-        (bool success,) = winner.call{value: reward, gas: 10000}("");
+        // AUDIT FIX D-MEME-M1: bumped 10k → 50k matching VoteIncentives.claimBribes
+        // (FIX 5.7). 10k was below what a Gnosis Safe (or any minimal smart-contract
+        // wallet that runs whenNotPaused/owner reads on receive) costs to credit ETH,
+        // so honest contract winners silently fell into the pendingPayouts fallback
+        // and had to discover-and-call withdrawPayout out-of-band. nonReentrant on
+        // completeBounty makes the larger stipend safe — no cross-contract reentry
+        // surface remains even at 50k.
+        (bool success,) = winner.call{value: reward, gas: 50000}("");
         if (success) {
             emit BountyCompleted(_bountyId, winner, reward);
         } else {

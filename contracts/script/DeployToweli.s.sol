@@ -15,11 +15,11 @@ import {Toweli} from "../src/Toweli.sol";
 ///      TOKEN_TREASURY — recipient for the full 1B supply at deploy time
 contract DeployToweli is Script {
     function run() external returns (Toweli token) {
-        uint256 pk = vm.envUint("PRIVATE_KEY");
+        // FRESH-EYES M-13: keystore migration completion. Forge selects sender from --account/--private-key/--ledger CLI flags; reading PRIVATE_KEY from env defeats the keystore path.
         address treasury = vm.envAddress("TOKEN_TREASURY");
         require(treasury != address(0), "TOKEN_TREASURY not set");
 
-        vm.startBroadcast(pk);
+        vm.startBroadcast();
         token = new Toweli(treasury);
         vm.stopBroadcast();
 

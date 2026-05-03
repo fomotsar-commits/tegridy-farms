@@ -194,6 +194,11 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error ZeroVotingPower();
     error GaugeAlreadyExists();
     error GaugeDoesNotExist();
+    /// @notice AUDIT FIX N-1: a prior `executeRemoveGaugeNextEpoch` left
+    ///         `pendingGaugeRemove` non-zero awaiting `executeRemoveGaugeFinalize`.
+    ///         Refuses a fresh `proposeRemoveGauge` to prevent orphan entries
+    ///         in `gaugeList`.
+    error GaugeRemovePending();
     error MaxGaugesReached();
     /// @notice AUDIT FIX G-02: typed error for the gauge code-length check on
     ///         `proposeAddGauge`. Distinguishes EOA-mistake from other zero-address
@@ -768,6 +773,19 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
     function proposeRemoveGauge(address gauge) external onlyOwner {
         if (!isGauge[gauge]) revert GaugeDoesNotExist();
+        // AUDIT FIX N-1 (orphan-gauge): refuse a fresh propose if a prior
+        // `executeRemoveGaugeNextEpoch` has staged a deferred prune that
+        // hasn't been finalized. Without this guard, calling proposeRemoveGauge(B)
+        // overwrites `pendingGaugeRemove = A` (set by the prior next-epoch path
+        // and intentionally left non-zero so finalize knows which gauge to prune)
+        // — A is now permanently in gaugeList with isGauge[A]=false because the
+        // finalize path keys off `pendingGaugeRemove` and would only ever prune B.
+        // Repeated administration would slowly fill gaugeList up to MAX_TOTAL_GAUGES
+        // (50) with dead entries, eventually bricking proposeAddGauge.
+        // Owner must call `executeRemoveGaugeFinalize` (permissionless once weight
+        // zeroes) before staging the next removal — or use the synchronous
+        // `executeRemoveGauge` path (which clears pendingGaugeRemove on success).
+        if (pendingGaugeRemove != address(0)) revert GaugeRemovePending();
         pendingGaugeRemove = gauge;
         _propose(GAUGE_REMOVE, GAUGE_TIMELOCK);
         emit GaugeRemoveProposed(gauge, block.timestamp + GAUGE_TIMELOCK);

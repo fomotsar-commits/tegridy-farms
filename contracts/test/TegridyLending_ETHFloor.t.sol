@@ -94,8 +94,15 @@ contract MockTegridyPairETHFloor {
 ///      Returns isPair=true for any pair the test owner has explicitly tagged.
 contract MockFactoryForTWAP {
     mapping(address => bool) public isPair;
+    // FRESH-EYES H-2: TegridyTWAP.update reads `factory.disabledPairs(pair)` to
+    // refuse observations during a frozen-reserve disable window. Mock surfaces
+    // the same mapping (default false) so test pairs are always "live".
+    mapping(address => bool) public disabledPairs;
     function tagPair(address _pair) external {
         isPair[_pair] = true;
+    }
+    function setDisabled(address _pair, bool _disabled) external {
+        disabledPairs[_pair] = _disabled;
     }
 }
 

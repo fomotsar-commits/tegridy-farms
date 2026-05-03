@@ -1003,7 +1003,16 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
                     // contract, also record per-tokenId attribution so the
                     // restaker can later pull only their slice (instead of
                     // racing the shared bucket via `claimUnsettled()`).
-                    if (holder == restakingContract && restakingContract != address(0)) {
+                    // AUDIT FIX D-LD-H1: extended to lending contracts. Pre-fix,
+                    // a permissionless kick on one borrower's escrowed NFT
+                    // credited unsettledRewards[lending], which a DIFFERENT
+                    // repaying borrower's claimUnsettled() then drained — that
+                    // borrower's pre-kick reward slice landed in the lending
+                    // contract's "donated" pool instead of their owed bucket.
+                    // _isTrackedHolder() consolidates the gate so every future
+                    // bucket-tracking holder (e.g., new escrow contract) gets
+                    // attribution for free. Mirrors the restakingContract C-1 fix.
+                    if (_isTrackedHolder(holder)) {
                         unsettledRewardsByTokenId[tokenId] += actualSettled;
                     }
                 }
@@ -1019,7 +1028,9 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
                     totalSettled += actualSettledShortfall;
                     // AUDIT FIX C-1: same per-tokenId attribution for the
                     // shortfall-path credits.
-                    if (holder == restakingContract && restakingContract != address(0)) {
+                    // AUDIT FIX D-LD-H1: extended to lending contracts (see
+                    // primary kick-path attribution above for full rationale).
+                    if (_isTrackedHolder(holder)) {
                         unsettledRewardsByTokenId[tokenId] += actualSettledShortfall;
                     }
                 }
@@ -1363,7 +1374,13 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
                 // motivation as the kick() instrumentation: prevents one
                 // restaker from draining another's pre-existing kick credits
                 // in the shared `unsettledRewards[restakingContract]` bucket.
-                if (from == restakingContract && restakingContract != address(0)) {
+                // AUDIT FIX D-LD-H1: extended to lending contracts. When the
+                // NFT exits the lending escrow (repay or default-claim), the
+                // final-period accrual is credited here; per-tokenId tracking
+                // lets the lending contract pull EXACTLY this loan's slice via
+                // claimUnsettledForTokenId — no bucket-drain race with other
+                // borrowers' deltas, no mis-attribution to the donated pool.
+                if (_isTrackedHolder(from)) {
                     unsettledRewardsByTokenId[tokenId] += actualSettled;
                 }
             }
@@ -1422,7 +1439,13 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         // `holderUnsettled` in `claimUnsettledForTokenId` would always be 0),
         // permanently breaking per-tokenId recovery. The restaking contract's
         // own per-tokenId path is the only valid drain route.
-        if (_user == restakingContract && restakingContract != address(0)) {
+        // AUDIT FIX D-LD-H1: same protection extended to lending contracts. The
+        // lending bucket is now ALSO the per-tokenId backing for any escrowed
+        // loan position; an unrestricted claimUnsettledFor(lendingContract) by
+        // the owner-stale path would silently zero the bucket while leaving
+        // unsettledRewardsByTokenId[*] dangling — every borrower's per-tokenId
+        // pull would then return 0 instead of their attributed slice.
+        if (_isTrackedHolder(_user)) {
             revert Unauthorized();
         }
         // AUDIT R014 M-9: owner branch requires 90-day user inactivity. The user
@@ -1464,7 +1487,15 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         whenNotPaused
         returns (uint256 paid)
     {
-        if (msg.sender != restakingContract || restakingContract == address(0)) revert Unauthorized();
+        // AUDIT FIX D-LD-H1: gate by tracked-holder status (restakingContract OR
+        // any whitelisted lending contract). Caller's own bucket is the drain
+        // source — no holder argument needed. Both holder types record
+        // unsettledRewardsByTokenId[tokenId] in lockstep with unsettledRewards
+        // [holder]; this caller-asserted drain is sound because a tokenId can
+        // only be in one tracked-holder location at a time (NFT transfers are
+        // atomic, and both holders ALWAYS drain on transfer-out via this same
+        // function — see TegridyRestaking.unrestake / TegridyLending.repayLoan).
+        if (!_isTrackedHolder(msg.sender)) revert Unauthorized();
         if (recipient == address(0)) revert ZeroAddress();
 
         uint256 amount = unsettledRewardsByTokenId[tokenId];
@@ -1475,7 +1506,7 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
         // every per-tokenId credit was paired with a holder-bucket credit via
         // _settleUnsettled(holder, ...). The cap defends against any future
         // refactor that decouples the two writes.
-        uint256 holderUnsettled = unsettledRewards[restakingContract];
+        uint256 holderUnsettled = unsettledRewards[msg.sender];
         if (amount > holderUnsettled) amount = holderUnsettled;
 
         // Apply the same reward-pool cap as `_claimUnsettledInternal`: reserve
@@ -1488,11 +1519,27 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
 
         if (paid > 0) {
             unsettledRewardsByTokenId[tokenId] -= paid;
-            unsettledRewards[restakingContract] = holderUnsettled - paid;
+            unsettledRewards[msg.sender] = holderUnsettled - paid;
             totalUnsettledRewards = totalUnsettledRewards > paid ? totalUnsettledRewards - paid : 0;
             rewardToken.safeTransfer(recipient, paid);
             emit UnsettledClaimedForTokenId(tokenId, recipient, paid);
         }
+    }
+
+    /// @notice AUDIT FIX D-LD-H1: tracked-holder predicate. A "tracked holder"
+    ///         is one whose `unsettledRewards[holder]` bucket is the BACKING
+    ///         store for `unsettledRewardsByTokenId[*]` entries — meaning every
+    ///         credit/debit on the bucket must be paired with a per-tokenId
+    ///         write. Currently: restakingContract + any address flagged via
+    ///         `applyLendingContract`. Used by kick() / _settleRewardsOnTransfer
+    ///         (write side) and claimUnsettledForTokenId / claimUnsettledFor
+    ///         (read + drain side) to keep the invariant
+    ///         `sum(unsettledRewardsByTokenId[*]) <= unsettledRewards[holder]`
+    ///         coherent across every reward-touching path.
+    function _isTrackedHolder(address holder) internal view returns (bool) {
+        if (holder == address(0)) return false;
+        if (holder == restakingContract && restakingContract != address(0)) return true;
+        return isLendingContract[holder];
     }
 
     function _claimUnsettledInternal(address _user) private {

@@ -355,23 +355,18 @@ contract PremiumAccessTest is Test {
 
         vm.prank(alice);
         premium.subscribe(1, type(uint256).max);
-        // AUDIT PA-M-01 (2026-04-29) + DEEP-DR-M-06 (2026-05-01): on extension,
-        // ONLY the consumed portion of the OLD escrow (~1/30 of MONTHLY_FEE
-        // since ~1 day elapsed of 30) is credited to totalRevenue. The
-        // unconsumed remainder is rolled into the new per-period escrow.
-        //
-        // PLUS the new cost (MONTHLY_FEE) is added by the existing M-06
-        // unconditional `totalRevenue += cost` line. So total revenue should
-        // be approximately:
-        //   start: MONTHLY_FEE
-        // + consumed portion of OLD escrow: ~MONTHLY_FEE * (1 day / 30 days)
-        // + new cost: MONTHLY_FEE
-        //   ≈ 2 * MONTHLY_FEE + ~3% of MONTHLY_FEE.
-        // Tolerance widened to handle the per-second elapsed slice.
-        uint256 expectedConsumed = MONTHLY_FEE * (premium.MIN_HOLDING_PERIOD() + 1) / 30 days;
-        uint256 expectedTotal = 2 * MONTHLY_FEE + expectedConsumed;
-        assertApproxEqAbs(premium.totalRevenue(), expectedTotal, 1 ether,
-            "DEEP-DR-M-06: only consumed portion enters revenue");
+        // AUDIT FIX PASS5-PA-L1 (2026-05-03): the prior PA-M-01/DEEP-DR-M-06 fix
+        // attempted to credit the consumed portion to totalRevenue at extension —
+        // but the original cost was ALREADY counted in totalRevenue at first-
+        // subscribe time. The consumed-portion add was a double-count. This test
+        // now reflects the corrected behavior: extension only adds the NEW cost,
+        // never the consumed slice (which was always part of the original cost1).
+        // Net trajectory:
+        //   start: MONTHLY_FEE     (after subscribe(1))
+        // + new cost: MONTHLY_FEE  (after extend(1) — line 345's unconditional add)
+        //   = 2 * MONTHLY_FEE      (exact, no per-second drift)
+        assertEq(premium.totalRevenue(), 2 * MONTHLY_FEE,
+            "PASS5-PA-L1: extension no longer double-counts consumedEscrow into totalRevenue");
     }
 
     function test_totalRevenue_incrementsOnNewSubscription() public {

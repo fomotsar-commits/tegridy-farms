@@ -152,7 +152,9 @@ case "$1" in
         print_header
         echo "MODE: LIVE BROADCAST TO MAINNET (NO verify in this step)"
         echo ""
-        read -p "Are you sure? This will spend real ETH. Type 'yes' to confirm: " confirm
+        # FRESH-EYES: read from /dev/tty so `yes | bash deploy.sh broadcast`
+        # cannot bypass the confirmation by piping stdin.
+        read -p "Are you sure? This will spend real ETH. Type 'yes' to confirm: " confirm </dev/tty
         if [ "$confirm" != "yes" ]; then
             echo "Aborted."
             exit 0

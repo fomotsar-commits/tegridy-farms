@@ -231,6 +231,15 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         totalReferred[_referrer] += 1;
         if (referrerRegisteredAt[_referrer] == 0) {
             referrerRegisteredAt[_referrer] = block.timestamp;
+            // FRESH-EYES M-5: seed lastClaimTime so the forfeiture inactivity clock starts
+            // from registration, not genesis. Without this, a never-claimed referrer's
+            // forfeit predicate is `block.timestamp < 0 + FORFEITURE_PERIOD` which is
+            // trivially false past block-time = 90 days post-genesis — letting a
+            // captured/colluding owner starve out a freshly-credited referrer the moment
+            // their stake-power dips below threshold for the 7-day grace, even though they
+            // have never had a chance to claim. Anchoring on registrationTime restores the
+            // documented "90 days of inactivity" semantic.
+            lastClaimTime[_referrer] = block.timestamp;
         }
 
         emit ReferrerSet(msg.sender, _referrer);

@@ -47,7 +47,7 @@ interface ITegridyStaking {
 contract WireAuditFixesScript is Script {
     function run() external {
         require(block.chainid == 1, "MAINNET_ONLY");
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        // FRESH-EYES M-13: keystore migration completion. Forge selects sender from --account/--private-key/--ledger CLI flags; reading PRIVATE_KEY from env defeats the keystore path.
 
         address factory = vm.envAddress("FACTORY");
         address staking = vm.envAddress("STAKING");
@@ -59,17 +59,6 @@ contract WireAuditFixesScript is Script {
         address polAccumulator = vm.envOr("POL_ACCUMULATOR", address(0));
         address swapFeeRouter = vm.envOr("SWAP_FEE_ROUTER", address(0));
 
-        // Sanity: caller must actually be the current controller for both.
-        address deployer = vm.addr(deployerPrivateKey);
-        require(
-            ITegridyFactory(factory).feeToSetter() == deployer,
-            "DEPLOYER_IS_NOT_FEE_TO_SETTER"
-        );
-        require(
-            ITegridyStaking(staking).owner() == deployer,
-            "DEPLOYER_IS_NOT_STAKING_OWNER"
-        );
-
         console.log("=== Wire audit-fix roles ===");
         console.log("Factory:       %s", factory);
         console.log("Staking:       %s", staking);
@@ -78,7 +67,17 @@ contract WireAuditFixesScript is Script {
         console.log("POLAccum:      %s", polAccumulator);
         console.log("SwapFeeRouter: %s", swapFeeRouter);
 
-        vm.startBroadcast(deployerPrivateKey);
+        vm.startBroadcast();
+        // Sanity: caller must actually be the current controller for both.
+        address deployer = msg.sender;
+        require(
+            ITegridyFactory(factory).feeToSetter() == deployer,
+            "DEPLOYER_IS_NOT_FEE_TO_SETTER"
+        );
+        require(
+            ITegridyStaking(staking).owner() == deployer,
+            "DEPLOYER_IS_NOT_STAKING_OWNER"
+        );
 
         // 1. NEW-A2: set factory guardian for emergency pair-disable.
         require(guardian != address(0), "GUARDIAN_ZERO");

@@ -68,7 +68,8 @@ case "$1" in
         require_private_key
         echo "=== VoteIncentives — BROADCAST (no verify) ==="
         echo "Staking: 0xc2072846A493b92E2722dEE8eAFA78690f099bBD (new)"
-        read -p "Broadcast to mainnet? Type 'yes' to confirm: " confirm
+        # FRESH-EYES: read from /dev/tty so piped stdin cannot bypass prompt.
+        read -p "Broadcast to mainnet? Type 'yes' to confirm: " confirm </dev/tty
         if [ "$confirm" != "yes" ]; then
             echo "Aborted."
             exit 0
