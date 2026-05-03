@@ -1,7 +1,8 @@
 import { useState, useCallback } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { TEGRIDY_DROP_V2_ABI } from '../../lib/contracts';
+import { CHAIN_ID } from '../../lib/constants';
 import { ART } from '../../lib/artConfig';
 import { toast } from 'sonner';
 import { INPUT, LABEL, BTN_EMERALD, PHASE_LABELS } from './launchpadConstants';
@@ -14,6 +15,7 @@ export function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string
   const [merkleRoot, setMerkleRoot] = useState('');
   const [revealURI, setRevealURI] = useState('');
 
+  const chainId = useChainId();
   const { writeContract, data: txHash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
   const busy = isPending || isConfirming || !deployed;
@@ -50,9 +52,12 @@ export function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string
 
   const exec = useCallback(
     (fn: string, args?: unknown[], opts?: { onSuccess?: () => void }) => {
+      // AUDIT FIX M-8: refuse on wrong chain so admin actions aren't sent to a
+      // phantom address on Sepolia/Base/Arbitrum.
+      if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
       if (!deployed) return;
       writeContract(
-        { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: fn, args: args as never[] } as never,
+        { chainId: CHAIN_ID, address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: fn, args: args as never[] } as never,
         {
           onSuccess: () => {
             toast.success(`${fn} succeeded`);
@@ -62,7 +67,7 @@ export function OwnerAdminPanel({ dropAddress, deployed }: { dropAddress: string
         },
       );
     },
-    [contractAddr, writeContract, deployed],
+    [contractAddr, writeContract, deployed, chainId],
   );
 
   return (

@@ -165,12 +165,16 @@ export function useNFTDropV2(dropAddress: string) {
   const inFlight = !!hash && !isSuccess && !isTxError;
 
   function mint(quantity: number, proof: `0x${string}`[] = []) {
+    // AUDIT FIX M-8: refuse on wrong chain so the user doesn't burn ETH
+    // minting against a phantom address on Sepolia/Base/Arbitrum.
+    if (!onMainnet) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (isPending || isConfirming || inFlight) {
       toast.error('A mint is already pending');
       return;
     }
     const totalCost = currentPrice * BigInt(quantity);
     writeContract({
+      chainId: CHAIN_ID,
       address: contractAddr,
       abi: TEGRIDY_DROP_V2_ABI,
       functionName: 'mint',
@@ -180,6 +184,7 @@ export function useNFTDropV2(dropAddress: string) {
   }
 
   function refund() {
+    if (!onMainnet) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (isPending || isConfirming || inFlight) {
       toast.error('A transaction is already pending');
       return;
@@ -189,6 +194,7 @@ export function useNFTDropV2(dropAddress: string) {
       return;
     }
     writeContract({
+      chainId: CHAIN_ID,
       address: contractAddr,
       abi: TEGRIDY_DROP_V2_ABI,
       functionName: 'refund',

@@ -1,11 +1,13 @@
 import { useEffect } from 'react';
-import { useAccount, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { toast } from 'sonner';
 import { TEGRIDY_DROP_V2_ABI } from '../lib/contracts';
+import { CHAIN_ID } from '../lib/constants';
 import { formatWei } from '../lib/formatting';
 
 export function useNFTDrop(dropAddress: string) {
   const { address } = useAccount();
+  const chainId = useChainId();
   const contractAddr = dropAddress as `0x${string}`;
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
@@ -57,12 +59,16 @@ export function useNFTDrop(dropAddress: string) {
   const inFlight = !!hash && !isSuccess && !isTxError;
 
   function mint(quantity: number, proof: `0x${string}`[] = []) {
+    // AUDIT FIX M-8: refuse on wrong chain so the user doesn't burn ETH
+    // minting against a phantom address on Sepolia/Base/Arbitrum.
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (isPending || isConfirming || inFlight) {
       toast.error('A mint is already pending');
       return;
     }
     const totalCost = mintPrice * BigInt(quantity);
     writeContract({
+      chainId: CHAIN_ID,
       address: contractAddr,
       abi: TEGRIDY_DROP_V2_ABI,
       functionName: 'mint',
@@ -72,6 +78,7 @@ export function useNFTDrop(dropAddress: string) {
   }
 
   function refund() {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (isPending || isConfirming || inFlight) {
       toast.error('A transaction is already pending');
       return;
@@ -81,6 +88,7 @@ export function useNFTDrop(dropAddress: string) {
       return;
     }
     writeContract({
+      chainId: CHAIN_ID,
       address: contractAddr,
       abi: TEGRIDY_DROP_V2_ABI,
       functionName: 'refund',

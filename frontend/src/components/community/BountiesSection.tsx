@@ -1,9 +1,9 @@
 import { useState, useMemo } from 'react';
-import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { parseEther, type Address } from 'viem';
 import { m } from 'framer-motion';
 import { toast } from 'sonner';
-import { MEME_BOUNTY_BOARD_ADDRESS } from '../../lib/constants';
+import { MEME_BOUNTY_BOARD_ADDRESS, CHAIN_ID } from '../../lib/constants';
 import { MEME_BOUNTY_BOARD_ABI } from '../../lib/contracts';
 import { shortenAddress, formatTimeAgo, formatWei } from '../../lib/formatting';
 import { pageArt } from '../../lib/artConfig';
@@ -33,6 +33,13 @@ export function BountiesSection() {
   const [submitURI, setSubmitURI] = useState('');
 
   const bbAddr = MEME_BOUNTY_BOARD_ADDRESS as Address;
+  const chainId = useChainId();
+  // AUDIT FIX M-8: refuse on wrong chain so the user doesn't burn ETH
+  // creating a bounty / submitting / claiming on Sepolia/Base/Arbitrum.
+  const _ensureChain = () => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return false; }
+    return true;
+  };
   const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();
   const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash });
 
@@ -62,6 +69,7 @@ export function BountiesSection() {
   const { data: bountyResults } = useReadContracts({ contracts: bountyContracts, query: { enabled: count > 0 } });
 
   const handleCreate = () => {
+    if (!_ensureChain()) return;
     if (!newDescription || !newReward || !newDeadlineDays) return;
     // R069: strip BiDi/control chars + cap length client-side. Defence-in-depth
     // before the on-chain calldata.
@@ -72,6 +80,7 @@ export function BountiesSection() {
     }
     const deadlineSecs = BigInt(Math.floor(Date.now() / 1000) + Number(newDeadlineDays) * 86400);
     writeContract({
+      chainId: CHAIN_ID,
       address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'createBounty',
       args: [clean, deadlineSecs],
       value: parseEther(newReward),
@@ -86,7 +95,9 @@ export function BountiesSection() {
       toast.error(SUBMISSION_URI_ERROR);
       return;
     }
+    if (!_ensureChain()) return;
     writeContract({
+      chainId: CHAIN_ID,
       address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'submitWork',
       args: [BigInt(bountyId), submitURI.trim()],
     });
@@ -97,7 +108,9 @@ export function BountiesSection() {
   const descriptionRemaining = DEFAULT_DESCRIPTION_LIMIT - newDescription.length;
 
   const handleClaim = (type: 'payout' | 'refund') => {
+    if (!_ensureChain()) return;
     writeContract({
+      chainId: CHAIN_ID,
       address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI,
       functionName: type === 'payout' ? 'withdrawPayout' : 'withdrawRefund',
     });

@@ -1,9 +1,9 @@
 import { useState, useMemo, useEffect } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
-import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { formatEther, parseEther, type Address } from 'viem';
 import { toast } from 'sonner';
-import { TEGRIDY_NFT_LENDING_ADDRESS } from '../../lib/constants';
+import { TEGRIDY_NFT_LENDING_ADDRESS, CHAIN_ID } from '../../lib/constants';
 import { TEGRIDY_NFT_LENDING_ABI, ERC721_ABI } from '../../lib/contracts';
 import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '../ui/InfoTooltip';
 import { ART, pageArt, artStyle } from '../../lib/artConfig';
@@ -243,6 +243,7 @@ function LendTab() {
   const [tokenId, setTokenId] = useState('');
   const [duration, setDuration] = useState(DURATION_PRESETS[2]!.seconds); // default 30d
 
+  const chainId = useChainId();
   const { writeContract, data: txHash, isPending, reset } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
@@ -265,6 +266,9 @@ function LendTab() {
   }, [principal, aprBps, duration]);
 
   const handleCreateOffer = () => {
+    // AUDIT FIX M-8: refuse on wrong chain — createOffer would burn the
+    // principal value to a phantom address on Sepolia/Base/Arbitrum.
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!principal || parseFloat(principal) <= 0) {
       toast.error('Enter a valid principal amount');
       return;
@@ -287,6 +291,7 @@ function LendTab() {
     }
     try {
       writeContract({
+        chainId: CHAIN_ID,
         address: TEGRIDY_NFT_LENDING_ADDRESS,
         abi: TEGRIDY_NFT_LENDING_ABI,
         functionName: 'createOffer',
@@ -648,6 +653,7 @@ function OfferCard({
   onToggle: () => void;
 }) {
   const { isConnected } = useAccount();
+  const chainId = useChainId();
   // tokenId is fixed on the offer — the borrower cannot substitute a different one.
   const tokenId = offer.tokenId.toString();
 
@@ -670,7 +676,10 @@ function OfferCard({
   }, [acceptSuccess]);
 
   const handleApprove = () => {
+    // AUDIT FIX M-8: refuse on wrong chain.
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     approveNft({
+      chainId: CHAIN_ID,
       address: offer.collateralContract,
       abi: ERC721_ABI,
       functionName: 'approve',
@@ -679,7 +688,9 @@ function OfferCard({
   };
 
   const handleAccept = () => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     acceptOffer({
+      chainId: CHAIN_ID,
       address: TEGRIDY_NFT_LENDING_ADDRESS,
       abi: TEGRIDY_NFT_LENDING_ABI,
       functionName: 'acceptOffer',
@@ -907,6 +918,7 @@ function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; user
   const colors = STATUS_COLORS[status] ?? { text: 'text-white/80', border: 'border-white/20', bg: 'rgba(255,255,255,0.05)' };
   const isBorrower = loan.borrower.toLowerCase() === userAddress.toLowerCase();
   const isLender = loan.lender.toLowerCase() === userAddress.toLowerCase();
+  const chainId = useChainId();
 
   // AUDIT R011 (HIGH-049-4): shared 1-Hz countdown so the displayed time
   // updates every second instead of drifting until the parent re-renders.
@@ -945,11 +957,15 @@ function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; user
   }, [claimSuccess]);
 
   const handleRepay = () => {
+    // AUDIT FIX M-8: refuse on wrong chain — repayLoan would burn the
+    // repayment value into a phantom address on Sepolia/Base/Arbitrum.
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!repaymentData) {
       toast.error('Could not read repayment amount');
       return;
     }
     repayLoan({
+      chainId: CHAIN_ID,
       address: TEGRIDY_NFT_LENDING_ADDRESS,
       abi: TEGRIDY_NFT_LENDING_ABI,
       functionName: 'repayLoan',
@@ -959,7 +975,9 @@ function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; user
   };
 
   const handleClaimDefault = () => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     claimDefault({
+      chainId: CHAIN_ID,
       address: TEGRIDY_NFT_LENDING_ADDRESS,
       abi: TEGRIDY_NFT_LENDING_ABI,
       functionName: 'claimDefault',

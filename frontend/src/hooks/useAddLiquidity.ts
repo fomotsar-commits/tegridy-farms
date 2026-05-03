@@ -3,7 +3,7 @@ import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadCont
 import { parseUnits, formatUnits } from 'viem';
 import { toast } from 'sonner';
 import { TEGRIDY_ROUTER_ABI, TEGRIDY_FACTORY_ABI, ERC20_ABI, UNISWAP_V2_PAIR_ABI } from '../lib/contracts';
-import { TEGRIDY_ROUTER_ADDRESS, TEGRIDY_FACTORY_ADDRESS, WETH_ADDRESS } from '../lib/constants';
+import { TEGRIDY_ROUTER_ADDRESS, TEGRIDY_FACTORY_ADDRESS, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { type TokenInfo } from '../lib/tokenList';
 import { getTxUrl } from '../lib/explorer';
 
@@ -163,10 +163,20 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
 
   // ─── Actions ──────────────────────────────────────────────────
 
+  // AUDIT FIX M-8: every action below short-circuits on wrong chain so the
+  // user can't burn ETH approving / adding liquidity on a non-mainnet chain
+  // where the router/factory addresses are unallocated or colliding.
+  function _ensureChain(): boolean {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return false; }
+    return true;
+  }
+
   function approveTokenA(amount: string) {
+    if (!_ensureChain()) return;
     if (!tokenA || tokenA.isNative) return;
     try {
       writeContract({
+        chainId: CHAIN_ID,
         address: addrA,
         abi: ERC20_ABI,
         functionName: 'approve',
@@ -178,9 +188,11 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   }
 
   function approveTokenB(amount: string) {
+    if (!_ensureChain()) return;
     if (!tokenB || tokenB.isNative) return;
     try {
       writeContract({
+        chainId: CHAIN_ID,
         address: addrB,
         abi: ERC20_ABI,
         functionName: 'approve',
@@ -192,9 +204,11 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   }
 
   function approveLP(amount: string) {
+    if (!_ensureChain()) return;
     if (!pairExists) return;
     try {
       writeContract({
+        chainId: CHAIN_ID,
         address: pairAddr,
         abi: ERC20_ABI,
         functionName: 'approve',
@@ -207,6 +221,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
 
   // Add liquidity — dispatches to correct variant based on ETH involvement
   function addLiquidity(amountAStr: string, amountBStr: string, slippageBps = 50) {
+    if (!_ensureChain()) return;
     if (!address || !tokenA || !tokenB) return;
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800); // 30min
     const slippageFactor = BigInt(10000 - slippageBps);
@@ -222,6 +237,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
         const ethMin = (ethAmount * slippageFactor) / 10000n;
 
         writeContract({
+          chainId: CHAIN_ID,
           address: TEGRIDY_ROUTER_ADDRESS,
           abi: TEGRIDY_ROUTER_ABI,
           functionName: 'addLiquidityETH',
@@ -236,6 +252,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
         const amountBMin = (amountBWei * slippageFactor) / 10000n;
 
         writeContract({
+          chainId: CHAIN_ID,
           address: TEGRIDY_ROUTER_ADDRESS,
           abi: TEGRIDY_ROUTER_ABI,
           functionName: 'addLiquidity',
@@ -249,6 +266,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
 
   // Remove liquidity — dispatches to correct variant
   function removeLiquidity(lpAmount: string, slippageBps = 50) {
+    if (!_ensureChain()) return;
     if (!address || !tokenA || !tokenB || !pairExists) return;
     try {
       const lpWei = parseUnits(lpAmount, 18);
@@ -266,6 +284,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
         const ethOut = isAEth ? expectedA : expectedB;
 
         writeContract({
+          chainId: CHAIN_ID,
           address: TEGRIDY_ROUTER_ADDRESS,
           abi: TEGRIDY_ROUTER_ABI,
           functionName: 'removeLiquidityETH',
@@ -279,6 +298,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
         });
       } else {
         writeContract({
+          chainId: CHAIN_ID,
           address: TEGRIDY_ROUTER_ADDRESS,
           abi: TEGRIDY_ROUTER_ABI,
           functionName: 'removeLiquidity',

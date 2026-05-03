@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { parseEther, formatEther, type Address } from 'viem';
 import { m, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import {
   TEGRIDY_LENDING_ADDRESS,
   TEGRIDY_STAKING_ADDRESS,
+  CHAIN_ID,
   isDeployed,
 } from '../../lib/constants';
 import { TEGRIDY_LENDING_ABI, TEGRIDY_STAKING_ABI } from '../../lib/contracts';
@@ -669,6 +670,7 @@ function LendTab({ deployed }: { deployed: boolean }) {
   // the check disabled — the contract treats zero as a no-op.
   const [minCollateralETH, setMinCollateralETH] = useState('');
 
+  const chainId = useChainId();
   const { writeContract, data: txHash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
@@ -692,6 +694,9 @@ function LendTab({ deployed }: { deployed: boolean }) {
   }, [principal, aprBps, durationDays]);
 
   const handleCreate = useCallback(() => {
+    // AUDIT FIX M-8: refuse on wrong chain — createLoanOffer would burn the
+    // principal value into a phantom address on Sepolia/Base/Arbitrum.
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!deployed) {
       toast.error('Contract not deployed yet');
       return;
@@ -711,6 +716,7 @@ function LendTab({ deployed }: { deployed: boolean }) {
       return;
     }
     writeContract({
+      chainId: CHAIN_ID,
       address: TEGRIDY_LENDING_ADDRESS as Address,
       abi: TEGRIDY_LENDING_ABI,
       functionName: 'createLoanOffer',
@@ -726,7 +732,7 @@ function LendTab({ deployed }: { deployed: boolean }) {
     }, {
       onError: (err) => toast.error(err.message?.slice(0, 120) ?? 'Transaction failed'),
     });
-  }, [principal, aprBps, durationDays, minCollateral, minCollateralETH, writeContract, deployed]);
+  }, [principal, aprBps, durationDays, minCollateral, minCollateralETH, writeContract, deployed, chainId]);
 
   const loading = isPending || isConfirming;
 
@@ -911,6 +917,7 @@ function OfferRow({
   idx: number;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const chainId = useChainId();
 
   // User's staking position
   const { data: userTokenId } = useReadContract({
@@ -967,8 +974,12 @@ function OfferRow({
   }, [acceptSuccess]);
 
   const handleApprove = () => {
+    // AUDIT FIX M-8: refuse on wrong chain so the approval doesn't hit a
+    // phantom staking address on Sepolia/Base/Arbitrum.
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!deployed) return;
     approveWrite({
+      chainId: CHAIN_ID,
       address: TEGRIDY_STAKING_ADDRESS as Address,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'approve',
@@ -979,8 +990,10 @@ function OfferRow({
   };
 
   const handleAccept = () => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!deployed) return;
     acceptWrite({
+      chainId: CHAIN_ID,
       address: TEGRIDY_LENDING_ADDRESS as Address,
       abi: TEGRIDY_LENDING_ABI,
       functionName: 'acceptOffer',
@@ -1476,6 +1489,7 @@ function LoanRow({
 }) {
   const status = getLoanStatus(loan);
   const countdown = useCountdown(loan.deadline);
+  const chainId = useChainId();
 
   // AUDIT R011 (HIGH-049-3): pro-rata interest accrues every block, so the
   // cached repayment quote can be cents short by the time the user signs and
@@ -1520,8 +1534,12 @@ function LoanRow({
   }, [claimSuccess]);
 
   const handleRepay = () => {
+    // AUDIT FIX M-8: refuse on wrong chain — repayLoan would burn the
+    // repaymentAmount into a phantom address on Sepolia/Base/Arbitrum.
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!repaymentAmount || !deployed) return;
     repayWrite({
+      chainId: CHAIN_ID,
       address: TEGRIDY_LENDING_ADDRESS as Address,
       abi: TEGRIDY_LENDING_ABI,
       functionName: 'repayLoan',
@@ -1533,8 +1551,10 @@ function LoanRow({
   };
 
   const handleClaim = () => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!deployed) return;
     claimWrite({
+      chainId: CHAIN_ID,
       address: TEGRIDY_LENDING_ADDRESS as Address,
       abi: TEGRIDY_LENDING_ABI,
       functionName: 'claimDefaultedCollateral',

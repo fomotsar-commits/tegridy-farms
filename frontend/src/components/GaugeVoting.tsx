@@ -3,7 +3,7 @@ import { useAccount, useReadContract, useReadContracts, useWriteContract, useWai
 import { formatEther, keccak256, encodeAbiParameters, toHex, type Address, type Hex } from 'viem';
 import { m } from 'framer-motion';
 import { toast } from 'sonner';
-import { GAUGE_CONTROLLER_ADDRESS, TEGRIDY_STAKING_ADDRESS, isDeployed } from '../lib/constants';
+import { GAUGE_CONTROLLER_ADDRESS, TEGRIDY_STAKING_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
 import { GAUGE_CONTROLLER_ABI, TEGRIDY_STAKING_ABI } from '../lib/contracts';
 import { formatTokenAmount, shortenAddress } from '../lib/formatting';
 import { InfoTooltip } from './ui/InfoTooltip';
@@ -213,11 +213,16 @@ export function GaugeVoting() {
 
   // ─── Legacy Vote Handler (one-step) ─────────────────────────
   const handleLegacyVote = () => {
+    // AUDIT FIX M-8: refuse on wrong chain — vote() against a phantom
+    // GaugeController address on Sepolia/Base/Arbitrum would either revert
+    // wasting gas or (worst case) hit a colliding contract on an L2 fork.
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!tokenId || totalWeight !== BPS) return;
     const voteGauges = Object.keys(weights).filter((g) => (weights[g] ?? 0) > 0) as Address[];
     const voteWeights = voteGauges.map((g) => BigInt(weights[g] ?? 0));
     try {
       writeContract({
+        chainId: CHAIN_ID,
         address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'vote',
         args: [tokenId, voteGauges, voteWeights],
       });
@@ -228,6 +233,7 @@ export function GaugeVoting() {
 
   // ─── Commit Handler (step 1 of commit-reveal) ───────────────
   const handleCommit = useCallback(() => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!tokenId || !address || currentEpoch === undefined || !commitmentKey || totalWeight !== BPS) return;
     const voteGauges = Object.keys(weights).filter((g) => (weights[g] ?? 0) > 0) as Address[];
     const voteWeights = voteGauges.map((g) => BigInt(weights[g] ?? 0));
@@ -251,6 +257,7 @@ export function GaugeVoting() {
     setLocalCommitment(loadCommitment(commitmentKey));
     try {
       writeContract({
+        chainId: CHAIN_ID,
         address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'commitVote',
         args: [tokenId, commitmentHash],
       });
@@ -261,18 +268,20 @@ export function GaugeVoting() {
 
   // ─── Reveal Handler (step 2 of commit-reveal) ───────────────
   const handleReveal = useCallback(() => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!tokenId || !localCommitment) return;
     const gaugesToReveal = localCommitment.gauges;
     const weightsToReveal = localCommitment.weights.map((w) => BigInt(w));
     try {
       writeContract({
+        chainId: CHAIN_ID,
         address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'revealVote',
         args: [tokenId, gaugesToReveal, weightsToReveal, localCommitment.salt],
       });
     } catch (err) {
       surfaceTxError(err, toast, { component: 'GaugeVoting.reveal' });
     }
-  }, [tokenId, localCommitment, writeContract, gcAddr]);
+  }, [tokenId, localCommitment, writeContract, gcAddr, chainId]);
 
   // On confirm: toast, clear localStorage if reveal just landed, refetch window state.
   useEffect(() => {

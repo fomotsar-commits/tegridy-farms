@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Dispatch } from 'react';
 import { parseEther } from 'viem';
 import { useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
-import { TEGRIDY_LAUNCHPAD_V2_ADDRESS } from '../../../lib/constants';
+import { TEGRIDY_LAUNCHPAD_V2_ADDRESS, CHAIN_ID } from '../../../lib/constants';
 import { TEGRIDY_LAUNCHPAD_V2_ABI } from '../../../lib/contracts';
 import { getAddressUrl } from '../../../lib/explorer';
 import { arweaveUri } from '../../../lib/irysClient';
@@ -29,6 +29,13 @@ export function Step5_Deploy({
   const factoryDeployed = TEGRIDY_LAUNCHPAD_V2_ADDRESS !== ZERO_ADDRESS;
 
   const handleDeploy = () => {
+    // AUDIT FIX M-8: refuse on wrong chain so the user doesn't burn ETH
+    // creating a collection on Sepolia/Base/Arbitrum where the factory
+    // isn't deployed (or worse, hits a colliding contract on an L2 fork).
+    if (chainId !== CHAIN_ID) {
+      setLocalErr('Please switch to Ethereum Mainnet before deploying.');
+      return;
+    }
     if (!factoryDeployed) {
       setLocalErr(
         'V2 launchpad factory not deployed yet. Run DeployLaunchpadV2.s.sol and update TEGRIDY_LAUNCHPAD_V2_ADDRESS.'
@@ -62,6 +69,7 @@ export function Step5_Deploy({
 
     try {
       writeContract({
+        chainId: CHAIN_ID,
         address: TEGRIDY_LAUNCHPAD_V2_ADDRESS as `0x${string}`,
         abi: TEGRIDY_LAUNCHPAD_V2_ABI,
         functionName: 'createCollection',

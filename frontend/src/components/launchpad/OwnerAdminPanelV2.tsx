@@ -1,9 +1,10 @@
 import { useMemo, useState, useCallback } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { parseEther } from 'viem';
 import { toast } from 'sonner';
 import { TEGRIDY_DROP_V2_ABI } from '../../lib/contracts';
+import { CHAIN_ID } from '../../lib/constants';
 import { ART } from '../../lib/artConfig';
 import { INPUT, LABEL, BTN_EMERALD, PHASE_LABELS } from './launchpadConstants';
 import { ArtCard } from './launchpadShared';
@@ -114,17 +115,21 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
     return null;
   }, [dutchStartPrice, dutchEndPrice, dutchStartTime, dutchDuration]);
 
+  const chainId = useChainId();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const exec = useCallback((fn: string, args?: unknown[], opts?: { onSuccess?: () => void }) => {
+    // AUDIT FIX M-8: refuse on wrong chain so admin actions aren't sent to a
+    // phantom address on Sepolia/Base/Arbitrum.
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!deployed) return;
     writeContract(
-      { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: fn, args: args as never[] } as any,
+      { chainId: CHAIN_ID, address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: fn, args: args as never[] } as any,
       {
         onSuccess: () => { toast.success(`${fn} succeeded`); opts?.onSuccess?.(); },
         onError: (e) => toast.error(e.message.slice(0, 80)),
       },
     );
-  }, [contractAddr, writeContract, deployed]);
+  }, [contractAddr, writeContract, deployed, chainId]);
 
   return (
     <ArtCard art={ART.roseApe} opacity={1} overlay="none" className="mt-6">

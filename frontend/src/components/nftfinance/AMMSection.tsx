@@ -17,6 +17,7 @@ import type { Address } from 'viem';
 import { toast } from 'sonner';
 import {
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
+  CHAIN_ID,
   isDeployed,
 } from '../../lib/constants';
 import {
@@ -497,6 +498,7 @@ function PoolTypeBadge({ type }: { type: number }) {
 
 function BuySellPanel({ deployed }: { deployed: boolean }) {
   const { address } = useAccount();
+  const chainId = useChainId();
   const [mode, setMode] = useState<'buy' | 'sell'>('buy');
   const [collection, setCollection] = useState('');
   const [buyQty, setBuyQty] = useState(1);
@@ -635,10 +637,14 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
   const isLinearCurve = true; // All current pools use linear curves; update if exponential pools are added
 
   const handleApprove = () => {
+    // AUDIT FIX M-8: refuse on wrong chain so the approval doesn't hit a
+    // phantom NFT contract on Sepolia/Base/Arbitrum.
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!hasPool || !validCollection || !address) return;
     setApprovalStep('approving');
     writeApproval(
       {
+        chainId: CHAIN_ID,
         address: collection as Address,
         abi: ERC721_APPROVAL_ABI,
         functionName: 'setApprovalForAll',
@@ -654,6 +660,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
   };
 
   const handleExecute = () => {
+    if (chainId !== CHAIN_ID) return toast.error('Please switch to Ethereum Mainnet');
     if (!hasPool) return toast.error('No pool found for this collection');
     if (!address) return toast.error('Connect your wallet');
 
@@ -668,6 +675,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
         }
         writeContract(
           {
+            chainId: CHAIN_ID,
             address: bestPool as Address,
             abi: TEGRIDY_NFT_POOL_ABI,
             functionName: 'swapETHForNFTs',
@@ -683,6 +691,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
         const minOutput = (bestAmount! * 95n) / 100n;
         writeContract(
           {
+            chainId: CHAIN_ID,
             address: bestPool as Address,
             abi: TEGRIDY_NFT_POOL_ABI,
             functionName: 'swapNFTsForETH',
@@ -1037,6 +1046,7 @@ function PoolAdminPanel({
     return () => clearInterval(id);
   }, []);
 
+  const chainId = useChainId();
   const { writeContract, data: txHash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
@@ -1072,11 +1082,15 @@ function PoolAdminPanel({
   const busy = isPending || isConfirming;
 
   const call = (functionName: string, args?: unknown[], value?: bigint) => {
+    // AUDIT FIX M-8: refuse on wrong chain so the admin call doesn't go to a
+    // phantom pool address on Sepolia/Base/Arbitrum.
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     // wagmi's writeContract is overloaded per function signature; we defeat
     // the overload discrimination so this single admin helper can dispatch
     // any of the owner actions. All payloads are validated on-chain.
     writeContract(
       {
+        chainId: CHAIN_ID,
         address: poolAddress,
         abi: TEGRIDY_NFT_POOL_ABI,
         functionName: functionName as 'pause',
@@ -1425,6 +1439,7 @@ function PoolCard({
     functionName: 'getHeldTokenIds',
   });
 
+  const chainId = useChainId();
   // isPending = wallet signing phase; isConfirming = on-chain confirmation.
   // Both must gate buttons to prevent double-submit during wallet prompt.
   const { writeContract, data: txHash, isPending } = useWriteContract();
@@ -1454,10 +1469,14 @@ function PoolCard({
   const showOwnerControls = isOwner || poolOwnerIsUser;
 
   const handleAddLiquidity = () => {
+    // AUDIT FIX M-8: refuse on wrong chain so the LP add doesn't burn ETH
+    // on a phantom pool address on Sepolia/Base/Arbitrum.
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     try {
       const ids = liqNftIds.trim() ? liqNftIds.split(',').map((s) => BigInt(s.trim())) : [];
       writeContract(
         {
+          chainId: CHAIN_ID,
           address: poolAddress,
           abi: TEGRIDY_NFT_POOL_ABI,
           functionName: 'addLiquidity',
@@ -1480,11 +1499,13 @@ function PoolCard({
   };
 
   const handleWithdraw = () => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     try {
       const ids = withdrawNftIds.trim() ? withdrawNftIds.split(',').map((s) => BigInt(s.trim())) : [];
       const ethAmt = withdrawEth ? parseEther(withdrawEth) : 0n;
       writeContract(
         {
+          chainId: CHAIN_ID,
           address: poolAddress,
           abi: TEGRIDY_NFT_POOL_ABI,
           functionName: 'removeLiquidity',
@@ -1865,6 +1886,7 @@ function TradeTab({ deployed }: { deployed: boolean }) {
 
 function CreatePoolTab({ deployed }: { deployed: boolean }) {
   const { address } = useAccount();
+  const chainId = useChainId();
   const [step, setStep] = useState(1);
   const [collection, setCollection] = useState('');
   const [poolType, setPoolType] = useState<PoolType>(2);
@@ -1968,9 +1990,13 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
   const approvalNeeded = needsNFTs && isApproved === false;
 
   const handleApproveCollection = () => {
+    // AUDIT FIX M-8: refuse on wrong chain — approval would route to a phantom
+    // collection address on Sepolia/Base/Arbitrum.
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!validCollection || !address) return;
     writeApprove(
       {
+        chainId: CHAIN_ID,
         address: collection as Address,
         abi: ERC721_APPROVAL_ABI,
         functionName: 'setApprovalForAll',
@@ -1981,6 +2007,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
   };
 
   const handleDeploy = () => {
+    if (chainId !== CHAIN_ID) return toast.error('Please switch to Ethereum Mainnet');
     if (!address) return toast.error('Connect your wallet');
     if (!validCollection) return toast.error('Invalid collection address');
     if (approvalNeeded) return toast.error('Approve the collection first');
@@ -1988,6 +2015,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
     try {
       writeDeploy(
         {
+          chainId: CHAIN_ID,
           address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
           abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
           functionName: 'createPool',

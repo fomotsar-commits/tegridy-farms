@@ -1,9 +1,9 @@
 import { useState, useMemo } from 'react';
-import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { formatEther, parseEther, isAddress, type Address } from 'viem';
 import { m } from 'framer-motion';
 import { toast } from 'sonner';
-import { COMMUNITY_GRANTS_ADDRESS } from '../../lib/constants';
+import { COMMUNITY_GRANTS_ADDRESS, CHAIN_ID } from '../../lib/constants';
 import { COMMUNITY_GRANTS_ABI } from '../../lib/contracts';
 import { shortenAddress, formatTokenAmount, formatTimeAgo } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
@@ -30,6 +30,13 @@ export function GrantsSection() {
   const [newDescription, setNewDescription] = useState('');
 
   const gcAddr = COMMUNITY_GRANTS_ADDRESS as Address;
+  const chainId = useChainId();
+  // AUDIT FIX M-8: refuse on wrong chain — vote/finalize/createProposal would
+  // otherwise hit a phantom address on Sepolia/Base/Arbitrum.
+  const _ensureChain = () => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return false; }
+    return true;
+  };
   const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();
   const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash });
 
@@ -67,7 +74,9 @@ export function GrantsSection() {
   const { data: voteChecks } = useReadContracts({ contracts: voteCheckContracts, query: { enabled: voteCheckContracts.length > 0 } });
 
   const handleVote = (proposalId: number, support: boolean) => {
+    if (!_ensureChain()) return;
     writeContract({
+      chainId: CHAIN_ID,
       address: gcAddr, abi: COMMUNITY_GRANTS_ABI, functionName: 'voteOnProposal',
       args: [BigInt(proposalId), support],
     });
@@ -75,7 +84,9 @@ export function GrantsSection() {
   };
 
   const handleFinalize = (proposalId: number) => {
+    if (!_ensureChain()) return;
     writeContract({
+      chainId: CHAIN_ID,
       address: gcAddr, abi: COMMUNITY_GRANTS_ABI, functionName: 'finalizeProposal',
       args: [BigInt(proposalId)],
     });
@@ -124,7 +135,9 @@ export function GrantsSection() {
       toast.error('Description cannot be empty');
       return;
     }
+    if (!_ensureChain()) return;
     writeContract({
+      chainId: CHAIN_ID,
       address: gcAddr, abi: COMMUNITY_GRANTS_ABI, functionName: 'createProposal',
       args: [newRecipient as Address, amt, cleanDescription],
     });
