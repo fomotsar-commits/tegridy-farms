@@ -4,6 +4,27 @@ import { getProvider } from "./api";
 import { getWethBalance, getWethAllowance, wrapEth, approveWeth } from "./lib/weth";
 import { openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 
+// AUDIT FIX M-8 (frontend chain guard): assertOnExpectedChain blocks any
+// on-chain action when the wallet is connected to a chain != SEAPORT_DOMAIN.chainId.
+// Pre-fix, a user on Sepolia/Base/Arbitrum who clicked "Make Offer" would have
+// `wrapEth(needed)` and `approveWeth(priceWei)` execute on the WRONG chain
+// (real testnet/L2 ETH burned), then sign a chain-1 EIP-712 offer that the
+// orderbook can't fulfill. Now every offer/cancel/accept entrypoint refuses
+// up-front with a typed error before any tx hits the wallet.
+async function assertOnExpectedChain(browserProvider) {
+  try {
+    const network = await browserProvider.getNetwork();
+    const got = Number(network.chainId);
+    const want = Number(SEAPORT_DOMAIN.chainId);
+    if (got !== want) {
+      return { error: "wrong-chain", message: `Connected to chain ${got}; expected chain ${want}` };
+    }
+  } catch (err) {
+    return { error: "no-network", message: "Could not read wallet chain" };
+  }
+  return null;
+}
+
 // ═══ OPENSEA RETRY WITH EXPONENTIAL BACKOFF ═══
 // OpenSea is heavily rate-limited; retry on 429, 5xx, and network failures.
 async function withRetry(fn, { maxRetries = 3, baseDelay = 1500, maxDelay = 30000, signal } = {}) {
@@ -154,6 +175,11 @@ export async function createItemOffer({ tokenId, priceEth, expirationHours = 168
   try {
     const { ethers } = await import("ethers");
     const browserProvider = new ethers.BrowserProvider(provider);
+    // AUDIT FIX M-8: refuse if wallet is on the wrong chain BEFORE any tx
+    // hits the wallet (wrapEth / approveWeth would otherwise burn ETH on the
+    // wrong chain and produce a chain-1 EIP-712 sig the orderbook can't fill).
+    const _chainErr = await assertOnExpectedChain(browserProvider);
+    if (_chainErr) return _chainErr;
     const signer = await browserProvider.getSigner();
     const buyerAddress = await signer.getAddress();
 
@@ -277,6 +303,11 @@ export async function createCollectionOffer({ priceEth, expirationHours = 168, s
   try {
     const { ethers } = await import("ethers");
     const browserProvider = new ethers.BrowserProvider(provider);
+    // AUDIT FIX M-8: refuse if wallet is on the wrong chain BEFORE any tx
+    // hits the wallet (wrapEth / approveWeth would otherwise burn ETH on the
+    // wrong chain and produce a chain-1 EIP-712 sig the orderbook can't fill).
+    const _chainErr = await assertOnExpectedChain(browserProvider);
+    if (_chainErr) return _chainErr;
     const signer = await browserProvider.getSigner();
     const buyerAddress = await signer.getAddress();
     const priceWei = parseEther(String(priceEth));
@@ -387,6 +418,11 @@ export async function createTraitOffer({ traitType, traitValue, priceEth, expira
   try {
     const { ethers } = await import("ethers");
     const browserProvider = new ethers.BrowserProvider(provider);
+    // AUDIT FIX M-8: refuse if wallet is on the wrong chain BEFORE any tx
+    // hits the wallet (wrapEth / approveWeth would otherwise burn ETH on the
+    // wrong chain and produce a chain-1 EIP-712 sig the orderbook can't fill).
+    const _chainErr = await assertOnExpectedChain(browserProvider);
+    if (_chainErr) return _chainErr;
     const signer = await browserProvider.getSigner();
     const buyerAddress = await signer.getAddress();
     const priceWei = parseEther(String(priceEth));
@@ -596,6 +632,9 @@ export async function cancelOrder(order) {
   try {
     const { ethers } = await import("ethers");
     const browserProvider = new ethers.BrowserProvider(provider);
+    // AUDIT FIX M-8: refuse cancel on the wrong chain.
+    const _chainErr = await assertOnExpectedChain(browserProvider);
+    if (_chainErr) return _chainErr;
     const signer = await browserProvider.getSigner();
 
     const seaportABI = [

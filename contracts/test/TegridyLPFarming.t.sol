@@ -199,9 +199,13 @@ contract TegridyLPFarmingTest is Test {
     // ── Reward Rate Cap ──────────────────────────────────────────────
 
     function test_rewardRate_cappedAtMax() public {
-        uint256 hugeAmount = 101e18 * 86400; // exceeds MAX_REWARD_RATE at 1-day duration
+        // AUDIT FIX M-3: notifyRewardAmount now requires `duration == rewardsDuration`
+        // (constructor-set; only changeable via the timelocked propose/execute path).
+        // Use DURATION here to match the constructor; pick `hugeAmount` so the
+        // computed rewardRate (= amount / duration) still exceeds MAX_REWARD_RATE.
+        uint256 hugeAmount = 101e18 * DURATION; // rate = 101e18 / sec > MAX_REWARD_RATE
         toweli.approve(address(farm), type(uint256).max);
         vm.expectRevert(TegridyLPFarming.RewardRateExceedsCap.selector);
-        farm.notifyRewardAmount(hugeAmount, 1 days);
+        farm.notifyRewardAmount(hugeAmount, DURATION);
     }
 }

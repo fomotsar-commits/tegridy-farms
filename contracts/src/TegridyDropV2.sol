@@ -220,6 +220,16 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     mapping(address => uint256) public mintedPerWallet;
     mapping(address => uint256) public paidPerWallet;
 
+    /// @notice AUDIT FIX M-7 (Drop-withdraw includes donations): tracks the
+    ///         aggregate sum of all `paidPerWallet[*]` contributions so
+    ///         `withdraw()` can pay only legitimate sale revenue and ignore
+    ///         any ETH that arrived via `selfdestruct` or coinbase set
+    ///         (neither triggers `receive()`). Pre-fix, `withdraw()` used
+    ///         `address(this).balance` which could over-pay platformFeeBps
+    ///         on donated dust and let a front-running donor inflate the
+    ///         platform's take.
+    uint256 public totalProceeds;
+
     /// @notice AUDIT MICROSCOPE_2026_04_30 C1: per-claimer allowlist consumption tracked
     ///         independently of `mintedPerWallet` so a `setMaxPerWallet` bump cannot
     ///         retroactively reopen an allowlister's allocation. Each leaf encodes the
@@ -542,6 +552,8 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         totalSupply += quantity;
         mintedPerWallet[msg.sender] += quantity;
         paidPerWallet[msg.sender] += totalCost;
+        // AUDIT FIX M-7: track aggregate sale revenue (used by `withdraw()`).
+        totalProceeds += totalCost;
         // AUDIT FIX: V2-DROP-02: removed the `unclaimedRefundPool += totalCost`
         // accumulator-write previously emitted here under DEEP-DROP-04. Post-DEEP-DROP-05
         // (cancel gated to `totalSupply == 0`), the entire DEEP-DROP-04 accounting path
@@ -939,14 +951,25 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         bool soldOut = maxSupply > 0 && totalSupply >= maxSupply;
         if (mintPhase != MintPhase.CLOSED && !soldOut) revert WithdrawFailed();
 
-        uint256 balance = address(this).balance;
-        if (balance == 0) revert WithdrawFailed();
+        // AUDIT FIX M-7: distribute only legitimate sale revenue (totalProceeds),
+        // capped to the actual balance for safety. Any donated ETH (from
+        // selfdestruct / coinbase set on which receive() doesn't fire) is left
+        // in the contract — pre-fix it was drained alongside sale revenue and
+        // the platformFeeBps applied on top, letting a donor front-run the
+        // owner's withdraw to inflate the platform's take. The leftover
+        // donation can be recovered via the existing rescueAfterCancellation
+        // path (in the cancellation arm) or via the OZ Ownable owner's manual
+        // tools — both prefer this stuck-ETH-no-rug posture.
+        uint256 bal = address(this).balance;
+        uint256 distributable = totalProceeds < bal ? totalProceeds : bal;
+        if (distributable == 0) revert WithdrawFailed();
 
         // AUDIT H9: lock out cancelSale() going forward.
         withdrawn = true;
+        totalProceeds = 0;
 
-        uint256 platformAmount = (balance * platformFeeBps) / 10000;
-        uint256 creatorAmount = balance - platformAmount;
+        uint256 platformAmount = (distributable * platformFeeBps) / 10000;
+        uint256 creatorAmount = distributable - platformAmount;
 
         if (platformAmount > 0) {
             WETHFallbackLib.safeTransferETHOrWrap(weth, platformFeeRecipient, platformAmount);
@@ -998,7 +1021,11 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///         the storage slot).
     function refund() external nonReentrant {
         if (mintPhase != MintPhase.CANCELLED) revert SaleNotCancelled();
+        // AUDIT FIX M-7: keep totalProceeds in sync on refund.
         uint256 owed = paidPerWallet[msg.sender];
+        if (owed > 0 && totalProceeds >= owed) {
+            totalProceeds -= owed;
+        }
         if (owed == 0) revert NothingToRefund();
         paidPerWallet[msg.sender] = 0;
         // AUDIT FIX V3-DROP-06: removed the dead `unclaimedRefundPool -= owed`

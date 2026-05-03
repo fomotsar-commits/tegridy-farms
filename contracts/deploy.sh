@@ -3,13 +3,28 @@
 # TEGRIDDY FARMS -- Mainnet Deployment Script (AuditFixes batch)
 # ============================================================
 #
-# USAGE:
-#   1. Open a terminal in the contracts/ directory
-#   2. Run: export PRIVATE_KEY=your_private_key_here
-#   3. Run: export ETHERSCAN_API_KEY=your_etherscan_key
-#   4. Run: bash deploy.sh simulate      (dry-run first!)
-#   5. Run: bash deploy.sh broadcast     (on-chain only, NO verify)
-#   6. Run: bash deploy.sh verify        (separate Etherscan verification)
+# RECOMMENDED USAGE (keystore — secure, key never on cmdline):
+#   1. One-time setup: cast wallet import deployer --interactive
+#      (paste your key once; it's stored encrypted in ~/.foundry/keystores/)
+#   2. export KEYSTORE_ACCOUNT=deployer
+#      (optionally) export KEYSTORE_PASSWORD_FILE=/path/to/pwd  # avoid stdin prompt
+#   3. export ETHERSCAN_API_KEY=your_etherscan_key
+#   4. bash deploy.sh simulate      (dry-run first!)
+#   5. bash deploy.sh broadcast     (on-chain only, NO verify)
+#   6. bash deploy.sh verify        (separate Etherscan verification)
+#
+# LEGACY USAGE (raw private key — DISCOURAGED, key visible in /proc/<pid>/cmdline):
+#   export PRIVATE_KEY=your_private_key_here
+#   bash deploy.sh simulate
+#   ...
+#
+# WHY KEYSTORE > PRIVATE_KEY:
+#   Pre-fix `--private-key $PRIVATE_KEY` exposes the deployer key to any
+#   process on the host that can read `/proc/<pid>/cmdline` (Linux) or
+#   `ps -ef`. On a multi-user dev box, in CI runners with parallel jobs, or
+#   any environment with co-tenants, this is a real exfiltration surface.
+#   `--account` reads the encrypted keystore and never puts the key on the
+#   command line — Foundry's recommended path for production deploys.
 #
 # WHY broadcast and verify are split (audit B4a):
 #   The previous script chained --broadcast and --verify in one forge
@@ -31,7 +46,27 @@
 # SECURITY: This script NEVER stores or logs your private key.
 # ============================================================
 
-set -e
+set -euo pipefail
+PRIVATE_KEY="${PRIVATE_KEY:-}"
+KEYSTORE_ACCOUNT="${KEYSTORE_ACCOUNT:-}"
+KEYSTORE_PASSWORD_FILE="${KEYSTORE_PASSWORD_FILE:-}"
+
+# AUDIT FIX (deploy hardening): build a SIGNER_FLAGS array that prefers
+# `--account <name>` (encrypted keystore) over `--private-key <hex>` (raw key
+# on cmdline). Keystore avoids exposing the key via /proc/<pid>/cmdline / ps.
+# Falls back to PRIVATE_KEY only if KEYSTORE_ACCOUNT is unset.
+SIGNER_FLAGS=()
+build_signer_flags() {
+    if [ -n "$KEYSTORE_ACCOUNT" ]; then
+        SIGNER_FLAGS=(--account "$KEYSTORE_ACCOUNT")
+        if [ -n "$KEYSTORE_PASSWORD_FILE" ] && [ -f "$KEYSTORE_PASSWORD_FILE" ]; then
+            SIGNER_FLAGS+=(--password-file "$KEYSTORE_PASSWORD_FILE")
+        fi
+    elif [ -n "$PRIVATE_KEY" ]; then
+        SIGNER_FLAGS=(--private-key "$PRIVATE_KEY")
+        echo "WARNING: using --private-key (raw hex on cmdline). Migrate to KEYSTORE_ACCOUNT for production." >&2
+    fi
+}
 
 # Non-sensitive config
 export MULTISIG=0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e
@@ -43,17 +78,24 @@ RPC_URL="${ETH_RPC_URL:-https://ethereum-rpc.publicnode.com}"
 SCRIPT="script/DeployAuditFixes.s.sol:DeployAuditFixesScript"
 ETHERSCAN_KEY="${ETHERSCAN_API_KEY:-}"
 
-require_private_key() {
-    if [ -z "$PRIVATE_KEY" ]; then
+require_signer() {
+    build_signer_flags
+    if [ ${#SIGNER_FLAGS[@]} -eq 0 ]; then
         echo ""
-        echo "ERROR: PRIVATE_KEY not set!"
+        echo "ERROR: no signer configured!"
         echo ""
-        echo "Run this first (replace with your actual key):"
+        echo "RECOMMENDED — keystore (no key on cmdline):"
+        echo "  cast wallet import deployer --interactive    # one-time"
+        echo "  export KEYSTORE_ACCOUNT=deployer"
+        echo ""
+        echo "LEGACY — raw private key (visible to other processes):"
         echo "  export PRIVATE_KEY=0xYOUR_PRIVATE_KEY_HERE"
         echo ""
         exit 1
     fi
 }
+# Backward-compat alias so existing call sites keep working.
+require_private_key() { require_signer; }
 
 require_etherscan_key() {
     if [ -z "$ETHERSCAN_KEY" ]; then
@@ -75,7 +117,16 @@ print_header() {
     echo "Chain:    Ethereum Mainnet (ID: 1)"
     echo "Multisig: $MULTISIG"
     echo "LP Token: $LP_TOKEN"
-    echo "Deployer: $(cast wallet address $PRIVATE_KEY 2>/dev/null || echo 'unknown')"
+    # AUDIT FIX (deploy hardening): resolve deployer address via the keystore
+    # account name (no raw key on cmdline) when KEYSTORE_ACCOUNT is set;
+    # fall back to `cast wallet address $PRIVATE_KEY` for legacy mode.
+    if [ -n "$KEYSTORE_ACCOUNT" ]; then
+        echo "Deployer: $(cast wallet address --account "$KEYSTORE_ACCOUNT" 2>/dev/null || echo 'unknown')"
+    elif [ -n "$PRIVATE_KEY" ]; then
+        echo "Deployer: $(cast wallet address "$PRIVATE_KEY" 2>/dev/null || echo 'unknown')"
+    else
+        echo "Deployer: <signer not configured>"
+    fi
     echo "========================================="
     echo ""
 }
@@ -87,8 +138,8 @@ case "$1" in
         echo "MODE: DRY-RUN SIMULATION (no gas spent)"
         echo ""
         $FORGE script $SCRIPT \
-            --rpc-url $RPC_URL \
-            --private-key $PRIVATE_KEY \
+            --rpc-url "$RPC_URL" \
+            "${SIGNER_FLAGS[@]}" \
             -vvvv
         echo ""
         echo "Simulation complete. Review output above."
@@ -107,8 +158,8 @@ case "$1" in
             exit 0
         fi
         $FORGE script $SCRIPT \
-            --rpc-url $RPC_URL \
-            --private-key $PRIVATE_KEY \
+            --rpc-url "$RPC_URL" \
+            "${SIGNER_FLAGS[@]}" \
             --broadcast \
             --slow \
             -vvvv
@@ -130,8 +181,8 @@ case "$1" in
         # --resume tells forge to reuse the prior broadcast JSON. If a contract
         # is already verified, Etherscan returns early; safe to re-run.
         $FORGE script $SCRIPT \
-            --rpc-url $RPC_URL \
-            --private-key $PRIVATE_KEY \
+            --rpc-url "$RPC_URL" \
+            "${SIGNER_FLAGS[@]}" \
             --resume \
             --verify \
             --etherscan-api-key $ETHERSCAN_KEY \

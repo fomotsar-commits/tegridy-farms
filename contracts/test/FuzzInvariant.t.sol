@@ -520,7 +520,11 @@ contract RevenueDistributorFuzzTest is Test {
 
     function testFuzz_distributeClaimAccounting(uint256 ethAmount, uint256 lockAmount) public {
         ethAmount = bound(ethAmount, 0.3 ether, 1000 ether);
-        lockAmount = bound(lockAmount, 1 ether, 10_000_000 ether);
+        // AUDIT FIX PASS5-REV-H1: distribute() now requires totalBoostedStake
+        // >= MIN_DISTRIBUTE_STAKE (1000 ether). Bound the fuzz lock amount above
+        // that floor so the test exercises the legitimate path; sub-1000-ether
+        // stakes are correctly rejected by the new sibling-symmetric guard.
+        lockAmount = bound(lockAmount, 1000 ether, 10_000_000 ether);
 
         // Set up alice with a lock
         uint256 lockEnd = block.timestamp + 365 days;
@@ -549,8 +553,12 @@ contract RevenueDistributorFuzzTest is Test {
 
     function testFuzz_proportionalDistribution(uint256 ethAmount, uint256 lockA, uint256 lockB) public {
         ethAmount = bound(ethAmount, 0.3 ether, 100 ether);
-        lockA = bound(lockA, 1 ether, 5_000_000 ether);
-        lockB = bound(lockB, 1 ether, 5_000_000 ether);
+        // AUDIT FIX PASS5-REV-H1: distribute() now requires
+        // totalBoostedStake >= MIN_DISTRIBUTE_STAKE (1000 ether). Each lock
+        // is bounded at 500 ether so the SUM is at least 1000 ether — exercises
+        // the legitimate path while the new guard correctly rejects below-floor.
+        lockA = bound(lockA, 500 ether, 5_000_000 ether);
+        lockB = bound(lockB, 500 ether, 5_000_000 ether);
 
         address bob = makeAddr("bob_rev");
         uint256 lockEnd = block.timestamp + 365 days;

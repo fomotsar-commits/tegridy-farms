@@ -9,6 +9,85 @@ if (!process.env.OPENSEA_API_KEY) {
 // ── Shared validation helpers ──
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 const MAX_BODY_SIZE = 10 * 1024; // 10 KB
+// AUDIT R053: cap price values at 1M ETH (10^24 wei). Anything above is most
+// likely a parser/schema mismatch upstream and would let attackers float a
+// 1M-ETH "listing" past consumer-side BigInt() to poison floor sorts.
+const MAX_OPENSEA_PRICE_WEI = 10n ** 24n;
+const PRICE_REGEX = /^[0-9]+$/;
+// AUDIT R053: URL schemes that browsers will safely render in <img>/<iframe>.
+// Anything outside this set (javascript:, data:text/html, vbscript:, file:,
+// gopher:, etc.) is nulled out so the consumer never accidentally embeds an
+// XSS or tracking-pixel in their UI. Note: data:image/svg+xml is EXCLUDED
+// because SVG can carry inline <script> that fires in HTML rendering modes.
+function isAllowedUrlScheme(url) {
+  if (typeof url !== "string" || url.length === 0) return false;
+  const trimmed = url.trim();
+  if (trimmed.startsWith("ipfs://") || trimmed.startsWith("ar://")) return true;
+  if (trimmed.startsWith("https://") || trimmed.startsWith("http://")) return true;
+  // Allow ONLY raster image data: URIs (png, jpeg, gif, webp). svg+xml rejected.
+  if (trimmed.startsWith("data:image/")) {
+    const mime = trimmed.slice(5, trimmed.indexOf(";") > 0 ? trimmed.indexOf(";") : trimmed.indexOf(","));
+    if (/^image\/(png|jpeg|jpg|gif|webp|avif)$/i.test(mime)) return true;
+  }
+  return false;
+}
+const URL_FIELD_NAMES = new Set([
+  "image_url", "animation_url", "external_url", "background_image_url",
+  "banner_image_url", "logo_image_url", "thumbnail_url", "preview_image_url",
+]);
+
+// AUDIT R053: schema-validate a single price object. Throws on shape mismatch
+// so the handler can collapse to 502. Returns the (possibly-nulled) value.
+function validatePriceShape(price) {
+  if (price == null) return; // optional
+  if (typeof price !== "object") throw new Error("unexpected shape: price");
+  const cur = price.current;
+  if (cur == null) return;
+  if (typeof cur !== "object") throw new Error("unexpected shape: price.current");
+  if ("value" in cur && cur.value !== null) {
+    if (typeof cur.value !== "string") throw new Error("unexpected shape: price.current.value not string");
+    if (!PRICE_REGEX.test(cur.value)) throw new Error("unexpected shape: price.current.value not numeric");
+    // Cap absurd values (likely upstream parsing artefact) — null instead of throw
+    // so the rest of the response still flows.
+    try {
+      if (BigInt(cur.value) > MAX_OPENSEA_PRICE_WEI) cur.value = null;
+    } catch {
+      cur.value = null;
+    }
+  }
+}
+
+// AUDIT R053: walk the response object, sanitizing URL fields and validating
+// price shapes. Mutates in place. Throws on schema violation.
+function sanitizeOpenseaResponse(obj) {
+  if (obj == null || typeof obj !== "object") return;
+  if (Array.isArray(obj)) {
+    for (const item of obj) sanitizeOpenseaResponse(item);
+    return;
+  }
+  for (const [k, v] of Object.entries(obj)) {
+    if (URL_FIELD_NAMES.has(k) && typeof v === "string") {
+      if (!isAllowedUrlScheme(v)) obj[k] = null;
+    } else if (k === "price") {
+      validatePriceShape(v);
+    } else if (v && typeof v === "object") {
+      sanitizeOpenseaResponse(v);
+    }
+  }
+}
+
+// AUDIT R053: pick a Cache-Control header based on the endpoint shape.
+//   - POST mutations / per-user (maker= query) → private, no-store
+//   - collection stats → s-maxage=60
+//   - everything else (listings, offers) → s-maxage=15 (existing default)
+function selectCacheControl({ method, path, params }) {
+  if (method === "POST") return "private, no-store";
+  if (params && params.maker) return "private, no-store";
+  if (typeof path === "string" && /^collection\/[^/]+\/stats$/.test(path)) {
+    return "public, s-maxage=60, stale-while-revalidate=120";
+  }
+  return "s-maxage=15, stale-while-revalidate=30";
+}
 
 function isValidAddress(addr) { return typeof addr === "string" && ETH_ADDRESS_RE.test(addr); }
 
@@ -186,7 +265,24 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: "Upstream service error" });
     }
 
-    res.setHeader("Cache-Control", "s-maxage=15, stale-while-revalidate=30");
+    // AUDIT R053: validate + sanitize before returning. Schema mismatch (price
+    // value not a digit string, etc.) collapses to 502 so the consumer cannot
+    // BigInt() something unexpected. URL fields with disallowed schemes (e.g.
+    // `javascript:`, `data:text/html`) are nulled so consumer UIs cannot
+    // accidentally embed an XSS vector or tracking pixel.
+    try {
+      sanitizeOpenseaResponse(data);
+    } catch (err) {
+      console.error("OpenSea schema mismatch:", err.message);
+      return res.status(502).json({ error: "Upstream returned data of unexpected shape" });
+    }
+
+    // AUDIT R053: cache-control varies by endpoint and per-user binding.
+    res.setHeader("Cache-Control", selectCacheControl({
+      method: req.method,
+      path,
+      params,
+    }));
     return res.status(200).json(data);
   } catch (err) {
     return res.status(500).json({ error: "Proxy fetch failed" });

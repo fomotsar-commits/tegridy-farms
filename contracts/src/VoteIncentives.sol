@@ -313,6 +313,10 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     // ─── Errors ──────────────────────────────────────────────────────
     error ZeroAddress();
     error ZeroAmount();
+    /// @notice AUDIT FIX G-01: typed error for the `forfeitCommitOnDisabledPair`
+    ///         caller-restriction. Only the commit owner or the contract owner
+    ///         may force-unwind a commit during a disabled-pair window.
+    error Unauthorized();
     error FeeTooHigh();
     error TokenNotWhitelisted();
     error TooManyBribeTokens();
@@ -1463,6 +1467,17 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 power,
         bytes32 salt
     ) external nonReentrant whenNotPaused {
+        // AUDIT FIX G-01 (Governance Medium): restrict to the commit owner OR
+        // the contract owner. Pre-fix any caller could destroy a victim's
+        // commit during a transient pair disable: attacker iterates VoteCommitted
+        // events for the disabled pair, force-forfeits each, then the factory
+        // re-enables — victims' commits are permanently revealed/zeroed even
+        // though the pair is live again. The bond was refunded but the VOTE
+        // is destroyed (slot marked revealed with no impact). The owner branch
+        // is preserved as an admin escape for users who can't transact (e.g.
+        // SCW signer key lost) but want their bond + commit clawed out.
+        if (msg.sender != user && msg.sender != owner()) revert Unauthorized();
+
         if (epoch >= epochs.length) revert InvalidEpoch();
         EpochInfo memory ep = epochs[epoch];
         if (!ep.usesCommitReveal) revert NotCommitRevealEpoch();

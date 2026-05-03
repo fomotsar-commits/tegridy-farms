@@ -74,6 +74,8 @@ contract GaugeCommitRevealTest is Test {
     }
 
     function _addGauge(address g) internal {
+        // AUDIT FIX G-02: proposeAddGauge requires gauge.code.length > 0.
+        if (g.code.length == 0) vm.etch(g, hex"60006000fd");
         gauge.proposeAddGauge(g);
         vm.warp(block.timestamp + 24 hours + 1);
         gauge.executeAddGauge();

@@ -419,6 +419,18 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     function notifyRewardAmount(uint256 amount, uint256 duration) external onlyOwner nonReentrant updateReward(address(0)) {
         if (amount < MIN_NOTIFY_AMOUNT) revert NotifyAmountTooSmall();
         if (duration < MIN_REWARDS_DURATION || duration > MAX_REWARDS_DURATION) revert DurationOutOfRange();
+        // AUDIT FIX M-3 (LP-Farming dead timelock): require the per-call duration
+        // to match the timelocked `rewardsDuration`. Pre-fix this function
+        // unconditionally OVERWROTE rewardsDuration on every call, making the
+        // 24h propose/execute timelock (proposeRewardsDurationChange /
+        // executeRewardsDurationChange) effectively dead code — owner could
+        // silently change the distribution duration on any funding cycle.
+        // First-ever call has rewardsDuration == 0 (storage default); allow
+        // bootstrapping by skipping the equality check in that case so the
+        // initial fund-and-rate-set can land without a separate proposeDuration
+        // dance. After bootstrap, every subsequent change requires the
+        // timelocked path.
+        if (rewardsDuration != 0 && duration != rewardsDuration) revert DurationOutOfRange();
 
         uint256 balanceBefore = rewardToken.balanceOf(address(this));
         rewardToken.safeTransferFrom(msg.sender, address(this), amount);

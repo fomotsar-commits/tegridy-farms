@@ -824,7 +824,11 @@ contract Audit195Revenue is Test {
         ve.removeLock(carol);
 
         _fund(1 ether);
-        vm.expectRevert(RevenueDistributor.NoLockedTokens.selector);
+        // AUDIT FIX PASS5-REV-H1: distribute() now mirrors the M-12 guard on
+        // distributePermissionless and reverts with STAKE_TOO_LOW before
+        // reaching the deeper NoLockedTokens check. Test updated to expect
+        // the new sibling-symmetric revert.
+        vm.expectRevert(bytes("STAKE_TOO_LOW"));
         dist.distribute();
     }
 

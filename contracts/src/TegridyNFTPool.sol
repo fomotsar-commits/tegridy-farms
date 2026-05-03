@@ -756,8 +756,17 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         outputAmount = basePayout - lpFee - protocolFee;
 
         // AUDIT FIX: DEEP-NFTPOOL-05/07: subtract LP-fee accumulator from solvency.
+        // AUDIT FIX M-1 (LP-fee solvency): include `lpFee` in the required threshold.
+        // Pre-fix the check was `availableETH >= outputAmount + protocolFee` which
+        // omits `lpFee`, so after the swap `accumulatedLPFees` would grow by `lpFee`
+        // even when the pool's ETH cannot cover it — `claimLPFees()` would later
+        // revert (insufficient balance for the safeTransfer). Including `lpFee`
+        // here makes the post-swap invariant `available' >= 0` (the pool can
+        // ALWAYS pay every LP fee it has booked). Tightens the per-sell
+        // liquidity requirement by `lpFee`, which is the correct conservative
+        // posture for a TRADE pool with a non-zero `feeBps`.
         uint256 availableETH = _lpAvailableETH();
-        require(availableETH >= outputAmount + protocolFee, "POOL_INSUFFICIENT_ETH");
+        require(availableETH >= outputAmount + protocolFee + lpFee, "POOL_INSUFFICIENT_ETH");
     }
 
     function _lpAvailableETH() internal view returns (uint256) {

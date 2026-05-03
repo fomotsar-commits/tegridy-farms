@@ -409,6 +409,19 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         }
 
         if (!whitelistedCollections[collateralContract]) revert CollectionNotWhitelisted();
+        // AUDIT FIX L-3: also reject acceptance during the 24h whitelist-removal
+        // timelock. Pre-fix, `createOffer` already rejected new offers in this
+        // window but `acceptOffer` accepted EXISTING offers — so an attacker
+        // could rug-prepare a collection, watch admin propose removal, and
+        // accept a pre-existing legitimate-looking offer using a freshly-rugged
+        // token to drain the lender's principal. Mirrors the createOffer guard
+        // at line 311-316.
+        if (
+            pendingWhitelistRemove == collateralContract
+            && _executeAfter[WHITELIST_REMOVE] != 0
+        ) {
+            revert CollectionPendingRemoval();
+        }
 
         try IERC721(collateralContract).ownerOf(_tokenId) returns (address currentOwner) {
             if (currentOwner != msg.sender) revert NotNFTOwner();

@@ -293,7 +293,15 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     /// @notice Create a new distribution epoch with NEW ETH (not already earmarked).
     ///         Permissionless — anyone can trigger (e.g., keeper, user, or admin).
     ///         Uses votingEscrow.totalBoostedStake() for the epoch's totalLocked snapshot.
+    /// @dev AUDIT FIX PASS5-REV-H1: mirror the M-12 MIN_DISTRIBUTE_STAKE guard
+    ///      on `distributePermissionless` so this sibling entrypoint cannot be
+    ///      used to bypass the concentration-attack defense. Pre-fix, an
+    ///      attacker could `kick` a whale's expired position to deflate
+    ///      `totalBoostedStake`, then immediately call `distribute()` (no
+    ///      guard) to concentrate the entire epoch's revenue to themselves —
+    ///      a cross-contract attack chain confirmed by the PASS5 PoC.
     function distribute() external nonReentrant whenNotPaused {
+        require(votingEscrow.totalBoostedStake() >= MIN_DISTRIBUTE_STAKE, "STAKE_TOO_LOW");
         _distribute();
     }
 

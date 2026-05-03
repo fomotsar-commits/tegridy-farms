@@ -195,6 +195,10 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error GaugeAlreadyExists();
     error GaugeDoesNotExist();
     error MaxGaugesReached();
+    /// @notice AUDIT FIX G-02: typed error for the gauge code-length check on
+    ///         `proposeAddGauge`. Distinguishes EOA-mistake from other zero-address
+    ///         and dup-gauge cases.
+    error NotAContract();
     error LockExpired();
     error CommitWindowClosed();
     error RevealWindowNotOpen();
@@ -733,6 +737,14 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
     function proposeAddGauge(address gauge) external onlyOwner {
         if (gauge == address(0)) revert ZeroAddress();
+        // AUDIT FIX G-02: refuse to register an EOA / non-contract as a gauge.
+        // Pre-fix, an owner mistake (typo, malformed address, copy-paste from a
+        // different chain) could whitelist a non-contract — voters would
+        // allocate weight to it, downstream emission distribution would route
+        // to an EOA (or a non-existent address on this chain), and emissions
+        // would be lost or routed to a coincidental EOA. Battle-tested
+        // defensive check used by every major gauge-controller (Curve, etc.).
+        if (gauge.code.length == 0) revert NotAContract();
         if (isGauge[gauge]) revert GaugeAlreadyExists();
         if (gaugeList.length >= MAX_TOTAL_GAUGES) revert MaxGaugesReached();
         pendingGaugeAdd = gauge;

@@ -3,7 +3,7 @@ import { formatEther, type Address, type Hex } from 'viem';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { VOTE_INCENTIVES_ABI, ERC20_ABI } from '../lib/contracts';
-import { VOTE_INCENTIVES_ADDRESS, TOWELI_WETH_LP_ADDRESS, TOWELI_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
+import { VOTE_INCENTIVES_ADDRESS, TOWELI_WETH_LP_ADDRESS, TOWELI_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
 
 export interface WhitelistedToken {
   address: Address;
@@ -154,7 +154,9 @@ export function useBribes() {
 
   // ─── Actions ──────────────────────────────────────────────────────
   function claimBribes(epoch: number, pair: string) {
+    // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
+      chainId: CHAIN_ID,
       address: VOTE_INCENTIVES_ADDRESS,
       abi: VOTE_INCENTIVES_ABI,
       functionName: 'claimBribes',
@@ -163,7 +165,9 @@ export function useBribes() {
   }
 
   function claimBribesBatch(epochStart: number, epochEnd: number, pair: string) {
+    // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
+      chainId: CHAIN_ID,
       address: VOTE_INCENTIVES_ADDRESS,
       abi: VOTE_INCENTIVES_ABI,
       functionName: 'claimBribesBatch',
@@ -172,7 +176,9 @@ export function useBribes() {
   }
 
   function advanceEpoch() {
+    // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
+      chainId: CHAIN_ID,
       address: VOTE_INCENTIVES_ADDRESS,
       abi: VOTE_INCENTIVES_ABI,
       functionName: 'advanceEpoch',
@@ -180,7 +186,9 @@ export function useBribes() {
   }
 
   function vote(epoch: number, pair: string, power: bigint) {
+    // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
+      chainId: CHAIN_ID,
       address: VOTE_INCENTIVES_ADDRESS,
       abi: VOTE_INCENTIVES_ABI,
       functionName: 'vote',
@@ -189,7 +197,9 @@ export function useBribes() {
   }
 
   function commitVote(epoch: number, commitHash: Hex) {
+    // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
+      chainId: CHAIN_ID,
       address: VOTE_INCENTIVES_ADDRESS,
       abi: VOTE_INCENTIVES_ABI,
       functionName: 'commitVote',
@@ -198,7 +208,9 @@ export function useBribes() {
   }
 
   function revealVote(epoch: number, commitIndex: number, pair: string, power: bigint, salt: Hex) {
+    // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
+      chainId: CHAIN_ID,
       address: VOTE_INCENTIVES_ADDRESS,
       abi: VOTE_INCENTIVES_ABI,
       functionName: 'revealVote',
@@ -207,7 +219,9 @@ export function useBribes() {
   }
 
   function depositBribeETH(pair: string, value: bigint) {
+    // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
+      chainId: CHAIN_ID,
       address: VOTE_INCENTIVES_ADDRESS,
       abi: VOTE_INCENTIVES_ABI,
       functionName: 'depositBribeETH',
@@ -217,7 +231,9 @@ export function useBribes() {
   }
 
   function depositBribe(pair: string, token: string, amount: bigint) {
+    // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
+      chainId: CHAIN_ID,
       address: VOTE_INCENTIVES_ADDRESS,
       abi: VOTE_INCENTIVES_ABI,
       functionName: 'depositBribe',
@@ -226,7 +242,9 @@ export function useBribes() {
   }
 
   function approveToken(token: string, amount: bigint) {
+    // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
+      chainId: CHAIN_ID,
       address: token as Address,
       abi: ERC20_ABI,
       functionName: 'approve',
@@ -235,7 +253,9 @@ export function useBribes() {
   }
 
   function approveToweliForBond(amount: bigint) {
+    // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
+      chainId: CHAIN_ID,
       address: TOWELI_ADDRESS,
       abi: ERC20_ABI,
       functionName: 'approve',
@@ -244,7 +264,9 @@ export function useBribes() {
   }
 
   function withdrawPendingToken(token: string) {
+    // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
+      chainId: CHAIN_ID,
       address: VOTE_INCENTIVES_ADDRESS,
       abi: VOTE_INCENTIVES_ABI,
       functionName: 'withdrawPendingToken',

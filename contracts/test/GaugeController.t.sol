@@ -69,7 +69,11 @@ contract GaugeControllerTest is Test {
     }
 
     /// @dev Helper: propose + warp + execute gauge addition
+    /// AUDIT FIX G-02: proposeAddGauge now requires gauge.code.length > 0.
+    /// Plant minimal bytecode at the address (PUSH1 0; PUSH1 0; REVERT — 5 bytes,
+    /// always reverts but satisfies the code-length check) before proposing.
     function _addGauge(address g) internal {
+        if (g.code.length == 0) vm.etch(g, hex"60006000fd");
         gauge.proposeAddGauge(g);
         vm.warp(block.timestamp + 24 hours + 1);
         gauge.executeAddGauge();

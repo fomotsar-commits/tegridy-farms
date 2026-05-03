@@ -220,6 +220,8 @@ contract AuditR016_AMMGovTest is Test {
         stakingGov.setPosition(TOKEN_A, 100_000 ether, block.timestamp + 365 days);
         stakingGov.setPosition(TOKEN_B, 100_000 ether, block.timestamp + 365 days);
         stakingGov.setPower(multiSafe, 100_000 ether);
+        // AUDIT FIX G-02: proposeAddGauge requires gauge.code.length > 0.
+        if (g1.code.length == 0) vm.etch(g1, hex"60006000fd");
         gauge.proposeAddGauge(g1);
         vm.warp(block.timestamp + 24 hours + 1);
         gauge.executeAddGauge();

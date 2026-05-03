@@ -1,17 +1,23 @@
 #!/bin/bash
 # Deploy VoteIncentives pointing to the current staking contract.
 #
-# USAGE:
-#   export PRIVATE_KEY=0x...
+# RECOMMENDED USAGE (keystore — secure):
+#   cast wallet import deployer --interactive   # one-time
+#   export KEYSTORE_ACCOUNT=deployer
 #   export ETHERSCAN_API_KEY=...
-#   bash deploy-vote-incentives.sh simulate   # dry-run
-#   bash deploy-vote-incentives.sh broadcast  # deploy only (no verify)
-#   bash deploy-vote-incentives.sh verify     # retry-safe Etherscan verify
+#   bash deploy-vote-incentives.sh simulate / broadcast / verify
+#
+# LEGACY USAGE (raw key — DISCOURAGED):
+#   export PRIVATE_KEY=0x...
+#   bash deploy-vote-incentives.sh ...
 #
 # Why broadcast and verify are split: see deploy.sh (audit B4a). Chained
 # --broadcast --verify loses the deployed address if verify fails mid-flight.
 
-set -e
+set -euo pipefail
+PRIVATE_KEY="${PRIVATE_KEY:-}"
+KEYSTORE_ACCOUNT="${KEYSTORE_ACCOUNT:-}"
+KEYSTORE_PASSWORD_FILE="${KEYSTORE_PASSWORD_FILE:-}"
 
 export MULTISIG=0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e
 FORGE="$HOME/.foundry/bin/forge"
@@ -19,9 +25,24 @@ RPC_URL="${ETH_RPC_URL:-https://ethereum-rpc.publicnode.com}"
 SCRIPT="script/DeployVoteIncentives.s.sol:DeployVoteIncentivesScript"
 ETHERSCAN_KEY="${ETHERSCAN_API_KEY:-}"
 
+# AUDIT FIX (deploy hardening): prefer encrypted keystore over raw cmdline key.
+SIGNER_FLAGS=()
+build_signer_flags() {
+    if [ -n "$KEYSTORE_ACCOUNT" ]; then
+        SIGNER_FLAGS=(--account "$KEYSTORE_ACCOUNT")
+        if [ -n "$KEYSTORE_PASSWORD_FILE" ] && [ -f "$KEYSTORE_PASSWORD_FILE" ]; then
+            SIGNER_FLAGS+=(--password-file "$KEYSTORE_PASSWORD_FILE")
+        fi
+    elif [ -n "$PRIVATE_KEY" ]; then
+        SIGNER_FLAGS=(--private-key "$PRIVATE_KEY")
+        echo "WARNING: using --private-key (raw hex on cmdline). Migrate to KEYSTORE_ACCOUNT for production." >&2
+    fi
+}
+
 require_private_key() {
-    if [ -z "$PRIVATE_KEY" ]; then
-        echo "ERROR: export PRIVATE_KEY=0x... first"
+    build_signer_flags
+    if [ ${#SIGNER_FLAGS[@]} -eq 0 ]; then
+        echo "ERROR: no signer (set KEYSTORE_ACCOUNT or PRIVATE_KEY)"
         exit 1
     fi
 }
@@ -38,8 +59,8 @@ case "$1" in
         require_private_key
         echo "=== VoteIncentives — SIMULATE ==="
         $FORGE script $SCRIPT \
-            --rpc-url $RPC_URL \
-            --private-key $PRIVATE_KEY \
+            --rpc-url "$RPC_URL" \
+            "${SIGNER_FLAGS[@]}" \
             -vvvv
         ;;
 
@@ -53,8 +74,8 @@ case "$1" in
             exit 0
         fi
         $FORGE script $SCRIPT \
-            --rpc-url $RPC_URL \
-            --private-key $PRIVATE_KEY \
+            --rpc-url "$RPC_URL" \
+            "${SIGNER_FLAGS[@]}" \
             --broadcast \
             --slow \
             -vvvv
@@ -69,8 +90,8 @@ case "$1" in
         require_etherscan_key
         echo "=== VoteIncentives — VERIFY (retry-safe) ==="
         $FORGE script $SCRIPT \
-            --rpc-url $RPC_URL \
-            --private-key $PRIVATE_KEY \
+            --rpc-url "$RPC_URL" \
+            "${SIGNER_FLAGS[@]}" \
             --resume \
             --verify \
             --etherscan-api-key $ETHERSCAN_KEY \
