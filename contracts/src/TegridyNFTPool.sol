@@ -56,6 +56,13 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     uint256 public pendingOwnerExecuteAfter;
     uint256 public constant OWNER_TIMELOCK = 48 hours;
 
+    // AUDIT FIX L-4: extend NFT-inventory withdraw cooldown beyond 1 block so
+    // traders get a meaningful window between recent swap activity and an
+    // owner-initiated inventory drain. ~50 blocks ≈ 10 minutes on mainnet.
+    // The owner can bypass this by `pause()`-ing the pool first — pause is the
+    // explicit closure signal, so traders can react to the on-chain event.
+    uint256 public constant WITHDRAW_NFT_COOLDOWN_BLOCKS = 50;
+
     // AUDIT FIX: DEEP-NFTPOOL-06: transient flag during swap execution.
     bool internal _swapInFlight;
 
@@ -116,6 +123,8 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     error OnlyFactoryReceive();
     /// AUDIT FIX: DEEP-NFTPOOL-12
     error EmergencyPaused();
+    /// AUDIT FIX L-4
+    error WaitForNFTWithdrawCooldown();
 
     // ─── Events ─────────────────────────────────────────────────────────
     event PoolInitialized(
@@ -567,7 +576,20 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     }
 
     function withdrawNFTs(uint256[] calldata tokenIds) external onlyOwner nonReentrant {
-        if (block.number <= lastSwapBlock) revert WaitOneBlock();
+        // AUDIT FIX L-4: 1-block cooldown allowed an owner to drain NFT inventory
+        // immediately after seeing trader activity. Extended to ~10 min on mainnet
+        // so traders get meaningful warning. Bypass when paused — `pause()` is the
+        // on-chain closure signal traders monitor, so once paused the cooldown
+        // adds no additional protection. Skip when no swap has ever happened
+        // (lastSwapBlock == 0): the cooldown protects active traders only, and
+        // pre-trade owner setup needs no warning window.
+        if (
+            lastSwapBlock != 0 &&
+            !paused() &&
+            block.number <= lastSwapBlock + WITHDRAW_NFT_COOLDOWN_BLOCKS
+        ) {
+            revert WaitForNFTWithdrawCooldown();
+        }
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint256 tokenId = tokenIds[i];
             if (_idToIndex[tokenId] == 0) revert NFTNotHeld(tokenId);

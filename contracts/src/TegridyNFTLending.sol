@@ -154,6 +154,27 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     uint256 public pauseStartTime;
     uint256 public totalPausedDuration;
 
+    /// @notice AUDIT FIX L-2: per-loanId recipient for collateral whose
+    ///         transferFrom() reverted during repayLoan / claimDefault.
+    ///
+    ///         The whitelisted ERC721's `transferFrom` is normally a safe
+    ///         OZ-shaped call, but a hostile or buggy whitelisted collection
+    ///         can revert deterministically (e.g. revert when `to == X`,
+    ///         revert when paused, etc). Pre-fix, that revert bubbled up
+    ///         and locked BOTH legs of the loan: borrower couldn't repay
+    ///         (revert in the NFT-return leg), lender couldn't claim default
+    ///         (revert in the NFT-payout leg). Money + NFT both stuck.
+    ///
+    ///         Now: repayLoan / claimDefault wrap the transferFrom in a
+    ///         try/catch. On revert, the loan's status flag (`repaid` /
+    ///         `defaultClaimed`) still flips and money still flows correctly,
+    ///         but the NFT stays in the contract and `stuckCollateralRecipient[loanId]`
+    ///         is set to the rightful recipient (borrower for repay,
+    ///         lender for default). They can later call
+    ///         `claimStuckCollateral(loanId)` once the collection's
+    ///         transferFrom is fixed.
+    mapping(uint256 => address) public stuckCollateralRecipient;
+
     // ─── Events ──────────────────────────────────────────────────────
 
     event LoanOfferCreated(
@@ -188,6 +209,12 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         address indexed lender,
         uint256 tokenId
     );
+    /// @notice AUDIT FIX L-2: emitted when an NFT transferFrom reverts during
+    ///         repayLoan or claimDefault. The recipient can recover via
+    ///         claimStuckCollateral(loanId) once the collection is healthy.
+    event CollateralStuck(uint256 indexed loanId, address indexed recipient, uint256 tokenId, address collateralContract);
+    /// @notice AUDIT FIX L-2: emitted when stuck collateral is finally recovered.
+    event StuckCollateralClaimed(uint256 indexed loanId, address indexed recipient, uint256 tokenId);
     event CollectionWhitelisted(address indexed collection);
     event CollectionRemoved(address indexed collection);
     event CollectionWhitelistProposed(address indexed collection, uint256 readyAt);
@@ -224,6 +251,11 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     error LoanAlreadyRepaid();
     error LoanTooRecent();
     error LoanAlreadyDefaultClaimed();
+    /// @notice AUDIT FIX L-2: caller is not the recorded recipient for this
+    ///         stuck collateral.
+    error NotStuckCollateralRecipient();
+    /// @notice AUDIT FIX L-2: nothing stuck for this loan.
+    error NoStuckCollateral();
     error NotBorrower();
     error NotLoanLender();
     error LoanNotDefaulted();
@@ -559,7 +591,18 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         uint256 fee = (interest * protocolFeeBps) / BPS;
         uint256 lenderAmount = principal + interest - fee;
 
-        IERC721(collateralContract).transferFrom(address(this), borrower, tokenId);
+        // AUDIT FIX L-2: wrap the NFT return in try/catch. A hostile or buggy
+        // whitelisted collection that reverts in transferFrom must not lock
+        // the loan settlement — the borrower has paid and the lender is owed
+        // their money. Money flows below run unconditionally; if the NFT
+        // transfer fails, the recipient (borrower) recovers later via
+        // claimStuckCollateral once the collection is healthy.
+        try IERC721(collateralContract).transferFrom(address(this), borrower, tokenId) {
+            // happy path
+        } catch {
+            stuckCollateralRecipient[_loanId] = borrower;
+            emit CollateralStuck(_loanId, borrower, tokenId, collateralContract);
+        }
 
         WETHFallbackLib.safeTransferETHOrWrap(weth, lender, lenderAmount);
 
@@ -619,9 +662,58 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
             activeLoansOfCollection[collateralContract] -= 1;
         }
 
-        IERC721(collateralContract).transferFrom(address(this), lender, tokenId);
+        // AUDIT FIX L-2: wrap the NFT payout in try/catch. Same rationale as
+        // repayLoan — if a hostile/buggy collection reverts, the lender's
+        // claim still flips defaultClaimed (preventing double-claim) and the
+        // NFT is reserved for them via stuckCollateralRecipient. Recover via
+        // claimStuckCollateral once the collection is healthy.
+        try IERC721(collateralContract).transferFrom(address(this), lender, tokenId) {
+            // happy path
+        } catch {
+            stuckCollateralRecipient[_loanId] = lender;
+            emit CollateralStuck(_loanId, lender, tokenId, collateralContract);
+        }
 
         emit DefaultClaimed(_loanId, lender, tokenId);
+    }
+
+    // ─── Stuck collateral recovery (AUDIT FIX L-2) ───────────────────
+
+    /// @notice Recover an NFT whose `transferFrom` reverted during repayLoan
+    ///         or claimDefault. Callable by the recipient recorded at the
+    ///         time the original call's NFT-transfer leg failed.
+    /// @dev    The collection's `transferFrom` is retried unconditionally;
+    ///         if it still reverts (collection still hostile), this call
+    ///         reverts and the NFT stays stuck for another retry. On
+    ///         success, the recipient mapping is cleared so a future
+    ///         attacker who somehow becomes the recipient cannot replay.
+    ///
+    ///         No nonReentrant on this path because there is no value
+    ///         out-flow — the NFT is the only asset moved, and ERC721
+    ///         transfer cannot itself trigger reentrant state mutation
+    ///         on this contract (no balance reads, no callbacks). The
+    ///         `whenNotPaused` modifier is intentionally OMITTED so users
+    ///         can recover their NFT even during a contract pause.
+    function claimStuckCollateral(uint256 _loanId) external {
+        if (_loanId >= loans.length) revert InvalidLoanId();
+        address recipient = stuckCollateralRecipient[_loanId];
+        if (recipient == address(0)) revert NoStuckCollateral();
+        if (msg.sender != recipient) revert NotStuckCollateralRecipient();
+
+        Loan storage loan = loans[_loanId];
+        address collateralContract = loan.collateralContract;
+        uint256 tokenId = loan.tokenId;
+
+        // Clear BEFORE the external call (CEI) so a re-entry via a hostile
+        // collection's transferFrom callback cannot double-pay.
+        delete stuckCollateralRecipient[_loanId];
+
+        // Retry the transfer. If it still reverts, the whole tx reverts and
+        // the mapping rollback restores the recipient claim — they can try
+        // again later.
+        IERC721(collateralContract).transferFrom(address(this), recipient, tokenId);
+
+        emit StuckCollateralClaimed(_loanId, recipient, tokenId);
     }
 
     // ─── View Functions ──────────────────────────────────────────────

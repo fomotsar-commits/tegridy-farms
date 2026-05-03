@@ -614,23 +614,22 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (proposal.status == ProposalStatus.Approved) revert ProposalNotActive();
         if (proposal.status != ProposalStatus.Active) revert ProposalNotActive();
 
+        // AUDIT FIX M-6: forfeit the refundable half of PROPOSAL_FEE on cancel and
+        // route it to feeReceiver. Pre-fix, cancellation refunded 50% to the
+        // proposer, allowing slot churn — an attacker could occupy a slot, cancel,
+        // and re-propose at a net cost of only PROPOSAL_FEE/2 per cycle, cheaply
+        // congesting the MAX_ACTIVE_PROPOSALS=50 cap. Forfeiture doubles the
+        // per-cycle cost and removes the incentive to grief active-proposal slots.
+        // The Rejected branch in finalizeProposal still refunds: a community vote
+        // means the proposer acted in good faith. Cancellation is voluntary or
+        // moderation-driven, neither of which deserves the refund.
         uint256 refundable = PROPOSAL_FEE - PROPOSAL_FEE / 2;
         totalRefundableDeposits -= refundable;
         depositRefunded[_proposalId] = true; // AUDIT FIX H-01: Mark deposit as consumed
         proposal.status = ProposalStatus.Cancelled;
         activeProposalCount--;
-        // AUDIT FIX: Handle blacklisted proposer with try/catch pattern (consistent with finalizeProposal/lapseProposal)
-        try toweli.transfer(proposal.proposer, refundable) returns (bool success) {
-            if (success) {
-                emit ProposalFeeRefunded(_proposalId, proposal.proposer, refundable);
-            } else {
-                toweli.safeTransfer(feeReceiver, refundable);
-                emit DepositRedirectedToFeeReceiver(_proposalId, proposal.proposer, refundable);
-            }
-        } catch {
-            toweli.safeTransfer(feeReceiver, refundable);
-            emit DepositRedirectedToFeeReceiver(_proposalId, proposal.proposer, refundable);
-        }
+        toweli.safeTransfer(feeReceiver, refundable);
+        emit DepositRedirectedToFeeReceiver(_proposalId, proposal.proposer, refundable);
         emit ProposalCancelled(_proposalId);
     }
 

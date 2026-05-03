@@ -45,6 +45,31 @@ contract ETHRejecterNFTLending {
     }
 }
 
+/// @dev AUDIT FIX L-2 regression mock: an ERC721 whose `transferFrom` reverts
+/// when the `frozen` flag is set. Covers hostile/buggy collections that
+/// brick repayLoan / claimDefault by reverting on the NFT-return leg.
+contract HostileNFT is ERC721 {
+    uint256 private _nextId = 1;
+    bool public frozen;
+
+    constructor() ERC721("Hostile", "HOST") {}
+
+    function mint(address to) external returns (uint256) {
+        uint256 id = _nextId++;
+        _mint(to, id);
+        return id;
+    }
+
+    function setFrozen(bool _f) external {
+        frozen = _f;
+    }
+
+    function transferFrom(address from, address to, uint256 id) public override {
+        if (frozen) revert("HOSTILE_FROZEN");
+        super.transferFrom(from, to, id);
+    }
+}
+
 // ─── Test Suite ─────────────────────────────────────────────────────
 
 contract TegridyNFTLendingTest is Test {
@@ -582,6 +607,128 @@ contract TegridyNFTLendingTest is Test {
         vm.prank(alice);
         vm.expectRevert(TegridyNFTLending.LoanAlreadyRepaid.selector);
         lending.claimDefault(loanId);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // AUDIT FIX L-2: stuck-collateral recovery
+    // ═══════════════════════════════════════════════════════════════════
+    // A hostile or buggy whitelisted collection that reverts on
+    // `transferFrom` previously bricked repayLoan / claimDefault — borrower
+    // had paid (or default-window had elapsed) but the NFT-return leg's
+    // revert rolled the entire settlement back. The fix wraps the NFT
+    // transfer in try/catch, lets the money flow, and reserves the NFT
+    // for later recovery via `claimStuckCollateral`.
+
+    HostileNFT internal hostile;
+
+    /// @dev Whitelist a fresh HostileNFT and put a loan against it on the
+    ///      books. Returns the loanId. Hostile starts un-frozen so accept
+    ///      succeeds; tests flip `setFrozen(true)` before repay/default.
+    function _setupHostileLoan() internal returns (uint256 loanId, uint256 hostileTokenId) {
+        hostile = new HostileNFT();
+        lending.proposeWhitelistCollection(address(hostile));
+        vm.warp(block.timestamp + 25 hours);
+        lending.executeWhitelistCollection();
+
+        hostileTokenId = hostile.mint(bob);
+
+        vm.prank(bob);
+        hostile.approve(address(lending), hostileTokenId);
+
+        vm.prank(alice);
+        uint256 offerId = lending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(hostile), hostileTokenId
+        );
+
+        vm.prank(bob);
+        loanId = lending.acceptOffer(offerId);
+    }
+
+    function test_L2_repayLoan_collateralStuckThenClaimed() public {
+        (uint256 loanId, uint256 tokenId) = _setupHostileLoan();
+
+        vm.warp(block.timestamp + 15 days);
+        uint256 repayment = lending.getRepaymentAmount(loanId);
+        vm.deal(bob, repayment);
+
+        // Collection turns hostile right before repay — NFT-return leg will revert.
+        hostile.setFrozen(true);
+
+        uint256 aliceBefore = alice.balance;
+        vm.prank(bob);
+        lending.repayLoan{value: repayment}(loanId);
+
+        // Money still flowed to lender (minus protocol fee).
+        assertGt(alice.balance, aliceBefore, "lender paid even when NFT stuck");
+
+        // Loan flipped to repaid, NFT still in escrow, recipient = borrower.
+        (,,,,,,,,,bool repaid,) = lending.getLoan(loanId);
+        assertTrue(repaid, "loan marked repaid");
+        assertEq(hostile.ownerOf(tokenId), address(lending), "NFT still escrowed");
+        assertEq(lending.stuckCollateralRecipient(loanId), bob, "borrower is recipient");
+
+        // Collection becomes healthy → borrower recovers via claimStuckCollateral.
+        hostile.setFrozen(false);
+        vm.prank(bob);
+        lending.claimStuckCollateral(loanId);
+        assertEq(hostile.ownerOf(tokenId), bob, "NFT returned to borrower");
+        assertEq(lending.stuckCollateralRecipient(loanId), address(0), "recipient cleared");
+    }
+
+    function test_L2_claimDefault_collateralStuckThenClaimed() public {
+        (uint256 loanId, uint256 tokenId) = _setupHostileLoan();
+
+        // Default window elapses.
+        vm.warp(block.timestamp + 31 days);
+        // Collection becomes hostile.
+        hostile.setFrozen(true);
+
+        vm.prank(alice);
+        lending.claimDefault(loanId);
+
+        // Default-claimed flag set, NFT still escrowed, recipient = lender.
+        (,,,,,,,,,,bool defaultClaimed) = lending.getLoan(loanId);
+        assertTrue(defaultClaimed, "default-claimed flipped");
+        assertEq(hostile.ownerOf(tokenId), address(lending));
+        assertEq(lending.stuckCollateralRecipient(loanId), alice);
+
+        // Collection unfreezes — lender recovers.
+        hostile.setFrozen(false);
+        vm.prank(alice);
+        lending.claimStuckCollateral(loanId);
+        assertEq(hostile.ownerOf(tokenId), alice);
+        assertEq(lending.stuckCollateralRecipient(loanId), address(0));
+    }
+
+    function test_L2_claimStuckCollateral_revertNotRecipient() public {
+        (uint256 loanId,) = _setupHostileLoan();
+        vm.warp(block.timestamp + 15 days);
+        uint256 repayment = lending.getRepaymentAmount(loanId);
+        vm.deal(bob, repayment);
+        hostile.setFrozen(true);
+        vm.prank(bob);
+        lending.repayLoan{value: repayment}(loanId);
+
+        hostile.setFrozen(false);
+        // carol is not the recipient (bob is).
+        vm.prank(carol);
+        vm.expectRevert(TegridyNFTLending.NotStuckCollateralRecipient.selector);
+        lending.claimStuckCollateral(loanId);
+    }
+
+    function test_L2_claimStuckCollateral_revertNoStuck() public {
+        // A normal happy-path repay leaves no stuck-collateral entry.
+        uint256 loanId = _createAndAcceptLoan();
+        vm.warp(block.timestamp + 15 days);
+        uint256 repayment = lending.getRepaymentAmount(loanId);
+        vm.deal(bob, repayment);
+        vm.prank(bob);
+        lending.repayLoan{value: repayment}(loanId);
+
+        // No stuck collateral → revert.
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTLending.NoStuckCollateral.selector);
+        lending.claimStuckCollateral(loanId);
     }
 
     function test_cannotRepayAfterDefaultClaim() public {

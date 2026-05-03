@@ -458,15 +458,24 @@ contract Audit195Grants is Test {
         assertGt(grants.totalRefundableDeposits(), 0, "deposit still reserved after approval");
     }
 
-    function test_fee_refundOnCancel() public {
+    function test_fee_forfeitOnCancel() public {
+        // AUDIT FIX M-6: cancellation forfeits the refundable half to feeReceiver
+        // (treasury) instead of refunding the proposer. Pre-fix the refund was
+        // 50%, enabling cheap MAX_ACTIVE_PROPOSALS slot churn (cancel + repropose
+        // cycled at PROPOSAL_FEE/2 per slot). Post-fix the proposer eats the full
+        // PROPOSAL_FEE on a self-cancel and the treasury captures the forfeit.
         uint256 id = _createProposal(alice, artist, 1 ether);
         uint256 aliceBefore = token.balanceOf(alice);
+        uint256 treasuryBefore = token.balanceOf(treasury);
 
         vm.prank(alice);
         grants.cancelProposal(id);
 
-        uint256 refund = PROPOSAL_FEE - PROPOSAL_FEE / 2;
-        assertEq(token.balanceOf(alice) - aliceBefore, refund, "50% refunded on cancel");
+        uint256 forfeit = PROPOSAL_FEE - PROPOSAL_FEE / 2;
+        assertEq(token.balanceOf(alice), aliceBefore, "no refund on cancel");
+        assertEq(
+            token.balanceOf(treasury) - treasuryBefore, forfeit, "forfeit routed to treasury"
+        );
         assertEq(grants.totalRefundableDeposits(), 0);
     }
 

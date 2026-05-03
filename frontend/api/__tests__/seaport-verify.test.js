@@ -171,6 +171,45 @@ describe("seaport-verify helpers", () => {
       expect(result.error).toBe("no-offer-item");
     });
   });
+
+  // ── AUDIT FIX H-1-FINDING-2: env-driven chainId validation ──
+  describe("SEAPORT_CHAIN_ID env validation", () => {
+    const originalEnv = process.env.SEAPORT_CHAIN_ID;
+    afterEach(() => {
+      if (originalEnv == null) delete process.env.SEAPORT_CHAIN_ID;
+      else process.env.SEAPORT_CHAIN_ID = originalEnv;
+    });
+
+    it("loads cleanly when SEAPORT_CHAIN_ID is unset (defaults to mainnet)", async () => {
+      delete process.env.SEAPORT_CHAIN_ID;
+      vi.resetModules();
+      await expect(import("../_lib/seaport-verify.js")).resolves.toBeDefined();
+    });
+
+    it("loads cleanly when SEAPORT_CHAIN_ID is mainnet", async () => {
+      process.env.SEAPORT_CHAIN_ID = "1";
+      vi.resetModules();
+      await expect(import("../_lib/seaport-verify.js")).resolves.toBeDefined();
+    });
+
+    it("loads cleanly when SEAPORT_CHAIN_ID is sepolia", async () => {
+      process.env.SEAPORT_CHAIN_ID = "11155111";
+      vi.resetModules();
+      await expect(import("../_lib/seaport-verify.js")).resolves.toBeDefined();
+    });
+
+    it("throws fast when SEAPORT_CHAIN_ID is unsupported", async () => {
+      process.env.SEAPORT_CHAIN_ID = "137"; // polygon — not in allowlist
+      vi.resetModules();
+      await expect(import("../_lib/seaport-verify.js")).rejects.toThrow(/Invalid SEAPORT_CHAIN_ID/);
+    });
+
+    it("throws fast when SEAPORT_CHAIN_ID is non-numeric garbage", async () => {
+      process.env.SEAPORT_CHAIN_ID = "not-a-number";
+      vi.resetModules();
+      await expect(import("../_lib/seaport-verify.js")).rejects.toThrow(/Invalid SEAPORT_CHAIN_ID/);
+    });
+  });
 });
 
 // vitest doesn't auto-import afterEach

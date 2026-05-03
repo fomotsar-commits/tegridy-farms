@@ -35,7 +35,32 @@
 //   - Seaport SDK `verifyOrder`          (parameters + signature → offerer)
 
 import { verifyTypedData, createPublicClient, http } from "viem";
-import { mainnet } from "viem/chains";
+import { mainnet, sepolia } from "viem/chains";
+
+// AUDIT FIX H-1-FINDING-2: chainId was hardcoded to `1` in SEAPORT_DOMAIN, so
+// any future deploy targeting a testnet (or an L2 Seaport instance) would
+// silently produce wrong EIP-712 digests and reject every honest signature.
+// Read from env with a mainnet default; validate against an allowlist so a
+// typo in `SEAPORT_CHAIN_ID` fails fast at module load instead of after the
+// first user listing fails. The allowlist matches the SIWE chainId guard in
+// `frontend/api/auth/siwe.js` (mainnet-only today; sepolia kept for staging).
+const SUPPORTED_VIEM_CHAINS = Object.freeze({
+  1: mainnet,
+  11155111: sepolia,
+});
+function seaportChainId() {
+  const raw = process.env.SEAPORT_CHAIN_ID;
+  if (raw == null || raw === "") return 1;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || !SUPPORTED_VIEM_CHAINS[parsed]) {
+    throw new Error(
+      `Invalid SEAPORT_CHAIN_ID=${raw}; supported: ${Object.keys(SUPPORTED_VIEM_CHAINS).join(",")}`,
+    );
+  }
+  return parsed;
+}
+const SEAPORT_CHAIN_ID = seaportChainId();
+const SEAPORT_VIEM_CHAIN = SUPPORTED_VIEM_CHAINS[SEAPORT_CHAIN_ID];
 
 // REVIEW H-1-FINDING-1: viem's standalone `verifyTypedData` is EOA-only — it
 // runs ECDSA recovery and compares to `address`. Smart Contract Wallets
@@ -53,7 +78,7 @@ function getPublicClient() {
   const url = alchemyUrl();
   if (!url) return null;
   _publicClient = createPublicClient({
-    chain: mainnet,
+    chain: SEAPORT_VIEM_CHAIN,
     transport: http(url),
   });
   return _publicClient;
@@ -66,7 +91,7 @@ const SEAPORT_VERIFYING_CONTRACT = "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC";
 const SEAPORT_DOMAIN = Object.freeze({
   name: "Seaport",
   version: "1.5",
-  chainId: 1,
+  chainId: SEAPORT_CHAIN_ID,
   verifyingContract: SEAPORT_VERIFYING_CONTRACT,
 });
 

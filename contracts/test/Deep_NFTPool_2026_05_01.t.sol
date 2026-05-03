@@ -469,6 +469,74 @@ contract Deep_NFTPool_2026_05_01_Test is Test {
         factory.setEmergencyPaused(false);
         assertFalse(factory.emergencyPaused());
     }
+
+    // ─── L-4: extended NFT-withdraw cooldown + pause-bypass ─────────────
+    // Pre-fix: withdrawNFTs only required `block.number > lastSwapBlock`, so
+    // an owner could drain inventory the block after seeing trader activity.
+    // Post-fix: the cooldown is `WITHDRAW_NFT_COOLDOWN_BLOCKS` (~10 min on
+    // mainnet) once a swap has occurred; pre-trade setup withdrawals are
+    // unaffected; `pause()` bypasses the cooldown as the explicit closure
+    // signal traders monitor.
+
+    function test_L4_withdrawNFTs_cooledDownAfterSwap() public {
+        TegridyNFTPool pool = _mkSell(_idArr(1, 5));
+
+        // Buyer swap stamps lastSwapBlock = current block.
+        (uint256 cost, ) = pool.getBuyQuote(1);
+        vm.prank(bob);
+        pool.swapETHForNFTs{value: cost}(_ids(2), type(uint256).max, block.timestamp + 1);
+
+        // Owner attempts inventory drain on the next block — pre-fix this
+        // already passed; post-fix it must revert until cooldown elapses.
+        vm.roll(block.number + 1);
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTPool.WaitForNFTWithdrawCooldown.selector);
+        pool.withdrawNFTs(_ids(3));
+    }
+
+    function test_L4_withdrawNFTs_succeedsAfterCooldown() public {
+        TegridyNFTPool pool = _mkSell(_idArr(1, 5));
+
+        (uint256 cost, ) = pool.getBuyQuote(1);
+        vm.prank(bob);
+        pool.swapETHForNFTs{value: cost}(_ids(2), type(uint256).max, block.timestamp + 1);
+
+        // Roll past cooldown: lastSwapBlock + WITHDRAW_NFT_COOLDOWN_BLOCKS + 1.
+        vm.roll(block.number + pool.WITHDRAW_NFT_COOLDOWN_BLOCKS() + 1);
+        vm.prank(alice);
+        pool.withdrawNFTs(_ids(3));
+        assertEq(nft.ownerOf(3), alice);
+    }
+
+    function test_L4_withdrawNFTs_pauseBypass() public {
+        TegridyNFTPool pool = _mkSell(_idArr(1, 5));
+
+        (uint256 cost, ) = pool.getBuyQuote(1);
+        vm.prank(bob);
+        pool.swapETHForNFTs{value: cost}(_ids(2), type(uint256).max, block.timestamp + 1);
+
+        // Without pause: still in cooldown next block → revert.
+        vm.roll(block.number + 1);
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTPool.WaitForNFTWithdrawCooldown.selector);
+        pool.withdrawNFTs(_ids(3));
+
+        // After pause: cooldown bypassed (pause is the closure signal).
+        vm.prank(alice);
+        pool.pause();
+        vm.prank(alice);
+        pool.withdrawNFTs(_ids(3));
+        assertEq(nft.ownerOf(3), alice);
+    }
+
+    function test_L4_withdrawNFTs_preTradeSetupAllowed() public {
+        // No swap has ever happened → lastSwapBlock == 0 → cooldown skipped.
+        // Pool just opened, owner can shape initial inventory without warning.
+        TegridyNFTPool pool = _mkSell(_idArr(1, 5));
+        vm.prank(alice);
+        pool.withdrawNFTs(_ids(1));
+        assertEq(nft.ownerOf(1), alice);
+    }
 }
 
 // ─── Test mocks ──────────────────────────────────────────────────────────
