@@ -1612,8 +1612,11 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // active loan on the same tokenId and drain the active loan's accruing
         // kick rewards via the shared `unsettledRewardsByTokenId[tokenId]` mapping.
         // The check uses ownerOf rather than balanceOf so we can isolate the
-        // specific tokenId; a transient mid-tx state where the NFT briefly returns
-        // to this contract is captured (nonReentrant on this fn closes the window).
+        // specific tokenId. The bug-closing predicate is the staking-side
+        // `_isTrackedHolder` check inside `claimUnsettledForTokenId` plus this
+        // contract-side `ownerOf` gate — together they ensure cross-loan and
+        // cross-period theft cannot drain credits that belong to a different
+        // settlement scope than the one the caller is claiming for.
         uint256 directPaid = 0;
         bool nftHeldHere = false;
         try staking.ownerOf(loan.tokenId) returns (address currentOwner) {

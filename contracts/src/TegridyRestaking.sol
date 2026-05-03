@@ -37,6 +37,11 @@ interface ITegridyStaking {
     ///      authoritative `_positionsByOwner` set. Cheap belt-and-suspenders
     ///      for `restake`.
     function holdsToken(address user, uint256 tokenId) external view returns (bool);
+    /// @dev AUDIT FIX LD-NEW-H1 mirror: surface ownerOf so claimResidualForTokenId
+    ///      can refuse to drain when the NFT is currently held by ANOTHER tracked
+    ///      holder (e.g. TegridyLending). See `claimResidualForTokenId` for the
+    ///      full cross-holder attack chain.
+    function ownerOf(uint256 tokenId) external view returns (address);
     // AUDIT H-1 (2026-04-20): Position struct extended with jbacTokenId + jbacDeposited.
     function positions(uint256 tokenId) external view returns (
         uint256 amount,
@@ -208,6 +213,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     /// @notice REVIEW C-1-FINDING-1/2: emitted when the claimant pulls their residue
     ///         after the staking pool is replenished.
     event ResidualClaimed(uint256 indexed tokenId, address indexed claimant, uint256 amount);
+    /// @notice AUDIT FIX LD-NEW-H1 mirror: emitted when `claimResidualForTokenId`
+    ///         declines to drain because the NFT is currently held by a third party
+    ///         (most commonly a tracked-holder lending contract). The residual claim
+    ///         remains live; off-chain monitoring uses this event to surface
+    ///         "your residual is parked while the NFT is in lending" UX.
+    event ResidualPullDeferredCrossHolder(uint256 indexed tokenId, address indexed currentOwner);
 
     // ─── Errors ─────────────────────────────────────────────────────
     error NotRestaked();
@@ -1157,6 +1168,29 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             // Already drained (e.g. by a self-re-restake + unrestake cycle).
             // Clear the stale claim so the tokenId is reopened.
             delete residualClaimant[tokenId];
+            return 0;
+        }
+
+        // AUDIT FIX LD-NEW-H1 (cross-protocol mirror): refuse the per-tokenId pull
+        // when the NFT is currently held by ANOTHER tracked holder (e.g. TegridyLending
+        // or a future lending whitelist entry). The `unsettledRewardsByTokenId[tokenId]`
+        // mapping is shared across all tracked holders that the NFT may pass through;
+        // the residualClaimant guard prevents OTHER restakers from acquiring the NFT
+        // and accruing fresh credits, but does NOT prevent the NFT from going into
+        // lending escrow — where lending-side kicks would credit the same per-tokenId
+        // bucket. Without this check, the prior restaker (still set as residualClaimant)
+        // could drain a borrower's loan-period rewards via the same shared mapping.
+        // Returning early (with `paid = 0`) keeps the residual claim live so the
+        // restaker can retry once the NFT exits lending; legitimate pre-fix residue
+        // is unaffected because by the time this fix evaluates, the NFT is in lending,
+        // meaning any pre-fix residue has either been drained by restaking's own
+        // settlement OR was never created (the lending escrow accumulates fresh).
+        address currentOwner = staking.ownerOf(tokenId);
+        if (currentOwner != address(this) && currentOwner != msg.sender) {
+            // NFT is at a third party — most likely a tracked-holder lending contract.
+            // Drain attempt aborted; claim stays live for a future window when the
+            // NFT returns to msg.sender (the residual claimant) or is unstaked entirely.
+            emit ResidualPullDeferredCrossHolder(tokenId, currentOwner);
             return 0;
         }
 
