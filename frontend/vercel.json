@@ -64,15 +64,16 @@
     }
   ],
   "rewrites": [
-    { "source": "/api/odos/:path*", "destination": "https://api.odos.xyz/:path*" },
-    { "source": "/api/cow/:path*", "destination": "https://api.cow.fi/:path*" },
-    { "source": "/api/lifi/:path*", "destination": "https://li.quest/:path*" },
-    { "source": "/api/kyber/:path*", "destination": "https://aggregator-api.kyberswap.com/:path*" },
-    { "source": "/api/openocean/:path*", "destination": "https://open-api.openocean.finance/:path*" },
-    { "source": "/api/paraswap/:path*", "destination": "https://api.paraswap.io/:path*" },
     { "source": "/api/alchemy", "destination": "/api/alchemy" },
     { "source": "/api/opensea", "destination": "/api/opensea" },
     { "source": "/api/orderbook", "destination": "/api/orderbook" },
+    { "source": "/api/odos/:path*", "destination": "/api/odos/:path*" },
+    { "source": "/api/cow/:path*", "destination": "/api/cow/:path*" },
+    { "source": "/api/lifi/:path*", "destination": "/api/lifi/:path*" },
+    { "source": "/api/kyber/:path*", "destination": "/api/kyber/:path*" },
+    { "source": "/api/openocean/:path*", "destination": "/api/openocean/:path*" },
+    { "source": "/api/paraswap/:path*", "destination": "/api/paraswap/:path*" },
+    { "source": "/api/swapapi/:path*", "destination": "/api/swapapi/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
