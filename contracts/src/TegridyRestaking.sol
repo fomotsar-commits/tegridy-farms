@@ -24,6 +24,10 @@ interface ITegridyStaking {
     ///      with kick credits in the same bucket no longer race for each
     ///      other's share. Returns the actual amount transferred.
     function claimUnsettledForTokenId(uint256 tokenId, address recipient) external returns (uint256 paid);
+    /// @dev REVIEW C-1-FINDING-1/2: per-tokenId attribution view, used by the
+    ///      residual-reservation path in unrestake/emergencyWithdraw* to detect
+    ///      pool-shortfall residue.
+    function unsettledRewardsByTokenId(uint256 tokenId) external view returns (uint256);
     function earned(uint256 tokenId) external view returns (uint256);
     function revalidateBoost(uint256 tokenId) external; // M-26
     /// @dev AUDIT FIX: DEEP-DR-11 — defense-in-depth ownership check to mirror
@@ -100,6 +104,23 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
     mapping(address => RestakeInfo) public restakers;
     mapping(uint256 => address) public tokenIdToRestaker; // reverse lookup
+
+    /// @notice REVIEW C-1-FINDING-1/2/3: post-exit residual claimant for tokens
+    ///         whose `unsettledRewardsByTokenId` could not be fully drained during
+    ///         unrestake / emergencyWithdrawNFT / emergencyForceReturn (e.g. because
+    ///         the staking reward pool was under-funded at exit time).
+    ///
+    ///         Pre-fix the residual stayed silently in `staking.unsettledRewardsByTokenId[tokenId]`
+    ///         and the next entity to restake the SAME tokenId would drain it on
+    ///         their next unrestake — a covert leak from the original restaker to
+    ///         whoever later acquires the NFT.
+    ///
+    ///         With this mapping the original restaker (or `restaker` for the
+    ///         force-return path) keeps an exclusive claim. `restake()` rejects
+    ///         attempts to re-restake a tokenId with a residual claim from a
+    ///         different account; `claimResidualForTokenId(tokenId)` lets the
+    ///         claimant pull their residue once the staking pool is replenished.
+    mapping(uint256 => address) public residualClaimant;
 
     /// @notice AUDIT H-8 (HIGH): per-restaker historical boost checkpoints. Without
     ///         this, boostedAmountAt(_user, _ts) was returning the CURRENT (already
@@ -180,11 +201,25 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         the advertised rate; off-chain monitors must surface this so the pool can
     ///         be refunded before users notice their APR drift.
     event BonusShortfall(uint256 elapsed, uint256 shortfall);
+    /// @notice REVIEW C-1-FINDING-1/2: emitted when a post-exit residual is recorded
+    ///         (i.e. the staking pool was under-funded at unrestake time and some
+    ///         per-tokenId-attributed reward stayed in `staking.unsettledRewardsByTokenId`).
+    event ResidualReserved(uint256 indexed tokenId, address indexed claimant, uint256 amount);
+    /// @notice REVIEW C-1-FINDING-1/2: emitted when the claimant pulls their residue
+    ///         after the staking pool is replenished.
+    event ResidualClaimed(uint256 indexed tokenId, address indexed claimant, uint256 amount);
 
     // ─── Errors ─────────────────────────────────────────────────────
     error NotRestaked();
     error AlreadyRestaked();
     error NotNFTOwner();
+    /// @notice REVIEW C-1-FINDING-1: re-restake of a tokenId is blocked while a
+    ///         prior restaker still has an unrecovered residual claim.
+    error TokenIdHasPendingResidual();
+    /// @notice REVIEW C-1-FINDING-1: caller is not the recorded residual claimant
+    ///         for `tokenId` (i.e. they are not the prior restaker who unrestaked
+    ///         while the staking pool was under-funded).
+    error NotResidualClaimant();
     error InvalidNFT();
     error ZeroAmount();
     // Legacy error aliases (kept for test compatibility — TimelockAdmin errors are thrown instead)
@@ -460,6 +495,16 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     /// @dev Transfers the NFT from caller to this contract
     function restake(uint256 _tokenId) external nonReentrant whenNotPaused updateBonus {
         if (restakers[msg.sender].tokenId != 0) revert AlreadyRestaked();
+
+        // REVIEW C-1-FINDING-1: prevent the next entity to acquire this NFT from
+        // covertly draining a prior restaker's per-tokenId residue. If a prior
+        // restaker exited with an under-funded pool, `residualClaimant[_tokenId]`
+        // points at them — only they may re-restake until the residue is recovered.
+        // Self-re-restake (the same claimant) is allowed because their existing
+        // claim survives the second deposit and they can recover it on their next
+        // unrestake.
+        address claimant = residualClaimant[_tokenId];
+        if (claimant != address(0) && claimant != msg.sender) revert TokenIdHasPendingResidual();
 
         // Verify caller owns the NFT
         if (stakingNFT.ownerOf(_tokenId) != msg.sender) revert NotNFTOwner();
@@ -961,6 +1006,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
         uint256 totalUnsettled = prePaid + postPaid;
 
+        // REVIEW C-1-FINDING-1: if either claim was pool-capped, residue stays in
+        // `staking.unsettledRewardsByTokenId[tokenId]`. Reserve it to msg.sender
+        // so a future restaker of the same NFT cannot drain it. Recoverable via
+        // `claimResidualForTokenId(tokenId)` once the pool is replenished.
+        _reserveResidual(tokenId, msg.sender);
+
         // Recover any previously deferred share from a prior under-funded
         // claim. `pendingUnsettledRewards` is preserved as a deferred-payment
         // mechanism — orthogonal to the per-tokenId attribution fix. We pull
@@ -1028,20 +1079,15 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // the entire `unsettledRewards[restakingContract]` bucket, which (after
         // the C-1 fix) would silently consume per-tokenId attributions belonging
         // to other restakers — re-introducing the very race the C-1 fix closes.
-        // Per-tokenId pulls happen only via `claimUnsettledForTokenId`, called
-        // from unrestake/emergencyWithdrawNFT for the specific tokenId being
-        // exited.
         //
-        // For relaunch (no carry-over `pendingUnsettledRewards` entries) this
-        // function is effectively dead code — kept only so any legacy entry can
-        // still be redeemed against local balance once an admin tops the
-        // contract up via `attributeStuckRewards` or by funding directly. If
-        // you see large `pendingUnsettledRewards` accumulating post-relaunch,
-        // that means the staking contract's reward pool was under-funded at
-        // unrestake time AND the per-tokenId path could not fully drain — the
-        // residual lives in `staking.unsettledRewardsByTokenId(tokenId)` and
-        // an operator can recover via `staking.claimUnsettledForTokenId(tokenId, restaker)`
-        // through the restaking contract once the pool is replenished.
+        // For NEW (post-fix) shortfalls, the user-facing recovery path is
+        // `claimResidualForTokenId(tokenId)` below — it pulls the per-tokenId
+        // residue directly from staking using the new attribution. This
+        // function (`claimPendingUnsettled`) only services LEGACY entries that
+        // were written by pre-fix code. For a fresh relaunch there are no
+        // legacy entries and this function is effectively dead code; kept so
+        // any pre-existing entry can still be redeemed against local balance
+        // once an admin tops up via `attributeStuckRewards`.
         uint256 balance = rewardToken.balanceOf(address(this));
         uint256 reserved = totalUnforwardedBase + totalActivePrincipal;
         uint256 available = balance > reserved ? balance - reserved : 0;
@@ -1052,6 +1098,63 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             totalPendingUnsettled -= payout;
             rewardToken.safeTransfer(msg.sender, payout);
             emit UnsettledRecovered(msg.sender, payout);
+        }
+    }
+
+    /// @notice REVIEW C-1-FINDING-1/2: record a residual claim on `tokenId` for
+    ///         `claimant` if the staking-side per-tokenId attribution wasn't
+    ///         fully drained during the exit.
+    /// @dev Called from unrestake / emergencyWithdrawNFT / emergencyForceReturn
+    ///      AFTER both pre-transfer and post-transfer pulls. If
+    ///      `staking.unsettledRewardsByTokenId(tokenId) > 0`, mark `claimant`
+    ///      as the only entity allowed to recover that residue. Restake() of
+    ///      the same tokenId by anyone else is then blocked until either the
+    ///      claimant calls `claimResidualForTokenId` (and drains it) or the
+    ///      claimant themselves restakes the same NFT again (preserves their
+    ///      claim through the next exit cycle).
+    function _reserveResidual(uint256 tokenId, address claimant) internal {
+        uint256 residue = staking.unsettledRewardsByTokenId(tokenId);
+        if (residue == 0) return;
+        // If a prior residual claim already exists for this tokenId from a
+        // DIFFERENT claimant, leave it intact — the prior claimant's right
+        // takes precedence. (This shouldn't happen in normal flow because
+        // restake() blocks foreign re-restake, but defensively ignore.)
+        address prior = residualClaimant[tokenId];
+        if (prior != address(0) && prior != claimant) return;
+        residualClaimant[tokenId] = claimant;
+        emit ResidualReserved(tokenId, claimant, residue);
+    }
+
+    /// @notice REVIEW C-1-FINDING-1/2/3: recover a previously-reserved
+    ///         per-tokenId residue once the staking reward pool is replenished.
+    /// @dev Auth gates by `residualClaimant[tokenId]` so only the original
+    ///      restaker can pull. Pulls from staking via the existing per-tokenId
+    ///      path (which transfers DIRECTLY to `recipient = msg.sender`). When
+    ///      the staking-side residue is fully drained the claim is cleared,
+    ///      reopening the tokenId for re-restake by any new owner.
+    function claimResidualForTokenId(uint256 tokenId) external nonReentrant whenNotPaused returns (uint256 paid) {
+        if (residualClaimant[tokenId] != msg.sender) revert NotResidualClaimant();
+
+        uint256 residueBefore = staking.unsettledRewardsByTokenId(tokenId);
+        if (residueBefore == 0) {
+            // Already drained (e.g. by a self-re-restake + unrestake cycle).
+            // Clear the stale claim so the tokenId is reopened.
+            delete residualClaimant[tokenId];
+            return 0;
+        }
+
+        try staking.claimUnsettledForTokenId(tokenId, msg.sender) returns (uint256 _p) {
+            paid = _p;
+        } catch {
+            paid = 0;
+        }
+
+        if (paid > 0) emit ResidualClaimed(tokenId, msg.sender, paid);
+
+        // If the staking-side residue is fully drained, clear the claim so
+        // any future owner of the NFT can restake without being blocked.
+        if (staking.unsettledRewardsByTokenId(tokenId) == 0) {
+            delete residualClaimant[tokenId];
         }
     }
 
@@ -1299,6 +1402,11 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
         uint256 totalUnsettled = prePaid + postPaid;
 
+        // REVIEW C-1-FINDING-2: same residual reservation as unrestake() so a
+        // pool-shortfall doesn't leak this restaker's per-tokenId share to a
+        // future restaker of the same NFT.
+        _reserveResidual(tokenId, msg.sender);
+
         // Recover any previously deferred share. Same logic as `unrestake()`.
         uint256 priorPending = pendingUnsettledRewards[msg.sender];
         if (priorPending > 0) {
@@ -1421,6 +1529,14 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             totalActivePrincipal = 0;
         }
 
+        // REVIEW C-1-FINDING-2: pull per-tokenId pre-transfer kick credits before
+        // returning the NFT — same pattern as unrestake/emergencyWithdrawNFT.
+        // Without this, the restaker's per-tokenId-attributed credit was orphaned
+        // (credited to `unsettledRewards[restakingContract]` and recorded in
+        // `unsettledRewardsByTokenId[tokenId]`), and any subsequent restaker of
+        // the SAME NFT would silently drain it on their unrestake.
+        try staking.claimUnsettledForTokenId(tokenId, restaker) {} catch {}
+
         // Attempt to return the NFT — if staking contract is broken, this may fail
         bool nftReturned;
         try stakingNFT.safeTransferFrom(address(this), restaker, tokenId) {
@@ -1430,6 +1546,17 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             // so rescueNFT can only send to the original restaker, preventing theft.
             nftReturned = false;
         }
+
+        // REVIEW C-1-FINDING-2: post-transfer pull captures the final-period
+        // accrual that `_settleRewardsOnTransfer` just credited (only fires if
+        // the NFT actually moved — try/catch handles the stuck-NFT case).
+        if (nftReturned) {
+            try staking.claimUnsettledForTokenId(tokenId, restaker) {} catch {}
+        }
+
+        // REVIEW C-1-FINDING-2: reserve any remaining per-tokenId residue to the
+        // original restaker so a future acquirer of the NFT cannot drain it.
+        _reserveResidual(tokenId, restaker);
 
         if (nftReturned) {
             // Full cleanup only if NFT was successfully returned

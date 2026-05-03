@@ -34,7 +34,30 @@
 //   - Reservoir Protocol orderbook      (signature + ownership pre-checks)
 //   - Seaport SDK `verifyOrder`          (parameters + signature → offerer)
 
-import { verifyTypedData } from "viem";
+import { verifyTypedData, createPublicClient, http } from "viem";
+import { mainnet } from "viem/chains";
+
+// REVIEW H-1-FINDING-1: viem's standalone `verifyTypedData` is EOA-only — it
+// runs ECDSA recovery and compares to `address`. Smart Contract Wallets
+// (Safe / Argent / Coinbase Smart Wallet / 4337 accounts) sign via EIP-1271
+// `isValidSignature(hash, sig)` — recovery against the SCW address fails
+// even though the signature is valid for the SCW.
+//
+// `publicClient.verifyTypedData` does ECDSA recovery first; if the address is
+// a contract, it falls back to an `isValidSignature` staticcall (and ERC-6492
+// pre-deploy signatures). Reuses the same Alchemy URL we already use for
+// `fetchSeaportCounter` / `fetchNftOwner`.
+let _publicClient = null;
+function getPublicClient() {
+  if (_publicClient) return _publicClient;
+  const url = alchemyUrl();
+  if (!url) return null;
+  _publicClient = createPublicClient({
+    chain: mainnet,
+    transport: http(url),
+  });
+  return _publicClient;
+}
 
 // Pinned Seaport address — the verifyingContract used in SEAPORT_DOMAIN on
 // the client (`frontend/src/nakamigos/constants.js`). MUST match exactly or
@@ -241,16 +264,33 @@ export async function verifySeaportSignature({ parameters, signature }) {
   } catch (err) {
     return { ok: false, error: "bad-parameters" };
   }
+  // REVIEW H-1-FINDING-1: prefer `publicClient.verifyTypedData` so EIP-1271
+  // (Smart Contract Wallets) is supported. Falls back to the EOA-only
+  // standalone `verifyTypedData` if the public client cannot be constructed
+  // (e.g. ALCHEMY_API_KEY unset in dev — already handled above by the
+  // `alchemyUrl()` early-return, but keep the fallback defensively).
   let ok;
   try {
-    ok = await verifyTypedData({
-      address: parameters.offerer,
-      domain: SEAPORT_DOMAIN,
-      types: SEAPORT_ORDER_TYPES,
-      primaryType: "OrderComponents",
-      message,
-      signature,
-    });
+    const pc = getPublicClient();
+    if (pc) {
+      ok = await pc.verifyTypedData({
+        address: parameters.offerer,
+        domain: SEAPORT_DOMAIN,
+        types: SEAPORT_ORDER_TYPES,
+        primaryType: "OrderComponents",
+        message,
+        signature,
+      });
+    } else {
+      ok = await verifyTypedData({
+        address: parameters.offerer,
+        domain: SEAPORT_DOMAIN,
+        types: SEAPORT_ORDER_TYPES,
+        primaryType: "OrderComponents",
+        message,
+        signature,
+      });
+    }
   } catch (err) {
     return { ok: false, error: "bad-signature" };
   }

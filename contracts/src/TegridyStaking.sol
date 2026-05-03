@@ -1413,6 +1413,18 @@ contract TegridyStaking is ERC721, OwnableNoRenounce, ReentrancyGuard, Pausable,
     ///      front-run an active user and pull their unsettled rewards out from under
     ///      them.
     function claimUnsettledFor(address _user) external nonReentrant whenNotPaused {
+        // REVIEW C-1-FINDING-4: NEVER let `claimUnsettledFor` drain the
+        // restakingContract's holder bucket. After the C-1 per-tokenId fix,
+        // `unsettledRewards[restakingContract]` is the BACKING for every
+        // `unsettledRewardsByTokenId[*]` entry. Draining the holder bucket
+        // without decrementing the per-tokenId mappings would leave every
+        // restaker's per-tokenId claim capped at 0 (since the cap by
+        // `holderUnsettled` in `claimUnsettledForTokenId` would always be 0),
+        // permanently breaking per-tokenId recovery. The restaking contract's
+        // own per-tokenId path is the only valid drain route.
+        if (_user == restakingContract && restakingContract != address(0)) {
+            revert Unauthorized();
+        }
         // AUDIT R014 M-9: owner branch requires 90-day user inactivity. The user
         // themselves and the restaking contract may always claim on the user's behalf.
         if (msg.sender == _user || msg.sender == restakingContract) {

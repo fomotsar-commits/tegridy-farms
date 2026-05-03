@@ -559,14 +559,20 @@ export default async function handler(req, res) {
           // Verify that the tx contains a Seaport OrderFulfilled event for this order hash
           // OrderFulfilled topic0 = keccak256("OrderFulfilled(bytes32,address,address,tuple[])")
           const ORDER_FULFILLED_TOPIC = "0x9d9af8e38d66c62e2c12f0225249fd9d721c54b83f48d9352c97c6cacdcb6f31";
-          // AUDIT API-M7: pin the event origin to the canonical Seaport 1.6
-          // contract so a malicious contract emitting the same topic signature
-          // from its own address cannot forge a fill record.
-          const SEAPORT_ADDRESS = "0x0000000000000068f116a894984e2db1123eb395";
+          // AUDIT API-M7 + REVIEW H-2-FINDING-1: pin the event origin to a CANONICAL
+          // Seaport allowlist so a malicious contract emitting the same topic
+          // signature from its own address cannot forge a fill record. Both Seaport
+          // 1.5 (the default verifyingContract for client signatures) AND Seaport 1.6
+          // (used by some fulfill routes) are accepted — the prior single-address
+          // pin (1.6 only) DoS'd every fill that landed on Seaport 1.5.
+          const SEAPORT_ADDRESSES = new Set([
+            "0x00000000000000adc04c56bf30ac9d3c0aaf14dc", // Seaport 1.5
+            "0x0000000000000068f116a894984e2db1123eb395", // Seaport 1.6
+          ]);
           const hasMatchingLog = receipt.logs.some(log =>
             log.topics?.[0] === ORDER_FULFILLED_TOPIC &&
             log.topics?.[1]?.toLowerCase() === orderHash.toLowerCase() &&
-            log.address?.toLowerCase() === SEAPORT_ADDRESS
+            SEAPORT_ADDRESSES.has(log.address?.toLowerCase())
           );
           if (!hasMatchingLog) {
             return res.status(400).json({ error: "Transaction does not contain a matching Seaport OrderFulfilled event" });
