@@ -212,6 +212,13 @@ abstract contract TimelockAdmin {
     ///         vs 0 for this name). New code MUST NOT call `_executeAfterOf`.
     ///         A future major-version bump can drop this alias once all
     ///         downstream consumers (none in-tree today) have migrated.
+    /// @dev    PASS6-SLITHER (2026-05-03): the dead-code detector correctly
+    ///         observes 0 in-tree callers. Suppressed because this is exactly
+    ///         the "ABI-compatibility back-compat alias" carve-out documented
+    ///         in `contracts/src/.slither.deadcode-suppress.md`. The canonical
+    ///         `_proposalReadyAt` is the path forward; this stays until a
+    ///         major-version bump.
+    // slither-disable-next-line dead-code
     function _executeAfterOf(bytes32 key) internal view returns (uint256) {
         return _executeAfter[key];
     }
