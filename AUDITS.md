@@ -11,7 +11,7 @@ Before you read further, here's the methodology breakdown:
 | Type | Count | Description |
 |---|---|---|
 | **External, third-party methodology** | 2 | `SPARTAN_AUDIT.txt` (Apr 16, 2026) and the pre-release doc archived at [`docs/audits/archive/tegridy_farms_audit.docx`](./docs/audits/archive/tegridy_farms_audit.docx) (Mar 25, 2026) |
-| **Internal AI-agent reviews** | 8 | Parallel Claude/GPT agent sweeps. Useful as a breadth tool. **Not a substitute for a human audit firm.** Latest: **101-agent canonical pass (Apr 25, 2026)** under [`.audit_101/MASTER_REPORT.md`](./.audit_101/MASTER_REPORT.md) + [`.audit_101/DETAILED_REPORT.md`](./.audit_101/DETAILED_REPORT.md) + remediation phase tracked in [`.audit_101/remediation/`](./.audit_101/remediation/) (R001–R076). |
+| **Internal AI-agent reviews** | 10 | Parallel Claude/GPT agent sweeps. Useful as a breadth tool. **Not a substitute for a human audit firm.** Latest: **pass-6 fresh-eyes meta-audit (May 3, 2026)** — see [`.audit_101/PASS6_2026_05_03.md`](./.audit_101/PASS6_2026_05_03.md). The lineage: 100→200→300→40-agent passes (Mar 2026), 101-agent canonical pass (Apr 25, 2026 — [`.audit_101/MASTER_REPORT.md`](./.audit_101/MASTER_REPORT.md) + remediation R001–R076), microscope (Apr 30), DEEP_2026_05_01 v1/v2/v3 (May 1), pass-5 cross-contract (May 2), pass-6 (May 3). |
 | **Rolling remediation docs** | 3 | `FIX_STATUS.md`, `AUDIT_FINDINGS.md`, `CHANGELOG.md` |
 
 **If you are diligencing this protocol, read `SPARTAN_AUDIT.txt` + `AUDIT_FINDINGS.md` + `FIX_STATUS.md`. The rest is context.**
