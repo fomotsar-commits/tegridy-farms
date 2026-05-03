@@ -911,10 +911,6 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
     // ─── Internal ─────────────────────────────────────────────────────
 
-    function _countActiveProposals() internal view returns (uint256) {
-        return activeProposalCount;
-    }
-
     /// @dev H-07 FIX: Prune expired entries from ring buffer and return current disbursed total.
     ///      O(expired) not O(total) — gas cost bounded by number of expired entries.
     function _pruneAndGetRollingDisbursed() internal returns (uint256) {

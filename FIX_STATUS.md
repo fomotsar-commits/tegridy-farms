@@ -1,12 +1,32 @@
 # Fix Status — Rolling tracker
 
-Running log of what's landed on `main` in response to [AUDIT_FINDINGS.md](AUDIT_FINDINGS.md),
-the 35-detective audit, the Spartan audit, and the 300-agent internal review.
-See [REVENUE_ANALYSIS.md](REVENUE_ANALYSIS.md) for the fee-lever calibration.
+Running log of what's landed on `main` across the full 6-pass internal
+audit lineage: 100→200→300→40-agent passes (Mar 2026), the 101-agent
+canonical pass (`.audit_101/MASTER_REPORT.md` + remediation R001–R076,
+Apr 25), microscope (Apr 30), DEEP_2026_05_01 v1/v2/v3 (May 1), pass-5
+adversarial cross-contract (May 2), and pass-6 fresh-eyes meta-audit
+(May 3) — plus the [SPARTAN_AUDIT](SPARTAN_AUDIT.txt) third-party review,
+the [AUDIT_FINDINGS.md](AUDIT_FINDINGS.md) ledger, the 35-detective audit,
+and the 300-agent internal review. Per the
+[`AUDITS.md`](AUDITS.md#honest-tldr) Honest TL;DR: 2 third-party reviews
++ 10 internal AI-agent passes; not a substitute for a paid human audit.
+See [REVENUE_ANALYSIS.md](REVENUE_ANALYSIS.md) for the fee-lever
+calibration.
 
-Last refreshed 2026-05-03 after pass-6 fresh-eyes meta-audit
-(see [`.audit_101/PASS6_2026_05_03.md`](.audit_101/PASS6_2026_05_03.md)).
-For a richer Keep-a-Changelog view see [CHANGELOG.md](CHANGELOG.md).
+**Cumulative current state (pass-6 closure count, 2026-05-03):** 388
+findings carried over from passes 1–5 + 10 NEW contract findings closed
+in pass-6 (5 HIGH + 5 MED) + 7 NEW frontend findings closed in pass-6
+(1 CRIT + 5 HIGH + 1 LOW) = **405 audit-tracked findings total** across
+the 6-pass lineage, with the contract surface bounded by the CI-blocking
+regression suite at
+[`contracts/test/Pass6_Regressions.t.sol`](contracts/test/Pass6_Regressions.t.sol).
+Source-of-truth master report:
+[`.audit_101/PASS6_2026_05_03.md`](.audit_101/PASS6_2026_05_03.md).
+
+Last refreshed 2026-05-03 after the pass-6 polish batch (dead-code
+helpers deleted, slither config schema cleaned, this framing block
+refreshed). For a richer Keep-a-Changelog view see
+[CHANGELOG.md](CHANGELOG.md).
 
 ## ✅ Pass-6 (2026-05-03)
 

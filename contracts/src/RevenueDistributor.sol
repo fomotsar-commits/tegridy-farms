@@ -513,19 +513,6 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         }
     }
 
-    /// @dev Returns the current restaked position amount for a user, or 0 if not restaked.
-    function _getRestakedAmount(address _user) internal view returns (uint256) {
-        if (address(restakingContract) == address(0)) return 0;
-        try restakingContract.restakers(_user) returns (
-            uint256 tokenId, uint256 positionAmount, uint256, int256, uint256
-        ) {
-            if (tokenId == 0) return 0;
-            return positionAmount;
-        } catch {
-            return 0;
-        }
-    }
-
     /// @dev AUDIT NEW-S1 (CRITICAL): fallback voting-power source for restakers.
     ///      TegridyStaking zeroes a user's checkpoint when their NFT is transferred to
     ///      the restaking contract, so votingPowerAtTimestamp reads 0 for every epoch

@@ -1,11 +1,6 @@
 {
-  "_comment": "Slither configuration for Tegridy Farms. Matches contracts/foundry.toml so static-analysis sees the same compilation as forge. Detector tuning: mute the false-positive-heavy classes that the existing audit ledger already excluded, surface every detector that maps to a Critical/High finding class.",
-
-  "_compilation": "Slither uses crytic-compile under the hood; pointing it at the contracts/ subdir lets it pick up foundry.toml automatically (solc 0.8.26, via_ir=true, optimizer_runs=10, evm_version=cancun).",
   "compile_force_framework": "foundry",
   "filter_paths": "lib/|node_modules/|test/|script/|out/|cache/|broadcast/|.audit_101/|.spartan_unpacked/",
-
-  "_detectors": "Detector list. The default list is good but several are noise-heavy in this codebase (intentional unchecked math in Uniswap-V2 cumulatives, intentional storage layout in upgradable patterns we do not use). Mute those. Promote everything that maps to a fund-loss class.",
 
   "exclude_dependencies": true,
   "exclude_informational": false,
@@ -27,73 +22,10 @@
     "incorrect-shift"
   ],
 
-  "_detectors_excluded_rationale": {
-    "naming-convention": "False positives on UPPERCASE constants and underscore-prefixed internals; covered by review",
-    "solc-version": "Pinned to 0.8.26 in foundry.toml, single-version project",
-    "pragma": "Same as above",
-    "low-level-calls": "Used intentionally for ETH transfers via WETHFallbackLib + 10k stipend pattern (Seaport-style)",
-    "assembly": "Used by OpenZeppelin and FixedPointMathLib internals; review explicitly",
-    "similar-names": "False positive heavy on (token0, token1), (reserve0, reserve1)",
-    "too-many-digits": "Constants like 10000 BPS and 1e18 are intentional",
-    "constable-states": "Working tree has Wave-014 changes converting some constants to state for timelocked tunability",
-    "external-function": "Public-vs-external is review-time call",
-    "incorrect-shift": "False positives on SafeMath patterns"
-  },
-
-  "_detectors_promoted": "These are the detectors that catch actual fund-loss patterns. Keep them firing loud.",
-  "detectors_to_run": [
-    "arbitrary-send-eth",
-    "arbitrary-send-erc20",
-    "arbitrary-send-erc20-permit",
-    "controlled-array-length",
-    "controlled-delegatecall",
-    "delegatecall-loop",
-    "msg-value-loop",
-    "reentrancy-eth",
-    "reentrancy-no-eth",
-    "reentrancy-unlimited-gas",
-    "reentrancy-events",
-    "reentrancy-benign",
-    "incorrect-equality",
-    "tautology",
-    "boolean-equal",
-    "uninitialized-state",
-    "uninitialized-storage",
-    "uninitialized-local",
-    "unused-return",
-    "shadowing-state",
-    "shadowing-abstract",
-    "shadowing-builtin",
-    "shadowing-local",
-    "missing-zero-check",
-    "calls-loop",
-    "events-access",
-    "events-maths",
-    "weak-prng",
-    "tx-origin",
-    "unprotected-upgrade",
-    "domain-separator-collision",
-    "erc20-interface",
-    "erc721-interface",
-    "incorrect-modifier",
-    "locked-ether",
-    "mapping-deletion",
-    "encode-packed-collision",
-    "storage-array",
-    "deprecated-standards",
-    "void-cst",
-    "function-init-state",
-    "reused-constructor",
-    "name-reused"
-  ],
-
-  "_severity_floor": "Slither default is medium. Bank-grade: surface low+ for review.",
   "fail_pedantic": false,
   "fail_high": true,
   "fail_medium": true,
   "fail_low": false,
-
-  "_workflow_integration": "The existing .github/workflows/slither.yml should consume this file via `--config-file slither.config.json`. CI gate: fail PR on any new High or Medium finding. Low/Info reported to PR comment but non-blocking.",
 
   "json": "slither-report.json",
   "sarif": "slither-report.sarif"
