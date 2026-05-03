@@ -8,7 +8,8 @@ import {
   formatEther, formatUnits, parseEther, parseUnits, keccak256,
   encodeAbiParameters, toHex, type Address, type Hex,
 } from 'viem';
-import { VOTE_INCENTIVES_ADDRESS, TEGRIDY_STAKING_ADDRESS } from '../../lib/constants';
+import { toast } from 'sonner';
+import { VOTE_INCENTIVES_ADDRESS, TEGRIDY_STAKING_ADDRESS, CHAIN_ID } from '../../lib/constants';
 import { VOTE_INCENTIVES_ABI, TEGRIDY_STAKING_ABI } from '../../lib/contracts';
 import { useBribes, type WhitelistedToken } from '../../hooks/useBribes';
 import { useGaugeList, type GaugeInfo } from '../../hooks/useGaugeList';
@@ -1250,7 +1251,8 @@ export function VoteIncentivesSection() {
 
   // ── Handlers ───────────────────────────────────────────────
   const handleWithdrawPendingETH = () => {
-    writeLocal({ address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'withdrawPendingETH' });
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    writeLocal({ chainId: CHAIN_ID, address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'withdrawPendingETH' });
   };
   const handleWithdrawPendingToken = (tok: Address) => bribes.withdrawPendingToken(tok);
   const isBusy = bribes.isPending || bribes.isConfirming || isLocalSigning || isLocalConfirming;

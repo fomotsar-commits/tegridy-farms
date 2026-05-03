@@ -1,12 +1,13 @@
-import { useAccount, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { useEffect } from 'react';
 import { toast } from 'sonner';
 import { REVENUE_DISTRIBUTOR_ABI, REFERRAL_SPLITTER_ABI } from '../lib/contracts';
-import { REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS } from '../lib/constants';
+import { REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { formatWei } from '../lib/formatting';
 
 export function useRevenueStats() {
   const { address } = useAccount();
+  const chainId = useChainId();
   const userAddr = address ?? '0x0000000000000000000000000000000000000000';
 
   const { writeContract: writeClaim, data: claimHash, isPending: isClaimPending, reset: resetClaim, error: claimError } = useWriteContract();
@@ -56,7 +57,9 @@ export function useRevenueStats() {
 
   // Actions — no registration needed, just claim
   function claimRevenue() {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     writeClaim({
+      chainId: CHAIN_ID,
       address: REVENUE_DISTRIBUTOR_ADDRESS,
       abi: REVENUE_DISTRIBUTOR_ABI,
       functionName: 'claim',
@@ -64,7 +67,9 @@ export function useRevenueStats() {
   }
 
   function claimReferralRewards() {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     writeClaim({
+      chainId: CHAIN_ID,
       address: REFERRAL_SPLITTER_ADDRESS,
       abi: REFERRAL_SPLITTER_ABI,
       functionName: 'claimReferralRewards',
@@ -72,8 +77,10 @@ export function useRevenueStats() {
   }
 
   function setReferrer(referrerAddress: `0x${string}`) {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (hasReferrer) { toast.info('Referrer already set'); return; }
     writeClaim({
+      chainId: CHAIN_ID,
       address: REFERRAL_SPLITTER_ADDRESS,
       abi: REFERRAL_SPLITTER_ABI,
       functionName: 'setReferrer',

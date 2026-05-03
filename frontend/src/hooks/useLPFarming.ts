@@ -145,10 +145,15 @@ export function useLPFarming() {
   }
 
   function withdraw(amount: string) {
+    if (chainId !== CHAIN_ID) {
+      toast.error('Wrong network — switch to Ethereum mainnet');
+      return;
+    }
     const wei = safeParseEtherPositive(amount);
     if (wei === null) return;
     txAddressRef.current = address;
     writeContract({
+      chainId: CHAIN_ID,
       address: LP_FARMING_ADDRESS,
       abi: LP_FARMING_ABI,
       functionName: 'withdraw',
@@ -157,8 +162,13 @@ export function useLPFarming() {
   }
 
   function claim() {
+    if (chainId !== CHAIN_ID) {
+      toast.error('Wrong network — switch to Ethereum mainnet');
+      return;
+    }
     txAddressRef.current = address;
     writeContract({
+      chainId: CHAIN_ID,
       address: LP_FARMING_ADDRESS,
       abi: LP_FARMING_ABI,
       functionName: 'getReward',
@@ -166,8 +176,13 @@ export function useLPFarming() {
   }
 
   function exit() {
+    if (chainId !== CHAIN_ID) {
+      toast.error('Wrong network — switch to Ethereum mainnet');
+      return;
+    }
     txAddressRef.current = address;
     writeContract({
+      chainId: CHAIN_ID,
       address: LP_FARMING_ADDRESS,
       abi: LP_FARMING_ABI,
       functionName: 'exit',
@@ -175,8 +190,13 @@ export function useLPFarming() {
   }
 
   function emergencyWithdraw() {
+    if (chainId !== CHAIN_ID) {
+      toast.error('Wrong network — switch to Ethereum mainnet');
+      return;
+    }
     txAddressRef.current = address;
     writeContract({
+      chainId: CHAIN_ID,
       address: LP_FARMING_ADDRESS,
       abi: LP_FARMING_ABI,
       functionName: 'emergencyWithdraw',

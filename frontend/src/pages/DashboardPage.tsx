@@ -567,7 +567,7 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
             </div>
             <span className="stat-value text-[16px] text-success"><AnimatedCounter value={pending} decimals={6} suffix=" ETH" /></span>
           </div>
-          <button onClick={() => writeContract({ address: REVENUE_DISTRIBUTOR_ADDRESS, abi: REVENUE_DISTRIBUTOR_ABI, functionName: 'claim' })}
+          <button onClick={() => writeContract({ chainId: CHAIN_ID, address: REVENUE_DISTRIBUTOR_ADDRESS, abi: REVENUE_DISTRIBUTOR_ABI, functionName: 'claim' })}
             disabled={isPending || isConfirming || isWrongNetwork}
             className="btn-primary px-5 py-2.5 text-[13px] disabled:opacity-70">
             {isPending || isConfirming ? 'Claiming...' : 'Claim ETH'}
