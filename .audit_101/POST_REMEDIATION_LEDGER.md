@@ -213,3 +213,103 @@ The earlier `AUDITS.md` `tl;dr` table is honest about methodology (8 internal AI
 4. A paid human audit by a recognized firm is still on the roadmap and not yet scheduled.
 
 **For new auditors:** the AI-agent findings have a documented ~58% false-positive rate at HIGH severity and ~63% at MEDIUM. Spot-check before fixing.
+
+---
+
+## Pass-5 closure (2026-05-02)
+
+Single-pass append for the Pass-5 cross-contract sweep
+([master report](./PASS5_2026_05_02.md)). 3 findings, 1 HIGH + 1 LOW + 1 INFO.
+
+| ID | Severity | Surface | What changed |
+|---|---|---|---|
+| PASS5-REV-H1 | HIGH | `RevenueDistributor.distribute()` | Sibling-miss vs `distributePermissionless`. Pass-5 surfaced; pass-6 era closure tracked separately. |
+| PASS5-PA-L1 | LOW (promoted to MED in pass-6) | `PremiumAccess.subscribe` extension | Closed in pass-6 commit `722d1f1` — see pass-6 section below. |
+| PASS5-INFO-1 | INFO | Audit signal | 4 invariants × 128k stateful calls — PASS. CI-blocking recommendation. |
+
+---
+
+## Pass-6 closures (2026-05-03)
+
+Pass-6 fresh-eyes meta-audit (master report:
+[`PASS6_2026_05_03.md`](./PASS6_2026_05_03.md)) closed 10 NEW contract findings
++ 7 NEW frontend findings across 6 commits. The pass was authored through
+the lens of 2024-2026 DeFi exploit retrospectives (Curve / Euler / Conic /
+KyberSwap Elastic / Onyx / Penpie / Jimbos / Radiant / BonqDAO / Hundred /
+Velocore / Atlantis / Munchables / BlueBerry / Pendle / Sturdy / Inverse /
+Platypus / Poly Network).
+
+### Commits
+
+| # | Commit | Surface(s) touched | Findings closed | Severity |
+|---|---|---|---|---|
+| P6-A | `722d1f1` | TegridyLending, TegridyNFTLending, TegridyTWAP, SwapFeeRouter, TegridyRestaking, PremiumAccess, GaugeController, POLAccumulator | LD-NEW-H1, LD-NEW-H2, TWAP HIGH-2, TWAP HIGH-3, SwapFeeRouter HIGH-4, PASS5-PA-L1 (MED), N-1, F-1, F-2, LD-NEW-M4, MEDIUM-5 | 4 HIGH + 6 MED |
+| P6-B | `b1fb6d4` | frontend (`contracts.ts`, `useNFTDropV2`, `useLPFarming`, `siweAuth`) + cumulative FRESH-EYES batch | FE-HIGH-01, FE-HIGH-02, FE-LOW-04 | 2 HIGH + 1 LOW |
+| P6-C | `8266289` | TegridyRestaking (cross-protocol mirror) + TegridyLending (comment tightening) | LD-NEW-H1 mirror | 1 HIGH |
+| P6-D | `21db70b` | NEW `contracts/test/Pass6_Regressions.t.sol` | regression tests for the 3 NEW HIGHs | TEST |
+| P6-E | `975e5af` | `vercel.json` rewrites → 7 Vercel serverless wrappers under `frontend/api/{provider}/[...path].js` + shared `frontend/api/_lib/aggregator-proxy.js` | FE-CRIT-01 | 1 CRIT |
+| P6-F | `4b3a47f` | frontend swap surface (`aggregator.ts`, `useDCA`, `DCATab`, `useLimitOrders`, `useSwap`, `useSwapAllowance`, `TradePage`) | FE-HIGH-03, FE-HIGH-04, FE-HIGH-05, FE-HIGH-06 | 4 HIGH |
+
+### Confirmed and FIXED
+
+#### Contract HIGHs (5)
+
+| ID | Surface | What changed |
+|---|---|---|
+| LD-NEW-H1 | `TegridyLending.pullEscrowRewards` | `staking.ownerOf(loan.tokenId) == address(this)` gate skips per-tokenId pull when NFT is currently re-escrowed at lending — credits belong to the active loan. ([TegridyLending.sol:1620-1633](../contracts/src/TegridyLending.sol#L1620)) |
+| LD-NEW-H1 mirror | `TegridyRestaking.claimResidualForTokenId` | Returns 0 paid + emits `ResidualPullDeferredCrossHolder` when `staking.ownerOf(tokenId)` is neither this contract nor `msg.sender`. Residual claim stays live for retry. ([TegridyRestaking.sol:1163-1195](../contracts/src/TegridyRestaking.sol#L1163)) |
+| LD-NEW-H2 | `TegridyNFTLending.repayLoan` / `claimDefault` | New `_safeOutboundTransfer` helper performs `transferFrom` then re-checks `ownerOf(tokenId)` post-condition. Mismatch sets `stuckCollateralRecipient[loanId]` + emits `CollateralRedirected`. ([TegridyNFTLending.sol:620-697,755-771](../contracts/src/TegridyNFTLending.sol#L620)) |
+| TWAP HIGH-2 | `TegridyTWAP.consult()` | Reverts `PairDisabled` when `factory.disabledPairs(pair)` is true. ([TegridyTWAP.sol:472](../contracts/src/TegridyTWAP.sol#L472)) |
+| TWAP HIGH-3 | `TegridyTWAP.update()` first observation | First obs now stamped `bypassed = true` + `lastBypassUsed[pair] = block.timestamp`. Bootstrap rolls out of consult lookup window before consumers trust it. ([TegridyTWAP.sol:309-331](../contracts/src/TegridyTWAP.sol#L309)) |
+| SwapFeeRouter HIGH-4 | `convertTokenFeesToETH` + FoT variant — multi-hop branches | Multi-hop now invalidates `lastConversionSnapshot[token]` (`timestamp = 0`). Forces next 2-hop into bootstrap (owner-only). ([SwapFeeRouter.sol:1554-1563](../contracts/src/SwapFeeRouter.sol#L1554) and [L1652-1660](../contracts/src/SwapFeeRouter.sol#L1652)) |
+
+#### Contract MEDs (5)
+
+| ID | Surface | What changed |
+|---|---|---|
+| PASS5-PA-L1 (MED) | `PremiumAccess.subscribe` extension | Removed `totalRevenue += consumedEscrow;` — original cost was already counted at first subscribe. ([PremiumAccess.sol:309-330](../contracts/src/PremiumAccess.sol#L309)) |
+| N-1 | `GaugeController.proposeRemoveGauge` | New `error GaugeRemovePending()`; reverts when `pendingGaugeRemove != 0`. ([GaugeController.sol:201,788](../contracts/src/GaugeController.sol#L201)) |
+| F-1 | `TegridyRestaking._boostedAmountAt` | Splits the predicate at `_timestamp < liveLockEnd` — returns `cached` directly for historical lookups in the kick-window. Preserves DR-04 over-credit defense at `_timestamp >= liveLockEnd`. ([TegridyRestaking.sol:486-512](../contracts/src/TegridyRestaking.sol#L486)) |
+| F-2 | `TegridyRestaking.executeAttributeStuckRewards` | Subtracts `totalActivePrincipal` AND `totalPendingUnsettled` from the unattributed pool. ([TegridyRestaking.sol:1389-1408](../contracts/src/TegridyRestaking.sol#L1389)) |
+| LD-NEW-M4 | `TegridyLending` TWAP staleness gates | Directional pre-check `if (latest.timestamp > block.timestamp) revert OracleStale();` ahead of subtraction, mirrored on `lastBypass`. ([TegridyLending.sol:1245,1256](../contracts/src/TegridyLending.sol#L1245)) |
+| MEDIUM-5 | `POLAccumulator.HARVEST_TWAP_DEVIATION_BPS` | Narrowed 200 → 50 bps to match `TWAP_SAFETY_BPS`. ([POLAccumulator.sol:131](../contracts/src/POLAccumulator.sol#L131)) |
+
+#### Frontend (1 CRIT + 5 HIGH + 1 LOW)
+
+| ID | Surface | What changed |
+|---|---|---|
+| FE-CRIT-01 | `vercel.json` aggregator rewrites (`/api/{odos,cow,lifi,kyber,openocean,paraswap,swapapi}/*`) | 7 rewrites replaced by Vercel serverless wrappers under `frontend/api/{provider}/[...path].js`. Shared `frontend/api/_lib/aggregator-proxy.js` enforces 7 gates: method/origin/rate-limit/path/body+response-cap/query/response-cleanup. 53 NEW tests in `frontend/api/__tests__/aggregator-proxy.test.js`. |
+| FE-HIGH-01 | TegridyDropV2 mint ABI | 2-arg → 3-arg (`mint(uint256 quantity, uint256 allowedAmount, bytes32[] proof)`); `useNFTDropV2.mint()` accepts optional `allowedAmount` (default 0). ([frontend/src/lib/contracts.ts:420-421](../frontend/src/lib/contracts.ts#L420), [frontend/src/hooks/useNFTDropV2.ts](../frontend/src/hooks/useNFTDropV2.ts)) |
+| FE-HIGH-02 | SIWE client | `buildSiweMessage` sets `expirationTime` (5-min, aligned to server `MAX_MESSAGE_TTL_MS`) + `notBefore` (30s skew tolerance). ([frontend/src/nakamigos/lib/siweAuth.js:41-60](../frontend/src/nakamigos/lib/siweAuth.js#L41)) |
+| FE-HIGH-03 | SwapAPI direct fetch | Routed through same-origin `/api/swapapi/*` so the third party never sees user wallet/IP/referer. ([frontend/src/lib/aggregator.ts:86](../frontend/src/lib/aggregator.ts#L86)) |
+| FE-HIGH-04 | DCA hardcoded 5% slippage | Per-schedule `slippageBps` field bounded to `[10, 300]` bps; default 50 bps; UI presets+custom; storage validator updated. ([frontend/src/hooks/useDCA.ts](../frontend/src/hooks/useDCA.ts), [frontend/src/components/swap/DCATab.tsx](../frontend/src/components/swap/DCATab.tsx)) |
+| FE-HIGH-05 | Limit-order minOut | At execute-time re-quote AMM: `minOut = min(targetDerivedMinOut, onChainOut * (1 - slippage))`; stale-target gate; default slippage 5% → 1%. ([frontend/src/hooks/useLimitOrders.ts:284](../frontend/src/hooks/useLimitOrders.ts#L284)) |
+| FE-HIGH-06 | Custom-token decimals/symbol spoofing | On-chain re-verify on hydration + add; mismatches evicted. `useSwapAllowance` refuses `MAX_UINT256` for non-DEFAULT tokens (exact-amount approval). UI banner. ([frontend/src/hooks/useSwap.ts](../frontend/src/hooks/useSwap.ts), [frontend/src/hooks/useSwapAllowance.ts](../frontend/src/hooks/useSwapAllowance.ts), [frontend/src/pages/TradePage.tsx](../frontend/src/pages/TradePage.tsx)) |
+| FE-LOW-04 | `useLPFarming` + `useNFTDropV2` `useWaitForTransactionReceipt` | Pin `chainId: CHAIN_ID`. ([frontend/src/hooks/useLPFarming.ts:24](../frontend/src/hooks/useLPFarming.ts#L24), [frontend/src/hooks/useNFTDropV2.ts:43](../frontend/src/hooks/useNFTDropV2.ts#L43)) |
+
+### Tests
+
+[`contracts/test/Pass6_Regressions.t.sol`](../contracts/test/Pass6_Regressions.t.sol)
+adds 4 NEW tests (commit `21db70b`):
+
+- `test_LD_NEW_H1_oldLoanCannotDrainNewLoanCredits`
+- `test_LD_NEW_H1_mirror_residualClaimantBlockedByLendingEscrow`
+- `test_LD_NEW_H2_silentNoOpRepay_marksStuck`
+- `test_TWAP_HIGH_2_consultRevertsWhenPairDisabled`
+
+198 tests pass across the affected scope (Lending / NFTLending / TWAP /
+Restaking). Each turns the verification-agent's manual reasoning into
+CI-blocking guard rails — the fix-template is now the regression-test
+template too.
+
+### Deferred
+
+None — all initially-deferred items (FE-CRIT-01, FE-HIGH-3/4/5/6) landed
+during the same pass via parallel-agent commits `975e5af` and `4b3a47f`.
+
+### Net pass-6 totals
+
+- **Contract findings:** 0 Critical · 5 High · 5 Medium — all CLOSED.
+- **Frontend findings:** 1 Critical · 5 High · 1 Low — all CLOSED.
+- **Cumulative across 6 passes:** 388 + 10 = **398 contract findings**;
+  + 7 frontend pass-6 closures = **405 audit-tracked items**.

@@ -10,6 +10,138 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Ongoing investor-polish and audit-closure work. Lands on `main` as it ships;
 a tagged release will cut from here once Wave 0 redeploys are complete.
 
+### Security — pass-6 fresh-eyes audit (2026-05-03)
+
+Meta-audit informed by 2024-2026 DeFi exploit retrospectives (Curve / Euler /
+Conic / KyberSwap Elastic / Onyx / Penpie / Jimbos / Radiant / BonqDAO /
+Hundred / Velocore / Atlantis / Munchables / BlueBerry / Pendle / Sturdy /
+Inverse / Platypus / Poly Network) re-aimed at the cumulative 388-finding
+history of passes 1–5. Surfaced 5 NEW contract HIGHs + 5 NEW contract MEDs +
+1 frontend CRIT + 5 frontend HIGHs + 1 frontend LOW — all closed. Master report:
+[`.audit_101/PASS6_2026_05_03.md`](./.audit_101/PASS6_2026_05_03.md).
+
+#### Fixed — Contract HIGHs (5)
+
+- **LD-NEW-H1** — `TegridyLending.pullEscrowRewards` no longer drains a NEW
+  active loan's per-tokenId rewards via a stale `loanId` on the same tokenId.
+  Closed by `staking.ownerOf(loan.tokenId) == address(this)` gate at
+  [TegridyLending.sol:1620-1633](contracts/src/TegridyLending.sol#L1620). Commit `722d1f1`.
+- **LD-NEW-H1 mirror** — `TegridyRestaking.claimResidualForTokenId` refuses
+  to drain `unsettledRewardsByTokenId` while the NFT is escrowed at another
+  tracked holder (lending). Returns 0 paid + emits
+  `ResidualPullDeferredCrossHolder`. Closed at
+  [TegridyRestaking.sol:1163-1195](contracts/src/TegridyRestaking.sol#L1163). Commit `8266289`.
+- **LD-NEW-H2** — `TegridyNFTLending` outbound NFT leg
+  (`repayLoan` / `claimDefault`) verifies the NFT actually moved
+  post-`transferFrom`. Silent no-op malicious collections trigger
+  `stuckCollateralRecipient` + `CollateralRedirected` event. New
+  `_safeOutboundTransfer` helper at
+  [TegridyNFTLending.sol:755-771](contracts/src/TegridyNFTLending.sol#L755);
+  call sites at [L620 + L697](contracts/src/TegridyNFTLending.sol#L620). Commit `722d1f1`.
+- **TWAP HIGH-2** — `consult()` reverts `PairDisabled` when the factory has
+  `disabledPairs[pair] = true`. Closed at
+  [TegridyTWAP.sol:472](contracts/src/TegridyTWAP.sol#L472). Commit `722d1f1`.
+- **TWAP HIGH-3** — first observation on a new pair is now stamped
+  `bypassed = true` so the bootstrap rolls out of any consult lookup window
+  before consumers trust it. Closed at
+  [TegridyTWAP.sol:309-331](contracts/src/TegridyTWAP.sol#L309). Commit `722d1f1`.
+- **SwapFeeRouter HIGH-4** — multi-hop branches in `convertTokenFeesToETH`
+  (and the FoT variant) invalidate `lastConversionSnapshot[token]`. Forces
+  the next 2-hop call into the bootstrap (owner-only) path. Closed at
+  [SwapFeeRouter.sol:1554-1563](contracts/src/SwapFeeRouter.sol#L1554) and
+  [SwapFeeRouter.sol:1652-1660](contracts/src/SwapFeeRouter.sol#L1652). Commit `722d1f1`.
+
+#### Fixed — Contract MEDs (5)
+
+- **PASS5-PA-L1** (promoted from pass-5 LOW) — `PremiumAccess.subscribe`
+  extension no longer double-counts `consumedEscrow` into `totalRevenue`.
+  Closed at [PremiumAccess.sol:309-330](contracts/src/PremiumAccess.sol#L309). Commit `722d1f1`.
+- **N-1 GaugeController orphan** — `proposeRemoveGauge` reverts with new
+  `error GaugeRemovePending()` when a prior `executeRemoveGaugeNextEpoch`
+  left `pendingGaugeRemove != 0`. Closed at
+  [GaugeController.sol:201,788](contracts/src/GaugeController.sol#L201). Commit `722d1f1`.
+- **F-1 Restaking under-credit** — `_boostedAmountAt` historical lookups for
+  `_timestamp < liveLockEnd` now return `cached` directly. Restores honest
+  historical accounting in the kick-window without reopening DR-04
+  over-credit. Closed at
+  [TegridyRestaking.sol:486-512](contracts/src/TegridyRestaking.sol#L486). Commit `722d1f1`.
+- **F-2 Restaking attribute-cap** — `executeAttributeStuckRewards` subtracts
+  `totalActivePrincipal` AND `totalPendingUnsettled` from the unattributed
+  pool, not just `totalUnforwardedBase`. Closed at
+  [TegridyRestaking.sol:1389-1408](contracts/src/TegridyRestaking.sol#L1389). Commit `722d1f1`.
+- **LD-NEW-M4** — `TegridyLending` TWAP staleness gates add directional
+  pre-checks (`latest.timestamp > block.timestamp` → typed `OracleStale`)
+  so clock-skewed feeds do not underflow checked-math. Closed at
+  [TegridyLending.sol:1245,1256](contracts/src/TegridyLending.sol#L1245). Commit `722d1f1`.
+- **MEDIUM-5** — `POLAccumulator.HARVEST_TWAP_DEVIATION_BPS` narrowed
+  200 → 50 bps to align with `TWAP_SAFETY_BPS`. Closed at
+  [POLAccumulator.sol:131](contracts/src/POLAccumulator.sol#L131). Commit `722d1f1`.
+
+#### Fixed — Frontend (1 CRIT + 5 HIGH + 1 LOW)
+
+- **FE-HIGH-01** — TegridyDropV2 `mint()` ABI corrected from 2-arg to
+  3-arg (`mint(uint256 quantity, uint256 allowedAmount, bytes32[] proof)`).
+  `useNFTDropV2.mint()` accepts an optional `allowedAmount` (default 0
+  preserves PUBLIC-mint callers). Closed in
+  [frontend/src/lib/contracts.ts:420-421](frontend/src/lib/contracts.ts#L420)
+  and [frontend/src/hooks/useNFTDropV2.ts](frontend/src/hooks/useNFTDropV2.ts). Commit `b1fb6d4`.
+- **FE-HIGH-02** — SIWE client sets `expirationTime` (5-min) and `notBefore`
+  (30s skew tolerance) so the server's `verifySignature` accepts payloads
+  instead of returning HTTP 400. Closed in
+  [frontend/src/nakamigos/lib/siweAuth.js:41-60](frontend/src/nakamigos/lib/siweAuth.js#L41). Commit `b1fb6d4`.
+- **FE-LOW-04** — `useLPFarming` + `useNFTDropV2`
+  `useWaitForTransactionReceipt` pin `chainId: CHAIN_ID`. Commit `b1fb6d4`.
+- **FE-CRIT-01** — Seven `vercel.json` aggregator open-proxy rewrites
+  (`/api/{odos,cow,lifi,kyber,openocean,paraswap,swapapi}/*`) replaced by
+  Vercel serverless wrappers under `frontend/api/{provider}/[...path].js`.
+  Shared infra at `frontend/api/_lib/aggregator-proxy.js` enforces seven
+  gates: method allowlist, origin allowlist (fail-closed in prod), Upstash
+  sliding rate limit (60/min/IP), exact-prefix path allowlist with
+  decode-then-check (`%2F..%2F`-safe), 32 KB body cap + 5 MB response cap,
+  per-provider query allowlist (no apiKey/cookie/auth forward), response
+  cleanup (no Set-Cookie/Authorization echo, opaque 502 on upstream non-2xx).
+  53 NEW tests in `frontend/api/__tests__/aggregator-proxy.test.js`; full
+  api/ suite green (13 files, 169 tests). Commit `975e5af`.
+- **FE-HIGH-03** — SwapAPI quote routed through same-origin `/api/swapapi/*`
+  so the third party no longer sees user wallet/IP/referer. Closed in
+  [frontend/src/lib/aggregator.ts:86](frontend/src/lib/aggregator.ts#L86). Commit `4b3a47f`.
+- **FE-HIGH-04** — DCA hardcoded 5% slippage replaced by per-schedule
+  `slippageBps` field bounded to `[10, 300]` bps (0.1%-3%) and defaulted to
+  50 bps. UI presets+custom input + storage validator updated. Closed in
+  [frontend/src/hooks/useDCA.ts](frontend/src/hooks/useDCA.ts) and
+  [frontend/src/components/swap/DCATab.tsx](frontend/src/components/swap/DCATab.tsx). Commit `4b3a47f`.
+- **FE-HIGH-05** — Limit-order minOut now derived from on-chain
+  `getAmountsOut` re-quote at execute-time:
+  `minOut = min(targetDerivedMinOut, onChainOut * (1 - slippage))`. Stale-
+  target gate aborts unsatisfiable orders. Default slippage lowered 5% → 1%.
+  Closed in
+  [frontend/src/hooks/useLimitOrders.ts:284](frontend/src/hooks/useLimitOrders.ts#L284). Commit `4b3a47f`.
+- **FE-HIGH-06** — Custom-token decimals/symbol verified via
+  `publicClient.readContract` on hydration + add; mismatches evicted with
+  toast. `useSwapAllowance` refuses `approve(MAX_UINT256)` for tokens NOT in
+  `DEFAULT_TOKENS` (falls back to exact-amount approval). Permanent
+  unverified-token banner. Closed in
+  [frontend/src/hooks/useSwap.ts](frontend/src/hooks/useSwap.ts),
+  [frontend/src/hooks/useSwapAllowance.ts](frontend/src/hooks/useSwapAllowance.ts),
+  [frontend/src/pages/TradePage.tsx](frontend/src/pages/TradePage.tsx). Commit `4b3a47f`.
+
+#### Tests
+
+- New regression suite at
+  [`contracts/test/Pass6_Regressions.t.sol`](contracts/test/Pass6_Regressions.t.sol)
+  — 4 tests covering the 3 NEW HIGHs:
+  `test_LD_NEW_H1_oldLoanCannotDrainNewLoanCredits`,
+  `test_LD_NEW_H1_mirror_residualClaimantBlockedByLendingEscrow`,
+  `test_LD_NEW_H2_silentNoOpRepay_marksStuck`,
+  `test_TWAP_HIGH_2_consultRevertsWhenPairDisabled`. Commit `21db70b`.
+- 198 affected-scope tests pass.
+
+#### Deferred
+
+None — every initially-deferred item from `b1fb6d4`'s commit body
+(FE-CRIT-01, FE-HIGH-3/4/5/6) landed during the same pass via parallel-agent
+commits `975e5af` and `4b3a47f`. Pass-6 closes its scope cleanly.
+
 ### 2026-04-26 — Post-remediation audit campaign (3 Crit + 7 High + 5 Med + 2 EIP-170 splits)
 
 #### Summary

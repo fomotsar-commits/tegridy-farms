@@ -36,7 +36,9 @@ These live at the repo root because they are actively referenced:
 
 | File | Purpose |
 |---|---|
-| [`.audit_101/POST_REMEDIATION_LEDGER.md`](./.audit_101/POST_REMEDIATION_LEDGER.md) | **NEW (2026-04-26)**: post-remediation reconciliation. 14 fixes shipped across 11 commits closing 3 Critical + 7 High + 4 Medium findings, including R017/R020/R023/R028 fixes that prior docs claimed had shipped but had not. **Single source of truth for post-Apr-26 main.** |
+| [`.audit_101/PASS6_2026_05_03.md`](./.audit_101/PASS6_2026_05_03.md) | **NEW (2026-05-03)**: pass-6 fresh-eyes meta-audit informed by 2024-2026 DeFi exploit retrospectives. 5 NEW contract HIGH + 5 NEW contract MED + 1 frontend CRIT + 5 frontend HIGH + 1 frontend LOW — **all closed** in commits `722d1f1` / `b1fb6d4` / `8266289` / `21db70b` / `975e5af` / `4b3a47f`. Cumulative across 6 passes: 398 contract findings + 7 frontend pass-6 closures = 405 audit-tracked items. |
+| [`.audit_101/PASS5_2026_05_02.md`](./.audit_101/PASS5_2026_05_02.md) | Pass-5 adversarial cross-contract audit (2026-05-02). 1 HIGH + 1 LOW + 1 INFO + 4 invariants (all PASS over 128k stateful calls each). |
+| [`.audit_101/POST_REMEDIATION_LEDGER.md`](./.audit_101/POST_REMEDIATION_LEDGER.md) | **2026-04-26**: post-remediation reconciliation. 14 fixes shipped across 11 commits closing 3 Critical + 7 High + 4 Medium findings, including R017/R020/R023/R028 fixes that prior docs claimed had shipped but had not. Pass-6 closures appended below the original ledger. |
 | [`SECURITY_AUDIT_300_AGENT.md`](./SECURITY_AUDIT_300_AGENT.md) | Canonical severity reference. 300-agent internal sweep + Spartan ingest. Apr 16, 2026. |
 | [`AUDIT_FINDINGS.md`](./AUDIT_FINDINGS.md) | Current `main`-branch blocker list. 35-detective parallel sweep. Apr 17, 2026. |
 | [`SPARTAN_AUDIT.txt`](./SPARTAN_AUDIT.txt) | **External** review. 25 contracts, 12,644 LOC. 1 Critical / 1 High / 7 Medium / 9 Low. Apr 16, 2026. |
@@ -125,6 +127,15 @@ Apr 16  ▸ External Spartan review (SPARTAN_AUDIT.txt)
 Apr 17  ▸ 35-detective internal pass against main (AUDIT_FINDINGS.md)
          + API/indexer domain pass (API_INDEXER_AUDIT.md)
 Apr 18  ▸ Remediation sessions 3–11 (see FIX_STATUS.md + CHANGELOG.md)
+Apr 25  ▸ Wave 1–4 bulletproofing pass (101-agent canonical audit + remediation
+            phase, .audit_101/MASTER_REPORT.md + .audit_101/remediation/R001..R076)
+Apr 26  ▸ Post-remediation reconciliation (.audit_101/POST_REMEDIATION_LEDGER.md)
+            — 14 fixes across 11 commits (3 Crit + 7 High + 4 Med)
+May 02  ▸ Pass-5 adversarial cross-contract audit (.audit_101/PASS5_2026_05_02.md)
+            — 1 HIGH + 1 LOW + 4 invariants × 128k stateful calls each
+May 03  ▸ Pass-6 fresh-eyes meta-audit (.audit_101/PASS6_2026_05_03.md)
+            — 5 NEW contract HIGH + 5 NEW contract MED
+            + 7 frontend (1 CRIT + 5 HIGH + 1 LOW), all closed
 ```
 
 Each pass narrowed scope; March passes inventoried broadly, April passes tracked specific blockers.
