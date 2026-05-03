@@ -1,0 +1,271 @@
+// AUDIT FE-CRIT-01: shared infrastructure for the DEX-aggregator proxies.
+//
+// Background: every entry under `vercel.json#rewrites` that pointed at a
+// third-party host (api.odos.xyz, api.cow.fi, li.quest, …) was an open
+// proxy. Anyone could `curl https://tegridyfarms.xyz/api/odos/<arbitrary>`
+// to:
+//   - burn the upstream quota associated with our Vercel IP
+//   - send arbitrary POST bodies through our trusted origin (potential
+//     credential / CSRF amplification toward the upstream)
+//   - have the upstream response served back through our origin (cookies,
+//     referer policy, edge-cached for other users)
+//
+// This module replaces those passive rewrites with serverless wrappers
+// that enforce, in order:
+//   1. Method allowlist  — only GET + POST (most aggregators use one).
+//   2. Origin allowlist  — fail-closed in production, permissive in dev.
+//   3. Rate limit        — Upstash sliding window, per-IP, configurable.
+//   4. Path allowlist    — regex / exact-prefix per provider, decode-then-
+//                          check to defeat URL-encoded traversal.
+//   5. Body cap          — 32 KB POST cap; readBoundedText for upstream.
+//   6. Query allowlist   — explicit per-call set; no ?key passthrough.
+//   7. Response cleanup  — strip Set-Cookie + Authorization-related headers,
+//                          collapse upstream errors to opaque 502.
+//
+// Each provider file exports a default handler that calls runProxy with its
+// own config. Tests mock checkRateLimit + globalThis.fetch.
+
+import { checkRateLimit } from "./ratelimit.js";
+import { readBoundedText, MAX_RESPONSE_BYTES } from "./bodycap.js";
+import { logSafe } from "./logSafe.js";
+
+// AUDIT FE-CRIT-01: keep the body cap tight. Quote APIs accept small JSON
+// payloads (a few KB). 32 KB leaves comfortable headroom while staying far
+// below the body-cap-vs-JSON-bomb threshold the upstream readBoundedText
+// caps at on the response side.
+export const MAX_REQUEST_BODY_SIZE = 32 * 1024;
+
+// Origin allowlist mirroring alchemy.js / opensea.js / orderbook.js. Kept
+// in one place so security policy doesn't drift between proxies.
+function buildAllowedOrigins() {
+  const set = new Set([
+    "https://tegridyfarms.xyz",
+    "https://www.tegridyfarms.xyz",
+    "https://nakamigos.gallery",
+    "https://www.nakamigos.gallery",
+    "https://tegridyfarms.vercel.app",
+  ]);
+  if (process.env.ALLOWED_ORIGIN) set.add(process.env.ALLOWED_ORIGIN);
+  if (process.env.NODE_ENV !== "production") {
+    set.add("http://localhost:8742");
+    set.add("http://localhost:3000");
+    set.add("http://localhost:5173");
+  }
+  return set;
+}
+
+// AUDIT FE-CRIT-01: fail-closed origin gate. In production, an empty Origin
+// (which can happen on direct curl) is treated as a non-allowed origin and
+// rejected with 403 — the proxies are only meant for browser-originated
+// fetches from our app. On Vercel preview deployments we additionally allow
+// any *.vercel.app origin so PR previews keep working.
+function isOriginAllowed(origin) {
+  const allowed = buildAllowedOrigins();
+  if (process.env.NODE_ENV !== "production") return true;
+  if (allowed.has(origin)) return true;
+  if (process.env.VERCEL_ENV === "preview" && /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin)) {
+    return true;
+  }
+  return false;
+}
+
+function setCors(req, res) {
+  const origin = req.headers?.origin || "";
+  const allowed = buildAllowedOrigins();
+  const fallback = process.env.ALLOWED_ORIGIN || "https://tegridyfarms.xyz";
+  res.setHeader("Access-Control-Allow-Origin", allowed.has(origin) ? origin : fallback);
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Vary", "Origin");
+}
+
+// Decode-then-check path guard mirroring opensea.js#isAllowedPath. URL
+// encoding is rejected outright so an attacker can't smuggle traversal via
+// %2F..%2F or similar.
+function isPathSafe(p) {
+  if (typeof p !== "string" || p.length === 0) return false;
+  let decoded;
+  try { decoded = decodeURIComponent(p); } catch { return false; }
+  if (decoded !== p) return false;
+  if (decoded.includes("..")) return false;
+  if (decoded.includes("//")) return false;
+  // Reject leading slash — Vercel catch-all delivers the path without one.
+  if (decoded.startsWith("/")) return false;
+  return true;
+}
+
+function pickQueryParams(query, allowedKeys, pathSegments) {
+  const out = new URLSearchParams();
+  for (const k of allowedKeys) {
+    if (Object.prototype.hasOwnProperty.call(query, k)) {
+      const v = query[k];
+      if (v == null) continue;
+      // URLSearchParams accepts repeated values — preserve them only when
+      // explicit (each entry validated individually).
+      if (Array.isArray(v)) {
+        for (const e of v) if (e !== undefined && e !== null) out.append(k, String(e));
+      } else {
+        out.set(k, String(v));
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Read incoming POST body with a hard cap so a misbehaving caller cannot
+ * stream gigabytes through the lambda. Returns the parsed JSON or throws.
+ *
+ * Vercel's default body parser already populates req.body for JSON, so we
+ * stringify-and-measure that. If it exceeds the cap, return null so the
+ * caller can 413.
+ */
+function getBodyOrTooLarge(req) {
+  if (req.method !== "POST") return { body: undefined, tooLarge: false };
+  const raw = typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {});
+  if (raw.length > MAX_REQUEST_BODY_SIZE) return { body: undefined, tooLarge: true };
+  let parsed = req.body;
+  if (typeof req.body === "string") {
+    try { parsed = JSON.parse(req.body); } catch { return { body: undefined, tooLarge: false, parseError: true }; }
+  }
+  return { body: parsed, tooLarge: false };
+}
+
+/**
+ * Build the upstream URL from a Vercel `[...path].js` query.
+ *
+ * Vercel binds the catch-all to `query.path`, which arrives as either a
+ * single string or an array of segments. We rebuild the path as a `/`-joined
+ * string AFTER per-segment safety checks; nothing from `req.url` ever reaches
+ * the upstream.
+ */
+function extractCatchAllPath(query) {
+  const raw = query?.path;
+  if (raw == null) return "";
+  if (Array.isArray(raw)) return raw.join("/");
+  return String(raw);
+}
+
+/**
+ * Run a hardened proxy request.
+ *
+ * @param {object} cfg
+ * @param {string} cfg.identifier         — rate-limit bucket identifier.
+ * @param {string} cfg.upstreamBase       — e.g. "https://api.odos.xyz".
+ * @param {(string[]) => boolean} cfg.matchPath — receives the path segments,
+ *   returns true if the path is on the allowlist.
+ * @param {Set<string>} cfg.allowedMethods — typically new Set(["GET","POST"]).
+ * @param {string[]} cfg.allowedQuery     — query keys to forward upstream.
+ * @param {object} [cfg.extraHeaders]     — extra request headers (e.g. kyber X-Client-Id).
+ * @param {number} [cfg.rateLimit=60]     — req/window limit.
+ * @param {number} [cfg.rateWindowSec=60] — window size.
+ * @param {string} [cfg.cacheControl]     — Cache-Control to set on success
+ *   (defaults to private, no-store).
+ */
+export async function runProxy(req, res, cfg) {
+  setCors(req, res);
+  if (req.method === "OPTIONS") return res.status(200).end();
+
+  // Method allowlist
+  const methods = cfg.allowedMethods || new Set(["GET", "POST"]);
+  if (!methods.has(req.method)) {
+    res.setHeader("Allow", [...methods].join(", "));
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  // Origin allowlist (fail-closed in production)
+  const origin = req.headers?.origin || "";
+  if (!isOriginAllowed(origin)) {
+    return res.status(403).json({ error: "Origin not allowed" });
+  }
+
+  // Rate limit (Upstash). Fails closed in production via _lib/ratelimit.js.
+  const allowed = await checkRateLimit(req, res, {
+    limit: cfg.rateLimit ?? 60,
+    windowSec: cfg.rateWindowSec ?? 60,
+    identifier: cfg.identifier,
+  });
+  if (!allowed) return;
+
+  // Path allowlist
+  const rawPath = extractCatchAllPath(req.query);
+  if (!isPathSafe(rawPath)) {
+    return res.status(404).json({ error: "Not found" });
+  }
+  const segments = rawPath.split("/").filter(Boolean);
+  if (segments.length === 0 || !cfg.matchPath(segments)) {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  // Body cap (POST only)
+  const { body: reqBody, tooLarge, parseError } = getBodyOrTooLarge(req);
+  if (tooLarge) {
+    return res.status(413).json({ error: "Request body too large" });
+  }
+  if (parseError) {
+    return res.status(400).json({ error: "Malformed JSON body" });
+  }
+
+  // Build upstream URL — rebuild from validated parts only. Never reflect
+  // req.url's query verbatim.
+  const upstream = new URL(`${cfg.upstreamBase}/${segments.join("/")}`);
+  const allowedParams = pickQueryParams(req.query || {}, cfg.allowedQuery || [], segments);
+  for (const [k, v] of allowedParams.entries()) upstream.searchParams.append(k, v);
+
+  // Build outbound headers — Authorization / Cookie / Set-Cookie are NOT
+  // proxied. Only a small set of upstream-required headers passes through.
+  const outHeaders = { Accept: "application/json", ...(cfg.extraHeaders || {}) };
+  if (req.method === "POST") {
+    outHeaders["Content-Type"] = "application/json";
+  }
+
+  let upstreamRes;
+  try {
+    const fetchOpts = { method: req.method, headers: outHeaders };
+    if (req.method === "POST") {
+      fetchOpts.body = JSON.stringify(reqBody ?? {});
+    }
+    upstreamRes = await fetch(upstream.toString(), fetchOpts);
+  } catch (err) {
+    console.error(`[${cfg.identifier}] proxy fetch error:`, logSafe(err));
+    return res.status(502).json({ error: "Upstream service error" });
+  }
+
+  // Bounded read protects against gzip bombs / OOM.
+  let bodyText;
+  try {
+    const { text, truncated } = await readBoundedText(upstreamRes, MAX_RESPONSE_BYTES);
+    if (truncated) {
+      console.error(`[${cfg.identifier}] upstream over-cap`);
+      return res.status(502).json({ error: "Upstream response too large" });
+    }
+    bodyText = text;
+  } catch (err) {
+    console.error(`[${cfg.identifier}] read error:`, logSafe(err));
+    return res.status(502).json({ error: "Upstream service error" });
+  }
+
+  // Forward upstream Content-Type if present, otherwise default to JSON.
+  const upstreamCt = upstreamRes.headers?.get?.("content-type") || "application/json";
+  res.setHeader("Content-Type", upstreamCt);
+  // AUDIT FE-CRIT-01: explicitly DO NOT forward Set-Cookie or Authorization
+  // headers. Default cache header is private, no-store unless caller overrides.
+  res.setHeader("Cache-Control", cfg.cacheControl || "private, no-store");
+
+  if (!upstreamRes.ok) {
+    // Log real upstream status server-side; surface a generic 502 to clients.
+    console.error(`[${cfg.identifier}] upstream HTTP ${upstreamRes.status}:`, logSafe(bodyText.slice(0, 500)));
+    return res.status(502).json({ error: "Upstream service error" });
+  }
+
+  return res.status(200).send(bodyText);
+}
+
+// Exported for unit testing.
+export const __test__ = {
+  isPathSafe,
+  isOriginAllowed,
+  buildAllowedOrigins,
+  pickQueryParams,
+  extractCatchAllPath,
+};
