@@ -357,7 +357,12 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
       await tx.wait();
 
       // Step 2: Update native orderbook backend status
-      const cancelMessage = `Cancel order ${listing.orderHash}`;
+      // AUDIT FIX D-FE-M2: bind cancel signature to chainId + timestamp so a
+      // captured signature cannot be replayed cross-environment or after the
+      // 5-minute server-side window expires. Server validates both fields.
+      const _cancelTs = Math.floor(Date.now() / 1000);
+      const _cancelChainId = 1;
+      const cancelMessage = `Cancel order ${listing.orderHash} | Chain: ${_cancelChainId} | Time: ${_cancelTs}`;
       const cancelSignature = await signer.signMessage(cancelMessage);
 
       try {
@@ -368,6 +373,8 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
             action: "cancel",
             orderHash: listing.orderHash,
             signature: cancelSignature,
+            chainId: _cancelChainId,
+            timestamp: _cancelTs,
           }),
         });
         if (!res.ok) {
@@ -417,9 +424,14 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
       await tx.wait();
 
       // Update backend: cancel each active listing so the DB stays in sync
+      // AUDIT FIX D-FE-M2: per-listing chainId+timestamp binding (see single-cancel
+      // path above for full rationale). Each signature is freshly bound so a
+      // captured one cannot be replayed beyond its 5-minute server window.
       for (const listing of listings) {
         try {
-          const cancelMessage = `Cancel order ${listing.orderHash}`;
+          const _ts = Math.floor(Date.now() / 1000);
+          const _cid = 1;
+          const cancelMessage = `Cancel order ${listing.orderHash} | Chain: ${_cid} | Time: ${_ts}`;
           const cancelSignature = await signer.signMessage(cancelMessage);
           await fetch("/api/orderbook", {
             method: "POST",
@@ -428,6 +440,8 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
               action: "cancel",
               orderHash: listing.orderHash,
               signature: cancelSignature,
+              chainId: _cid,
+              timestamp: _ts,
             }),
           });
         } catch (backendErr) {

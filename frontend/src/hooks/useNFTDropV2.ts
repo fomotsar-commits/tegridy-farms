@@ -39,7 +39,8 @@ export function useNFTDropV2(dropAddress: string) {
   const contractAddr = dropAddress as `0x${string}`;
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash });
+  // AUDIT FIX FE-LOW-04: pin receipt resolution to CHAIN_ID — see useLPFarming.ts.
+  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash, chainId: CHAIN_ID });
 
   const enabled = !!dropAddress && dropAddress !== '0x0000000000000000000000000000000000000000';
 
@@ -164,7 +165,10 @@ export function useNFTDropV2(dropAddress: string) {
   // Re-entry guard identical to v1 hook (see useNFTDrop comments).
   const inFlight = !!hash && !isSuccess && !isTxError;
 
-  function mint(quantity: number, proof: `0x${string}`[] = []) {
+  // AUDIT FIX FE-HIGH-01: `allowedAmount` is the per-wallet cap encoded into the
+  // ALLOWLIST merkle leaf (see TegridyDropV2.mint). Pass 0 for PUBLIC / DUTCH where
+  // the proof is unused. Default-zero keeps existing PUBLIC-only callers compatible.
+  function mint(quantity: number, proof: `0x${string}`[] = [], allowedAmount: bigint = 0n) {
     // AUDIT FIX M-8: refuse on wrong chain so the user doesn't burn ETH
     // minting against a phantom address on Sepolia/Base/Arbitrum.
     if (!onMainnet) { toast.error('Please switch to Ethereum Mainnet'); return; }
@@ -178,7 +182,8 @@ export function useNFTDropV2(dropAddress: string) {
       address: contractAddr,
       abi: TEGRIDY_DROP_V2_ABI,
       functionName: 'mint',
-      args: [BigInt(quantity), proof],
+      // FE-HIGH-01: 3-arg signature matches Solidity. allowedAmount is the merkle leaf cap.
+      args: [BigInt(quantity), allowedAmount, proof],
       value: totalCost,
     });
   }

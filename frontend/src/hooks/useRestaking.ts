@@ -11,7 +11,7 @@ export function useRestaking() {
   const userAddr = address ?? '0x0000000000000000000000000000000000000000';
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash });
+  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
 
   // Read user's staking position + restaking state in parallel
   const { data, refetch, isLoading: isDataLoading } = useReadContracts({
@@ -90,6 +90,7 @@ export function useRestaking() {
     if (!hasStakingPosition) { toast.error('You need a staking position first'); return; }
     if (isRestaked) { toast.error('Already restaked'); return; }
     writeContract({
+      chainId: CHAIN_ID,
       address: TEGRIDY_RESTAKING_ADDRESS,
       abi: TEGRIDY_RESTAKING_ABI,
       functionName: 'restake',
@@ -101,6 +102,7 @@ export function useRestaking() {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!isRestaked) return;
     writeContract({
+      chainId: CHAIN_ID,
       address: TEGRIDY_RESTAKING_ADDRESS,
       abi: TEGRIDY_RESTAKING_ABI,
       functionName: 'unrestake',
@@ -111,6 +113,7 @@ export function useRestaking() {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (pendingTotal === 0n) { toast.info('No rewards to claim'); return; }
     writeContract({
+      chainId: CHAIN_ID,
       address: TEGRIDY_RESTAKING_ADDRESS,
       abi: TEGRIDY_RESTAKING_ABI,
       functionName: 'claimAll',

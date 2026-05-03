@@ -142,7 +142,12 @@ export async function fulfillNativeOrder(order) {
     }
 
     // Mark order as filled in our backend
-    const fillMessage = `Fill order ${order.order_hash} tx ${tx.hash}`;
+    // AUDIT FIX D-FE-M2: bind fill signature to chainId + a 5-minute timestamp
+    // so a captured signature cannot be replayed against staging or after the
+    // server window expires. Same pattern as the cancel path.
+    const _fillTs = Math.floor(Date.now() / 1000);
+    const _fillChainId = 1;
+    const fillMessage = `Fill order ${order.order_hash} tx ${tx.hash} | Chain: ${_fillChainId} | Time: ${_fillTs}`;
     const fillSignature = await signer.signMessage(fillMessage);
 
     const fillController = new AbortController();
@@ -157,6 +162,8 @@ export async function fulfillNativeOrder(order) {
           orderHash: order.order_hash,
           txHash: tx.hash,
           signature: fillSignature,
+          chainId: _fillChainId,
+          timestamp: _fillTs,
         }),
       });
       clearTimeout(fillTimeout);

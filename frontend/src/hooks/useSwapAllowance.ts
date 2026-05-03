@@ -29,6 +29,7 @@ export function useSwapAllowance(
   selectedRoute: RouteSource,
   address: `0x${string}` | undefined,
   writeContract: (args: {
+    chainId?: number;
     address: `0x${string}`;
     abi: readonly unknown[];
     functionName: string;
@@ -99,6 +100,7 @@ export function useSwapAllowance(
       pendingTokenRef.current = tokenAddr;
       setIsApprovingMultiStep(true);
       writeContract({
+        chainId: CHAIN_ID,
         address: tokenAddr,
         abi: ERC20_ABI,
         functionName: 'approve',
@@ -109,6 +111,7 @@ export function useSwapAllowance(
 
     // Fresh-token / already-zero path: write target directly.
     writeContract({
+      chainId: CHAIN_ID,
       address: tokenAddr,
       abi: ERC20_ABI,
       functionName: 'approve',
@@ -117,6 +120,16 @@ export function useSwapAllowance(
   }, [fromToken, parsedAmount, unlimitedApproval, selectedRoute, activeAllowance, onRightChain, writeContract]);
 
   const continueMultiStepApprove = useCallback((): boolean => {
+    // R-CHAINID: explicit chain re-check — function fires from a useEffect after
+    // the first tx, and chainId may have changed between submit and confirm.
+    if (chainId !== CHAIN_ID) {
+      // Not safely on mainnet — wipe pending state and bail without dispatching.
+      pendingTargetAmountRef.current = null;
+      pendingSpenderRef.current = null;
+      pendingTokenRef.current = null;
+      setIsApprovingMultiStep(false);
+      return false;
+    }
     const target = pendingTargetAmountRef.current;
     const spender = pendingSpenderRef.current;
     const tokenAddr = pendingTokenRef.current;
@@ -130,13 +143,14 @@ export function useSwapAllowance(
     pendingTokenRef.current = null;
     // Keep isApprovingMultiStep = true through the second tx.
     writeContract({
+      chainId: CHAIN_ID,
       address: tokenAddr,
       abi: ERC20_ABI,
       functionName: 'approve',
       args: [spender, target],
     });
     return true;
-  }, [writeContract]);
+  }, [writeContract, chainId]);
 
   const resetMultiStepApprove = useCallback(() => {
     pendingTargetAmountRef.current = null;

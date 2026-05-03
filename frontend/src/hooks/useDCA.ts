@@ -101,8 +101,13 @@ const INTERVAL_MS: Record<string, number> = {
   monthly: 2592000000,
 };
 
+// AUDIT FIX D-FE-L1: chain-scope storage so a DCA schedule defined on Sepolia/test
+// can't be read on mainnet (and vice-versa). Pre-fix, schedules survived a chain
+// switch — the per-execute `chainId !== CHAIN_ID` guard prevented the writeContract
+// from firing, but the schedule itself remained interpretable on whatever chain
+// the user later landed on.
 function getStorageKey(address: string) {
-  return `tegridy_dca_v${STORAGE_VERSION}_${address.toLowerCase()}`;
+  return `tegridy_dca_v${STORAGE_VERSION}_${CHAIN_ID}_${address.toLowerCase()}`;
 }
 
 const VALID_INTERVALS = new Set(['daily', 'weekly', 'biweekly', 'monthly']);
@@ -438,6 +443,7 @@ export function useDCA() {
     try {
       if (isFromNative) {
         writeContract({
+          chainId: CHAIN_ID,
           address: SWAP_FEE_ROUTER_ADDRESS,
           abi: SWAP_FEE_ROUTER_ABI,
           functionName: 'swapExactETHForTokens',
@@ -449,6 +455,7 @@ export function useDCA() {
         });
       } else if (schedule.toToken.isNative) {
         writeContract({
+          chainId: CHAIN_ID,
           address: SWAP_FEE_ROUTER_ADDRESS,
           abi: SWAP_FEE_ROUTER_ABI,
           functionName: 'swapExactTokensForETH',
@@ -459,6 +466,7 @@ export function useDCA() {
         });
       } else {
         writeContract({
+          chainId: CHAIN_ID,
           address: SWAP_FEE_ROUTER_ADDRESS,
           abi: SWAP_FEE_ROUTER_ABI,
           functionName: 'swapExactTokensForTokens',

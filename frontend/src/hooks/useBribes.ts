@@ -1,4 +1,4 @@
-import { useAccount, useReadContracts, useReadContract, useWriteContract, useWaitForTransactionReceipt, useWatchContractEvent } from 'wagmi';
+import { useAccount, useChainId, useReadContracts, useReadContract, useWriteContract, useWaitForTransactionReceipt, useWatchContractEvent } from 'wagmi';
 import { formatEther, type Address, type Hex } from 'viem';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -20,10 +20,11 @@ export interface WhitelistedToken {
 
 export function useBribes() {
   const { address } = useAccount();
+  const chainId = useChainId();
   const isDeployed = checkDeployed(VOTE_INCENTIVES_ADDRESS);
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash });
+  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
 
   // Global stats + whitelist addresses + pending-fee + bond size + min-bribe floor.
   const { data: globalData, refetch } = useReadContracts({
@@ -154,6 +155,7 @@ export function useBribes() {
 
   // ─── Actions ──────────────────────────────────────────────────────
   function claimBribes(epoch: number, pair: string) {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
       chainId: CHAIN_ID,
@@ -165,6 +167,7 @@ export function useBribes() {
   }
 
   function claimBribesBatch(epochStart: number, epochEnd: number, pair: string) {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
       chainId: CHAIN_ID,
@@ -176,6 +179,7 @@ export function useBribes() {
   }
 
   function advanceEpoch() {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
       chainId: CHAIN_ID,
@@ -186,6 +190,7 @@ export function useBribes() {
   }
 
   function vote(epoch: number, pair: string, power: bigint) {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
       chainId: CHAIN_ID,
@@ -197,6 +202,7 @@ export function useBribes() {
   }
 
   function commitVote(epoch: number, commitHash: Hex) {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
       chainId: CHAIN_ID,
@@ -208,6 +214,7 @@ export function useBribes() {
   }
 
   function revealVote(epoch: number, commitIndex: number, pair: string, power: bigint, salt: Hex) {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
       chainId: CHAIN_ID,
@@ -219,6 +226,7 @@ export function useBribes() {
   }
 
   function depositBribeETH(pair: string, value: bigint) {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
       chainId: CHAIN_ID,
@@ -231,6 +239,7 @@ export function useBribes() {
   }
 
   function depositBribe(pair: string, token: string, amount: bigint) {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
       chainId: CHAIN_ID,
@@ -242,6 +251,7 @@ export function useBribes() {
   }
 
   function approveToken(token: string, amount: bigint) {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
       chainId: CHAIN_ID,
@@ -253,6 +263,7 @@ export function useBribes() {
   }
 
   function approveToweliForBond(amount: bigint) {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
       chainId: CHAIN_ID,
@@ -264,6 +275,7 @@ export function useBribes() {
   }
 
   function withdrawPendingToken(token: string) {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
       chainId: CHAIN_ID,

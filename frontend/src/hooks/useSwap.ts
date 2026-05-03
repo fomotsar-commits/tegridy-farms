@@ -45,17 +45,55 @@ export function useSwap() {
   const [deadline, setDeadline] = useState(5);
   const [supportsFeeOnTransfer, setSupportsFeeOnTransfer] = useState(false);
   const [customTokens, setCustomTokens] = useState<TokenInfo[]>(() => {
+    // AUDIT FIX D-FE-L1: chain-scope the storage key. Pre-fix, custom tokens
+    // imported on Sepolia/test would leak into mainnet on next page load and
+    // vice-versa. Address-only keys also opened a cross-chain typo path where
+    // a token at the same address on a fork chain (e.g. an L2) impersonated
+    // the mainnet token in the swap modal.
+    const STORAGE_KEY = `tegridy_custom_tokens_v2_${CHAIN_ID}`;
     try {
-      const stored = localStorage.getItem('tegridy_custom_tokens');
-      return stored ? JSON.parse(stored) : [];
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (!stored) return [];
+      const parsed = JSON.parse(stored);
+      if (!Array.isArray(parsed)) return [];
+      // AUDIT FIX D-FE-L2: validate every rehydrated entry against the
+      // symbol-spoofing rule already enforced at import time in
+      // TokenSelectModal. Without this, a malicious browser extension or a
+      // separate tab could write `[{symbol:"ETH",address:"0xATTACKER",isNative:true}]`
+      // and the next page load would route swap allowance + approval at the
+      // attacker address. Drop any entry whose symbol collides with a
+      // verified DEFAULT_TOKEN at a different address, or that fails basic
+      // shape validation.
+      const filtered: TokenInfo[] = [];
+      for (const raw of parsed) {
+        if (!raw || typeof raw !== 'object') continue;
+        const t = raw as Record<string, unknown>;
+        if (typeof t.symbol !== 'string' || typeof t.decimals !== 'number') continue;
+        if (t.decimals < 0 || t.decimals > 18) continue;
+        const sym = (t.symbol as string).toUpperCase();
+        const addr = typeof t.address === 'string' ? (t.address as string).toLowerCase() : '';
+        const isNative = t.isNative === true;
+        // Reject native impostors entirely (only ETH is native and is in DEFAULT_TOKENS).
+        if (isNative) continue;
+        if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) continue;
+        // Drop any entry whose symbol collides with a verified token at a
+        // DIFFERENT address. Mirrors TokenSelectModal.tsx isSpoofedSymbol.
+        const collides = DEFAULT_TOKENS.some(d =>
+          d.symbol.toUpperCase() === sym && d.address.toLowerCase() !== addr
+        );
+        if (collides) continue;
+        filtered.push(raw as TokenInfo);
+      }
+      return filtered;
     } catch {
       return [];
     }
   });
   // Persist custom tokens to localStorage
   useEffect(() => {
+    const STORAGE_KEY = `tegridy_custom_tokens_v2_${CHAIN_ID}`;
     try {
-      localStorage.setItem('tegridy_custom_tokens', JSON.stringify(customTokens));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(customTokens));
     } catch {
       // Storage full or unavailable -- ignore
     }
@@ -121,7 +159,7 @@ export function useSwap() {
     query: { enabled: !!address && !!toToken && !toToken.isNative, refetchInterval: 30_000 },
   });
 
-  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash });
+  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
 
   const [fotRetryAttempted, setFotRetryAttempted] = useState(false);
 
@@ -262,35 +300,38 @@ export function useSwap() {
       const { selectedOnChainRoute } = quote;
       if (selectedOnChainRoute.source === 'tegridy') {
         if (swapType === 'ethForTokens') {
-          writeContract({ address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactETHForTokens', args: [onChainMin, path, address, deadlineTs], value: parsedAmount });
+          writeContract({ chainId: CHAIN_ID, address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactETHForTokens', args: [onChainMin, path, address, deadlineTs], value: parsedAmount });
         } else if (swapType === 'tokensForEth') {
-          writeContract({ address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactTokensForETH', args: [parsedAmount, onChainMin, path, address, deadlineTs] });
+          writeContract({ chainId: CHAIN_ID, address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactTokensForETH', args: [parsedAmount, onChainMin, path, address, deadlineTs] });
         } else {
-          writeContract({ address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactTokensForTokens', args: [parsedAmount, onChainMin, path, address, deadlineTs] });
+          writeContract({ chainId: CHAIN_ID, address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactTokensForTokens', args: [parsedAmount, onChainMin, path, address, deadlineTs] });
         }
       } else {
         const maxFeeBps = 100n;
         if (swapType === 'ethForTokens') {
-          writeContract({ address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactETHForTokens', args: [onChainMin, path, address, deadlineTs, maxFeeBps], value: parsedAmount });
+          writeContract({ chainId: CHAIN_ID, address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactETHForTokens', args: [onChainMin, path, address, deadlineTs, maxFeeBps], value: parsedAmount });
         } else if (swapType === 'tokensForEth') {
-          writeContract({ address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForETH', args: [parsedAmount, onChainMin, path, address, deadlineTs, maxFeeBps] });
+          writeContract({ chainId: CHAIN_ID, address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForETH', args: [parsedAmount, onChainMin, path, address, deadlineTs, maxFeeBps] });
         } else {
-          writeContract({ address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForTokens', args: [parsedAmount, onChainMin, path, address, deadlineTs, maxFeeBps] });
+          writeContract({ chainId: CHAIN_ID, address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForTokens', args: [parsedAmount, onChainMin, path, address, deadlineTs, maxFeeBps] });
         }
       }
     } else if (selectedRoute === 'tegridy') {
       if (swapType === 'ethForTokens') {
         writeContract({
+          chainId: CHAIN_ID,
           address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactETHForTokens',
           args: [minReceivedRaw, path, address, deadlineTs], value: parsedAmount,
         });
       } else if (swapType === 'tokensForEth') {
         writeContract({
+          chainId: CHAIN_ID,
           address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactTokensForETH',
           args: [parsedAmount, minReceivedRaw, path, address, deadlineTs],
         });
       } else {
         writeContract({
+          chainId: CHAIN_ID,
           address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactTokensForTokens',
           args: [parsedAmount, minReceivedRaw, path, address, deadlineTs],
         });
@@ -300,18 +341,21 @@ export function useSwap() {
       if (supportsFeeOnTransfer) {
         if (swapType === 'ethForTokens') {
           writeContract({
+            chainId: CHAIN_ID,
             address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI,
             functionName: 'swapExactETHForTokensSupportingFeeOnTransferTokens',
             args: [minReceivedRaw, path, address, deadlineTs, maxFeeBps], value: parsedAmount,
           });
         } else if (swapType === 'tokensForEth') {
           writeContract({
+            chainId: CHAIN_ID,
             address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI,
             functionName: 'swapExactTokensForETHSupportingFeeOnTransferTokens',
             args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
           });
         } else {
           writeContract({
+            chainId: CHAIN_ID,
             address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI,
             functionName: 'swapExactTokensForTokensSupportingFeeOnTransferTokens',
             args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
@@ -319,16 +363,19 @@ export function useSwap() {
         }
       } else if (swapType === 'ethForTokens') {
         writeContract({
+          chainId: CHAIN_ID,
           address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactETHForTokens',
           args: [minReceivedRaw, path, address, deadlineTs, maxFeeBps], value: parsedAmount,
         });
       } else if (swapType === 'tokensForEth') {
         writeContract({
+          chainId: CHAIN_ID,
           address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForETH',
           args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
         });
       } else {
         writeContract({
+          chainId: CHAIN_ID,
           address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForTokens',
           args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
         });

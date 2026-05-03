@@ -16,8 +16,8 @@ export function usePremiumAccess() {
   const isPending = isApprovePending || isActionPending;
 
   // Track each tx independently so approve doesn't shadow the subsequent action tx
-  const { isLoading: isApproveConfirming, isSuccess: isApproveSuccess, isError: isApproveTxError } = useWaitForTransactionReceipt({ hash: approveHash });
-  const { isLoading: isActionConfirming, isSuccess: isActionSuccess, isError: isActionTxError } = useWaitForTransactionReceipt({ hash: actionHash });
+  const { isLoading: isApproveConfirming, isSuccess: isApproveSuccess, isError: isApproveTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash: approveHash });
+  const { isLoading: isActionConfirming, isSuccess: isActionSuccess, isError: isActionTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash: actionHash });
 
   const isConfirming = isApproveConfirming || isActionConfirming;
   const isSuccess = isApproveSuccess || isActionSuccess;
@@ -83,6 +83,7 @@ export function usePremiumAccess() {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     const totalCost = monthlyFee * BigInt(months);
     writeApprove({
+      chainId: CHAIN_ID,
       address: TOWELI_ADDRESS,
       abi: ERC20_ABI,
       functionName: 'approve',
@@ -95,6 +96,7 @@ export function usePremiumAccess() {
     // AUDIT FIX H-02: Include maxCost to protect against fee frontrunning
     const maxCost = monthlyFee * BigInt(months);
     writeAction({
+      chainId: CHAIN_ID,
       address: PREMIUM_ACCESS_ADDRESS,
       abi: PREMIUM_ACCESS_ABI,
       functionName: 'subscribe',
@@ -105,6 +107,7 @@ export function usePremiumAccess() {
   function activateNFTPremium() {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     writeAction({
+      chainId: CHAIN_ID,
       address: PREMIUM_ACCESS_ADDRESS,
       abi: PREMIUM_ACCESS_ABI,
       functionName: 'activateNFTPremium',

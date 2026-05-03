@@ -466,14 +466,35 @@ export default async function handler(req, res) {
     }
 
     if (action === "cancel") {
-      const { orderHash, signature } = req.body;
+      const { orderHash, signature, chainId, timestamp } = req.body;
       if (!orderHash || !signature) return res.status(400).json({ error: "Missing orderHash or signature" });
       if (typeof orderHash !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(orderHash)) {
         return res.status(400).json({ error: "Invalid orderHash format" });
       }
 
+      // AUDIT FIX D-FE-M2: bind cancel signatures to chainId + a 5-minute
+      // timestamp window. Pre-fix the signed payload was just `Cancel order
+      // ${orderHash}`, so a captured signature could be replayed against a
+      // staging orderbook with the same hash, OR replayed against the same
+      // backend AFTER the maker re-listed (deterministic-hash flows). The
+      // chainId binding eliminates cross-environment replay; the timestamp
+      // bounds same-environment replay to a 5-minute window. Mirrors the
+      // SIWE auth pattern (chainId + nonce + expiresAt). Server compares
+      // against the canonical mainnet chain (Seaport orders are mainnet-only
+      // per SEAPORT_DOMAIN.chainId = 1 in the listing flow).
+      if (typeof chainId !== "number" || chainId !== 1) {
+        return res.status(400).json({ error: "Invalid or missing chainId" });
+      }
+      if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) {
+        return res.status(400).json({ error: "Invalid or missing timestamp" });
+      }
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (Math.abs(nowSec - timestamp) > 300) {
+        return res.status(400).json({ error: "Signature expired or clock-skewed; please re-sign" });
+      }
+
       // Verify wallet signature to prove the caller controls the maker wallet
-      const cancelMessage = `Cancel order ${orderHash}`;
+      const cancelMessage = `Cancel order ${orderHash} | Chain: ${chainId} | Time: ${timestamp}`;
       let recoveredAddress;
       try {
         recoveredAddress = (await recoverMessageAddress({ message: cancelMessage, signature })).toLowerCase();
@@ -508,7 +529,7 @@ export default async function handler(req, res) {
     }
 
     if (action === "fill") {
-      const { orderHash, txHash, signature } = req.body;
+      const { orderHash, txHash, signature, chainId, timestamp } = req.body;
       if (!orderHash || !signature) return res.status(400).json({ error: "Missing orderHash or signature" });
       if (typeof orderHash !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(orderHash)) {
         return res.status(400).json({ error: "Invalid orderHash format" });
@@ -518,8 +539,23 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Missing or invalid txHash — provide the on-chain transaction hash" });
       }
 
+      // AUDIT FIX D-FE-M2: same chainId + 5-minute timestamp binding as the
+      // cancel path. Without these fields a captured fill signature could be
+      // replayed against a staging orderbook with the same orderHash + txHash
+      // pair, marking the wrong environment's record as filled.
+      if (typeof chainId !== "number" || chainId !== 1) {
+        return res.status(400).json({ error: "Invalid or missing chainId" });
+      }
+      if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) {
+        return res.status(400).json({ error: "Invalid or missing timestamp" });
+      }
+      const _nowSecFill = Math.floor(Date.now() / 1000);
+      if (Math.abs(_nowSecFill - timestamp) > 300) {
+        return res.status(400).json({ error: "Signature expired or clock-skewed; please re-sign" });
+      }
+
       // Verify wallet signature to authenticate the filler
-      const fillMessage = `Fill order ${orderHash} tx ${txHash}`;
+      const fillMessage = `Fill order ${orderHash} tx ${txHash} | Chain: ${chainId} | Time: ${timestamp}`;
       let filledBy;
       try {
         filledBy = (await recoverMessageAddress({ message: fillMessage, signature })).toLowerCase();

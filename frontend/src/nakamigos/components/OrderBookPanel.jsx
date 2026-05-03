@@ -45,6 +45,9 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
   const [cancelling, setCancelling] = useState(null); // order_hash being cancelled
 
   const handleCancel = useCallback(async (order) => {
+    // R-CHAINID: mirror MyListings.jsx wrong-network short-circuit so a Seaport
+    // cancel never lands on the wrong chain.
+    if (isWrongNetwork) { addToast?.("Wrong network — please switch to Ethereum Mainnet", "error"); switchChain?.(); return; }
     const provider = getProvider();
     if (!provider) {
       addToast?.("Wallet not connected", "error");
@@ -68,7 +71,11 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
       }
 
       // Update backend
-      const cancelMessage = `Cancel order ${order.order_hash}`;
+      // AUDIT FIX D-FE-M2: chainId + 5-minute timestamp binding to defeat
+      // captured-signature replay (see api/orderbook.js cancel handler).
+      const _cancelTs = Math.floor(Date.now() / 1000);
+      const _cancelChainId = 1;
+      const cancelMessage = `Cancel order ${order.order_hash} | Chain: ${_cancelChainId} | Time: ${_cancelTs}`;
       const cancelSignature = await signer.signMessage(cancelMessage);
       try {
         await fetch("/api/orderbook", {
@@ -78,6 +85,8 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
             action: "cancel",
             orderHash: order.order_hash,
             signature: cancelSignature,
+            chainId: _cancelChainId,
+            timestamp: _cancelTs,
           }),
         });
       } catch {
@@ -96,7 +105,7 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
     } finally {
       setCancelling(null);
     }
-  }, [addToast]);
+  }, [addToast, isWrongNetwork, switchChain]);
 
   const fetchOrders = useCallback(() => {
     if (!collection?.contract) return;

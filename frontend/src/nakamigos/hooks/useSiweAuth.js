@@ -17,6 +17,7 @@ import {
   isTokenExpired,
   logout,
   clearStoredAuth,
+  SIWE_CHAIN_ID,
 } from "../lib/siweAuth";
 import { getProvider } from "../api";
 
@@ -100,6 +101,14 @@ export function useSiweAuth() {
       if (!ethProvider) throw new Error("No wallet provider");
       const { ethers } = await import("ethers");
       const provider = new ethers.BrowserProvider(ethProvider);
+      // FRESH-EYES L-3: confirm the wallet's actual chain matches the SIWE message
+      // chainId BEFORE signing. Without this, a user on the wrong chain produces a
+      // signature claiming chainId 1 that the server's `siwe` verifier silently
+      // rejects — friendly local error is better than a confusing server-rejection.
+      const network = await provider.getNetwork();
+      if (Number(network.chainId) !== SIWE_CHAIN_ID) {
+        throw new Error(`Switch to Ethereum Mainnet (chain ${SIWE_CHAIN_ID}) before signing in`);
+      }
       const signer = await provider.getSigner();
       const signature = await signer.signMessage(messageString);
 

@@ -17,7 +17,11 @@ export function useLPFarming() {
   const onMainnet = chainId === CHAIN_ID;
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash });
+  // AUDIT FIX FE-LOW-04: pin receipt resolution to CHAIN_ID. Without `chainId`,
+  // the underlying viem call listens on the wallet's CURRENT chain — if the user
+  // switched mid-flight (or clicked "switch network" right after submitting),
+  // confirmation listens on the wrong chain and silently never fires.
+  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash, chainId: CHAIN_ID });
 
   // R034 H2: address-snapshot + last-handled-hash refs to drop receipt-effect
   // for a wallet that swapped between submit and confirm.
@@ -117,6 +121,7 @@ export function useLPFarming() {
     if (wei === null) return;
     txAddressRef.current = address;
     writeContract({
+      chainId: CHAIN_ID,
       address: TEGRIDY_LP_ADDRESS,
       abi: ERC20_ABI,
       functionName: 'approve',
@@ -137,6 +142,7 @@ export function useLPFarming() {
     }
     txAddressRef.current = address;
     writeContract({
+      chainId: CHAIN_ID,
       address: LP_FARMING_ADDRESS,
       abi: LP_FARMING_ABI,
       functionName: 'stake',
@@ -217,6 +223,7 @@ export function useLPFarming() {
     if (!acct) return;
     txAddressRef.current = address;
     writeContract({
+      chainId: CHAIN_ID,
       address: LP_FARMING_ADDRESS,
       abi: LP_FARMING_ABI,
       functionName: 'refreshBoost',

@@ -37,6 +37,7 @@ export function useFarmActions() {
   }, [address]);
 
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({
+    chainId: CHAIN_ID,
     hash,
   });
 
@@ -84,6 +85,7 @@ export function useFarmActions() {
     if (approveAmount === null) return;
     txAddressRef.current = address;
     writeContract({
+      chainId: CHAIN_ID,
       address: TOWELI_ADDRESS,
       abi: ERC20_ABI,
       functionName: 'approve',
@@ -98,6 +100,7 @@ export function useFarmActions() {
     pendingStakeRef.current = { amount, lockDuration: lockDurationSeconds.toString() };
     txAddressRef.current = address;
     writeContract({
+      chainId: CHAIN_ID,
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'stake',
@@ -123,6 +126,7 @@ export function useFarmActions() {
     if (!pendingEthGuard(force)) return;
     txAddressRef.current = address;
     writeContract({
+      chainId: CHAIN_ID,
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'withdraw',
@@ -135,6 +139,7 @@ export function useFarmActions() {
     if (!pendingEthGuard(force)) return;
     txAddressRef.current = address;
     writeContract({
+      chainId: CHAIN_ID,
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'earlyWithdraw',
@@ -146,6 +151,7 @@ export function useFarmActions() {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     txAddressRef.current = address;
     writeContract({
+      chainId: CHAIN_ID,
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'getReward',
@@ -157,6 +163,7 @@ export function useFarmActions() {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     txAddressRef.current = address;
     writeContract({
+      chainId: CHAIN_ID,
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'toggleAutoMaxLock',
@@ -168,6 +175,7 @@ export function useFarmActions() {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     txAddressRef.current = address;
     writeContract({
+      chainId: CHAIN_ID,
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'extendLock',
@@ -180,6 +188,7 @@ export function useFarmActions() {
     if (!pendingEthGuard(force)) return;
     txAddressRef.current = address;
     writeContract({
+      chainId: CHAIN_ID,
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'emergencyExitPosition',
@@ -191,6 +200,7 @@ export function useFarmActions() {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     txAddressRef.current = address;
     writeContract({
+      chainId: CHAIN_ID,
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'claimUnsettled',
@@ -201,6 +211,7 @@ export function useFarmActions() {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     txAddressRef.current = address;
     writeContract({
+      chainId: CHAIN_ID,
       address: TEGRIDY_STAKING_ADDRESS,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'revalidateBoost',

@@ -142,11 +142,16 @@ describe("orderbook — R053 cancel ownership", () => {
       return chain;
     });
     recoverImpl = vi.fn(async () => ATTACKER);
+    // AUDIT FIX D-FE-M2: pass valid chainId + recent timestamp so the request
+    // reaches the maker-mismatch check rather than failing on the new
+    // pre-validation gates. The 403 maker-rejection is what this test asserts.
     const req = makeReq({
       body: {
         action: "cancel",
         orderHash: "0x" + "1".repeat(64),
         signature: "0xfake",
+        chainId: 1,
+        timestamp: Math.floor(Date.now() / 1000),
       },
     });
     const { res, statusSpy, jsonSpy } = makeRes();

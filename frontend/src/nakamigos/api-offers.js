@@ -666,6 +666,14 @@ export async function acceptOffer(offer) {
   try {
     const { ethers } = await import("ethers");
     const browserProvider = new ethers.BrowserProvider(provider);
+    // AUDIT FIX D-FE-M1: chain-guard BEFORE any tx hits the wallet. Pre-fix,
+    // a seller on the wrong chain (Sepolia / Base / etc.) would still proceed
+    // through setApprovalForAll on a phantom Conduit address — burning gas
+    // AND leaving a setApprovalForAll(true) on whatever contract collides
+    // with CONDUIT_ADDRESS on that chain. Mirrors createItemOffer / cancelOrder
+    // which already gate on assertOnExpectedChain.
+    const _chainErr = await assertOnExpectedChain(browserProvider);
+    if (_chainErr) return _chainErr;
     const signer = await browserProvider.getSigner();
     const sellerAddress = await signer.getAddress();
 

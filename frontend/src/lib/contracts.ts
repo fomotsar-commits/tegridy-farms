@@ -416,8 +416,15 @@ export const TEGRIDY_LAUNCHPAD_V2_ABI = [
 
 // ─── TegridyDropV2 (V2 clone — adds contractURI + setContractURI) ─────
 export const TEGRIDY_DROP_V2_ABI = [
-  // Mint surface (same bytes4s as v1)
-  { type: 'function', name: 'mint', inputs: [{ name: 'quantity', type: 'uint256' }, { name: 'proof', type: 'bytes32[]' }], outputs: [], stateMutability: 'payable' },
+  // Mint surface — matches Solidity:
+  //   function mint(uint256 quantity, uint256 allowedAmount, bytes32[] calldata proof)
+  // AUDIT FIX FE-HIGH-01: prior 2-arg ABI (`mint(uint256,bytes32[])`) had a different
+  // 4-byte selector, causing every Drop V2 mint UI call to revert at the dispatcher.
+  // The 3rd argument `allowedAmount` is the leaf-encoded per-wallet cap for ALLOWLIST
+  // phase (zero for PUBLIC / DUTCH where the merkle proof is unused). Frontend hooks
+  // that previously passed only (quantity, proof) MUST be updated to pass
+  // (quantity, allowedAmount, proof).
+  { type: 'function', name: 'mint', inputs: [{ name: 'quantity', type: 'uint256' }, { name: 'allowedAmount', type: 'uint256' }, { name: 'proof', type: 'bytes32[]' }], outputs: [], stateMutability: 'payable' },
   { type: 'function', name: 'currentPrice', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalSupply', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'maxSupply', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },

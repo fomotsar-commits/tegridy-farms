@@ -877,6 +877,10 @@ function CommitRevealPanel({
   const needsBondApproval = toweliAllowance < commitBond;
 
   const handleCommit = () => {
+    // R-CHAINID: must guard BEFORE buildCommitHash — the hash bakes in chainId
+    // from the wallet, but on-chain reveal recomputes with block.chainid = 1.
+    // A wrong-chain commit hash would never match → bond forfeit.
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet to commit'); return; }
     if (!address || !pair || powerWei === 0n || tooMuch) return;
     const salt = generateSalt();
     const commitHash = buildCommitHash(chainId, VOTE_INCENTIVES_ADDRESS as Address, address, voteEpoch, pair as Address, powerWei, salt);

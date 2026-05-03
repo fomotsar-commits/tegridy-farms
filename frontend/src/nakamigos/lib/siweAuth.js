@@ -30,15 +30,33 @@ export async function requestNonce() {
 
 // ── Build SIWE Message ──
 
+// FRESH-EYES L-3: SIWE messages always claim chainId: 1 (mainnet). The wallet's
+// actual connected chain is checked at the call site (useSiweAuth) BEFORE signing
+// so a user on a wrong chain sees a friendly error instead of producing a signature
+// that the server's `siwe` verifier will silently reject. Constant exported so the
+// caller can compare without re-importing the project-wide CHAIN_ID.
+export const SIWE_CHAIN_ID = 1;
+
 export function buildSiweMessage(address, nonce) {
+  // AUDIT FIX FE-HIGH-02: server-side `verifySignature` (frontend/api/auth/siwe.js)
+  // requires `expirationTime` AND `notBefore` to be set on the SIWE payload — pre-fix
+  // the server would reject every legitimate login from this client with HTTP 400
+  // ("expirationTime required"). We mirror the server's MAX_MESSAGE_TTL_MS window
+  // (5 min) and apply a small `notBefore` clock-skew tolerance so wallets running
+  // a few seconds ahead of the server are still accepted.
+  const now = Date.now();
+  const NOTBEFORE_SKEW_MS = 30_000;          // accept wallets up to 30s ahead
+  const EXPIRATION_WINDOW_MS = 5 * 60_000;   // 5-minute message validity window
   return new SiweMessage({
     domain: window.location.host,
     address,
     statement: "Sign in to Tegriddy Farms",
     uri: window.location.origin,
     version: "1",
-    chainId: 1,
+    chainId: SIWE_CHAIN_ID,
     nonce,
+    notBefore: new Date(now - NOTBEFORE_SKEW_MS).toISOString(),
+    expirationTime: new Date(now + EXPIRATION_WINDOW_MS).toISOString(),
   });
 }
 

@@ -65,8 +65,11 @@ function releaseTabLock(orderId: string) {
   try { localStorage.removeItem(`tegridy_limit_lock_${orderId}`); } catch {}
 }
 
+// AUDIT FIX D-FE-L1: chain-scope storage — see useDCA.getStorageKey for full
+// rationale. Limit orders persist user intent across sessions; chain isolation
+// prevents a Sepolia-defined order from being interpretable on mainnet's UI.
 function getStorageKey(address: string) {
-  return `tegridy_limit_v${STORAGE_VERSION}_${address.toLowerCase()}`;
+  return `tegridy_limit_v${STORAGE_VERSION}_${CHAIN_ID}_${address.toLowerCase()}`;
 }
 
 const VALID_ORDER_STATUSES = new Set(['active', 'expired', 'filled', 'executing']);
@@ -341,6 +344,7 @@ export function useLimitOrders() {
     try {
       if (isFromNative) {
         writeContract({
+          chainId: CHAIN_ID,
           address: SWAP_FEE_ROUTER_ADDRESS,
           abi: SWAP_FEE_ROUTER_ABI,
           functionName: 'swapExactETHForTokens',
@@ -352,6 +356,7 @@ export function useLimitOrders() {
         });
       } else if (order.toToken.isNative) {
         writeContract({
+          chainId: CHAIN_ID,
           address: SWAP_FEE_ROUTER_ADDRESS,
           abi: SWAP_FEE_ROUTER_ABI,
           functionName: 'swapExactTokensForETH',
@@ -362,6 +367,7 @@ export function useLimitOrders() {
         });
       } else {
         writeContract({
+          chainId: CHAIN_ID,
           address: SWAP_FEE_ROUTER_ADDRESS,
           abi: SWAP_FEE_ROUTER_ABI,
           functionName: 'swapExactTokensForTokens',
