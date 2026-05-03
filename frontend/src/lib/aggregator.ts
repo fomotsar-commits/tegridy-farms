@@ -83,7 +83,12 @@ async function getSwapApiQuote(
       tokenIn: sellToken, tokenOut: buyToken,
       amount, sender, maxSlippage: String(opts.slippagePct / 100),
     });
-    const res = await fetch(`https://api.swapapi.dev/v1/swap/${opts.chainId}?${params}`, { signal: opts.signal });
+    // AUDIT FIX FE-HIGH-3: SwapAPI was the only aggregator in this file fetched
+    // directly cross-origin. That leaked the user wallet (`sender`) + IP +
+    // referer to a third party every quote. Route through the same-origin
+    // Vercel rewrite (mirrors the existing odos/cow/lifi/kyber/openocean/paraswap
+    // pattern) so the browser never opens a connection to api.swapapi.dev.
+    const res = await fetch(`/api/swapapi/v1/swap/${opts.chainId}?${params}`, { signal: opts.signal });
     if (!res.ok) return null;
     const data = await res.json();
     if (!data || typeof data.amountOut !== 'string' || !/^\d+$/.test(data.amountOut) || data.amountOut === '0' ||

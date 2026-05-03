@@ -39,10 +39,22 @@ async function readWithTimeout<T>(p: Promise<T>, ms: number, label: string): Pro
 const RPC_TIMEOUT_MS = 10_000;
 const DEFAULT_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 const PRICE_POLL_INTERVAL = 15_000;
-const SLIPPAGE_BPS = 500n; // 5% slippage tolerance (500 / 10000)
+// AUDIT FIX FE-HIGH-5: lowered from 500 (5%) to 100 (1%). Limit orders
+// should be tight — the trigger condition (`currentPrice >= targetPrice`)
+// already implies the user is happy at-or-above target, so 5% sandwich
+// margin was indefensible. Floor of 1% leaves headroom for one-block
+// price drift between poll-tick + sign + broadcast.
+const SLIPPAGE_BPS = 100n;
 const MAX_FEE_BPS = 100n; // 1% max fee tolerance for SwapFeeRouter
 const MAX_ORDERS = 50;
 const MAX_AMOUNT = 1e15; // sanity cap for amount string parsing
+// AUDIT FIX FE-HIGH-5: stale-target gate. If the user's expectedOut from
+// targetPrice is more than 2× what the AMM actually returns at execute-time,
+// the target is so far above current price that minOut would be unsatisfiable
+// — abort cleanly with a refresh prompt instead of letting writeContract
+// burn gas on a guaranteed revert. 2× = 100% drift; well outside any
+// legitimate price scenario the trigger condition would emit.
+const STALE_TARGET_RATIO = 2n;
 
 // Multi-tab mutex: prevent duplicate limit order execution across browser tabs.
 function claimTabLock(orderId: string): boolean {
@@ -281,8 +293,10 @@ export function useLimitOrders() {
     if (parsedAmount === 0n) { revertOrderStatus(order.id); return; }
     const deadlineTs = BigInt(Math.floor(Date.now() / 1000) + 300);
 
-    // Compute minOut with slippage from the user's target price
-    // The target price is in toToken per fromToken units
+    // AUDIT FIX FE-HIGH-5: Compute minOut from BOTH the user's target AND the
+    // live on-chain price, then take the lesser. Pre-fix only used the target
+    // — sandwich got a 5% margin off a stale anchor, and absurd targets
+    // produced unsatisfiable minOut that wasted gas on guaranteed reverts.
     const targetPriceNum = parseFloat(order.targetPrice);
     const amountNum = parseFloat(order.amount);
     if (!Number.isFinite(targetPriceNum) || targetPriceNum <= 0 || !Number.isFinite(amountNum) || amountNum <= 0) {
@@ -294,8 +308,50 @@ export function useLimitOrders() {
     const PRECISION = 1000000000000n; // 1e12
     const targetPriceScaled = BigInt(Math.round(targetPriceNum * 1e12));
     const amountScaled = BigInt(Math.round(amountNum * 1e12));
-    const expectedOut = (targetPriceScaled * amountScaled * (10n ** BigInt(order.toToken.decimals))) / (PRECISION * PRECISION);
-    const minOut = expectedOut - (expectedOut * SLIPPAGE_BPS / 10000n);
+    const targetExpectedOut = (targetPriceScaled * amountScaled * (10n ** BigInt(order.toToken.decimals))) / (PRECISION * PRECISION);
+    const targetDerivedMinOut = targetExpectedOut - (targetExpectedOut * SLIPPAGE_BPS / 10000n);
+
+    // AUDIT FIX FE-HIGH-5: re-quote on-chain immediately before execute so we
+    // sign against the price the AMM actually has, not the price we hoped it
+    // had at last poll. Mirrors the readContract pattern used in useDCA.ts.
+    let onChainOut = 0n;
+    try {
+      const result = await readWithTimeout(
+        publicClient.readContract({
+          address: UNISWAP_V2_ROUTER,
+          abi: UNISWAP_V2_ROUTER_ABI,
+          functionName: 'getAmountsOut',
+          args: [parsedAmount, path],
+        }),
+        RPC_TIMEOUT_MS,
+        `limit-order execute ${order.fromToken.symbol}→${order.toToken.symbol}`,
+      );
+      const amountsOut = result as bigint[];
+      onChainOut = amountsOut[amountsOut.length - 1] ?? 0n;
+    } catch {
+      toast.error('Limit order: could not refresh on-chain price. Will retry next tick.');
+      revertOrderStatus(order.id);
+      return;
+    }
+    if (onChainOut === 0n) {
+      toast.error('Limit order: on-chain quote returned zero. Aborting.');
+      revertOrderStatus(order.id);
+      return;
+    }
+    // Stale-target gate: if the user-derived minOut is more than 2× the live
+    // AMM output, the target is so far above current that the swap would
+    // revert on InsufficientOutput. Abort and surface a refresh prompt so
+    // the user knows their target is no longer achievable.
+    if (targetDerivedMinOut > onChainOut * STALE_TARGET_RATIO) {
+      toast.error('Limit order: stale target — refresh price and re-create the order.');
+      revertOrderStatus(order.id);
+      return;
+    }
+    // Take the lesser of (a) target-derived floor and (b) on-chain price minus
+    // slippage. This guarantees we never sign for less than the user wanted
+    // AND never sign for more than the AMM can actually deliver.
+    const onChainMinOut = onChainOut - (onChainOut * SLIPPAGE_BPS / 10000n);
+    const minOut = targetDerivedMinOut < onChainMinOut ? targetDerivedMinOut : onChainMinOut;
 
     sendNotification(
       'Limit Order Triggered',

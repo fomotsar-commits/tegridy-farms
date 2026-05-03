@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { useDCA } from '../../hooks/useDCA';
+import { useDCA, DEFAULT_SLIPPAGE_BPS, MIN_SLIPPAGE_BPS, MAX_SLIPPAGE_BPS } from '../../hooks/useDCA';
 import { DEFAULT_TOKENS } from '../../lib/tokenList';
 
 
@@ -13,6 +13,9 @@ const INTERVALS = [
 ];
 
 const MAX_AMOUNT_ETH = 100;
+// AUDIT FIX FE-HIGH-4: same presets as the swap UI so a DCA flow doesn't feel
+// like a different product. 0.5% default mirrors the swap default.
+const SLIPPAGE_PRESETS_PCT = [0.1, 0.5, 1.0, 2.0];
 
 /** Block minus/negative sign in number inputs */
 const blockNegativeKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -25,6 +28,9 @@ export function DCATab() {
   const [amount, setAmount] = useState('');
   const [intervalIdx, setIntervalIdx] = useState(0); // daily
   const [totalSwaps, setTotalSwaps] = useState('30');
+  // AUDIT FIX FE-HIGH-4: per-schedule slippage in % (UI). Stored as bps when
+  // forwarded to createSchedule below.
+  const [slippagePct, setSlippagePct] = useState<number>(DEFAULT_SLIPPAGE_BPS / 100);
 
   const fromToken = DEFAULT_TOKENS.find(t => t.symbol === 'ETH')!;
   const toToken = DEFAULT_TOKENS.find(t => t.symbol === 'TOWELI')!;
@@ -46,15 +52,23 @@ export function DCATab() {
   const handleCreate = () => {
     const parsed = parseInt(totalSwaps);
     if (!amount || parseFloat(amount) <= 0 || !totalSwaps || !Number.isFinite(parsed) || parsed <= 0) return;
+    // AUDIT FIX FE-HIGH-4: clamp slippage to bps and forward; createSchedule
+    // re-validates server-side as a defensive backstop.
+    const slippageBps = Math.max(
+      MIN_SLIPPAGE_BPS,
+      Math.min(MAX_SLIPPAGE_BPS, Math.round(slippagePct * 100)),
+    );
     createSchedule({
       fromToken: { symbol: fromToken.symbol, address: fromToken.address, decimals: fromToken.decimals, ...(fromToken.isNative && { isNative: true }) },
       toToken: { symbol: toToken.symbol, address: toToken.address, decimals: toToken.decimals, ...(toToken.isNative && { isNative: true }) },
       amountPerSwap: amount,
       interval: INTERVALS[intervalIdx]!.value,
       totalSwaps: parsed,
+      slippageBps,
     });
     setAmount('');
     setTotalSwaps('30');
+    setSlippagePct(DEFAULT_SLIPPAGE_BPS / 100);
   };
 
   const totalCost = amount && totalSwaps ? ((parseFloat(amount) || 0) * (parseInt(totalSwaps) || 0)).toFixed(4) : '0';
@@ -104,6 +118,56 @@ export function DCATab() {
           placeholder="30" min="1" max="365"
           onBlur={() => { const v = parseInt(totalSwaps); if (isNaN(v) || v < 1) setTotalSwaps('1'); else if (v > 365) setTotalSwaps('365'); }}
           className="w-full font-mono text-[16px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
+          style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }} />
+      </div>
+
+      {/* AUDIT FIX FE-HIGH-4: per-schedule slippage. Pre-fix every DCA swap
+          ran with a hard-coded 5% (sandwich-attack bait). Bounded to
+          [MIN_SLIPPAGE_BPS, MAX_SLIPPAGE_BPS] so a careless click can't
+          set 20%. */}
+      <div className="mb-3">
+        <div className="flex items-center justify-between mb-1.5">
+          <label htmlFor="dca-slippage" className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+            Slippage Tolerance
+            <span className="text-white/70 ml-1.5 cursor-help"
+              title={`Max price drift you'll accept per swap. Lower = more MEV-resistant but more failed swaps. Range: ${MIN_SLIPPAGE_BPS / 100}%–${MAX_SLIPPAGE_BPS / 100}%.`}>?</span>
+          </label>
+          <span className="text-white/90 text-[10px] font-mono" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{slippagePct.toFixed(2)}%</span>
+        </div>
+        <div className="flex items-center gap-1.5 mb-1.5" role="group" aria-label="Slippage presets">
+          {SLIPPAGE_PRESETS_PCT.map(pct => {
+            const active = Math.abs(slippagePct - pct) < 0.001;
+            return (
+              <button key={pct} type="button" onClick={() => setSlippagePct(pct)}
+                aria-pressed={active}
+                className="flex-1 py-1.5 min-h-[36px] rounded-lg text-[11px] font-medium cursor-pointer transition-all text-white"
+                style={{
+                  background: active ? 'var(--color-stan)' : 'rgba(0,0,0,0.55)',
+                  border: active ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.18)',
+                }}>
+                {pct}%
+              </button>
+            );
+          })}
+        </div>
+        <input id="dca-slippage" type="number" inputMode="decimal"
+          value={slippagePct}
+          min={MIN_SLIPPAGE_BPS / 100} max={MAX_SLIPPAGE_BPS / 100} step="0.1"
+          onKeyDown={blockNegativeKey}
+          onChange={e => {
+            const v = parseFloat(e.target.value);
+            if (Number.isFinite(v)) setSlippagePct(v);
+          }}
+          onBlur={() => {
+            // Clamp to [min, max] on blur so the user can't end up with an
+            // out-of-range value the create handler rejects.
+            const minPct = MIN_SLIPPAGE_BPS / 100;
+            const maxPct = MAX_SLIPPAGE_BPS / 100;
+            if (slippagePct < minPct) setSlippagePct(minPct);
+            else if (slippagePct > maxPct) setSlippagePct(maxPct);
+          }}
+          aria-label={`Custom slippage in percent (${MIN_SLIPPAGE_BPS / 100}%–${MAX_SLIPPAGE_BPS / 100}%)`}
+          className="w-full font-mono text-[14px] text-white outline-none px-3 py-2 min-h-[40px] rounded-lg token-input"
           style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }} />
       </div>
 

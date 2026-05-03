@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount, useBalance, useChainId } from 'wagmi';
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount, useBalance, useChainId, usePublicClient } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { toast } from 'sonner';
 import { ERC20_ABI, SWAP_FEE_ROUTER_ABI, TEGRIDY_ROUTER_ABI } from '../lib/contracts';
@@ -26,9 +26,50 @@ function getSwapType(fromToken: TokenInfo, toToken: TokenInfo): SwapType {
   return 'tokensForTokens';
 }
 
+/**
+ * AUDIT FIX FE-HIGH-6: helper used both at import-time and on every page-load
+ * rehydrate to confirm a localStorage entry actually matches the on-chain
+ * `symbol()` and `decimals()` for the address. A phisher's localStorage write
+ * could otherwise plant `{symbol:"USDC",address:"0xATTACKER",decimals:6}` and
+ * the swap UI would route allowance + approve at the attacker contract.
+ * Returns true if the token's on-chain shape matches the stored shape.
+ */
+async function verifyCustomTokenOnChain(
+  token: TokenInfo,
+  publicClient: ReturnType<typeof usePublicClient>,
+): Promise<boolean> {
+  if (!publicClient) return false;
+  try {
+    const [onChainSymbol, onChainDecimals] = await Promise.all([
+      publicClient.readContract({
+        address: token.address as `0x${string}`,
+        abi: ERC20_ABI,
+        functionName: 'symbol',
+      }) as Promise<string>,
+      publicClient.readContract({
+        address: token.address as `0x${string}`,
+        abi: ERC20_ABI,
+        functionName: 'decimals',
+      }) as Promise<number>,
+    ]);
+    // Sanitize symbol the same way TokenSelectModal does at import-time so the
+    // comparison is apples-to-apples after non-printable bytes are stripped.
+    const sanitized = String(onChainSymbol ?? '').replace(/[^\x20-\x7E]/g, '').slice(0, 12);
+    if (sanitized !== token.symbol) return false;
+    if (Number(onChainDecimals) !== token.decimals) return false;
+    return true;
+  } catch {
+    // RPC error / non-ERC20 / revert: treat as unverified rather than evict
+    // the user's token on every flaky network blip. Caller decides whether
+    // to evict or hold.
+    return false;
+  }
+}
+
 export function useSwap() {
   const chainId = useChainId();
   const { address } = useAccount();
+  const publicClient = usePublicClient();
   const [fromToken, setFromToken] = useState<TokenInfo | null>(() =>
     DEFAULT_TOKENS.find(t => t.symbol === 'ETH') ?? null
   );
@@ -98,6 +139,45 @@ export function useSwap() {
       // Storage full or unavailable -- ignore
     }
   }, [customTokens]);
+
+  // AUDIT FIX FE-HIGH-6: re-verify every rehydrated custom token's symbol+decimals
+  // against the on-chain ERC20 once we have a publicClient. The synchronous
+  // localStorage filter above only catches obvious shape errors and known-
+  // verified-symbol collisions; this catches an attacker that planted a
+  // bespoke symbol like "USDCv2" pointing at their own contract. Any token
+  // whose on-chain shape doesn't match its stored shape is dropped here so
+  // the swap UI never lets the user approve against it. We only run this
+  // once per address+chain so users don't get tokens evicted on every flaky
+  // RPC tick.
+  const verificationRanRef = useRef(false);
+  useEffect(() => {
+    if (verificationRanRef.current) return;
+    if (!publicClient || customTokens.length === 0) return;
+    if (chainId !== CHAIN_ID) return;
+    verificationRanRef.current = true;
+    let cancelled = false;
+    (async () => {
+      const verified: TokenInfo[] = [];
+      const evicted: string[] = [];
+      for (const token of customTokens) {
+        const ok = await verifyCustomTokenOnChain(token, publicClient);
+        if (cancelled) return;
+        if (ok) verified.push(token);
+        else evicted.push(token.symbol);
+      }
+      if (cancelled) return;
+      if (evicted.length > 0) {
+        // Only mutate if the count actually changed to avoid effect loops.
+        setCustomTokens(verified);
+        toast.warning(`Removed ${evicted.length} unverified token${evicted.length === 1 ? '' : 's'}`, {
+          description: `On-chain symbol/decimals didn't match the stored entry for: ${evicted.join(', ')}. This can happen after a malicious browser extension or another tab tampers with storage.`,
+          duration: 10_000,
+        });
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [publicClient, chainId]);
 
   const { data: ethBalance } = useBalance({ address, chainId: CHAIN_ID, query: { refetchInterval: 30_000 } });
 
@@ -391,16 +471,31 @@ export function useSwap() {
     reset();
   }, [fromToken, toToken, reset]);
 
-  const addCustomToken = useCallback((token: TokenInfo) => {
+  const addCustomToken = useCallback(async (token: TokenInfo) => {
     toast.warning('Unverified token', {
       description: `${token.symbol} is not on the default token list. Only import tokens you trust — scam tokens may steal your funds.`,
       duration: 8000,
     });
+    // AUDIT FIX FE-HIGH-6: re-verify the token's symbol+decimals against the
+    // on-chain ERC20 BEFORE we add it to state. TokenSelectModal already does
+    // its own read via useReadContract, but a programmatic caller could skip
+    // that path. Defensive double-check; mismatches are silently rejected
+    // (TokenSelectModal already surfaced its own error UI in that case).
+    if (publicClient && chainId === CHAIN_ID) {
+      const ok = await verifyCustomTokenOnChain(token, publicClient);
+      if (!ok) {
+        toast.error('Token verification failed', {
+          description: `On-chain symbol/decimals don't match the import data for ${token.symbol}. Import refused.`,
+          duration: 8000,
+        });
+        return;
+      }
+    }
     setCustomTokens(prev => {
       if (prev.find(t => t.address.toLowerCase() === token.address.toLowerCase())) return prev;
       return [...prev, token];
     });
-  }, []);
+  }, [publicClient, chainId]);
 
   return {
     fromToken,
@@ -440,6 +535,11 @@ export function useSwap() {
     customTokens,
     addCustomToken,
     swapType,
+    // AUDIT FIX FE-HIGH-6: surface the custom-ness of the active from/to so
+    // TradePage can render a permanent "unverified token" banner. Cheaper to
+    // compute here once than to re-derive in the consumer.
+    isFromTokenCustom: !!fromToken && !DEFAULT_TOKENS.some(d => d.address.toLowerCase() === fromToken.address.toLowerCase()),
+    isToTokenCustom: !!toToken && !DEFAULT_TOKENS.some(d => d.address.toLowerCase() === toToken.address.toLowerCase()),
     unlimitedApproval: allowance.unlimitedApproval,
     toggleUnlimitedApproval: allowance.toggleUnlimitedApproval,
     isApprovingMultiStep: allowance.isApprovingMultiStep,

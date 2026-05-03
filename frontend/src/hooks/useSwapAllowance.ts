@@ -4,7 +4,7 @@ import { maxUint256 } from 'viem';
 import { toast } from 'sonner';
 import { ERC20_ABI } from '../lib/contracts';
 import { WETH_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, TEGRIDY_ROUTER_ADDRESS, CHAIN_ID } from '../lib/constants';
-import { type TokenInfo } from '../lib/tokenList';
+import { type TokenInfo, DEFAULT_TOKENS } from '../lib/tokenList';
 import type { RouteSource } from './useSwapQuote';
 
 export interface SwapAllowanceResult {
@@ -85,7 +85,30 @@ export function useSwapAllowance(
       toast.error('Wrong network — switch to Ethereum mainnet');
       return;
     }
-    const approvalAmount = unlimitedApproval ? maxUint256 : parsedAmount;
+    // AUDIT FIX FE-HIGH-6: refuse `approve(MAX_UINT256)` for custom (non-
+    // DEFAULT_TOKENS) tokens. A phisher's localStorage write could plant a
+    // malicious token whose address is the attacker's contract; if the user
+    // then clicks "unlimited approval" they hand the attacker the right to
+    // pull every later transfer. Exact-amount approvals still work for
+    // custom tokens — every swap re-approves, which is mildly annoying but
+    // not exploitable.
+    const isCustomToken = !DEFAULT_TOKENS.some(d =>
+      d.address.toLowerCase() === fromToken.address.toLowerCase()
+    );
+    let approvalAmount: bigint;
+    if (unlimitedApproval) {
+      if (isCustomToken) {
+        toast.error('Unlimited approval blocked for unverified tokens', {
+          description: `${fromToken.symbol} isn't on the default list. Custom tokens require exact-amount approvals — re-tap Approve to authorize just this swap's amount.`,
+          duration: 9000,
+        });
+        approvalAmount = parsedAmount;
+      } else {
+        approvalAmount = maxUint256;
+      }
+    } else {
+      approvalAmount = parsedAmount;
+    }
     // Approve the correct router based on selected route
     const spender = selectedRoute === 'tegridy' ? TEGRIDY_ROUTER_ADDRESS : SWAP_FEE_ROUTER_ADDRESS;
     const tokenAddr = fromToken.address as `0x${string}`;

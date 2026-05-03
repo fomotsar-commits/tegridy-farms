@@ -31,6 +31,15 @@ export interface DCASchedule {
   createdAt: number;
   lastSwapAt: number;
   status: 'active' | 'paused' | 'completed';
+  /**
+   * AUDIT FIX FE-HIGH-4: per-schedule slippage tolerance in basis points,
+   * bounded to [MIN_SLIPPAGE_BPS, MAX_SLIPPAGE_BPS]. Pre-fix this was a
+   * hard-coded 5% (500 bps) — every scheduled swap was a sandwich-attack
+   * sitting duck with no user knob to tighten it. Persisted alongside the
+   * schedule so each user choice survives reloads. Optional in the type so
+   * pre-fix payloads still validate; runtime falls back to DEFAULT_SLIPPAGE_BPS.
+   */
+  slippageBps?: number;
 }
 
 interface StoragePayload {
@@ -40,11 +49,28 @@ interface StoragePayload {
 
 const STORAGE_VERSION = 1;
 const POLL_INTERVAL = 30_000;
-const SLIPPAGE_BPS = 500n; // 5% default slippage (500 / 10000)
+// AUDIT FIX FE-HIGH-4: legacy hard-coded 5% replaced with per-schedule
+// slippage validated at create-time and clamped at execute-time. 50 bps
+// (0.5%) default is the same number the swap UI defaults to; 300 bps (3%)
+// upper bound stops accidental "20% slippage" foot-guns and is well above
+// the practical sandwich envelope for any token a DCA flow would touch.
+export const DEFAULT_SLIPPAGE_BPS = 50;
+export const MIN_SLIPPAGE_BPS = 10;   // 0.1%
+export const MAX_SLIPPAGE_BPS = 300;  // 3.0%
 const MAX_FEE_BPS = 100n; // 1% max fee tolerance for SwapFeeRouter
 const MAX_SCHEDULES = 20;
 const MAX_AMOUNT_ETH = 100; // sanity cap per-swap
 const MAX_TOTAL_SWAPS = 365;
+
+/**
+ * AUDIT FIX FE-HIGH-4: clamp helper used both at validation (createSchedule)
+ * and at execution (executeDCASwap → minOut). Backward-compat: a missing or
+ * 0 `slippageBps` on a pre-fix schedule resolves to DEFAULT_SLIPPAGE_BPS.
+ */
+function clampSlippageBps(raw: number | undefined): number {
+  if (raw === undefined || raw === 0 || !Number.isFinite(raw)) return DEFAULT_SLIPPAGE_BPS;
+  return Math.max(MIN_SLIPPAGE_BPS, Math.min(MAX_SLIPPAGE_BPS, Math.floor(raw)));
+}
 
 // Multi-tab mutex: prevent duplicate DCA execution across browser tabs.
 // Uses BroadcastChannel to claim a lock before executing — if another tab
@@ -141,6 +167,14 @@ function isValidSchedule(s: unknown): s is DCASchedule {
   if (typeof o.lastSwapAt !== 'number' || o.lastSwapAt < 0) return false;
   if (typeof o.status !== 'string' || !VALID_STATUSES.has(o.status as string)) return false;
   if (!isValidTokenObj(o.fromToken) || !isValidTokenObj(o.toToken)) return false;
+  // AUDIT FIX FE-HIGH-4: optional slippage. Pre-fix payloads omit this and the
+  // execute path falls back to DEFAULT_SLIPPAGE_BPS via clampSlippageBps.
+  // If present it must be a finite integer; out-of-range values get clamped at
+  // execution rather than rejecting the whole schedule.
+  if (o.slippageBps !== undefined &&
+      (typeof o.slippageBps !== 'number' || !Number.isInteger(o.slippageBps) || o.slippageBps < 0 || o.slippageBps > 10_000)) {
+    return false;
+  }
   return true;
 }
 
@@ -287,6 +321,17 @@ export function useDCA() {
       toast.error(`Total swaps must be between 1 and ${MAX_TOTAL_SWAPS}`);
       return;
     }
+    // AUDIT FIX FE-HIGH-4: validate caller-supplied slippage and reject outright
+    // (rather than silently clamping at this layer) when the user explicitly
+    // passed a value outside [MIN, MAX]. UI binds the input to the same range,
+    // so a reject here is a defensive backstop against a bypass.
+    if (schedule.slippageBps !== undefined) {
+      const sb = schedule.slippageBps;
+      if (!Number.isFinite(sb) || !Number.isInteger(sb) || sb < MIN_SLIPPAGE_BPS || sb > MAX_SLIPPAGE_BPS) {
+        toast.error(`Slippage must be between ${MIN_SLIPPAGE_BPS / 100}% and ${MAX_SLIPPAGE_BPS / 100}%`);
+        return;
+      }
+    }
     const activeCount = schedules.filter(s => s.status === 'active' || s.status === 'paused').length;
     if (activeCount >= MAX_SCHEDULES) {
       toast.error(`Maximum ${MAX_SCHEDULES} active schedules allowed.`);
@@ -294,6 +339,9 @@ export function useDCA() {
     }
     const newSchedule: DCASchedule = {
       ...schedule,
+      // AUDIT FIX FE-HIGH-4: default into the persisted record so reads don't
+      // need to remember to apply the fallback themselves.
+      slippageBps: clampSlippageBps(schedule.slippageBps),
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       createdAt: Date.now(),
       lastSwapAt: 0, // allow first swap to execute immediately
@@ -376,8 +424,12 @@ export function useDCA() {
     // legitimate slow signs.
     refreshTabLock(schedule.id);
 
-    // Fetch on-chain quote and apply slippage tolerance
+    // Fetch on-chain quote and apply slippage tolerance.
+    // AUDIT FIX FE-HIGH-4: per-schedule slippage (clamped to [MIN, MAX] bps) —
+    // see clampSlippageBps. Pre-fix used a single hard-coded 5% for every
+    // scheduled swap with no UI to tighten it.
     let minOut = 0n;
+    const slippageBps = BigInt(clampSlippageBps(schedule.slippageBps));
     try {
       const result = await publicClient.readContract({
         address: UNISWAP_V2_ROUTER,
@@ -387,7 +439,7 @@ export function useDCA() {
       });
       const amountsOut = result as bigint[];
       const expectedOut = amountsOut[amountsOut.length - 1] ?? 0n;
-      minOut = expectedOut - (expectedOut * SLIPPAGE_BPS / 10000n);
+      minOut = expectedOut - (expectedOut * slippageBps / 10000n);
     } catch {
       // If quote fails, do not proceed with 0 slippage -- abort
       executingRef.current.delete(schedule.id); releaseWithBroadcast(schedule.id);

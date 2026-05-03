@@ -156,6 +156,28 @@ export default function TradePage() {
               </div>
             ) : (
               <>
+                {/* AUDIT FIX FE-HIGH-6: permanent unverified-token banner.
+                    Custom tokens (anything not in DEFAULT_TOKENS) get a
+                    sticky reminder above the swap form so the user is
+                    re-warned every session, not just at import time. */}
+                {(swap.isFromTokenCustom || swap.isToTokenCustom) && (
+                  <div className="mb-3 px-3 py-2 rounded-lg flex items-start gap-2"
+                    style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.35)' }}
+                    role="alert">
+                    <span className="text-warning text-[14px] leading-none mt-0.5" aria-hidden="true">&#9888;</span>
+                    <div className="text-warning text-[11px] leading-snug">
+                      <strong className="font-semibold">Unverified token</strong>
+                      {' — '}
+                      {[
+                        swap.isFromTokenCustom ? swap.fromToken?.symbol : null,
+                        swap.isToTokenCustom ? swap.toToken?.symbol : null,
+                      ].filter(Boolean).join(' / ')}
+                      {' '}
+                      is not on the default token list. Approvals are restricted to exact-amount; double-check the contract on Etherscan before swapping.
+                    </div>
+                  </div>
+                )}
+
                 {/* From Token */}
                 <div className="mb-5">
                   <div className="flex items-center justify-between mb-2">
