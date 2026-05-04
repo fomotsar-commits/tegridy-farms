@@ -202,6 +202,39 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
         // is forfeit, not banked for the next staker.
         lastUpdateTime = lastTimeRewardApplicable();
         if (account != address(0)) {
+            // PASS7-LPFARM-M1 FIX: re-derive boost cache before computing rewards.
+            // Pre-fix, `_getEffectiveBalance` was only re-derived on user-initiated
+            // `stake / withdraw / refreshBoost`. After lock expiry or staking-NFT
+            // transfer, `effectiveBalanceOf[account]` stayed inflated until
+            // someone permissionlessly called `refreshBoost(account)` — and there
+            // was no on-chain incentive to do so. This let an attacker continue
+            // earning at the legacy boost ratio for the entire window between
+            // boost-source removal and the next refresh (~29% over-credit on
+            // 1y-lock 1.29x boost over 30 days, ~300% at MAX_BOOST = 4.5x).
+            //
+            // By refreshing INSIDE updateReward, every user-initiated state
+            // change (stake, withdraw, getReward, exit, refreshBoost itself)
+            // re-anchors the boost cache against the current staking-side state.
+            // Pattern of record: Synthetix-style `updateReward` checkpoints all
+            // cached state at every interaction.
+            //
+            // Refresh BEFORE `earned(account)` so the new effective balance
+            // applies to the about-to-be-credited slice. Honest edge case: a
+            // user who held a high boost for the elapsed period and dropped it
+            // just before claiming gets credited at the LOWER boost — a small
+            // under-credit in exchange for closing the much larger stale-boost
+            // over-credit attack surface. This is the trade-off the F-1
+            // restaking-side fix made and is mirrored here for symmetry.
+            uint256 raw = rawBalanceOf[account];
+            if (raw > 0) {
+                uint256 oldEff = effectiveBalanceOf[account];
+                uint256 newEff = _getEffectiveBalance(account, raw);
+                if (oldEff != newEff) {
+                    totalEffectiveSupply = totalEffectiveSupply - oldEff + newEff;
+                    effectiveBalanceOf[account] = newEff;
+                    emit BoostUpdated(account, oldEff, newEff);
+                }
+            }
             rewards[account] = earned(account);
             userRewardPerTokenPaid[account] = rewardPerTokenStored;
         }
