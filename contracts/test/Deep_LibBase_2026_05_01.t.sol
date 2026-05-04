@@ -376,8 +376,11 @@ contract Deep_LibBase_2026_05_01 is Test {
     function test_DEEP_LIB_L2_RenounceStillReverts_ButIsView() public {
         OwnableHarness h = new OwnableHarness(address(this));
         // The mutability change is a compile-time property; we verify the
-        // runtime contract: the call still reverts with the canonical reason.
-        vm.expectRevert(bytes("RENOUNCE_DISABLED"));
+        // runtime contract: the call still reverts.
+        // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): FRESH-EYES L migrated the
+        // string revert `"RENOUNCE_DISABLED"` to a typed error `RenounceDisabled()`
+        // for cheaper revert data + clearer ABI (4-byte selector vs. 32-byte string).
+        vm.expectRevert(OwnableNoRenounce.RenounceDisabled.selector);
         h.renounceOwnership();
     }
 

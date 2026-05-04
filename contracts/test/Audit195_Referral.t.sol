@@ -496,14 +496,26 @@ contract Audit195Referral is Test {
     }
 
     function test_recordFee_initializesLastClaimTime() public {
+        // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): FRESH-EYES M-5 moved
+        // `lastClaimTime` initialization from first-recordFee to first-
+        // setReferrer (registration time). Previously a never-claimed referrer
+        // had `lastClaimTime == 0`, making the forfeiture predicate
+        // `block.timestamp < 0 + FORFEITURE_PERIOD` trivially false past
+        // genesis+90d — letting a captured/colluding owner instantly forfeit a
+        // freshly-credited referrer. Anchoring on registration restores the
+        // documented "90 days of inactivity" semantic.
+        uint256 setTs = block.timestamp;
         vm.prank(alice);
         ref.setReferrer(bob);
 
-        assertEq(ref.lastClaimTime(bob), 0);
+        // Pass-6: lastClaimTime is now seeded at setReferrer, not at recordFee.
+        assertEq(ref.lastClaimTime(bob), setTs, "lastClaimTime seeded at registration (FRESH-EYES M-5)");
 
+        // recordFee leaves lastClaimTime unchanged (the seed already happened
+        // at setReferrer; the `if (lastClaimTime == 0)` branch in recordFee is
+        // a defense-in-depth fallback for legacy paths that pre-date the seed).
         caller.recordFee{value: 1 ether}(alice);
-
-        assertEq(ref.lastClaimTime(bob), block.timestamp, "lastClaimTime initialized on first credit");
+        assertEq(ref.lastClaimTime(bob), setTs, "recordFee does not overwrite the registration-time seed");
     }
 
     // ════════════════════════════════════════════════════════════════════

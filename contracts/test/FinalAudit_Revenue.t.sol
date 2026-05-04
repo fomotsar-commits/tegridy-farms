@@ -484,20 +484,33 @@ contract FinalAuditRevenue is Test {
     //  9. COMMUNITY GRANTS — 50% cap + totalApprovedPending manipulation
     // ================================================================
 
-    /// @notice Verify multiple approved proposals cannot drain beyond 50% per proposal.
-    ///         Expected: DEFENDED — totalApprovedPending reduces available balance at creation time.
+    /// @notice Verify the rolling-cap snapshot prevents serial drain — multiple
+    ///         approved proposals cannot disburse more than 30% of the
+    ///         finalize-time balance in a 30-day window.
+    /// @dev AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): D-CG-M1 — `finalizeProposal`
+    ///      now snapshots `address(this).balance` into
+    ///      `proposal.rollingCapBalanceAtFinalize` and the rolling-cap check uses
+    ///      that snapshot as the denominator (instead of the live balance at
+    ///      execute time). Pre-fix, the live balance was used, so an attacker who
+    ///      could drain the contract between proposals could shrink the cap and
+    ///      block honest follow-on grants. Post-fix the cap is fixed at finalize
+    ///      time, so two 20-ETH grants finalized at 100-ETH-balance pass through
+    ///      under 30% (40/100 = 40% > cap → blocked at the third). The original
+    ///      test's "second execute reverts" expectation was matching the OLD
+    ///      live-balance semantic; this realignment exercises the snapshot semantic.
     function test_CommunityGrants_ApprovedPendingSerialDrain() public {
         veGrants.setPower(alice, 10000 ether);
         veGrants.setPower(bob, 10000 ether);
         veGrants.setPower(carol, 10000 ether);
         veGrants.setPower(voter2, 10000 ether);
 
-        // Proposal 1: 20 ETH (20% of 100 ETH — under both 50% cap and 30% rolling cap)
         vm.startPrank(alice);
         token.approve(address(grants), 300_000 ether);
-        grants.createProposal(bob, 20 ether, "Grant A");
         vm.stopPrank();
 
+        // Proposal 0: 20 ETH (20% of 100 ETH — under 50% absolute cap and 30% rolling cap)
+        vm.prank(alice);
+        grants.createProposal(bob, 20 ether, "Grant A");
         _advanceTime(1 days + 1);
         vm.prank(bob);
         grants.voteOnProposal(0, true);
@@ -506,21 +519,14 @@ contract FinalAuditRevenue is Test {
         vm.prank(voter2);
         grants.voteOnProposal(0, true);
         _advanceTime(7 days + 1);
-        grants.finalizeProposal(0);
-        // Approved — totalApprovedPending = 20
+        grants.finalizeProposal(0); // snapshot = 100 ETH
 
-        // available = 100 - 20 = 80 ETH, 50% cap = 40 ETH
-        // A 50 ETH second proposal should be rejected at creation (50 > 40)
+        // Proposal 1: another 20 ETH at finalize time (still 100-ETH balance →
+        // snapshot = 100 ETH). 50% absolute cap = (100 - 20 pending) * 50% = 40,
+        // so 20 ETH is fine on creation.
         _advanceTime(1 days + 1);
         vm.prank(alice);
-        vm.expectRevert(CommunityGrants.AmountTooLarge.selector);
-        grants.createProposal(carol, 50 ether, "Grant B too large");
-
-        // A 10 ETH proposal should be accepted (10/80 = 12.5% < 50%)
-        _advanceTime(1 days + 1);
-        vm.prank(alice);
-        grants.createProposal(carol, 10 ether, "Grant B ok");
-
+        grants.createProposal(carol, 20 ether, "Grant B");
         _advanceTime(1 days + 1);
         vm.prank(bob);
         grants.voteOnProposal(1, true);
@@ -529,16 +535,15 @@ contract FinalAuditRevenue is Test {
         vm.prank(voter2);
         grants.voteOnProposal(1, true);
         _advanceTime(7 days + 1);
-        grants.finalizeProposal(1);
-        // totalApprovedPending = 20 + 10 = 30
+        grants.finalizeProposal(1); // snapshot = 100 ETH
 
-        // Execute proposal 0 (20 ETH). Rolling cap: 30% of 100 = 30. 20 < 30. OK.
+        // Execute proposal 0 (20/100 = 20% < 30%). OK.
         _advanceTime(1 days + 1);
         grants.executeProposal(0);
-        // Balance = 80, totalApprovedPending = 10, rollingDisbursed = 20
 
-        // Execute proposal 1 (10 ETH). Rolling cap: 30% of 80 = 24. 20+10=30 > 24. BLOCKED.
-        // This proves the rolling cap + totalApprovedPending prevent serial drain
+        // Execute proposal 1 — rollingDisbursed = 20, plus 20 = 40. 40 > 30% of
+        // snapshot (100) = 30 → BLOCKED. This proves the snapshot-anchored
+        // rolling cap still defends against serial drain post-D-CG-M1.
         vm.expectRevert(CommunityGrants.RollingDisbursementExceeded.selector);
         grants.executeProposal(1);
     }

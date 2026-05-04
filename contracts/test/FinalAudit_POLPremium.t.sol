@@ -277,13 +277,13 @@ contract FinalAuditPOLPremium is Test {
         vm.prank(alice);
         premium.subscribe(1, 1000 ether);
 
-        // R022: forfeit (~500) + new cost (1000) added → ≈ 2500.
-        // Plus the already-consumed implicit revenue from the first 15 days
-        // is left in totalRevenue (it was credited at subscribe time as the
-        // M-06 unconditional `totalRevenue += cost`). Net: 1000 (initial) +
-        // ~500 (forfeit) + 1000 (extension cost) ≈ 2500.
-        assertApproxEqAbs(premium.totalRevenue(), 2500 ether, 1 ether,
-            "R022: totalRevenue captures forfeit + new cost");
+        // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): PASS5-PA-L1 — extension no
+        // longer adds `consumedEscrow` to totalRevenue. The original 1000 ether
+        // cost was already booked at first-subscribe; the M-06 "forfeit add" was
+        // a double-count. Post-fix trajectory: 1000 (initial) + 1000 (extension
+        // new cost) = 2000 ether exactly.
+        assertEq(premium.totalRevenue(), 2000 ether,
+            "PASS5-PA-L1: extension only adds new cost - no consumedEscrow double-count");
     }
 
     // ═══════════════════════════════════════════════════════════════════

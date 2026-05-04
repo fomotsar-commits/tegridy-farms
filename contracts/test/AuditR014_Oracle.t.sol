@@ -145,7 +145,11 @@ contract AuditR014OracleTest is Test {
         twap.update(address(pair));
         TegridyTWAP.Observation memory obs0 = twap.getLatestObservation(address(pair));
         assertEq(obs0.price0Cumulative, 0, "first observation captures zero pair cumulative + zero bridge");
-        assertFalse(obs0.bypassed, "first observation never sets bypassed");
+        // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): TWAP HIGH-3 — first observation now
+        // intentionally sets bypassed=true so consult() refuses any lookup window that
+        // anchors on the bootstrap (pre-fix, an attacker could anchor a poisoned 1:N
+        // baseline because there was no prior lastSpot to gate against).
+        assertTrue(obs0.bypassed, "first observation now flags bypassed (TWAP HIGH-3)");
 
         // Now warp WITHOUT touching the pair. The pair's own cumulative stays frozen
         // (no _update() ran), so any growth in the TWAP observation's cumulative

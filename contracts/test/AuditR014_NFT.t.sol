@@ -169,7 +169,11 @@ contract AuditR014_NFT_Test is Test {
     // ─── M-4: removeLiquidity same-block-after-swap defense ─────────────
 
     /// AUDIT R014 M-4: a swap stamps `lastSwapBlock = block.number`. Calling
-    /// `removeLiquidity` in the same block must revert with `WaitOneBlock`.
+    /// `removeLiquidity` in the same block must revert.
+    /// AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): D-NFTPOOL-H1 renamed
+    /// `WaitOneBlock()` → `WaitForNFTWithdrawCooldown()` and lengthened the
+    /// guard window from 1 block to WITHDRAW_NFT_COOLDOWN_BLOCKS (50). The
+    /// same-block revert assertion is unchanged in semantics.
     function test_M4_removeLiquidity_revertsInSameBlockAsBuySwap() public {
         TegridyNFTPool pool = _createSellPool(3);
 
@@ -183,12 +187,14 @@ contract AuditR014_NFT_Test is Test {
         // Owner attempts to pull liquidity in the same block — must revert.
         uint256[] memory pull = _singleId(2);
         vm.prank(alice);
-        vm.expectRevert(TegridyNFTPool.WaitOneBlock.selector);
+        vm.expectRevert(TegridyNFTPool.WaitForNFTWithdrawCooldown.selector);
         pool.removeLiquidity(pull, 0);
     }
 
     /// AUDIT R014 M-4: same defense applies to SELL-side swaps. carol sells
     /// an NFT into a BUY pool; LP cannot pull in the same block.
+    /// AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): D-NFTPOOL-H1 renamed
+    /// `WaitOneBlock()` → `WaitForNFTWithdrawCooldown()`.
     function test_M4_removeLiquidity_revertsInSameBlockAsSellSwap() public {
         TegridyNFTPool pool = _createBuyPool(20 ether);
 
@@ -203,16 +209,19 @@ contract AuditR014_NFT_Test is Test {
 
         // Owner attempts to pull the freshly received NFT in the same block.
         vm.prank(alice);
-        vm.expectRevert(TegridyNFTPool.WaitOneBlock.selector);
+        vm.expectRevert(TegridyNFTPool.WaitForNFTWithdrawCooldown.selector);
         pool.removeLiquidity(_singleId(11), 0);
 
         // ETH-only pull also blocked in the same block.
         vm.prank(alice);
-        vm.expectRevert(TegridyNFTPool.WaitOneBlock.selector);
+        vm.expectRevert(TegridyNFTPool.WaitForNFTWithdrawCooldown.selector);
         pool.removeLiquidity(new uint256[](0), 1 ether);
     }
 
     /// AUDIT R014 M-4: bumping past the swap block lets the pull go through.
+    /// AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): D-NFTPOOL-H1 lengthened the
+    /// cooldown from 1 block to WITHDRAW_NFT_COOLDOWN_BLOCKS (50), so we must
+    /// roll forward >50 blocks for the guard to release.
     function test_M4_removeLiquidity_succeedsInNextBlock() public {
         TegridyNFTPool pool = _createSellPool(3);
 
@@ -220,14 +229,14 @@ contract AuditR014_NFT_Test is Test {
         vm.prank(bob);
         pool.swapETHForNFTs{value: cost}(_singleId(1), type(uint256).max, block.timestamp + 1 hours);
 
-        // Mine the next block — guard releases.
-        vm.roll(block.number + 1);
+        // Roll past the WITHDRAW_NFT_COOLDOWN_BLOCKS (50) window — guard releases.
+        vm.roll(block.number + pool.WITHDRAW_NFT_COOLDOWN_BLOCKS() + 1);
 
         uint256[] memory pull = _singleId(2);
         vm.prank(alice);
         pool.removeLiquidity(pull, 0);
 
-        assertEq(nft.ownerOf(2), alice, "NFT returned to LP after one-block wait");
+        assertEq(nft.ownerOf(2), alice, "NFT returned to LP after cooldown wait");
     }
 
     /// AUDIT R014 M-4: pools never swapped (lastSwapBlock == 0) freely

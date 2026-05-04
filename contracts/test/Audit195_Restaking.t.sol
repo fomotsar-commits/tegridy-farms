@@ -320,9 +320,13 @@ contract Audit195Restaking is Test {
         uint256 tokenId = _stakeAndRestake(alice, STAKE_AMOUNT);
         vm.warp(block.timestamp + 100);
 
-        // Simulate unforwarded base rewards by directly setting via owner
-        // We'll use proposeAttributeStuckRewards + executeAttributeStuckRewards
-        toweli.transfer(address(restaking), 50 ether); // send some tokens to restaking
+        // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): F-2 — `executeAttributeStuckRewards`
+        // now subtracts `totalActivePrincipal + totalPendingUnsettled` from the cap (in
+        // addition to the prior `totalUnforwardedBase`). The pre-fix cap let the owner
+        // attribute rewards that were actually backing other users' principal. To keep
+        // the 50 ether attribution legal we must fund enough extra reward tokens to
+        // cover both the active principal (STAKE_AMOUNT) and the attribution amount.
+        toweli.transfer(address(restaking), STAKE_AMOUNT + 50 ether);
 
         restaking.proposeAttributeStuckRewards(alice, 50 ether);
         vm.warp(block.timestamp + 24 hours + 1);
@@ -541,8 +545,11 @@ contract Audit195Restaking is Test {
         uint256 tokenId = _stakeAndRestake(alice, STAKE_AMOUNT);
         vm.warp(block.timestamp + 50);
 
-        // Set up unforwarded base
-        toweli.transfer(address(restaking), 25 ether);
+        // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): F-2 — see
+        // test_claimAll_forwardsUnforwardedBaseRewards. Cap now subtracts
+        // `totalActivePrincipal + totalPendingUnsettled`, so we must fund
+        // STAKE_AMOUNT extra to keep the 25 ether attribution legal.
+        toweli.transfer(address(restaking), STAKE_AMOUNT + 25 ether);
         restaking.proposeAttributeStuckRewards(alice, 25 ether);
         vm.warp(block.timestamp + 24 hours + 1);
         restaking.executeAttributeStuckRewards();
@@ -624,7 +631,11 @@ contract Audit195Restaking is Test {
         uint256 tokenId = _stakeAndRestake(alice, STAKE_AMOUNT);
         vm.warp(block.timestamp + 50);
 
-        toweli.transfer(address(restaking), 30 ether);
+        // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): F-2 — see
+        // test_claimAll_forwardsUnforwardedBaseRewards. Cap now subtracts
+        // `totalActivePrincipal + totalPendingUnsettled`, so we must fund
+        // STAKE_AMOUNT extra to keep the 30 ether attribution legal.
+        toweli.transfer(address(restaking), STAKE_AMOUNT + 30 ether);
         restaking.proposeAttributeStuckRewards(alice, 30 ether);
         vm.warp(block.timestamp + 24 hours + 1);
         restaking.executeAttributeStuckRewards();
@@ -763,7 +774,10 @@ contract Audit195Restaking is Test {
     function test_executeAttributeStuckRewards_success() public {
         _stakeAndRestake(alice, STAKE_AMOUNT);
 
-        toweli.transfer(address(restaking), 100 ether);
+        // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): F-2 — cap now subtracts
+        // `totalActivePrincipal + totalPendingUnsettled`. Fund extra principal
+        // coverage so the 100 ether attribution remains within the unattributed pool.
+        toweli.transfer(address(restaking), STAKE_AMOUNT + 100 ether);
         restaking.proposeAttributeStuckRewards(alice, 100 ether);
         vm.warp(block.timestamp + 24 hours + 1);
         restaking.executeAttributeStuckRewards();

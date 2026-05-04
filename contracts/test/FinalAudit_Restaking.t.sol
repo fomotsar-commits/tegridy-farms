@@ -209,8 +209,12 @@ contract FinalAuditRestaking is Test {
         // If Bob has pendingUnsettledRewards and Alice has unforwardedBaseRewards,
         // Bob's claimPendingUnsettled could consume Alice's tokens
 
-        // Give the restaking contract some rewardTokens to simulate unforwarded
-        toweli.transfer(address(restaking), 1000 ether);
+        // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): F-2 — `executeAttributeStuckRewards`
+        // now subtracts `totalActivePrincipal + totalPendingUnsettled` from the cap.
+        // With both alice + bob restaked (totalActivePrincipal = 2 * STAKE_AMOUNT), we
+        // need to fund enough extra reward tokens to keep the 500 ether attribution
+        // within the unattributed pool.
+        toweli.transfer(address(restaking), 2 * STAKE_AMOUNT + 1000 ether);
 
         // Owner attributes stuck rewards to Alice
         restaking.proposeAttributeStuckRewards(alice, 500 ether);

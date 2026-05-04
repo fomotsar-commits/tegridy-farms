@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
+import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyLending.sol";
 import "../src/TegridyNFTLending.sol";
 import {TegridyTWAP} from "../src/TegridyTWAP.sol";
@@ -127,8 +128,17 @@ contract R014BypassTWAP {
 ///      suite self-contained without cross-file imports.
 contract R014MockFactoryForTWAP {
     mapping(address => bool) public isPair;
+    // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): FRESH-EYES H-2 — TegridyTWAP.update
+    // now reads `factory.disabledPairs(pair)` to refuse observations during a
+    // frozen-reserve disable window. Mock surfaces the same mapping (default false)
+    // so test pairs are always "live". Mirror of MockFactoryForTWAP in
+    // TegridyLending_ETHFloor.t.sol.
+    mapping(address => bool) public disabledPairs;
     function tagPair(address _pair) external {
         isPair[_pair] = true;
+    }
+    function setDisabled(address _pair, bool _disabled) external {
+        disabledPairs[_pair] = _disabled;
     }
 }
 
@@ -149,6 +159,7 @@ contract AuditR014LendingTest is Test {
     R014MockWETH public weth;
     R014MockPair public pair;
     TegridyStaking public staking;
+    TegridyStakingAdmin public stakingAdmin; // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): D-LD-H1 timelocked admin path
     TegridyLending public lending;
     TegridyTWAP public twap;
     TegridyNFTLending public nftLending;
@@ -179,6 +190,14 @@ contract AuditR014LendingTest is Test {
         // setup warps so escrow-rewards tests can observe non-zero attribution.
         staking = new TegridyStaking(address(toweli), address(jbac), treasury, 0.001 ether);
 
+        // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): D-LD-H1 — install the staking
+        // admin so we can register the lending contract as a tracked holder. Without
+        // this, `staking.claimUnsettledForTokenId(tokenId, borrower)` reverts with
+        // Unauthorized() because `_isTrackedHolder(lending) == false`, leaving
+        // borrower escrow-reward attribution at 0.
+        stakingAdmin = new TegridyStakingAdmin(address(staking));
+        staking.setStakingAdmin(address(stakingAdmin));
+
         // Bootstrap the TWAP with three observations so consult() over 30 minutes is well-defined.
         // AUDIT R014 oracle layer: TegridyTWAP now requires a factory whose isPair() vouches
         // for every `update()` target — see MockFactoryForTWAP in TegridyLending_ETHFloor.t.sol.
@@ -194,6 +213,12 @@ contract AuditR014LendingTest is Test {
 
         lending = new TegridyLending(treasury, 500, address(weth), address(pair), address(twap), address(0));
 
+        // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): D-LD-H1 — register lending as a
+        // tracked holder so `claimUnsettledForTokenId` (called from repay/default)
+        // can drain the per-tokenId escrow rewards. 48h timelock matches the lending
+        // accepted-collateral timelock so both execute in the same warp window.
+        stakingAdmin.proposeLendingContract(address(lending), true);
+
         // Whitelist the staking contract via the new R014 collateral admin path.
         lending.proposeAcceptedCollateral(address(staking), true);
         // Roll the timelock forward in chunks below DEVIATION_BYPASS_AFTER (1 day) so
@@ -202,6 +227,7 @@ contract AuditR014LendingTest is Test {
         skip(22 hours); twap.update(address(pair));
         skip(4 hours + 1); twap.update(address(pair));
         lending.executeAcceptedCollateral();
+        stakingAdmin.executeLendingContract();
 
         // Fund alice and have her stake to mint a position NFT.
         toweli.transfer(alice, 100_000 ether);
@@ -243,7 +269,14 @@ contract AuditR014LendingTest is Test {
     // ═══════════════════════════════════════════════════════════════════
 
     /// @notice After the borrower repays, the contract attributes the loan-period
-    ///         reward delta and the borrower can pull it via pullEscrowRewards.
+    ///         reward delta directly to the borrower via the new per-tokenId path.
+    /// @dev AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): D-LD-H1 — `repayLoan` no
+    ///      longer populates `escrowRewardsOwed[loanId]` (the snapshot/delta path
+    ///      against the shared bucket was the cross-loan drain primitive). It now
+    ///      pays the borrower's per-tokenId slice directly via
+    ///      `staking.claimUnsettledForTokenId` (two-phase: pre + post transferFrom).
+    ///      Test now asserts the borrower's TOWELI balance grew during repay and
+    ///      that the legacy accumulator stayed at zero.
     function test_R014_escrowRewards_recoveredOnRepay() public {
         uint256 offerId = _createDefaultOffer();
 
@@ -253,27 +286,35 @@ contract AuditR014LendingTest is Test {
         // Let rewards accrue against the position while it sits in escrow.
         skip(7 days);
 
-        // Borrower repays in full.
+        // Borrower repays in full and receives escrow rewards inline.
         uint256 owed = lending.getRepaymentAmount(loanId);
+        uint256 aliceBefore = toweli.balanceOf(alice);
         vm.deal(alice, owed);
         vm.prank(alice);
         lending.repayLoan{value: owed}(loanId);
 
-        // Escrow attribution should be non-zero — rewards accrued during the loan window.
-        uint256 escrowedOwed = lending.escrowRewardsOwed(loanId);
-        assertGt(escrowedOwed, 0, "escrow rewards must be attributed");
-        assertEq(lending.totalEscrowRewardsOwed(), escrowedOwed, "global counter mirrors per-loan");
+        // Direct payout — borrower's TOWELI balance must reflect the loan-period
+        // reward delta credited via the per-tokenId path.
+        uint256 paidToBorrower = toweli.balanceOf(alice) - aliceBefore;
+        assertGt(paidToBorrower, 0, "borrower receives escrow rewards inline on repay (D-LD-H1)");
 
-        // Borrower pulls — receives the full attributed amount.
-        uint256 aliceBefore = toweli.balanceOf(alice);
+        // Legacy accumulator path remains zero — populated only when the staking
+        // contract is paused and the inline claim defers (try/catch fallback).
+        assertEq(lending.escrowRewardsOwed(loanId), 0, "legacy escrowRewardsOwed not used on happy path");
+        assertEq(lending.totalEscrowRewardsOwed(), 0, "legacy global counter not used on happy path");
+
+        // pullEscrowRewards on a fully-paid loan reverts with NoEscrowRewards
+        // (no deferred legacy balance, no per-tokenId residue).
         vm.prank(alice);
+        vm.expectRevert(TegridyLending.NoEscrowRewards.selector);
         lending.pullEscrowRewards(loanId);
-        assertEq(toweli.balanceOf(alice) - aliceBefore, escrowedOwed, "borrower receives full attribution");
-        assertEq(lending.escrowRewardsOwed(loanId), 0, "per-loan counter cleared");
-        assertEq(lending.totalEscrowRewardsOwed(), 0, "global counter cleared");
     }
 
-    /// @notice Defaulted loans route the escrowed rewards to the lender. Non-beneficiaries cannot pull.
+    /// @notice Defaulted loans route the escrowed rewards directly to the lender.
+    /// @dev AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): D-LD-H1 — see
+    ///      test_R014_escrowRewards_recoveredOnRepay. `claimDefaultedCollateral`
+    ///      now pays the lender directly via per-tokenId claim instead of
+    ///      populating `escrowRewardsOwed[loanId]`.
     function test_R014_escrowRewards_recoveredOnDefault() public {
         uint256 offerId = _createDefaultOffer();
         vm.prank(alice);
@@ -283,22 +324,26 @@ contract AuditR014LendingTest is Test {
         skip(31 days);
         skip(2 hours); // past GRACE_PERIOD (1h)
 
+        uint256 bobBefore = toweli.balanceOf(bob);
         vm.prank(bob);
         lending.claimDefaultedCollateral(loanId);
 
-        uint256 owed = lending.escrowRewardsOwed(loanId);
-        assertGt(owed, 0, "default attribution must be non-zero");
+        // Lender received attribution inline via per-tokenId claim.
+        uint256 paidToLender = toweli.balanceOf(bob) - bobBefore;
+        assertGt(paidToLender, 0, "lender receives default attribution inline (D-LD-H1)");
 
-        // Borrower (non-beneficiary) cannot pull.
+        // Legacy accumulator stays at 0 on the happy path.
+        assertEq(lending.escrowRewardsOwed(loanId), 0, "legacy escrowRewardsOwed not used on happy path");
+
+        // pullEscrowRewards is a no-op on the happy path (no deferred balance).
+        vm.prank(bob);
+        vm.expectRevert(TegridyLending.NoEscrowRewards.selector);
+        lending.pullEscrowRewards(loanId);
+
+        // Borrower (non-beneficiary) still rejected even on the no-op path.
         vm.prank(alice);
         vm.expectRevert(TegridyLending.NotEscrowBeneficiary.selector);
         lending.pullEscrowRewards(loanId);
-
-        // Lender pulls successfully.
-        uint256 bobBefore = toweli.balanceOf(bob);
-        vm.prank(bob);
-        lending.pullEscrowRewards(loanId);
-        assertEq(toweli.balanceOf(bob) - bobBefore, owed, "lender receives default attribution");
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -352,12 +397,19 @@ contract AuditR014LendingTest is Test {
     // FINDING 3: pullEscrowRewards proportional payout
     // ═══════════════════════════════════════════════════════════════════
 
-    /// @notice When the contract holds less TOWELI than the total claim, payouts shrink
-    ///         proportionally to `(owed * available) / total`. We exercise the formula
-    ///         directly by running a loan, then draining the contract's TOWELI to a
-    ///         level below `totalEscrowRewardsOwed` before pulling.
+    /// @notice Legacy proportional-payout branch in `pullEscrowRewards`: when the
+    ///         contract holds less TOWELI than the total claim, payouts shrink
+    ///         proportionally to `(owed * available) / total`. Surfaces only via
+    ///         the legacy `escrowRewardsOwed[loanId]` accumulator path (e.g.
+    ///         migration data or a pre-D-LD-H1 deferred-claim entry).
+    /// @dev AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): D-LD-H1 — `repayLoan` no
+    ///      longer populates `escrowRewardsOwed[loanId]` on the happy path (now
+    ///      pays via per-tokenId direct claim). To exercise the proportional
+    ///      branch we synthesize a legacy entry via storage poking. The
+    ///      proportional-payout math itself is unchanged and still relevant for
+    ///      pre-fix migration entries that may exist in production storage.
     function test_R014_pullEscrowRewards_proportionalPayout() public {
-        // Run a normal repay-cycle to attribute escrow rewards.
+        // Run a normal repay-cycle so the loan exists and is in the settled state.
         uint256 offerId = _createDefaultOffer();
         vm.prank(alice);
         uint256 loanId = lending.acceptOffer(offerId, aliceTokenId);
@@ -367,22 +419,25 @@ contract AuditR014LendingTest is Test {
         vm.prank(alice);
         lending.repayLoan{value: owedTotal}(loanId);
 
-        uint256 owed = lending.escrowRewardsOwed(loanId);
-        assertGt(owed, 0, "rewards must be attributed");
-        uint256 total = lending.totalEscrowRewardsOwed();
-        assertEq(total, owed);
-
-        // Inject a second synthetic owed entry by manipulating the storage slot
-        // for `totalEscrowRewardsOwed`. We DON'T touch escrowRewardsOwed[loanId]
-        // — the test wants `total > owed` so `(owed * available) / total < owed`,
-        // which forces the proportional branch even though available == owed.
+        // Synthesize a legacy `escrowRewardsOwed[loanId]` entry. Pre-D-LD-H1 a
+        // settled loan would have a populated entry; we replicate that here by
+        // poking storage so the legacy branch is reachable.
+        uint256 owed = 100 ether;
+        uint256 inflatedTotal = owed * 2; // forces the proportional shrink branch
+        bytes32 perLoanSlot = _findEscrowRewardsOwedSlot(loanId);
         bytes32 totalSlot = _findTotalEscrowSlot();
-        uint256 inflated = total * 2; // pretend another loan attributed `total` more
-        vm.store(address(lending), totalSlot, bytes32(inflated));
-        assertEq(lending.totalEscrowRewardsOwed(), inflated, "storage poke landed");
+        vm.store(address(lending), perLoanSlot, bytes32(owed));
+        vm.store(address(lending), totalSlot, bytes32(inflatedTotal));
+        assertEq(lending.escrowRewardsOwed(loanId), owed, "per-loan poke landed");
+        assertEq(lending.totalEscrowRewardsOwed(), inflatedTotal, "total poke landed");
+
+        // Ensure the contract has a non-zero TOWELI balance so the proportional
+        // branch fires (rather than the available==0 short-circuit).
+        toweli.transfer(address(lending), owed);
 
         uint256 available = toweli.balanceOf(address(lending));
-        uint256 expectedPayout = (owed * available) / inflated;
+        // Proportional formula: payout = owed * available / total.
+        uint256 expectedPayout = (owed * available) / inflatedTotal;
         assertLt(expectedPayout, owed, "proportional payout shrinks vs owed");
 
         uint256 aliceBefore = toweli.balanceOf(alice);
@@ -409,6 +464,25 @@ contract AuditR014LendingTest is Test {
             vm.store(address(lending), slot, prev);
         }
         revert("totalEscrowRewardsOwed slot not found");
+    }
+
+    /// @dev Locate `escrowRewardsOwed[_loanId]`. The mapping's base slot is found
+    ///      by sentinel-probing, then the actual entry is at
+    ///      keccak256(abi.encode(_loanId, baseSlot)).
+    function _findEscrowRewardsOwedSlot(uint256 _loanId) internal returns (bytes32) {
+        for (uint256 i = 0; i < 128; ++i) {
+            bytes32 baseSlot = bytes32(i);
+            bytes32 entrySlot = keccak256(abi.encode(_loanId, baseSlot));
+            bytes32 prev = vm.load(address(lending), entrySlot);
+            bytes32 sentinel = bytes32(uint256(0xDEADBEEF));
+            vm.store(address(lending), entrySlot, sentinel);
+            if (lending.escrowRewardsOwed(_loanId) == uint256(sentinel)) {
+                vm.store(address(lending), entrySlot, prev);
+                return entrySlot;
+            }
+            vm.store(address(lending), entrySlot, prev);
+        }
+        revert("escrowRewardsOwed slot not found");
     }
 
     // ═══════════════════════════════════════════════════════════════════

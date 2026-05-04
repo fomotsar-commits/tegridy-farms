@@ -216,20 +216,20 @@ contract Audit195PremiumHookTest is Test {
         assertEq(rev1, MONTHLY_FEE);
 
         // AUDIT FIX: DEEP-DR-L-05 — extension respects MIN_HOLDING_PERIOD.
-        // Warp past 1 day to permit the extend; consumed portion of the old
-        // escrow is `oldEscrow * elapsed / totalDuration ≈ MONTHLY_FEE/30`.
         vm.warp(block.timestamp + 1 days + 1);
 
         vm.prank(alice);
         premium.subscribe(1, type(uint256).max); // extension
 
-        // AUDIT FIX: DEEP-DR-M-06 (supersedes PA-M-01) — pro-rated split.
-        // Consumed (~MONTHLY_FEE * 1/30) goes to revenue + new cost
-        // (MONTHLY_FEE) added to revenue. Net ≈ 1*FEE (initial) +
-        // ~FEE/30 (consumed) + 1*FEE (new) ≈ 2.033 * FEE.
-        uint256 expected = (2 * MONTHLY_FEE) + (MONTHLY_FEE / 30);
-        assertApproxEqAbs(premium.totalRevenue(), expected, MONTHLY_FEE / 100,
-            "DR-M-06: pro-rated extension credits consumed portion to revenue");
+        // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): PASS5-PA-L1 — the prior
+        // DEEP-DR-M-06 fix tried to add `consumedEscrow` to totalRevenue at
+        // extension, but the original cost was already counted at first
+        // subscribe (this was a double-count, not a missing credit). The
+        // current contract only adds the NEW cost on extension, so revenue is
+        // exactly `2 * MONTHLY_FEE` after a single extension — no per-second
+        // drift from the consumed slice.
+        assertEq(premium.totalRevenue(), 2 * MONTHLY_FEE,
+            "PASS5-PA-L1: extension no longer double-counts consumedEscrow into totalRevenue");
     }
 
     // ═══════════════════════════════════════════════════════════════

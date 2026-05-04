@@ -119,9 +119,17 @@ contract R062SequencerCheckTest is Test {
     }
 
     function _bootstrap(TegridyTWAP _twap) internal {
-        _twap.update(address(pair));
-        vm.warp(block.timestamp + 16 minutes);
-        _twap.update(address(pair));
+        // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): TWAP HIGH-3 — first observation now
+        // sets bypassed=true so consult() refuses lookup windows that anchor on the
+        // bootstrap. Seed ≥3 observations so a 15-min lookup window can land on a
+        // non-bypass slot (originally seeded only 2). `skip()` is used over
+        // `vm.warp(block.timestamp + N)` so each warp advances reliably across
+        // back-to-back calls.
+        _twap.update(address(pair));               // bypassed bootstrap
+        skip(16 minutes);
+        _twap.update(address(pair));               // non-bypass
+        skip(16 minutes);
+        _twap.update(address(pair));               // non-bypass (latest)
     }
 
     // ─── Mainnet posture (no-op) ─────────────────────────────────────
@@ -182,8 +190,20 @@ contract R062SequencerCheckTest is Test {
 
     /// @notice Grace window has just elapsed (`block.timestamp - startedAt
     ///         == GRACE`). The library uses strict `<`, so equality passes.
+    /// @dev AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): FRESH-EYES M-1 added a
+    ///      grace check on the ANCHOR observation (in addition to the latest-side
+    ///      check that already existed). The bootstrap observations seeded in
+    ///      setUp() predate the simulated outage, so they fail the new
+    ///      `best.timestamp >= resumeAt + GRACE` check. We re-seed observations
+    ///      after grace has elapsed to demonstrate the post-grace pass.
     function test_R062_sequencerGracePeriodElapsed_consultPasses() public {
+        // Simulate outage that resumed exactly GRACE seconds ago, then re-seed so
+        // the anchor observation lands AFTER `resumeAt + GRACE`.
         seq.setStatus(0, block.timestamp - GRACE);
+        skip(16 minutes);
+        twap.update(address(pair));
+        skip(16 minutes);
+        twap.update(address(pair));
 
         uint256 amountOut = twap.consult(
             address(pair), address(tokenA), 1 ether, 15 minutes
