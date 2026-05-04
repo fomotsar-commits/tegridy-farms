@@ -103,6 +103,7 @@ contract MockTWAPRT {
             price1Cumulative: 0
         });
     }
+    function lastBypassUsed(address) external pure returns (uint256) { return 0; }
 }
 
 /// @dev Contract that tries to call accumulate() — used to verify the post-

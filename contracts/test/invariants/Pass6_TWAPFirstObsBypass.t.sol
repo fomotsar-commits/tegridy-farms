@@ -185,9 +185,19 @@ contract InvI_Handler is Test {
             latestBypassed = b;
         }
 
+        // PASS7-DOC-04 NOTE: post PASS7-TWAP-01 fix (drop `&& found` carve-out
+        // at TegridyTWAP.sol:738), the contract reverts on ANY bypassed anchor
+        // — not just bypassed-latest. The original property "successful
+        // consult ⇒ latest non-bypassed AND pair non-disabled" remains the
+        // necessary, sufficient invariant — successful consult also implies
+        // non-bypassed best by virtue of the contract revert. A predicate
+        // that pre-emptively flags `bootstrap-bypassed && obsCount < 48` is
+        // too coarse: under uint32 wraparound from extreme-warp test inputs,
+        // the actual anchor `best` chosen by consult may not be the
+        // bootstrap, in which case the consult correctly succeeds. Stick
+        // with the latest-bypassed predicate — it's correct and stable.
         try twap.consult(address(p), tokenIn, 1 ether, period) returns (uint256 amountOut) {
             if (amountOut > 0) {
-                // POST-FIX: success ⇒ NOT disabled AND NOT (latest bypassed).
                 bool violation = wasDisabled || latestBypassed;
                 if (violation) {
                     bypassPropagationCount++;
@@ -199,6 +209,8 @@ contract InvI_Handler is Test {
         } catch {
             // Reverts are expected under disabled / rebootstrap / insufficient
             // observations / period-too-long / etc. Not a violation.
+            // Post-PASS7-TWAP-01: also expected under the bypassed-anchor
+            // case (any obs in the lookup window flagged bypassed).
         }
     }
 

@@ -726,16 +726,23 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         // later — until then, downstream consumers (lending oracles, Dutch
         // auctions) get a clean revert instead of a manipulated TWAP.
         //
-        // AUDIT FIX V3-AMM-L1: fail-open if we ARE in the !found fallback (best
-        // was forced to the oldest slot because no observation satisfies the
-        // requested period) AND that fallback slot is bypassed. If we revert
-        // here, the entire pair's TWAP becomes unconsultable for up to 12h with
-        // no graceful degradation path. The fallback slot is by construction
-        // the LEAST relevant data point we could anchor against, but it's the
-        // only one we have; consumers that explicitly chose to consult on a
-        // sparse pair should accept the diluted result rather than a hard
-        // revert. The honest-anchor case (`found == true`) still reverts.
-        if (best.bypassed && found) revert OracleRebootstrapping();
+        // PASS7-TWAP-01 FIX: removed the V3-AMM-L1 `&& found` carve-out. The
+        // pre-fix logic `if (best.bypassed && found) revert` reverted only on
+        // the honest-anchor path; the !found fallback (sparse pair, `period >
+        // available window`) still anchored on the bypassed bootstrap slot
+        // and returned a poisoned price derived from the manipulated initial
+        // reserves. PoC `PASS7_TWAP_01_consultReturnsPoisonedPriceFromBypassedBootstrap`
+        // demonstrated POL's TWAP_PERIOD = 30 min consult returning the
+        // manipulated bootstrap baseline within 1 wei.
+        //
+        // Failing closed on a bypassed-anchor !found fallback restores the
+        // FRESH-EYES H-3 invariant: NO consult that returns > 0 may anchor on
+        // a `bypassed` observation. Consumers that genuinely want graceful
+        // degradation on sparse pairs should consult `lastBypassUsed[pair]`
+        // explicitly and choose their own fallback policy (as TegridyLending
+        // does at L1255-1259) — the single TWAP entrypoint cannot be both
+        // fail-open and fail-closed.
+        if (best.bypassed) revert OracleRebootstrapping();
 
         // FRESH-EYES M-1: even if `best` is non-bypassed, it may have been recorded DURING
         // an L2 sequencer outage. `update()` is permitted during outages so the buffer can

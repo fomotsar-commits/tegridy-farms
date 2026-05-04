@@ -83,6 +83,8 @@ contract LendingR061TWAP {
     function getLatestObservation(address) external view returns (Observation memory o) {
         o.timestamp = uint32(block.timestamp);
     }
+    /// @notice PASS7-POL-02 FIX: mock returns 0 (no bypass observed).
+    function lastBypassUsed(address) external pure returns (uint256) { return 0; }
 }
 
 /// @notice Narrow handler exposing only the offer/accept lifecycle. Repayment

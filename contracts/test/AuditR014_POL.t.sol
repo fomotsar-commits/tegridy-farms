@@ -153,6 +153,9 @@ contract MockTegridyTWAP {
             price1Cumulative: 0
         });
     }
+
+    /// @notice PASS7-POL-02 FIX: mock returns 0 (no bypass observed).
+    function lastBypassUsed(address) external pure returns (uint256) { return 0; }
 }
 
 /// @dev Mock Chainlink L2 Sequencer Uptime feed. Mirrors the surface from

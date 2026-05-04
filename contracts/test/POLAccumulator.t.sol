@@ -95,6 +95,13 @@ contract MockTWAP {
             price1Cumulative: 0
         });
     }
+
+    /// @notice PASS7-POL-02 FIX: mock returns 0 (no bypass observed) so the
+    ///         POL bypass-cooldown gate is a no-op in legacy tests that don't
+    ///         exercise the bypass scenario.
+    function lastBypassUsed(address) external pure returns (uint256) {
+        return 0;
+    }
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────

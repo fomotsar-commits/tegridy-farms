@@ -334,10 +334,14 @@ contract TegridyTWAPTest is Test {
     }
 
     function test_consult_succeedsAtMaxPeriod() public {
-        // Fill the buffer so we have enough observations to cover the max period
-        _seedObservations(48, 15 minutes);
+        // PASS7-TWAP-01 FIX: dropping the `&& found` carve-out at L738 means
+        // consult can no longer anchor on the bypassed bootstrap (FRESH-EYES H-3
+        // marks slot 0 as bypassed). 48 writes fill the buffer leaving slot 0
+        // as the bootstrap; one MORE write overwrites slot 0 with a non-bypassed
+        // observation, so all anchors are honest. Consult at max period
+        // (12h = MAX_OBSERVATIONS * MIN_PERIOD) then succeeds.
+        _seedObservations(49, 15 minutes);
 
-        // MAX_OBSERVATIONS * MIN_PERIOD = exactly 12 hours — should NOT revert
         uint256 maxPeriod = uint256(48) * 15 minutes;
         uint256 amountOut = twap.consult(address(pair), address(tokenA), 1 ether, maxPeriod);
         assertGt(amountOut, 0, "consult should succeed at exactly max period");

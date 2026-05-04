@@ -50,6 +50,11 @@ interface ITegridyTWAP {
     function consult(address pair, address tokenIn, uint256 amountIn, uint256 period)
         external view returns (uint256 amountOut);
     function getLatestObservation(address pair) external view returns (Observation memory);
+    /// @notice PASS7-POL-02 FIX: timestamp of the most recent dormancy bypass for `pair`.
+    ///         Mirror of the same accessor on TegridyLending's local interface
+    ///         (TegridyLending.sol:69-72). Used to enforce the bypass-cooldown
+    ///         gate in `_twapMinOut` / `_twapHarvestMinOut`.
+    function lastBypassUsed(address pair) external view returns (uint256);
 }
 
 /// @title POLAccumulator (Protocol-Owned Liquidity)
@@ -801,6 +806,19 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (resumeAt != 0 && uint256(latest.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
             revert OracleObservationPredatesResume();
         }
+        // PASS7-POL-02 FIX: mirror TegridyLending's bypass-cooldown defense
+        // (TegridyLending.sol:1255-1259). When the TWAP recently absorbed a
+        // bypassed observation (bootstrap or post-dormancy), refuse to consume
+        // any consult for `TWAP_PERIOD * 2` so a single un-gated reading cannot
+        // sole-source the harvest/accumulate floor. Pre-fix, POL had no
+        // equivalent gate and would consume any TWAP the moment count >= 2,
+        // composing with PASS7-TWAP-01 to enable up to 99.5% MEV bleed per
+        // call on the swap leg. Same typed revert as the staleness gate.
+        uint256 lastBypass = twap.lastBypassUsed(lpToken);
+        if (lastBypass > block.timestamp) revert OracleStale();
+        if (lastBypass != 0 && block.timestamp - lastBypass < TWAP_PERIOD * 2) {
+            revert OracleStale();
+        }
         uint256 out = twap.consult(lpToken, tokenIn, amountIn, TWAP_PERIOD);
         // Apply TWAP_SAFETY_BPS margin (out * (BPS - TWAP_SAFETY_BPS) / BPS).
         return (out * (BPS - TWAP_SAFETY_BPS)) / BPS;
@@ -827,6 +845,18 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 resumeAt = SequencerCheck.getResumeTimestamp(sequencerFeed);
         if (resumeAt != 0 && uint256(latest.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
             revert OracleObservationPredatesResume();
+        }
+        // PASS7-POL-02 FIX: same bypass-cooldown gate as `_twapMinOut`. Even
+        // though this path reads pair reserves directly (not through the TWAP
+        // consult), it relies on the latest observation as a proxy for "the
+        // chain has a non-bypassed price reference." Without this gate, an
+        // attacker who pre-stages a bypass observation can have the next
+        // executeHarvestLP burn LP at reserves that share the manipulated
+        // baseline.
+        uint256 lastBypass = twap.lastBypassUsed(lpToken);
+        if (lastBypass > block.timestamp) revert OracleStale();
+        if (lastBypass != 0 && block.timestamp - lastBypass < TWAP_PERIOD * 2) {
+            revert OracleStale();
         }
 
         // Pro-rata share = lpAmount / totalSupply * reserve_X. We read
