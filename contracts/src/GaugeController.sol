@@ -751,6 +751,19 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // defensive check used by every major gauge-controller (Curve, etc.).
         if (gauge.code.length == 0) revert NotAContract();
         if (isGauge[gauge]) revert GaugeAlreadyExists();
+        // PASS7-GAUGE-H1 FIX: refuse to re-add a gauge that is currently the
+        // subject of a deferred removal (`executeRemoveGaugeNextEpoch` was called,
+        // pendingGaugeRemove is still set pending the finalize). Without this
+        // guard, the cycle `executeRemoveGaugeNextEpoch(G)` →
+        // `proposeAddGauge(G)` → `executeAddGauge(G)` permanently strands
+        // `pendingGaugeRemove = G` (cancelRemoveGauge reverts NoPendingProposal
+        // because the timelock proposal was consumed by the next-epoch execute,
+        // executeRemoveGaugeFinalize reverts GaugeAlreadyExists because isGauge[G]
+        // is now true again), bricks all future proposeRemoveGauge calls
+        // (`GaugeRemovePending` reverts), AND duplicates G in gaugeList. The
+        // owner must call `executeRemoveGaugeFinalize()` (permissionless once
+        // current-epoch weight is zero) before re-adding G.
+        if (pendingGaugeRemove == gauge) revert GaugeRemovePending();
         if (gaugeList.length >= MAX_TOTAL_GAUGES) revert MaxGaugesReached();
         pendingGaugeAdd = gauge;
         _propose(GAUGE_ADD, GAUGE_TIMELOCK);
