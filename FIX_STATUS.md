@@ -150,17 +150,41 @@ history of passes 1–5. Surfaced **5 new contract HIGHs + 5 new contract MEDs +
 ### Regression suite
 
 - [`contracts/test/Pass6_Regressions.t.sol`](contracts/test/Pass6_Regressions.t.sol) —
-  4 NEW tests covering the 3 NEW HIGHs:
+  4 NEW unit-style PoCs covering the 3 NEW HIGHs:
   - `test_LD_NEW_H1_oldLoanCannotDrainNewLoanCredits`
   - `test_LD_NEW_H1_mirror_residualClaimantBlockedByLendingEscrow`
   - `test_LD_NEW_H2_silentNoOpRepay_marksStuck`
   - `test_TWAP_HIGH_2_consultRevertsWhenPairDisabled`
+- [`contracts/test/invariants/Pass6_*.t.sol`](contracts/test/invariants/) (commit
+  `7889f25`) — 4 NEW stateful-invariant suites locking down the pass-6 fix
+  surfaces under randomized adversarial sequences (256 runs × 500 calls each):
+  - `Pass6_LendingSolvency.t.sol` — INV-E (3 invariants)
+  - `Pass6_DropV2SupplyConservation.t.sol` — INV-G (5 invariants)
+  - `Pass6_RestakingResidualCrossProto.t.sol` — INV-H (2 invariants)
+  - `Pass6_TWAPFirstObsBypass.t.sol` — INV-I (3 invariants)
+  - 13 invariants total · **1.664M stateful calls · 0 reverts · ~210s wall clock**
 - Existing affected suites realigned:
   - [`contracts/test/PremiumAccess.t.sol`](contracts/test/PremiumAccess.t.sol) — exact-2x revenue trajectory
   - [`contracts/test/TegridyTWAP.t.sol`](contracts/test/TegridyTWAP.t.sol) — bypass-aware ≥3-obs seeding
   - [`contracts/test/TegridyLending_ETHFloor.t.sol`](contracts/test/TegridyLending_ETHFloor.t.sol) — `disabledPairs` mock surface
 - 198 tests pass across the affected scope (Lending / NFTLending / TWAP /
   Restaking) per commit `21db70b`.
+
+### Polish / cleanup (commits `378d70d`, `eed1c65`)
+
+- **`378d70d`** — `AUDITS.md` "Internal AI-agent reviews" count bumped `8 → 10`
+  (pass-5 + pass-6); lineage line enumerates the 6 modern passes.
+- **`eed1c65`** polish batch:
+  - Deleted two confirmed dead-code helpers (`CommunityGrants._countActiveProposals`,
+    `RevenueDistributor._getRestakedAmount`) per `contracts/src/.slither.deadcode-suppress.md`'s
+    own "delete it, do not suppress" guidance. Verified zero callers via repo-wide
+    `Grep`. Suppress doc updated with deletion-date + grep-confirmation notes.
+  - `slither.config.json` schema cleaned — stripped 7 documentary `_*` keys + an inert
+    43-entry `detectors_to_run` array that Slither v0.11.5 rejects as "unknown key" on
+    every CI run. Rationale moved verbatim to a new `slither.config.notes.md`
+    audit-trail doc.
+  - `FIX_STATUS.md` (this file) framing refreshed to acknowledge the 6-pass audit
+    lineage and surface the cumulative 405-finding closure count near the top.
 
 ### Deferred
 

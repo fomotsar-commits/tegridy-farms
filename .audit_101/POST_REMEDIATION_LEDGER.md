@@ -249,6 +249,10 @@ Platypus / Poly Network).
 | P6-D | `21db70b` | NEW `contracts/test/Pass6_Regressions.t.sol` | regression tests for the 3 NEW HIGHs | TEST |
 | P6-E | `975e5af` | `vercel.json` rewrites → 7 Vercel serverless wrappers under `frontend/api/{provider}/[...path].js` + shared `frontend/api/_lib/aggregator-proxy.js` | FE-CRIT-01 | 1 CRIT |
 | P6-F | `4b3a47f` | frontend swap surface (`aggregator.ts`, `useDCA`, `DCATab`, `useLimitOrders`, `useSwap`, `useSwapAllowance`, `TradePage`) | FE-HIGH-03, FE-HIGH-04, FE-HIGH-05, FE-HIGH-06 | 4 HIGH |
+| P6-G | `672e4d8` | `vercel.json` (post-fact catch-up: P6-E and P6-F both wrote it but neither staged due to a simultaneous-commit race; FE-CRIT-01 was inert until this landed) | — | OPS |
+| P6-H | `378d70d` | `AUDITS.md` lineage line | "Internal AI-agent reviews" count `8 → 10` (pass-5 + pass-6) | DOC |
+| P6-I | `eed1c65` | `CommunityGrants`, `RevenueDistributor`, `slither.config.json`, NEW `slither.config.notes.md`, `contracts/src/.slither.deadcode-suppress.md`, `FIX_STATUS.md` | dead-code helpers deleted; slither config schema cleanup; FIX_STATUS framing refresh | POLISH |
+| P6-J | `7889f25` | NEW `contracts/test/invariants/Pass6_LendingSolvency.t.sol`, `Pass6_DropV2SupplyConservation.t.sol`, `Pass6_RestakingResidualCrossProto.t.sol`, `Pass6_TWAPFirstObsBypass.t.sol` | 4 NEW invariant suites · 13 invariants · 1.664M stateful calls · 0 reverts | INVARIANT |
 
 ### Confirmed and FIXED
 
@@ -290,17 +294,30 @@ Platypus / Poly Network).
 ### Tests
 
 [`contracts/test/Pass6_Regressions.t.sol`](../contracts/test/Pass6_Regressions.t.sol)
-adds 4 NEW tests (commit `21db70b`):
+adds 4 NEW unit-style PoC tests (commit `21db70b`):
 
 - `test_LD_NEW_H1_oldLoanCannotDrainNewLoanCredits`
 - `test_LD_NEW_H1_mirror_residualClaimantBlockedByLendingEscrow`
 - `test_LD_NEW_H2_silentNoOpRepay_marksStuck`
 - `test_TWAP_HIGH_2_consultRevertsWhenPairDisabled`
 
-198 tests pass across the affected scope (Lending / NFTLending / TWAP /
-Restaking). Each turns the verification-agent's manual reasoning into
-CI-blocking guard rails — the fix-template is now the regression-test
-template too.
+[`contracts/test/invariants/Pass6_*.t.sol`](../contracts/test/invariants/) adds
+4 NEW stateful-invariant suites (commit `7889f25`) with 13 invariants total,
+each running 256 runs × 500 calls = **1.664M total stateful calls · 0 reverts ·
+~210s wall clock**:
+
+- `Pass6_LendingSolvency.t.sol` — INV-E (3 invariants): active-offer ETH solvency · open-loan NFT escrow uniqueness · `pullEscrowRewards` non-recipient gate
+- `Pass6_DropV2SupplyConservation.t.sol` — INV-G (5 invariants): supplyCap · wallet-accounting sum · cancel→zero-supply · phase-change auth · payment conservation
+- `Pass6_RestakingResidualCrossProto.t.sol` — INV-H (2 invariants): cross-holder gate (LD-NEW-H1 mirror) · residualClaimant integrity
+- `Pass6_TWAPFirstObsBypass.t.sol` — INV-I (3 invariants): consult-bypass propagation · first-obs flagged bypassed · consult-reverts-on-disabled-pair
+
+INV-F (NFT-Pool LP-fee) and INV-J (vote-incentives bond conservation) intentionally skipped — see `.audit_101/PASS6_2026_05_03.md` §6 for skip rationale.
+
+198 tests pass across the unit-suite affected scope (Lending / NFTLending /
+TWAP / Restaking). The unit suite + the four invariant suites together turn
+the verification-agent's narrative reasoning into CI-blocking guard rails —
+the fix-template is now both the regression-test template AND the invariant
+template.
 
 ### Deferred
 

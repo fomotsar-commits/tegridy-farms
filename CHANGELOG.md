@@ -129,12 +129,37 @@ history of passes 1–5. Surfaced 5 NEW contract HIGHs + 5 NEW contract MEDs +
 
 - New regression suite at
   [`contracts/test/Pass6_Regressions.t.sol`](contracts/test/Pass6_Regressions.t.sol)
-  — 4 tests covering the 3 NEW HIGHs:
+  — 4 unit-style PoCs covering the 3 NEW HIGHs:
   `test_LD_NEW_H1_oldLoanCannotDrainNewLoanCredits`,
   `test_LD_NEW_H1_mirror_residualClaimantBlockedByLendingEscrow`,
   `test_LD_NEW_H2_silentNoOpRepay_marksStuck`,
   `test_TWAP_HIGH_2_consultRevertsWhenPairDisabled`. Commit `21db70b`.
-- 198 affected-scope tests pass.
+- New invariant suites at
+  [`contracts/test/invariants/Pass6_*.t.sol`](contracts/test/invariants/) — 4 NEW
+  files containing 13 stateful-invariant tests locking down the pass-6 fix
+  surfaces under randomized adversarial sequences (256 runs × 500 calls each):
+  - `Pass6_LendingSolvency.t.sol` — INV-E (3 invariants)
+  - `Pass6_DropV2SupplyConservation.t.sol` — INV-G (5 invariants)
+  - `Pass6_RestakingResidualCrossProto.t.sol` — INV-H (2 invariants)
+  - `Pass6_TWAPFirstObsBypass.t.sol` — INV-I (3 invariants)
+  - **1.664M total stateful calls · 0 reverts · ~210s wall clock** · commit `7889f25`.
+- 198 affected-scope tests pass for the unit suite.
+
+#### Polish / cleanup (commits `378d70d`, `eed1c65`)
+
+- Deleted two confirmed dead-code helpers — `CommunityGrants._countActiveProposals`
+  and `RevenueDistributor._getRestakedAmount` — flagged by the slither pass and
+  verified zero-callers via repo-wide `Grep`. Per
+  `contracts/src/.slither.deadcode-suppress.md`'s own "delete it, do not suppress"
+  guidance.
+- Cleaned `slither.config.json` schema — stripped 7 documentary `_*` keys + an
+  inert 43-entry `detectors_to_run` array that Slither v0.11.5 rejects as
+  "unknown key". Rationale moved verbatim to a new `slither.config.notes.md`
+  audit-trail doc. Eliminates "unknown key" warnings on every CI run.
+- `AUDITS.md` "Internal AI-agent reviews" count corrected `8 → 10` (pass-5 +
+  pass-6); lineage line enumerates the 6 modern passes.
+- `FIX_STATUS.md` framing refreshed to acknowledge the 6-pass audit lineage
+  and surface the cumulative 405-finding closure count near the top.
 
 #### Deferred
 

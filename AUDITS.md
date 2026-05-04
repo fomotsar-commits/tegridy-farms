@@ -36,7 +36,7 @@ These live at the repo root because they are actively referenced:
 
 | File | Purpose |
 |---|---|
-| [`.audit_101/PASS6_2026_05_03.md`](./.audit_101/PASS6_2026_05_03.md) | **NEW (2026-05-03)**: pass-6 fresh-eyes meta-audit informed by 2024-2026 DeFi exploit retrospectives. 5 NEW contract HIGH + 5 NEW contract MED + 1 frontend CRIT + 5 frontend HIGH + 1 frontend LOW — **all closed** in commits `722d1f1` / `b1fb6d4` / `8266289` / `21db70b` / `975e5af` / `4b3a47f`. Cumulative across 6 passes: 398 contract findings + 7 frontend pass-6 closures = 405 audit-tracked items. |
+| [`.audit_101/PASS6_2026_05_03.md`](./.audit_101/PASS6_2026_05_03.md) | **NEW (2026-05-03)**: pass-6 fresh-eyes meta-audit informed by 2024-2026 DeFi exploit retrospectives. 5 NEW contract HIGH + 5 NEW contract MED + 1 frontend CRIT + 5 frontend HIGH + 1 frontend LOW — **all closed** in commits `722d1f1` / `b1fb6d4` / `8266289` / `21db70b` / `975e5af` / `4b3a47f` (+ `672e4d8` vercel.json catch-up, `378d70d` AUDITS bump, `eed1c65` polish, `7889f25` 4 NEW invariant suites). Cumulative across 6 passes: 398 contract findings + 7 frontend pass-6 closures = 405 audit-tracked items. |
 | [`.audit_101/PASS5_2026_05_02.md`](./.audit_101/PASS5_2026_05_02.md) | Pass-5 adversarial cross-contract audit (2026-05-02). 1 HIGH + 1 LOW + 1 INFO + 4 invariants (all PASS over 128k stateful calls each). |
 | [`.audit_101/POST_REMEDIATION_LEDGER.md`](./.audit_101/POST_REMEDIATION_LEDGER.md) | **2026-04-26**: post-remediation reconciliation. 14 fixes shipped across 11 commits closing 3 Critical + 7 High + 4 Medium findings, including R017/R020/R023/R028 fixes that prior docs claimed had shipped but had not. Pass-6 closures appended below the original ledger. |
 | [`SECURITY_AUDIT_300_AGENT.md`](./SECURITY_AUDIT_300_AGENT.md) | Canonical severity reference. 300-agent internal sweep + Spartan ingest. Apr 16, 2026. |
@@ -136,6 +136,8 @@ May 02  ▸ Pass-5 adversarial cross-contract audit (.audit_101/PASS5_2026_05_02
 May 03  ▸ Pass-6 fresh-eyes meta-audit (.audit_101/PASS6_2026_05_03.md)
             — 5 NEW contract HIGH + 5 NEW contract MED
             + 7 frontend (1 CRIT + 5 HIGH + 1 LOW), all closed
+            + 4 NEW invariant suites (13 invariants × 1.664M calls, 0 reverts)
+            + dead-code cleanup, slither config schema fix
 ```
 
 Each pass narrowed scope; March passes inventoried broadly, April passes tracked specific blockers.
