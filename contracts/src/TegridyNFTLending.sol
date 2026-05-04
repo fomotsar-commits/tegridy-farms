@@ -256,6 +256,10 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     error NotStuckCollateralRecipient();
     /// @notice AUDIT FIX L-2: nothing stuck for this loan.
     error NoStuckCollateral();
+    /// @notice PASS7-NFTLENDING-01 FIX: collection still no-ops on retry.
+    ///         The recovery right is preserved (mapping not cleared) so the
+    ///         recipient can retry once the collection becomes honest.
+    error StuckCollateralStillStuck();
     error NotBorrower();
     error NotLoanLender();
     error LoanNotDefaulted();
@@ -728,15 +732,19 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         address collateralContract = loan.collateralContract;
         uint256 tokenId = loan.tokenId;
 
-        // Clear BEFORE the external call (CEI) so a re-entry via a hostile
-        // collection's transferFrom callback cannot double-pay.
+        // PASS7-NFTLENDING-01 FIX: retry under the same `_safeOutboundTransfer`
+        // detector that initially recorded the stuck recipient. Pre-fix, the
+        // function deleted the mapping BEFORE issuing a raw `transferFrom`,
+        // so a still-malicious collection that no-op'd the retry would
+        // silently consume the recovery right (mapping zero, NFT stuck).
+        // Now: only delete on confirmed success. If the collection is still
+        // hostile, `moved == false` → revert so the recipient retains the
+        // claim and can retry once the collection becomes honest. CEI is
+        // preserved by `revert` rolling back the (un-issued) delete.
+        bool moved = _safeOutboundTransfer(collateralContract, address(this), recipient, tokenId);
+        if (!moved) revert StuckCollateralStillStuck();
+
         delete stuckCollateralRecipient[_loanId];
-
-        // Retry the transfer. If it still reverts, the whole tx reverts and
-        // the mapping rollback restores the recipient claim — they can try
-        // again later.
-        IERC721(collateralContract).transferFrom(address(this), recipient, tokenId);
-
         emit StuckCollateralClaimed(_loanId, recipient, tokenId);
     }
 
@@ -997,11 +1005,21 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         address cancelled = pendingWhitelistRemove;
         // AUDIT FIX: LD3-M1 — gate first, THEN cancel; over-limit revert no
         // longer rolls back a cancel that already cleared the slot.
+        // PASS7-NFTLENDING-02 FIX: mirror TegridyLending FRESH-EYES L still-live
+        // carve-out (TegridyLending.sol:1817-1826). Without this, a captured (or
+        // honest-but-slow) admin can `propose → wait for expiry → cancel` 3 times
+        // to consume the REMOVAL_MAX_CANCELLATIONS budget on a flagged collection
+        // without ever cancelling a live removal — bricking legitimate future
+        // removals of that collection. Only count cancels of STILL-LIVE proposals.
         if (cancelled != address(0)) {
-            if (removalRetryCount[cancelled] >= REMOVAL_MAX_CANCELLATIONS) {
-                revert RemovalCancelLimitReached();
+            uint256 readyAt = _executeAfter[WHITELIST_REMOVE];
+            bool stillLive = readyAt != 0 && block.timestamp <= readyAt + _proposalValidity();
+            if (stillLive) {
+                if (removalRetryCount[cancelled] >= REMOVAL_MAX_CANCELLATIONS) {
+                    revert RemovalCancelLimitReached();
+                }
+                removalRetryCount[cancelled] += 1;
             }
-            removalRetryCount[cancelled] += 1;
         }
 
         _cancel(WHITELIST_REMOVE);

@@ -36,6 +36,11 @@ interface ITegridyStaking {
     ///         drain when an unrelated `kick()` credits unsettledRewards[lending]
     ///         while another loan settles. Returns the actual amount transferred.
     function claimUnsettledForTokenId(uint256 tokenId, address recipient) external returns (uint256 paid);
+    /// @notice PASS7-LENDING-03 FIX: per-tokenId outstanding bucket. Read at
+    ///         loan acceptance to snapshot pre-existing rewards that belong to
+    ///         a prior holder, then re-read at settlement to compute the delta
+    ///         the current loan actually earned. Public mapping in TegridyStaking.
+    function unsettledRewardsByTokenId(uint256 tokenId) external view returns (uint256);
 }
 
 /// @dev Minimal interface for TegridyPair reserve queries (used by the ETH-floor check).
@@ -364,6 +369,27 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         total claim — payouts fall back to `owed * available / total`.
     uint256 public totalEscrowRewardsOwed;
 
+    /// @notice PASS7-LENDING-03 FIX: snapshot of `unsettledRewardsByTokenId[tokenId]`
+    ///         taken at `acceptOffer` time. Used at settlement to split a claim
+    ///         into `priorShare` (rewards that pre-existed the loan and belong
+    ///         to a prior holder's deferred claim) and `myShare` (rewards this
+    ///         loan actually earned). Pre-fix, the two-phase pull drained the
+    ///         entire per-tokenId bucket to the current loan's recipient,
+    ///         enabling a settled-vs-settled cross-loan drain when staking
+    ///         was paused at a prior settlement (see PASS7 §3.6).
+    mapping(uint256 => uint256) public loanRewardsSnapshot;
+
+    /// @notice PASS7-LENDING-02 FIX: stuck-collateral recovery scaffolding
+    ///         mirroring TegridyNFTLending. Populated when an outbound
+    ///         `staking.transferFrom` silently no-ops (a malicious whitelisted
+    ///         collateral contract whose `transferFrom` returns without moving
+    ///         the token). The intended recipient (borrower on repay, lender
+    ///         on default) can later call `claimStuckCollateral(loanId)` to
+    ///         retry once the collateral becomes honest. Mirrors the
+    ///         NFTLending L176 + L743-L793 pattern; sibling closure on
+    ///         TegridyLending was missed in the original LD-NEW-H2 sweep.
+    mapping(uint256 => address) public stuckCollateralRecipient;
+
     // ─── AUDIT R014: Pause-aware deadlines ───────────────────────────
     /// @notice Unix timestamp at which the most-recent `_pause()` was called. Zero
     ///         when the contract has never been paused. Reset to zero on `_unpause()`.
@@ -452,6 +478,30 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     event EscrowRewardsPaid(uint256 indexed loanId, address indexed recipient, uint256 owed, uint256 payout);
     /// @notice Records loan-period reward attribution at settlement time.
     event EscrowRewardsAttributed(uint256 indexed loanId, uint256 amount);
+    /// @notice PASS7-LENDING-02 FIX: emitted when an outbound NFT transfer
+    ///         silently no-ops on a malicious whitelisted staking-shaped
+    ///         collateral contract. The recipient is recorded so they can
+    ///         retry via `claimStuckCollateral(loanId)`.
+    event CollateralStuck(uint256 indexed loanId, address indexed recipient, uint256 tokenId, address staking);
+    /// @notice PASS7-LENDING-02 FIX: emitted when `claimStuckCollateral`
+    ///         successfully recovers an NFT after the collateral became honest.
+    event StuckCollateralClaimed(uint256 indexed loanId, address indexed recipient, uint256 tokenId);
+    /// @notice PASS7-LENDING-02 FIX: emitted when a malicious staking contract
+    ///         redirects an outbound transfer to a third party. Loan settlement
+    ///         still completes; the event flags the contract for delisting.
+    event CollateralRedirected(
+        uint256 indexed tokenId,
+        address indexed staking,
+        address indexed intendedRecipient,
+        address actualOwner
+    );
+    /// @notice PASS7-LENDING-03 FIX: emitted when an attempted reward claim
+    ///         during repay/default deferred (paused staking) and the un-claimable
+    ///         slice was recorded into `escrowRewardsOwed[loanId]` for later
+    ///         retrieval via `pullEscrowRewards`. Distinct from
+    ///         `EscrowRewardsClaimDeferred` which only signals the try/catch
+    ///         absorbed without quantifying the deferred amount.
+    event EscrowRewardsDeferredAndOwed(uint256 indexed loanId, uint256 amount);
 
     // ─── Errors ──────────────────────────────────────────────────────
 
@@ -503,6 +553,12 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     error LoanStillActive();
     /// @dev AUDIT FIX: LD3-M3 — rate-limit reached on cancelAcceptedCollateral.
     error RemovalCancelLimitReached();
+    // PASS7-LENDING-01 FIX: post-condition check on inbound staking transferFrom.
+    error CollateralNotEscrowed();
+    // PASS7-LENDING-02 FIX: stuck-collateral recovery surface mirroring NFTLending.
+    error NoStuckCollateral();
+    error NotStuckCollateralRecipient();
+    error StuckCollateralStillStuck();
     /// @dev AUDIT FIX: LD3-L2 — typed error for the active-loans-present revert
     ///      previously emitted as `revert("ACTIVE_LOANS_PRESENT")`. Off-chain
     ///      monitoring can now select on the 4-byte selector and decode the
@@ -765,8 +821,32 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             pausedDurationAtStart: totalPausedDuration
         }));
 
+        // PASS7-LENDING-03 FIX: snapshot the per-tokenId reward bucket BEFORE
+        // the inbound transfer. At settlement, this loan claims only the
+        // DELTA (`claimedDuringLoan - snapshot`) and leaves the snapshot
+        // slice in lending's balance for a prior holder's deferred-claim
+        // path via `pullEscrowRewards`. Reading BEFORE the transfer ensures
+        // the inbound `_settleRewardsOnTransfer` credit (which represents
+        // the borrower's pre-loan position accrual settled into the lending
+        // bucket) is attributed to THIS loan's delta, not to the prior
+        // holder. Without this snapshot, a borrower whose loan opens after a
+        // prior loan deferred its settlement (paused staking) would drain
+        // the prior loan's slice. Reads via the staking interface's
+        // `unsettledRewardsByTokenId` getter (now in ITegridyStaking) —
+        // public mapping in TegridyStaking.sol:174.
+        loanRewardsSnapshot[loanId] = staking.unsettledRewardsByTokenId(_tokenId);
+
         // Transfer NFT from borrower to this contract (collateral escrow)
         staking.transferFrom(msg.sender, address(this), _tokenId);
+
+        // PASS7-LENDING-01 FIX: post-condition check mirroring NFTLending.
+        // A malicious whitelisted staking-shaped contract whose `transferFrom`
+        // silently no-ops would otherwise let the loan record while the NFT
+        // stayed with the borrower — lender's principal flows out, no real
+        // escrow exists. Sister to TegridyNFTLending L506-508
+        // (CollateralNotEscrowed). LD-NEW-H2 closed the NFT side; this closes
+        // the symmetric Lending side that pass-6 missed.
+        if (staking.ownerOf(_tokenId) != address(this)) revert CollateralNotEscrowed();
 
         // AUDIT FIX: DEEP-LD-M1 — register loan against collateral.
         activeLoansAgainstCollateral[collateralContract] += 1;
@@ -872,43 +952,79 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // Return NFT to borrower
         ITegridyStaking staking = ITegridyStaking(collateralContract);
 
-        // AUDIT FIX D-LD-H1: per-tokenId attribution replaces the prior
-        // snapshot/delta + claimUnsettled() pattern. Pre-fix, claimUnsettled()
-        // drained the ENTIRE unsettledRewards[lending] bucket — including
-        // pre-existing slices from kicks on OTHER escrowed NFTs whose loans
-        // hadn't settled yet. Those slices then landed in the donated-TOWELI
-        // pool instead of the rightful borrower's owed bucket; the affected
-        // borrower's repay later snapshotted unsettledBefore=0 (because their
-        // pre-kick slice was already drained), recording only their final-
-        // period accrual and silently losing the kick-era portion.
+        // PASS7-LENDING-03 FIX: drain the per-tokenId bucket to LENDING (not
+        // directly to borrower) so we can split the claim into:
+        //   - `priorShare`: rewards present in the bucket BEFORE this loan
+        //     opened (snapshotted in `loanRewardsSnapshot[loanId]`). These
+        //     belong to a prior holder whose settlement deferred (paused
+        //     staking) and will be recovered via that prior loan's
+        //     `pullEscrowRewards`. Stays in lending balance.
+        //   - `myShare`: rewards credited to the bucket DURING this loan
+        //     (delta above the snapshot). Forwarded to the borrower.
         //
-        // Post-fix: TegridyStaking now records unsettledRewardsByTokenId[tokenId]
-        // for credits routed through the lending bucket (mirrors the C-1 pattern
-        // for restakingContract). Each loan pulls EXACTLY its own slice via
-        // claimUnsettledForTokenId — no cross-loan donation, no pro-rata
-        // dilution. Two-phase claim (pre + post transferFrom) covers both
-        // (a) any pre-existing per-tokenId residue from kicks during the
-        // loan, AND (b) the final-period accrual credited by the transferFrom
-        // hook itself. Best-effort try/catch preserves the legacy fallback so
-        // a paused staking contract degrades to "borrower retries via
-        // pullEscrowRewards once paused is lifted".
-        uint256 totalEscrowPaid = 0;
-        try staking.claimUnsettledForTokenId(tokenId, borrower) returns (uint256 _prePaid) {
-            totalEscrowPaid += _prePaid;
+        // Pre-fix (D-LD-H1): the two-phase pull drained the entire bucket
+        // directly to the borrower, enabling a settled-vs-settled cross-loan
+        // drain (PASS7-LENDING-03) when a prior loan deferred its claim
+        // during a staking pause. The new split preserves the prior holder's
+        // slice for their own pullEscrowRewards call.
+        //
+        // PASS7-LENDING-02 FIX: the outbound `staking.transferFrom` is now
+        // wrapped in `_safeOutboundTransfer` so a malicious whitelisted
+        // staking-shaped contract that silently no-ops the transfer cannot
+        // strand the NFT in lending forever. Mirrors NFTLending.repayLoan.
+        // On no-op, the borrower is recorded as `stuckCollateralRecipient`
+        // and can recover via `claimStuckCollateral(loanId)` once the
+        // collateral becomes honest.
+        //
+        // Two-phase claim still covers (a) any pre-existing per-tokenId
+        // residue from kicks during the loan, AND (b) the final-period
+        // accrual credited by the transferFrom hook itself. On try/catch
+        // deferral, the un-claimable slice is recorded into
+        // `escrowRewardsOwed[loanId]` so the borrower can recover via
+        // `pullEscrowRewards` once staking is unpaused.
+        uint256 snapshot = loanRewardsSnapshot[_loanId];
+        uint256 totalDrained = 0;
+        try staking.claimUnsettledForTokenId(tokenId, address(this)) returns (uint256 _prePaid) {
+            totalDrained += _prePaid;
         } catch (bytes memory reason) {
             emit EscrowRewardsClaimDeferred(_loanId, reason);
         }
 
-        staking.transferFrom(address(this), borrower, tokenId);
+        bool moved = _safeOutboundTransferStaking(address(staking), address(this), borrower, tokenId);
+        if (!moved) {
+            stuckCollateralRecipient[_loanId] = borrower;
+            emit CollateralStuck(_loanId, borrower, tokenId, address(staking));
+        }
 
-        try staking.claimUnsettledForTokenId(tokenId, borrower) returns (uint256 _postPaid) {
-            totalEscrowPaid += _postPaid;
+        try staking.claimUnsettledForTokenId(tokenId, address(this)) returns (uint256 _postPaid) {
+            totalDrained += _postPaid;
         } catch (bytes memory reason) {
             emit EscrowRewardsClaimDeferred(_loanId, reason);
         }
 
-        if (totalEscrowPaid > 0) {
-            emit EscrowRewardsAttributed(_loanId, totalEscrowPaid);
+        // Split: priorShare (≤ snapshot) belongs to a prior holder; myShare
+        // (drained above snapshot) is this loan's recipient's earnings.
+        uint256 priorShare = totalDrained > snapshot ? snapshot : totalDrained;
+        uint256 myShare = totalDrained - priorShare;
+        if (myShare > 0) {
+            IERC20(toweli).safeTransfer(borrower, myShare);
+            emit EscrowRewardsAttributed(_loanId, myShare);
+        }
+        // priorShare stays in lending balance — flows out via pullEscrowRewards'
+        // legacy pro-rata path against `escrowRewardsOwed`. No bookkeeping
+        // increment here because the prior loan's `escrowRewardsOwed` slot was
+        // populated at THAT loan's deferral time (see deferral handler below).
+
+        // Track the deferred slice that COULDN'T be drained from the staking
+        // bucket (try/catch absorbed). Account for what's STILL in the bucket
+        // beyond our snapshot — that's our slice the borrower can recover via
+        // `pullEscrowRewards` once staking is unpaused.
+        uint256 remainingInBucket = staking.unsettledRewardsByTokenId(tokenId);
+        if (remainingInBucket > snapshot) {
+            uint256 myDeferred = remainingInBucket - snapshot;
+            escrowRewardsOwed[_loanId] += myDeferred;
+            totalEscrowRewardsOwed += myDeferred;
+            emit EscrowRewardsDeferredAndOwed(_loanId, myDeferred);
         }
 
         // SECURITY FIX: Use WETHFallbackLib to prevent DoS by revert-on-receive lender contracts.
@@ -992,31 +1108,120 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // Transfer NFT to lender
         ITegridyStaking staking = ITegridyStaking(collateralContract);
 
-        // AUDIT FIX D-LD-H1: per-tokenId attribution (see repayLoan for full
-        // rationale). Two-phase claim drains pre-existing per-tokenId residue
-        // and the transferFrom-credited final-period accrual directly to the
-        // defaulted-side lender. No bucket-drain race against other still-
-        // active loans' kicks.
-        uint256 totalEscrowPaid = 0;
-        try staking.claimUnsettledForTokenId(tokenId, lender) returns (uint256 _prePaid) {
-            totalEscrowPaid += _prePaid;
+        // PASS7-LENDING-03 + PASS7-LENDING-02 FIX (mirror of repayLoan).
+        // Drain to LENDING and split into priorShare (snapshot — belongs to
+        // a prior holder's deferred-claim) vs myShare (delta — this loan's
+        // earnings, forwarded to the defaulted-side lender). Outbound NFT
+        // transfer wrapped in `_safeOutboundTransferStaking` for malicious-
+        // collateral defense; on no-op, `lender` is recorded as
+        // `stuckCollateralRecipient` for later `claimStuckCollateral`. On
+        // try/catch deferral, the un-claimable slice is recorded into
+        // `escrowRewardsOwed[loanId]` for `pullEscrowRewards`.
+        uint256 snapshot = loanRewardsSnapshot[_loanId];
+        uint256 totalDrained = 0;
+        try staking.claimUnsettledForTokenId(tokenId, address(this)) returns (uint256 _prePaid) {
+            totalDrained += _prePaid;
         } catch (bytes memory reason) {
             emit EscrowRewardsClaimDeferred(_loanId, reason);
         }
 
-        staking.transferFrom(address(this), lender, tokenId);
+        bool moved = _safeOutboundTransferStaking(address(staking), address(this), lender, tokenId);
+        if (!moved) {
+            stuckCollateralRecipient[_loanId] = lender;
+            emit CollateralStuck(_loanId, lender, tokenId, address(staking));
+        }
 
-        try staking.claimUnsettledForTokenId(tokenId, lender) returns (uint256 _postPaid) {
-            totalEscrowPaid += _postPaid;
+        try staking.claimUnsettledForTokenId(tokenId, address(this)) returns (uint256 _postPaid) {
+            totalDrained += _postPaid;
         } catch (bytes memory reason) {
             emit EscrowRewardsClaimDeferred(_loanId, reason);
         }
 
-        if (totalEscrowPaid > 0) {
-            emit EscrowRewardsAttributed(_loanId, totalEscrowPaid);
+        uint256 priorShare = totalDrained > snapshot ? snapshot : totalDrained;
+        uint256 myShare = totalDrained - priorShare;
+        if (myShare > 0) {
+            IERC20(toweli).safeTransfer(lender, myShare);
+            emit EscrowRewardsAttributed(_loanId, myShare);
+        }
+
+        uint256 remainingInBucket = staking.unsettledRewardsByTokenId(tokenId);
+        if (remainingInBucket > snapshot) {
+            uint256 myDeferred = remainingInBucket - snapshot;
+            escrowRewardsOwed[_loanId] += myDeferred;
+            totalEscrowRewardsOwed += myDeferred;
+            emit EscrowRewardsDeferredAndOwed(_loanId, myDeferred);
         }
 
         emit DefaultClaimed(_loanId, lender, tokenId);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ║  PASS7-LENDING-02 FIX — Stuck-collateral recovery surface  ║
+    // ║  (mirror of TegridyNFTLending L704-L793 + L176)             ║
+    // ═══════════════════════════════════════════════════════════════
+
+    /// @notice PASS7-LENDING-02 FIX: outbound staking-NFT transfer with both
+    ///         revert AND silent-no-op detection. A whitelisted staking-shaped
+    ///         contract that no-ops `transferFrom` (returns without revert AND
+    ///         without moving the token) would silently let a loan settle while
+    ///         leaving the NFT escrowed forever. Returns `true` only when the
+    ///         post-call ownership confirms the transfer landed at `to`.
+    ///         Mirrors NFTLending._safeOutboundTransfer L755-L782.
+    function _safeOutboundTransferStaking(
+        address stakingAddr,
+        address from,
+        address to,
+        uint256 tokenId
+    ) internal returns (bool moved) {
+        try ITegridyStaking(stakingAddr).transferFrom(from, to, tokenId) {
+            try ITegridyStaking(stakingAddr).ownerOf(tokenId) returns (address newOwner) {
+                moved = (newOwner == to);
+                if (!moved && newOwner != from) {
+                    emit CollateralRedirected(tokenId, stakingAddr, to, newOwner);
+                }
+            } catch {
+                moved = false;
+            }
+        } catch {
+            moved = false;
+        }
+    }
+
+    /// @notice PASS7-LENDING-02 FIX: recover an NFT whose `transferFrom`
+    ///         silently no-op'd during repayLoan / claimDefaultedCollateral.
+    ///         Callable by the recipient recorded at the time of the original
+    ///         call's NFT-transfer leg failure. The retry is wrapped in
+    ///         `_safeOutboundTransferStaking` so a still-malicious collateral
+    ///         contract REVERTS this call (and the mapping rolls back via
+    ///         tx revert), letting the recipient retry later. Mirrors
+    ///         NFTLending.claimStuckCollateral L721-L741 PLUS the
+    ///         PASS7-NFTLENDING-01 post-condition fix applied below.
+    ///
+    ///         No `nonReentrant` because there is no value out-flow — the NFT
+    ///         is the only asset moved, and ERC721 transfer cannot itself
+    ///         trigger reentrant state mutation on this contract. The
+    ///         `whenNotPaused` modifier is intentionally OMITTED so users
+    ///         can recover their NFT even during a contract pause.
+    function claimStuckCollateral(uint256 _loanId) external {
+        if (_loanId >= loans.length) revert InvalidLoanId();
+        address recipient = stuckCollateralRecipient[_loanId];
+        if (recipient == address(0)) revert NoStuckCollateral();
+        if (msg.sender != recipient) revert NotStuckCollateralRecipient();
+
+        Loan storage loan = loans[_loanId];
+        address collateralContract = offers[loan.offerId].collateralContract;
+        uint256 tokenId = loan.tokenId;
+
+        // Retry under the SAME no-op detector. If the collateral still no-ops,
+        // `moved == false` → revert so the recipient retains the recovery
+        // right (no silent loss). Cleared only on success. Closes the
+        // PASS7-NFTLENDING-01-class hole that pass-6 LD-NEW-H2 left on the
+        // recovery path.
+        bool moved = _safeOutboundTransferStaking(collateralContract, address(this), recipient, tokenId);
+        if (!moved) revert StuckCollateralStillStuck();
+
+        delete stuckCollateralRecipient[_loanId];
+        emit StuckCollateralClaimed(_loanId, recipient, tokenId);
     }
 
     // ─── View Functions ──────────────────────────────────────────────
