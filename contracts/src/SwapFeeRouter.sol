@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
+import {SequencerCheck} from "./lib/SequencerCheck.sol";
 
 interface IUniswapV2Router02 {
     function swapExactETHForTokens(uint256 amountOutMin, address[] calldata path, address to, uint256 deadline)
@@ -169,6 +170,36 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         comfortably guarantees we always have ≥30 min of integral on the second
     ///         and subsequent calls.
     uint256 public constant MIN_TWAP_PERIOD = 30 minutes;
+
+    /// @notice PASS7-SFR-05 FIX: L2 sequencer-uptime grace window. Mirrors the
+    ///         identical constant on TegridyTWAP / TegridyLending /
+    ///         POLAccumulator. After a sequencer outage resumes, every TWAP-
+    ///         consuming consumer must wait 1h before trusting the integrated
+    ///         price (the chain needs time for arb to correct any reserves
+    ///         frozen during the outage). Constant matches the sister contracts;
+    ///         changing it requires a sister-contract redeploy (architectural,
+    ///         not timelock).
+    uint256 public constant SEQUENCER_GRACE_PERIOD = 1 hours;
+
+    /// @notice PASS7-SFR-05 FIX: L2 sequencer-uptime feed (Chainlink). On
+    ///         mainnet (chainId 1) this is `address(0)` and all
+    ///         `SequencerCheck.*` helpers no-op, preserving exact mainnet
+    ///         semantics. On L2s (Arbitrum, Optimism, Base) the feed is the
+    ///         Chainlink L2 sequencer-uptime feed for that chain. Without this
+    ///         gate, the per-token TWAP snapshot would integrate across the
+    ///         outage window — the post-resume conversion call would set the
+    ///         minETHOut floor against pre-outage manipulated reserves.
+    ///
+    ///         NOT immutable so existing deploy scripts and the 17 in-tree
+    ///         test instantiations don't need a constructor-arg update.
+    ///         Default `address(0)` (mainnet semantics) is in effect until
+    ///         the owner calls `setSequencerFeed(feed)` ONCE on an L2 deploy.
+    ///         The setter is one-shot — once set, the value cannot be changed
+    ///         (mirrors the immutable-by-construction guarantee but defers the
+    ///         set to deploy-time configuration). Pattern of record: Aave V3
+    ///         L2-deploy `ACLManager.grantSequencerOracleRole` is also a
+    ///         post-deploy one-shot setter.
+    address public sequencerFeed;
 
     /// @notice AUDIT SFR-M-02 (MEDIUM, 2026-04-28): minimum accumulated token-fee balance
     ///         required to enter the per-token conversion cooldown. Without this gate, an
@@ -484,7 +515,31 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (_referralSplitter != address(0)) {
             referralSplitter = IReferralSplitter(_referralSplitter);
         }
+        // PASS7-SFR-05 FIX: `sequencerFeed` defaults to address(0) (mainnet
+        // semantics — SequencerCheck helpers no-op). On an L2 deploy, owner
+        // must call `setSequencerFeed(feed)` once before the first conversion.
     }
+
+    /// @notice PASS7-SFR-05 FIX: one-shot owner setter for the L2 sequencer-
+    ///         uptime feed. Reverts after the feed is set so a captured-key
+    ///         attacker cannot swap a benign feed for a controlled one. On
+    ///         mainnet this is never called (feed stays address(0), all
+    ///         SequencerCheck helpers no-op). On an L2 deploy, the owner
+    ///         calls this ONCE in the deployment script.
+    /// @dev    Pattern of record: Aave V3 L2-deploy ACLManager grant pattern —
+    ///         a one-shot post-deploy setter is the standard alternative to a
+    ///         constructor arg when constructor-signature stability is desired.
+    function setSequencerFeed(address _feed) external onlyOwner {
+        if (sequencerFeed != address(0)) revert ZeroAddress(); // already set, can't change
+        if (_feed == address(0)) revert ZeroAddress();
+        sequencerFeed = _feed;
+        emit SequencerFeedSet(_feed);
+    }
+
+    /// @notice Emitted once when the owner sets the L2 sequencer-uptime feed
+    ///         post-deploy. After this fires, `setSequencerFeed` cannot be
+    ///         called again.
+    event SequencerFeedSet(address indexed feed);
 
     // ─── Internal Helpers ────────────────────────────────────────────
 
@@ -1904,10 +1959,32 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         internal
         returns (uint256 effectiveMin, uint256 currentCum, uint32 currentTs)
     {
+        // PASS7-SFR-05 FIX: refuse to compute a TWAP floor while an L2
+        // sequencer outage is in progress OR within the post-resume grace
+        // window. The 1h CONVERSION_COOLDOWN is NOT sufficient on its own —
+        // the per-token TWAP integrates `prev.timestamp → currentTs` which
+        // can straddle an outage even if both endpoints are post-resume.
+        // Without this gate, the first post-resume conversion call would
+        // anchor `effectiveMin` against pre-outage manipulated reserves.
+        // address(0) sequencerFeed (mainnet) = no-op. Mirrors the gate at
+        // POLAccumulator._twapMinOut.
+        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
+
         // Resolve the pair + read the current cumulative (with idle-window bridge).
         (, currentCum, currentTs) = _readCurrentCumulative(token);
 
         PriceSnapshot memory prev = lastConversionSnapshot[token];
+
+        // PASS7-SFR-05 FIX: even if the sequencer is currently up, refuse if
+        // the prior snapshot's timestamp predates the resume + grace — the
+        // TWAP integral would still cross the outage window. resumeAt == 0
+        // (mainnet, address(0) feed) short-circuits this comparison.
+        if (sequencerFeed != address(0)) {
+            uint256 resumeAt = SequencerCheck.getResumeTimestamp(sequencerFeed);
+            if (resumeAt != 0 && prev.timestamp != 0 && uint256(prev.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
+                revert TWAPBootstrapRequired();
+            }
+        }
         // Note: only the direct token/WETH 2-hop path reaches this function
         // (multi-hop paths are diverted in the callsites — see DEEP-R-H01).
         // So the TWAP anchor against `uniFactory.getPair(token, WETH)` matches
