@@ -18,7 +18,7 @@ const PROTOCOL_RISKS: Array<{
   {
     title: 'Patched contracts not yet redeployed on-chain',
     status: 'In progress',
-    body: 'Several contracts have fixes merged in the repository but are still running the older bytecode on mainnet: VoteIncentives, TegridyLending, TegridyNFTPool (template + factory), TegridyFeeHook (with the patched constructor), TegridyLaunchpadV2, and TegridyStaking (autoMaxLock + getReward stuck-state fix landed in commit d8ba708 — affects only positions with autoMaxLock enabled that go silent past their lockEnd). Until the redeploys broadcast, the on-chain surfaces carry the pre-fix behaviour — see FIX_STATUS.md for the exact list and blast radius.',
+    body: 'Several contracts have fixes merged in the repository but are still running the older bytecode on mainnet: VoteIncentives, TegridyLending, TegridyNFTPool (template + factory), TegridyFeeHook (with the patched constructor), TegridyLaunchpadV2, and TegridyStaking (autoMaxLock + getReward stuck-state fix landed in commit d8ba708 — affects only positions with autoMaxLock enabled that go silent past their lockEnd). Pass-7 (May 4 2026) added more to this queue: TegridyTWAP (drop V3-AMM-L1 fail-open carve-out), POLAccumulator (mirror lending bypass-cooldown), GaugeController (block re-add while pendingGaugeRemove set), TegridyLPFarming (auto-refresh boost in updateReward), TegridyLending (+TegridyNFTLending) major architectural changes (snapshot-and-delta cross-loan attribution, _safeOutboundTransfer + claimStuckCollateral on the lending side), TegridyFeeHook (manager.take inside afterSwap to settle V4 hookDelta), SwapFeeRouter (L2 sequencer awareness via one-shot setSequencerFeed). Until the redeploys broadcast, the on-chain surfaces carry the pre-fix behaviour — see FIX_STATUS.md for the exact list and blast radius.',
   },
   {
     title: 'Treasury is an EOA / multisig, not a smart contract',
@@ -299,7 +299,7 @@ export default function RisksPage() {
           className="text-center mt-12"
         >
           <p className="text-white/70 text-xs">
-            Last updated: April 29, 2026
+            Last updated: May 4, 2026 (Pass-7 audit + remediation)
           </p>
         </m.div>
       </div>

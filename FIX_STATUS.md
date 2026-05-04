@@ -1,32 +1,160 @@
 # Fix Status — Rolling tracker
 
-Running log of what's landed on `main` across the full 6-pass internal
+Running log of what's landed on `main` across the full 7-pass internal
 audit lineage: 100→200→300→40-agent passes (Mar 2026), the 101-agent
 canonical pass (`.audit_101/MASTER_REPORT.md` + remediation R001–R076,
 Apr 25), microscope (Apr 30), DEEP_2026_05_01 v1/v2/v3 (May 1), pass-5
-adversarial cross-contract (May 2), and pass-6 fresh-eyes meta-audit
-(May 3) — plus the [SPARTAN_AUDIT](SPARTAN_AUDIT.txt) third-party review,
-the [AUDIT_FINDINGS.md](AUDIT_FINDINGS.md) ledger, the 35-detective audit,
-and the 300-agent internal review. Per the
+adversarial cross-contract (May 2), pass-6 fresh-eyes meta-audit
+(May 3), and pass-7 adversarial multi-agent audit + remediation
+(May 3 → May 4) — plus the [SPARTAN_AUDIT](SPARTAN_AUDIT.txt)
+third-party review, the [AUDIT_FINDINGS.md](AUDIT_FINDINGS.md) ledger,
+the 35-detective audit, and the 300-agent internal review. Per the
 [`AUDITS.md`](AUDITS.md#honest-tldr) Honest TL;DR: 2 third-party reviews
-+ 10 internal AI-agent passes; not a substitute for a paid human audit.
++ 13 internal AI-agent passes; not a substitute for a paid human audit.
 See [REVENUE_ANALYSIS.md](REVENUE_ANALYSIS.md) for the fee-lever
 calibration.
 
-**Cumulative current state (pass-6 closure count, 2026-05-03):** 388
-findings carried over from passes 1–5 + 10 NEW contract findings closed
-in pass-6 (5 HIGH + 5 MED) + 7 NEW frontend findings closed in pass-6
-(1 CRIT + 5 HIGH + 1 LOW) = **405 audit-tracked findings total** across
-the 6-pass lineage, with the contract surface bounded by the CI-blocking
-regression suite at
-[`contracts/test/Pass6_Regressions.t.sol`](contracts/test/Pass6_Regressions.t.sol).
-Source-of-truth master report:
-[`.audit_101/PASS6_2026_05_03.md`](.audit_101/PASS6_2026_05_03.md).
+**Cumulative current state (pass-7 closure count, 2026-05-04):** 405
+findings carried through pass-6 + 13 NEW findings closed in pass-7
+(1 CRITICAL + 6 HIGH + 4 MEDIUM + 1 LOW + 1 INFO) = **418 audit-tracked
+findings total** across the 7-pass lineage, with the contract surface
+bounded by the regression suites at
+[`contracts/test/Pass6_Regressions.t.sol`](contracts/test/Pass6_Regressions.t.sol)
+and the new pass-7 PoCs at
+[`contracts/test/PASS7_*.t.sol`](contracts/test/) (9 files, 15 tests
+flipped from "asserts exploit" to "asserts fix"). Source-of-truth master
+reports:
+[`.audit_101/PASS7_2026_05_03.md`](.audit_101/PASS7_2026_05_03.md) (audit) +
+[`.audit_101/PASS6_2026_05_03.md`](.audit_101/PASS6_2026_05_03.md) (prior pass).
 
-Last refreshed 2026-05-03 after the pass-6 polish batch (dead-code
-helpers deleted, slither config schema cleaned, this framing block
-refreshed). For a richer Keep-a-Changelog view see
-[CHANGELOG.md](CHANGELOG.md).
+Last refreshed 2026-05-04 after the pass-7 same-week remediation
+landed all 13 closures using battle-tested patterns mirrored from
+existing in-codebase fixes plus the canonical V4 hook reference. For a
+richer Keep-a-Changelog view see [CHANGELOG.md](CHANGELOG.md).
+
+## ✅ Pass-7 (2026-05-03 → 2026-05-04)
+
+Three parallel worktree agents (oracle/AMM/fees, staking/governance,
+lending/NFT) attacked everything claimed closed by the 6 prior internal
+passes + Spartan, plus the pass-6 invariant suite (13 props × 1.664M
+calls). Surfaced **1 CRITICAL + 6 HIGH + 4 MEDIUM + 1 LOW + 1 INFO** =
+13 NEW findings, all with runnable Foundry PoCs. **All 13 closed in
+same-week remediation.** Master report:
+[`.audit_101/PASS7_2026_05_03.md`](.audit_101/PASS7_2026_05_03.md).
+
+### Contracts — closed in this pass
+
+- **PASS7-HOOK-01** (CRITICAL) — `TegridyFeeHook.afterSwap` now calls
+  `poolManager.take(feeCurrency, address(this), feeUint)` inside the
+  unlock context to settle the hook's positive `hookDelta`. Pre-fix,
+  every V4 swap routed through the hook would have reverted
+  `CurrencyNotSettled`. Hook was undeployed (latent), but
+  `script/DeployTegridyFeeHook.s.sol` would have bricked all V4 pools
+  on day one. Pattern: `lib/v4-core/src/test/FeeTakingHook.sol:48`.
+  Closed at [TegridyFeeHook.sol:282-302](contracts/src/TegridyFeeHook.sol#L282).
+- **PASS7-TWAP-01** (HIGH) — dropped V3-AMM-L1 `&& found` carve-out at
+  [TegridyTWAP.sol:738](contracts/src/TegridyTWAP.sol#L738). The
+  `!found` fallback path on sparse pairs no longer anchors on the
+  bypassed bootstrap; ANY bypassed anchor reverts
+  `OracleRebootstrapping`. Closes the FRESH-EYES H-3 invariant gap.
+- **PASS7-GAUGE-H1** (HIGH) — `proposeAddGauge` reverts
+  `GaugeRemovePending` while `pendingGaugeRemove == gauge`, blocking
+  the `executeRemoveNextEpoch → proposeAddGauge → executeAddGauge`
+  cycle that previously stranded `pendingGaugeRemove` and
+  permanently bricked all future gauge removals. Closed at
+  [GaugeController.sol:743-765](contracts/src/GaugeController.sol#L743).
+- **PASS7-LENDING-01** (HIGH) — `TegridyLending.acceptOffer` now
+  post-condition-checks `staking.ownerOf(_tokenId) == address(this)`
+  after the inbound `transferFrom` and reverts `CollateralNotEscrowed`
+  if the staking contract no-op'd. Sister to NFTLending L506-508.
+  Closed at
+  [TegridyLending.sol:824-834](contracts/src/TegridyLending.sol#L824).
+- **PASS7-LENDING-02** (HIGH) — `TegridyLending.repayLoan` /
+  `claimDefaultedCollateral` now wrap outbound `staking.transferFrom`
+  in `_safeOutboundTransferStaking` + new `stuckCollateralRecipient`
+  map + new `claimStuckCollateral(loanId)` recovery function — full
+  mirror of NFTLending's L743-L793 + L721-L741 pattern. Closed across
+  [TegridyLending.sol:993-1163](contracts/src/TegridyLending.sol#L993).
+- **PASS7-LENDING-03** (HIGH) — settled-vs-settled cross-loan drain
+  closed via snapshot-and-delta. `acceptOffer` snapshots
+  `unsettledRewardsByTokenId[tokenId]` into
+  `loanRewardsSnapshot[loanId]`. Settlements drain to LENDING (not
+  recipient) and split into priorShare (snapshot, stays in lending
+  balance for prior-holder recovery) + myShare (delta, forwarded to
+  recipient). On try/catch deferral, the un-claimable slice records
+  into `escrowRewardsOwed[loanId]`. Closes the cross-loan attribution
+  gap that pass-6 LD-NEW-H1 only defended on the active-vs-settled
+  axis. Closed across
+  [TegridyLending.sol:840-851 + L955-L1028 + L1108-L1149](contracts/src/TegridyLending.sol#L840).
+- **PASS7-NFTLENDING-01** (HIGH) —
+  `TegridyNFTLending.claimStuckCollateral` retries the transfer under
+  `_safeOutboundTransfer` and reverts `StuckCollateralStillStuck` if
+  the collection still no-ops. Pre-fix, the function deleted the
+  recovery mapping BEFORE the raw `transferFrom`, silently consuming
+  the recovery right on a still-malicious collection. Closed at
+  [TegridyNFTLending.sol:721-744](contracts/src/TegridyNFTLending.sol#L721).
+- **PASS7-POL-02** (MED) — `POLAccumulator._twapMinOut` and
+  `_twapHarvestMinOut` mirror TegridyLending's bypass-cooldown defense:
+  refuse any TWAP read for `TWAP_PERIOD * 2 = 60 minutes` after a
+  bypass observation. Closed at
+  [POLAccumulator.sol:813-822 + L838-L847](contracts/src/POLAccumulator.sol#L813).
+- **PASS7-HOOK-03** (MED) — `TegridyFeeHook.claimFees` no longer
+  calls `poolManager.take()` (always reverted ManagerLocked outside
+  unlock); now does plain `IERC20.safeTransfer` against the hook's
+  own ERC20 balance — works in any tx context. Auto-resolved by the
+  PASS7-HOOK-01 fix. Closed at
+  [TegridyFeeHook.sol:354-366](contracts/src/TegridyFeeHook.sol#L354).
+- **PASS7-LPFARM-M1** (MED) — `TegridyLPFarming.updateReward`
+  modifier re-derives `effectiveBalanceOf[account]` from the live
+  staking-side boost on every interaction. Pattern of record:
+  Synthetix `StakingRewards` checkpoint-at-every-interaction. Closed at
+  [TegridyLPFarming.sol:204-241](contracts/src/TegridyLPFarming.sol#L204).
+- **PASS7-NFTLENDING-02** (MED) —
+  `TegridyNFTLending.cancelRemoveCollection` mirrors TegridyLending's
+  FRESH-EYES L still-live carve-out: only count cancels of STILL-LIVE
+  proposals against the retry budget. Closed at
+  [TegridyNFTLending.sol:996-1018](contracts/src/TegridyNFTLending.sol#L996).
+- **PASS7-DOC-04** (LOW) — `Pass6_TWAPFirstObsBypass.t.sol` updated
+  to reflect the post-PASS7-TWAP-01 contract-level guard;
+  `FIX_STATUS.md` (this doc) narrows the TWAP HIGH-3 closure
+  description below to acknowledge the V3-AMM-L1 carve-out gap pass-7
+  closed.
+- **PASS7-SFR-05** (INFO) — `SwapFeeRouter` declares
+  `address public sequencerFeed` + `SEQUENCER_GRACE_PERIOD = 1 hours`
+  + one-shot `setSequencerFeed(address)` owner setter.
+  `_enforceTWAPMinETHOut` calls `SequencerCheck.checkSequencerUp` +
+  post-resume freshness gate. Mainnet zero-impact (defaults to
+  address(0), all helpers no-op); L2 deploys call setter once. Closed
+  at
+  [SwapFeeRouter.sol:172-201 + L494-L515 + L1923-L1946](contracts/src/SwapFeeRouter.sol#L172).
+
+### Tests landed in pass-7
+
+- **9 PASS7 PoC files** (`contracts/test/PASS7_*.t.sol`) covering all
+  13 findings with 15 tests; converted from "asserts exploit" →
+  "asserts fix" (`vm.expectRevert(NewError.selector)` or correct
+  recovery semantics). Run: `forge test --match-path "test/PASS7_*.t.sol"`.
+- **6 mock TWAPs patched** (POLAccumulator.t.sol, Audit195_POL.t.sol,
+  AuditR014_POL.t.sol, FinalAudit_POLPremium.t.sol,
+  RedTeam_POLPremium.t.sol, invariants/LendingInvariants.t.sol) with
+  `lastBypassUsed(address)` getter required by the new POL gate.
+- **2 PoC mocks patched** (PASS7_LENDING_01.t.sol,
+  PASS7_LENDING_02.t.sol) with `unsettledRewardsByTokenId(uint256)`
+  getter required by the acceptOffer snapshot.
+- **`test_consult_succeedsAtMaxPeriod`** updated for fail-closed
+  bypassed-anchor semantics (seeds 49 observations to overwrite the
+  bootstrap before max-period consult).
+
+### Sign-off (PASS7 §6)
+
+- **$1M TVL** — ACCEPTABLE with operational guardrails. All 13 fixes
+  shipped to `main` (redeploy still pending — see "Patched contracts
+  not yet redeployed" risk).
+- **$10M TVL** — Need paid-firm engagement (Spearbit / OpenZeppelin /
+  ChainSecurity caliber) targeting the architectural cluster
+  (per-tokenId attribution, V4 hook semantics, boost-cache lifetime).
+- **$100M TVL** — Above PLUS post-firm invariant-suite re-run with
+  targets ≥ 5M calls per surface.
 
 ## ✅ Pass-6 (2026-05-03)
 

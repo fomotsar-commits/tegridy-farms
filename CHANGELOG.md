@@ -10,6 +10,157 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Ongoing investor-polish and audit-closure work. Lands on `main` as it ships;
 a tagged release will cut from here once Wave 0 redeploys are complete.
 
+### Security — pass-7 adversarial multi-agent audit + remediation (2026-05-03 → 2026-05-04)
+
+Three parallel worktree agents (oracle/AMM/fees, staking/governance, lending/NFT)
+attacked the ground claimed closed by the 6 prior internal passes + Spartan,
+plus the pass-6 invariant suite (13 props × 1.664M calls). Surfaced **1 Critical
++ 6 Highs + 4 Mediums + 1 Low + 1 Info** (13 NEW findings), all with runnable
+Foundry PoCs. **All 13 closed in same-week remediation** using battle-tested
+patterns mirrored from existing in-codebase fixes plus the canonical V4 hook
+reference (`lib/v4-core/src/test/FeeTakingHook.sol:48`). Master report:
+[`.audit_101/PASS7_2026_05_03.md`](./.audit_101/PASS7_2026_05_03.md).
+
+#### Fixed — Critical (1)
+
+- **PASS7-HOOK-01** — `TegridyFeeHook.afterSwap` now calls
+  `poolManager.take(feeCurrency, address(this), feeUint)` inside the unlock
+  context to settle the hook's positive `hookDelta`. Pre-fix, every V4 swap
+  routed through the hook would have reverted `CurrencyNotSettled` because
+  the returned `feeAmount` registered a positive delta with no corresponding
+  `take()` call. Hook was undeployed (latent), but `script/DeployTegridyFeeHook.s.sol`
+  is ready and would have bricked all V4 pools on day one. Pattern:
+  [`lib/v4-core/src/test/FeeTakingHook.sol:48`](contracts/lib/v4-core/src/test/FeeTakingHook.sol#L48).
+  Closed at [TegridyFeeHook.sol:282-302](contracts/src/TegridyFeeHook.sol#L282).
+
+#### Fixed — Contract Highs (6)
+
+- **PASS7-TWAP-01** — dropped the V3-AMM-L1 `&& found` carve-out at
+  [TegridyTWAP.sol:738](contracts/src/TegridyTWAP.sol#L738). Pre-fix, the
+  `!found` fallback path on sparse pairs anchored on the bypassed bootstrap
+  and returned a poisoned price (PoC: 1e14 wei vs ~1 ETH fair value).
+  Post-fix, ANY bypassed anchor reverts `OracleRebootstrapping` —
+  fail-closed, exactly the FRESH-EYES H-3 invariant intent.
+- **PASS7-GAUGE-H1** — `proposeAddGauge` now reverts `GaugeRemovePending`
+  while `pendingGaugeRemove == gauge`, blocking the `executeRemoveNextEpoch
+  → proposeAddGauge → executeAddGauge` cycle that previously stranded
+  `pendingGaugeRemove`, duplicated the gauge in `gaugeList`, and bricked
+  ALL future gauge removals permanently. Closed at
+  [GaugeController.sol:743-765](contracts/src/GaugeController.sol#L743).
+- **PASS7-LENDING-01** — `TegridyLending.acceptOffer` now post-condition
+  checks `staking.ownerOf(_tokenId) == address(this)` after the inbound
+  `transferFrom` and reverts `CollateralNotEscrowed` if the staking contract
+  no-op'd. Sister to TegridyNFTLending L506-508; closes the lending-side
+  parity gap pass-6 LD-NEW-H2 left open. Closed at
+  [TegridyLending.sol:824-834](contracts/src/TegridyLending.sol#L824).
+- **PASS7-LENDING-02** — `TegridyLending.repayLoan` /
+  `claimDefaultedCollateral` now wrap outbound `staking.transferFrom` in
+  new `_safeOutboundTransferStaking` helper + `stuckCollateralRecipient` map
+  + new `claimStuckCollateral(loanId)` recovery function — full mirror of
+  TegridyNFTLending's L743-L793 + L721-L741 + L176 pattern. On no-op
+  detection: `stuckCollateralRecipient[loanId] = recipient`, emits
+  `CollateralStuck`. Recipient retries via `claimStuckCollateral` once the
+  collateral becomes honest. Closed across
+  [TegridyLending.sol:993-1163](contracts/src/TegridyLending.sol#L993).
+- **PASS7-LENDING-03** — settled-vs-settled cross-loan drain via shared
+  per-tokenId reward bucket. `acceptOffer` now snapshots
+  `unsettledRewardsByTokenId[tokenId]` into `loanRewardsSnapshot[loanId]`.
+  At settlement, `repayLoan` / `claimDefaultedCollateral` drain to LENDING
+  (not directly to recipient) and split: `priorShare = min(totalDrained,
+  snapshot)` stays in lending balance for prior-holder recovery via
+  `pullEscrowRewards`; `myShare = totalDrained - priorShare` forwarded to
+  current recipient. On try/catch deferral, the un-claimable slice is
+  recorded into `escrowRewardsOwed[loanId]`. Closes the cross-loan
+  attribution gap that pass-6 LD-NEW-H1 only defended on the active-vs-
+  settled axis. Closed across
+  [TegridyLending.sol:840-851 + L955-L1028 + L1108-L1149](contracts/src/TegridyLending.sol#L840).
+- **PASS7-NFTLENDING-01** — `TegridyNFTLending.claimStuckCollateral` now
+  retries the transfer under `_safeOutboundTransfer` with post-condition
+  check and reverts `StuckCollateralStillStuck` if the collection still
+  no-ops. Pre-fix, the function deleted the recovery mapping BEFORE issuing
+  a raw `transferFrom`, so a still-malicious collection silently consumed
+  the recovery right (mapping zero, NFT permanently stuck). Closed at
+  [TegridyNFTLending.sol:721-744](contracts/src/TegridyNFTLending.sol#L721).
+
+#### Fixed — Contract Mediums (4)
+
+- **PASS7-POL-02** — `POLAccumulator._twapMinOut` and `_twapHarvestMinOut`
+  now mirror TegridyLending's bypass-cooldown defense: refuse any TWAP read
+  for `TWAP_PERIOD * 2 = 60 minutes` after a bypass observation. Closes
+  the defense-in-depth gap that compounded with PASS7-TWAP-01 to enable
+  ~99.5% MEV bleed per accumulate during the bypass window. Closed at
+  [POLAccumulator.sol:813-822 + L838-L847](contracts/src/POLAccumulator.sol#L813).
+- **PASS7-HOOK-03** — `TegridyFeeHook.claimFees` no longer calls
+  `poolManager.take()` outside the unlock context (which always reverted
+  `ManagerLocked`). Now does plain `IERC20(currency).safeTransfer(
+  revenueDistributor, amount)` against the hook's own ERC20 balance —
+  works in any tx context. Auto-resolved by the PASS7-HOOK-01 fix
+  (`take()` inside afterSwap means fees live in the hook contract balance
+  going forward). Closed at
+  [TegridyFeeHook.sol:354-366](contracts/src/TegridyFeeHook.sol#L354).
+- **PASS7-LPFARM-M1** — `TegridyLPFarming.updateReward` modifier now
+  re-derives `effectiveBalanceOf[account]` from the live staking-side
+  boost on every interaction. Pre-fix, the cache was only refreshed on
+  user-initiated `stake / withdraw / refreshBoost`; after lock expiry or
+  staking-NFT transfer, the cache stayed inflated, letting attackers earn
+  at the legacy boost ratio (~29% over-credit on 1y lock, ~300% at MAX_BOOST).
+  Pattern of record: Synthetix `StakingRewards` checkpoint-at-every-
+  interaction. Closed at
+  [TegridyLPFarming.sol:204-241](contracts/src/TegridyLPFarming.sol#L204).
+- **PASS7-NFTLENDING-02** — `TegridyNFTLending.cancelRemoveCollection` now
+  mirrors TegridyLending's FRESH-EYES L still-live carve-out: only count
+  cancels of STILL-LIVE proposals against the retry budget. Pre-fix, three
+  propose → expire → cancel cycles permanently bricked the removal lever
+  for a flagged collection. Closed at
+  [TegridyNFTLending.sol:996-1018](contracts/src/TegridyNFTLending.sol#L996).
+
+#### Fixed — Low (1) + Info (1)
+
+- **PASS7-DOC-04** — `Pass6_TWAPFirstObsBypass.t.sol` invariant updated to
+  reflect the post-PASS7-TWAP-01 contract-level guard that makes
+  "successful consult ⇒ non-bypassed anchor" hold by construction.
+  `FIX_STATUS.md` now narrows the TWAP HIGH-3 closure description to
+  acknowledge the V3-AMM-L1 carve-out gap pass-7 closed.
+- **PASS7-SFR-05** — `SwapFeeRouter` now declares `address public sequencerFeed`
+  + `uint256 public constant SEQUENCER_GRACE_PERIOD = 1 hours` + a one-shot
+  `setSequencerFeed(address)` owner setter. `_enforceTWAPMinETHOut` calls
+  `SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD)`
+  and a post-resume freshness gate. Mainnet zero-impact (sequencerFeed
+  defaults to address(0), all helpers no-op); L2 deploys call
+  `setSequencerFeed(...)` once before the first conversion. One-shot
+  pattern preserves the existing 4-arg constructor signature so 17 in-tree
+  test/script call sites don't need updates. Closed at
+  [SwapFeeRouter.sol:172-201 + L494-L515 + L1923-L1946](contracts/src/SwapFeeRouter.sol#L172).
+
+#### Tests
+
+- New regression suite under
+  [`contracts/test/PASS7_*.t.sol`](contracts/test/) — 9 files, 15 tests,
+  all converted from "asserts exploit" → "asserts fix". Each PoC keeps
+  the original adversarial flow but flips assertions to verify the new
+  revert behavior (`vm.expectRevert(NewError.selector)`) or correct
+  recovery semantics. Run: `forge test --match-path "test/PASS7_*.t.sol"`.
+- Patched 5 in-tree mock TWAPs (`POLAccumulator.t.sol`, `Audit195_POL.t.sol`,
+  `AuditR014_POL.t.sol`, `FinalAudit_POLPremium.t.sol`,
+  `RedTeam_POLPremium.t.sol`, `invariants/LendingInvariants.t.sol`) with
+  the new `lastBypassUsed(address) returns (uint256)` getter required by
+  the POL bypass-cooldown gate. Mocks return 0 (no-bypass-observed) so
+  legacy tests are no-op against the new path.
+- `test_consult_succeedsAtMaxPeriod` updated for fail-closed bypassed-anchor
+  semantics (seeds 49 observations to overwrite the bypassed bootstrap
+  before max-period consult).
+
+#### Sign-off (PASS7 §6)
+
+- **$1M TVL — ACCEPTABLE with operational guardrails.** All 13 fixes
+  shipped. Hook still operationally undeployed; if/when V4 deploy lands,
+  external V4-hook-specialist review recommended before mainnet.
+- **$10M TVL — Need paid-firm engagement (Spearbit / OpenZeppelin /
+  ChainSecurity caliber) targeting the architectural cluster (per-tokenId
+  attribution, V4 hook semantics, boost-cache lifetime).**
+- **$100M TVL — Above PLUS post-firm invariant-suite re-run with targets
+  ≥ 5M calls per surface.**
+
 ### Security — pass-6 fresh-eyes audit (2026-05-03)
 
 Meta-audit informed by 2024-2026 DeFi exploit retrospectives (Curve / Euler /

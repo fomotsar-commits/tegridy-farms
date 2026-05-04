@@ -16,6 +16,29 @@ const CARD_ART = Array.from({ length: 16 }, (_, i) => pageArt('changelog-cards',
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    date: 'May 4, 2026',
+    title: 'Pass-7 Adversarial Multi-Agent Audit + Remediation',
+    items: [
+      'Three parallel worktree agents (oracle/AMM, staking/governance, lending/NFT) attacked everything claimed closed by the prior 6 internal passes plus the Spartan external review',
+      'Surfaced 13 NEW findings: 1 Critical (V4 hook fee delta never settled — every V4 swap would have reverted CurrencyNotSettled if the hook deployed), 6 Highs (TWAP fail-open carve-out, gauge-removal permanent brick, lending-side missing post-condition checks on staking transferFrom, settled-vs-settled cross-loan reward drain, claimStuckCollateral retry hole), 4 Mediums (POL bypass cooldown, V4 claimFees ManagerLocked, LP-farming stale-boost siphon, NFTLending removal-cancel retry budget), 1 Low + 1 Info',
+      'All 13 closed in same-week remediation using battle-tested patterns mirrored from existing in-codebase fixes (TegridyNFTLending`s `_safeOutboundTransfer`, TegridyLending`s `lastBypassUsed` cooldown) and the canonical Uniswap V4 reference (`FeeTakingHook.sol`)',
+      'New regression suite at contracts/test/PASS7_*.t.sol — 9 files, 15 tests — converted from "asserts exploit" to "asserts fix" and all passing',
+      'Sign-off: $1M TVL acceptable with operational guardrails; $10M+ requires paid firm engagement targeting per-tokenId attribution + V4 hook semantics + boost-cache lifetime architectural cluster',
+      'Master report: .audit_101/PASS7_2026_05_03.md',
+    ],
+  },
+  {
+    date: 'May 3, 2026',
+    title: 'Pass-6 Fresh-Eyes Meta-Audit',
+    items: [
+      'Meta-audit informed by 2024-2026 DeFi exploit retrospectives (Curve, Euler, KyberSwap Elastic, Penpie, Pendle, Sturdy, Inverse, Platypus, BlueBerry, Munchables, Velocore, BonqDAO, Hundred, Atlantis, Onyx, Conic, Jimbos, Radiant, Poly Network) re-aimed at the cumulative 388-finding history of passes 1-5',
+      '5 NEW contract HIGHs + 5 NEW contract MEDs + 1 frontend CRIT + 5 frontend HIGHs + 1 frontend LOW — all closed',
+      '4 NEW invariant suites locking down the pass-6 fix surfaces (13 stateful invariants × 1.664M total calls, zero reverts)',
+      'Critical frontend fix: replaced 7 Vercel `vercel.json` aggregator rewrites that were open proxies with hardened serverless wrappers (rate limit, origin allowlist, query allowlist, body/response caps, 53 new tests)',
+      'Master report: .audit_101/PASS6_2026_05_03.md',
+    ],
+  },
+  {
     date: 'April 26, 2026',
     title: 'Post-Remediation Audit Campaign',
     items: [
