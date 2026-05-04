@@ -10,6 +10,8 @@ import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 
@@ -28,6 +30,7 @@ import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 ///         Hook flags needed: afterSwap (0x0040) | afterSwapReturnsDelta (0x0004)
 ///         => combined deploy-address bitmask 0x0044
 contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard, TimelockAdmin {
+    using SafeERC20 for IERC20;
 
     // ─── Timelock Operation Keys ─────────────────────────────────────
     bytes32 public constant FEE_CHANGE = keccak256("FEE_CHANGE");
@@ -277,10 +280,34 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         accruedFees[creditToken] += feeUint;
         emit FeeCollected(creditToken, feeUint);
 
+        // PASS7-HOOK-01 FIX: settle the hook's positive delta WITHIN the unlock
+        // context by taking the fee from the PoolManager directly into this
+        // hook's contract balance. Pre-fix, returning `feeAmount` registered a
+        // positive hook delta but no `poolManager.take()` was called to settle
+        // it — the swap router's `unlockCallback` only settles the CALLER's
+        // delta, leaving the hook's delta non-zero, and PoolManager's
+        // `unlock()` close fired `CurrencyNotSettled` and reverted the entire
+        // swap. Result: 100% of swaps on every V4 pool with this hook attached
+        // would have reverted.
+        //
+        // Pattern of record: lib/v4-core/src/test/FeeTakingHook.sol:48 — the
+        // canonical V4 fee-skim reference. The `take()` call drains the fee
+        // into the hook's ERC20 balance AND registers a negative hook delta
+        // that exactly cancels the positive delta from the returned
+        // `feeAmount`, so the net hook delta at unlock-close is zero.
+        //
+        // PASS7-HOOK-03 also fixed by this change: `claimFees` no longer
+        // needs to call `poolManager.take()` (which would revert
+        // ManagerLocked outside an unlock context) — the fees are already in
+        // this contract's ERC20 balance, so claimFees becomes a plain
+        // IERC20.safeTransfer to revenueDistributor.
+        poolManager.take(feeCurrency, address(this), feeUint);
+
         // Returned to PoolManager as hookDeltaUnspecified — applied as
         // `swapDelta -= toBalanceDelta(0, feeAmount)` (or amount0 leg for
         // !specifiedIsZero), correctly reducing what the user receives /
         // increasing what the user pays by exactly `feeUint` unspecified-side units.
+        // Net hook delta after take() + return: zero — no CurrencyNotSettled.
         return (IHooks.afterSwap.selector, feeAmount);
     }
 
@@ -337,9 +364,15 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         );
         if (amount > accruedFees[currency]) revert ExceedsAccrued();
         accruedFees[currency] -= amount;
-        // NOTE: If poolManager.take reverts (insufficient credits), the entire tx reverts,
-        // restoring accruedFees. This prevents accounting drift from causing fund loss.
-        poolManager.take(Currency.wrap(currency), revenueDistributor, amount);
+        // PASS7-HOOK-03 FIX: forward the hook's ERC20 balance directly to the
+        // revenue distributor. Pre-fix, this called `poolManager.take(...)`
+        // outside any unlock context, which always reverted `ManagerLocked`
+        // because `take` is `onlyWhenUnlocked`. Now that `afterSwap` uses
+        // `poolManager.take(feeCurrency, address(this), feeUint)` to settle
+        // the hook's delta inside the unlock, the fees live in this hook's
+        // own ERC20 balance — a plain SafeERC20.safeTransfer is sufficient
+        // and works in any tx context (no V4 unlock dependency).
+        IERC20(currency).safeTransfer(revenueDistributor, amount);
         emit FeeCollected(currency, amount);
     }
 
