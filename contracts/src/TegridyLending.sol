@@ -1841,6 +1841,32 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // snapshot/delta + claimUnsettled flow) gets paid out via the existing
         // pro-rata math. New loans typically arrive here with owed == 0.
         uint256 owed = escrowRewardsOwed[_loanId];
+
+        // AUDIT FIX PASS7-LENDING-04: reconcile the legacy ledger against the
+        // `directPaid` path. PASS7-LENDING-03's deferral-tracker (in
+        // repayLoan / claimDefaultedCollateral) increments
+        // `escrowRewardsOwed[_loanId]` when a paused-staking try/catch leaves
+        // a slice in the per-tokenId bucket. When staking later unpauses and
+        // the recipient calls this function, the `directPaid` path drains
+        // that same slice from the staking bucket directly to the recipient.
+        // Without reconciliation, the legacy ledger stays at the deferred
+        // amount — and any future TOWELI inflow (donation, sibling loan's
+        // priorShare landing here, sweep return) becomes double-claimable via
+        // the legacy pro-rata branch below. Decrement both per-loan and
+        // global counters by min(directPaid, owed); they MUST stay in lockstep
+        // because the directPaid economically pays off the same slice that
+        // was booked into escrowRewardsOwed at the deferral.
+        if (directPaid > 0 && owed > 0) {
+            uint256 reconcile = directPaid > owed ? owed : directPaid;
+            escrowRewardsOwed[_loanId] = owed - reconcile;
+            if (totalEscrowRewardsOwed >= reconcile) {
+                totalEscrowRewardsOwed -= reconcile;
+            } else {
+                totalEscrowRewardsOwed = 0;
+            }
+            owed = escrowRewardsOwed[_loanId];
+        }
+
         if (owed == 0) {
             // No legacy attribution — direct path is the only payout. Revert
             // ONLY if neither leg paid anything, so a no-op call still gives a

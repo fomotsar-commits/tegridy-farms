@@ -14,6 +14,11 @@ frontend/test-results/
 **/tsconfig.tsbuildinfo
 indexer/nul
 
+# Static-analysis artifacts (regenerated on every run; multi-MB)
+# The slither.config.json AT REPO ROOT IS tracked — output is not.
+slither-report.json
+slither-report.sarif
+
 # Repo root clutter — images + personal files
 # (allow frontend/public/ and frontend/src/assets/ images)
 /*.jpg

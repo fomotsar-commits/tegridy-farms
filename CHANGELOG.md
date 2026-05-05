@@ -161,6 +161,75 @@ reference (`lib/v4-core/src/test/FeeTakingHook.sol:48`). Master report:
 - **$100M TVL — Above PLUS post-firm invariant-suite re-run with targets
   ≥ 5M calls per surface.**
 
+### Security — post-pass-7 invariant-driven hardening (2026-05-04)
+
+Net-new stateful invariant suite extending pass-6's `Pass6_LendingSolvency`
+with pause/unpause + claimStuckCollateral handler actions. Ran Slither
+v0.11.5 + Foundry invariant fuzzer against the post-pass-7 tree. Slither
+surfaced zero new actionable findings vs the pass-6 triage baseline; the
+new invariant suite **caught 1 net-new HIGH** introduced by the
+PASS7-LENDING-03 closure itself.
+
+#### Fixed — Contract Highs (1)
+
+- **PASS7-LENDING-04** — directPaid + legacy double-claim regression in
+  `TegridyLending.pullEscrowRewards`. The PASS7-LENDING-03 deferral-tracker
+  records `escrowRewardsOwed[loanId] += myDeferred` when a paused-staking
+  try/catch leaves a slice in the per-tokenId bucket. When staking later
+  unpaused and the recipient called `pullEscrowRewards`, the `directPaid`
+  branch drained the slice from the staking bucket DIRECTLY to the recipient
+  but the legacy ledger never reconciled — `payout = 0` because lending's
+  TOWELI balance was 0 — leaving `escrowRewardsOwed[loanId]` and
+  `totalEscrowRewardsOwed` at the deferred amount. Any subsequent TOWELI
+  inflow to lending (donation, sibling loan's `priorShare`, sweep return)
+  became double-claimable via a second `pullEscrowRewards` call against the
+  legacy pro-rata branch. Trigger preconditions are operational not
+  adversarial: any admin pause on staking that coincides with a loan
+  settlement auto-arms the desync. Fix: reconcile both per-loan and global
+  counters by `min(directPaid, owed)` immediately after computing
+  `directPaid`, so the two payout legs decrement in lockstep. Closed at
+  [TegridyLending.sol:1845-1869](contracts/src/TegridyLending.sol#L1845).
+  Master writeup:
+  [`.audit_101/PASS7_LENDING_04.md`](./.audit_101/PASS7_LENDING_04.md).
+
+#### Tests
+
+- **New stateful invariant suite**:
+  [`contracts/test/invariants/Pass7_LendingExtSolvency.t.sol`](contracts/test/invariants/Pass7_LendingExtSolvency.t.sol)
+  — extends `Pass6_LendingSolvency` with pause/unpause cycles on both
+  staking AND lending + `claimStuckCollateral` handler action. Three
+  properties:
+  - **P7A-1** ETH solvency holds across pause cycles (mirrors Pass6 E1
+    under wider sequence space)
+  - **P7A-2** TOWELI backing for `totalEscrowRewardsOwed`
+    (`toweli.balanceOf(lending) + staking.unsettledRewards(lending) >=
+    totalEscrowRewardsOwed`) — the property that surfaced LENDING-04
+  - **P7A-3** `stuckCollateralRecipient[loanId] != 0 ⇒ loan settled` —
+    locks down LENDING-02's recovery slot semantics
+  3/3 invariants × ~10k handler calls each × 13 actions ≈ 130k total
+  randomized sequences, 0 reverts post-fix.
+- **PoC test**:
+  [`contracts/test/PASS7_LENDING_04.t.sol`](contracts/test/PASS7_LENDING_04.t.sol)
+  — 7-step deterministic reproduction (open loan → pause → repay defers →
+  unpause → first pull → donate → second pull). Pre-fix demonstrated full
+  double-claim of a 10k-ether slice; post-fix the second pull reverts
+  `NoEscrowRewards` and the donation is untouched.
+
+#### Static analysis
+
+- **Slither v0.11.5** — 603 findings (vs pass-6's 597). 22 High / 155
+  Medium, all classes documented as known false-positives in
+  [`.audit_101/PASS6_SLITHER_2026_05_03.md`](./.audit_101/PASS6_SLITHER_2026_05_03.md)
+  (timestamp PRNG truncation, FoT-pattern reentrancy-balance,
+  `nonReentrant`-protected paths Slither's CEI heuristic can't see, strict
+  uint equality on counters). Zero net-new actionable findings vs pass-6
+  baseline; the LENDING-04 bug is a semantic state-desync that static
+  analysis cannot detect — only stateful invariant testing surfaces it.
+- **Aderyn** — installation blocked by Windows AppControl on the dev
+  workstation; deferred. Slither remains the canonical static-analysis
+  surface; the new stateful invariant suite covers what static analysis
+  cannot.
+
 ### Security — pass-6 fresh-eyes audit (2026-05-03)
 
 Meta-audit informed by 2024-2026 DeFi exploit retrospectives (Curve / Euler /

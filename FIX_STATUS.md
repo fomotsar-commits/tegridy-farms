@@ -127,6 +127,20 @@ same-week remediation.** Master report:
   address(0), all helpers no-op); L2 deploys call setter once. Closed
   at
   [SwapFeeRouter.sol:172-201 + L494-L515 + L1923-L1946](contracts/src/SwapFeeRouter.sol#L172).
+- **PASS7-LENDING-04** (HIGH, post-pass-7 surface — surfaced 2026-05-04
+  by the new `Pass7_LendingExtSolvency` invariant suite, closed same day)
+  — directPaid + legacy double-claim regression introduced by
+  PASS7-LENDING-03's deferred-slice tracker. `pullEscrowRewards` now
+  reconciles `escrowRewardsOwed[loanId]` and `totalEscrowRewardsOwed`
+  against the `directPaid` payout (decrement both by
+  `min(directPaid, owed)`) so the legacy pro-rata branch and the
+  per-tokenId direct branch can never double-pay the same accrued slice.
+  Trigger preconditions are operational, not adversarial: any admin pause
+  on staking that coincides with a loan settlement auto-arms the
+  desync. Closed at
+  [TegridyLending.sol:1845-1869](contracts/src/TegridyLending.sol#L1845).
+  See [`.audit_101/PASS7_LENDING_04.md`](.audit_101/PASS7_LENDING_04.md)
+  for full root-cause + PoC + fix-shape rationale.
 
 ### Tests landed in pass-7
 
