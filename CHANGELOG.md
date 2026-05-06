@@ -1199,6 +1199,85 @@ This unblocks the long-stalled Wave 0 redeploy.
     pathological 100% royalty rate is refused.
   - Full unit suite: **2,557 pass / 0 fail** (+5 vs. pre-batch-17).
 
+#### Pass-8 Batch 18 — ETH-ingress counters on POLAccumulator + SwapFeeRouter (2026-05-06)
+
+**Low (1) — closed:**
+
+- **ETH-ingress accounting on POLAccumulator + SwapFeeRouter.** Pre-fix,
+  both contracts had bare `receive()` paths that accepted ETH without
+  any per-deposit accounting trail. POLAccumulator emitted an
+  `ETHReceived(sender, amount)` event but did not track a cumulative
+  total; SwapFeeRouter had no event at all. Combined with the
+  bare-`receive()` design, "donated" / accidental / mistransferred ETH
+  drifted into the contract balance with no way for off-chain monitoring
+  to distinguish legitimate fee inflow from anomalous deposits — a
+  weak signal but a real reconciliation gap.
+
+  Closed by:
+
+  1. **`uint256 public totalETHReceived`** on both contracts. Monotonic
+     counter — incremented in `receive()`, never decremented. Distribution
+     outflows are tracked on the receiving contracts (RevenueDistributor /
+     ReferralSplitter / etc.); this counter is a one-way ETH-ingress
+     witness.
+  2. **POLAccumulator**: existing `ETHReceived(sender, amount)` event
+     preserved; counter increment added at the head of `receive()`.
+  3. **SwapFeeRouter**: bare `receive()` upgraded to emit a new
+     `ETHReceived(sender, amount)` event AND increment the counter.
+     Pre-fix, SwapFeeRouter's `receive()` was completely silent — no
+     event, no counter — making indexer-driven anomaly detection
+     impossible.
+
+  MemeBountyBoard intentionally has no `receive()` (donated ETH literally
+  cannot land), so it's not in scope. The audit-recon flagged it as a
+  gap but the underlying mechanism (no-receive) is itself a stronger
+  defense than a counter would provide.
+
+  Files changed:
+  - [contracts/src/POLAccumulator.sol](contracts/src/POLAccumulator.sol)
+    (+ counter declaration + increment).
+  - [contracts/src/SwapFeeRouter.sol](contracts/src/SwapFeeRouter.sol)
+    (+ counter declaration + event + increment).
+  - [contracts/test/PASS8_ETH_COUNTERS.t.sol](contracts/test/PASS8_ETH_COUNTERS.t.sol)
+    (new — 4 dedicated tests using a minimal harness with the same
+    `receive()` shape as both contracts).
+
+  **Verification:**
+  - 4 new tests covering: increment on first deposit, monotonic
+    accumulation across multiple deposits, event emission, zero-value
+    no-op, monotonic-on-drain (counter does NOT decrement on outflow).
+  - Full unit suite: **2,561 pass / 0 fail** (+4 vs. pre-batch-18).
+
+#### Pass-8 final closure — open queue resolution
+
+The remaining audit master-plan items resolved as follows:
+
+- **Phase 1.7 (single-VP across consumers)** — investigated; **NOT a
+  bug**. Each governance consumer (RevenueDistributor, VoteIncentives,
+  MemeBountyBoard, CommunityGrants) operates an independent reward pool;
+  a staker's VP is a *claim* on each pool's distinct budget, not a
+  fungible resource that gets "spent." This is the standard Curve /
+  Aerodrome / Velodrome / Balancer pattern. None of the per-contract
+  audit reports (017 VoteIncentives, 019 CommunityGrants,
+  020 MemeBountyBoard, 024 RevenueDistributor) flagged simultaneous
+  VP usage as a finding. No code change required.
+- **Phase 2.6 / LD-01 (origination-fee live read)** — already fixed.
+  `acceptOffer` re-derives the fee from gross deposit using the LIVE
+  `originationFeeBps`, honoring fee CUTS between create and accept;
+  fee snapshot is NOT stored on the offer.
+- **TWAP first-observation hardening** — already closed in pass-6
+  HIGH-3 + pass-7 PASS7-TWAP-01. First observation stamped
+  `bypassed = true`; consult-time and per-window guards both refuse a
+  bypassed-anchor lookup.
+- **TegridyDropV2 reveal force-resolve** — by design. Drop is a
+  standard mint-then-reveal ERC721, NOT a commit-reveal raffle.
+  Reveal is an optional one-shot owner action with no expiry; under-
+  reveal cannot brick the drop. Cancellation is pre-mint only
+  (DEEP-DROP-05) which prevents the only stuck-funds scenario by
+  construction. No fix required.
+
+**All open items from the pass-8 master plan are now resolved.**
+
 ### Security — pass-7 adversarial multi-agent audit + remediation (2026-05-03 → 2026-05-04)
 
 Three parallel worktree agents (oracle/AMM/fees, staking/governance, lending/NFT)

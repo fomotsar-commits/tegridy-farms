@@ -171,6 +171,15 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     uint256 public totalLPCreated;
     uint256 public totalAccumulations;
 
+    /// @notice AUDIT FIX (pass-8 batch-18): cumulative ETH ingress through
+    ///         `receive()`. Combined with the ETHReceived event, gives
+    ///         off-chain monitoring a clean signal to reconcile
+    ///         `address(this).balance` against legitimate fee inflow vs.
+    ///         "donated" / accidental ETH. Pre-fix, donated ETH could silently
+    ///         inflate balance and slip into sweep / accumulate paths without
+    ///         a trace.
+    uint256 public totalETHReceived;
+
     // ─── Events ───────────────────────────────────────────────────────
 
     event Accumulated(uint256 ethUsed, uint256 toweliAdded, uint256 lpCreated);
@@ -297,6 +306,14 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     }
 
     receive() external payable {
+        // AUDIT FIX (pass-8 batch-18): track cumulative ETH ingress so
+        // off-chain monitoring can reconcile `address(this).balance` against
+        // legitimate fee inflow vs. "donated" / accidental ETH. Pre-fix,
+        // unaccounted ETH could silently inflate balance and leak through
+        // sweep paths without trace; the counter gives an explicit lower-
+        // bound on legitimate fee inflow that the timelocked `sweepETH`
+        // path can be reconciled against off-chain.
+        totalETHReceived += msg.value;
         emit ETHReceived(msg.sender, msg.value);
     }
 

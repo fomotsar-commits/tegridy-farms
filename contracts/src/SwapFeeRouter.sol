@@ -2047,5 +2047,18 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///      next `distribute()` along with the legitimate fee balance. The
     ///      forward-distribute flow itself is `nonReentrant` and only callable
     ///      after a 24-hour cooldown, which is the actual safety bound.
-    receive() external payable {}
+    /// @dev AUDIT FIX (pass-8 batch-18): track cumulative ETH ingress so
+    ///      off-chain monitoring can reconcile `address(this).balance`
+    ///      against `accumulatedETHFees`. Any drift between
+    ///      `totalETHReceived` and the sum of accounted fee categories is
+    ///      "donated" / accidental ETH that the next `distribute()` will
+    ///      sweep proportionally. Counter is monotonic and never decremented
+    ///      — distribution outflows are tracked separately on the receiving
+    ///      contracts (RevenueDistributor / ReferralSplitter / POLAccumulator).
+    uint256 public totalETHReceived;
+    event ETHReceived(address indexed sender, uint256 amount);
+    receive() external payable {
+        totalETHReceived += msg.value;
+        emit ETHReceived(msg.sender, msg.value);
+    }
 }
