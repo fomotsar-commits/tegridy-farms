@@ -1149,6 +1149,56 @@ This unblocks the long-stalled Wave 0 redeploy.
   **Verification:** 6 new tests pass; full unit suite **2,552 pass / 0 fail**
   (+6 vs. pre-batch-16).
 
+#### Pass-8 Batch 17 — TegridyNFTPool ERC-2981 royalty enforcement (2026-05-06)
+
+**Medium (1) — closed:**
+
+- **TegridyNFTPool ERC-2981 royalty enforcement.** Pre-fix, both swap
+  paths bypassed creator royalties entirely — the contract didn't import
+  `IERC2981` nor query `royaltyInfo` on any code path. Mainstream NFT
+  marketplaces (Blur, OpenSea Pro, Sudoswap V2) honor on-chain royalty
+  enforcement; this pool deviated silently from the marketplace norm,
+  exposing the protocol to creator-community pushback and potential
+  ecosystem blacklisting.
+
+  Closed by:
+  1. New minimal `IERC2981` interface (single `royaltyInfo(tokenId,
+     salePrice) → (receiver, royaltyAmount)` function).
+  2. New private `_settleRoyalty(totalSale, firstTokenId)` helper that
+     try-calls the collection's `royaltyInfo`, validates the response
+     (rejects zero receiver, zero amount, or amount ≥ totalSale as
+     pathological), and forwards via `WETHFallbackLib.safeTransferETHOrWrapNoRevert`.
+     Misbehaving receivers (e.g. revert on `receive()`) cannot brick a
+     sale — both ETH and WETH legs failing silently skip the royalty.
+  3. **`swapETHForNFTs`** — royalty deducted from pool spot-revenue
+     (after protocol fee + LP fee). Buyer pays `inputAmount` regardless
+     of royalty; pool's net retained piece shrinks.
+  4. **`swapNFTsForETH`** — royalty deducted from seller's payout
+     (after protocol fee + LP fee). Seller receives `outputAmount −
+     royalty`.
+  5. New events: `RoyaltyPaid(receiver, amount, tokenId)` and
+     `RoyaltyFallbackToWETH(receiver, amount, tokenId)` for indexers
+     tracking royalty flow vs. WETH-fallback-on-receiver-revert.
+
+  Anchoring on `tokenIds[0]` for the royaltyInfo query is faithful to
+  the dominant ERC-2981 implementation pattern (single rate per
+  collection); tokens with per-token royalty curves are an ERC-2981
+  edge case that this implementation explicitly trades against batch-gas
+  efficiency.
+
+  Files changed:
+  - [contracts/src/TegridyNFTPool.sol](contracts/src/TegridyNFTPool.sol)
+    (interface, helper, swap-path integrations, events; ~+800 B → 12,402 B).
+  - [contracts/test/PASS8_ROYALTY.t.sol](contracts/test/PASS8_ROYALTY.t.sol)
+    (new — 5 dedicated tests).
+
+  **Verification:**
+  - 5 new tests covering: BUY path pays royalty out of pool revenue, SELL
+    path pays royalty out of seller payout, non-ERC-2981 collection pays
+    zero (back-compat), misbehaving receiver doesn't brick the sale,
+    pathological 100% royalty rate is refused.
+  - Full unit suite: **2,557 pass / 0 fail** (+5 vs. pre-batch-17).
+
 ### Security — pass-7 adversarial multi-agent audit + remediation (2026-05-03 → 2026-05-04)
 
 Three parallel worktree agents (oracle/AMM/fees, staking/governance, lending/NFT)

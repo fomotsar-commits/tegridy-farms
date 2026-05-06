@@ -8,6 +8,15 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
 
+/// @dev AUDIT FIX (pass-8 batch-17): minimal ERC-2981 interface for royalty
+///      enforcement on swaps. Collections that don't implement ERC-2981 will
+///      revert in the try-call wrapper and pay zero royalty (preserves current
+///      behavior for non-royalty collections; new behavior is additive).
+interface IERC2981 {
+    function royaltyInfo(uint256 tokenId, uint256 salePrice)
+        external view returns (address receiver, uint256 royaltyAmount);
+}
+
 /// @notice AUDIT FIX: DEEP-NFTPOOL-12: minimal interface used by pools to read
 ///         the factory's emergency-pause flag. Defined externally to keep the
 ///         pool clone agnostic of the full factory ABI.
@@ -169,6 +178,12 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     event ETHWithdrawn(address indexed to, uint256 amount);
     event NFTsWithdrawn(address indexed to, uint256[] tokenIds);
     event ProtocolFeePaid(address indexed factory, uint256 amount);
+    /// @notice AUDIT FIX (pass-8 batch-17): emitted when ERC-2981 royalty is paid
+    ///         to the collection's royalty receiver during a swap. `tokenId` is
+    ///         the first NFT in the batch (used as the royalty-rate anchor —
+    ///         most ERC-2981 implementations use a single rate per collection).
+    event RoyaltyPaid(address indexed receiver, uint256 amount, uint256 indexed tokenId);
+    event RoyaltyFallbackToWETH(address indexed receiver, uint256 amount, uint256 indexed tokenId);
     /// AUDIT FIX: DEEP-NFTPOOL-03
     event OwnerChangeProposed(address indexed oldOwner, address indexed newOwner, uint256 executeAfter);
     event OwnerChanged(address indexed oldOwner, address indexed newOwner);
@@ -276,6 +291,14 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
             emit LPFeesAccrued(lpFee, accumulatedLPFees);
         }
 
+        // AUDIT FIX (pass-8 batch-17): ERC-2981 royalty on the spot-revenue
+        // (the pool's NET retained piece after protocol/LP fees). Royalty is
+        // paid out of the pool's revenue, NOT out of the buyer's payment —
+        // the buyer pays `inputAmount` regardless of royalty rate. Pool's
+        // captured revenue = inputAmount − protocolFee − lpFee − royalty.
+        uint256 spotRevenue = inputAmount - protocolFee - lpFee;
+        _settleRoyalty(spotRevenue, tokenIds[0]);
+
         uint256 excess = msg.value - inputAmount;
         if (excess > 0) {
             _sendETH(msg.sender, excess);
@@ -328,7 +351,14 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
             emit LPFeesAccrued(lpFee, accumulatedLPFees);
         }
 
-        _sendETH(msg.sender, outputAmount);
+        // AUDIT FIX (pass-8 batch-17): ERC-2981 royalty on the user's payout.
+        // Royalty is computed against `outputAmount` (gross seller proceeds
+        // before royalty deduction) and forwarded to the receiver; seller
+        // gets `outputAmount − royalty`. Failed receiver = silent skip
+        // (royalty receiver cannot brick the sale; mirror Sudoswap V2 / OS).
+        uint256 royalty = _settleRoyalty(outputAmount, tokenIds[0]);
+
+        _sendETH(msg.sender, outputAmount - royalty);
 
         lastSwapBlock = block.timestamp;
         _swapInFlight = false;
@@ -901,5 +931,54 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
     function _sendETH(address to, uint256 amount) internal {
         WETHFallbackLib.safeTransferETHOrWrap(weth, to, amount);
+    }
+
+    // ─── AUDIT FIX (pass-8 batch-17): ERC-2981 royalty enforcement ──────
+
+    /// @dev Settle ERC-2981 royalties on a swap. Queries the collection's
+    ///      `royaltyInfo(firstTokenId, totalSale)`; if the collection
+    ///      implements ERC-2981 (try-call succeeds), forwards the royalty
+    ///      amount to the receiver via WETHFallbackLib (10k-gas-stipend
+    ///      ETH leg, falls back to WETH wrap on receiver-revert). Returns
+    ///      the amount actually paid out so the caller can deduct it from
+    ///      their swap proceeds.
+    /// @dev    Most ERC-2981 implementations use a single rate per
+    ///         collection (BPS of sale price), so anchoring on the first
+    ///         tokenId is faithful. Bounded sanity checks on the returned
+    ///         tuple defend against pathological royalty curves
+    ///         (`amount >= totalSale` would zero out the seller — refuse).
+    /// @param  totalSale Aggregate sale value in ETH for the batch.
+    /// @param  firstTokenId First token in the batch — used as the royalty
+    ///         rate anchor.
+    /// @return royaltyPaid Amount of ETH (or WETH-fallback) sent to the
+    ///         royalty receiver. Zero if collection doesn't implement
+    ///         ERC-2981, or if the response is invalid (zero receiver,
+    ///         zero amount, or amount ≥ totalSale).
+    function _settleRoyalty(uint256 totalSale, uint256 firstTokenId)
+        internal
+        returns (uint256 royaltyPaid)
+    {
+        if (totalSale == 0) return 0;
+        try IERC2981(address(nftCollection)).royaltyInfo(firstTokenId, totalSale)
+            returns (address receiver, uint256 amount)
+        {
+            if (receiver == address(0) || amount == 0 || amount >= totalSale) return 0;
+            (bool success, uint8 mode) =
+                WETHFallbackLib.safeTransferETHOrWrapNoRevert(weth, receiver, amount);
+            if (success) {
+                royaltyPaid = amount;
+                if (mode == 1) {
+                    emit RoyaltyFallbackToWETH(receiver, amount, firstTokenId);
+                } else {
+                    emit RoyaltyPaid(receiver, amount, firstTokenId);
+                }
+            }
+            // If both legs fail (mode == 2), the royalty is silently skipped
+            // — the swap proceeds with the receiver getting nothing. This
+            // mirrors the OpenSea / Sudoswap V2 behavior where a misbehaving
+            // royalty receiver cannot brick a sale.
+        } catch {
+            // Collection doesn't implement ERC-2981 (or reverted). Pay zero.
+        }
     }
 }
