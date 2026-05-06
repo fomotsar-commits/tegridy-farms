@@ -140,9 +140,11 @@ contract PASS5_INV_D_GaugeWeights is Test {
         for (uint256 i = 0; i < 3; i++) {
             gaugesArr.push(gAddrs[i]);
             // AUDIT FIX G-02: proposeAddGauge requires gauge.code.length > 0.
-            // Plant minimal bytecode (PUSH1 0; PUSH1 0; REVERT) to satisfy.
+            // AUDIT FIX (pass-8) GOV-INT-01: also requires non-zero `pair` arg.
             if (gAddrs[i].code.length == 0) vm.etch(gAddrs[i], hex"60006000fd");
-            gauge.proposeAddGauge(gAddrs[i]);
+            address gPair = address(uint160(gAddrs[i]) ^ uint160(1));
+            if (gPair.code.length == 0) vm.etch(gPair, hex"60006000fd");
+            gauge.proposeAddGauge(gAddrs[i], gPair);
             t = t + 25 hours;
             vm.warp(t);
             gauge.executeAddGauge();

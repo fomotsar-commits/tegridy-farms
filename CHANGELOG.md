@@ -740,6 +740,103 @@ splits):**
     pre-batch-10's 2,483 pass; the same 20 pre-existing batch-3 NFTPool
     fixture failures remain).
 
+#### Pass-8 Batch 11 — GOV-INT-01: GaugeController ↔ VoteIncentives decoupling closed (2026-05-06)
+
+**Critical (1) — closed:**
+
+- **GOV-INT-01 / C8 — disjoint gauge / bribe registries.** Pre-fix,
+  `GaugeController` and `VoteIncentives` were two completely separate
+  registries with no shared notion of pair ↔ gauge identity. A briber
+  could call `VoteIncentives.depositBribe(pair, …)` on any factory-validated
+  pair, regardless of whether GaugeController had a gauge for that pair —
+  and the bond would sit in the contract with no recovery path because no
+  voter had any reason to allocate emission weight to a pair that lacked
+  an emission distributor. Velodrome / Aerodrome's `Voter` contract has
+  enforced a pair → gauge mapping at gauge-creation time since v2; this
+  fix mirrors that pattern.
+
+  Closed by:
+
+  1. **`pairToGauge` / `gaugeToPair` mappings on GaugeController.** Bidirectional
+     so the deletion path can clear `pairToGauge[gaugeToPair[gauge]]` without
+     an O(n) scan. Stored at
+     [GaugeController.sol:91-107](contracts/src/GaugeController.sol#L91).
+  2. **`proposeAddGauge(address gauge, address pair)` — new mandatory `pair`
+     arg.** Pair must be non-zero, must be a contract, and must not already be
+     mapped to a different gauge (`PairAlreadyMapped` error). The pair is
+     captured in `pendingPairForAdd` alongside the existing `pendingGaugeAdd`
+     and committed atomically inside `executeAddGauge`. Defensive re-check on
+     `pairToGauge[pair] == 0` at execute time guards against a parallel admin
+     path racing the same pair onto a different gauge between propose and
+     execute. Closed at
+     [GaugeController.sol:777-812](contracts/src/GaugeController.sol#L777).
+  3. **Pair mapping cleared on every removal path** — `executeRemoveGauge`
+     (synchronous), `executeRemoveGaugeNextEpoch` (deferred-prune), and
+     `cancelAddGauge` (pre-execute abort). The next-epoch path deliberately
+     clears `pairToGauge` immediately even though `gaugeList` cleanup defers
+     to `executeRemoveGaugeFinalize` — this disarms VoteIncentives bribes the
+     moment governance flips `isGauge` to false.
+  4. **Events updated** — `GaugeAddProposed(gauge, pair, executeAfter)`,
+     `GaugeAdded(gauge, pair)`, `GaugeRemoved(gauge, pair)` carry the pair
+     argument so off-chain indexers see (gauge, pair) coupling at every state
+     transition.
+  5. **`VoteIncentives.gaugeController` + one-shot `setGaugeController`.**
+     Mirrors the existing `setVoteIncentivesAdmin` / `setRestakingContract`
+     one-shot patterns. Locked once set; rejects address(0) and EOAs. Closed
+     at
+     [VoteIncentives.sol:115-142](contracts/src/VoteIncentives.sol#L115).
+  6. **`_requireGaugedPair(pair)` check** on both `depositBribe` and
+     `depositBribeETH`. Conditional: when `gaugeController == address(0)`
+     (pre-wiring), the check is a no-op for backwards compat with fixtures.
+     Once a GC is wired (production deploy), every bribe deposit must target
+     a pair with a registered gauge or revert `NoGaugeForPair()`. Closed at
+     [VoteIncentives.sol:548 + 620](contracts/src/VoteIncentives.sol#L548).
+  7. **Deploy path documented** — `DeployGaugeController.s.sol` step 4 now
+     directs the operator to wire the GaugeController on VoteIncentives:
+     `voteIncentives.setGaugeController(<gc>)`.
+
+  Trust model: owner-trusted (`setGaugeController` is `onlyOwner`, one-shot,
+  rejects EOAs and address(0)). Once wired, the constraint is enforced
+  unconditionally for all bribe deposits.
+
+  Files changed:
+  - [contracts/src/GaugeController.sol](contracts/src/GaugeController.sol)
+    (mapping pair, `pendingPairForAdd`, propose/execute/cancel/remove paths
+    + new `InvalidPair` / `PairAlreadyMapped` errors, +749 B → 14,617 B)
+  - [contracts/src/VoteIncentives.sol](contracts/src/VoteIncentives.sol)
+    (`gaugeController` + setter, `_requireGaugedPair`, error +
+    `IGaugeControllerPairs` interface, +421 B → 22,086 B; under budget with
+    1,914 B headroom)
+  - [contracts/script/DeployGaugeController.s.sol](contracts/script/DeployGaugeController.s.sol)
+    (NEXT STEPS updated for the new arg + new wiring directive)
+  - 8 test files updated to pass the new `pair` arg to `proposeAddGauge`
+    (helpers etch minimal bytecode at the derived pair address):
+    [test/GaugeController.t.sol](contracts/test/GaugeController.t.sol),
+    [test/AuditR014_Governance.t.sol](contracts/test/AuditR014_Governance.t.sol),
+    [test/Deep_Governance_2026_05_01.t.sol](contracts/test/Deep_Governance_2026_05_01.t.sol),
+    [test/GaugeCommitReveal.t.sol](contracts/test/GaugeCommitReveal.t.sol),
+    [test/R021_GaugeController.t.sol](contracts/test/R021_GaugeController.t.sol),
+    [test/AuditR016_AMMGov.t.sol](contracts/test/AuditR016_AMMGov.t.sol),
+    [test/PASS7_GAUGE_01.t.sol](contracts/test/PASS7_GAUGE_01.t.sol),
+    [test/invariants/PASS5_GaugeWeightConservation.t.sol](contracts/test/invariants/PASS5_GaugeWeightConservation.t.sol).
+
+  **Verification:**
+  - 12 new tests in
+    [test/PASS8_GOV_INT_01.t.sol](contracts/test/PASS8_GOV_INT_01.t.sol)
+    covering: pre-wiring permissive (legacy compat), post-wiring revert on
+    ungauged pair (ERC20 + ETH), success on gauged pair, post-remove
+    de-arming, `setGaugeController` one-shot / EOA-rejection / zero-rejection,
+    plus GaugeController-side validations
+    (`PairAlreadyMapped`, zero pair, EOA pair, cancel clears
+    `pendingPairForAdd`).
+  - All existing gauge / bribe / governance suites unchanged: GaugeController
+    12/12, PASS7_GAUGE_01 2/2, VoteIncentives 60/60, AuditR014_Governance
+    5/5, AuditR016_AMMGov 6/6, Deep_Governance 3/3, GaugeCommitReveal 14/14,
+    R021_GaugeController 12/12.
+  - Full unit suite (excluding invariants): **2,507 pass / 20 fail** (+12 vs.
+    pre-batch-11's 2,495 pass; the 20 pre-existing batch-3 NFTPool fixture
+    failures remain).
+
 ### Security — pass-7 adversarial multi-agent audit + remediation (2026-05-03 → 2026-05-04)
 
 Three parallel worktree agents (oracle/AMM/fees, staking/governance, lending/NFT)

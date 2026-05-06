@@ -90,6 +90,23 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     address[] public gaugeList;
     mapping(address => bool) public isGauge;
 
+    /// @notice AUDIT FIX (pass-8): GOV-INT-01 / C8 — pair ↔ gauge mapping.
+    ///         Pre-fix, GaugeController and VoteIncentives were two disjoint
+    ///         registries (gauges vs. pairs) with no link between them. Bribers
+    ///         could deposit against pairs that had no gauge weight at all,
+    ///         stranding the bond — voters had no incentive to allocate gauge
+    ///         weight to a pair that didn't even have an emission distributor.
+    ///         The mapping is set at gauge-add time (mandatory new arg on
+    ///         `proposeAddGauge`); VoteIncentives reads `pairToGauge` to gate
+    ///         `depositBribe` / `depositBribeETH` on the existence of a
+    ///         corresponding gauge. Mirrors Velodrome / Aerodrome pattern where
+    ///         each gauge declares its pool at creation time.
+    /// @dev    Both directions stored so the deletion path on
+    ///         `executeRemoveGauge*` can clear `pairToGauge[gaugeToPair[gauge]]`
+    ///         without an O(n) scan.
+    mapping(address => address) public pairToGauge;
+    mapping(address => address) public gaugeToPair;
+
     // ─── Voting State ───────────────────────────────────────────────
     /// @notice Total weight allocated to each gauge in a given epoch
     mapping(uint256 => mapping(address => uint256)) public gaugeWeightByEpoch;
@@ -179,16 +196,24 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     // ─── Timelocked Pending State ───────────────────────────────────
     address public pendingGaugeAdd;
     address public pendingGaugeRemove;
+    /// @notice AUDIT FIX (pass-8): GOV-INT-01. Companion to `pendingGaugeAdd` —
+    ///         records the pair that the proposed gauge will serve, so the
+    ///         (gauge, pair) pairing executes atomically with the gauge add.
+    address public pendingPairForAdd;
 
     // ─── Events ─────────────────────────────────────────────────────
     event Voted(address indexed voter, uint256 indexed tokenId, uint256 indexed epoch, address[] gauges, uint256[] weights);
     event VoteCommitted(address indexed voter, uint256 indexed tokenId, uint256 indexed epoch, bytes32 commitmentHash);
     event VoteRevealed(address indexed voter, uint256 indexed tokenId, uint256 indexed epoch, address[] gauges, uint256[] weights);
     event VoteCommitCancelled(address indexed voter, uint256 indexed tokenId, uint256 indexed epoch);
-    event GaugeAddProposed(address gauge, uint256 executeAfter);
-    event GaugeAdded(address gauge);
+    /// @dev AUDIT FIX (pass-8): GOV-INT-01 — `pair` added to add-events so
+    ///      off-chain indexers can observe (gauge, pair) coupling at propose
+    ///      and execute time. `GaugeRemoved` carries the cleared `pair` for
+    ///      the same reason.
+    event GaugeAddProposed(address gauge, address pair, uint256 executeAfter);
+    event GaugeAdded(address gauge, address pair);
     event GaugeRemoveProposed(address gauge, uint256 executeAfter);
-    event GaugeRemoved(address gauge);
+    event GaugeRemoved(address gauge, address pair);
     event EmissionBudgetProposed(uint256 newBudget, uint256 executeAfter);
     event EmissionBudgetUpdated(uint256 oldBudget, uint256 newBudget);
     event RestakingContractSet(address indexed restaking); // pass-8 GOV-ECON-01
@@ -217,6 +242,10 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error LockExpired();
     /// @dev AUDIT FIX (pass-8): GOV-ECON-01 / C10 — restakingContract is one-shot.
     error RestakingAlreadySet();
+    /// @dev AUDIT FIX (pass-8): GOV-INT-01 / C8 — pair address invalid.
+    ///      Either zero, not a contract, or already mapped to a different gauge.
+    error InvalidPair();
+    error PairAlreadyMapped();
     error CommitWindowClosed();
     error RevealWindowNotOpen();
     error NoCommitment();
@@ -759,7 +788,12 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     // ║  TIMELOCKED ADMIN — GAUGE MANAGEMENT                        ║
     // ═══════════════════════════════════════════════════════════════
 
-    function proposeAddGauge(address gauge) external onlyOwner {
+    /// @dev AUDIT FIX (pass-8): GOV-INT-01 / C8 — `pair` is a new mandatory arg.
+    ///      Each gauge declares the AMM pair it serves emissions for, so
+    ///      VoteIncentives can gate `depositBribe` on `pairToGauge[pair] != 0`
+    ///      and avoid stranded bonds on un-gauged pairs. Pair must be a
+    ///      contract and must not already be mapped to a different gauge.
+    function proposeAddGauge(address gauge, address pair) external onlyOwner {
         if (gauge == address(0)) revert ZeroAddress();
         // AUDIT FIX G-02: refuse to register an EOA / non-contract as a gauge.
         // Pre-fix, an owner mistake (typo, malformed address, copy-paste from a
@@ -770,6 +804,10 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // defensive check used by every major gauge-controller (Curve, etc.).
         if (gauge.code.length == 0) revert NotAContract();
         if (isGauge[gauge]) revert GaugeAlreadyExists();
+        // AUDIT FIX (pass-8): GOV-INT-01 / C8 — pair coupling.
+        if (pair == address(0)) revert InvalidPair();
+        if (pair.code.length == 0) revert InvalidPair();
+        if (pairToGauge[pair] != address(0)) revert PairAlreadyMapped();
         // PASS7-GAUGE-H1 FIX: refuse to re-add a gauge that is currently the
         // subject of a deferred removal (`executeRemoveGaugeNextEpoch` was called,
         // pendingGaugeRemove is still set pending the finalize). Without this
@@ -785,22 +823,32 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (pendingGaugeRemove == gauge) revert GaugeRemovePending();
         if (gaugeList.length >= MAX_TOTAL_GAUGES) revert MaxGaugesReached();
         pendingGaugeAdd = gauge;
+        pendingPairForAdd = pair; // AUDIT FIX (pass-8): GOV-INT-01
         _propose(GAUGE_ADD, GAUGE_TIMELOCK);
-        emit GaugeAddProposed(gauge, block.timestamp + GAUGE_TIMELOCK);
+        emit GaugeAddProposed(gauge, pair, block.timestamp + GAUGE_TIMELOCK);
     }
 
     function executeAddGauge() external onlyOwner {
         _execute(GAUGE_ADD);
         address gauge = pendingGaugeAdd;
+        address pair = pendingPairForAdd; // AUDIT FIX (pass-8): GOV-INT-01
         isGauge[gauge] = true;
         gaugeList.push(gauge);
+        // AUDIT FIX (pass-8): GOV-INT-01 — record the bidirectional mapping. Re-check
+        // `pairToGauge[pair] == 0` defensively in case a parallel admin path mapped
+        // the same pair to a different gauge between propose and execute.
+        if (pairToGauge[pair] != address(0)) revert PairAlreadyMapped();
+        pairToGauge[pair] = gauge;
+        gaugeToPair[gauge] = pair;
         pendingGaugeAdd = address(0);
-        emit GaugeAdded(gauge);
+        pendingPairForAdd = address(0);
+        emit GaugeAdded(gauge, pair);
     }
 
     function cancelAddGauge() external onlyOwner {
         _cancel(GAUGE_ADD);
         pendingGaugeAdd = address(0);
+        pendingPairForAdd = address(0); // AUDIT FIX (pass-8): GOV-INT-01
     }
 
     function proposeRemoveGauge(address gauge) external onlyOwner {
@@ -843,6 +891,16 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (gaugeWeightByEpoch[currentEpoch()][gauge] > 0) revert GaugeHasActiveVotes();
         isGauge[gauge] = false;
 
+        // AUDIT FIX (pass-8): GOV-INT-01 — clear the (gauge, pair) mapping so a
+        // subsequent `proposeAddGauge` for the same pair (or a fresh gauge for it)
+        // can re-register without `PairAlreadyMapped`. Captured in `removedPair`
+        // for the GaugeRemoved event downstream.
+        address removedPair = gaugeToPair[gauge];
+        if (removedPair != address(0)) {
+            delete pairToGauge[removedPair];
+            delete gaugeToPair[gauge];
+        }
+
         // Remove from gaugeList (swap-and-pop)
         uint256 len = gaugeList.length;
         for (uint256 i; i < len; ++i) {
@@ -854,7 +912,7 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         }
 
         pendingGaugeRemove = address(0);
-        emit GaugeRemoved(gauge);
+        emit GaugeRemoved(gauge, removedPair);
     }
 
     /// @notice AUDIT FIX: V2-GOV-07 — alternative removal path that disables the
@@ -877,9 +935,18 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // Disarm new votes immediately. Existing votes for currentEpoch keep
         // their weight (no retroactive shrink); finalize() prunes once safe.
         isGauge[gauge] = false;
+        // AUDIT FIX (pass-8): GOV-INT-01 — clear pair mapping at disarm time so
+        // bribers can no longer deposit against the now-orphaned pair while we
+        // wait for the natural epoch boundary to prune `gaugeList`. The
+        // gaugeToPair entry is also cleared to keep the bidirectional view honest.
+        address removedPair = gaugeToPair[gauge];
+        if (removedPair != address(0)) {
+            delete pairToGauge[removedPair];
+            delete gaugeToPair[gauge];
+        }
         // pendingGaugeRemove is INTENTIONALLY left set so finalize knows which
         // gauge to prune from gaugeList. emit signals the change is staged.
-        emit GaugeRemoved(gauge);
+        emit GaugeRemoved(gauge, removedPair);
     }
 
     /// @notice AUDIT FIX: V2-GOV-07 — finalizes the removal staged by

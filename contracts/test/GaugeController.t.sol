@@ -70,11 +70,18 @@ contract GaugeControllerTest is Test {
 
     /// @dev Helper: propose + warp + execute gauge addition
     /// AUDIT FIX G-02: proposeAddGauge now requires gauge.code.length > 0.
-    /// Plant minimal bytecode at the address (PUSH1 0; PUSH1 0; REVERT — 5 bytes,
-    /// always reverts but satisfies the code-length check) before proposing.
+    /// AUDIT FIX (pass-8) GOV-INT-01: proposeAddGauge now also requires a `pair`
+    /// arg with non-zero code. Helper derives a deterministic pair address from
+    /// the gauge (XOR 1) so each test gauge gets a unique paired pair, and
+    /// etches minimal bytecode at both addresses.
     function _addGauge(address g) internal {
+        address pair = address(uint160(g) ^ uint160(1));
+        _addGauge(g, pair);
+    }
+    function _addGauge(address g, address pair) internal {
         if (g.code.length == 0) vm.etch(g, hex"60006000fd");
-        gauge.proposeAddGauge(g);
+        if (pair.code.length == 0) vm.etch(pair, hex"60006000fd");
+        gauge.proposeAddGauge(g, pair);
         vm.warp(block.timestamp + 24 hours + 1);
         gauge.executeAddGauge();
     }
@@ -90,7 +97,7 @@ contract GaugeControllerTest is Test {
     function test_addGauge_nonOwnerReverts() public {
         vm.prank(alice);
         vm.expectRevert();
-        gauge.proposeAddGauge(makeAddr("rogue"));
+        gauge.proposeAddGauge(makeAddr("rogue"), makeAddr("rogue_pair"));
     }
 
     // ── Voting ──────────────────────────────────────────────────────

@@ -85,10 +85,13 @@ contract Pass7_Gauge_DuplicateOnReAdd is Test {
 
         // Etch minimal bytecode at gaugeAddr (PUSH1 0; PUSH1 0; REVERT —
         // 5 bytes, satisfies G-02 NotAContract check).
+        // AUDIT FIX (pass-8) GOV-INT-01: also etch the paired pair address.
         vm.etch(gaugeAddr, hex"60006000fd");
+        address pairAddr = address(uint160(gaugeAddr) ^ uint160(1));
+        vm.etch(pairAddr, hex"60006000fd");
 
         // Add gauge for the first time.
-        gauge.proposeAddGauge(gaugeAddr);
+        gauge.proposeAddGauge(gaugeAddr, pairAddr);
         skip(25 hours);
         gauge.executeAddGauge();
         assertTrue(gauge.isGauge(gaugeAddr), "gauge added");
@@ -129,8 +132,10 @@ contract Pass7_Gauge_DuplicateOnReAdd is Test {
         // permanently. Post-fix, the new guard
         // `if (pendingGaugeRemove == gauge) revert GaugeRemovePending();`
         // refuses the re-add until the staged removal is finalized.
+        // AUDIT FIX (pass-8) GOV-INT-01: pass the paired pair to the new arg.
+        address pairAddr = address(uint160(gaugeAddr) ^ uint160(1));
         vm.expectRevert(GaugeController.GaugeRemovePending.selector);
-        gauge.proposeAddGauge(gaugeAddr);
+        gauge.proposeAddGauge(gaugeAddr, pairAddr);
 
         // The owner can recover by waiting an epoch (current-epoch weight
         // ages out) then calling `executeRemoveGaugeFinalize()`.
@@ -140,7 +145,7 @@ contract Pass7_Gauge_DuplicateOnReAdd is Test {
         assertEq(gauge.gaugeCount(), lenBefore - 1, "G removed from gaugeList");
 
         // Now re-add succeeds normally.
-        gauge.proposeAddGauge(gaugeAddr);
+        gauge.proposeAddGauge(gaugeAddr, pairAddr);
         skip(25 hours);
         gauge.executeAddGauge();
         assertTrue(gauge.isGauge(gaugeAddr), "G re-added cleanly");
@@ -164,8 +169,10 @@ contract Pass7_Gauge_DuplicateOnReAdd is Test {
         gauge.executeRemoveGaugeNextEpoch();
 
         // PASS7-GAUGE-H1 FIX: re-add blocked while pendingGaugeRemove set.
+        // AUDIT FIX (pass-8) GOV-INT-01: pass the paired pair to the new arg.
+        address pairAddr2 = address(uint160(gaugeAddr) ^ uint160(1));
         vm.expectRevert(GaugeController.GaugeRemovePending.selector);
-        gauge.proposeAddGauge(gaugeAddr);
+        gauge.proposeAddGauge(gaugeAddr, pairAddr2);
 
         emit log_string("PASS7-GAUGE-H1 FIX VALIDATED: single-cycle re-add reverts GaugeRemovePending");
     }

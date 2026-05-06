@@ -202,8 +202,11 @@ contract DeepGov03_14_GaugeControllerTest is Test {
 
     function _addGauge(address g) internal {
         // AUDIT FIX G-02: proposeAddGauge requires gauge.code.length > 0.
+        // AUDIT FIX (pass-8) GOV-INT-01: also requires non-zero `pair`.
         if (g.code.length == 0) vm.etch(g, hex"60006000fd");
-        gauge.proposeAddGauge(g);
+        address pair = address(uint160(g) ^ uint160(1));
+        if (pair.code.length == 0) vm.etch(pair, hex"60006000fd");
+        gauge.proposeAddGauge(g, pair);
         vm.warp(block.timestamp + 24 hours + 1);
         gauge.executeAddGauge();
     }

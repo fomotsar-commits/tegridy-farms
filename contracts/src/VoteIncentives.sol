@@ -45,6 +45,14 @@ interface ITegridyPair {
     function token1() external view returns (address);
 }
 
+/// @dev AUDIT FIX (pass-8): GOV-INT-01 / C8 — minimal interface to GaugeController's
+///      `pairToGauge` registry. Used by VoteIncentives to gate `depositBribe` /
+///      `depositBribeETH` on the existence of a registered gauge for the briber's pair,
+///      so a briber cannot strand a bond on a pair that has no emission distributor.
+interface IGaugeControllerPairs {
+    function pairToGauge(address pair) external view returns (address);
+}
+
 /// @title VoteIncentives — Bribe Market for veTOWELI Voters
 /// @notice External protocols deposit ETH or ERC20 bribes for specific pool pairs.
 ///         veTOWELI holders claim proportional to their votingPowerAtTimestamp().
@@ -85,8 +93,49 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     error LendingAdminNotSet();
     error VoteIncentivesAdminAlreadySet();
     error NotVoteIncentivesAdmin();
+    /// @notice AUDIT FIX (pass-8): GOV-INT-01 — `setGaugeController` is one-shot,
+    ///         mirrors the `setVoteIncentivesAdmin` / `setRestakingContract` patterns.
+    ///         Locks the GaugeController address once wired so a captured owner
+    ///         cannot retarget the bribe-eligibility check.
+    error GaugeControllerAlreadySet();
+    /// @notice AUDIT FIX (pass-8): GOV-INT-01 — `depositBribe`/`depositBribeETH`
+    ///         reverts when the briber's pair has no registered gauge. Closes
+    ///         the stranded-bond bug where bribes deposited on un-gauged pairs
+    ///         flowed into the contract with no recovery path.
+    error NoGaugeForPair();
 
     event VoteIncentivesAdminSet(address indexed admin);
+    event GaugeControllerSet(address indexed gaugeController);
+
+    /// @notice GaugeController address used as the source-of-truth for
+    ///         pair → gauge mapping. When zero, the bribe-eligibility check is
+    ///         skipped — preserves backwards compatibility for fixtures /
+    ///         deploys that haven't wired a GaugeController yet, but a
+    ///         production deploy MUST wire it post-construction via
+    ///         `setGaugeController(address)` to close GOV-INT-01.
+    /// @dev    Wired exactly once. Pattern of record: Velodrome / Aerodrome's
+    ///         pair → gauge registry on the Voter contract.
+    address public gaugeController;
+
+    function setGaugeController(address _gaugeController) external onlyOwner {
+        if (_gaugeController == address(0)) revert ZeroAddress();
+        if (gaugeController != address(0)) revert GaugeControllerAlreadySet();
+        require(_gaugeController.code.length > 0, "GC_MUST_BE_CONTRACT");
+        gaugeController = _gaugeController;
+        emit GaugeControllerSet(_gaugeController);
+    }
+
+    /// @dev AUDIT FIX (pass-8): GOV-INT-01 — internal pair-eligibility check.
+    ///      No-op when `gaugeController == address(0)` (pre-wiring fallback).
+    ///      Once a GaugeController is wired, every bribe deposit must target a
+    ///      pair that has a registered gauge.
+    function _requireGaugedPair(address pair) internal view {
+        address gc = gaugeController;
+        if (gc == address(0)) return;
+        if (IGaugeControllerPairs(gc).pairToGauge(pair) == address(0)) {
+            revert NoGaugeForPair();
+        }
+    }
 
     modifier onlyAdmin() {
         if (msg.sender != voteIncentivesAdmin) revert NotVoteIncentivesAdmin();
@@ -542,6 +591,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (amount == 0) revert ZeroAmount();
         if (!whitelistedTokens[token]) revert TokenNotWhitelisted();
         _validatePair(pair);
+        _requireGaugedPair(pair); // AUDIT FIX (pass-8): GOV-INT-01 / C8
 
         // Balance-diff for FoT tokens (same pattern as SwapFeeRouter)
         uint256 balBefore = IERC20(token).balanceOf(address(this));
@@ -606,6 +656,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // SECURITY FIX: Enforce minimum bribe to prevent dust spam DoS (Velodrome pattern)
         require(msg.value >= MIN_BRIBE_AMOUNT, "BRIBE_TOO_SMALL");
         _validatePair(pair);
+        _requireGaugedPair(pair); // AUDIT FIX (pass-8): GOV-INT-01 / C8
 
         // Take bribe fee
         uint256 fee = (msg.value * bribeFeeBps) / BPS;

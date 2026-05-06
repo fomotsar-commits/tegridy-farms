@@ -23,8 +23,10 @@ contract DeployGaugeControllerScript is Script {
         vm.stopBroadcast();
         // Next steps
         console.log("=== NEXT STEPS ===");
-        console.log("1. Add gauges: gauge.proposeAddGauge(lpFarmAddress)");
-        console.log("2. Wait 24h, then: gauge.executeAddGauge(lpFarmAddress)");
+        // AUDIT FIX (pass-8) GOV-INT-01: proposeAddGauge now takes (gauge, pair).
+        console.log("1. Add gauges: gauge.proposeAddGauge(lpFarmAddress, pairAddress)");
+        console.log("2. Wait 24h, then: gauge.executeAddGauge()");
         console.log("3. Update GAUGE_CONTROLLER_ADDRESS in frontend constants.ts");
+        console.log("4. On VoteIncentives: voteIncentives.setGaugeController(<gauge controller>)");
     }
 }

@@ -223,8 +223,11 @@ contract AuditR016_AMMGovTest is Test {
         stakingGov.setPosition(TOKEN_B, 100_000 ether, block.timestamp + 365 days);
         stakingGov.setPower(multiSafe, 100_000 ether);
         // AUDIT FIX G-02: proposeAddGauge requires gauge.code.length > 0.
+        // AUDIT FIX (pass-8) GOV-INT-01: also requires non-zero `pair`.
         if (g1.code.length == 0) vm.etch(g1, hex"60006000fd");
-        gauge.proposeAddGauge(g1);
+        address g1Pair = address(uint160(g1) ^ uint160(1));
+        if (g1Pair.code.length == 0) vm.etch(g1Pair, hex"60006000fd");
+        gauge.proposeAddGauge(g1, g1Pair);
         vm.warp(block.timestamp + 24 hours + 1);
         gauge.executeAddGauge();
 
