@@ -11,7 +11,7 @@ Before you read further, here's the methodology breakdown:
 | Type | Count | Description |
 |---|---|---|
 | **External, third-party methodology** | 2 | `SPARTAN_AUDIT.txt` (Apr 16, 2026) and the pre-release doc archived at [`docs/audits/archive/tegridy_farms_audit.docx`](./docs/audits/archive/tegridy_farms_audit.docx) (Mar 25, 2026) |
-| **Internal AI-agent reviews** | 13 | Parallel Claude/GPT agent sweeps. Useful as a breadth tool. **Not a substitute for a human audit firm.** Latest: **pass-7 adversarial multi-agent audit (May 3, 2026)** — see [`.audit_101/PASS7_2026_05_03.md`](./.audit_101/PASS7_2026_05_03.md). The lineage: 100→200→300→40-agent passes (Mar 2026), 101-agent canonical pass (Apr 25, 2026 — [`.audit_101/MASTER_REPORT.md`](./.audit_101/MASTER_REPORT.md) + remediation R001–R076), microscope (Apr 30), DEEP_2026_05_01 v1/v2/v3 (May 1), pass-5 cross-contract (May 2), pass-6 (May 3), pass-7 (May 3). |
+| **Internal AI-agent reviews** | 14 | Parallel Claude/GPT agent sweeps. Useful as a breadth tool. **Not a substitute for a human audit firm.** Latest: **pass-8 adversarial 100-agent audit (May 4–6, 2026)** — see [`.audit_101/PASS8_2026_05_04.md`](./.audit_101/PASS8_2026_05_04.md). The lineage: 100→200→300→40-agent passes (Mar 2026), 101-agent canonical pass (Apr 25, 2026 — [`.audit_101/MASTER_REPORT.md`](./.audit_101/MASTER_REPORT.md) + remediation R001–R076), microscope (Apr 30), DEEP_2026_05_01 v1/v2/v3 (May 1), pass-5 cross-contract (May 2), pass-6 (May 3), pass-7 (May 3), pass-8 (May 4–6). |
 | **Rolling remediation docs** | 3 | `FIX_STATUS.md`, `AUDIT_FINDINGS.md`, `CHANGELOG.md` |
 
 **If you are diligencing this protocol, read `SPARTAN_AUDIT.txt` + `AUDIT_FINDINGS.md` + `FIX_STATUS.md`. The rest is context.**
@@ -36,7 +36,8 @@ These live at the repo root because they are actively referenced:
 
 | File | Purpose |
 |---|---|
-| [`.audit_101/PASS7_2026_05_03.md`](./.audit_101/PASS7_2026_05_03.md) | **NEW (2026-05-03)**: pass-7 adversarial multi-agent audit (3 parallel worktree agents on oracle/AMM, staking/governance, lending/NFT). 1 Critical (latent V4-hook accounting), 6 High (cross-contract per-tokenId reward bucket cluster + permanent gauge-removal brick + TWAP fail-open carve-out), 4 Medium, 1 Low, 1 Info — **all OPEN, awaiting remediation**. 9 runnable Foundry PoCs at `contracts/test/PASS7_*.t.sol`. Per-bucket detailed docs preserved in `.claude/worktrees/agent-*/` for inspection. Cumulative: 405 (pass-6) + 13 (pass-7) = 418 audit-tracked items. |
+| [`.audit_101/PASS8_2026_05_04.md`](./.audit_101/PASS8_2026_05_04.md) | **NEW (2026-05-04 → 2026-05-06)**: pass-8 adversarial 100-agent audit + 18-batch same-week remediation. Five waves: 30 per-contract deep + 40 vulnerability-class + 15 cross-contract integration + 10 economic / MEV / game-theory + 5 specialized (compiler / toolchain / size / test-coverage / 2026-exploit research). ~675 raw → ~275 unique findings after dedup (10 Critical / ~140 High / ~165 Medium / ~110 Low / ~250 Info). **All in-scope items closed across 18 batches** (commits adfa452 → 1d058e2). Owner-trust subset deferred to dedicated multisig-policy phase. Test posture: 2,574/0. 6 PoC files at `contracts/test/PASS8_*.t.sol` (46 tests). Cumulative: 418 (pass-7) + ~275 (pass-8 deduped) = ~693 audit-tracked items. |
+| [`.audit_101/PASS7_2026_05_03.md`](./.audit_101/PASS7_2026_05_03.md) | **2026-05-03**: pass-7 adversarial multi-agent audit (3 parallel worktree agents on oracle/AMM, staking/governance, lending/NFT). 1 Critical (latent V4-hook accounting), 6 High (cross-contract per-tokenId reward bucket cluster + permanent gauge-removal brick + TWAP fail-open carve-out), 4 Medium, 1 Low, 1 Info — **all closed in same-week remediation** (commits b6b356d → 750e572). 9 runnable Foundry PoCs at `contracts/test/PASS7_*.t.sol`. Cumulative through pass-7: 418 audit-tracked items. |
 | [`.audit_101/PASS6_2026_05_03.md`](./.audit_101/PASS6_2026_05_03.md) | **2026-05-03**: pass-6 fresh-eyes meta-audit informed by 2024-2026 DeFi exploit retrospectives. 5 NEW contract HIGH + 5 NEW contract MED + 1 frontend CRIT + 5 frontend HIGH + 1 frontend LOW — **all closed** in commits `722d1f1` / `b1fb6d4` / `8266289` / `21db70b` / `975e5af` / `4b3a47f` (+ `672e4d8` vercel.json catch-up, `378d70d` AUDITS bump, `eed1c65` polish, `7889f25` 4 NEW invariant suites). Pass-7 subsequently disputed two pass-6 closure descriptions (TWAP HIGH-3 V3-AMM-L1 carve-out, LD-NEW-H1 settled-vs-settled axis, LD-NEW-H2 missing on TegridyLending side and on `claimStuckCollateral`, FRESH-EYES L missing on NFTLending) — see PASS7 §7 disagreements. |
 | [`.audit_101/PASS5_2026_05_02.md`](./.audit_101/PASS5_2026_05_02.md) | Pass-5 adversarial cross-contract audit (2026-05-02). 1 HIGH + 1 LOW + 1 INFO + 4 invariants (all PASS over 128k stateful calls each). |
 | [`.audit_101/POST_REMEDIATION_LEDGER.md`](./.audit_101/POST_REMEDIATION_LEDGER.md) | **2026-04-26**: post-remediation reconciliation. 14 fixes shipped across 11 commits closing 3 Critical + 7 High + 4 Medium findings, including R017/R020/R023/R028 fixes that prior docs claimed had shipped but had not. Pass-6 closures appended below the original ledger. |
@@ -79,7 +80,7 @@ Every finding that can be expressed as a test has one, under [`contracts/test/`]
 - `RedTeam_*.t.sol` — adversarial attack suites
 - `GaugeCommitReveal.t.sol` — H-2 commit-reveal closure (14 tests)
 
-**Current forge test count: 1,933 / 1,933 passing.**
+**Current forge test count: 2,574 / 2,574 passing** (post-pass-8 closure).
 
 Post-2026-04-26 additions: 8 demonstration tests in [`contracts/test/AuditDemonstration.t.sol`](./contracts/test/AuditDemonstration.t.sol) prove the new behavior of Batches A–J (commits 393b084 → 5fad774). See [`.audit_101/POST_REMEDIATION_LEDGER.md`](./.audit_101/POST_REMEDIATION_LEDGER.md) for the full per-finding breakdown.
 
@@ -143,8 +144,26 @@ May 03  ▸ Pass-7 adversarial multi-agent audit (.audit_101/PASS7_2026_05_03.md
             — 3 parallel worktree agents (oracle/AMM, staking/gov, lending/NFT)
             + 13 NEW findings (1 Critical / 6 High / 4 Medium / 1 Low / 1 Info)
             + 9 runnable Foundry PoCs at contracts/test/PASS7_*.t.sol
-            — all OPEN, awaiting remediation. Disputes 6 pass-6 closure
-            descriptions as incomplete (see PASS7 §7).
+            — all closed same-week (commits b6b356d → 750e572).
+May 04  ▸ Pass-8 adversarial 100-agent audit launched (.audit_101/PASS8_2026_05_04.md)
+            — 5 waves: 30 per-contract deep + 40 vulnerability-class
+            + 15 cross-contract integration + 10 economic / MEV / game-theory
+            + 5 specialized (compiler/toolchain/size/test-coverage/2026-exploit)
+            ~675 raw → ~275 unique findings after dedup (10 Crit / ~140 High /
+            ~165 Med / ~110 Low / ~250 Info)
+May 04-06 ▸ Pass-8 18-batch same-week remediation (commits adfa452 → 1d058e2)
+            — Phase 0 (deployability: TegridyLending split, TegridyStaking
+              under EIP-170 via Solady + JBAC vault split, VoteIncentives split)
+            + Phase 1 (CCR-01/02 reentrancy reorder, JBAC vault sister,
+              Phase 1.6 self-bribe arbitrage + sub-quorum claim)
+            + Phase 2 (lending offer expiry, BendDAO pattern)
+            + Phase 3 (TegridyFeeHook PoolKey allowlist, ERC20 fee unwrap,
+              TegridyNFTPool ERC-2981 royalty enforcement)
+            + Phase 4 (GaugeController pair binding, VotePowerOracle library)
+            + Phase 5 (ETH-ingress counters POLAccumulator + SwapFeeRouter)
+            6 PoC files (test/PASS8_*.t.sol), 46 tests; 2,574/0 forge total.
+            All in-scope items closed; owner-trust subset deferred to
+            dedicated multisig-policy phase.
 ```
 
 Each pass narrowed scope; March passes inventoried broadly, April passes tracked specific blockers.
@@ -177,4 +196,4 @@ Anything produced by an audit methodology (human review, parallel agents, extern
 
 ---
 
-*Last reviewed: 2026-04-20. Maintained by protocol maintainers.*
+*Last reviewed: 2026-05-06. Maintained by protocol maintainers.*

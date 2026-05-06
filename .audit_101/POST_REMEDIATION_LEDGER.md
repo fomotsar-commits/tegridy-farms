@@ -330,3 +330,120 @@ during the same pass via parallel-agent commits `975e5af` and `4b3a47f`.
 - **Frontend findings:** 1 Critical · 5 High · 1 Low — all CLOSED.
 - **Cumulative across 6 passes:** 388 + 10 = **398 contract findings**;
   + 7 frontend pass-6 closures = **405 audit-tracked items**.
+
+---
+
+## Pass-7 Closures (2026-05-03 → 2026-05-04)
+
+3 parallel worktree agents (oracle/AMM/fees, staking/governance, lending/NFT)
+re-attacked everything claimed closed by passes 1–6 + Spartan, plus the
+pass-6 invariant suite. Surfaced **1 Critical + 6 High + 4 Medium + 1 Low +
+1 Info = 13 NEW findings**, all closed in same-week remediation. Master
+report: [PASS7_2026_05_03.md](./PASS7_2026_05_03.md).
+
+| Finding | Sev | File:Line | Commit | Pattern |
+|---|---|---|---|---|
+| HOOK-01 | Critical | TegridyFeeHook.sol:282-302 | e15d785 | V4 hook `manager.take` inside afterSwap to settle hookDelta |
+| TWAP-01 | High | TegridyTWAP.sol:738 | 47ac719 | Drop V3-AMM-L1 carve-out; bypassed-anchor consult fail-closed |
+| GAUGE-H1 | High | GaugeController.sol:743-765 | 27a1653 | proposeAddGauge reverts while pendingGaugeRemove set |
+| LENDING-01 | High | TegridyLending.sol:824-834 | b6b356d | acceptOffer post-condition `staking.ownerOf == address(this)` |
+| LENDING-02 | High | TegridyLending.sol:993-1163 | b6b356d | `_safeOutboundTransferStaking` + stuck-collateral recovery |
+| LENDING-03 | High | TegridyLending.sol:840-851,955-1028,1108-1149 | b6b356d | settled-vs-settled cross-loan drain via snapshot+delta |
+| NFTLENDING-01 | High | TegridyNFTLending.sol:721-744 | b6b356d | claimStuckCollateral retries via `_safeOutboundTransfer` |
+| POL-02 | Med | POLAccumulator.sol:813-822,838-847 | 47ac719 | Mirror lending bypass-cooldown (60-min refuse) |
+| HOOK-03 | Med | TegridyFeeHook.sol:354-366 | e15d785 | claimFees uses plain IERC20.safeTransfer |
+| LPFARM-M1 | Med | TegridyLPFarming.sol:204-241 | afaeafb | Synthetix checkpoint-at-interaction for boost cache |
+| NFTLENDING-02 | Med | TegridyNFTLending.sol:996-1018 | b6b356d | Cancel-while-still-live carve-out |
+| DOC-04 | Low | Test/doc | 47ac719 | TWAP test realignment + FIX_STATUS narrowing |
+| SFR-05 | Info | SwapFeeRouter.sol:172-201,494-515,1923-1946 | 1649ad6 | L2 sequencer-uptime gate (one-shot setter) |
+| LENDING-04 | High | TegridyLending.sol:1845-1869 | 750e572 | directPaid + legacy double-claim reconcile (post-pass-7 surface) |
+
+### Net pass-7 totals
+
+- **Contract findings:** 1 Critical · 7 High · 4 Medium · 1 Low · 1 Info — all CLOSED.
+- **Cumulative across 7 passes:** 405 (pass-6) + 13 (pass-7) = **418 audit-tracked items**.
+
+---
+
+## Pass-8 Closures (2026-05-04 → 2026-05-06)
+
+100-agent fresh-eye adversarial pass run end-to-end against the full source
+tree (no prior-audit-doc consultation), organized as five waves: 30
+per-contract deep audits + 40 vulnerability-class scans + 15 cross-contract
+integration audits + 10 economic / MEV / game-theory + 5 specialized
+(compiler / toolchain / size / test-coverage / 2026-exploit pattern web
+research). Surfaced **~675 raw → ~275 unique findings after dedup** with
+**10 Critical + ~140 High + ~165 Medium + ~110 Low + ~250 Info**. Master
+report: [PASS8_2026_05_04.md](./PASS8_2026_05_04.md).
+
+**All in-scope items closed across 18 batches** (commits adfa452 → 1d058e2).
+Owner-trust subset (admin treasury rotation, captured-key drain paths,
+single-key pause, etc.) deferred to a dedicated multisig-policy phase per
+scope decision.
+
+### Pass-8 batches at a glance
+
+| Batch | Commit | Theme | Cluster |
+|---|---|---|---|
+| 1 | adfa452 family | LD-04 + GOV-ECON-01 + EIP-170 CI | Foundations |
+| 2 | adfa452 family | Restaker disenfranchisement (6 consumers) | VotePowerOracle wiring |
+| 3 | adfa452 family | Surgical exploit-by-anyone (5 contracts) | Authorization |
+| 4 | 895a183 family | TegridyLending split | Phase 0.1 |
+| 5 | 895a183 family | VoteIncentives split | Phase 0.3 |
+| 6 | 895a183 family | TegridyStaking trim + Restaking | Phase 0.2/0.4 partial |
+| 7 | 895a183 family | Solmate → Solady ERC721 | Phase 0.2 size |
+| 8 | 895a183 family | Phase 0.2 final-state assessment | Size headroom |
+| 9 | adfa452 | CCR-01 JBAC reentry + script migration | Phase 1.6 prep |
+| 10 | 08bf9ce | TF-INT-02 ERC20 fee stranding | Hook/integration |
+| 11 | 819bf50 | GOV-INT-01 GaugeController/VoteIncentives | Pair binding |
+| 12 | 6c1b607 | Phase 1.6 self-bribe + sub-quorum | Bribe market |
+| 13 | cb66614 | NFTPool fixture refresh | Test maint |
+| 14 | 895a183 | Phase 0.2 finish (TegridyStaking 24,544 B) | Phase 0.2 close |
+| 15 | 65ec7fa | Phase 3.5 lending offer expiry | BendDAO pattern |
+| 16 | 71bb3e8 | TegridyFeeHook PoolKey allowlist | Hook gate |
+| 17 | 7a605a8 | TegridyNFTPool ERC-2981 royalty | NFT pool |
+| 18 | 1d058e2 | ETH-ingress counters | Monitoring |
+
+### Phase 0 — Deployability final state
+
+| Contract | Final size | Headroom | Outcome |
+|---|---|---|---|
+| TegridyStaking | 24,544 B | 32 B | Solady + JBAC vault split + inline _clearPosition + drop supportsInterface + optimizer_runs=1 + 11 constants public→internal |
+| TegridyLending | 18,292 B | 6,284 B | Split into TegridyLending + TegridyLendingAdmin |
+| VoteIncentives | 22,447 B | 2,129 B | Split into VoteIncentives + VoteIncentivesAdmin |
+| TegridyRestaking | 24,011 B | 665 B | Trim |
+| TegridyFeeHook | 12,106 B | 12,470 B | (no change) |
+| TegridyNFTPool | 12,402 B | 12,174 B | (no change) |
+| TegridyStakingJbacVault | 1,615 B | 22,961 B | NEW sister contract |
+
+### Phase 1 invariants enforced (CCR-01)
+
+All 5 staking exit paths reordered so `_clearPosition` (which `_burn`s) runs
+**before** the JBAC return callback. Post-burn, Solady's `_ownerOf[id] == 0`
+causes any reentrant `transferFrom` / `acceptOffer` to revert. Same defense
+closes CCR-02 on TegridyRestaking.
+
+### Confirmed non-findings during pass-8 triage
+
+- **Phase 1.7** "governance VP double-spend" — each consumer (RevenueDistributor,
+  VoteIncentives, MemeBountyBoard, CommunityGrants) operates an independent
+  reward pool; VP is per-pool, not fungible.
+- **DROP-REVEAL-FORCE-RESOLVE** — TegridyDropV2 is mint-then-reveal (not
+  commit-reveal raffle); reveal is optional one-shot; cancellation pre-mint
+  only (DEEP-DROP-05); under-reveal cannot brick the drop.
+
+### Pass-8 test posture
+
+- **2,574 / 2,574 forge tests passing** across the active scope (post-pass-8 closure).
+- **6 PASS8 PoC files** under `contracts/test/PASS8_*.t.sol`:
+  GOV_INT_01 (12) + PHASE_1_6 (9) + PHASE_3_5 (10) + HOOK_ALLOWLIST (6) +
+  ROYALTY (5) + ETH_COUNTERS (4) = **46 tests**.
+- ~25 legacy tests updated for vault wiring, admin migration, ERC721 import
+  alias, and hardcoded constants after public→internal trimming.
+
+### Net pass-8 totals
+
+- **Closed:** 10 Critical + ~140 High + ~165 Medium + ~110 Low + ~250 Info
+  (after triage / dedup), minus owner-trust deferred subset.
+- **Cumulative across 8 passes:** 418 (pass-7) + ~275 (pass-8 deduped) =
+  **~693 audit-tracked items** total.

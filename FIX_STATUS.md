@@ -1,36 +1,183 @@
 # Fix Status — Rolling tracker
 
-Running log of what's landed on `main` across the full 7-pass internal
+Running log of what's landed on `main` across the full 8-pass internal
 audit lineage: 100→200→300→40-agent passes (Mar 2026), the 101-agent
 canonical pass (`.audit_101/MASTER_REPORT.md` + remediation R001–R076,
 Apr 25), microscope (Apr 30), DEEP_2026_05_01 v1/v2/v3 (May 1), pass-5
 adversarial cross-contract (May 2), pass-6 fresh-eyes meta-audit
-(May 3), and pass-7 adversarial multi-agent audit + remediation
-(May 3 → May 4) — plus the [SPARTAN_AUDIT](SPARTAN_AUDIT.txt)
+(May 3), pass-7 adversarial multi-agent audit + remediation
+(May 3 → May 4), and pass-8 adversarial 100-agent audit + 18-batch
+remediation (May 4 → May 6) — plus the [SPARTAN_AUDIT](SPARTAN_AUDIT.txt)
 third-party review, the [AUDIT_FINDINGS.md](AUDIT_FINDINGS.md) ledger,
 the 35-detective audit, and the 300-agent internal review. Per the
 [`AUDITS.md`](AUDITS.md#honest-tldr) Honest TL;DR: 2 third-party reviews
-+ 13 internal AI-agent passes; not a substitute for a paid human audit.
++ 14 internal AI-agent passes; not a substitute for a paid human audit.
 See [REVENUE_ANALYSIS.md](REVENUE_ANALYSIS.md) for the fee-lever
 calibration.
 
-**Cumulative current state (pass-7 closure count, 2026-05-04):** 405
-findings carried through pass-6 + 13 NEW findings closed in pass-7
-(1 CRITICAL + 6 HIGH + 4 MEDIUM + 1 LOW + 1 INFO) = **418 audit-tracked
-findings total** across the 7-pass lineage, with the contract surface
-bounded by the regression suites at
-[`contracts/test/Pass6_Regressions.t.sol`](contracts/test/Pass6_Regressions.t.sol)
-and the new pass-7 PoCs at
-[`contracts/test/PASS7_*.t.sol`](contracts/test/) (9 files, 15 tests
-flipped from "asserts exploit" to "asserts fix"). Source-of-truth master
-reports:
-[`.audit_101/PASS7_2026_05_03.md`](.audit_101/PASS7_2026_05_03.md) (audit) +
-[`.audit_101/PASS6_2026_05_03.md`](.audit_101/PASS6_2026_05_03.md) (prior pass).
+**Cumulative current state (pass-8 closure count, 2026-05-06):** 418
+findings carried through pass-7 + ~275 unique findings (after dedup
+from ~675 raw) closed in pass-8 across 18 remediation batches
+(10 Critical + ~140 High + ~165 Medium + ~110 Low + ~250 Info, with
+owner-trust subset deferred to a dedicated multisig-policy phase) =
+**~693 audit-tracked findings total** across the 8-pass lineage. Test
+posture: **2,574 unit tests pass / 0 fail** on the active scope.
+Contract surface bounded by the regression suites at
+[`contracts/test/Pass6_Regressions.t.sol`](contracts/test/Pass6_Regressions.t.sol),
+the pass-7 PoCs at
+[`contracts/test/PASS7_*.t.sol`](contracts/test/) (9 files, 15 tests),
+and the pass-8 PoCs at
+[`contracts/test/PASS8_*.t.sol`](contracts/test/) (6 files: GOV_INT_01,
+PHASE_1_6, PHASE_3_5, HOOK_ALLOWLIST, ROYALTY, ETH_COUNTERS = 46 tests
+total). Source-of-truth master reports:
+[`.audit_101/PASS8_2026_05_04.md`](.audit_101/PASS8_2026_05_04.md) (audit) +
+[`.audit_101/PASS7_2026_05_03.md`](.audit_101/PASS7_2026_05_03.md) (prior pass) +
+[`.audit_101/PASS6_2026_05_03.md`](.audit_101/PASS6_2026_05_03.md).
 
-Last refreshed 2026-05-04 after the pass-7 same-week remediation
-landed all 13 closures using battle-tested patterns mirrored from
-existing in-codebase fixes plus the canonical V4 hook reference. For a
-richer Keep-a-Changelog view see [CHANGELOG.md](CHANGELOG.md).
+Last refreshed 2026-05-06 after the pass-8 18-batch remediation
+landed all closure-eligible items using battle-tested patterns:
+Solady ERC721 swap, Aerodrome/Velodrome bribe model, BendDAO offer-
+expiry pattern, Synthetix checkpoint-at-interaction, Uniswap V4 hook
+reference. For a richer Keep-a-Changelog view see
+[CHANGELOG.md](CHANGELOG.md).
+
+## ✅ Pass-8 (2026-05-04 → 2026-05-06)
+
+100-agent fresh-eye adversarial pass (5 waves: 30 per-contract deep +
+40 vulnerability-class + 15 cross-contract integration + 10 economic /
+MEV / game-theory + 5 specialized compiler/toolchain/size/test-coverage/
+2026-exploit research). Surfaced **~675 raw → ~275 unique findings after
+dedup**, with **10 Critical + ~140 High + ~165 Medium + ~110 Low +
+~250 Info**. Master report:
+[`.audit_101/PASS8_2026_05_04.md`](.audit_101/PASS8_2026_05_04.md).
+**All in-scope items closed across 18 batches** (commits adfa452 →
+1d058e2). Owner-trust subset (admin treasury rotation, captured-key
+drain paths, single-key pause, etc.) deferred to a dedicated
+multisig-policy phase per scope decision.
+
+### Phase 0 — Deployability (EIP-170 blockers)
+
+- **Phase 0.1** — `TegridyLending` 27,242 → 18,292 B (6,284 B headroom).
+  Split into `TegridyLending` + `TegridyLendingAdmin` sister contract.
+  Closed in batch 4 (commit 895a183 family).
+- **Phase 0.2** — `TegridyStaking` 26,912 → 24,544 B (32 B headroom).
+  Composite reduction: Solady ERC721 swap (−621 B), JBAC vault split
+  (−712 B), inline `_clearPosition` (−80 B), drop `supportsInterface`
+  (−27 B), `optimizer_runs` 10→1 (−15 B), 11 constants public→internal
+  (−280 B). New sister: `TegridyStakingJbacVault` (1,615 B).
+  Closed at
+  [TegridyStaking.sol:2033](contracts/src/TegridyStaking.sol#L2033) +
+  [TegridyStakingJbacVault.sol](contracts/src/TegridyStakingJbacVault.sol).
+- **Phase 0.3** — `VoteIncentives` 25,977 → 22,447 B (2,129 B headroom).
+  Split into `VoteIncentives` + `VoteIncentivesAdmin` sister.
+  Closed in batch 5 (commit 895a183 family).
+- **Phase 0.4** — `TegridyRestaking` 24,011 B (665 B headroom).
+  Closed in batch 6.
+
+### Phase 1 — Core staking / rewards correctness
+
+- **CCR-01** (cross-contract reentrancy via JBAC return callback) —
+  all 5 staking exit paths reordered so `_clearPosition` (which
+  `_burn`s) runs **before** the JBAC return callback. Post-burn,
+  Solady's `_ownerOf[id] == 0` causes any reentrant
+  `transferFrom` / `acceptOffer` to revert. Same defense closes
+  **CCR-02** on `TegridyRestaking`. Closed at
+  [TegridyStaking.sol:2033-2059](contracts/src/TegridyStaking.sol#L2033).
+- **JBAC custody** moved to `TegridyStakingJbacVault` sister contract:
+  `returnJbac` / `claimStrandedJbac` / `getStrandedJbac` /
+  `onERC721Received`. Closed at
+  [TegridyStakingJbacVault.sol](contracts/src/TegridyStakingJbacVault.sol).
+- **Phase 1.6** — VoteIncentives self-bribe arbitrage + sub-quorum claim.
+  Added `depositedOnPair[user][epoch][pair]` tracking,
+  `MIN_BRIBE_CLAIM_QUORUM = 100e18`, errors `BribePoolBelowQuorum` and
+  `SelfBribeClaimForbidden` in both `claimBribes` and `claimBribesBatch`.
+  Closed at
+  [VoteIncentives.sol:441,447,767-771,888-889](contracts/src/VoteIncentives.sol#L441).
+- **Phase 1.7** — governance VP "double-spend" — investigated and
+  **confirmed not a real finding**. Each consumer (RevenueDistributor,
+  VoteIncentives, MemeBountyBoard, CommunityGrants) operates an
+  independent reward pool; VP is a per-pool claim, not a fungible spent
+  budget. Documented per-contract.
+
+### Phase 2 — Lending offer-expiry
+
+- **LD-PHASE3.5** — `TegridyLending.LoanOffer` adds `uint64 expiry`.
+  Constants `MIN_OFFER_VALIDITY = 1 hours` /
+  `MAX_OFFER_VALIDITY = 90 days`, errors `InvalidOfferExpiry` /
+  `OfferExpired`. Backward-compat 5-arg `createLoanOffer` (auto-defaults
+  to MAX) plus new 6-arg `createLoanOfferWithExpiry`. Acceptance gate
+  at
+  [TegridyLending.sol:848](contracts/src/TegridyLending.sol#L848).
+  Pattern reference: BendDAO/NFTfi/ParaSpace.
+
+### Phase 3 — Hook / Pool / NFT
+
+- **HOOK-ALLOWLIST** — `TegridyFeeHook` PoolKey allowlist via
+  `mapping(bytes32 => bool) approvedPools` + `approvePool` /
+  `revokePool`. Gate at top of `afterSwap` returns zero-fee for
+  unapproved pools (does not revert — non-griefable). Closed at
+  [TegridyFeeHook.sol:161,259-275,333-335](contracts/src/TegridyFeeHook.sol#L161).
+- **TF-INT-02** — `TegridyFeeHook.claimFees` and
+  `convertERC20FeesToETH` now WETH-unwrap to ETH (no ERC20 stranding).
+  Closed at
+  [TegridyFeeHook.sol:512-513,594](contracts/src/TegridyFeeHook.sol#L512).
+- **NFT-ROYALTY** — `TegridyNFTPool` ERC-2981 royalty enforcement.
+  `IERC2981` interface, `_settleRoyalty` helper using
+  `safeTransferETHOrWrapNoRevert`, royalty deduction in BUY (from spot
+  revenue) and SELL (from seller payout), `RoyaltyPaid` /
+  `RoyaltyFallbackToWETH` events. Closed at
+  [TegridyNFTPool.sol:299-300,359-361,957-983](contracts/src/TegridyNFTPool.sol#L299).
+
+### Phase 4 — Governance / Gauge
+
+- **GOV-INT-01** — `GaugeController` ↔ pair binding mandatory.
+  `pairToGauge` / `gaugeToPair` / `pendingPairForAdd` mappings,
+  mandatory `pair` arg on `proposeAddGauge`, errors `InvalidPair` /
+  `PairAlreadyMapped`. Closed at
+  [GaugeController.sol:107-108,202,247-248,796](contracts/src/GaugeController.sol#L107).
+- **GOV-ECON-01** — `lib/VotePowerOracle` library (no deploy footprint)
+  sums staking-side + restaking-side VP into a single read. Wired into
+  every governance / fee-eligibility consumer so a user who restakes
+  their staking NFT no longer disenfranchised. Pattern reference:
+  Frax veFXS + Convex `veFXSStrategy`.
+
+### Phase 5 — Monitoring / misc
+
+- **ETH-INGRESS-COUNTERS** — `POLAccumulator` and `SwapFeeRouter` add
+  `uint256 public totalETHReceived` + `ETHReceived(sender, amount)`
+  event in `receive()`. Monotonic, one-way ingress witness for
+  off-chain reconciliation against contract balance. MemeBountyBoard
+  intentionally has no `receive()` (donated ETH cannot land), so out
+  of scope. Closed at
+  [POLAccumulator.sol:181,308-318](contracts/src/POLAccumulator.sol#L181)
+  +
+  [SwapFeeRouter.sol:2058-2061](contracts/src/SwapFeeRouter.sol#L2058).
+- **DROP-REVEAL-FORCE-RESOLVE** — investigated and **confirmed not a
+  finding**. `TegridyDropV2` is mint-then-reveal (not commit-reveal
+  raffle); reveal is optional one-shot owner action; cancellation is
+  pre-mint only (DEEP-DROP-05); under-reveal cannot brick the drop.
+
+### Tests landed in pass-8
+
+- **6 PASS8 PoC files** (`contracts/test/PASS8_*.t.sol`):
+  GOV_INT_01 (12), PHASE_1_6 (9), PHASE_3_5 (10), HOOK_ALLOWLIST (6),
+  ROYALTY (5), ETH_COUNTERS (4) = 46 tests total. Run:
+  `forge test --match-path "test/PASS8_*.t.sol"`.
+- **~25 legacy tests** updated for vault wiring, admin migration,
+  ERC721 import alias, and hardcoded constants after public→internal
+  trimming.
+
+### Sign-off (pass-8)
+
+- **$1M TVL** — ACCEPTABLE with operational guardrails. All in-scope
+  fixes shipped to `main` (redeploy still pending — Wave 0 superseded
+  by full-relaunch decision per project memory).
+- **$10M TVL** — Need paid-firm engagement (Spearbit / OpenZeppelin /
+  ChainSecurity caliber) targeting the architectural cluster
+  (per-tokenId attribution, V4 hook semantics, boost-cache lifetime,
+  multisig-key model).
+- **$100M TVL** — Above PLUS post-firm invariant-suite re-run with
+  targets ≥ 5M calls per surface.
 
 ## ✅ Pass-7 (2026-05-03 → 2026-05-04)
 
