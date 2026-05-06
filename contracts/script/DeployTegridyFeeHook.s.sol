@@ -25,6 +25,7 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 ///      PRIVATE_KEY       — deployer EOA
 ///      POOL_MANAGER      — Uniswap V4 pool manager address on the target chain
 ///      REVENUE_DIST      — address of RevenueDistributor (see constants.ts)
+///      WETH              — canonical WETH9 for the deployment chain (AUDIT FIX TF-INT-02)
 ///      CREATE2_SALT      — 32-byte hex salt, precomputed off-chain (see README below)
 ///      HOOK_OWNER        — (optional) address to own the hook. Defaults to deployer EOA.
 ///      TEGRIDY_FEE_HOOK_BPS — (optional) fee in bps, default 30 = 0.3%
@@ -34,8 +35,8 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 ///      2) Get initCodeHash:
 ///          CREATION=$(cat out/TegridyFeeHook.sol/TegridyFeeHook.json | \
 ///             node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8'));process.stdout.write(d.bytecode.object);")
-///          CTOR_ARGS=$(cast abi-encode "f(address,address,uint256,address)" \
-///             "$POOL_MANAGER" "$REVENUE_DIST" 30 "$HOOK_OWNER")
+///          CTOR_ARGS=$(cast abi-encode "f(address,address,uint256,address,address)" \
+///             "$POOL_MANAGER" "$REVENUE_DIST" 30 "$HOOK_OWNER" "$WETH")
 ///          INITCODE_HASH=$(cast keccak "${CREATION}${CTOR_ARGS:2}")
 ///      3) Mine:
 ///          cast create2 --ends-with 0044 --init-code-hash $INITCODE_HASH \
@@ -53,17 +54,22 @@ contract DeployTegridyFeeHook is Script {
         // FRESH-EYES M-7: HOOK_OWNER must be set explicitly. Defaulting to deployer EOA
         // silently leaves the hook owned by an EOA instead of the intended multisig.
         address hookOwner = vm.envAddress("HOOK_OWNER");
+        // AUDIT FIX (pass-8): TF-INT-02. WETH is required so the hook can unwrap WETH
+        // fees to native ETH and validate non-WETH conversion paths.
+        address weth = vm.envAddress("WETH");
         uint256 feeBps = vm.envOr("TEGRIDY_FEE_HOOK_BPS", uint256(30));
         salt = vm.envBytes32("CREATE2_SALT");
 
         require(poolManager != address(0), "POOL_MANAGER not set");
         require(revenueDist != address(0), "REVENUE_DIST not set");
         require(hookOwner != address(0), "HOOK_OWNER not set");
+        require(weth != address(0), "WETH not set");
         require(salt != bytes32(0), "CREATE2_SALT not set (mine off-chain via cast create2)");
 
         console2.log("Hook owner:", hookOwner);
         console2.log("PoolManager:", poolManager);
         console2.log("RevenueDist:", revenueDist);
+        console2.log("WETH:", weth);
         console2.log("Fee bps:", feeBps);
 
         vm.startBroadcast();
@@ -72,7 +78,8 @@ contract DeployTegridyFeeHook is Script {
             IPoolManager(poolManager),
             revenueDist,
             feeBps,
-            hookOwner
+            hookOwner,
+            weth
         );
         vm.stopBroadcast();
 

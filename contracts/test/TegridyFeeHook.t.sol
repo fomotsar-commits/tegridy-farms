@@ -29,6 +29,9 @@ contract TegridyFeeHookTest is Test {
     address public alice = makeAddr("alice");
     address public distributor = makeAddr("distributor");
     address public newDistributor = makeAddr("newDistributor");
+    // AUDIT FIX (pass-8): TF-INT-02. Constructor now takes WETH; mock address suffices
+    // for paths that don't exercise the unwrap leg.
+    address public weth = makeAddr("weth");
 
     uint256 public constant INITIAL_FEE = 30; // 0.3%
 
@@ -39,7 +42,7 @@ contract TegridyFeeHookTest is Test {
         // The TegridyFeeHook constructor requires: uint160(address(this)) & 0x0044 == 0x0044
         // Use deployCodeTo to place the contract at a valid hook address.
         address hookAddr = address(uint160(0x0044));
-        bytes memory args = abi.encode(IPoolManager(address(poolManager)), distributor, INITIAL_FEE, owner);
+        bytes memory args = abi.encode(IPoolManager(address(poolManager)), distributor, INITIAL_FEE, owner, weth);
         deployCodeTo("TegridyFeeHook.sol:TegridyFeeHook", args, hookAddr);
         hook = TegridyFeeHook(payable(hookAddr));
     }
@@ -50,16 +53,23 @@ contract TegridyFeeHookTest is Test {
         assertEq(address(hook.poolManager()), address(poolManager));
         assertEq(hook.revenueDistributor(), distributor);
         assertEq(hook.feeBps(), INITIAL_FEE);
+        assertEq(hook.WETH(), weth);
     }
 
     function test_constructor_revert_zeroPoolManager() public {
         vm.expectRevert(TegridyFeeHook.ZeroAddress.selector);
-        new TegridyFeeHook(IPoolManager(address(0)), distributor, INITIAL_FEE, owner);
+        new TegridyFeeHook(IPoolManager(address(0)), distributor, INITIAL_FEE, owner, weth);
     }
 
     function test_constructor_revert_zeroDistributor() public {
         vm.expectRevert(TegridyFeeHook.ZeroAddress.selector);
-        new TegridyFeeHook(IPoolManager(address(poolManager)), address(0), INITIAL_FEE, owner);
+        new TegridyFeeHook(IPoolManager(address(poolManager)), address(0), INITIAL_FEE, owner, weth);
+    }
+
+    function test_constructor_revert_zeroWETH() public {
+        // AUDIT FIX (pass-8): TF-INT-02. Zero WETH is rejected at construction.
+        vm.expectRevert(TegridyFeeHook.ZeroAddress.selector);
+        new TegridyFeeHook(IPoolManager(address(poolManager)), distributor, INITIAL_FEE, owner, address(0));
     }
 
     function test_constructor_revert_zeroOwner() public {
@@ -68,12 +78,12 @@ contract TegridyFeeHookTest is Test {
         vm.expectRevert(
             abi.encodeWithSignature("OwnableInvalidOwner(address)", address(0))
         );
-        new TegridyFeeHook(IPoolManager(address(poolManager)), distributor, INITIAL_FEE, address(0));
+        new TegridyFeeHook(IPoolManager(address(poolManager)), distributor, INITIAL_FEE, address(0), weth);
     }
 
     function test_constructor_revert_feeTooHigh() public {
         vm.expectRevert(TegridyFeeHook.FeeTooHigh.selector);
-        new TegridyFeeHook(IPoolManager(address(poolManager)), distributor, 101, owner);
+        new TegridyFeeHook(IPoolManager(address(poolManager)), distributor, 101, owner, weth);
     }
 
     // ─── Deprecated setFee() reverts ────────────────────────────────
@@ -332,5 +342,296 @@ contract TegridyFeeHookTest is Test {
 
         hook.executeSyncAccruedFees(token);
         assertEq(hook.accruedFees(token), 900);
+    }
+}
+
+// ─── AUDIT FIX (pass-8) TF-INT-02: ERC20 → ETH conversion path coverage ──
+
+/// @dev Minimal ERC20 used by the conversion-path tests. Standard transfer/approve.
+contract TF_INT_02_MockERC20 {
+    string public constant name = "Mock";
+    string public constant symbol = "MOCK";
+    uint8 public constant decimals = 18;
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+    function mint(address to, uint256 amt) external { balanceOf[to] += amt; }
+    function approve(address s, uint256 a) external returns (bool) { allowance[msg.sender][s] = a; return true; }
+    function transfer(address to, uint256 a) external returns (bool) {
+        balanceOf[msg.sender] -= a; balanceOf[to] += a; return true;
+    }
+    function transferFrom(address f, address to, uint256 a) external returns (bool) {
+        if (allowance[f][msg.sender] != type(uint256).max) allowance[f][msg.sender] -= a;
+        balanceOf[f] -= a; balanceOf[to] += a; return true;
+    }
+}
+
+/// @dev Minimal WETH9 — supports deposit / withdraw / balanceOf / transfer.
+contract TF_INT_02_MockWETH {
+    string public constant name = "Wrapped Ether";
+    string public constant symbol = "WETH";
+    uint8 public constant decimals = 18;
+    mapping(address => uint256) public balanceOf;
+    function deposit() external payable { balanceOf[msg.sender] += msg.value; }
+    function withdraw(uint256 a) external {
+        balanceOf[msg.sender] -= a;
+        (bool ok,) = msg.sender.call{value: a}("");
+        require(ok, "WETH_WITHDRAW_FAIL");
+    }
+    function transfer(address to, uint256 a) external returns (bool) {
+        balanceOf[msg.sender] -= a; balanceOf[to] += a; return true;
+    }
+    function approve(address, uint256) external pure returns (bool) { return true; }
+    receive() external payable { balanceOf[msg.sender] += msg.value; }
+}
+
+/// @dev Minimal V2 router — supports `WETH()` + `swapExactTokensForETH`.
+contract TF_INT_02_MockV2Router {
+    address public immutable WETH9;
+    /// @dev Configurable rate: ethOut = (amountIn * rateBps) / 10_000
+    uint256 public rateBps = 10_000; // 1:1 by default
+    constructor(address _weth) payable { WETH9 = _weth; }
+    function WETH() external view returns (address) { return WETH9; }
+    function setRate(uint256 _bps) external { rateBps = _bps; }
+    function swapExactTokensForETH(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 /*deadline*/
+    ) external returns (uint256[] memory amounts) {
+        // Pull token (uses approval the hook just granted via forceApprove).
+        TF_INT_02_MockERC20(path[0]).transferFrom(msg.sender, address(this), amountIn);
+        uint256 ethOut = (amountIn * rateBps) / 10_000;
+        require(ethOut >= amountOutMin, "MIN_OUT");
+        // Pay ETH to the recipient.
+        (bool ok,) = to.call{value: ethOut}("");
+        require(ok, "ROUTER_PAY_FAIL");
+        amounts = new uint256[](2);
+        amounts[0] = amountIn;
+        amounts[1] = ethOut;
+    }
+    receive() external payable {}
+}
+
+/// @dev Distributor that records received ETH within the 10k-gas WETHFallbackLib stipend.
+///      The +1 to a hot-warm slot fits in <10k once the slot is pre-warmed.
+///      AUDIT FIX (pass-8 batch-10 test): the recorder MUST keep its receive() under 10k
+///      gas, otherwise WETHFallbackLib falls back to the WETH-wrap path and we see WETH
+///      instead of ETH at the distributor. We pre-warm the slot via the constructor.
+contract TF_INT_02_RecordingDistributor {
+    uint256 public ethReceived;
+    constructor() {
+        // Pre-warm the slot so the receive() write costs ~5k (warm SSTORE) instead of
+        // ~22k (cold SSTORE), keeping us under the WETHFallbackLib 10k stipend.
+        ethReceived = 1;
+    }
+    receive() external payable { unchecked { ethReceived += msg.value; } }
+}
+
+contract TF_INT_02_ConvertTest is Test {
+    TegridyFeeHook public hook;
+    MockPoolManager public poolManager;
+    TF_INT_02_MockERC20 public token;
+    TF_INT_02_MockWETH public weth;
+    TF_INT_02_MockV2Router public router;
+    TF_INT_02_RecordingDistributor public distributor;
+
+    address public owner;
+    address public alice = makeAddr("alice_tfint02");
+
+    function setUp() public {
+        owner = address(this);
+        poolManager = new MockPoolManager();
+        token = new TF_INT_02_MockERC20();
+        weth = new TF_INT_02_MockWETH();
+        // Pre-fund the router with ETH so it can pay out swaps.
+        router = new TF_INT_02_MockV2Router{value: 100 ether}(address(weth));
+        distributor = new TF_INT_02_RecordingDistributor();
+
+        address hookAddr = address(uint160(0x0044));
+        bytes memory args = abi.encode(IPoolManager(address(poolManager)), address(distributor), uint256(30), owner, address(weth));
+        deployCodeTo("TegridyFeeHook.sol:TegridyFeeHook", args, hookAddr);
+        hook = TegridyFeeHook(payable(hookAddr));
+    }
+
+    /// @notice Happy path: hook holds ERC20, owner converts to ETH, ETH lands at distributor.
+    function test_convertERC20FeesToETH_happyPath() public {
+        // Fund hook with 100 token; with 1:1 router rate, expect 100 ETH out.
+        token.mint(address(hook), 100 ether);
+
+        address[] memory path = new address[](2);
+        path[0] = address(token);
+        path[1] = address(weth);
+
+        hook.convertERC20FeesToETH(
+            address(token),
+            address(router),
+            path,
+            99 ether, // minETHOut floor
+            block.timestamp + 5 minutes
+        );
+
+        assertEq(token.balanceOf(address(hook)), 0, "hook must have drained ERC20");
+        // Pre-warm baseline is 1 (set in constructor); add expected ETH on top.
+        assertEq(distributor.ethReceived(), 1 + 100 ether, "distributor must have received ETH");
+    }
+
+    /// @notice Sandwich-floor sanity: minETHOut higher than achievable reverts InsufficientETHOut.
+    function test_convertERC20FeesToETH_revertsBelowMinETHOut() public {
+        token.mint(address(hook), 100 ether);
+        router.setRate(5_000); // 50% rate → 50 ETH out for 100 token in
+
+        address[] memory path = new address[](2);
+        path[0] = address(token);
+        path[1] = address(weth);
+
+        // Asking for 60 — router will refuse the trade because it under-pays vs minOut.
+        // The router-side `MIN_OUT` revert fires inside the inner call, which bubbles
+        // through Solidity's automatic forwarder. We don't pin the exact selector here.
+        vm.expectRevert();
+        hook.convertERC20FeesToETH(
+            address(token),
+            address(router),
+            path,
+            60 ether,
+            block.timestamp + 5 minutes
+        );
+    }
+
+    /// @notice Reverts for non-owner.
+    function test_convertERC20FeesToETH_onlyOwner() public {
+        token.mint(address(hook), 1 ether);
+        address[] memory path = new address[](2);
+        path[0] = address(token);
+        path[1] = address(weth);
+
+        vm.prank(alice);
+        vm.expectRevert();
+        hook.convertERC20FeesToETH(
+            address(token),
+            address(router),
+            path,
+            0,
+            block.timestamp + 5 minutes
+        );
+    }
+
+    /// @notice Path validation: end != WETH reverts InvalidConversionPath.
+    function test_convertERC20FeesToETH_pathEndMustBeWETH() public {
+        token.mint(address(hook), 1 ether);
+        address[] memory path = new address[](2);
+        path[0] = address(token);
+        path[1] = address(0xDEAD); // not WETH
+
+        vm.expectRevert(TegridyFeeHook.InvalidConversionPath.selector);
+        hook.convertERC20FeesToETH(
+            address(token),
+            address(router),
+            path,
+            0,
+            block.timestamp + 5 minutes
+        );
+    }
+
+    /// @notice Router whose WETH() doesn't match the immutable WETH reverts.
+    function test_convertERC20FeesToETH_routerWETHMismatchReverts() public {
+        token.mint(address(hook), 1 ether);
+        // Router that reports a different WETH.
+        TF_INT_02_MockWETH otherWETH = new TF_INT_02_MockWETH();
+        TF_INT_02_MockV2Router otherRouter = new TF_INT_02_MockV2Router(address(otherWETH));
+
+        address[] memory path = new address[](2);
+        path[0] = address(token);
+        path[1] = address(weth); // path-end matches the hook's WETH
+
+        vm.expectRevert(TegridyFeeHook.InvalidConversionPath.selector);
+        hook.convertERC20FeesToETH(
+            address(token),
+            address(otherRouter), // but router's WETH() != hook.WETH
+            path,
+            0,
+            block.timestamp + 5 minutes
+        );
+    }
+
+    /// @notice currency=WETH on the convert function reverts ZeroAddress (caller should use claimFees).
+    function test_convertERC20FeesToETH_rejectsWETH() public {
+        address[] memory path = new address[](2);
+        path[0] = address(weth);
+        path[1] = address(weth);
+
+        vm.expectRevert(TegridyFeeHook.ZeroAddress.selector);
+        hook.convertERC20FeesToETH(
+            address(weth),
+            address(router),
+            path,
+            0,
+            block.timestamp + 5 minutes
+        );
+    }
+
+    /// @notice Empty balance → NothingToConvert.
+    function test_convertERC20FeesToETH_zeroBalanceReverts() public {
+        address[] memory path = new address[](2);
+        path[0] = address(token);
+        path[1] = address(weth);
+
+        vm.expectRevert(TegridyFeeHook.NothingToConvert.selector);
+        hook.convertERC20FeesToETH(
+            address(token),
+            address(router),
+            path,
+            0,
+            block.timestamp + 5 minutes
+        );
+    }
+
+    /// @notice Past-deadline reverts DeadlineOutOfRange.
+    function test_convertERC20FeesToETH_pastDeadlineReverts() public {
+        token.mint(address(hook), 1 ether);
+        address[] memory path = new address[](2);
+        path[0] = address(token);
+        path[1] = address(weth);
+
+        vm.expectRevert(TegridyFeeHook.DeadlineOutOfRange.selector);
+        hook.convertERC20FeesToETH(
+            address(token),
+            address(router),
+            path,
+            0,
+            block.timestamp - 1
+        );
+    }
+
+    /// @notice Far-future deadline reverts DeadlineOutOfRange.
+    function test_convertERC20FeesToETH_farFutureDeadlineReverts() public {
+        token.mint(address(hook), 1 ether);
+        address[] memory path = new address[](2);
+        path[0] = address(token);
+        path[1] = address(weth);
+
+        vm.expectRevert(TegridyFeeHook.DeadlineOutOfRange.selector);
+        hook.convertERC20FeesToETH(
+            address(token),
+            address(router),
+            path,
+            0,
+            block.timestamp + 1 hours // > 30 minutes cap
+        );
+    }
+
+    /// @notice claimFees(WETH, amount) unwraps WETH on the hook and forwards as ETH.
+    function test_claimFees_unwrapsWETHAndForwards() public {
+        // Pre-fund hook with 5 WETH and bump accruedFees so the gate passes.
+        vm.deal(address(this), 5 ether);
+        weth.deposit{value: 5 ether}();
+        weth.transfer(address(hook), 5 ether);
+
+        bytes32 slot = keccak256(abi.encode(address(weth), uint256(7))); // accruedFees slot
+        vm.store(address(hook), slot, bytes32(uint256(5 ether)));
+
+        hook.claimFees(address(weth), 5 ether);
+        assertEq(distributor.ethReceived(), 1 + 5 ether, "distributor must have received ETH from WETH unwrap");
+        assertEq(weth.balanceOf(address(hook)), 0, "hook WETH balance must be zero post-unwrap");
     }
 }

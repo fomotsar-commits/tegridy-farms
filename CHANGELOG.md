@@ -654,6 +654,92 @@ splits):**
   production wiring path from [DeployVoteIncentives.s.sol](contracts/script/DeployVoteIncentives.s.sol)
   and [DeployV2.s.sol](contracts/script/DeployV2.s.sol).
 
+#### Pass-8 Batch 10 — TF-INT-02: TegridyFeeHook ERC20 fee stranding closed (2026-05-04)
+
+**Critical (1) — closed:**
+
+- **TF-INT-02 / hook ERC20 fee stranding.** Pre-fix, `TegridyFeeHook.afterSwap`
+  collected fees from V4 swaps into `accruedFees[currency]` for any pool
+  currency (TOWELI, USDC, WETH, …) and the permissionless `claimFees` then
+  `safeTransfer`'d the ERC20 to `RevenueDistributor`. But `RevenueDistributor`
+  is ETH-only — its `distribute()` snapshots `address(this).balance`, with no
+  per-currency epoch path — so non-WETH ERC20 fees and even raw WETH (sitting
+  as an ERC20 transfer) flowed in but never reached veTOWELI holders. Audit
+  finding documented at
+  [docs/audits/archive/SECURITY_AUDIT_200_AGENT.md:60](docs/audits/archive/SECURITY_AUDIT_200_AGENT.md#L60).
+
+  Closed by:
+
+  1. **Constructor accepts canonical WETH9** (immutable). Set at deploy time
+     so a captured owner cannot redirect the unwrap target. New deploy script
+     env var `WETH` documented in
+     [DeployTegridyFeeHook.s.sol](contracts/script/DeployTegridyFeeHook.s.sol).
+  2. **`claimFees` restricted to the WETH path.** Now unwraps `amount` of
+     WETH on the hook side via `IWETH(WETH).withdraw(amount)` and forwards
+     native ETH to `revenueDistributor` via
+     `WETHFallbackLib.safeTransferETHOrWrap` (10k-gas-stipend ETH leg with
+     WETH-wrap fallback). Non-WETH currencies revert
+     `MustConvertERC20First()` — directing callers to the conversion path
+     below. Closed at
+     [TegridyFeeHook.sol:418-447](contracts/src/TegridyFeeHook.sol#L418).
+  3. **New `convertERC20FeesToETH(currency, router, path, minETHOut, deadline)`.**
+     Owner-gated. Drains the on-hand ERC20 balance through the supplied
+     Uniswap V2-compatible router via `swapExactTokensForETH`, then forwards
+     the resulting ETH to `revenueDistributor` via the same WETHFallbackLib
+     path. Mirrors `SwapFeeRouter.convertTokenFeesToETH` shape — caller
+     supplies `minETHOut` floor; path validation requires `path[0] == currency`
+     and `path[end] == hook.WETH` AND `router.WETH() == hook.WETH` (so a
+     forked-chain router with a different WETH variant cannot redirect the
+     swap). Sync-proposal lockout mirrors `claimFees` so a pending sync
+     can't be raced to drain the ERC20 balance during the 24h timelock.
+     CEI ordering: `accruedFees[currency]` adjusted before the swap.
+     Closed at
+     [TegridyFeeHook.sol:467-525](contracts/src/TegridyFeeHook.sol#L467).
+  4. **New typed errors** for the conversion path:
+     `MustConvertERC20First`, `InsufficientETHOut`, `InvalidConversionPath`,
+     `DeadlineOutOfRange`, `NothingToConvert`. Plus `ERC20FeesConverted`
+     event for off-chain accounting (records the realized `ethReceived`
+     post-swap, NOT just the caller-supplied `minETHOut`).
+
+  Trust model: owner-gated path (sandwich risk on `minETHOut` is bounded by
+  the immutable destination — captured owner can route value at swap-time
+  slippage cost but the destination remains `revenueDistributor`).
+  RevenueDistributor.distribute() will pick up the new ETH on the next
+  epoch automatically.
+
+  Files changed:
+  - [contracts/src/TegridyFeeHook.sol](contracts/src/TegridyFeeHook.sol)
+    (constructor +1 param, new immutable `WETH`, new errors + event,
+    `claimFees` rewritten, new `convertERC20FeesToETH`, ~+2,668 B)
+  - [contracts/script/DeployTegridyFeeHook.s.sol](contracts/script/DeployTegridyFeeHook.s.sol)
+    (new `WETH` env var, updated CREATE2 init-code-hash recipe to include
+    the 5th constructor arg)
+  - 4 test files updated for the new constructor param (sentinel WETH OK
+    for paths that don't exercise the unwrap/convert legs):
+    [test/TegridyFeeHook.t.sol](contracts/test/TegridyFeeHook.t.sol),
+    [test/Audit195_PremiumHook.t.sol](contracts/test/Audit195_PremiumHook.t.sol),
+    [test/Deep_AMM_2026_05_01.t.sol](contracts/test/Deep_AMM_2026_05_01.t.sol),
+    [test/PASS7_HOOK_01.t.sol](contracts/test/PASS7_HOOK_01.t.sol),
+    [test/R031_TegridyFeeHook.t.sol](contracts/test/R031_TegridyFeeHook.t.sol),
+    [test/AuditR014_Misc.t.sol](contracts/test/AuditR014_Misc.t.sol).
+
+  **Verification:**
+  - 10 new tests in
+    [test/TegridyFeeHook.t.sol](contracts/test/TegridyFeeHook.t.sol)
+    covering happy path, minETHOut floor, owner-gating, path-end-must-be-WETH,
+    router/WETH mismatch, currency=WETH rejection, zero-balance, past-deadline,
+    far-future-deadline, claimFees(WETH) unwrap.
+  - Existing PASS7-HOOK-03 regression
+    (`test_PASS7_HOOK_01_claimFeesRevertsManagerLocked`) updated to bind
+    `WETH = TOKEN0` so it exercises the new unwrap path; new sibling test
+    `test_PASS8_TF_INT_02_claimFeesRejectsNonWETH` validates the
+    `MustConvertERC20First` revert.
+  - TegridyFeeHook bytecode: 8,763 B → 11,431 B (+2,668 B; under 24,000 B
+    budget with 12,569 B headroom).
+  - Full unit suite (excluding invariants): 2,495 pass / 20 fail (+12 vs.
+    pre-batch-10's 2,483 pass; the same 20 pre-existing batch-3 NFTPool
+    fixture failures remain).
+
 ### Security — pass-7 adversarial multi-agent audit + remediation (2026-05-03 → 2026-05-04)
 
 Three parallel worktree agents (oracle/AMM/fees, staking/governance, lending/NFT)

@@ -14,6 +14,24 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
+import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
+
+/// @notice Minimal Uniswap V2 router surface used for ERC20 → ETH conversion.
+///         Hook-side fees collected from V4 pools must end up as ETH at the
+///         RevenueDistributor (which is ETH-only); this interface is owner-supplied
+///         per-call to keep the hook free of router-coupled storage.
+/// @dev    AUDIT FIX (pass-8): TF-INT-02. Mirrors `IUniswapV2Router02` surface used
+///         by SwapFeeRouter.convertTokenFeesToETH.
+interface ITegridyFeeHookV2Router {
+    function swapExactTokensForETH(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external returns (uint256[] memory amounts);
+    function WETH() external pure returns (address);
+}
 
 /// @title TegridyFeeHook
 /// @notice Uniswap V4 hook that captures a portion of swap fees and sends them
@@ -38,6 +56,11 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     bytes32 public constant SYNC_CHANGE = keccak256("SYNC_CHANGE");
 
     IPoolManager public immutable poolManager;
+    /// @notice AUDIT FIX (pass-8): TF-INT-02. Canonical WETH9 for the deployment chain.
+    ///         Required so this hook can unwrap WETH-side fees to native ETH before
+    ///         forwarding to RevenueDistributor (which is ETH-only). Set immutably at
+    ///         construction so a captured owner cannot redirect the WETH unwrap target.
+    address public immutable WETH;
     address public revenueDistributor;
     uint256 public feeBps; // Fee in basis points (e.g., 30 = 0.3%)
     uint256 public constant MAX_FEE_BPS = 100; // Max 1% (H-09: reduced from 500 to match SwapFeeRouter)
@@ -56,6 +79,12 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     event FeeChangeProposed(uint256 currentFee, uint256 newFee, uint256 executeTime);
     event DistributorChangeProposed(address currentDistributor, address newDistributor, uint256 executeTime);
     event ETHSwept(address indexed to, uint256 amount);
+    /// @notice AUDIT FIX (pass-8): TF-INT-02 — emitted on every successful
+    ///         `convertERC20FeesToETH` so off-chain accounting can reconcile the
+    ///         (currency-out, ETH-in) leg against the resulting RevenueDistributor
+    ///         epoch. `ethReceived` is the post-swap delta, NOT the caller-supplied
+    ///         minETHOut, so monitoring sees the actual realized rate.
+    event ERC20FeesConverted(address indexed currency, uint256 amountIn, uint256 ethReceived);
 
     error OnlyPoolManager();
     error FeeTooHigh();
@@ -78,6 +107,25 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     ///         allowlist on `sweepETH`. Reverts when the owner-supplied recipient
     ///         is neither `revenueDistributor` nor `owner()`.
     error InvalidSweepRecipient();
+    /// @notice AUDIT FIX (pass-8): TF-INT-02. `claimFees` only handles WETH (which it
+    ///         unwraps to native ETH); non-WETH ERC20 currencies must flow through
+    ///         `convertERC20FeesToETH` so the value actually reaches RevenueDistributor.
+    ///         Pre-fix, `claimFees` `safeTransfer`'d any ERC20 to RevenueDistributor —
+    ///         which only handles native ETH (its `distribute()` reads
+    ///         `address(this).balance`), so non-WETH ERC20 fees were stranded forever.
+    error MustConvertERC20First();
+    /// @notice AUDIT FIX (pass-8): TF-INT-02. ERC20 → ETH conversion swap returned less
+    ///         ETH than the caller-supplied minETHOut floor.
+    error InsufficientETHOut();
+    /// @notice AUDIT FIX (pass-8): TF-INT-02. The owner-supplied conversion path is malformed:
+    ///         must be at least 2 hops, must start at `currency`, and must end at WETH.
+    error InvalidConversionPath();
+    /// @notice AUDIT FIX (pass-8): TF-INT-02. Caller-supplied deadline is in the past or
+    ///         too far in the future.
+    error DeadlineOutOfRange();
+    /// @notice AUDIT FIX (pass-8): TF-INT-02. Conversion attempted on a currency with zero
+    ///         on-hand balance.
+    error NothingToConvert();
 
     // SECURITY FIX: Track fees actually earned per token to prevent over-claiming
     mapping(address => uint256) public accruedFees;
@@ -122,12 +170,16 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     ///      deploys via Arachnid's proxy don't strand ownership on the proxy address.
     ///      Pass the creator EOA (or multisig) directly; msg.sender is only the proxy
     ///      when reached through the canonical deterministic deployer.
-    constructor(IPoolManager _poolManager, address _revenueDistributor, uint256 _feeBps, address _owner)
+    /// @dev AUDIT FIX (pass-8): TF-INT-02. `_weth` is the canonical WETH9 for the
+    ///      deployment chain. Set immutably so the WETH-unwrap target on `claimFees`
+    ///      and the path-end-validation in `convertERC20FeesToETH` can never be
+    ///      redirected by a captured owner key.
+    constructor(IPoolManager _poolManager, address _revenueDistributor, uint256 _feeBps, address _owner, address _weth)
         OwnableNoRenounce(_owner)
     {
         // OwnableNoRenounce(_owner) above already reverts with OwnableInvalidOwner
         // if _owner is address(0), so we don't duplicate the check here.
-        if (address(_poolManager) == address(0) || _revenueDistributor == address(0)) revert ZeroAddress();
+        if (address(_poolManager) == address(0) || _revenueDistributor == address(0) || _weth == address(0)) revert ZeroAddress();
         if (_feeBps > MAX_FEE_BPS) revert FeeTooHigh();
         // AUDIT FIX D-AMM-INFO1 (NatSpec only): mask 0x3FFF covers the lower 14 bits
         // matching V4's current 14 hook permission flags. The exclusive equality
@@ -143,6 +195,7 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         poolManager = _poolManager;
         revenueDistributor = _revenueDistributor;
         feeBps = _feeBps;
+        WETH = _weth;
     }
 
     // ─── Pausable Admin ──────────────────────────────────────────────
@@ -355,6 +408,13 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     ///      intended timelock semantics — fixing it requires moving the owner to
     ///      a multisig. Pattern of record: Compound Timelock allows anyone to
     ///      observe expiration once `eta + GRACE_PERIOD < block.timestamp`.
+    /// @dev AUDIT FIX (pass-8): TF-INT-02 — restrict `claimFees` to the WETH path. Pre-fix,
+    ///      this function `safeTransfer`'d any ERC20 to RevenueDistributor — but RevenueDistributor
+    ///      is ETH-only (its `distribute()` reads `address(this).balance`), so non-WETH ERC20
+    ///      fees were stranded forever in RevenueDistributor's ERC20 storage with no path to
+    ///      reach veTOWELI holders. The WETH path now unwraps to native ETH on the hook side
+    ///      so RevenueDistributor receives a value-flow it can actually account for; non-WETH
+    ///      currencies must flow through `convertERC20FeesToETH` which swaps to ETH first.
     function claimFees(address currency, uint256 amount) external nonReentrant whenNotPaused {
         bytes32 syncKey = keccak256(abi.encodePacked(SYNC_CHANGE, currency));
         uint256 readyAt = _proposalReadyAt(syncKey);
@@ -364,15 +424,102 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         );
         if (amount > accruedFees[currency]) revert ExceedsAccrued();
         accruedFees[currency] -= amount;
-        // PASS7-HOOK-03 FIX: forward the hook's ERC20 balance directly to the
-        // revenue distributor. Pre-fix, this called `poolManager.take(...)`
-        // outside any unlock context, which always reverted `ManagerLocked`
-        // because `take` is `onlyWhenUnlocked`. Now that `afterSwap` uses
-        // `poolManager.take(feeCurrency, address(this), feeUint)` to settle
-        // the hook's delta inside the unlock, the fees live in this hook's
-        // own ERC20 balance — a plain SafeERC20.safeTransfer is sufficient
-        // and works in any tx context (no V4 unlock dependency).
-        IERC20(currency).safeTransfer(revenueDistributor, amount);
+        // AUDIT FIX (pass-8): TF-INT-02 — only WETH can be claimed via this path.
+        // For currencies != WETH, the caller must use convertERC20FeesToETH to swap
+        // the ERC20 to ETH first, otherwise the value gets stranded at RevenueDistributor.
+        if (currency != WETH) revert MustConvertERC20First();
+        // amount == 0 short-circuits cleanly through WETHFallbackLib (which returns
+        // for zero amount). Preserves the legacy "0-amount as health check" tests.
+        if (amount > 0) {
+            // Unwrap on-hand WETH and forward as native ETH. WETHFallbackLib uses a
+            // 10k gas stipend for the .call leg (cross-contract reentrancy defense)
+            // and falls back to wrapping back into WETH if the recipient receive()
+            // reverts — covers the case where revenueDistributor migrates to a
+            // contract whose receive() outgrew the stipend.
+            IWETH(WETH).withdraw(amount);
+            WETHFallbackLib.safeTransferETHOrWrap(WETH, revenueDistributor, amount);
+        }
+        emit FeeCollected(currency, amount);
+    }
+
+    /// @notice AUDIT FIX (pass-8): TF-INT-02 — owner-gated ERC20 → ETH conversion path
+    ///         that closes the stranded-ERC20-fee bug. Mirrors SwapFeeRouter's
+    ///         `convertTokenFeesToETH` shape: caller supplies the router and path,
+    ///         we drain the on-hand `currency` balance through a `swapExactTokensForETH`
+    ///         and forward the resulting ETH to RevenueDistributor via WETHFallbackLib.
+    /// @dev    Trust model: gated `onlyOwner`. The owner is already trusted for
+    ///         24h-/48h-timelocked fee + distributor changes; per-call slippage on
+    ///         a value-routing function lands inside the same threat surface.
+    ///         Sandwich protection: caller-supplied `minETHOut`. Captured-owner risk
+    ///         on slippage is bounded by the immutable destination (`revenueDistributor`)
+    ///         and the immutable WETH (path must end at WETH() == hook.WETH).
+    /// @dev    Path constraints:
+    ///         - `path.length >= 2` (Uniswap V2 router requires at least 2 entries)
+    ///         - `path[0] == currency` (input token MUST equal the currency being drained)
+    ///         - `path[path.length - 1] == WETH` AND `router.WETH() == WETH` (so the
+    ///           router doesn't honor a swap to a different WETH variant on a forked chain)
+    /// @dev    CEI: `accruedFees[currency]` is zeroed BEFORE the swap so a malicious
+    ///         token's transfer hook cannot re-enter and double-spend the same balance.
+    /// @param  currency  ERC20 to convert (must equal `path[0]`).
+    /// @param  router    Uniswap V2-compatible router. Owner-supplied; must report
+    ///                   `WETH() == hook.WETH`.
+    /// @param  path      Swap path. Must start at `currency` and end at WETH.
+    /// @param  minETHOut Caller-supplied lower bound on ETH received. Must be > 0.
+    /// @param  deadline  Standard Uniswap deadline; must be in [now, now + 30 minutes].
+    function convertERC20FeesToETH(
+        address currency,
+        address router,
+        address[] calldata path,
+        uint256 minETHOut,
+        uint256 deadline
+    ) external onlyOwner nonReentrant whenNotPaused {
+        if (currency == address(0) || currency == WETH || router == address(0)) revert ZeroAddress();
+        if (deadline < block.timestamp || deadline > block.timestamp + 30 minutes) revert DeadlineOutOfRange();
+        if (path.length < 2 || path[0] != currency || path[path.length - 1] != WETH) revert InvalidConversionPath();
+        if (ITegridyFeeHookV2Router(router).WETH() != WETH) revert InvalidConversionPath();
+
+        // Sync proposal lockout — same gate as `claimFees` so a pending sync can't be
+        // raced to drain the ERC20 balance during the 24h timelock.
+        bytes32 syncKey = keccak256(abi.encodePacked(SYNC_CHANGE, currency));
+        uint256 readyAt = _proposalReadyAt(syncKey);
+        require(
+            readyAt == 0 || block.timestamp > readyAt + _proposalValidity(),
+            "SYNC_PENDING"
+        );
+
+        // Drain on-hand balance (NOT accruedFees, which is the PoolManager-credit
+        // mirror). This swaps everything actually held in this contract for the
+        // currency, since pre-this-fix permissionless claimFees on non-WETH would
+        // have moved earlier accruals to revenueDistributor's stuck ERC20 balance —
+        // the hook only gets here if its own balance is non-zero.
+        uint256 amount = IERC20(currency).balanceOf(address(this));
+        if (amount == 0) revert NothingToConvert();
+
+        // Decrement accruedFees by the amount we're about to swap (capped by the
+        // recorded value; balance can legitimately exceed accruedFees if PoolManager
+        // credited rounding-up). Anything in excess of accruedFees stays as 0.
+        uint256 accrued = accruedFees[currency];
+        accruedFees[currency] = amount > accrued ? 0 : accrued - amount;
+
+        // CEI ordering: swap → forward.
+        IERC20(currency).forceApprove(router, amount);
+        uint256 ethBefore = address(this).balance;
+        ITegridyFeeHookV2Router(router).swapExactTokensForETH(
+            amount,
+            minETHOut,
+            path,
+            address(this),
+            deadline
+        );
+        uint256 ethReceived = address(this).balance - ethBefore;
+        if (ethReceived < minETHOut) revert InsufficientETHOut();
+        IERC20(currency).forceApprove(router, 0);
+
+        // Forward to revenueDistributor with WETH fallback (reuses the 10k-gas-stipend
+        // anti-reentrancy pattern; ETH-leg failure → WETH wrap, both legs failure →
+        // revert ETHTransferFailed).
+        WETHFallbackLib.safeTransferETHOrWrap(WETH, revenueDistributor, ethReceived);
+        emit ERC20FeesConverted(currency, amount, ethReceived);
         emit FeeCollected(currency, amount);
     }
 

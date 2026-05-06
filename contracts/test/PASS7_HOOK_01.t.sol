@@ -172,8 +172,13 @@ contract PASS7_HOOK_01_TegridyFeeHookDeltaNotSettled is Test {
         pm = new HOOK01_MockPoolManager();
         // Deploy hook at an address satisfying the V4 hook flag bitmask
         // (afterSwap | afterSwapReturnsDelta = 0x0044).
+        // AUDIT FIX (pass-8): TF-INT-02. Constructor now requires WETH. We bind
+        // the WETH slot to TOKEN0 so the existing claimFees-no-ManagerLocked
+        // regression below exercises the new WETH-unwrap path (amount=0 short-
+        // circuits the unwrap leg, validating `claimFees` no longer touches the
+        // PoolManager at all in either direction).
         address hookAddr = address(uint160(0x0044));
-        bytes memory args = abi.encode(IPoolManager(address(pm)), distributor, uint256(30), owner);
+        bytes memory args = abi.encode(IPoolManager(address(pm)), distributor, uint256(30), owner, TOKEN0);
         deployCodeTo("TegridyFeeHook.sol:TegridyFeeHook", args, hookAddr);
         hook = TegridyFeeHook(payable(hookAddr));
     }
@@ -240,30 +245,29 @@ contract PASS7_HOOK_01_TegridyFeeHookDeltaNotSettled is Test {
         pm.simulateSwap(hook, _key(), params, swapDelta);
     }
 
-    /// @notice POST-FIX REGRESSION: validates the PASS7-HOOK-03 fix.
-    ///         claimFees no longer calls `poolManager.take()` (which was
-    ///         `onlyWhenUnlocked` and reverted ManagerLocked outside the
-    ///         unlock). Now calls `IERC20.safeTransfer` against the hook's
-    ///         own ERC20 balance — works in any tx context.
+    /// @notice POST-FIX REGRESSION: validates the PASS7-HOOK-03 fix and the
+    ///         pass-8 TF-INT-02 follow-on. claimFees no longer calls
+    ///         `poolManager.take()` (which was `onlyWhenUnlocked` and reverted
+    ///         ManagerLocked outside the unlock). The pass-8 fix further
+    ///         restricts claimFees to the WETH path so non-WETH ERC20 fees
+    ///         can't strand at the ETH-only RevenueDistributor.
     ///
-    ///         To exercise the path we need a real ERC20 token deployed at
-    ///         a known address and pre-fund the hook with it. We use a
-    ///         minimal ERC20-like mock and `etch` it at TOKEN0.
+    ///         setUp binds WETH=TOKEN0, so `claimFees(TOKEN0, 0)` exercises
+    ///         the new WETH-unwrap branch. amount=0 short-circuits the
+    ///         IWETH.withdraw leg entirely, so we never need to etch ERC20
+    ///         storage — the call simply validates the no-ManagerLocked
+    ///         invariant by reaching the post-amount==0 return path.
     function test_PASS7_HOOK_01_claimFeesRevertsManagerLocked() public {
-        // Deploy minimal ERC20 mock and etch its bytecode at TOKEN0.
-        HOOK01_MinimalERC20 erc = new HOOK01_MinimalERC20();
-        vm.etch(TOKEN0, address(erc).code);
-        // Etch storage: skip — the storage is used by the mock's transfer().
-        // For zero-amount safeTransfer the ERC20 should still be a contract
-        // with code, which etch provides. amount=0 transfers always succeed
-        // on a compliant ERC20.
-
-        // Test: claimFees(TOKEN0, 0) — amount=0 passes the
-        // `amount > accruedFees[currency]` gate (0 > 0 == false), then
-        // calls IERC20(TOKEN0).safeTransfer(distributor, 0) which succeeds.
         hook.claimFees(TOKEN0, 0);
+        emit log_string("PASS7-HOOK-03 + TF-INT-02 FIX VALIDATED: claimFees no longer ManagerLocked, WETH-only path");
+    }
 
-        emit log_string("PASS7-HOOK-03 FIX VALIDATED: claimFees no longer ManagerLocked");
+    /// @notice AUDIT FIX (pass-8): TF-INT-02 — claimFees rejects non-WETH currencies.
+    ///         Pre-fix the ERC20 would have been safeTransfer'd to the ETH-only
+    ///         RevenueDistributor and stranded forever; now the path is gated.
+    function test_PASS8_TF_INT_02_claimFeesRejectsNonWETH() public {
+        vm.expectRevert(TegridyFeeHook.MustConvertERC20First.selector);
+        hook.claimFees(TOKEN1, 0);
     }
 
     /// @dev Replicate v4-core's BalanceDelta packing: high 128 bits = amount0,

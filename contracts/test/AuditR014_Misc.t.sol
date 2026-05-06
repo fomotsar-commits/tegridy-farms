@@ -260,9 +260,11 @@ contract AuditR014_FeeHookTest is Test {
         // pre-mined vanity address whose lower 14 bits are 0x0044.
         // 0xCAFE0044 satisfies (& 0x3FFF == 0x0044).
         address HOOK_ADDR = address(uint160(0xCAFE0044));
+        // AUDIT FIX (pass-8): TF-INT-02. Constructor now requires WETH; sentinel suffices.
+        address wethSentinel = makeAddr("weth_r014_misc");
         deployCodeTo(
             "TegridyFeeHook.sol:TegridyFeeHook",
-            abi.encode(IPoolManager(address(pm)), distributor, uint256(30), owner),
+            abi.encode(IPoolManager(address(pm)), distributor, uint256(30), owner, wethSentinel),
             HOOK_ADDR
         );
         hook = TegridyFeeHook(payable(HOOK_ADDR));

@@ -70,7 +70,10 @@ contract DeepAMMTest is Test {
 
         poolManager = new DeepAMM_MockPoolManager();
         address hookAddr = address(uint160(0x0044));
-        bytes memory args = abi.encode(IPoolManager(address(poolManager)), distributor, uint256(30), address(this));
+        // AUDIT FIX (pass-8): TF-INT-02. WETH constructor param; sentinel address is fine
+        // here because no test in this file exercises claimFees(WETH, ...) or convert.
+        address wethSentinel = makeAddr("weth_deep_amm");
+        bytes memory args = abi.encode(IPoolManager(address(poolManager)), distributor, uint256(30), address(this), wethSentinel);
         deployCodeTo("TegridyFeeHook.sol:TegridyFeeHook", args, hookAddr);
         hook = TegridyFeeHook(payable(hookAddr));
     }

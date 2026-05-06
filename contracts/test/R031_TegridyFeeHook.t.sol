@@ -48,9 +48,12 @@ contract R031_TegridyFeeHook is Test {
 
     function setUp() public {
         mockPM = new MockPoolManagerR031();
+        // AUDIT FIX (pass-8): TF-INT-02. Constructor now requires WETH; pass a sentinel
+        // — no test in this file exercises the WETH unwrap or convert paths.
+        address wethSentinel = makeAddr("weth_r031");
         deployCodeTo(
             "TegridyFeeHook.sol:TegridyFeeHook",
-            abi.encode(IPoolManager(address(mockPM)), distributor, uint256(30), owner),
+            abi.encode(IPoolManager(address(mockPM)), distributor, uint256(30), owner, wethSentinel),
             HOOK_ADDR
         );
         hook = TegridyFeeHook(payable(HOOK_ADDR));
