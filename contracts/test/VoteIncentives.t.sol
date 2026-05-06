@@ -126,6 +126,12 @@ contract VoteIncentivesTest is Test {
     address public treasury = address(0xBEEF);
     address public alice = address(0xA11CE);
     address public bob = address(0xB0B);
+    /// @notice AUDIT FIX (pass-8) Phase 1.6 — separate briber address.
+    ///         Pre-fix, alice handled both deposit + claim, but the new
+    ///         `SelfBribeClaimForbidden` rule locks depositors out of claims.
+    ///         Tests now route deposits through `briber` so alice/bob remain
+    ///         as voters/claimants exactly as before.
+    address public briber = address(0xB81BE7);
     address public pair;
 
     function setUp() public {
@@ -166,6 +172,13 @@ contract VoteIncentivesTest is Test {
         // Fund alice and bob
         bribeToken.transfer(alice, 100_000e18);
         bribeToken.transfer(bob, 100_000e18);
+        // AUDIT FIX (pass-8) Phase 1.6 — fund + approve the dedicated briber.
+        // MockBribeToken mints 1,000,000e18 total to deployer; minting more here
+        // for the briber so the bribe-heavy fuzz test has headroom.
+        bribeToken.mint(briber, 10_000_000e18);
+        vm.prank(briber);
+        bribeToken.approve(address(vi), type(uint256).max);
+        vm.deal(briber, 100 ether);
     }
 
     // ─── Constructor ─────────────────────────────────────────────────
@@ -277,12 +290,11 @@ contract VoteIncentivesTest is Test {
     // ─── Claiming ────────────────────────────────────────────────────
 
     function test_claimBribes_proportional() public {
-        // Deposit bribe
+        // Deposit bribe — AUDIT FIX (pass-8) Phase 1.6: routed through briber so
+        // alice + bob can claim without tripping SelfBribeClaimForbidden.
         uint256 amount = 10_000e18;
-        vm.startPrank(alice);
-        bribeToken.approve(address(vi), amount);
+        vm.prank(briber);
         vi.depositBribe(pair, address(bribeToken), amount);
-        vm.stopPrank();
 
         // Advance epoch to snapshot
         vi.advanceEpoch();
@@ -325,9 +337,10 @@ contract VoteIncentivesTest is Test {
     }
 
     function test_claimBribes_ETH() public {
+        // AUDIT FIX (pass-8) Phase 1.6: route deposit through briber so
+        // alice + bob can claim without tripping SelfBribeClaimForbidden.
         uint256 amount = 5 ether;
-        vm.deal(alice, amount);
-        vm.prank(alice);
+        vm.prank(briber);
         vi.depositBribeETH{value: amount}(pair);
 
         vi.advanceEpoch();
@@ -348,13 +361,13 @@ contract VoteIncentivesTest is Test {
     }
 
     function test_claimBribesBatch() public {
-        // Deposit in epoch 0, advance, deposit in epoch 1, advance
+        // Deposit in epoch 0, advance, deposit in epoch 1, advance.
+        // AUDIT FIX (pass-8) Phase 1.6: deposits routed through briber so alice
+        // can still claim her batch without the SelfBribeClaimForbidden lockout.
         uint256 amount = 1000e18;
 
-        vm.startPrank(alice);
-        bribeToken.approve(address(vi), amount * 2);
+        vm.prank(briber);
         vi.depositBribe(pair, address(bribeToken), amount);
-        vm.stopPrank();
 
         vi.advanceEpoch();
 
@@ -364,9 +377,8 @@ contract VoteIncentivesTest is Test {
 
         vm.warp(block.timestamp + 7 days + 1);
 
-        vm.startPrank(alice);
+        vm.prank(briber);
         vi.depositBribe(pair, address(bribeToken), amount);
-        vm.stopPrank();
 
         vi.advanceEpoch();
 
@@ -382,11 +394,11 @@ contract VoteIncentivesTest is Test {
     }
 
     function test_double_claim_prevented() public {
+        // AUDIT FIX (pass-8) Phase 1.6: deposit via briber so alice can still
+        // claim once and observe the per-(epoch, pair, token) double-claim block.
         uint256 amount = 1000e18;
-        vm.startPrank(alice);
-        bribeToken.approve(address(vi), amount);
+        vm.prank(briber);
         vi.depositBribe(pair, address(bribeToken), amount);
-        vm.stopPrank();
 
         vi.advanceEpoch();
 
@@ -586,10 +598,10 @@ contract VoteIncentivesTest is Test {
     function testFuzz_depositAndClaim(uint96 amount) public {
         vm.assume(amount > 1e18 && amount < 100_000e18);
 
-        vm.startPrank(alice);
-        bribeToken.approve(address(vi), uint256(amount));
+        // AUDIT FIX (pass-8) Phase 1.6: deposit via briber so alice can claim
+        // without tripping the new SelfBribeClaimForbidden lockout.
+        vm.prank(briber);
         vi.depositBribe(pair, address(bribeToken), uint256(amount));
-        vm.stopPrank();
 
         vi.advanceEpoch();
 

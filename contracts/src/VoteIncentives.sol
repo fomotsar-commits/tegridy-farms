@@ -187,6 +187,23 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     uint256 public constant COMMIT_REVEAL_ENABLE_DELAY = 24 hours;
     uint256 public constant MIN_DISTRIBUTE_STAKE = 1000e18; // Same as RevenueDistributor
 
+    /// @notice AUDIT FIX (pass-8) Phase 1.6 — minimum aggregate voting power
+    ///         required for a (epoch, pair) bribe pool to be claimable.
+    ///         Pre-fix, claims succeeded against any non-zero `totalGaugeVotes`,
+    ///         so a briber could deposit a bribe, vote with a 1-wei VP themselves,
+    ///         and claim ~100% of the bribe back via
+    ///         `share = bribeAmount * 1 / 1`. This threshold forces the pool
+    ///         to attract a meaningful amount of honest voting weight before
+    ///         any payout — reverting `BribePoolBelowQuorum` otherwise so
+    ///         orphan-rescue / depositor-refund paths can recover the bond.
+    /// @dev    Set to 10% of `MIN_DISTRIBUTE_STAKE` (= 100e18 voting power).
+    ///         A briber gaming the threshold needs at least 100 VP of attacker-
+    ///         controlled stake to satisfy the quorum, which combined with the
+    ///         `SelfBribeClaimForbidden` rule below makes pure self-bribe
+    ///         arbitrage uneconomical (the briber is locked out of the pool
+    ///         their own VP unlocks).
+    uint256 public constant MIN_BRIBE_CLAIM_QUORUM = 100e18;
+
     // ─── Immutables ──────────────────────────────────────────────────
     IVotingEscrow public immutable votingEscrow;
     IWETH public immutable weth;
@@ -288,6 +305,18 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
     // claimed[user][epoch][pair][token] = true if already claimed
     mapping(address => mapping(uint256 => mapping(address => mapping(address => bool)))) public claimed;
+
+    /// @notice AUDIT FIX (pass-8) Phase 1.6 — `depositedOnPair[user][epoch][pair]` is
+    ///         true once `user` has deposited any bribe on the (epoch, pair). Read by
+    ///         `claimBribes` / `claimBribesBatch` to lock out self-claim arbitrage:
+    ///         a depositor cannot claim ANY token on the (epoch, pair) they bribed,
+    ///         which closes the path where a briber votes with their own VP and
+    ///         claims their own bond back proportionally. Captures the strictest
+    ///         interpretation — even a depositor who only bribed token A is locked
+    ///         out of token B claims on the same pair, since cross-token swaps would
+    ///         re-open the round-trip. Strict per-(epoch, pair) granularity is
+    ///         preserved across the whole epoch lifecycle.
+    mapping(address => mapping(uint256 => mapping(address => bool))) public depositedOnPair;
 
     // Token whitelist
     mapping(address => bool) public whitelistedTokens;
@@ -405,6 +434,17 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     error StakingPaused();
     /// @dev AUDIT FIX (pass-8): GOV-ECON-01 / C10 — restakingContract is one-shot.
     error RestakingAlreadySet();
+    /// @dev AUDIT FIX (pass-8) Phase 1.6 — claim refused because the (epoch, pair)
+    ///      bribe pool attracted aggregate voting power below `MIN_BRIBE_CLAIM_QUORUM`.
+    ///      Bond is recoverable via the existing orphan-rescue / depositor-refund
+    ///      paths once the rescue window opens.
+    error BribePoolBelowQuorum();
+    /// @dev AUDIT FIX (pass-8) Phase 1.6 — caller deposited a bribe on this
+    ///      (epoch, pair) and is therefore locked out of claims for it. Closes the
+    ///      self-arbitrage path where a briber votes with their own VP, claims
+    ///      their own bribe back proportionally, and pockets the difference
+    ///      (minus the protocol fee) when their VP dominates `totalGaugeVotes`.
+    error SelfBribeClaimForbidden();
     error TooManyUnclaimedEpochs();
     error VoteDeadlinePassed();  // SECURITY FIX: Cannot vote after deadline
     // AUDIT H-2: commit-reveal errors.
@@ -644,6 +684,9 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // refunds go back to the original depositor, keyed off the freshest activity.
         bribeDeposits[epoch][pair][token][msg.sender] += netBribe;
         epochBribeLastDeposit[epoch] = block.timestamp;
+        // AUDIT FIX (pass-8) Phase 1.6 — flag depositor so the same address cannot
+        // claim ANY token on this (epoch, pair). See `SelfBribeClaimForbidden` natspec.
+        depositedOnPair[msg.sender][epoch][pair] = true;
 
         emit BribeDeposited(epoch, pair, token, msg.sender, netBribe, fee);
     }
@@ -689,6 +732,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // AUDIT NEW-G2: track per-depositor amount + latest deposit timestamp.
         bribeDeposits[epoch][pair][address(0)][msg.sender] += netBribe;
         epochBribeLastDeposit[epoch] = block.timestamp;
+        // AUDIT FIX (pass-8) Phase 1.6 — flag depositor for self-bribe lockout.
+        depositedOnPair[msg.sender][epoch][pair] = true;
 
         emit BribeDepositedETH(epoch, pair, msg.sender, netBribe, fee);
     }
@@ -717,6 +762,13 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         uint256 totalVotesForPair = totalGaugeVotes[epoch][pair];
         if (totalVotesForPair == 0) revert NothingToClaim();
+        // AUDIT FIX (pass-8) Phase 1.6 — minimum aggregate VP gate. Bribers cannot
+        // claim their own bond back via a sub-quorum self-vote-and-claim cycle.
+        if (totalVotesForPair < MIN_BRIBE_CLAIM_QUORUM) revert BribePoolBelowQuorum();
+        // AUDIT FIX (pass-8) Phase 1.6 — depositor-side lockout. Anyone who
+        // deposited a bribe on this (epoch, pair) is barred from claiming any
+        // token on it; the bond is recoverable via the orphan-rescue path.
+        if (depositedOnPair[msg.sender][epoch][pair]) revert SelfBribeClaimForbidden();
 
         address[] memory tokens = epochBribeTokens[epoch][pair];
         bool anyClaimed = false;
@@ -829,6 +881,12 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
             uint256 totalVotesForPair = totalGaugeVotes[e][pair];
             if (totalVotesForPair == 0) continue;
+            // AUDIT FIX (pass-8) Phase 1.6 — same gates as `claimBribes`. We `continue`
+            // (skip the epoch) instead of revert because batch claim spans multiple
+            // epochs; a sub-quorum or self-bribe match on one epoch shouldn't unwind
+            // the entire batch when other epochs have legitimate claims.
+            if (totalVotesForPair < MIN_BRIBE_CLAIM_QUORUM) continue;
+            if (depositedOnPair[msg.sender][e][pair]) continue;
 
             address[] memory tokens = epochBribeTokens[e][pair];
 

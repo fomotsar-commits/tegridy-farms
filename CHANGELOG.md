@@ -837,6 +837,72 @@ splits):**
     pre-batch-11's 2,495 pass; the 20 pre-existing batch-3 NFTPool fixture
     failures remain).
 
+#### Pass-8 Batch 12 — Phase 1.6: VoteIncentives self-bribe arbitrage + min-quorum on claims (2026-05-06)
+
+**High (1) — closed:**
+
+- **Phase 1.6 / VoteIncentives self-bribe arbitrage + sub-quorum claim.**
+  Pre-fix, two related bugs let a briber profitably round-trip their own bond:
+
+  1. **Self-bribe arbitrage.** A briber could deposit a bribe on (epoch, pair),
+     vote with their own VP on the same (epoch, pair), and claim a share
+     proportional to `userVP / totalVotesForPair` of the bribe. When the
+     briber's VP dominated the pair's `totalGaugeVotes`, they pocketed up
+     to `(1 - protocolFeeBps) * bribeAmount` of their own bond — the
+     protocol fee was the only spread separating self-bribe from a
+     pure-round-trip drain.
+  2. **Sub-quorum claim.** Claims succeeded against any non-zero
+     `totalGaugeVotes`. A briber could deposit a bribe, vote with a 1-wei
+     VP themselves, and claim ~100% of the bribe back via
+     `share = bribeAmount * 1 / 1`.
+
+  Closed by:
+
+  1. **`depositedOnPair[user][epoch][pair]` mapping.** Set on every
+     successful `depositBribe` / `depositBribeETH`. Read by `claimBribes`
+     (revert) and `claimBribesBatch` (silent skip). Strict per-(epoch, pair)
+     granularity — depositors are barred from claiming ANY token on the
+     pair they bribed, not just the token they deposited. Closed at
+     [VoteIncentives.sol:308-321](contracts/src/VoteIncentives.sol#L308) +
+     deposit hooks
+     [VoteIncentives.sol:631-636 + 750-754](contracts/src/VoteIncentives.sol#L631).
+  2. **`MIN_BRIBE_CLAIM_QUORUM = 100e18` constant.** 10% of the existing
+     `MIN_DISTRIBUTE_STAKE` (1000e18). `claimBribes` reverts
+     `BribePoolBelowQuorum` when `totalGaugeVotes[epoch][pair]` is below
+     this; `claimBribesBatch` silently skips the offending epoch.
+     Constant publicly exposed so off-chain tooling can mirror the gate
+     without re-deriving it. Closed at
+     [VoteIncentives.sol:189-205](contracts/src/VoteIncentives.sol#L189) +
+     claim sites.
+  3. **New typed errors:** `SelfBribeClaimForbidden`,
+     `BribePoolBelowQuorum`. Both carry verbose natspec describing the
+     close path.
+
+  Trust model: enforced unconditionally on every claim (no admin / wiring
+  prerequisite). Unlike GOV-INT-01's optional GaugeController gate, the
+  self-bribe lockout activates the moment any deposit lands.
+
+  **Verification:**
+
+  - 9 new tests in [test/PASS8_PHASE_1_6.t.sol](contracts/test/PASS8_PHASE_1_6.t.sol)
+    covering: above-quorum non-depositor success, self-bribe revert
+    (single token), self-bribe lockout spans all tokens on the pair,
+    sub-quorum revert, batch claim skipping blocked epochs, batch claim
+    happy path, depositor flag persisting across multiple deposits,
+    depositor flag set on ETH bribe path, public constant exposure.
+  - Existing VoteIncentives.t.sol tests refactored to route deposits
+    through a new `briber` address (separate from voters), so legacy
+    coverage of `claimBribes_proportional`, `claimBribes_ETH`,
+    `claimBribesBatch`, `double_claim_prevented`, `testFuzz_depositAndClaim`
+    continues to validate the proportional-payout / double-claim
+    semantics without tripping the new lockout.
+  - Bytecode: VoteIncentives 22,086 B → 22,447 B (+361 B; under budget
+    with 1,553 B headroom).
+  - Targeted suites: VoteIncentives 60/60, PASS8_PHASE_1_6 9/9.
+  - Full unit suite (excluding invariants): **2,516 pass / 20 fail** (+9
+    vs. pre-batch-12's 2,507 pass; the 20 pre-existing batch-3 NFTPool
+    fixture failures remain).
+
 ### Security — pass-7 adversarial multi-agent audit + remediation (2026-05-03 → 2026-05-04)
 
 Three parallel worktree agents (oracle/AMM/fees, staking/governance, lending/NFT)
