@@ -1064,6 +1064,41 @@ a final pass of public→internal constant trims, to close the gap.
 VoteIncentives, TegridyRestaking, **TegridyStaking**) now fit under EIP-170.
 This unblocks the long-stalled Wave 0 redeploy.
 
+#### Pass-8 Batch 15 — Phase 3.5: TegridyLending offer expiry (2026-05-06)
+
+**Medium (1) — closed:**
+
+- **Phase 3.5 / TegridyLending offer expiry.** Pre-fix, an active loan offer
+  on TegridyLending could be accepted indefinitely — the `LoanOffer` struct
+  had no `expiry` field, `createLoanOffer` accepted no deadline, and
+  `acceptOffer` performed no timestamp check. A lender's quote at favorable
+  terms (e.g., when ETH was 4,000 USD) remained accept-able after market
+  drift; the lender's only escape was to remember to `cancelOffer`. Pattern
+  of record: BendDAO, NFTfi, ParaSpace all gate offer acceptance on a
+  per-offer expiry.
+
+  Closed by:
+  1. New `uint64 expiry` field on `LoanOffer` struct.
+  2. **`createLoanOffer(...)` (5-arg, backward-compat)** auto-defaults
+     expiry to `block.timestamp + MAX_OFFER_VALIDITY` (90 days). All 14
+     existing test/script callsites continue working without modification —
+     the change is a strict improvement over the prior unbounded behavior.
+  3. **`createLoanOfferWithExpiry(...)` (6-arg, explicit)** for lenders
+     wanting a tighter expiry. Bounds:
+     `[now + MIN_OFFER_VALIDITY, now + MAX_OFFER_VALIDITY]` (1 hour → 90 days).
+     1-hour minimum blocks pure-spam expiries; 90-day maximum caps stale-quote
+     attack window.
+  4. `acceptOffer` reverts `OfferExpired()` once `block.timestamp > offer.expiry`.
+     `cancelOffer` is intentionally NOT gated on expiry — lender can recover
+     principal + held origination fee from an expired offer at any time.
+  5. New typed errors: `InvalidOfferExpiry`, `OfferExpired`.
+
+  Verification: 10 new tests in
+  [test/PASS8_PHASE_3_5.t.sol](contracts/test/PASS8_PHASE_3_5.t.sol).
+  Full unit suite: **2,546 pass / 0 fail** (+10 vs. pre-batch-15).
+  Bytecode: TegridyLending 17,658 → 18,292 (+634 B; under EIP-170 with
+  6,284 B headroom).
+
 ### Security — pass-7 adversarial multi-agent audit + remediation (2026-05-03 → 2026-05-04)
 
 Three parallel worktree agents (oracle/AMM/fees, staking/governance, lending/NFT)

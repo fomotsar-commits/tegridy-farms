@@ -321,6 +321,17 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     uint256 public constant PROTOCOL_FEE_TIMELOCK = 48 hours;
     uint256 public constant TREASURY_TIMELOCK = 48 hours;
 
+    // AUDIT FIX (pass-8 batch-15): Phase 3.5 offer-expiry bounds.
+    /// @notice Minimum delta `(expiry - block.timestamp)` accepted by `createLoanOffer`.
+    ///         1 hour is short enough to support a quote-then-accept flow within a
+    ///         single user session, long enough to defend against pure-spam expiries
+    ///         that would brick the offer before a borrower can even index it.
+    uint256 public constant MIN_OFFER_VALIDITY = 1 hours;
+    /// @notice Maximum delta `(expiry - block.timestamp)` accepted by `createLoanOffer`.
+    ///         90 days caps a stale-quote attack window: even a forgotten offer ages
+    ///         out before market drift becomes catastrophic.
+    uint256 public constant MAX_OFFER_VALIDITY = 90 days;
+
     // ─── Structs ─────────────────────────────────────────────────────
 
     struct LoanOffer {
@@ -349,6 +360,21 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         ///      MAX_ORIGINATION_FEE_BPS (200) means a worst-case redirect can
         ///      reach 2000 ETH per offer (100x NFTLending's blast radius).
         address treasuryAtCreate;
+        /// @notice AUDIT FIX (pass-8 batch-15): Phase 3.5 — offer expiry timestamp.
+        ///         Pre-fix, an offer with stale market terms could be accepted
+        ///         indefinitely until the lender remembered to call `cancelOffer`.
+        ///         A lender's quote from when ETH was 4,000 USD remained accept-able
+        ///         after the market fell to 2,000 USD; combined with the fixed
+        ///         `aprBps` and `minPositionETHValue`, the borrower could acquire
+        ///         a loan at obsolete terms. Mirrors offer expiry pattern from
+        ///         BendDAO, NFTfi, ParaSpace.
+        ///
+        ///         `expiry == 0` is rejected at creation (createLoanOffer enforces
+        ///         the bounds [MIN_OFFER_VALIDITY, MAX_OFFER_VALIDITY] from now);
+        ///         `acceptOffer` reverts `OfferExpired` once `block.timestamp > expiry`.
+        ///         The lender can still `cancelOffer` an unexpired offer to recover
+        ///         their principal + originationFee at any time.
+        uint64 expiry;
     }
 
     struct Loan {
@@ -551,6 +577,13 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     error OracleStale();
     /// @dev R014: lender opened an offer at less than `minPrincipal`.
     error PrincipalTooSmall();
+    /// @dev AUDIT FIX (pass-8 batch-15): Phase 3.5 — caller-supplied offer
+    ///      `expiry` is outside `[now + MIN_OFFER_VALIDITY, now + MAX_OFFER_VALIDITY]`.
+    error InvalidOfferExpiry();
+    /// @dev AUDIT FIX (pass-8 batch-15): Phase 3.5 — `acceptOffer` called after
+    ///      the offer's `expiry` timestamp. Lender can `cancelOffer` to recover
+    ///      principal + the held origination fee.
+    error OfferExpired();
     /// @dev R014: lender pointed offer at a collateral contract that is not on the
     ///      whitelist, OR an admin proposed to remove the contract while the offer
     ///      was being created (handled in createLoanOffer).
@@ -652,13 +685,62 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///      ETH-paying surface. AUDIT FIX: DEEP-LD-M8 — origination fee held in
     ///      LoanOffer struct until acceptance. AUDIT FIX: DEEP-LD-M4 — refuse new
     ///      offers when collateral has a pending removal proposal.
+    /// @notice AUDIT FIX (pass-8 batch-15): Phase 3.5 backward-compat entry. Defaults
+    ///         the offer expiry to `block.timestamp + MAX_OFFER_VALIDITY` (90 days).
+    ///         Lenders that want a tighter expiry should call
+    ///         `createLoanOfferWithExpiry` directly. Pre-fix, offers had NO expiry —
+    ///         callers using this 5-arg form now get a 90-day cap automatically,
+    ///         which is a strict improvement over the prior unbounded behavior.
     function createLoanOffer(
         uint256 _aprBps,
         uint256 _duration,
         address _collateralContract,
         uint256 _minPositionValue,
         uint256 _minPositionETHValue
-    ) external payable nonReentrant whenNotPaused returns (uint256 offerId) {
+    ) external payable returns (uint256 offerId) {
+        return _createLoanOffer(
+            _aprBps,
+            _duration,
+            _collateralContract,
+            _minPositionValue,
+            _minPositionETHValue,
+            uint64(block.timestamp + MAX_OFFER_VALIDITY)
+        );
+    }
+
+    /// @param _expiry Absolute unix timestamp after which this offer can no longer
+    ///                be accepted. Must be in
+    ///                `[block.timestamp + MIN_OFFER_VALIDITY, block.timestamp + MAX_OFFER_VALIDITY]`
+    ///                — short bound (1h) prevents pure-spam expiries that brick the
+    ///                offer before a borrower can act; long bound (90d) caps the
+    ///                stale-quote attack window. Lender retains `cancelOffer` for
+    ///                early withdrawal at any time. AUDIT FIX (pass-8 batch-15) Phase 3.5.
+    function createLoanOfferWithExpiry(
+        uint256 _aprBps,
+        uint256 _duration,
+        address _collateralContract,
+        uint256 _minPositionValue,
+        uint256 _minPositionETHValue,
+        uint64 _expiry
+    ) external payable returns (uint256 offerId) {
+        return _createLoanOffer(
+            _aprBps,
+            _duration,
+            _collateralContract,
+            _minPositionValue,
+            _minPositionETHValue,
+            _expiry
+        );
+    }
+
+    function _createLoanOffer(
+        uint256 _aprBps,
+        uint256 _duration,
+        address _collateralContract,
+        uint256 _minPositionValue,
+        uint256 _minPositionETHValue,
+        uint64 _expiry
+    ) private nonReentrant whenNotPaused returns (uint256 offerId) {
         if (msg.value == 0) revert ZeroPrincipal();
         if (msg.value < minPrincipal) revert PrincipalTooSmall();
         if (msg.value > maxPrincipal) revert PrincipalTooLarge();
@@ -668,6 +750,11 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (_duration > maxDuration) revert DurationTooLong();
         if (_collateralContract == address(0)) revert ZeroAddress();
         if (!acceptedCollateralContracts[_collateralContract]) revert CollateralNotAccepted();
+        // AUDIT FIX (pass-8 batch-15): Phase 3.5 — bound the offer-validity window.
+        if (
+            _expiry < block.timestamp + MIN_OFFER_VALIDITY ||
+            _expiry > block.timestamp + MAX_OFFER_VALIDITY
+        ) revert InvalidOfferExpiry();
 
         // AUDIT FIX: DEEP-LD-M4 — refuse new offers when this exact collateral has
         // a pending removal proposal in the timelock window.
@@ -695,7 +782,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
             active: true,
             originationFee: originationFee,
             // AUDIT FIX: LD3-H3 — snapshot the live treasury at offer creation.
-            treasuryAtCreate: treasury
+            treasuryAtCreate: treasury,
+            // AUDIT FIX (pass-8 batch-15): Phase 3.5 — offer expiry.
+            expiry: _expiry
         }));
 
         emit LoanOfferCreated(
@@ -752,6 +841,11 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         LoanOffer storage offer = offers[_offerId];
 
         if (!offer.active) revert OfferNotActive();
+        // AUDIT FIX (pass-8 batch-15): Phase 3.5 — reject acceptance once the
+        // offer has expired. Lender can `cancelOffer` to recover principal +
+        // the held origination fee at any time. Pre-fix, an offer with stale
+        // market terms could be accepted indefinitely.
+        if (block.timestamp > offer.expiry) revert OfferExpired();
 
         // GAS: Cache storage reads into local variables
         uint256 principal = offer.principal;
