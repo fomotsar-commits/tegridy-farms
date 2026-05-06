@@ -85,6 +85,11 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     ///         epoch. `ethReceived` is the post-swap delta, NOT the caller-supplied
     ///         minETHOut, so monitoring sees the actual realized rate.
     event ERC20FeesConverted(address indexed currency, uint256 amountIn, uint256 ethReceived);
+    /// @notice AUDIT FIX (pass-8 batch-16): emitted on every PoolKey allowlist
+    ///         add/remove. Off-chain indexers track the approved-pool set via
+    ///         these events without re-deriving the storage hash mapping.
+    event PoolApproved(bytes32 indexed poolKeyHash, address indexed currency0, address indexed currency1);
+    event PoolRevoked(bytes32 indexed poolKeyHash);
 
     error OnlyPoolManager();
     error FeeTooHigh();
@@ -117,6 +122,19 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     /// @notice AUDIT FIX (pass-8): TF-INT-02. ERC20 → ETH conversion swap returned less
     ///         ETH than the caller-supplied minETHOut floor.
     error InsufficientETHOut();
+    /// @notice AUDIT FIX (pass-8 batch-16): PoolKey allowlist guard. Pre-fix,
+    ///         `afterSwap` accepted ANY PoolKey — an attacker could deploy a
+    ///         pool with attacker-controlled token0/token1 implementing
+    ///         `transferFrom` as a no-op, attach this hook (allowed by
+    ///         the V4 PoolManager since the hook only enforces address-bit
+    ///         pattern), trigger a swap, and watch this contract credit
+    ///         `accruedFees[<malicious token>]` against itself. The
+    ///         attacker would then drain via the existing
+    ///         `convertERC20FeesToETH` path. Now the hook silently returns
+    ///         a zero fee for unapproved pools (does NOT revert — that
+    ///         would brick all swaps on the unapproved pool); only owner-
+    ///         approved (via `approvePool`) PoolKeys actually accrue fees.
+    error PoolNotApproved();
     /// @notice AUDIT FIX (pass-8): TF-INT-02. The owner-supplied conversion path is malformed:
     ///         must be at least 2 hops, must start at `currency`, and must end at WETH.
     error InvalidConversionPath();
@@ -129,6 +147,18 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
 
     // SECURITY FIX: Track fees actually earned per token to prevent over-claiming
     mapping(address => uint256) public accruedFees;
+
+    /// @notice AUDIT FIX (pass-8 batch-16): PoolKey allowlist. Maps
+    ///         `keccak256(abi.encode(PoolKey))` → approved-flag. Only
+    ///         owner-approved PoolKeys accrue fees in `afterSwap`; any
+    ///         other PoolKey gets a zero-fee return (does NOT revert,
+    ///         which would brick all swaps on the unapproved pool).
+    /// @dev    Approval is a single-step `onlyOwner` operation (no
+    ///         timelock — additive operation that creates a fresh fee
+    ///         stream, not a value-routing change). Revocation is also
+    ///         immediate so a misbehaving pool can be cut off without
+    ///         a 24h delay window.
+    mapping(bytes32 => bool) public approvedPools;
 
     // AUDIT FIX: Timelock for syncAccruedFees to prevent instant fee destruction
     uint256 public constant SYNC_DELAY = 24 hours;
@@ -210,6 +240,40 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         _unpause();
     }
 
+    // ─── Pool Allowlist Admin ────────────────────────────────────────
+
+    /// @dev Canonical PoolKey hash. Used as the storage key for the
+    ///      allowlist. Identical to V4's internal pool-id derivation.
+    function _poolKeyHash(PoolKey calldata key) internal pure returns (bytes32) {
+        return keccak256(abi.encode(key));
+    }
+
+    /// @notice Approve a Uniswap V4 PoolKey for fee accrual via this hook.
+    ///         Pre-fix (pass-8 batch-16), `afterSwap` accepted any caller
+    ///         and credited fees regardless of pool provenance — opening a
+    ///         path where an attacker deploys a malicious pool with this
+    ///         hook attached and triggers fake-fee accrual. Now only
+    ///         pre-approved PoolKeys accrue.
+    /// @dev    Single-step `onlyOwner` (no timelock — additive, creates a
+    ///         fresh fee stream rather than re-routing existing value).
+    function approvePool(PoolKey calldata key) external onlyOwner {
+        bytes32 h = _poolKeyHash(key);
+        approvedPools[h] = true;
+        emit PoolApproved(h, Currency.unwrap(key.currency0), Currency.unwrap(key.currency1));
+    }
+
+    /// @notice Revoke a previously-approved PoolKey. Future `afterSwap`
+    ///         calls for this PoolKey return a zero fee (the swap still
+    ///         completes — the hook DOES NOT revert and brick the pool).
+    ///         Already-accrued fees on `accruedFees[currency]` are NOT
+    ///         clawed back; they remain claimable via `claimFees` /
+    ///         `convertERC20FeesToETH`.
+    function revokePool(PoolKey calldata key) external onlyOwner {
+        bytes32 h = _poolKeyHash(key);
+        approvedPools[h] = false;
+        emit PoolRevoked(h);
+    }
+
     // ─── Hook Implementations ─────────────────────────────────────────
 
     // We only use afterSwap — all other hooks return the selector to indicate "no-op"
@@ -260,6 +324,15 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         BalanceDelta delta,
         bytes calldata
     ) external onlyPoolManager returns (bytes4, int128) {
+        // AUDIT FIX (pass-8 batch-16): PoolKey allowlist. Pre-fix, ANY pool
+        // attaching this hook to its V4 PoolKey could trigger fee accrual —
+        // including attacker-deployed pools with malicious tokens. Now only
+        // owner-approved PoolKeys actually accrue fees. Failure mode is a
+        // zero-fee return (NOT revert) so the swap still completes for the
+        // user — reverting would brick every swap on a misconfigured pool.
+        if (!approvedPools[_poolKeyHash(key)]) {
+            return (IHooks.afterSwap.selector, int128(0));
+        }
         // AUDIT FIX: When paused, return zero fee instead of reverting — reverting would block ALL pool swaps
         if (paused()) {
             return (IHooks.afterSwap.selector, int128(0));

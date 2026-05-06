@@ -181,6 +181,11 @@ contract PASS7_HOOK_01_TegridyFeeHookDeltaNotSettled is Test {
         bytes memory args = abi.encode(IPoolManager(address(pm)), distributor, uint256(30), owner, TOKEN0);
         deployCodeTo("TegridyFeeHook.sol:TegridyFeeHook", args, hookAddr);
         hook = TegridyFeeHook(payable(hookAddr));
+        // AUDIT FIX (pass-8 batch-16): owner must approve the test pool for
+        // afterSwap to actually accrue fees. Without this, the hook silently
+        // returns a zero fee — which is the new default for un-approved pools.
+        vm.prank(owner);
+        hook.approvePool(_key());
     }
 
     function _key() internal view returns (PoolKey memory) {

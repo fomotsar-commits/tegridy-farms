@@ -1099,6 +1099,56 @@ This unblocks the long-stalled Wave 0 redeploy.
   Bytecode: TegridyLending 17,658 → 18,292 (+634 B; under EIP-170 with
   6,284 B headroom).
 
+#### Pass-8 Batch 16 — TegridyFeeHook PoolKey allowlist (2026-05-06)
+
+**High (1) — closed:**
+
+- **TegridyFeeHook PoolKey allowlist.** Pre-fix, `afterSwap` accepted ANY
+  PoolKey from any pool that attached this hook. The V4 PoolManager only
+  enforces an address-bit pattern on hooks; it does NOT gate which pools
+  can use a given hook contract. An attacker could deploy a V4 pool with
+  attacker-controlled tokens (e.g. an ERC20 with `transferFrom` no-op'd),
+  attach this hook to the new pool, trigger a swap, and watch the hook
+  credit `accruedFees[<malicious token>]` against itself. Combined with
+  the existing owner-gated `convertERC20FeesToETH` path, the attacker
+  could then route the fake fees through a routing path of their choice
+  if a captured-owner / routing-curve manipulation was layered on. Even
+  without the drain leg, fake fee accrual corrupts the protocol's fee
+  accounting and makes legitimate `claimFees` calls under-recover.
+
+  Closed by:
+  1. New `mapping(bytes32 poolKeyHash => bool) public approvedPools`.
+  2. Owner-gated single-step `approvePool(PoolKey)` and `revokePool(PoolKey)`.
+     No timelock — adding a pool is additive (creates a new fee stream)
+     and revoking is defensive (cuts off a misbehaving pool); 24h delay
+     would be counterproductive on either path.
+  3. `afterSwap` first check: `if (!approvedPools[_poolKeyHash(key)])`
+     return zero-fee. Crucially, the path does NOT revert — that would
+     brick every swap on a misconfigured pool. The swap completes for the
+     user; the hook simply contributes nothing to the swap delta.
+  4. New `PoolApproved(hash, currency0, currency1)` and `PoolRevoked(hash)`
+     events for off-chain indexing.
+  5. New typed error `PoolNotApproved` (currently unused — the silent-
+     zero-fee path is preferred — but kept declared for future strict-mode
+     deploys that may want to reject swaps outright).
+
+  Files changed:
+  - [contracts/src/TegridyFeeHook.sol](contracts/src/TegridyFeeHook.sol)
+    (mapping, helper, approve/revoke, gate; ~+670 B → 12,106 B; under
+    EIP-170 with 12,470 B headroom).
+  - [contracts/test/PASS8_HOOK_ALLOWLIST.t.sol](contracts/test/PASS8_HOOK_ALLOWLIST.t.sol)
+    (new — 6 dedicated tests covering: unapproved → zero-fee, approved →
+    accrues, revoked → stops accruing, events emitted, only-owner gating,
+    different fee-tier PoolKeys are distinct allowlist entries).
+  - [contracts/test/PASS7_HOOK_01.t.sol](contracts/test/PASS7_HOOK_01.t.sol)
+    + [contracts/test/R031_TegridyFeeHook.t.sol](contracts/test/R031_TegridyFeeHook.t.sol):
+    setUp now calls `hook.approvePool(_key())` / `hook.approvePool(_mkKey())`
+    so the existing post-fix regressions still validate against an
+    approved pool.
+
+  **Verification:** 6 new tests pass; full unit suite **2,552 pass / 0 fail**
+  (+6 vs. pre-batch-16).
+
 ### Security — pass-7 adversarial multi-agent audit + remediation (2026-05-03 → 2026-05-04)
 
 Three parallel worktree agents (oracle/AMM/fees, staking/governance, lending/NFT)

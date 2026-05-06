@@ -57,6 +57,10 @@ contract R031_TegridyFeeHook is Test {
             HOOK_ADDR
         );
         hook = TegridyFeeHook(payable(HOOK_ADDR));
+        // AUDIT FIX (pass-8 batch-16): owner must approve the test pool for
+        // afterSwap to actually accrue fees. Pre-fix all pools accrued silently.
+        vm.prank(owner);
+        hook.approvePool(_mkKey());
     }
 
     function _mkKey() internal view returns (PoolKey memory) {
