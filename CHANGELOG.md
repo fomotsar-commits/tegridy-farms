@@ -903,6 +903,49 @@ splits):**
     vs. pre-batch-12's 2,507 pass; the 20 pre-existing batch-3 NFTPool
     fixture failures remain).
 
+#### Pass-8 Batch 13 — NFTPool test fixture refresh (2026-05-06)
+
+**Test debt cleanup — clears the 20 pre-existing failures from batch 3.**
+
+Batch 3 raised `MIN_DEPOSIT` on `TegridyNFTPoolFactory` (0.01 → 0.05 ETH)
+and migrated `lastSwapBlock` / `lastWithdrawBlock` /
+`WITHDRAW_NFT_COOLDOWN_BLOCKS` on `TegridyNFTPool` from `block.number` to
+`block.timestamp` semantics (CLK-02). Constant *names* were preserved
+for ABI continuity, but every test fixture that exercised these surfaces
+was still calling `createPool{value: 0.01 ether}` or using `vm.roll` to
+advance past the cooldown — both broken post-batch-3.
+
+This batch refreshes 5 test files mechanically:
+
+- **MIN_DEPOSIT bump** — `createPool{value: 0.01 ether}` →
+  `createPool{value: 0.05 ether}` across:
+  [test/TegridyNFTPoolFactory.t.sol](contracts/test/TegridyNFTPoolFactory.t.sol),
+  [test/R064_PaginationBounds.t.sol](contracts/test/R064_PaginationBounds.t.sol),
+  [test/Deep_NFTPool_2026_05_01.t.sol](contracts/test/Deep_NFTPool_2026_05_01.t.sol).
+  The intentional below-floor revert test
+  (`test_createPool_revertsOnBelowMinDeposit`) at `0.009 ETH` still fires
+  the `MIN_DEPOSIT` revert correctly under the raised floor.
+- **Cooldown semantics** — `vm.roll(block.number + N)` patterns swapped
+  to `vm.warp(block.timestamp + N)` in:
+  [test/Deep_NFTPool_2026_05_01.t.sol](contracts/test/Deep_NFTPool_2026_05_01.t.sol)
+  (`test_DEEP01_swapNextBlockOK`,
+   `test_DEEP01_lastWithdrawBlockTracksETHWithdraw`,
+   `test_L4_withdrawNFTs_succeedsAfterCooldown`),
+  [test/TegridyNFTPool.t.sol](contracts/test/TegridyNFTPool.t.sol)
+  (`test_withdrawETH_respectsProtocolFees`),
+  [test/AuditR014_NFT.t.sol](contracts/test/AuditR014_NFT.t.sol)
+  (`test_M4_removeLiquidity_succeedsInNextBlock`).
+  `lastWithdrawBlock` assertions also re-targeted to `block.timestamp`
+  since the storage slot now records timestamp.
+
+No source-side changes — pure test-fixture refresh.
+
+**Verification:**
+
+- Full unit suite (excluding invariants): **2,536 pass / 0 fail**
+  (+20 vs. pre-batch-13's 2,516 pass; full suite green for the first
+  time since pass-7). No source contracts changed; no bytecode delta.
+
 ### Security — pass-7 adversarial multi-agent audit + remediation (2026-05-03 → 2026-05-04)
 
 Three parallel worktree agents (oracle/AMM/fees, staking/governance, lending/NFT)

@@ -100,7 +100,7 @@ contract TegridyNFTPoolFactoryTest is Test {
         uint256[] memory ids;
         vm.prank(alice);
         vm.expectRevert(TegridyNFTPoolFactory.ZeroAddress.selector);
-        factory.createPool{value: 0.01 ether}(
+        factory.createPool{value: 0.05 ether}(
             address(0), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
     }
@@ -109,7 +109,7 @@ contract TegridyNFTPoolFactoryTest is Test {
         uint256[] memory ids;
         vm.prank(alice);
         vm.expectRevert(bytes("NOT_CONTRACT"));
-        factory.createPool{value: 0.01 ether}(
+        factory.createPool{value: 0.05 ether}(
             alice, TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
     }
@@ -126,7 +126,7 @@ contract TegridyNFTPoolFactoryTest is Test {
     function test_createPool_acceptsETHOnlyDeposit() public {
         uint256[] memory ids;
         vm.prank(alice);
-        address pool = factory.createPool{value: 0.01 ether}(
+        address pool = factory.createPool{value: 0.05 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
         assertTrue(pool != address(0));
@@ -158,7 +158,7 @@ contract TegridyNFTPoolFactoryTest is Test {
         // logic from the other side.
         uint256[] memory ids;
         vm.prank(alice);
-        address pool = factory.createPool{value: 0.01 ether}(
+        address pool = factory.createPool{value: 0.05 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
         assertTrue(pool != address(0));
@@ -177,11 +177,11 @@ contract TegridyNFTPoolFactoryTest is Test {
         // a different address.
         uint256[] memory ids;
         vm.prank(alice);
-        address first = factory.createPool{value: 0.01 ether}(
+        address first = factory.createPool{value: 0.05 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
         vm.prank(alice);
-        address second = factory.createPool{value: 0.01 ether}(
+        address second = factory.createPool{value: 0.05 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
         assertTrue(first != second, "counter bump must produce unique address");
@@ -190,14 +190,14 @@ contract TegridyNFTPoolFactoryTest is Test {
     function test_createPool_differentCallersGetDifferentAddresses() public {
         uint256[] memory ids;
         vm.prank(alice);
-        address alicesPool = factory.createPool{value: 0.01 ether}(
+        address alicesPool = factory.createPool{value: 0.05 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
 
         // bob creates with identical args — salt differs because msg.sender
         // differs and _allPools.length also differs (now 1 not 0).
         vm.prank(bob);
-        address bobsPool = factory.createPool{value: 0.01 ether}(
+        address bobsPool = factory.createPool{value: 0.05 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
         assertTrue(alicesPool != bobsPool);
@@ -210,15 +210,15 @@ contract TegridyNFTPoolFactoryTest is Test {
         uint256[] memory ids;
 
         vm.prank(alice);
-        address a1 = factory.createPool{value: 0.01 ether}(
+        address a1 = factory.createPool{value: 0.05 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
         vm.prank(alice);
-        address a2 = factory.createPool{value: 0.01 ether}(
+        address a2 = factory.createPool{value: 0.05 ether}(
             address(nft), TegridyNFTPool.PoolType.BUY, SPOT_PRICE, DELTA, 0, ids
         );
         vm.prank(alice);
-        address b1 = factory.createPool{value: 0.01 ether}(
+        address b1 = factory.createPool{value: 0.05 ether}(
             address(otherNft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
 
@@ -237,7 +237,7 @@ contract TegridyNFTPoolFactoryTest is Test {
     function test_pagination_emptyWhenOffsetPastEnd() public {
         uint256[] memory ids;
         vm.prank(alice);
-        factory.createPool{value: 0.01 ether}(
+        factory.createPool{value: 0.05 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
         address[] memory slice = factory.getPoolsPaginated(address(nft), 10, 5);
@@ -248,7 +248,7 @@ contract TegridyNFTPoolFactoryTest is Test {
         uint256[] memory ids;
         for (uint256 i; i < 3; i++) {
             vm.prank(alice);
-            factory.createPool{value: 0.01 ether}(
+            factory.createPool{value: 0.05 ether}(
                 address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
             );
         }
@@ -264,7 +264,7 @@ contract TegridyNFTPoolFactoryTest is Test {
         uint256[] memory ids;
         vm.prank(alice);
         vm.expectRevert();
-        factory.createPool{value: 0.01 ether}(
+        factory.createPool{value: 0.05 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
     }
@@ -282,7 +282,7 @@ contract TegridyNFTPoolFactoryTest is Test {
         factory.unpause();
         uint256[] memory ids;
         vm.prank(alice);
-        address pool = factory.createPool{value: 0.01 ether}(
+        address pool = factory.createPool{value: 0.05 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
         assertTrue(pool != address(0));
@@ -366,7 +366,7 @@ contract TegridyNFTPoolFactoryTest is Test {
         // and event name via vm.recordLogs.
         vm.recordLogs();
         vm.prank(alice);
-        factory.createPool{value: 0.01 ether}(
+        factory.createPool{value: 0.05 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
         Vm.Log[] memory logs = vm.getRecordedLogs();

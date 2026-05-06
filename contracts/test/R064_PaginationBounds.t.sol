@@ -141,7 +141,7 @@ contract R064_NFTPoolFactoryBoundsTest is Test {
     function _createTradePool() internal returns (address pool) {
         uint256[] memory ids;
         vm.prank(alice);
-        pool = factory.createPool{value: 0.01 ether}(
+        pool = factory.createPool{value: 0.05 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT, DELTA, LP_FEE, ids
         );
     }

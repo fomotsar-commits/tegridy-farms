@@ -100,10 +100,14 @@ contract Deep_NFTPool_2026_05_01_Test is Test {
     }
 
     function test_DEEP01_swapNextBlockOK() public {
+        // AUDIT FIX (pass-8 batch-13): batch-3 CLK-02 switched lastWithdrawBlock /
+        // lastSwapBlock from block.number to block.timestamp semantics. "Next
+        // block" in the contract now means "next second" — vm.warp(+1) replaces
+        // the legacy vm.roll(+1) so the WithdrawalLandedThisBlock guard clears.
         TegridyNFTPool pool = _mkSell(_idArr(1, 5));
         vm.prank(alice);
         pool.withdrawNFTs(_ids(1));
-        vm.roll(block.number + 1);
+        vm.warp(block.timestamp + 1);
 
         (uint256 cost, ) = pool.getBuyQuote(1);
         vm.prank(bob);
@@ -112,12 +116,15 @@ contract Deep_NFTPool_2026_05_01_Test is Test {
     }
 
     function test_DEEP01_lastWithdrawBlockTracksETHWithdraw() public {
+        // AUDIT FIX (pass-8 batch-13): assertion now compares against
+        // block.timestamp (not block.number) since the storage slot was migrated
+        // to timestamp semantics in batch-3 CLK-02. ABI name preserved.
         TegridyNFTPool pool = _mkBuy(10 ether);
-        vm.roll(block.number + 1);
+        vm.warp(block.timestamp + 1);
         // Owner withdraws ETH (no prior swap → withdraw allowed); lastWithdrawBlock must update.
         vm.prank(alice);
         pool.withdrawETH(0.1 ether);
-        assertEq(pool.lastWithdrawBlock(), block.number);
+        assertEq(pool.lastWithdrawBlock(), block.timestamp);
     }
 
     // ─── DEEP-NFTPOOL-02: replace-protection on propose-* ────────────────
@@ -359,10 +366,10 @@ contract Deep_NFTPool_2026_05_01_Test is Test {
         vm.startPrank(alice);
         nft.setApprovalForAll(address(factory), true);
         nft.setApprovalForAll(address(f2), true);
-        address poolA = factory.createPool{value: 0.01 ether}(
+        address poolA = factory.createPool{value: 0.05 ether}(
             address(nft), TegridyNFTPool.PoolType.SELL, SPOT_PRICE, DELTA, 0, empty
         );
-        address poolB = f2.createPool{value: 0.01 ether}(
+        address poolB = f2.createPool{value: 0.05 ether}(
             address(nft), TegridyNFTPool.PoolType.SELL, SPOT_PRICE, DELTA, 0, empty
         );
         vm.stopPrank();
@@ -501,8 +508,11 @@ contract Deep_NFTPool_2026_05_01_Test is Test {
         vm.prank(bob);
         pool.swapETHForNFTs{value: cost}(_ids(2), type(uint256).max, block.timestamp + 1);
 
-        // Roll past cooldown: lastSwapBlock + WITHDRAW_NFT_COOLDOWN_BLOCKS + 1.
-        vm.roll(block.number + pool.WITHDRAW_NFT_COOLDOWN_BLOCKS() + 1);
+        // AUDIT FIX (pass-8 batch-13): batch-3 CLK-02 migrated the cooldown to
+        // timestamp semantics. WITHDRAW_NFT_COOLDOWN_BLOCKS now stores SECONDS
+        // (= 10 minutes), so we vm.warp past the cooldown rather than vm.roll.
+        // Constant name retained for ABI continuity.
+        vm.warp(block.timestamp + pool.WITHDRAW_NFT_COOLDOWN_BLOCKS() + 1);
         vm.prank(alice);
         pool.withdrawNFTs(_ids(3));
         assertEq(nft.ownerOf(3), alice);

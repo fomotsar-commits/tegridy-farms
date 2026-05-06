@@ -896,9 +896,10 @@ contract TegridyNFTPoolTest is Test {
         assertGt(accumulatedFees, 0);
 
         // AUDIT FIX D-NFTPOOL-H1: withdrawETH cooldown extended from 1 block to
-        // WITHDRAW_NFT_COOLDOWN_BLOCKS (≈10 min) to mirror withdrawNFTs. Roll
-        // past the new cooldown so the legitimate post-swap withdraw lands.
-        vm.roll(block.number + p.WITHDRAW_NFT_COOLDOWN_BLOCKS() + 1);
+        // WITHDRAW_NFT_COOLDOWN_BLOCKS (≈10 min) to mirror withdrawNFTs.
+        // AUDIT FIX (pass-8 batch-13): batch-3 CLK-02 migrated the cooldown to
+        // timestamp semantics — vm.warp past the seconds-valued constant.
+        vm.warp(block.timestamp + p.WITHDRAW_NFT_COOLDOWN_BLOCKS() + 1);
 
         // Owner can withdraw most of pool balance (a 10% min-liquidity buffer
         // is reserved per DEEP-NFTPOOL-07).

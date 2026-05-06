@@ -220,8 +220,10 @@ contract AuditR014_NFT_Test is Test {
 
     /// AUDIT R014 M-4: bumping past the swap block lets the pull go through.
     /// AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): D-NFTPOOL-H1 lengthened the
-    /// cooldown from 1 block to WITHDRAW_NFT_COOLDOWN_BLOCKS (50), so we must
-    /// roll forward >50 blocks for the guard to release.
+    /// cooldown from 1 block to WITHDRAW_NFT_COOLDOWN_BLOCKS so we must wait
+    /// past the cooldown for the guard to release.
+    /// AUDIT FIX (pass-8 batch-13): batch-3 CLK-02 migrated the constant to
+    /// timestamp semantics (10 minutes in seconds); use vm.warp accordingly.
     function test_M4_removeLiquidity_succeedsInNextBlock() public {
         TegridyNFTPool pool = _createSellPool(3);
 
@@ -229,8 +231,8 @@ contract AuditR014_NFT_Test is Test {
         vm.prank(bob);
         pool.swapETHForNFTs{value: cost}(_singleId(1), type(uint256).max, block.timestamp + 1 hours);
 
-        // Roll past the WITHDRAW_NFT_COOLDOWN_BLOCKS (50) window — guard releases.
-        vm.roll(block.number + pool.WITHDRAW_NFT_COOLDOWN_BLOCKS() + 1);
+        // Warp past the WITHDRAW_NFT_COOLDOWN_BLOCKS (10 minutes) window — guard releases.
+        vm.warp(block.timestamp + pool.WITHDRAW_NFT_COOLDOWN_BLOCKS() + 1);
 
         uint256[] memory pull = _singleId(2);
         vm.prank(alice);
