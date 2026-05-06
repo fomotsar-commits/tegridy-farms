@@ -500,8 +500,15 @@ contract Pass6_LD_NEW_H1_CrossProtocolMirrorTest is Test {
     ///      this mapping), update this constant. Lookup is one-time at test
     ///      run; we wrap in a function so the magic number is documented.
     function _stakingPerTokenIdSlot() internal pure returns (uint256) {
-        // Verified via `forge inspect TegridyStaking storageLayout` (slot 27).
-        return 27;
+        // Verified via `forge inspect TegridyStaking storage-layout`.
+        // History:
+        //   - Pre-Solady: slot 27.
+        //   - Post-Solady (batch-7 / batch-14): freed 6 ERC721-base slots.
+        //   - Post-batch-14 JBAC vault split: removed `_strandedJbacOwner` /
+        //     `_strandedJbacTokenId` (2 slots) but added `jbacVault` (1 slot)
+        //     net –1 → slot 22. Numerical layout history is also kept inline
+        //     so future migrations can re-anchor without git archaeology.
+        return 22;
     }
 }
 

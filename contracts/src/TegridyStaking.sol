@@ -25,12 +25,19 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 //   - Reverts: Solmate uses string requires (`"NOT_MINTED"`, `"WRONG_FROM"`,
 //     `"INVALID_RECIPIENT"`, etc.) instead of OZ's typed errors. Off-chain
 //     tooling that filtered on `ERC721NonexistentToken` etc. needs updating.
-// AUDIT FIX (pass-8): aliased to `SolmateERC721` so other compilation units
-// that wildcard-import `../src/TegridyStaking.sol` don't pull a colliding
-// `ERC721` symbol against OpenZeppelin's `ERC721` (used elsewhere in scripts/tests).
-import {ERC721 as SolmateERC721} from "solmate/tokens/ERC721.sol";
+// AUDIT FIX (pass-8 batch-14): swapped Solmate ERC721 → Solady ERC721 to close the
+// final EIP-170 gap on this contract. Aliased so wildcard importers in scripts/tests
+// don't pull a colliding `ERC721` symbol against OpenZeppelin's. Solady consolidates
+// `transferFrom` / `_mint` / `_burn` post-processing into a single
+// `_afterTokenTransfer(from, to, id)` hook (Solmate required three separate
+// overrides). This collapse + Solady's assembly-tight implementation cut ~1.7 KB
+// from the contract footprint, bringing TegridyStaking under EIP-170 for mainnet
+// deploy.
+import {ERC721 as SoladyERC721} from "solady/tokens/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+// AUDIT FIX (pass-8 batch-14): IERC721Receiver no longer needed on staking — JBAC
+// inbound moved to TegridyStakingJbacVault. Keeping the IERC721 import for the
+// `revalidateBoost` balanceOf check (resolved via vault.jbacNFT()).
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 // Strings import removed — tokenURI simplified to reduce contract size
@@ -44,6 +51,13 @@ import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 interface ITegridyRestakingView {
     function restakers(address user) external view returns (uint256 tokenId, uint256 positionAmount, uint256 boostedAmount, int256 bonusDebt, uint256 depositTime);
     function tokenIdToRestaker(uint256 tokenId) external view returns (address);
+}
+
+/// @dev AUDIT FIX (pass-8 batch-14): Minimal interface to TegridyStakingJbacVault.
+///      Used by `_clearPosition` to return a JBAC after the staking NFT burn
+///      (CCR-01 invariant). Vault enforces `onlyStaking` on `returnJbac`.
+interface ITegridyStakingJbacVault {
+    function returnJbac(uint256 stakingTokenId, uint256 jbacTokenId, address to) external;
 }
 
 /// @title TegridyStaking — Unified Lock + Stake + Boost + Governance + NFT Positions
@@ -65,7 +79,7 @@ interface ITegridyRestakingView {
 ///         - Transferring the NFT transfers the entire staking position
 ///         - Buyer of an NFT inherits the lock, boost, and rewards
 ///         - This means users can sell their locked position instead of paying the 25% penalty
-contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pausable, IERC721Receiver {
+contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
     using Checkpoints for Checkpoints.Trace208;
     using EnumerableSet for EnumerableSet.UintSet;
@@ -76,27 +90,42 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
     uint256 public constant MAX_LOCK_DURATION = 4 * 365 days;
     uint256 public constant MIN_BOOST_BPS = 4000;   // 0.4x
     uint256 public constant MAX_BOOST_BPS = 40000;  // 4.0x
-    uint256 public constant BOOST_PRECISION = 10000;
+    /// @dev AUDIT FIX (pass-8 batch-14): visibility lowered to `internal` to
+    ///      claw back ~30B of auto-getter bytecode. Equal to BPS; no external
+    ///      reader exists.
+    uint256 internal constant BOOST_PRECISION = 10000;
     uint256 public constant EARLY_WITHDRAWAL_PENALTY_BPS = 2500; // 25%
     uint256 public constant JBAC_BONUS_BPS = 5000; // +0.5x
-    uint256 public constant BPS = 10000;
-    uint256 public constant TRANSFER_COOLDOWN = 24 hours;
-    uint256 public constant TRANSFER_RATE_LIMIT = 1 hours; // SECURITY FIX: Prevent rapid-fire NFT transfers for reward drain
+    /// @dev AUDIT FIX (pass-8 batch-14): visibility lowered to `internal`. The
+    ///      one external reader (TegridyStakingAdmin's BPS check) now hardcodes
+    ///      `10_000` directly — it's a universal Ethereum-DeFi constant.
+    uint256 internal constant BPS = 10000;
+    /// @dev AUDIT FIX (pass-8 batch-14): visibility lowered to `internal` —
+    ///      no external readers in tests/scripts/admin. Saves ~30B per
+    ///      auto-getter.
+    uint256 internal constant TRANSFER_COOLDOWN = 24 hours;
+    uint256 internal constant TRANSFER_RATE_LIMIT = 1 hours; // SECURITY FIX: Prevent rapid-fire NFT transfers for reward drain
     /// @dev AUDIT FIX (pass-8): EIP170-02 partial — visibility lowered from
     ///      `public` to `internal`. Zero on-chain consumers; off-chain readers
     ///      can either query via subgraph events or via a future getter if needed.
     ///      Saves ~80 bytes (autogenerated getter selector).
     mapping(uint256 => uint256) internal lastTransferTime; // tokenId => last transfer timestamp
     uint256 private constant ACC_PRECISION = 1e12;
-    uint256 public constant MIN_STAKE = 100e18; // AUDIT FIX #33: Minimum stake amount
-    uint256 public constant MIN_NOTIFY_AMOUNT = 1000e18; // AUDIT FIX #61: Minimum fund amount to prevent dust funding
+    /// @dev AUDIT FIX (pass-8 batch-14): visibility lowered to `internal`.
+    uint256 internal constant MIN_STAKE = 100e18; // AUDIT FIX #33: Minimum stake amount
+    /// @dev AUDIT FIX (pass-8 batch-14): visibility lowered to `internal` to
+    ///      claw back ~30B of auto-getter bytecode. Read only inside
+    ///      `notifyRewardAmount`; no external reader exists.
+    uint256 internal constant MIN_NOTIFY_AMOUNT = 1000e18; // AUDIT FIX #61: Minimum fund amount to prevent dust funding
 
     // AUDIT R014 M-9: Owner can only `claimUnsettledFor(user)` after the user has been
     // dormant (no claim/getReward/withdraw/increaseAmount/extendLock/NFT-receive) for
     // USER_INACTIVITY_GATE seconds. Prevents the owner from front-running an active user
     // and pulling their unsettled rewards out from under them. The restaking contract
     // path is unchanged — restaking trampolines reward claims for the actual depositor.
-    uint256 public constant USER_INACTIVITY_GATE = 90 days;
+    /// @dev AUDIT FIX (pass-8 batch-14): visibility lowered to `internal`. Tests
+    ///      hardcode the value (90 days) directly.
+    uint256 internal constant USER_INACTIVITY_GATE = 90 days;
     /// @notice Last block.timestamp at which `user` performed a reward-touching action
     ///         on this contract (claim, withdraw, increase, NFT receive). Read-only;
     ///         updated internally by `_touch(user)`.
@@ -110,7 +139,21 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
     address public stakingAdmin;
 
     IERC20 public immutable rewardToken;
+    /// @notice The JBAC ERC721 collection. Kept on TegridyStaking so users continue
+    ///         to approve THIS contract (not the vault) before `stakeWithBoost` —
+    ///         the `safeTransferFrom(user, vault, jbacId)` call in `stakeWithBoost`
+    ///         pulls from the user (uses the staking-side approval) and lands at
+    ///         the vault (which holds custody and the stranded-reclaim mappings).
+    /// @dev    AUDIT FIX (pass-8 batch-14): JBAC CUSTODY moved to
+    ///         `TegridyStakingJbacVault`; the IERC721 reference + balanceOf reads
+    ///         (used by `revalidateBoost`) stay here. `_returnJbac` /
+    ///         `claimStrandedJbac` / stranded mappings + getters all moved.
     IERC721 public immutable jbacNFT;
+    /// @notice JBAC vault sister contract — receives JBACs from `stakeWithBoost`
+    ///         and handles return + stranded-reclaim on exit. Wired once via
+    ///         `setJbacVault` (one-shot, owner-only). Vault's constructor takes
+    ///         `staking` as immutable so the direction is fixed at vault-deploy.
+    address public jbacVault;
     address public treasury;
 
     uint256 public rewardRate;
@@ -162,7 +205,10 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
     // worst-case gas (~130k checkpoint-write, ~250k votingPowerOf read at the cap).
     // Existing addresses already over the new cap can still claim/withdraw — the cap
     // gates new acquisitions only.
-    uint256 public constant MAX_POSITIONS_PER_HOLDER = 50;
+    /// @dev AUDIT FIX (pass-8 batch-14): visibility lowered to `internal`. Tests
+    ///      hardcode the value (50) directly. Documented in
+    ///      `SwapFeeRouter` natspec for reference.
+    uint256 internal constant MAX_POSITIONS_PER_HOLDER = 50;
 
     // AUDIT FIX #1: Checkpointing via OZ Checkpoints.Trace208 (timestamp → votingPower)
     mapping(address => Checkpoints.Trace208) private _checkpoints;
@@ -207,7 +253,8 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
     uint256 public maxUnsettledRewards = 100_000e18;
 
     // AUDIT FIX C-05: Emergency exit delay mapping (tokenId => request timestamp)
-    uint256 public constant EMERGENCY_EXIT_DELAY = 7 days;
+    /// @dev AUDIT FIX (pass-8 batch-14): visibility lowered to `internal`.
+    uint256 internal constant EMERGENCY_EXIT_DELAY = 7 days;
     /// @dev AUDIT FIX (pass-8): EIP170-02 partial — visibility lowered to
     ///      `internal`. Zero on-chain consumers; emergency exit state is
     ///      observable off-chain via the EmergencyExit* events. Saves ~80B.
@@ -227,36 +274,16 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
     // Adds/removes go through the 48h timelocked path on TegridyStakingAdmin.
     mapping(address => bool) public isLendingContract;
 
-    // AUDIT H-1 (2026-04-20): Stranded-JBAC reclaim bookkeeping. If the JBAC return transfer
-    // in `_returnJbac` reverts (e.g., JBAC contract paused), we record who is
-    // entitled to reclaim it via `claimStrandedJbac(tokenId)`.
-    /// @dev AUDIT FIX (pass-8): EIP170-02 partial — visibility lowered to
-    ///      `internal` and replaced auto-generated dual getters with a single
-    ///      explicit `getStrandedJbac` getter below. Net savings: ~130B
-    ///      (two getter selectors+stubs at ~80B each replaced by one ~30B getter).
-    ///      Off-chain readers querying stranded state should call `getStrandedJbac`.
-    mapping(uint256 => address) internal _strandedJbacOwner;    // tokenId => entitled reclaimer
-    mapping(uint256 => uint256) internal _strandedJbacTokenId;  // tokenId => JBAC id to return
+    // AUDIT FIX (pass-8 batch-14): stranded-JBAC mappings + getter + ABI shims
+    // moved to TegridyStakingJbacVault. Off-chain readers should query
+    // `vault.strandedJbacOwner(tokenId)`, `vault.strandedJbacTokenId(tokenId)`,
+    // or `vault.getStrandedJbac(tokenId)` instead.
 
-    /// @notice Returns the stranded-JBAC reclaim record for a staking position.
-    /// @dev    AUDIT FIX (pass-8): EIP170-02 partial — single combined getter
-    ///         that complements the per-slot auto-getters below. Returns (0, 0)
-    ///         when no stranded record exists.
-    /// @param tokenId The staking position id whose JBAC return previously failed.
-    /// @return owner   Address entitled to reclaim the stranded JBAC.
-    /// @return jbacId  JBAC token id awaiting reclaim.
-    function getStrandedJbac(uint256 tokenId) external view returns (address owner, uint256 jbacId) {
-        owner = _strandedJbacOwner[tokenId];
-        jbacId = _strandedJbacTokenId[tokenId];
-    }
-
-    // AUDIT FIX (pass-8): test/off-chain ABI compatibility shims. The internal
-    // state slots use `_` prefix to free the public name; these views surface
+    // AUDIT FIX (pass-8): test/off-chain ABI compatibility shim. Internal
+    // mapping uses `_` prefix to free the public name; this view surfaces
     // the same `name(tokenId) → value` shape as the original public-mapping
-    // auto-getters at minimal bytecode cost (~30B each).
+    // auto-getter at minimal bytecode cost (~30B).
     function emergencyExitRequests(uint256 tokenId) external view returns (uint256) { return _emergencyExitRequests[tokenId]; }
-    function strandedJbacOwner(uint256 tokenId) external view returns (address) { return _strandedJbacOwner[tokenId]; }
-    function strandedJbacTokenId(uint256 tokenId) external view returns (uint256) { return _strandedJbacTokenId[tokenId]; }
 
     // ─── AUDIT C5: extend-lock / autoMaxLock-enable fee ──────────────────
     /// @notice Fee in BPS charged on extendLock and on toggleAutoMaxLock when enabling.
@@ -266,7 +293,10 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
     ///         safeTransferFrom (caller must approve); routed to treasury so the
     ///         protocol captures value when boost is increased.
     uint256 public extendFeeBps;
-    uint256 public constant EXTEND_FEE_BPS_CEILING = 200;
+    /// @dev AUDIT FIX (pass-8 batch-14): visibility lowered to `internal` —
+    ///      one external reader (TegridyStakingAdmin's bound check) hardcodes
+    ///      `200` directly.
+    uint256 internal constant EXTEND_FEE_BPS_CEILING = 200;
 
     // ─── AUDIT C6: penalty recycle to active stakers ─────────────────────
     /// @notice BPS of early-withdrawal penalty that is recycled into the staker reward
@@ -343,8 +373,9 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
     /// @notice AUDIT FIX C-1: emitted when the restaking contract pulls the
     ///         per-tokenId share via `claimUnsettledForTokenId`.
     event UnsettledClaimedForTokenId(uint256 indexed tokenId, address indexed recipient, uint256 amount);
-    event JbacReturned(uint256 indexed tokenId, address indexed to, uint256 indexed jbacTokenId); // AUDIT H-1
-    event JbacStranded(uint256 indexed tokenId, address indexed to, uint256 indexed jbacTokenId); // AUDIT H-1
+    // AUDIT FIX (pass-8 batch-14): JbacReturned / JbacStranded events moved to
+    // TegridyStakingJbacVault — the vault is the emitter post-split.
+    event JbacVaultSet(address indexed vault);
     /// @notice AUDIT C5: emitted when an extend-lock / autoMaxLock fee is collected to treasury.
     event ExtendFeeCollected(uint256 indexed tokenId, address indexed payer, uint256 amount);
     /// @notice AUDIT M-AUDIT-2026-1: emitted on every extend-fee charge with the split
@@ -389,7 +420,10 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
     error ExtendFeeTooHigh(); // AUDIT C5
     error PenaltyRecycleTooHigh(); // AUDIT C6
     error ExtendFeeRecycleTooHigh(); // AUDIT M-AUDIT-2026-1
-    error OnlyJbacNFT(); // SIZE-OPT: replaces require("only JBAC")
+    // AUDIT FIX (pass-8 batch-14): OnlyJbacNFT moved to TegridyStakingJbacVault
+    // (the vault is now the JBAC-receive surface).
+    /// @dev AUDIT FIX (pass-8 batch-14): JBAC vault one-shot wiring guard.
+    error JbacVaultAlreadySet();
     error NotRewardNotifier(); // SIZE-OPT: replaces revert("NOT_NOTIFIER")
     error NoOpKick(); // AUDIT FIX: DEEP-DS-07 — kick on non-expired or already-decayed position
     error PendingLendingPositions(); // AUDIT FIX: DEEP-DS-10 — revoking lending while NFTs escrowed
@@ -402,14 +436,31 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
         address _jbacNFT,
         address _treasury,
         uint256 _rewardRate
-    ) SolmateERC721("Tegridy Staking Position", "tsTOWELI") OwnableNoRenounce(msg.sender) {
+    ) OwnableNoRenounce(msg.sender) {
+        // AUDIT FIX (pass-8 batch-14): Solady ERC721 has no constructor-args
+        // surface for name/symbol; overridden as constant `name()` / `symbol()`
+        // returns below.
         if (_rewardToken == address(0) || _jbacNFT == address(0) || _treasury == address(0)) revert ZeroAddress();
-        if (_rewardRate > MAX_REWARD_RATE) revert RateTooHigh(); // AUDIT FIX L-13: Cap reward rate in constructor
+        if (_rewardRate > MAX_REWARD_RATE) revert RateTooHigh();
         rewardToken = IERC20(_rewardToken);
         jbacNFT = IERC721(_jbacNFT);
         treasury = _treasury;
         rewardRate = _rewardRate;
         lastUpdateTime = block.timestamp;
+    }
+
+    /// @notice One-shot wire of the JBAC vault sister contract.
+    /// @dev    AUDIT FIX (pass-8 batch-14). Mirrors the `setStakingAdmin` /
+    ///         `setRestakingContract` one-shot pattern: rejects zero address,
+    ///         requires a contract, locked once set. Vault must be deployed
+    ///         pointing back at THIS contract (vault constructor takes
+    ///         `staking` as immutable arg).
+    function setJbacVault(address _vault) external onlyOwner {
+        if (_vault == address(0)) revert ZeroAddress();
+        if (jbacVault != address(0)) revert JbacVaultAlreadySet();
+        if (_vault.code.length == 0) revert NotAContract();
+        jbacVault = _vault;
+        emit JbacVaultSet(_vault);
     }
 
     // V2: Simplified — dead penalty variables removed
@@ -762,21 +813,18 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
 
         _mint(msg.sender, tokenId); // _update() sets userTokenId[msg.sender] = tokenId
         rewardToken.safeTransferFrom(msg.sender, address(this), _amount);
-        // Pull JBAC physically into this contract. onERC721Received gates the sender to jbacNFT.
-        IERC721(address(jbacNFT)).safeTransferFrom(msg.sender, address(this), _jbacTokenId);
+        // AUDIT FIX (pass-8 batch-14): JBAC custody handed off to the vault.
+        // User approves THIS contract for the JBAC (unchanged UX); `safeTransferFrom`
+        // pulls from the user using the staking-side approval, and lands at the
+        // vault (which has its own `onERC721Received` gating to the configured
+        // jbacNFT). Stranded-reclaim path lives on the vault.
+        if (jbacVault == address(0)) revert ZeroAddress();
+        jbacNFT.safeTransferFrom(msg.sender, jbacVault, _jbacTokenId);
 
         _writeCheckpoint(msg.sender);
         _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
 
         emit Staked(msg.sender, tokenId, _amount, _lockDuration, boost);
-    }
-
-    /// @notice IERC721Receiver — only accepts transfers from the configured JBAC contract.
-    /// @dev AUDIT H-1 FIX (2026-04-20): Restrict to the configured JBAC collection so no
-    ///      other ERC721 can be dumped here.
-    function onERC721Received(address, address, uint256, bytes calldata) external view returns (bytes4) {
-        if (msg.sender != address(jbacNFT)) revert OnlyJbacNFT();
-        return IERC721Receiver.onERC721Received.selector;
     }
 
     /// @notice Toggle auto-max-lock. When enabled, lock auto-extends on every claim.
@@ -908,20 +956,14 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
         // most common exit path. _getReward handles decay AFTER computing rewards.
         _getReward(tokenId, p);
 
-        // AUDIT FIX (pass-8): C4 / CCR-01 — capture JBAC info BEFORE _clearPosition,
-        // then return AFTER. The JBAC `safeTransferFrom` callback fires user-controlled
-        // code; with the prior pre-clear ordering, the attacker could re-escrow this
-        // staking NFT into TegridyLending mid-callback (acceptOffer succeeded while
-        // ownerOf still returned attacker). Outer _clearPosition then burned the NFT
-        // from lending, locking lender principal forever. After this reorder, the NFT
-        // is burned BEFORE the JBAC callback fires — Solmate's transferFrom reverts
-        // on the now-empty _ownerOf slot, closing the cross-contract reentrancy.
-        uint256 jbacId = p.jbacDeposited ? p.jbacTokenId : 0;
-
+        // AUDIT FIX (pass-8 batch-9 / batch-14): JBAC capture + post-burn return
+        // lives inside `_clearPosition`. CCR-01 invariant: NFT is burned BEFORE
+        // the JBAC `safeTransferFrom` callback fires, so any cross-contract
+        // reentrant `transferFrom`/`acceptOffer` reverts on the empty _ownerOf
+        // slot. See `_clearPosition` natspec for the full invariant statement.
         uint256 amount = _clearPosition(tokenId, p);
 
         rewardToken.safeTransfer(msg.sender, amount);
-        _returnJbac(tokenId, jbacId, msg.sender);
         _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
         emit Withdrawn(msg.sender, tokenId, amount);
     }
@@ -939,10 +981,7 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
 
         _getReward(tokenId, p);
 
-        // AUDIT FIX (pass-8): C4 / CCR-01 — capture JBAC id BEFORE _clearPosition,
-        // return AFTER the staking NFT has been burned. See `_returnJbac` natspec.
-        uint256 jbacId = p.jbacDeposited ? p.jbacTokenId : 0;
-
+        // CCR-01 (batch-9 / batch-14): JBAC capture + post-burn return inside `_clearPosition`.
         uint256 amount = _clearPosition(tokenId, p);
         uint256 penalty = (amount * EARLY_WITHDRAWAL_PENALTY_BPS) / BPS;
         uint256 userReceives = amount - penalty;
@@ -954,7 +993,6 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
         if (toTreasury > 0) rewardToken.safeTransfer(treasury, toTreasury);
         if (recycled > 0) _creditRewardPool(recycled);
         rewardToken.safeTransfer(msg.sender, userReceives);
-        _returnJbac(tokenId, jbacId, msg.sender); // CCR-01: post-burn JBAC return
         _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
         emit PenaltySplit(tokenId, toTreasury, recycled);
         emit PenaltySentToTreasury(tokenId, toTreasury); // legacy event for compatibility
@@ -1196,6 +1234,9 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
             }
         }
 
+        // jbacNFT is the on-staking IERC721 reference; the actual custody lives
+        // on the vault, but the balanceOf check for legacy `hasJbacBoost` positions
+        // is unaffected by where custody sits.
         bool currentlyHoldsJbac = jbacNFT.balanceOf(jbacHolder) > 0;
 
         // Only allow DOWNGRADE (true -> false). No new JBAC boost via revalidate for
@@ -1218,30 +1259,38 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
 
     // ─── NFT Transfer / Mint / Burn Overrides ─────────────────────────
     //
-    // AUDIT FIX (pass-8): EIP170-02 — Solmate ERC721 has no `_update(to, id, auth)`
-    // central hook, so the previous override is split across `transferFrom`,
-    // `_mint`, and `_burn` overrides. All three call the shared
-    // `_postTokenTransition(from, to, id)` helper that runs the
-    // _positionsByOwner / userTokenId / checkpoint / autoMaxLock / emergencyExit
-    // post-processing previously housed in the second half of `_update`.
+    // AUDIT FIX (pass-8 batch-14): Solady ERC721 fires a single
+    // `_afterTokenTransfer(from, to, id)` hook for `transferFrom`, `_mint`, AND
+    // `_burn` (Solmate required three separate overrides — see batch-7/9 notes).
+    // Pre-transfer logic moves to `_beforeTokenTransfer`, post-transition logic
+    // collapses into a single `_afterTokenTransfer`. Net bytecode delta closes
+    // the EIP-170 gap on this contract.
     //
     // Behaviour preservation:
     //   - Pre-transfer cooldown / rate-limit / lending-exempt / settle-rewards:
-    //     applies ONLY to transferFrom (mint/burn skip — these are not
-    //     user-initiated transfers between holders).
+    //     applies ONLY when `from != 0 && to != 0` (true holder-to-holder
+    //     transfer). _beforeTokenTransfer fires for mint (from==0) and burn
+    //     (to==0) too, so we gate explicitly.
     //   - Post-transition logic (set updates, checkpoints, etc.): applies to
-    //     ALL three paths.
-    //   - safeTransferFrom inherits from Solmate and calls our overridden
+    //     ALL three paths (mint/transfer/burn).
+    //   - safeTransferFrom inherits from Solady and calls Solady's
     //     `transferFrom` internally — no separate override needed.
+    //   - CCR-01 ordering preserved: Solady's `_burn` clears the ownership
+    //     storage slot BEFORE `_afterTokenTransfer` fires, so any reentrant
+    //     `transferFrom` from inside the JBAC return-callback (which fires
+    //     AFTER `_clearPosition` per the batch-9 reorder) reverts on the
+    //     `from != _ownerOf[id]` check.
 
-    /// @dev Override Solmate's transferFrom to apply pre-transfer cooldown +
-    ///      reward settlement, then run shared post-transition bookkeeping.
-    /// @dev AUDIT FIX C-04 preserved: settle rewards to `from` BEFORE transfer
-    ///      to prevent reward theft via mid-transfer state mismatch.
-    function transferFrom(address from, address to, uint256 id) public virtual override {
-        // AUDIT FIX H-01 / Spartan TF-02 preserved: lending-contract exemption
-        // from cooldown + rate-limit; restaking-contract exemption from
-        // rate-limit only (still subject to cooldown).
+    /// @dev AUDIT FIX H-01 / Spartan TF-02 preserved: lending-contract exemption
+    ///      from cooldown + rate-limit; restaking-contract exemption from
+    ///      rate-limit only (still subject to cooldown). AUDIT FIX C-04
+    ///      preserved: settle rewards to `from` BEFORE transfer to prevent
+    ///      reward theft via mid-transfer state mismatch.
+    function _beforeTokenTransfer(address from, address to, uint256 id) internal virtual override {
+        // Mint (from==0) and burn (to==0) skip transfer-time guards — they
+        // aren't holder-to-holder transfers.
+        if (from == address(0) || to == address(0)) return;
+
         bool lendingExempt = isLendingContract[from] || isLendingContract[to];
         bool restakingHop = from == restakingContract || to == restakingContract;
         if (!lendingExempt) {
@@ -1252,30 +1301,15 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
         }
         lastTransferTime[id] = block.timestamp;
         _settleRewardsOnTransfer(id, from);
-
-        super.transferFrom(from, to, id);
-        _postTokenTransition(from, to, id);
-    }
-
-    /// @dev Override Solmate's _mint to run shared post-transition bookkeeping.
-    function _mint(address to, uint256 id) internal virtual override {
-        super._mint(to, id);
-        _postTokenTransition(address(0), to, id);
-    }
-
-    /// @dev Override Solmate's _burn to capture `from` BEFORE the burn
-    ///      (mapping is cleared during super._burn) then run post-transition.
-    function _burn(uint256 id) internal virtual override {
-        address from = _ownerOf[id];
-        super._burn(id);
-        _postTokenTransition(from, address(0), id);
     }
 
     /// @dev Shared post-transition bookkeeping for transferFrom + _mint + _burn.
     ///      Centralizes the logic that was previously the second half of the
-    ///      OZ `_update` override. All position-tracking + checkpoint writes
-    ///      + autoMaxLock reset + emergencyExit cleanup happen here.
-    function _postTokenTransition(address from, address to, uint256 id) internal {
+    ///      OZ `_update` override (Solmate batch-7) → three separate overrides
+    ///      (Solmate batch-7) → single Solady hook (batch-14). All
+    ///      position-tracking + checkpoint writes + autoMaxLock reset +
+    ///      emergencyExit cleanup happen here.
+    function _afterTokenTransfer(address from, address to, uint256 id) internal virtual override {
         // AUDIT FIX M-5 (full aggregation) preserved: maintain the per-owner
         // position set so votingPowerOf can correctly aggregate multi-NFT
         // holders. The set is the source of truth for voting power.
@@ -1327,25 +1361,33 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
         }
     }
 
-    /// @notice tokenURI override required by Solmate (abstract on Solmate's
-    ///         base; OZ provided a default empty implementation).
-    /// @dev    Returns empty string to match the prior OZ default behaviour.
-    ///         Frontends/marketplaces resolve metadata via TegridyTokenURIReader
-    ///         (off-chain) per the existing architecture.
+    /// @notice name / symbol — Solady requires these as abstract overrides
+    ///         (its ERC721 base has no name/symbol storage; saves ~80B per
+    ///         immutable string slot vs. Solmate's constructor-stored variant).
+    /// @dev    AUDIT FIX (pass-8 batch-14). Values match the prior Solmate
+    ///         `ERC721("Tegridy Staking Position", "tsTOWELI")` constructor.
+    function name() public pure override returns (string memory) {
+        return "Tegridy Staking Position";
+    }
+
+    function symbol() public pure override returns (string memory) {
+        return "tsTOWELI";
+    }
+
+    /// @notice tokenURI override required by Solady's abstract surface.
+    /// @dev    Returns empty string to match the prior OZ/Solmate default
+    ///         behaviour. Frontends/marketplaces resolve metadata via
+    ///         TegridyTokenURIReader (off-chain) per the existing architecture.
     function tokenURI(uint256 /*id*/) public view virtual override returns (string memory) {
         return "";
     }
 
-    /// @notice supportsInterface — preserves OZ's pre-migration response set.
-    /// @dev    Solmate's default declares ERC165 + ERC721 + ERC721Metadata.
-    ///         ERC721Receiver (0x150b7a02) is reported when this contract
-    ///         IS a receiver (which it is — see onERC721Received above for
-    ///         the JBAC inbound path).
-    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return
-            interfaceId == 0x150b7a02 || // ERC721TokenReceiver
-            super.supportsInterface(interfaceId);
-    }
+    // AUDIT FIX (pass-8 batch-14): supportsInterface override removed. The prior
+    // override added ERC721TokenReceiver (0x150b7a02) to the response set
+    // because TegridyStaking implemented IERC721Receiver to accept JBAC inbound.
+    // Post-batch-14 the JBAC custody moved to TegridyStakingJbacVault — this
+    // contract is no longer a token receiver, so Solady's base
+    // supportsInterface (ERC165 + ERC721 + ERC721Metadata) is correct as-is.
 
     // ─── Internal ─────────────────────────────────────────────────────
 
@@ -1656,14 +1698,10 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
         Position storage p = positions[tokenId];
         if (p.amount == 0) revert NoPosition();
 
-        // AUDIT FIX (pass-8): C4 / CCR-01 — capture JBAC id BEFORE _clearPosition,
-        // return AFTER the staking NFT has been burned. See `_returnJbac` natspec.
-        uint256 jbacId = p.jbacDeposited ? p.jbacTokenId : 0;
-
+        // CCR-01 (batch-9 / batch-14): JBAC capture + post-burn return inside `_clearPosition`.
         uint256 amount = _clearPosition(tokenId, p);
 
         rewardToken.safeTransfer(msg.sender, amount);
-        _returnJbac(tokenId, jbacId, msg.sender); // CCR-01: post-burn JBAC return
         emit EmergencyWithdraw(msg.sender, tokenId, amount);
     }
 
@@ -1682,14 +1720,10 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
         // (e.g., token blacklist), continue with principal return rather than trapping both.
         _getReward(tokenId, p);
 
-        // AUDIT FIX (pass-8): C4 / CCR-01 — capture JBAC id BEFORE _clearPosition,
-        // return AFTER the staking NFT has been burned. See `_returnJbac` natspec.
-        uint256 jbacId = p.jbacDeposited ? p.jbacTokenId : 0;
-
+        // CCR-01 (batch-9 / batch-14): JBAC capture + post-burn return inside `_clearPosition`.
         uint256 amount = _clearPosition(tokenId, p);
 
         rewardToken.safeTransfer(msg.sender, amount);
-        _returnJbac(tokenId, jbacId, msg.sender); // CCR-01: post-burn JBAC return
         emit EmergencyExitPosition(msg.sender, tokenId, amount);
     }
 
@@ -1737,10 +1771,7 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
         // if claim fails, principal return proceeds regardless.
         _getReward(tokenId, p);
 
-        // AUDIT FIX (pass-8): C4 / CCR-01 — capture JBAC id BEFORE _clearPosition,
-        // return AFTER the staking NFT has been burned. See `_returnJbac` natspec.
-        uint256 jbacId = p.jbacDeposited ? p.jbacTokenId : 0;
-
+        // CCR-01 (batch-9 / batch-14): JBAC capture + post-burn return inside `_clearPosition`.
         bool earlyExit = block.timestamp < p.lockEnd;
         uint256 amount = _clearPosition(tokenId, p);
 
@@ -1760,7 +1791,6 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
         }
 
         rewardToken.safeTransfer(msg.sender, userReceives);
-        _returnJbac(tokenId, jbacId, msg.sender); // CCR-01: post-burn JBAC return
         _touch(msg.sender); // AUDIT M-AUDIT-2026-3: refresh inactivity gate post-exit
         emit EmergencyExitPosition(msg.sender, tokenId, userReceives);
     }
@@ -1845,7 +1875,9 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
     /// @notice Timelock key for the admin replacement flow.
     bytes32 public constant ADMIN_REPLACEMENT = keccak256("STAKING_ADMIN_REPLACEMENT");
     /// @notice Mandatory delay between propose and execute for an admin swap.
-    uint256 public constant ADMIN_REPLACEMENT_TIMELOCK = 48 hours;
+    /// @dev AUDIT FIX (pass-8 batch-14): visibility lowered to `internal`. Tests
+    ///      hardcode the value (48 hours) directly.
+    uint256 internal constant ADMIN_REPLACEMENT_TIMELOCK = 48 hours;
 
     /// @notice Pending replacement admin address. Zero when no proposal is pending.
     address public pendingStakingAdmin;
@@ -1948,61 +1980,13 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
         IERC20(token).safeTransfer(treasury, balance);
     }
 
-    /// @dev AUDIT H-1 FIX (2026-04-20): Return a deposited JBAC to `to`. Wrapped in try/catch so
-    ///      a paused/reverting JBAC contract cannot brick unstake. If the transfer reverts, the
-    ///      JBAC is left in this contract and the prior owner can reclaim it later via
-    ///      `claimStrandedJbac(tokenId)`. Must be called BEFORE `_clearPosition` since that
-    ///      deletes the Position struct.
-    /// @dev AUDIT L-AUDIT-2026-1 (2026-04-28): The stranded-owner / stranded-tokenId writes are
-    ///      performed ONLY inside the catch branch.
-    /// @dev AUDIT FIX (pass-8): C4 / CCR-01 — refactored to take `jbacId` as a parameter
-    ///      instead of reading `positions[tokenId].jbacTokenId`. Callers MUST capture the
-    ///      JBAC id BEFORE `_clearPosition` deletes the Position struct, then pass it here
-    ///      to be returned AFTER the position has been cleared and the staking NFT burned.
-    ///      This reorder closes the cross-contract reentrancy where:
-    ///        1. Pre-fix: `_returnJbacIfDeposited` ran BEFORE `_clearPosition`. The JBAC
-    ///           return triggered `safeTransferFrom` callback to attacker, who re-entered
-    ///           `TegridyLending.acceptOffer(...)` while the staking NFT was still owned
-    ///           by attacker. Lending pulled the staking NFT, paid principal ETH. Callback
-    ///           returned. Outer `_clearPosition` then `_burn`'d the NFT — burning the
-    ///           lender's collateral and permanently locking their principal.
-    ///        2. Post-fix: `_clearPosition` (including `_burn`) runs BEFORE this function.
-    ///           After burn, Solmate's `_ownerOf[tokenId] == address(0)`, so any
-    ///           cross-contract `transferFrom`/`safeTransferFrom`/`acceptOffer` attempt
-    ///           during the JBAC callback reverts (`from != _ownerOf[id]`). Same defense
-    ///           closes the parallel ghost-restake attack on TegridyRestaking (CCR-02).
-    function _returnJbac(uint256 tokenId, uint256 jbacId, address to) private {
-        if (jbacId == 0) return;
-        try IERC721(address(jbacNFT)).safeTransferFrom(address(this), to, jbacId) {
-            // transfer ok — nothing to record; both stranded slots stay zero.
-            emit JbacReturned(tokenId, to, jbacId);
-        } catch {
-            // JBAC contract reverted (e.g., paused) — record for later reclaim.
-            _strandedJbacOwner[tokenId] = to;
-            _strandedJbacTokenId[tokenId] = jbacId;
-            emit JbacStranded(tokenId, to, jbacId);
-        }
-    }
-
-    /// @notice Reclaim a JBAC that was stranded when its position was closed because the
-    ///         JBAC contract reverted the return transfer (e.g., during JBAC-contract pause).
-    /// @dev AUDIT H-1 FIX (2026-04-20): Only the recorded prior owner (the address that held
-    ///      the staking position at close time) can reclaim. Wrapped in nonReentrant for safety.
-    /// @dev AUDIT L-AUDIT-2026-2 (2026-04-28): Defensive `jId == 0` check added. Today's JBAC
-    ///      contract has no token id 0, but a future JBAC-equivalent collection could; this
-    ///      guard ensures a non-existent stranded record (where both slots default to zero)
-    ///      can never be misinterpreted as a valid claim, even if `to` is somehow non-zero.
-    /// @param tokenId The staking position tokenId whose JBAC return failed.
-    function claimStrandedJbac(uint256 tokenId) external nonReentrant {
-        address to = _strandedJbacOwner[tokenId];
-        uint256 jId = _strandedJbacTokenId[tokenId];
-        if (to == address(0) || msg.sender != to) revert Unauthorized();
-        if (jId == 0) revert ZeroAmount(); // L-AUDIT-2026-2 forward-compat guard
-        delete _strandedJbacOwner[tokenId];
-        delete _strandedJbacTokenId[tokenId];
-        IERC721(address(jbacNFT)).safeTransferFrom(address(this), to, jId);
-        emit JbacReturned(tokenId, to, jId);
-    }
+    /// @dev AUDIT FIX (pass-8 batch-14): `_returnJbac` (private) and
+    ///      `claimStrandedJbac` (external) moved to TegridyStakingJbacVault.
+    ///      `_clearPosition` now calls `vault.returnJbac(tokenId, jbacId, to)`
+    ///      instead of an inline `_returnJbac`. The CCR-01 invariant
+    ///      (return AFTER `_burn`) is preserved by `_clearPosition`'s ordering;
+    ///      see its natspec. Stranded reclaim happens via
+    ///      `TegridyStakingJbacVault.claimStrandedJbac(stakingTokenId)`.
 
     /// @dev Recalculate boost for a position and update totals + rewardDebt.
     /// @dev AUDIT REV-M-01: write the system-wide totalBoostedStake checkpoint AFTER both
@@ -2034,8 +2018,23 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
     ///      flip to an OLDER tokenId with stale lockEnd / boost data, causing legacy
     ///      single-pointer integrators that read `getPosition(userTokenId(holder))`
     ///      to silently penalize their depositors with the wrong position metadata.
+    /// @dev AUDIT FIX (pass-8 batch-14): `_clearPosition` now also handles the
+    ///      JBAC return inline (post-burn), capturing the jbacId from `p` BEFORE
+    ///      the `delete positions[tokenId]` in the same body. This collapses the
+    ///      5 exit-path callsites that previously each had their own
+    ///      `uint256 jbacId = p.jbacDeposited ? p.jbacTokenId : 0;` capture
+    ///      followed by a separate `_returnJbac(...)` call at the end, saving
+    ///      ~80B per site. The CCR-01 batch-9 invariant is preserved verbatim:
+    ///      `_burn(tokenId)` fires BEFORE `_returnJbac`, so any reentrant
+    ///      `transferFrom` from inside the JBAC `safeTransferFrom` callback
+    ///      reverts on the now-empty `_ownerOf[id]` slot. Centralizing the
+    ///      return inside `_clearPosition` makes the invariant a property of
+    ///      the helper itself rather than a discipline at every callsite.
     function _clearPosition(uint256 tokenId, Position storage p) private returns (uint256 amount) {
         amount = p.amount;
+        // CCR-01 (batch-9): capture jbacId BEFORE `delete positions[tokenId]`
+        // wipes `p.jbacDeposited` / `p.jbacTokenId`. Returned post-burn below.
+        uint256 jbacIdToReturn = p.jbacDeposited ? p.jbacTokenId : 0;
         totalStaked -= amount;
         totalBoostedStake -= p.boostedAmount;
         // AUDIT L-22 / Spartan TF-10: totalLocked tracking removed — was redundant with totalStaked.
@@ -2053,6 +2052,12 @@ contract TegridyStaking is SolmateERC721, OwnableNoRenounce, ReentrancyGuard, Pa
         }
         _writeCheckpoint(msg.sender);
         _writeTotalBoostedStakeCheckpoint(); // AUDIT REV-M-01
+        // CCR-01 (batch-9 / batch-14): JBAC return AFTER all state mutations and
+        // the burn. Vault's `returnJbac` short-circuits on jbacId == 0; the
+        // `onlyStaking` modifier on the vault gates this entry path.
+        if (jbacIdToReturn != 0) {
+            ITegridyStakingJbacVault(jbacVault).returnJbac(tokenId, jbacIdToReturn, msg.sender);
+        }
     }
 
     /// @dev Settle unsettled rewards for a user, respecting the global cap.

@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "../src/TegridyStaking.sol";
+import "../src/TegridyStakingJbacVault.sol"; // AUDIT FIX (pass-8 batch-14)
 
 // ─── Mock Contracts ──────────────────────────────────────────────────
 
@@ -61,6 +62,9 @@ contract FinalAuditStaking is Test {
             treasury,
             REWARD_RATE
         );
+        // AUDIT FIX (pass-8 batch-14): wire the JBAC vault sister so stakeWithBoost works.
+        TegridyStakingJbacVault vault = new TegridyStakingJbacVault(address(jbac), address(staking));
+        staking.setJbacVault(address(vault));
 
         // Fund staking with rewards
         toweli.approve(address(staking), type(uint256).max);

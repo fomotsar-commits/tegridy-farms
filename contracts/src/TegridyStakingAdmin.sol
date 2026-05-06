@@ -18,8 +18,9 @@ interface ITegridyStakingApply {
     ///      recycle BPS. Caller must be the wired admin contract.
     function applyExtendFeeRecycle(uint256 _bps) external;
     function MAX_REWARD_RATE() external view returns (uint256);
-    function EXTEND_FEE_BPS_CEILING() external view returns (uint256);
-    function BPS() external view returns (uint256);
+    // AUDIT FIX (pass-8 batch-14): BPS() and EXTEND_FEE_BPS_CEILING() removed
+    // — both lowered to `internal` on staking to free auto-getter bytecode
+    // under EIP-170. Admin-side checks hardcode the values.
     function rewardRate() external view returns (uint256);
     function treasury() external view returns (address);
     function restakingContract() external view returns (address);
@@ -255,7 +256,9 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
 
     // ─── Extend fee ───────────────────────────────────────────────────
     function proposeExtendFee(uint256 _newBps) external onlyOwner {
-        if (_newBps > staking.EXTEND_FEE_BPS_CEILING()) revert ExtendFeeTooHigh();
+        // AUDIT FIX (pass-8 batch-14): TegridyStaking.EXTEND_FEE_BPS_CEILING() lowered
+        // to `internal` to free auto-getter bytecode under EIP-170. Hardcoded here.
+        if (_newBps > 200) revert ExtendFeeTooHigh();
         pendingExtendFeeBps = _newBps;
         _propose(EXTEND_FEE_CHANGE, EXTEND_FEE_TIMELOCK);
         emit ExtendFeeProposed(_newBps, _executeAfter[EXTEND_FEE_CHANGE]);
@@ -314,7 +317,10 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     ///         for the existing stakers immediately at fee-charge time. See the
     ///         `extendFeeRecycleBps` NatSpec on TegridyStaking for the rationale.
     function proposeExtendFeeRecycle(uint256 _newBps) external onlyOwner {
-        if (_newBps > staking.BPS()) revert ExtendFeeRecycleTooHigh();
+        // AUDIT FIX (pass-8 batch-14): TegridyStaking.BPS() lowered to `internal`
+        // to free ~30B of auto-getter bytecode under EIP-170. BPS is a universal
+        // Ethereum-DeFi constant (10_000); hardcoded here.
+        if (_newBps > 10_000) revert ExtendFeeRecycleTooHigh();
         pendingExtendFeeRecycleBps = _newBps;
         _propose(EXTEND_FEE_RECYCLE_CHANGE, EXTEND_FEE_RECYCLE_TIMELOCK);
         emit ExtendFeeRecycleProposed(_newBps, _executeAfter[EXTEND_FEE_RECYCLE_CHANGE]);

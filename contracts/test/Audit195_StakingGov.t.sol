@@ -1386,7 +1386,10 @@ contract Audit195StakingGov is Test {
     function test_MaxPositionsCap_Reverts() public {
         MockSafe195 safe = new MockSafe195();
 
-        uint256 cap = staking.MAX_POSITIONS_PER_HOLDER();
+        // AUDIT FIX (pass-8 batch-14): MAX_POSITIONS_PER_HOLDER lowered to
+        // `internal` on TegridyStaking to free auto-getter bytecode under
+        // EIP-170; hardcoded here.
+        uint256 cap = 50;
 
         // Fill the Safe up to the cap.
         for (uint256 i; i < cap; ++i) {

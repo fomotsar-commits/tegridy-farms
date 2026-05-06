@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
+import "../src/TegridyStakingJbacVault.sol"; // AUDIT FIX (pass-8 batch-14)
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -43,6 +44,9 @@ contract Audit195StakingCoreTest is Test {
         token = new MockTOWELI();
         nft = new MockJBAC();
         staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        // AUDIT FIX (pass-8 batch-14): JBAC vault sister.
+        TegridyStakingJbacVault vault = new TegridyStakingJbacVault(address(nft), address(staking));
+        staking.setJbacVault(address(vault));
 
         // Distribute tokens
         token.transfer(alice, 5_000_000 ether);

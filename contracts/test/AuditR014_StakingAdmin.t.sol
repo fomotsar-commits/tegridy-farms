@@ -113,7 +113,7 @@ contract AuditR014_StakingAdminTest is Test {
         assertEq(staking.pendingStakingAdmin(), address(replacement), "pending stored");
         assertEq(
             staking.adminReplacementReadyAt(),
-            block.timestamp + staking.ADMIN_REPLACEMENT_TIMELOCK(),
+            block.timestamp + uint256(48 hours) /* ADMIN_REPLACEMENT_TIMELOCK; internal in batch-14 */,
             "ready-at = now + 48h"
         );
     }
@@ -131,7 +131,7 @@ contract AuditR014_StakingAdminTest is Test {
         staking.proposeAdminReplacement(address(replacement));
 
         // 1 second before the deadline.
-        vm.warp(block.timestamp + staking.ADMIN_REPLACEMENT_TIMELOCK() - 1);
+        vm.warp(block.timestamp + uint256(48 hours) /* ADMIN_REPLACEMENT_TIMELOCK; internal in batch-14 */ - 1);
         vm.expectRevert(TegridyStaking.Unauthorized.selector);
         staking.executeAdminReplacement();
     }
@@ -144,7 +144,7 @@ contract AuditR014_StakingAdminTest is Test {
     function test_h2_executeAdminReplacement_swapsAdmin() public {
         TegridyStakingAdmin replacement = new TegridyStakingAdmin(address(staking));
         staking.proposeAdminReplacement(address(replacement));
-        vm.warp(block.timestamp + staking.ADMIN_REPLACEMENT_TIMELOCK());
+        vm.warp(block.timestamp + uint256(48 hours) /* ADMIN_REPLACEMENT_TIMELOCK; internal in batch-14 */);
 
         staking.executeAdminReplacement();
         assertEq(staking.stakingAdmin(), address(replacement), "admin rotated");
@@ -156,7 +156,7 @@ contract AuditR014_StakingAdminTest is Test {
         TegridyStakingAdmin oldAdmin = admin; // captured before swap
         TegridyStakingAdmin replacement = new TegridyStakingAdmin(address(staking));
         staking.proposeAdminReplacement(address(replacement));
-        vm.warp(block.timestamp + staking.ADMIN_REPLACEMENT_TIMELOCK());
+        vm.warp(block.timestamp + uint256(48 hours) /* ADMIN_REPLACEMENT_TIMELOCK; internal in batch-14 */);
         staking.executeAdminReplacement();
 
         // ── New admin contract: end-to-end timelocked rewardRate change works.
@@ -223,7 +223,7 @@ contract AuditR014_StakingAdminTest is Test {
         // but the seed call to stake() set alice's lastActivityAt). Either way,
         // alice was active <90d ago.
         assertTrue(
-            staking.lastActivityAt(alice) + staking.USER_INACTIVITY_GATE() >= block.timestamp,
+            staking.lastActivityAt(alice) + uint256(90 days) /* USER_INACTIVITY_GATE; internal in batch-14 */ >= block.timestamp,
             "alice is still in the inactivity window"
         );
 
@@ -237,7 +237,7 @@ contract AuditR014_StakingAdminTest is Test {
         uint256 aliceBalBefore = token.balanceOf(alice);
 
         // Skip past the 90-day inactivity window. +1 second past the gate.
-        vm.warp(block.timestamp + staking.USER_INACTIVITY_GATE() + 1);
+        vm.warp(block.timestamp + uint256(90 days) /* USER_INACTIVITY_GATE; internal in batch-14 */ + 1);
 
         // Owner is now allowed to claim on alice's behalf.
         vm.prank(owner);

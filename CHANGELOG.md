@@ -946,6 +946,124 @@ No source-side changes — pure test-fixture refresh.
   (+20 vs. pre-batch-13's 2,516 pass; full suite green for the first
   time since pass-7). No source contracts changed; no bytecode delta.
 
+#### Pass-8 Batch 14 — Phase 0.2 finish: TegridyStaking under EIP-170 (2026-05-06)
+
+**Deploy unblocker — TegridyStaking finally fits within mainnet's
+24,576-byte runtime bytecode limit.**
+
+Pre-batch-14 status: TegridyStaking sat at 26,312 B, **1,736 B over EIP-170**.
+The contract literally could not be redeployed on mainnet. Three documented
+forward paths existed (Solady ERC721 / ERC-7201 namespaced storage / JBAC
+sister split). This batch uses the **first and third paths combined**, plus
+a final pass of public→internal constant trims, to close the gap.
+
+**Composite reductions (1,768 B saved overall):**
+
+1. **Solady ERC721 swap** (–621 B). Replaced
+   `import {ERC721} from "solmate/tokens/ERC721.sol"` with Solady's ERC721
+   ([lib/solady](contracts/lib/solady)). Solady consolidates the
+   `transferFrom` / `_mint` / `_burn` post-processing into a single
+   `_afterTokenTransfer(from, to, id)` hook (Solmate required three
+   separate overrides). The collapse + Solady's tighter assembly cut 621 B.
+   `name()` / `symbol()` are now constant `pure` overrides (Solady has no
+   constructor-args surface for them); `tokenURI()` and `supportsInterface`
+   updated to match Solady's abstract surface.
+2. **JBAC sister-vault split** (–712 B). Created
+   [`contracts/src/TegridyStakingJbacVault.sol`](contracts/src/TegridyStakingJbacVault.sol)
+   to custody JBAC NFTs and own the stranded-reclaim bookkeeping. Removed
+   from `TegridyStaking`: `_strandedJbacOwner` / `_strandedJbacTokenId`
+   mappings, `_returnJbac` / `claimStrandedJbac` / `getStrandedJbac`
+   functions, the two ABI shims (`strandedJbacOwner` / `strandedJbacTokenId`),
+   `onERC721Received` (no longer a token receiver), `IERC721Receiver`
+   inheritance + import, the `JbacReturned` / `JbacStranded` events, and
+   the `OnlyJbacNFT` error. Wiring: one-shot
+   `staking.setJbacVault(address)` post-deploy. UX preserved — users still
+   approve TegridyStaking for their JBAC; `stakeWithBoost` now does
+   `jbacNFT.safeTransferFrom(user, vault, jbacId)` so the JBAC lands at
+   the vault via `vault.onERC721Received` (gated to the configured JBAC
+   sender). CCR-01 invariant carried over verbatim — `_clearPosition`
+   calls `vault.returnJbac(...)` AFTER `_burn`, and the vault's
+   try/catch falls back to stranded-bookkeeping on a reverting JBAC
+   contract.
+3. **Inlined CCR-01 capture-and-return into `_clearPosition`** (–80 B).
+   The 5 exit paths previously each had a one-line inline
+   `uint256 jbacId = p.jbacDeposited ? p.jbacTokenId : 0;` capture and a
+   trailing `_returnJbac(...)` call. Both moved inside `_clearPosition`,
+   which now captures pre-`delete` and calls `vault.returnJbac` post-`_burn`.
+   The CCR-01 ordering invariant is now a property of the helper itself
+   rather than a discipline at every callsite.
+4. **`supportsInterface` override removed** (–27 B). Pre-batch-14 the
+   override added `0x150b7a02` (ERC721TokenReceiver) since
+   TegridyStaking implemented `IERC721Receiver` for JBAC inbound. After the
+   custody split this contract is no longer a receiver, so Solady's base
+   `supportsInterface` (ERC165 + ERC721 + ERC721Metadata) is correct as-is.
+5. **`optimizer_runs` 10 → 1** (–15 B). Lower runs prioritise deploy-size
+   over runtime-gas — exactly what's needed to land Phase 0.2.
+6. **Public → internal constant trims** (–~280 B). Lowered visibility on
+   constants with no external readers (or external readers that can
+   trivially hardcode the value): `BPS`, `BOOST_PRECISION`,
+   `MIN_NOTIFY_AMOUNT`, `MIN_STAKE`, `TRANSFER_COOLDOWN`,
+   `TRANSFER_RATE_LIMIT`, `EMERGENCY_EXIT_DELAY`, `USER_INACTIVITY_GATE`,
+   `MAX_POSITIONS_PER_HOLDER`, `ADMIN_REPLACEMENT_TIMELOCK`,
+   `EXTEND_FEE_BPS_CEILING`. Each public→internal saves ~30 B (auto-getter
+   selector + assembly stub). `TegridyStakingAdmin`'s two cross-contract
+   reads (`BPS()`, `EXTEND_FEE_BPS_CEILING()`) hardcode the values
+   inline; tests that read `MAX_POSITIONS_PER_HOLDER` /
+   `USER_INACTIVITY_GATE` / `ADMIN_REPLACEMENT_TIMELOCK` similarly
+   hardcode (with inline `/* CONSTANT_NAME; internal in batch-14 */`
+   tags).
+
+**Final size: 24,544 B — 32 B under EIP-170.**
+
+| Contract | Pre-batch-14 | Post-batch-14 | EIP-170 |
+|---|---:|---:|---|
+| **TegridyStaking** | 26,312 | **24,544** | ✅ Cleared by 32 B |
+| TegridyStakingJbacVault | — (new) | 1,615 | ✅ |
+
+**File changes:**
+
+- [contracts/foundry.toml](contracts/foundry.toml) — added `solady`
+  remapping, lowered `optimizer_runs` from 10 to 1.
+- [contracts/lib/solady](contracts/lib/solady) — new dependency
+  (Vectorized/solady v0.1.26).
+- [contracts/src/TegridyStakingJbacVault.sol](contracts/src/TegridyStakingJbacVault.sol) — new sister contract.
+- [contracts/src/TegridyStaking.sol](contracts/src/TegridyStaking.sol) — Solady swap, vault wiring, hook
+  collapse, constant trims.
+- [contracts/src/TegridyStakingAdmin.sol](contracts/src/TegridyStakingAdmin.sol) — hardcoded `BPS` / `EXTEND_FEE_BPS_CEILING`
+  cross-contract reads.
+- [.github/workflows/contracts-ci.yml](.github/workflows/contracts-ci.yml) — bytecode-budget guard updated:
+  TegridyRestaking removed from exceptions (now under both EIP-170 and the
+  24,000 floor); TegridyStaking remains an exception ("hugging the line"
+  at 24,544 B / 32 B EIP-170 headroom / 544 B over the 24,000 local
+  floor).
+- 6 test files (TegridyStaking.t.sol, TegridyRestaking.t.sol,
+  AuditFixes_Staking.t.sol, FinalAudit_Staking.t.sol, RedTeam_Staking.t.sol,
+  Audit195_StakingCore.t.sol): wire JBAC vault in setUp + redirect JBAC
+  custody assertions from `address(staking)` to `address(vault)`.
+- 2 test files (Audit195_StakingGov.t.sol, AuditR014_StakingAdmin.t.sol):
+  hardcode the now-internal constants.
+- 1 test file (Pass6_Regressions.t.sol): rebase the
+  `unsettledRewardsByTokenId` storage-slot constant from 21 → 22 (Solady
+  swap freed 6 leading slots; vault split removed 2 stranded mappings;
+  added 1 `jbacVault` slot — net layout shift documented inline).
+- 1 test file (AuditFixes_Staking.t.sol): redirect
+  `staking.claimStrandedJbac` / `staking.strandedJbacOwner` /
+  `staking.strandedJbacTokenId` to `vault.*`.
+
+**Verification:**
+
+- Bytecode budget: TegridyStaking 24,544 B (32 B under EIP-170).
+  Vault 1,615 B. All other src/ contracts under 24,000 floor.
+- Full unit suite (excluding invariants): **2,536 pass / 0 fail**
+  (no regressions from batch-13's all-green baseline).
+- All 6 staking-affected suites still green: TegridyStaking 84/84,
+  TegridyRestaking 36/36, AuditFixes_Staking, FinalAudit_Staking,
+  RedTeam_Staking, Audit195_StakingCore — all pass.
+
+**Mainnet deployability achieved.** All 4 Phase 0 contracts (TegridyLending,
+VoteIncentives, TegridyRestaking, **TegridyStaking**) now fit under EIP-170.
+This unblocks the long-stalled Wave 0 redeploy.
+
 ### Security — pass-7 adversarial multi-agent audit + remediation (2026-05-03 → 2026-05-04)
 
 Three parallel worktree agents (oracle/AMM/fees, staking/governance, lending/NFT)

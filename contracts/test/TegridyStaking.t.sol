@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
 import "../src/TegridyStakingAdmin.sol";
+import "../src/TegridyStakingJbacVault.sol"; // AUDIT FIX (pass-8 batch-14)
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 
 contract MockToken is ERC20 {
@@ -27,6 +28,7 @@ contract MockNFT is ERC721 {
 contract TegridyStakingTest is Test {
     TegridyStaking public staking;
     TegridyStakingAdmin public admin;
+    TegridyStakingJbacVault public vault; // AUDIT FIX (pass-8 batch-14)
     MockToken public token;
     MockNFT public nft;
     address public treasury = makeAddr("treasury");
@@ -40,6 +42,9 @@ contract TegridyStakingTest is Test {
         staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
+        // AUDIT FIX (pass-8 batch-14): wire the JBAC vault sister.
+        vault = new TegridyStakingJbacVault(address(nft), address(staking));
+        staking.setJbacVault(address(vault));
 
         nft.mint(alice); // Alice gets JBAC
 
@@ -106,7 +111,8 @@ contract TegridyStakingTest is Test {
         uint256 aliceId = staking.userTokenId(alice);
 
         // Alice's JBAC is now held by the staking contract.
-        assertEq(nft.ownerOf(1), address(staking), "JBAC should be held by staking contract");
+        // AUDIT FIX (pass-8 batch-14): JBAC custody moved to the vault sister.
+        assertEq(nft.ownerOf(1), address(vault), "JBAC should be held by vault");
 
         vm.prank(bob);
         staking.stake(500_000 ether, 365 days);
@@ -125,7 +131,8 @@ contract TegridyStakingTest is Test {
         staking.stakeWithBoost(500_000 ether, 7 days, 1);
         vm.stopPrank();
 
-        assertEq(nft.ownerOf(1), address(staking), "JBAC held by staking during lock");
+        // AUDIT FIX (pass-8 batch-14): JBAC custody moved to the vault sister.
+        assertEq(nft.ownerOf(1), address(vault), "JBAC held by vault during lock");
 
         vm.warp(block.timestamp + 7 days + 1);
         uint256 aliceId = staking.userTokenId(alice);

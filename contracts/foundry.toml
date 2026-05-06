@@ -4,7 +4,7 @@ out = "out"
 libs = ["lib"]
 solc = "0.8.26"
 optimizer = true
-optimizer_runs = 10 # Minimized to fit TegridyStaking + increaseAmount() under 24KB
+optimizer_runs = 1 # AUDIT FIX (pass-8 batch-14): minimized to fit TegridyStaking under EIP-170 24,576-byte limit. Was 10; lower runs prioritize deploy-size over runtime-gas, which is exactly what we need to land Phase 0.2.
 # AUDIT #91: via_ir required for SwapFeeRouter (stack too deep without it)
 via_ir = true
 # NOTE: cancun is required by OpenZeppelin v5.6.1 (uses mcopy opcode).
@@ -22,6 +22,7 @@ remappings = [
     "@uniswap/v4-core/=lib/v4-core/",
     "@uniswap/v4-periphery/=lib/v4-periphery/",
     "solmate/=lib/solmate/src/",
+    "solady/=lib/solady/src/",
 ]
 
 [etherscan]

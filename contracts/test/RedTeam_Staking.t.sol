@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "../src/TegridyStaking.sol";
 import "../src/TegridyStakingAdmin.sol";
+import "../src/TegridyStakingJbacVault.sol"; // AUDIT FIX (pass-8 batch-14)
 import "../src/TegridyRestaking.sol";
 
 // ─── Mock Tokens ──────────────────────────────────────────────────────
@@ -109,6 +110,9 @@ contract RedTeamStaking is Test {
         );
         stakingAdmin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(stakingAdmin));
+        // AUDIT FIX (pass-8 batch-14): JBAC vault sister.
+        TegridyStakingJbacVault vault = new TegridyStakingJbacVault(address(jbac), address(staking));
+        staking.setJbacVault(address(vault));
 
         restaking = new TegridyRestaking(
             address(staking),

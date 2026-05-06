@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 import "../src/TegridyStaking.sol";
 import "../src/TegridyStakingAdmin.sol";
+import "../src/TegridyStakingJbacVault.sol"; // AUDIT FIX (pass-8 batch-14)
 import "../src/TegridyRestaking.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -54,6 +55,7 @@ contract TegridyRestakingTest is Test {
     MockWETH weth;
     TegridyStaking staking;
     TegridyStakingAdmin stakingAdmin;
+    TegridyStakingJbacVault vault; // AUDIT FIX (pass-8 batch-14)
     TegridyRestaking restaking;
 
     address alice = makeAddr("alice");
@@ -77,6 +79,9 @@ contract TegridyRestakingTest is Test {
         );
         stakingAdmin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(stakingAdmin));
+        // AUDIT FIX (pass-8 batch-14): JBAC vault sister (state-var so other tests can read).
+        vault = new TegridyStakingJbacVault(address(jbac), address(staking));
+        staking.setJbacVault(address(vault));
 
         restaking = new TegridyRestaking(
             address(staking),
@@ -609,8 +614,8 @@ contract TegridyRestakingTest is Test {
         jbac.transferFrom(alice, bob, jbacId);
         vm.stopPrank();
 
-        // JBAC is safely held by staking contract.
-        assertEq(jbac.ownerOf(jbacId), address(staking), "JBAC escrowed in staking");
+        // AUDIT FIX (pass-8 batch-14): JBAC custody moved to vault sister.
+        assertEq(jbac.ownerOf(jbacId), address(vault), "JBAC escrowed in vault");
         (,,,,,,,bool hasJbacAfter,,,) = staking.positions(tokenId);
         assertTrue(hasJbacAfter, "H-1: JBAC boost remains - physically deposited");
     }

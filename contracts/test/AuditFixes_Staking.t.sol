@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
 import "../src/TegridyStakingAdmin.sol";
+import "../src/TegridyStakingJbacVault.sol"; // AUDIT FIX (pass-8 batch-14)
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 
 contract MockTokenAudit is ERC20 {
@@ -31,6 +32,7 @@ contract MockNFTAudit is ERC721 {
 contract AuditFixesStakingTest is Test {
     TegridyStaking public staking;
     TegridyStakingAdmin public admin;
+    TegridyStakingJbacVault public vault; // AUDIT FIX (pass-8 batch-14)
     MockTokenAudit public token;
     MockNFTAudit public nft;
     address public treasury = makeAddr("treasury");
@@ -44,6 +46,9 @@ contract AuditFixesStakingTest is Test {
         staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
+        // AUDIT FIX (pass-8 batch-14): wire the JBAC vault sister.
+        vault = new TegridyStakingJbacVault(address(nft), address(staking));
+        staking.setJbacVault(address(vault));
 
         nft.mint(alice); // Alice gets JBAC #1
 
@@ -289,7 +294,8 @@ contract AuditFixesStakingTest is Test {
         (,uint256 boostBefore,,,,) = staking.getPosition(aliceTokenId);
         uint256 baseBoost = staking.calculateBoost(365 days);
         assertEq(boostBefore, baseBoost + 5000, "Should have JBAC bonus from deposit");
-        assertEq(nft.ownerOf(1), address(staking), "JBAC escrowed in staking");
+        // AUDIT FIX (pass-8 batch-14): JBAC custody moved to the vault sister.
+        assertEq(nft.ownerOf(1), address(vault), "JBAC escrowed in vault");
 
         // Alice cannot transfer the JBAC to carol — it's no longer hers.
         vm.expectRevert();
@@ -406,7 +412,7 @@ contract AuditFixesStakingTest is Test {
         // is left for property-style tests that mock JBAC failures.
         vm.expectRevert(); // Unauthorized: msg.sender != stored zero address
         vm.prank(bob);
-        staking.claimStrandedJbac(syntheticPositionId);
+        vault.claimStrandedJbac(syntheticPositionId);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -431,12 +437,12 @@ contract AuditFixesStakingTest is Test {
         staking.withdraw(aliceTokenId);
 
         // Stranded mappings must be empty: post-fix nothing was written on success.
-        assertEq(staking.strandedJbacOwner(aliceTokenId), address(0), "owner slot must remain zero on happy path");
-        assertEq(staking.strandedJbacTokenId(aliceTokenId), 0, "tokenId slot must remain zero on happy path");
+        assertEq(vault.strandedJbacOwner(aliceTokenId), address(0), "owner slot must remain zero on happy path");
+        assertEq(vault.strandedJbacTokenId(aliceTokenId), 0, "tokenId slot must remain zero on happy path");
 
         // Confirm a claim attempt reverts (Unauthorized — owner is zero).
         vm.expectRevert();
         vm.prank(alice);
-        staking.claimStrandedJbac(aliceTokenId);
+        vault.claimStrandedJbac(aliceTokenId);
     }
 }
