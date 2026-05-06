@@ -42,9 +42,20 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     uint256 public pendingFeeBps;
     uint256 public pendingFeeBpsExecuteAfter;
 
+    /// @notice Timestamp (seconds) of the most recent swap on this pool.
+    /// @dev    AUDIT FIX (pass-8): CLK-02 — was `block.number`-based but
+    ///         `block.number` semantics differ across L1/L2 (Optimism/Base
+    ///         block.number is the L2 block number ~2s/block, Arbitrum is the
+    ///         L1 block number ~12s/block). A "50-block cooldown" intended as
+    ///         ~10 minutes on mainnet degrades to ~100 seconds on OP-stack
+    ///         chains. Storage slot name retained for ABI continuity but
+    ///         semantically now stores `block.timestamp`.
     uint256 public lastSwapBlock;
 
     // AUDIT FIX: DEEP-NFTPOOL-01: forward-direction same-block guard.
+    /// @dev    AUDIT FIX (pass-8): CLK-02 — same migration as above. Now stores
+    ///         `block.timestamp`. The same-tx guard becomes a 1-second guard
+    ///         (effectively still same-tx in practice — block intervals all >0s).
     uint256 public lastWithdrawBlock;
 
     // AUDIT FIX: DEEP-NFTPOOL-05: explicit LP-fee accounting.
@@ -58,10 +69,17 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
     // AUDIT FIX L-4: extend NFT-inventory withdraw cooldown beyond 1 block so
     // traders get a meaningful window between recent swap activity and an
-    // owner-initiated inventory drain. ~50 blocks ≈ 10 minutes on mainnet.
+    // owner-initiated inventory drain. 10 minutes — meaningful trader-reaction
+    // window across all chains.
     // The owner can bypass this by `pause()`-ing the pool first — pause is the
     // explicit closure signal, so traders can react to the on-chain event.
-    uint256 public constant WITHDRAW_NFT_COOLDOWN_BLOCKS = 50;
+    //
+    // AUDIT FIX (pass-8): CLK-02 — switched from `block.number`-based to
+    // `block.timestamp`-based. The constant value changed from `50 blocks` to
+    // `10 minutes` (= 600 seconds). The constant NAME is preserved for ABI
+    // continuity; consumers reading `WITHDRAW_NFT_COOLDOWN_BLOCKS` now receive
+    // a value in seconds. To be renamed in the next major version.
+    uint256 public constant WITHDRAW_NFT_COOLDOWN_BLOCKS = 10 minutes;
 
     // AUDIT FIX: DEEP-NFTPOOL-06: transient flag during swap execution.
     bool internal _swapInFlight;
@@ -216,7 +234,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     ) external payable nonReentrant whenNotPaused {
         if (block.timestamp > deadline) revert Expired();
         // AUDIT FIX: DEEP-NFTPOOL-01: forward-direction same-block guard.
-        if (block.number == lastWithdrawBlock) revert WithdrawalLandedThisBlock();
+        if (block.timestamp == lastWithdrawBlock) revert WithdrawalLandedThisBlock();
         // AUDIT FIX: DEEP-NFTPOOL-12: factory emergency-pause cascade.
         if (ITegridyNFTPoolFactoryView(factory).emergencyPaused()) revert EmergencyPaused();
         if (poolType == PoolType.BUY) revert PoolTypeMismatch();
@@ -263,7 +281,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
             _sendETH(msg.sender, excess);
         }
 
-        lastSwapBlock = block.number;
+        lastSwapBlock = block.timestamp;
         _swapInFlight = false;
         // AUDIT FIX V3-NFTPOOL-01: no `_swapCaller` clear needed — we never set it.
 
@@ -277,7 +295,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     ) external nonReentrant whenNotPaused {
         if (block.timestamp > deadline) revert Expired();
         // AUDIT FIX: DEEP-NFTPOOL-01
-        if (block.number == lastWithdrawBlock) revert WithdrawalLandedThisBlock();
+        if (block.timestamp == lastWithdrawBlock) revert WithdrawalLandedThisBlock();
         // AUDIT FIX: DEEP-NFTPOOL-12
         if (ITegridyNFTPoolFactoryView(factory).emergencyPaused()) revert EmergencyPaused();
         if (poolType == PoolType.SELL) revert PoolTypeMismatch();
@@ -312,7 +330,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
         _sendETH(msg.sender, outputAmount);
 
-        lastSwapBlock = block.number;
+        lastSwapBlock = block.timestamp;
         _swapInFlight = false;
         // AUDIT FIX: V2-NFTPOOL-01
         _swapCaller = address(0);
@@ -339,7 +357,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         if (
             lastSwapBlock != 0 &&
             !paused() &&
-            block.number <= lastSwapBlock + WITHDRAW_NFT_COOLDOWN_BLOCKS
+            block.timestamp <= lastSwapBlock + WITHDRAW_NFT_COOLDOWN_BLOCKS
         ) {
             revert WaitForNFTWithdrawCooldown();
         }
@@ -366,7 +384,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         }
 
         // AUDIT FIX: DEEP-NFTPOOL-01
-        lastWithdrawBlock = block.number;
+        lastWithdrawBlock = block.timestamp;
 
         emit LiquidityRemoved(msg.sender, tokenIds, ethAmount);
     }
@@ -583,7 +601,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         if (
             lastSwapBlock != 0 &&
             !paused() &&
-            block.number <= lastSwapBlock + WITHDRAW_NFT_COOLDOWN_BLOCKS
+            block.timestamp <= lastSwapBlock + WITHDRAW_NFT_COOLDOWN_BLOCKS
         ) {
             revert WaitForNFTWithdrawCooldown();
         }
@@ -597,7 +615,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         if (amount + minBuffer > lpAvailable) revert MinLiquidityBuffer();
         _sendETH(msg.sender, amount);
         // AUDIT FIX: DEEP-NFTPOOL-01
-        lastWithdrawBlock = block.number;
+        lastWithdrawBlock = block.timestamp;
         emit ETHWithdrawn(msg.sender, amount);
     }
 
@@ -612,7 +630,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         if (
             lastSwapBlock != 0 &&
             !paused() &&
-            block.number <= lastSwapBlock + WITHDRAW_NFT_COOLDOWN_BLOCKS
+            block.timestamp <= lastSwapBlock + WITHDRAW_NFT_COOLDOWN_BLOCKS
         ) {
             revert WaitForNFTWithdrawCooldown();
         }
@@ -623,7 +641,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
             nftCollection.safeTransferFrom(address(this), msg.sender, tokenId);
         }
         // AUDIT FIX: DEEP-NFTPOOL-01
-        lastWithdrawBlock = block.number;
+        lastWithdrawBlock = block.timestamp;
         emit NFTsWithdrawn(msg.sender, tokenIds);
     }
 

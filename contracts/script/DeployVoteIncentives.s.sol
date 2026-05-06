@@ -3,6 +3,9 @@ pragma solidity ^0.8.26;
 
 import "forge-std/Script.sol";
 import "../src/VoteIncentives.sol";
+// AUDIT FIX (pass-8): EIP170-03 split — propose/execute/cancel surface lives on
+// VoteIncentivesAdmin. Wired post-deploy via setVoteIncentivesAdmin.
+import "../src/VoteIncentivesAdmin.sol";
 
 /// @title DeployVoteIncentives - Deploy the bribe market contract
 /// @dev Deploys VoteIncentives and proposes initial token whitelisting.
@@ -41,8 +44,13 @@ contract DeployVoteIncentivesScript is Script {
         console.log("1. VoteIncentives deployed:", address(vi));
         console.log("   Fee:", BRIBE_FEE_BPS, "bps");
 
-        // 2. Propose TOWELI whitelist (24h timelock)
-        vi.proposeWhitelistChange(TOWELI, true);
+        // 1b. AUDIT FIX (pass-8): EIP170-03 split — wire VoteIncentivesAdmin sister.
+        VoteIncentivesAdmin viAdmin = new VoteIncentivesAdmin(address(vi));
+        vi.setVoteIncentivesAdmin(address(viAdmin));
+        console.log("1b. VoteIncentivesAdmin deployed:", address(viAdmin));
+
+        // 2. Propose TOWELI whitelist (24h timelock) — via admin sister contract
+        viAdmin.proposeWhitelistChange(TOWELI, true);
         console.log("2. TOWELI whitelist proposed (24h timelock)");
 
         // 3. Propose WETH whitelist (must cancel+repropose after TOWELI executes,
@@ -51,12 +59,15 @@ contract DeployVoteIncentivesScript is Script {
         console.log("   NOTE: Whitelist WETH after executing TOWELI whitelist in 24h");
 
         // 4. Transfer ownership to multisig (Ownable2Step — multisig must acceptOwnership)
+        //    Both contracts must hand off — admin owns the timelocked surface, vi owns
+        //    `setVoteIncentivesAdmin` (idempotently locked once wired) and pause/unpause.
         address multisig = vm.envAddress("MULTISIG");
         require(multisig != address(0), "MULTISIG env var required");
         {
             vi.transferOwnership(multisig);
+            viAdmin.transferOwnership(multisig);
             console.log("3. Ownership transfer initiated to:", multisig);
-            console.log("   Multisig must call acceptOwnership()");
+            console.log("   Multisig must call acceptOwnership() on BOTH vi and viAdmin");
         }
 
         vm.stopBroadcast();

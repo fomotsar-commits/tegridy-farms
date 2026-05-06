@@ -8,6 +8,7 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyLending.sol";
+import "../src/TegridyLendingAdmin.sol"; // AUDIT FIX (pass-8): EIP170-01 split
 
 /// @title PASS7-LENDING-04 — directPaid + legacy double-claim regression
 ///        introduced by the PASS7-LENDING-03 deferred-slice tracking fix.
@@ -124,6 +125,7 @@ contract PASS7_LENDING_04_DoubleClaimReproTest is Test {
     TegridyStaking staking;
     TegridyStakingAdmin admin;
     TegridyLending lending;
+    TegridyLendingAdmin lendingAdmin; // AUDIT FIX (pass-8): EIP170-01 split
 
     address treasury = makeAddr("treasury");
     address alice = makeAddr("alice");
@@ -146,9 +148,13 @@ contract PASS7_LENDING_04_DoubleClaimReproTest is Test {
         pair = new P7_LD04_Pair(address(toweli), address(weth), 1_000_000 ether, 1_000 ether);
         lending = new TegridyLending(treasury, 500, address(weth), address(pair), address(twap), address(0));
 
-        lending.proposeAcceptedCollateral(address(staking), true);
+        // AUDIT FIX (pass-8): EIP170-01 split — wire admin sister.
+        lendingAdmin = new TegridyLendingAdmin(address(lending));
+        lending.setLendingAdmin(address(lendingAdmin));
+
+        lendingAdmin.proposeAcceptedCollateral(address(staking), true);
         skip(48 hours + 1);
-        lending.executeAcceptedCollateral();
+        lendingAdmin.executeAcceptedCollateral();
 
         admin.proposeLendingContract(address(lending), true);
         skip(48 hours + 1);

@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyLending.sol";
+import "../src/TegridyLendingAdmin.sol"; // AUDIT FIX (pass-8): EIP170-01 split
 import "../src/TegridyNFTLending.sol";
 import {TegridyTWAP} from "../src/TegridyTWAP.sol";
 
@@ -161,6 +162,7 @@ contract AuditR014LendingTest is Test {
     TegridyStaking public staking;
     TegridyStakingAdmin public stakingAdmin; // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): D-LD-H1 timelocked admin path
     TegridyLending public lending;
+    TegridyLendingAdmin public lendingAdmin; // AUDIT FIX (pass-8): EIP170-01 split
     TegridyTWAP public twap;
     TegridyNFTLending public nftLending;
     R014MockJBAC public collection;
@@ -213,6 +215,10 @@ contract AuditR014LendingTest is Test {
 
         lending = new TegridyLending(treasury, 500, address(weth), address(pair), address(twap), address(0));
 
+        // AUDIT FIX (pass-8): EIP170-01 split — wire TegridyLendingAdmin sister.
+        lendingAdmin = new TegridyLendingAdmin(address(lending));
+        lending.setLendingAdmin(address(lendingAdmin));
+
         // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): D-LD-H1 — register lending as a
         // tracked holder so `claimUnsettledForTokenId` (called from repay/default)
         // can drain the per-tokenId escrow rewards. 48h timelock matches the lending
@@ -220,13 +226,13 @@ contract AuditR014LendingTest is Test {
         stakingAdmin.proposeLendingContract(address(lending), true);
 
         // Whitelist the staking contract via the new R014 collateral admin path.
-        lending.proposeAcceptedCollateral(address(staking), true);
+        lendingAdmin.proposeAcceptedCollateral(address(staking), true);
         // Roll the timelock forward in chunks below DEVIATION_BYPASS_AFTER (1 day) so
         // the TWAP never trips its dormancy bypass during setup.
         skip(22 hours); twap.update(address(pair));
         skip(22 hours); twap.update(address(pair));
         skip(4 hours + 1); twap.update(address(pair));
-        lending.executeAcceptedCollateral();
+        lendingAdmin.executeAcceptedCollateral();
         stakingAdmin.executeLendingContract();
 
         // Fund alice and have her stake to mint a position NFT.
@@ -366,31 +372,31 @@ contract AuditR014LendingTest is Test {
 
         // Cap is enforced.
         vm.expectRevert(TegridyLending.InvalidCapValue.selector);
-        lending.proposeMinPrincipal(2 ether); // > MAX_MIN_PRINCIPAL (1 ether)
+        lendingAdmin.proposeMinPrincipal(2 ether); // > MAX_MIN_PRINCIPAL (1 ether)
 
         // Zero is rejected.
         vm.expectRevert(TegridyLending.ZeroAmount.selector);
-        lending.proposeMinPrincipal(0);
+        lendingAdmin.proposeMinPrincipal(0);
 
         // 48h-timelocked propose → execute.
-        lending.proposeMinPrincipal(0.5 ether);
-        assertEq(lending.pendingMinPrincipal(), 0.5 ether);
-        assertGt(lending.minPrincipalChangeReadyAt(), 0);
+        lendingAdmin.proposeMinPrincipal(0.5 ether);
+        assertEq(lendingAdmin.pendingMinPrincipal(), 0.5 ether);
+        assertGt(lendingAdmin.minPrincipalChangeReadyAt(), 0);
 
         // Execute too early reverts.
         vm.expectRevert();
-        lending.executeMinPrincipalChange();
+        lendingAdmin.executeMinPrincipalChange();
 
         // Wait the full timelock and execute.
         vm.warp(block.timestamp + 48 hours + 1);
-        lending.executeMinPrincipalChange();
+        lendingAdmin.executeMinPrincipalChange();
         assertEq(lending.minPrincipal(), 0.5 ether);
-        assertEq(lending.pendingMinPrincipal(), 0);
+        assertEq(lendingAdmin.pendingMinPrincipal(), 0);
 
         // Cancel path.
-        lending.proposeMinPrincipal(0.25 ether);
-        lending.cancelMinPrincipalChange();
-        assertEq(lending.pendingMinPrincipal(), 0);
+        lendingAdmin.proposeMinPrincipal(0.25 ether);
+        lendingAdmin.cancelMinPrincipalChange();
+        assertEq(lendingAdmin.pendingMinPrincipal(), 0);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -588,13 +594,13 @@ contract AuditR014LendingTest is Test {
         );
 
         // Whitelist via timelock.
-        lending.proposeAcceptedCollateral(address(otherStaking), true);
+        lendingAdmin.proposeAcceptedCollateral(address(otherStaking), true);
         // Cannot execute before delay.
         vm.expectRevert();
-        lending.executeAcceptedCollateral();
+        lendingAdmin.executeAcceptedCollateral();
 
         skip(48 hours + 1);
-        lending.executeAcceptedCollateral();
+        lendingAdmin.executeAcceptedCollateral();
         assertTrue(lending.acceptedCollateralContracts(address(otherStaking)));
 
         // Now the offer succeeds.
@@ -604,15 +610,15 @@ contract AuditR014LendingTest is Test {
         );
 
         // Removal also goes through the timelock.
-        lending.proposeAcceptedCollateral(address(otherStaking), false);
+        lendingAdmin.proposeAcceptedCollateral(address(otherStaking), false);
         skip(48 hours + 1);
-        lending.executeAcceptedCollateral();
+        lendingAdmin.executeAcceptedCollateral();
         assertFalse(lending.acceptedCollateralContracts(address(otherStaking)));
 
         // Cancel path.
-        lending.proposeAcceptedCollateral(address(otherStaking), true);
-        lending.cancelAcceptedCollateral();
-        assertEq(lending.pendingAcceptedCollateral(), address(0));
+        lendingAdmin.proposeAcceptedCollateral(address(otherStaking), true);
+        lendingAdmin.cancelAcceptedCollateral();
+        assertEq(lendingAdmin.pendingAcceptedCollateral(), address(0));
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -629,9 +635,12 @@ contract AuditR014LendingTest is Test {
         TegridyLending lendingShim = new TegridyLending(
             treasury, 500, address(weth), address(pair), address(shim), address(0)
         );
-        lendingShim.proposeAcceptedCollateral(address(staking), true);
+        // AUDIT FIX (pass-8): EIP170-01 split — local admin sister for the shim instance.
+        TegridyLendingAdmin lendingShimAdmin = new TegridyLendingAdmin(address(lendingShim));
+        lendingShim.setLendingAdmin(address(lendingShimAdmin));
+        lendingShimAdmin.proposeAcceptedCollateral(address(staking), true);
         skip(48 hours + 1);
-        lendingShim.executeAcceptedCollateral();
+        lendingShimAdmin.executeAcceptedCollateral();
 
         // Bob posts an offer with a non-trivial ETH floor so _positionETHValue is invoked.
         vm.deal(bob, 5 ether);

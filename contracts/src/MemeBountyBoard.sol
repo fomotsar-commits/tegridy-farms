@@ -10,6 +10,7 @@ import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
 // AUDIT FIX: DEEP-LIB-H2 — `IChainlinkAggregator` is no longer needed
 // since `_sequencerBuffer` delegates to `SequencerCheck.getSequencerOutageBuffer`.
 import {SequencerCheck} from "./lib/SequencerCheck.sol";
+import {VotePowerOracle} from "./lib/VotePowerOracle.sol";
 
 interface IStakingVote {
     function votingPowerOf(address user) external view returns (uint256);
@@ -47,6 +48,13 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///                    semantics (TOWELI balance instead of staked power).
     IERC20 public immutable voteToken; // TOWELI — must hold tokens to vote (anti-sybil)
     IStakingVote public immutable stakingContract; // Staking contract for flash-loan-resistant voting power
+    /// @notice Optional restaking contract; voting power from restaked positions
+    ///         is added to staking-side power for submission/voting eligibility.
+    /// @dev    AUDIT FIX (pass-8): GOV-ECON-01 / C10 — without this, users who
+    ///         restake their staking NFT have `stakingContract.votingPowerOf`
+    ///         return 0 and silently fail MIN_SUBMIT_BALANCE / MIN_VOTE_BALANCE
+    ///         gates. One-shot setter (mirrors `setSequencerFeed` pattern).
+    address public restakingContract;
     address public immutable weth; // WETH for fallback payout to revert-on-receive winners
     /// @dev AUDIT L-B01 (2026-04-28): MIN_SUBMIT_BALANCE (500 TOWELI) and
     ///      MIN_VOTE_BALANCE (1000 TOWELI) are intentionally LOW-BAR thresholds.
@@ -188,6 +196,7 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     event TreasuryChangeProposed(address indexed current, address indexed proposed, uint256 readyAt);
     event TreasuryChanged(address indexed oldTreasury, address indexed newTreasury);
     event TreasuryChangeCancelled(address indexed cancelled);
+    event RestakingContractSet(address indexed restaking); // pass-8 GOV-ECON-01
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -207,12 +216,16 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error QuorumNotMet(); // SECURITY FIX #15
     error DisputePeriodActive(); // SECURITY FIX #15
     error CannotVoteOwnSubmission();
+    /// @dev AUDIT FIX (pass-8): MBB-VOTE-01 — submitter cross-vote ring closed.
+    error SubmitterCannotVote();
     error CannotCancelAfterDeadline();
     error CreatorCannotSubmit(); // SECURITY FIX: prevent self-dealing
     error GracePeriodNotExpired(); // SECURITY FIX: grace period for permissionless completion
     error ZeroAddress(); // L-02: constructor validation
     error MaxSubmissionsReached(); // L-05: submission cap
     error AlreadySubmitted(); // AUDIT FIX v3: custom error for duplicate submissions
+    /// @dev AUDIT FIX (pass-8): GOV-ECON-01 / C10 — restakingContract is one-shot.
+    error RestakingAlreadySet();
     error WinnerExists(); // AUDIT FIX: valid winner exists, use completeBounty instead
     error DeadlineTooFar(); // AUDIT FIX: prevent indefinite ETH locking
     error CreatorCannotVote(); // SECURITY FIX M-11: prevent creator from influencing outcome
@@ -333,6 +346,18 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         _unpause();
     }
 
+    /// @notice One-shot wire of the TegridyRestaking contract address.
+    /// @dev    AUDIT FIX (pass-8): GOV-ECON-01 / C10. Without this, users who
+    ///         restake their staking NFT have `stakingContract.votingPower*`
+    ///         return 0 and silently fail MIN_SUBMIT_BALANCE / MIN_VOTE_BALANCE
+    ///         gates. Mirrors `setSequencerFeed` one-shot pattern.
+    function setRestakingContract(address _restaking) external onlyOwner {
+        if (_restaking == address(0)) revert ZeroAddress();
+        if (restakingContract != address(0)) revert RestakingAlreadySet();
+        restakingContract = _restaking;
+        emit RestakingContractSet(_restaking);
+    }
+
     function proposeMinBountyReward(uint256 _minReward) external onlyOwner {
         require(_minReward > 0, "ZERO_REWARD");
         require(_minReward <= 1 ether, "TOO_HIGH");
@@ -399,7 +424,12 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (block.timestamp > bounty.deadline) revert DeadlinePassed();
         // SECURITY FIX: Prevent creator from submitting work on their own bounty (self-dealing)
         if (msg.sender == bounty.creator) revert CreatorCannotSubmit();
-        if (stakingContract.votingPowerAtTimestamp(msg.sender, bounty.snapshotTimestamp) < MIN_SUBMIT_BALANCE) revert InsufficientSubmitBalance();
+        // AUDIT FIX (pass-8): GOV-ECON-01 / C10 — additive read across staking + restaking
+        // so a user who restaked their NFT isn't silently denied the submission gate.
+        if (
+            VotePowerOracle.powerAt(msg.sender, bounty.snapshotTimestamp, address(stakingContract), restakingContract)
+                < MIN_SUBMIT_BALANCE
+        ) revert InsufficientSubmitBalance();
         // L-05: Cap submissions per bounty
         if (bounty.submissionCount >= MAX_SUBMISSIONS_PER_BOUNTY) revert MaxSubmissionsReached();
         // AUDIT FIX L-18: One submission per address per bounty
@@ -431,6 +461,14 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (block.timestamp > bounties[_bountyId].deadline) revert DeadlinePassed();
         // SECURITY FIX: Prevent submitters from voting on their own submissions
         if (submissions[_bountyId][_submissionId].submitter == msg.sender) revert CannotVoteOwnSubmission();
+        // AUDIT FIX (pass-8): MBB-VOTE-01 — submitter cross-vote ring. Pre-fix,
+        // the rule was "submitter cannot vote on OWN submission" but a submitter
+        // COULD vote on a peer's submission. Three colluding submitters
+        // (A, B, C) each submit then cross-vote (A→B, B→C, C→B) trivially clear
+        // the MIN_UNIQUE_VOTERS=3 quorum gate without any honest voters.
+        // Now any voter who has submitted ANY work to the same bounty is
+        // disqualified from voting on ANY submission in that bounty.
+        if (hasSubmitted[_bountyId][msg.sender]) revert SubmitterCannotVote();
         // SECURITY FIX M-11: Prevent bounty creator from voting to influence outcome.
         // AUDIT R014 (MEDIUM, creator suppression): check against the originalCreator
         // snapshot field — invariant-grade rejection, immune to any future creator
@@ -440,8 +478,12 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // possession decoupling: a voter who held an NFT at snapshot but transferred
         // most of it post-snapshot (keeping a 1-wei sentinel) cannot apply the full
         // pre-divest aggregate to amplify a confederate's submission.
-        uint256 historicalPower = stakingContract.votingPowerAtTimestamp(msg.sender, bounties[_bountyId].snapshotTimestamp);
-        uint256 currentPower = stakingContract.votingPowerOf(msg.sender);
+        // AUDIT FIX (pass-8): GOV-ECON-01 / C10 — both reads are additive across
+        // staking + restaking so restakers aren't silently denied voting eligibility.
+        uint256 historicalPower = VotePowerOracle.powerAt(
+            msg.sender, bounties[_bountyId].snapshotTimestamp, address(stakingContract), restakingContract
+        );
+        uint256 currentPower = VotePowerOracle.powerOf(msg.sender, address(stakingContract), restakingContract);
         uint256 voterPower = historicalPower < currentPower ? historicalPower : currentPower;
         if (voterPower < MIN_VOTE_BALANCE) revert InsufficientVoteBalance();
 

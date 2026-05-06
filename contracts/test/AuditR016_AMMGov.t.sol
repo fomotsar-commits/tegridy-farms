@@ -10,6 +10,7 @@ import {TegridyFactory} from "../src/TegridyFactory.sol";
 import {TegridyLPFarming} from "../src/TegridyLPFarming.sol";
 import {GaugeController} from "../src/GaugeController.sol";
 import {VoteIncentives} from "../src/VoteIncentives.sol";
+import {VoteIncentivesAdmin} from "../src/VoteIncentivesAdmin.sol"; // AUDIT FIX (pass-8): EIP170-03 split
 
 /// @title AuditR016_AMMGov — regression coverage for the R016 AMM + governance audit.
 /// @notice One test per FIX finding from the R016 batch:
@@ -181,6 +182,7 @@ contract AuditR016_AMMGovTest is Test {
 
     // ── VoteIncentives + Factory side ──
     VoteIncentives public vi;
+    VoteIncentivesAdmin public viAdmin; // AUDIT FIX (pass-8): EIP170-03 split
     MockFactory_R016 public viFactory;
     MockBribe_R016 public bribeToken;
     MockWETH_R016 public weth;
@@ -238,11 +240,14 @@ contract AuditR016_AMMGovTest is Test {
             address(ve), treasury, address(weth), address(viFactory),
             address(viToweli), 300
         );
+        // AUDIT FIX (pass-8): EIP170-03 split — wire admin sister.
+        viAdmin = new VoteIncentivesAdmin(address(vi));
+        vi.setVoteIncentivesAdmin(address(viAdmin));
         // Whitelist the bribe token via timelock so depositBribe can run.
-        vi.proposeWhitelistChange(address(bribeToken), true);
+        viAdmin.proposeWhitelistChange(address(bribeToken), true);
         // Warp generously past the 24h timelock to avoid any boundary issues.
         vm.warp(block.timestamp + 2 days);
-        vi.executeWhitelistChange();
+        viAdmin.executeWhitelistChange();
 
         // Fund + approve a depositor.
         bribeToken.transfer(alice, 100_000 ether);

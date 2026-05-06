@@ -6,8 +6,10 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
-import {TimelockAdmin} from "./base/TimelockAdmin.sol";
+// AUDIT FIX (pass-8): EIP170-03 — TimelockAdmin and the propose/execute/cancel
+// admin surface moved to VoteIncentivesAdmin sister contract during Phase 0.3.
 import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
+import {VotePowerOracle} from "./lib/VotePowerOracle.sol";
 
 /// @dev Interface for TegridyStaking (voting escrow) — Curve-style checkpoint queries.
 ///      Same interface as RevenueDistributor uses.
@@ -68,15 +70,39 @@ interface ITegridyPair {
 ///  - WETHFallbackLib: Solmate SafeTransferLib + WETH fallback (Uniswap V3/V4, Seaport)
 ///  - Epoch claim pattern: Curve FeeDistributor (billions distributed)
 ///  - Bribe model: Aerodrome/Velodrome (>$100M TVL)
-contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, TimelockAdmin {
+contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
-    // ─── Timelock Operation Keys ─────────────────────────────────────
-    bytes32 public constant FEE_CHANGE = keccak256("BRIBE_FEE_CHANGE");
-    bytes32 public constant TREASURY_CHANGE = keccak256("BRIBE_TREASURY_CHANGE");
-    bytes32 public constant WHITELIST_CHANGE = keccak256("BRIBE_WHITELIST_CHANGE");
-    /// @notice AUDIT NEW-G5 (HIGH): commit-reveal activation timelock key.
-    bytes32 public constant COMMIT_REVEAL_ENABLE = keccak256("COMMIT_REVEAL_ENABLE");
+    /// @notice Sister contract holding the propose/execute/cancel timelock
+    ///         admin surface for this contract. Wired once via
+    ///         `setVoteIncentivesAdmin`. All `applyXxx` setters on this
+    ///         contract are gated `msg.sender == voteIncentivesAdmin`.
+    /// @dev    AUDIT FIX (pass-8): EIP170-03 — split into sister contract to
+    ///         bring this contract under the 24,576-byte EIP-170 limit.
+    ///         Mirrors `swapFeeRouterAdmin` / `lendingAdmin` patterns.
+    address public voteIncentivesAdmin;
+
+    error LendingAdminNotSet();
+    error VoteIncentivesAdminAlreadySet();
+    error NotVoteIncentivesAdmin();
+
+    event VoteIncentivesAdminSet(address indexed admin);
+
+    modifier onlyAdmin() {
+        if (msg.sender != voteIncentivesAdmin) revert NotVoteIncentivesAdmin();
+        _;
+    }
+
+    function setVoteIncentivesAdmin(address _admin) external onlyOwner {
+        if (_admin == address(0)) revert ZeroAddress();
+        if (voteIncentivesAdmin != address(0)) revert VoteIncentivesAdminAlreadySet();
+        require(_admin.code.length > 0, "ADMIN_MUST_BE_CONTRACT");
+        voteIncentivesAdmin = _admin;
+        emit VoteIncentivesAdminSet(_admin);
+    }
+
+    // AUDIT FIX (pass-8): EIP170-03 — timelock keys moved to VoteIncentivesAdmin
+    // alongside the propose/execute/cancel functions whose state they keyed.
 
     // ─── Constants ───────────────────────────────────────────────────
     uint256 public constant BPS = 10_000;
@@ -116,6 +142,14 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     IVotingEscrow public immutable votingEscrow;
     IWETH public immutable weth;
     ITegridyFactory public immutable factory;
+
+    /// @notice Optional restaking contract; voting power from restaked positions
+    ///         is added to staking-side power for vote/commit/reveal eligibility.
+    /// @dev    AUDIT FIX (pass-8): GOV-ECON-01 / C10 — without this, voters who
+    ///         restake their staking NFT have `votingEscrow.votingPower*` return
+    ///         0 and silently lose ALL bribe-vote power. One-shot setter mirrors
+    ///         the `setSequencerFeed` pattern in SwapFeeRouter.
+    address public restakingContract;
 
     // ─── State ───────────────────────────────────────────────────────
     address public treasury;
@@ -257,10 +291,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         require operators to set a per-token min via proposeMinBribeAmount.
     uint256 public constant DEFAULT_MIN_TOKEN_BRIBE = 1e15;
 
-    bytes32 public constant MIN_BRIBE_CHANGE = keccak256("BRIBE_MIN_AMOUNT_CHANGE");
-    uint256 public constant MIN_BRIBE_CHANGE_DELAY = 24 hours;
-    address public pendingMinBribeToken;
-    uint256 public pendingMinBribeAmount;
+    // AUDIT FIX (pass-8): EIP170-03 — MIN_BRIBE_CHANGE key + MIN_BRIBE_CHANGE_DELAY +
+    // pendingMinBribe* state moved to VoteIncentivesAdmin.
 
     // V2: Gauge Voting — Velodrome/Aerodrome pattern
     // Users must vote() to allocate power to specific pairs before claiming that pair's bribes.
@@ -271,11 +303,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     // userTotalVotes[user][epoch] = total power user has allocated across all pairs (capped at votingPower)
     mapping(address => mapping(uint256 => uint256)) public userTotalVotes;
 
-    // ─── Pending Values (for timelocked changes) ─────────────────────
-    uint256 public pendingFeeBps;
-    address public pendingTreasury;
-    address public pendingWhitelistToken;
-    bool public pendingWhitelistAction; // true = add, false = remove
+    // AUDIT FIX (pass-8): EIP170-03 — pendingFeeBps / pendingTreasury /
+    // pendingWhitelistToken / pendingWhitelistAction moved to VoteIncentivesAdmin.
 
     // ─── Events ──────────────────────────────────────────────────────
     event EpochAdvanced(uint256 indexed epochId, uint256 totalPower, uint256 timestamp);
@@ -286,16 +315,12 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     event PendingETHWithdrawn(address indexed user, uint256 amount);
     event PendingTokenCredited(address indexed user, address indexed token, uint256 amount);
     event PendingTokenWithdrawn(address indexed user, address indexed token, uint256 amount);
+    // AUDIT FIX (pass-8): EIP170-03 — Proposed/Cancelled events moved to
+    // VoteIncentivesAdmin. The "happened" events stay here.
     event FeeUpdated(uint256 oldFee, uint256 newFee);
-    event FeeChangeProposed(uint256 currentFee, uint256 proposedFee, uint256 executeAfter);
-    event FeeChangeCancelled(uint256 cancelledFee);
     event TreasuryUpdated(address oldTreasury, address newTreasury);
-    event TreasuryChangeProposed(address indexed newTreasury, uint256 executeAfter);
-    event TreasuryChangeCancelled(address indexed cancelledTreasury);
     event TokenWhitelisted(address indexed token);
     event TokenRemovedFromWhitelist(address indexed token);
-    event WhitelistChangeProposed(address indexed token, bool add, uint256 executeAfter);
-    event WhitelistChangeCancelled(address indexed token);
     event GaugeVoted(address indexed user, uint256 indexed epoch, address indexed pair, uint256 power);
     // AUDIT H-2: commit-reveal events.
     event VoteCommitted(address indexed user, uint256 indexed epoch, uint256 commitIndex, bytes32 commitHash);
@@ -309,6 +334,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         power they cannot reveal.
     event CommitForfeitedOnDisabledPair(address indexed user, uint256 indexed epoch, uint256 commitIndex, address indexed pair, uint256 power, uint256 bond);
     event CommitRevealEnabled(bool enabled);
+    event RestakingContractSet(address indexed restaking); // pass-8 GOV-ECON-01
 
     // ─── Errors ──────────────────────────────────────────────────────
     error ZeroAddress();
@@ -328,6 +354,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     error InvalidPair();
     error NoPendingWithdrawal();
     error StakingPaused();
+    /// @dev AUDIT FIX (pass-8): GOV-ECON-01 / C10 — restakingContract is one-shot.
+    error RestakingAlreadySet();
     error TooManyUnclaimedEpochs();
     error VoteDeadlinePassed();  // SECURITY FIX: Cannot vote after deadline
     // AUDIT H-2: commit-reveal errors.
@@ -361,10 +389,10 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         honour live commits via the normal reveal path.
     error PairNotDisabled();
 
-    // ─── Legacy View Helpers (for test/frontend compatibility) ───────
-    function feeChangeTime() external view returns (uint256) { return _executeAfter[FEE_CHANGE]; }
-    function treasuryChangeTime() external view returns (uint256) { return _executeAfter[TREASURY_CHANGE]; }
-    function whitelistChangeTime() external view returns (uint256) { return _executeAfter[WHITELIST_CHANGE]; }
+    // AUDIT FIX (pass-8): EIP170-03 — view-helpers (`feeChangeTime`,
+    // `treasuryChangeTime`, `whitelistChangeTime`, `minBribeChangeTime`,
+    // `commitRevealEnableTime`) moved to VoteIncentivesAdmin alongside the
+    // propose/execute/cancel functions whose readiness they exposed.
 
     // ─── Constructor ─────────────────────────────────────────────────
 
@@ -481,8 +509,13 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // divested 99.999% of NFTs after snapshot (keeping a 1-wei sentinel) cannot
         // apply the full pre-divest aggregate. Uses smaller of historical / current.
         // Pattern: Curve veCRV non-transferability; Aave aTokens min(checkpointed, balance).
-        uint256 historicalPower = votingEscrow.votingPowerAtTimestamp(msg.sender, ep.timestamp);
-        uint256 currentPower = votingEscrow.votingPowerOf(msg.sender);
+        // AUDIT FIX (pass-8): GOV-ECON-01 / C10 — additive read across staking +
+        // restaking. Without this, every restaker's vote() would silently revert
+        // NothingToClaim (their staking-side power is forced to 0 on restake).
+        uint256 historicalPower = VotePowerOracle.powerAt(
+            msg.sender, ep.timestamp, address(votingEscrow), restakingContract
+        );
+        uint256 currentPower = VotePowerOracle.powerOf(msg.sender, address(votingEscrow), restakingContract);
         uint256 userPower = historicalPower < currentPower ? historicalPower : currentPower;
         if (userPower == 0) revert NothingToClaim();
 
@@ -902,76 +935,28 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         return whitelistedTokenList;
     }
 
-    // ─── Admin: Timelocked Fee Change (24h) ──────────────────────────
+    // ─── Admin: applyXxx setters (called by VoteIncentivesAdmin) ─────
+    // AUDIT FIX (pass-8): EIP170-03 — propose/execute/cancel triplets and
+    // pending state moved to VoteIncentivesAdmin. Validation rules are
+    // re-checked here as defense in depth.
 
-    function proposeFeeChange(uint256 newFee) external onlyOwner {
+    function applyFeeChange(uint256 newFee) external onlyAdmin {
         if (newFee > MAX_FEE_BPS) revert FeeTooHigh();
-        require(newFee > 0, "FEE_CANNOT_BE_ZERO"); // M-08 FIX
-        pendingFeeBps = newFee;
-        _propose(FEE_CHANGE, FEE_CHANGE_DELAY);
-        emit FeeChangeProposed(bribeFeeBps, newFee, _executeAfter[FEE_CHANGE]);
-    }
-
-    function executeFeeChange() external onlyOwner {
-        _execute(FEE_CHANGE);
+        require(newFee > 0, "FEE_CANNOT_BE_ZERO"); // M-08 FIX preserved
         uint256 old = bribeFeeBps;
-        bribeFeeBps = pendingFeeBps;
-        pendingFeeBps = 0;
-        emit FeeUpdated(old, bribeFeeBps);
+        bribeFeeBps = newFee;
+        emit FeeUpdated(old, newFee);
     }
 
-    function cancelFeeChange() external onlyOwner {
-        _cancel(FEE_CHANGE);
-        uint256 cancelled = pendingFeeBps;
-        pendingFeeBps = 0;
-        emit FeeChangeCancelled(cancelled);
-    }
-
-    // ─── Admin: Timelocked Treasury Change (48h) ─────────────────────
-
-    function proposeTreasuryChange(address _newTreasury) external onlyOwner {
-        if (_newTreasury == address(0)) revert ZeroAddress();
-        pendingTreasury = _newTreasury;
-        _propose(TREASURY_CHANGE, TREASURY_CHANGE_DELAY);
-        emit TreasuryChangeProposed(_newTreasury, _executeAfter[TREASURY_CHANGE]);
-    }
-
-    function executeTreasuryChange() external onlyOwner {
-        _execute(TREASURY_CHANGE);
+    function applyTreasuryChange(address newTreasury) external onlyAdmin {
+        if (newTreasury == address(0)) revert ZeroAddress();
         address old = treasury;
-        treasury = pendingTreasury;
-        pendingTreasury = address(0);
-        emit TreasuryUpdated(old, treasury);
+        treasury = newTreasury;
+        emit TreasuryUpdated(old, newTreasury);
     }
 
-    function cancelTreasuryChange() external onlyOwner {
-        _cancel(TREASURY_CHANGE);
-        address cancelled = pendingTreasury;
-        pendingTreasury = address(0);
-        emit TreasuryChangeCancelled(cancelled);
-    }
-
-    // ─── Admin: Timelocked Whitelist Change (24h) ────────────────────
-
-    function proposeWhitelistChange(address token, bool add) external onlyOwner {
+    function applyWhitelistChange(address token, bool add) external onlyAdmin {
         if (token == address(0)) revert ZeroAddress();
-        pendingWhitelistToken = token;
-        pendingWhitelistAction = add;
-        _propose(WHITELIST_CHANGE, WHITELIST_CHANGE_DELAY);
-        emit WhitelistChangeProposed(token, add, _executeAfter[WHITELIST_CHANGE]);
-    }
-
-    function executeWhitelistChange() external onlyOwner {
-        _execute(WHITELIST_CHANGE);
-        address token = pendingWhitelistToken;
-        bool add = pendingWhitelistAction;
-        pendingWhitelistToken = address(0);
-        // AUDIT FIX: DEEP-GOV-16 (info) — clear `pendingWhitelistAction` on execute too,
-        // for hygiene parity with `pendingWhitelistToken`. Not exploitable (the bool is
-        // only read after a successful `_propose` which always overwrites it), but
-        // matches the address-clearing pattern.
-        pendingWhitelistAction = false;
-
         if (add) {
             if (!whitelistedTokens[token]) {
                 whitelistedTokens[token] = true;
@@ -994,17 +979,22 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         }
     }
 
-    function cancelWhitelistChange() external onlyOwner {
-        _cancel(WHITELIST_CHANGE);
-        address cancelled = pendingWhitelistToken;
-        pendingWhitelistToken = address(0);
-        emit WhitelistChangeCancelled(cancelled);
-    }
-
     // ─── Admin: Pause ────────────────────────────────────────────────
 
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
+
+    /// @notice One-shot wire of the TegridyRestaking contract address.
+    /// @dev    AUDIT FIX (pass-8): GOV-ECON-01 / C10. Without this, voters who
+    ///         restake their staking NFT have `votingEscrow.votingPower*` return
+    ///         0 and silently lose ALL bribe-vote power. Mirrors `setSequencerFeed`
+    ///         one-shot pattern.
+    function setRestakingContract(address _restaking) external onlyOwner {
+        if (_restaking == address(0)) revert ZeroAddress();
+        if (restakingContract != address(0)) revert RestakingAlreadySet();
+        restakingContract = _restaking;
+        emit RestakingContractSet(_restaking);
+    }
 
     // ─── H-03 FIX: Pull-Pattern Treasury Fees ─────────────────────────
 
@@ -1125,37 +1115,16 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     }
 
     // ─── AUDIT R020 H-3: per-token min-bribe configuration (timelocked) ───
+    // AUDIT FIX (pass-8): EIP170-03 — propose/execute/cancel + Proposed/Cancelled
+    // events moved to VoteIncentivesAdmin.
 
-    event MinBribeAmountChangeProposed(address indexed token, uint256 amount, uint256 executeAfter);
     event MinBribeAmountChangeExecuted(address indexed token, uint256 oldAmount, uint256 newAmount);
-    event MinBribeAmountChangeCancelled(address indexed token, uint256 amount);
 
-    function proposeMinBribeAmount(address token, uint256 amount) external onlyOwner {
+    function applyMinBribeAmountChange(address token, uint256 amount) external onlyAdmin {
         if (token == address(0)) revert ZeroAddress();
-        pendingMinBribeToken = token;
-        pendingMinBribeAmount = amount;
-        _propose(MIN_BRIBE_CHANGE, MIN_BRIBE_CHANGE_DELAY);
-        emit MinBribeAmountChangeProposed(token, amount, _executeAfter[MIN_BRIBE_CHANGE]);
-    }
-
-    function executeMinBribeAmount() external onlyOwner {
-        _execute(MIN_BRIBE_CHANGE);
-        address token = pendingMinBribeToken;
-        uint256 newAmount = pendingMinBribeAmount;
         uint256 oldAmount = minBribeAmounts[token];
-        minBribeAmounts[token] = newAmount;
-        pendingMinBribeToken = address(0);
-        pendingMinBribeAmount = 0;
-        emit MinBribeAmountChangeExecuted(token, oldAmount, newAmount);
-    }
-
-    function cancelMinBribeAmount() external onlyOwner {
-        address token = pendingMinBribeToken;
-        uint256 amount = pendingMinBribeAmount;
-        _cancel(MIN_BRIBE_CHANGE);
-        pendingMinBribeToken = address(0);
-        pendingMinBribeAmount = 0;
-        emit MinBribeAmountChangeCancelled(token, amount);
+        minBribeAmounts[token] = amount;
+        emit MinBribeAmountChangeExecuted(token, oldAmount, amount);
     }
 
     /// @notice AUDIT NEW-G3: permanently-locked rounding dust for a given
@@ -1326,8 +1295,11 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // and reveal only the most lucrative subset). The cap also subsumes the
         // DEEP-GOV-01 min-clamp by anchoring the comparison against the smaller of
         // the two voting-power figures.
-        uint256 historical = votingEscrow.votingPowerAtTimestamp(msg.sender, ep.timestamp);
-        uint256 current = votingEscrow.votingPowerOf(msg.sender);
+        // AUDIT FIX (pass-8): GOV-ECON-01 / C10 — additive read across staking + restaking.
+        uint256 historical = VotePowerOracle.powerAt(
+            msg.sender, ep.timestamp, address(votingEscrow), restakingContract
+        );
+        uint256 current = VotePowerOracle.powerOf(msg.sender, address(votingEscrow), restakingContract);
         uint256 userPower = historical < current ? historical : current;
         if (userPower == 0) revert NothingToClaim();
         require(committedPower[msg.sender][epoch] + power <= userPower, "EXCEEDS_POWER");
@@ -1570,22 +1542,11 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///
     ///         Once enabled there is still no path to disable — forward-only by
     ///         design. `flipping back would let an attacker race the toggle.`
-    event EnableCommitRevealProposed(uint256 executeAfter);
-    event EnableCommitRevealCancelled();
+    // AUDIT FIX (pass-8): EIP170-03 — propose/execute/cancel + Proposed/Cancelled
+    // events for commit-reveal enable moved to VoteIncentivesAdmin.
 
-    function proposeEnableCommitReveal() external onlyOwner {
-        if (commitRevealEnabled) return; // idempotent
-        _propose(COMMIT_REVEAL_ENABLE, COMMIT_REVEAL_ENABLE_DELAY);
-        emit EnableCommitRevealProposed(_executeAfter[COMMIT_REVEAL_ENABLE]);
-    }
-
-    function cancelEnableCommitReveal() external onlyOwner {
-        _cancel(COMMIT_REVEAL_ENABLE);
-        emit EnableCommitRevealCancelled();
-    }
-
-    function executeEnableCommitReveal() external {
-        _execute(COMMIT_REVEAL_ENABLE);
+    function applyEnableCommitReveal() external onlyAdmin {
+        if (commitRevealEnabled) return; // idempotent (mirrors pre-split semantic)
         commitRevealEnabled = true;
         emit CommitRevealEnabled(true);
     }

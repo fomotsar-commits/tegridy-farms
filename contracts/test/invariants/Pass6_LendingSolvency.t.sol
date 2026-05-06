@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../../src/TegridyStaking.sol";
 import "../../src/TegridyStakingAdmin.sol";
 import "../../src/TegridyLending.sol";
+import "../../src/TegridyLendingAdmin.sol"; // AUDIT FIX (pass-8): EIP170-01 split
 
 /// @title PASS6-INV-E — TegridyLending solvency + cross-loan reward isolation
 /// @notice Stateful invariant locking down the LD-NEW-H1 fix surface (closed in
@@ -302,6 +303,7 @@ contract PASS6_INV_E_LendingSolvency is Test {
     TegridyStaking public staking;
     TegridyStakingAdmin public stakingAdmin;
     TegridyLending public lending;
+    TegridyLendingAdmin public lendingAdmin; // AUDIT FIX (pass-8): EIP170-01 split
     InvE_Handler public handler;
 
     address public treasury = makeAddr("inv_e_treasury");
@@ -333,12 +335,16 @@ contract PASS6_INV_E_LendingSolvency is Test {
             address(0)
         );
 
+        // AUDIT FIX (pass-8): EIP170-01 split — wire admin sister.
+        lendingAdmin = new TegridyLendingAdmin(address(lending));
+        lending.setLendingAdmin(address(lendingAdmin));
+
         // Whitelist staking as collateral (48h timelock). Sequential timelocks
         // need explicit warps — absolute targets read off block.timestamp at
         // each step (see Pass6_Regressions.t.sol which uses `skip`, equivalent).
-        lending.proposeAcceptedCollateral(address(staking), true);
+        lendingAdmin.proposeAcceptedCollateral(address(staking), true);
         skip(48 hours + 1);
-        lending.executeAcceptedCollateral();
+        lendingAdmin.executeAcceptedCollateral();
 
         // Register lending as a tracked holder so per-tokenId attribution fires.
         stakingAdmin.proposeLendingContract(address(lending), true);

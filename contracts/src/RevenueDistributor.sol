@@ -738,8 +738,18 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
                 // zeroed on transfer-in — without this fallback they silently earn $0.
                 // AUDIT FIX: DEEP-DR-L-03 — only consult restaking contract if the user
                 // has an active restaker position. Saves N try-CALLs for non-restakers.
-                if (userPower == 0 && isRestaker) {
-                    userPower = _restakedPowerAt(user, epoch.timestamp);
+                //
+                // AUDIT FIX (pass-8): REV-RESTAKE-01 — was OR-fallback `if (userPower == 0 && isRestaker)`.
+                // Multi-source holders (direct NFT-A staked + NFT-B restaked) had the
+                // restaked share silently dropped because userPower > 0 short-circuited
+                // the fallback. Now ADDITIVE: a user's epoch share is the SUM of their
+                // staking-side power AND their restaking-side power, never one or the
+                // other. Mirrors the lib/VotePowerOracle.powerAt() pattern shipped in
+                // batch 1; not switching the call to the library here because
+                // _restakedPowerAt already has a try/catch defensive wrapper that's
+                // worth preserving.
+                if (isRestaker) {
+                    userPower += _restakedPowerAt(user, epoch.timestamp);
                 }
                 if (userPower > 0) {
                     // Cap userPower to epoch.totalLocked to prevent over-payment

@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/VoteIncentives.sol";
+import "../src/VoteIncentivesAdmin.sol"; // AUDIT FIX (pass-8): EIP170-03 split
 import "../src/GaugeController.sol";
 import "../src/CommunityGrants.sol";
 import "../src/MemeBountyBoard.sol";
@@ -76,6 +77,7 @@ contract MockFactory_DG {
 
 contract DeepGov01_VoteIncentivesTest is Test {
     VoteIncentives public vi;
+    VoteIncentivesAdmin public viAdmin; // AUDIT FIX (pass-8): EIP170-03 split
     MockVE_DG public ve;
     MockWETH_DG public weth;
     MockBribeToken_DG public bribeToken;
@@ -100,6 +102,10 @@ contract DeepGov01_VoteIncentivesTest is Test {
 
         vi = new VoteIncentives(address(ve), treasury, address(weth), address(factory), address(bribeToken), 300);
 
+        // AUDIT FIX (pass-8): EIP170-03 split — wire admin sister.
+        viAdmin = new VoteIncentivesAdmin(address(vi));
+        vi.setVoteIncentivesAdmin(address(viAdmin));
+
         // alice held 100k power at snapshot.
         ve.setHistorical(alice, 100_000e18);
         // alice's CURRENT power is 1 wei (divested 99.999% post-snapshot).
@@ -109,9 +115,9 @@ contract DeepGov01_VoteIncentivesTest is Test {
         ve.setHistorical(bob, 50_000e18);
         ve.setCurrent(bob, 50_000e18);
 
-        vi.proposeWhitelistChange(address(bribeToken), true);
+        viAdmin.proposeWhitelistChange(address(bribeToken), true);
         vm.warp(block.timestamp + 24 hours + 1);
-        vi.executeWhitelistChange();
+        viAdmin.executeWhitelistChange();
 
         vm.warp(block.timestamp + 7 days);
         vi.advanceEpoch();

@@ -8,6 +8,7 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
+import {VotePowerOracle} from "./lib/VotePowerOracle.sol";
 
 interface IVotingEscrowGrants {
     function votingPowerOf(address user) external view returns (uint256);
@@ -51,6 +52,13 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     using SafeERC20 for IERC20;
 
     IVotingEscrowGrants public immutable votingEscrow;
+    /// @notice Optional restaking contract; voting power from restaked positions
+    ///         is added to staking-side power for proposal voting eligibility.
+    /// @dev    AUDIT FIX (pass-8): GOV-ECON-01 / C10 — without this, users who
+    ///         restake their staking NFT have `votingEscrow.votingPower*` return
+    ///         0 and silently fail the per-proposal `power > 0` requirement.
+    ///         One-shot setter mirrors `setSequencerFeed`.
+    address public restakingContract;
     IERC20 public immutable toweli;
     address public immutable weth; // WETH address for fallback grant disbursement
 
@@ -196,6 +204,7 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     /// @notice AUDIT R014-MEDIUM: emitted when the dry-run 1-wei test transfer to the
     ///         proposed fee receiver fails. The change is auto-cancelled in that case.
     event FeeReceiverChangeRejected(address indexed proposed, string reason);
+    event RestakingContractSet(address indexed restaking); // pass-8 GOV-ECON-01
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -222,6 +231,8 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error RollingDisbursementExceeded();
 
     error AlreadyRefunded(); // AUDIT FIX H-01: Deposit already consumed or refunded
+    /// @dev AUDIT FIX (pass-8): GOV-ECON-01 / C10 — restakingContract is one-shot.
+    error RestakingAlreadySet();
     /// @notice AUDIT FIX: DEEP-GOV-05 — disbursement ring buffer is full and the
     ///         oldest entry is still within ROLLING_WINDOW. Forces caller to wait
     ///         for the oldest entry to age out before recording new disbursements,
@@ -402,8 +413,13 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // apply the full pre-divest aggregate to a treasury-draining proposal vote.
         // Pattern: Curve veCRV non-transferability; Aave aTokens min(checkpointed,
         // balance) for delegate voting.
-        uint256 historicalPower = votingEscrow.votingPowerAtTimestamp(msg.sender, proposal.snapshotTimestamp);
-        uint256 currentPower = votingEscrow.votingPowerOf(msg.sender);
+        // AUDIT FIX (pass-8): GOV-ECON-01 / C10 — additive read across staking +
+        // restaking so a voter who restaked their NFT isn't silently denied a vote.
+        // Preserves the existing min(historical, current) clamp from DEEP-GOV-01.
+        uint256 historicalPower = VotePowerOracle.powerAt(
+            msg.sender, proposal.snapshotTimestamp, address(votingEscrow), restakingContract
+        );
+        uint256 currentPower = VotePowerOracle.powerOf(msg.sender, address(votingEscrow), restakingContract);
         uint256 power = historicalPower < currentPower ? historicalPower : currentPower;
         if (power == 0) revert NoVotingPower();
 
@@ -907,6 +923,18 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    /// @notice One-shot wire of the TegridyRestaking contract address.
+    /// @dev    AUDIT FIX (pass-8): GOV-ECON-01 / C10. Without this, users who
+    ///         restake their staking NFT have `votingEscrow.votingPower*` return
+    ///         0 and silently lose voting eligibility on every grant proposal.
+    ///         Mirrors `setSequencerFeed` one-shot pattern.
+    function setRestakingContract(address _restaking) external onlyOwner {
+        if (_restaking == address(0)) revert ZeroAddress();
+        if (restakingContract != address(0)) revert RestakingAlreadySet();
+        restakingContract = _restaking;
+        emit RestakingContractSet(_restaking);
     }
 
     // ─── Internal ─────────────────────────────────────────────────────

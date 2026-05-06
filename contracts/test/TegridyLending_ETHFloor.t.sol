@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
 import "../src/TegridyLending.sol";
+import "../src/TegridyLendingAdmin.sol"; // AUDIT FIX (pass-8): EIP170-01 split
 import {TegridyTWAP} from "../src/TegridyTWAP.sol";
 
 // ─── Mock Contracts ─────────────────────────────────────────────────
@@ -119,6 +120,7 @@ contract TegridyLending_ETHFloorTest is Test {
     MockTegridyPairETHFloor public pair;
     TegridyStaking public staking;
     TegridyLending public lending;
+    TegridyLendingAdmin public lendingAdmin; // AUDIT FIX (pass-8): EIP170-01 split
     TegridyTWAP public twap;
 
     address public treasury = makeAddr("treasury");
@@ -175,12 +177,16 @@ contract TegridyLending_ETHFloorTest is Test {
 
         lending = new TegridyLending(treasury, 500, address(weth), address(pair), address(twap), address(0));
 
+        // AUDIT FIX (pass-8): EIP170-01 split — wire admin sister.
+        lendingAdmin = new TegridyLendingAdmin(address(lending));
+        lending.setLendingAdmin(address(lendingAdmin));
+
         // AUDIT R014: whitelist the staking contract so createLoanOffer accepts it as
         // collateral. 48h timelock is rolled forward inline. We chunk the warp into
         // sub-DEVIATION_BYPASS_AFTER (1 day) windows and refresh the TWAP between
         // each so `lastBypassUsed` stays zero — the new TWAP-bypass cooldown gate in
         // `_positionETHValue` (TWAP_PERIOD * 2) would otherwise fire.
-        lending.proposeAcceptedCollateral(address(staking), true);
+        lendingAdmin.proposeAcceptedCollateral(address(staking), true);
         // Span 48h + 1s in two ~22h hops so neither hop trips the dormancy bypass.
         skip(22 hours);
         twap.update(address(pair));
@@ -188,7 +194,7 @@ contract TegridyLending_ETHFloorTest is Test {
         twap.update(address(pair));
         skip(4 hours + 1);
         twap.update(address(pair));
-        lending.executeAcceptedCollateral();
+        lendingAdmin.executeAcceptedCollateral();
 
         // Fund alice and have her stake for a collateral position.
         toweli.transfer(alice, 100_000 ether);
@@ -415,18 +421,21 @@ contract TegridyLending_ETHFloorTest is Test {
             address(inverseTwap),
             address(0)
         );
+        // AUDIT FIX (pass-8): EIP170-01 split — local admin sister.
+        TegridyLendingAdmin inverseLendingAdmin = new TegridyLendingAdmin(address(inverseLending));
+        inverseLending.setLendingAdmin(address(inverseLendingAdmin));
 
         // AUDIT R014: whitelist the staking contract on the new lending instance and
         // refresh the inverse-pair TWAP through the 48h timelock so neither the
         // dormancy-bypass cooldown nor the staleness gate trip in `_positionETHValue`.
-        inverseLending.proposeAcceptedCollateral(address(staking), true);
+        inverseLendingAdmin.proposeAcceptedCollateral(address(staking), true);
         skip(22 hours);
         inverseTwap.update(address(inversePair));
         skip(22 hours);
         inverseTwap.update(address(inversePair));
         skip(4 hours + 1);
         inverseTwap.update(address(inversePair));
-        inverseLending.executeAcceptedCollateral();
+        inverseLendingAdmin.executeAcceptedCollateral();
 
         // Re-approve alice's NFT onto the new lending contract.
         vm.prank(alice);

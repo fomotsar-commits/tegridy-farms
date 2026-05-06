@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../src/VoteIncentives.sol";
+import "../src/VoteIncentivesAdmin.sol"; // AUDIT FIX (pass-8): EIP170-03 split
 
 // ─── Mocks ───────────────────────────────────────────────────────────────
 
@@ -71,6 +72,7 @@ contract MockPair_R020 {
 ///         H-3: depositBribe rejects below DEFAULT_MIN_TOKEN_BRIBE / configured per-token min
 contract R020_VoteIncentivesTest is Test {
     VoteIncentives public bribes;
+    VoteIncentivesAdmin public bribesAdmin; // AUDIT FIX (pass-8): EIP170-03 split
     MockTOWELI_R020 public toweli;
     MockBribeToken_R020 public bribeToken;
     MockWETH_R020 public weth;
@@ -107,10 +109,14 @@ contract R020_VoteIncentivesTest is Test {
             FEE_BPS
         );
 
+        // AUDIT FIX (pass-8): EIP170-03 split — wire admin sister.
+        bribesAdmin = new VoteIncentivesAdmin(address(bribes));
+        bribes.setVoteIncentivesAdmin(address(bribesAdmin));
+
         // Whitelist bribeToken via the timelock flow.
-        bribes.proposeWhitelistChange(address(bribeToken), true);
+        bribesAdmin.proposeWhitelistChange(address(bribeToken), true);
         vm.warp(block.timestamp + 24 hours + 1);
-        bribes.executeWhitelistChange();
+        bribesAdmin.executeWhitelistChange();
 
         // Fund the depositor with bribeToken.
         bribeToken.transfer(depositor, 1_000_000 ether);
@@ -156,9 +162,9 @@ contract R020_VoteIncentivesTest is Test {
         _deploy(false); // legacy / migration deploy
 
         // Flip via the timelock immediately after deploy.
-        bribes.proposeEnableCommitReveal();
+        bribesAdmin.proposeEnableCommitReveal();
         vm.warp(block.timestamp + bribes.COMMIT_REVEAL_ENABLE_DELAY() + 1);
-        bribes.executeEnableCommitReveal();
+        bribesAdmin.executeEnableCommitReveal();
         assertTrue(bribes.commitRevealEnabled(), "flag should be true after timelocked enable");
 
         // Next epoch advance must tag usesCommitReveal = true.
@@ -188,9 +194,9 @@ contract R020_VoteIncentivesTest is Test {
         bribes.enableCommitReveal();
 
         // Propose + warp + execute → flag flips to true; subsequent epochs gain commit-reveal.
-        bribes.proposeEnableCommitReveal();
+        bribesAdmin.proposeEnableCommitReveal();
         vm.warp(block.timestamp + bribes.COMMIT_REVEAL_ENABLE_DELAY() + 1);
-        bribes.executeEnableCommitReveal();
+        bribesAdmin.executeEnableCommitReveal();
         assertTrue(bribes.commitRevealEnabled());
     }
 

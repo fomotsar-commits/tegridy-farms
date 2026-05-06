@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../src/VoteIncentives.sol";
+import "../src/VoteIncentivesAdmin.sol"; // AUDIT FIX (pass-8): EIP170-03 split
 
 // ─── Mocks ───────────────────────────────────────────────────────────
 
@@ -75,6 +76,7 @@ contract MockPair_R014 {
 ///                     but the explicit branch defends future drift.
 contract AuditR014_VoteIncentivesTest is Test {
     VoteIncentives public bribes;
+    VoteIncentivesAdmin public bribesAdmin; // AUDIT FIX (pass-8): EIP170-03 split
     MockTOWELI_R014 public toweli;
     MockBribeToken_R014 public bribeToken;
     MockWETH_R014 public weth;
@@ -108,10 +110,14 @@ contract AuditR014_VoteIncentivesTest is Test {
             FEE_BPS
         );
 
+        // AUDIT FIX (pass-8): EIP170-03 split — wire admin sister.
+        bribesAdmin = new VoteIncentivesAdmin(address(bribes));
+        bribes.setVoteIncentivesAdmin(address(bribesAdmin));
+
         // Whitelist bribeToken via the timelock flow.
-        bribes.proposeWhitelistChange(address(bribeToken), true);
+        bribesAdmin.proposeWhitelistChange(address(bribeToken), true);
         vm.warp(block.timestamp + 24 hours + 1);
-        bribes.executeWhitelistChange();
+        bribesAdmin.executeWhitelistChange();
 
         // Fund depositor.
         bribeToken.transfer(depositor, 1_000_000 ether);
@@ -370,9 +376,9 @@ contract AuditR014_VoteIncentivesTest is Test {
         // Stage a bribe + flip commit-reveal ON BEFORE advancing so the new
         // epoch tags `usesCommitReveal == true`.
         _depositERC20(depositor, 10_000 ether);
-        bribes.proposeEnableCommitReveal();
+        bribesAdmin.proposeEnableCommitReveal();
         vm.warp(block.timestamp + bribes.COMMIT_REVEAL_ENABLE_DELAY() + 1);
-        bribes.executeEnableCommitReveal();
+        bribesAdmin.executeEnableCommitReveal();
 
         _advance();
         uint256 epoch = bribes.currentEpoch() - 1;

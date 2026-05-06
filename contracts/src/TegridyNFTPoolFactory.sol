@@ -40,6 +40,28 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     ///         partial withdrawals must wait for the next 24h window.
     uint256 public constant MAX_DAILY_WITHDRAWAL = 1000 ether;
 
+    /// @notice Hard cap on pools per collection.
+    /// @dev    AUDIT FIX (pass-8): C5 / LOOP-01 — without a cap, an attacker can
+    ///         spam `createPool` for a target collection (≤0.05 ETH each — see
+    ///         MIN_DEPOSIT raise below) until `_poolsByCollection[c].length`
+    ///         exceeds the eth_call gas budget, bricking router discovery
+    ///         (`getBestBuyPool` / `getBestSellPool`) and any aggregator that
+    ///         depends on enumeration. 200 is the practical Sudoswap-derived
+    ///         ceiling: 200 × ~80k gas/iter ≈ 16M gas — fits in eth_call,
+    ///         leaves headroom for try/catch overhead, and is well above any
+    ///         legitimate per-collection liquidity profile.
+    uint256 public constant MAX_POOLS_PER_COLLECTION = 200;
+
+    /// @notice Floor on the MIN_DEPOSIT spam-deterrent used in createPool.
+    /// @dev    AUDIT FIX (pass-8): C5 / LOOP-01 — raised from 0.01 ETH to
+    ///         0.05 ETH. At 0.01 ETH per spam pool, 200 pools = 2 ETH (~$5k at
+    ///         current prices) which is cheap enough to attack. At 0.05 ETH, the
+    ///         200-pool cap costs 10 ETH (~$25k) — still attackable but at a
+    ///         level the protocol can detect and rate-limit at the operator
+    ///         layer. Combined with MAX_POOLS_PER_COLLECTION the spam vector is
+    ///         doubly closed.
+    uint256 public constant MIN_DEPOSIT = 0.05 ether;
+
     // ─── State ──────────────────────────────────────────────────────────
     /// @notice Implementation contract used as the clone template
     address public immutable poolImplementation;
@@ -179,7 +201,11 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     ) external payable whenNotPaused returns (address pool) {
         if (nftCollection == address(0)) revert ZeroAddress();
         require(nftCollection.code.length > 0, "NOT_CONTRACT");
-        require(msg.value >= 0.01 ether || initialTokenIds.length > 0, "MIN_DEPOSIT");
+        // AUDIT FIX (pass-8): C5 / LOOP-01 — MIN_DEPOSIT raised to 0.05 ETH
+        // and per-collection pool count capped at MAX_POOLS_PER_COLLECTION
+        // to defeat storage-bloat DoS on router discovery.
+        require(msg.value >= MIN_DEPOSIT || initialTokenIds.length > 0, "MIN_DEPOSIT");
+        require(_poolsByCollection[nftCollection].length < MAX_POOLS_PER_COLLECTION, "MAX_POOLS_PER_COLLECTION");
 
         // AUDIT H-08: deploy via CREATE2 with a deterministic salt that includes the
         // caller, the pool counter, and the target collection. The prior Clones.clone()

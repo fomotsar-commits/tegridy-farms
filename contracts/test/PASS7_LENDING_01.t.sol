@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyLending.sol";
+import "../src/TegridyLendingAdmin.sol"; // AUDIT FIX (pass-8): EIP170-01 split
 
 /// @title PASS7-LENDING-01 — TegridyLending.acceptOffer / repayLoan /
 ///        claimDefaultedCollateral missing the LD-NEW-H2 sibling defense.
@@ -163,6 +164,7 @@ contract PASS7_LENDING_01_AcceptOfferNoOpTest is Test {
     PASS7_LENDING_01_MockTWAP twap;
     PASS7_LENDING_01_NoOpStaking malStaking;
     TegridyLending lending;
+    TegridyLendingAdmin lendingAdmin; // AUDIT FIX (pass-8): EIP170-01 split
 
     address treasury = makeAddr("treasury");
     address alice = makeAddr("alice"); // lender — funds principal
@@ -188,14 +190,18 @@ contract PASS7_LENDING_01_AcceptOfferNoOpTest is Test {
             address(0)
         );
 
+        // AUDIT FIX (pass-8): EIP170-01 split — wire admin sister.
+        lendingAdmin = new TegridyLendingAdmin(address(lending));
+        lending.setLendingAdmin(address(lendingAdmin));
+
         // Whitelist the malicious "staking" contract via the standard 48h
         // timelock. Models a captured-admin / compromised-collection
         // scenario where governance has been social-engineered to add a
         // hostile collateral type, OR a future-rugged upgrade of an
         // honest one.
-        lending.proposeAcceptedCollateral(address(malStaking), true);
+        lendingAdmin.proposeAcceptedCollateral(address(malStaking), true);
         skip(48 hours + 1);
-        lending.executeAcceptedCollateral();
+        lendingAdmin.executeAcceptedCollateral();
 
         bobTokenId = malStaking.mint(bob);
         vm.prank(bob);

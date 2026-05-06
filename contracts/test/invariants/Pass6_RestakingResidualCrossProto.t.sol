@@ -8,6 +8,7 @@ import "../../src/TegridyStaking.sol";
 import "../../src/TegridyStakingAdmin.sol";
 import {TegridyRestaking} from "../../src/TegridyRestaking.sol";
 import {TegridyLending} from "../../src/TegridyLending.sol";
+import {TegridyLendingAdmin} from "../../src/TegridyLendingAdmin.sol"; // AUDIT FIX (pass-8): EIP170-01 split
 import {TegridyTWAP} from "../../src/TegridyTWAP.sol";
 
 /// @title PASS6-INV-H — TegridyRestaking residualClaimant cross-protocol gate
@@ -311,6 +312,7 @@ contract PASS6_INV_H_RestakingCrossProto is Test {
     TegridyStakingAdmin public stakingAdmin;
     TegridyRestaking public restaking;
     TegridyLending public lending;
+    TegridyLendingAdmin public lendingAdmin; // AUDIT FIX (pass-8): EIP170-01 split
     TegridyTWAP public twap;
 
     InvH_Toweli public toweli;
@@ -352,9 +354,13 @@ contract PASS6_INV_H_RestakingCrossProto is Test {
         twap = new TegridyTWAP(address(this), address(0));
         lending = new TegridyLending(treasury, 500, address(weth), address(pair), address(twap), address(0));
 
-        lending.proposeAcceptedCollateral(address(staking), true);
+        // AUDIT FIX (pass-8): EIP170-01 split — wire admin sister.
+        lendingAdmin = new TegridyLendingAdmin(address(lending));
+        lending.setLendingAdmin(address(lendingAdmin));
+
+        lendingAdmin.proposeAcceptedCollateral(address(staking), true);
         skip(48 hours + 1);
-        lending.executeAcceptedCollateral();
+        lendingAdmin.executeAcceptedCollateral();
 
         stakingAdmin.proposeLendingContract(address(lending), true);
         skip(48 hours + 1);

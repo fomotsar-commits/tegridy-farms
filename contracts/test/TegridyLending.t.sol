@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
 import "../src/TegridyLending.sol";
+import "../src/TegridyLendingAdmin.sol"; // AUDIT FIX (pass-8): EIP170-01 split
 import {TegridyTWAP} from "../src/TegridyTWAP.sol";
 
 // ─── Mock Contracts ─────────────────────────────────────────────────
@@ -86,6 +87,7 @@ contract TegridyLendingTest is Test {
     MockTegridyPairLending public pair;
     TegridyStaking public staking;
     TegridyLending public lending;
+    TegridyLendingAdmin public lendingAdmin; // AUDIT FIX (pass-8): EIP170-01 split
 
     address public treasury = makeAddr("treasury");
     address public alice = makeAddr("alice");   // borrower — has staking NFT
@@ -128,11 +130,15 @@ contract TegridyLendingTest is Test {
         TegridyTWAP twap = new TegridyTWAP(address(this), address(0));
         lending = new TegridyLending(treasury, 500, address(weth), address(pair), address(twap), address(0)); // 5% protocol fee
 
+        // AUDIT FIX (pass-8): EIP170-01 split — wire admin sister.
+        lendingAdmin = new TegridyLendingAdmin(address(lending));
+        lending.setLendingAdmin(address(lendingAdmin));
+
         // AUDIT R014: whitelist the staking contract so createLoanOffer accepts it as
         // collateral. 48h timelock is rolled forward inline.
-        lending.proposeAcceptedCollateral(address(staking), true);
+        lendingAdmin.proposeAcceptedCollateral(address(staking), true);
         vm.warp(block.timestamp + 48 hours + 1);
-        lending.executeAcceptedCollateral();
+        lendingAdmin.executeAcceptedCollateral();
 
         // 4. Fund alice with TOWELI and have her stake to get a position NFT
         toweli.transfer(alice, 100_000 ether);
@@ -591,34 +597,34 @@ contract TegridyLendingTest is Test {
 
     function test_proposeAndExecuteFeeChange() public {
         // Propose new fee
-        lending.proposeProtocolFeeChange(800); // 8%
+        lendingAdmin.proposeProtocolFeeChange(800); // 8%
 
-        assertEq(lending.pendingProtocolFeeBps(), 800);
+        assertEq(lendingAdmin.pendingProtocolFeeBps(), 800);
 
         // Cannot execute before timelock
         vm.expectRevert();
-        lending.executeProtocolFeeChange();
+        lendingAdmin.executeProtocolFeeChange();
 
         // Warp past 48h timelock
         vm.warp(block.timestamp + 48 hours);
 
-        lending.executeProtocolFeeChange();
+        lendingAdmin.executeProtocolFeeChange();
 
         assertEq(lending.protocolFeeBps(), 800);
-        assertEq(lending.pendingProtocolFeeBps(), 0);
+        assertEq(lendingAdmin.pendingProtocolFeeBps(), 0);
     }
 
     function test_proposeFeeChange_revert_tooHigh() public {
         vm.expectRevert(TegridyLending.FeeTooHigh.selector);
-        lending.proposeProtocolFeeChange(1001); // exceeds MAX_PROTOCOL_FEE_BPS (1000)
+        lendingAdmin.proposeProtocolFeeChange(1001); // exceeds MAX_PROTOCOL_FEE_BPS (1000)
     }
 
     function test_cancelFeeChange() public {
-        lending.proposeProtocolFeeChange(800);
+        lendingAdmin.proposeProtocolFeeChange(800);
 
-        lending.cancelProtocolFeeChange();
+        lendingAdmin.cancelProtocolFeeChange();
 
-        assertEq(lending.pendingProtocolFeeBps(), 0);
+        assertEq(lendingAdmin.pendingProtocolFeeBps(), 0);
 
         // Original fee unchanged
         assertEq(lending.protocolFeeBps(), 500);
@@ -627,7 +633,7 @@ contract TegridyLendingTest is Test {
     function test_feeChange_revert_notOwner() public {
         vm.prank(carol);
         vm.expectRevert();
-        lending.proposeProtocolFeeChange(800);
+        lendingAdmin.proposeProtocolFeeChange(800);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -947,10 +953,10 @@ contract TegridyLendingTest is Test {
 
         // Change treasury mid-loan via timelock
         address newTreasury = makeAddr("newTreasury");
-        lending.proposeTreasuryChange(newTreasury);
+        lendingAdmin.proposeTreasuryChange(newTreasury);
 
         vm.warp(block.timestamp + 48 hours);
-        lending.executeTreasuryChange();
+        lendingAdmin.executeTreasuryChange();
 
         assertEq(lending.treasury(), newTreasury);
 
@@ -974,18 +980,18 @@ contract TegridyLendingTest is Test {
 
     function test_treasuryChangePropose_revert_zeroAddress() public {
         vm.expectRevert(TegridyLending.ZeroAddress.selector);
-        lending.proposeTreasuryChange(address(0));
+        lendingAdmin.proposeTreasuryChange(address(0));
     }
 
     function test_treasuryChangeCancelAndVerify() public {
         address newTreasury = makeAddr("newTreasury");
-        lending.proposeTreasuryChange(newTreasury);
+        lendingAdmin.proposeTreasuryChange(newTreasury);
 
-        lending.cancelTreasuryChange();
+        lendingAdmin.cancelTreasuryChange();
 
         // Treasury unchanged
         assertEq(lending.treasury(), treasury);
-        assertEq(lending.pendingTreasury(), address(0));
+        assertEq(lendingAdmin.pendingTreasury(), address(0));
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1142,9 +1148,9 @@ contract TegridyLendingTest is Test {
         uint256 loanId = _createAndAcceptLoan();
 
         // Change protocol fee from 5% to 8% mid-loan
-        lending.proposeProtocolFeeChange(800);
+        lendingAdmin.proposeProtocolFeeChange(800);
         vm.warp(block.timestamp + 48 hours);
-        lending.executeProtocolFeeChange();
+        lendingAdmin.executeProtocolFeeChange();
 
         assertEq(lending.protocolFeeBps(), 800);
 

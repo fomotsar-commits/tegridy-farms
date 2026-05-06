@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../../src/VoteIncentives.sol";
+import "../../src/VoteIncentivesAdmin.sol"; // AUDIT FIX (pass-8): EIP170-03 split
 
 /// @title  AuditR014_VoteIncentivesShares (HIGH)
 /// @notice Invariant: for every (epoch, pair) pair, the contract-tracked
@@ -215,6 +216,7 @@ contract VISHandler is Test {
 
 contract VoteIncentivesSharesTest is Test {
     VoteIncentives public vi;
+    VoteIncentivesAdmin public viAdmin; // AUDIT FIX (pass-8): EIP170-03 split
     VISMockEscrow public escrow;
     VISMockFactory public factory;
     VISMockPair public pair;
@@ -245,12 +247,16 @@ contract VoteIncentivesSharesTest is Test {
             address(toweli),
             300 // 3% bribe fee
         );
+        // AUDIT FIX (pass-8): EIP170-03 split — wire admin sister.
+        viAdmin = new VoteIncentivesAdmin(address(vi));
+        vi.setVoteIncentivesAdmin(address(viAdmin));
+
         // Whitelist the bribe token via timelock — for the invariant we want
         // depositBribe paths exercised, so propose+execute immediately by
         // warping past the 24h delay.
-        vi.proposeWhitelistChange(address(bribeToken), true);
+        viAdmin.proposeWhitelistChange(address(bribeToken), true);
         vm.warp(block.timestamp + 25 hours);
-        vi.executeWhitelistChange();
+        viAdmin.executeWhitelistChange();
 
         // Seed three voters with voting power above MIN_DISTRIBUTE_STAKE so
         // advanceEpoch() succeeds.

@@ -11,6 +11,15 @@ interface IStakingForReferral {
     function votingPowerOf(address user) external view returns (uint256);
 }
 
+/// @dev AUDIT FIX (pass-8): GOV-ECON-01 / C10 — restaking-side voting-power
+///      reader added so referrers who restake their staking NFT are not
+///      silently disenfranchised from the MIN_REFERRAL_STAKE_POWER threshold.
+///      TegridyRestaking exposes the same shape via its
+///      `votingPowerOf(address)` alias that delegates to `_boostedAmountAt`.
+interface IRestakingForReferral {
+    function votingPowerOf(address user) external view returns (uint256);
+}
+
 /// @title ReferralSplitter
 /// @notice On-chain referral tracking. When a referred user's swap fee is received,
 ///         a percentage goes to the referrer automatically.
@@ -59,6 +68,14 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     // ─── State ────────────────────────────────────────────────────────
 
     IStakingForReferral public immutable stakingContract; // SECURITY FIX #16
+    /// @notice Optional restaking contract; voting power from restaked positions
+    ///         is added to staking-side power for the MIN_REFERRAL_STAKE_POWER check.
+    /// @dev    AUDIT FIX (pass-8): GOV-ECON-01 / C10 — without this, referrers who
+    ///         restake their staking NFT have `stakingContract.votingPowerOf` return
+    ///         0 and lose the MIN_REFERRAL_STAKE_POWER qualification. One-shot setter
+    ///         (mirrors `setSequencerFeed` pattern in SwapFeeRouter) lets the live
+    ///         deployment add the restaking pointer without redeploying.
+    address public restakingContract;
     address public immutable weth; // WETH fallback for revert-on-receive addresses
     uint256 public constant MIN_REFERRAL_STAKE_POWER = 1000e18; // SECURITY FIX #16: must have 1000 TOWELI equivalent voting power
 
@@ -143,6 +160,7 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     event ReferrerBanned(address indexed referrer);                            // DEEP-DR-L-04
     event BanReferrerCancelled(address indexed referrer);                      // DEEP-DR-L-04
     event ReferrerUnbanned(address indexed referrer);                          // DEEP-DR-L-04
+    event RestakingContractSet(address indexed restaking);                     // pass-8 GOV-ECON-01
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -174,6 +192,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     ///         address from silently overwriting the in-flight `pendingBanReferrer`
     ///         slot.
     error AlreadyBanned();
+    /// @dev AUDIT FIX (pass-8): GOV-ECON-01 / C10 — restakingContract is one-shot.
+    error RestakingAlreadySet();
 
     // Legacy error aliases (kept for test compatibility)
     // Note: ProposalExpired() removed — use TimelockAdmin.ProposalExpired(bytes32) instead
@@ -362,11 +382,22 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         // as unqualified (route to treasury) rather than blocking all fee recording.
         bool referrerQualified = false;
         if (referrer != address(0)) {
+            uint256 totalPower;
             try stakingContract.votingPowerOf(referrer) returns (uint256 power) {
-                referrerQualified = power >= MIN_REFERRAL_STAKE_POWER;
+                totalPower = power;
             } catch {
-                // Staking contract reverted — treat as unqualified
+                // Staking contract reverted — treat staking-side as 0
             }
+            // AUDIT FIX (pass-8): GOV-ECON-01 / C10 — additively include restaked
+            // voting power so referrers who restake aren't silently disqualified.
+            if (restakingContract != address(0)) {
+                try IRestakingForReferral(restakingContract).votingPowerOf(referrer) returns (uint256 r) {
+                    totalPower += r;
+                } catch {
+                    // Restaking reverted — staking-side value is a safe lower bound
+                }
+            }
+            referrerQualified = totalPower >= MIN_REFERRAL_STAKE_POWER;
         }
         // AUDIT FIX: V2-DR-M-03 — banned referrers are treated as unqualified for
         // NEW earnings. The DEEP-DR-L-04 ban flag previously only blocked
@@ -457,6 +488,23 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         if (setupComplete) revert SetupAlreadyComplete();
         setupComplete = true;
         emit SetupCompleted();
+    }
+
+    /// @notice One-shot wire of the TegridyRestaking contract address.
+    /// @dev    AUDIT FIX (pass-8): GOV-ECON-01 / C10. Without this, referrers
+    ///         who restake their staking NFT have `stakingContract.votingPowerOf`
+    ///         return 0 (per-owner enumerable set is empty + 0-checkpoint written
+    ///         on deposit) and silently fail the MIN_REFERRAL_STAKE_POWER gate.
+    ///
+    ///         Mirrors the SwapFeeRouter `setSequencerFeed` one-shot pattern:
+    ///         non-zero, set-once, immutable thereafter. If a future Restaking
+    ///         migration is needed, redeploy ReferralSplitter — same liability
+    ///         budget as the existing one-shot setters in the codebase.
+    function setRestakingContract(address _restaking) external onlyOwner {
+        if (_restaking == address(0)) revert ZeroAddress();
+        if (restakingContract != address(0)) revert RestakingAlreadySet();
+        restakingContract = _restaking;
+        emit RestakingContractSet(_restaking);
     }
 
     /// @notice Set or revoke an approved fee recorder (owner-only, for initial setup only)
@@ -601,6 +649,14 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         } catch {
             power = 0;
         }
+        // AUDIT FIX (pass-8): GOV-ECON-01 / C10 — additively include restaked
+        // voting power. Without this, a referrer with all power restaked would
+        // be erroneously below threshold and the markBelowStake clock would tick.
+        if (restakingContract != address(0)) {
+            try IRestakingForReferral(restakingContract).votingPowerOf(_referrer) returns (uint256 r) {
+                power += r;
+            } catch {}
+        }
         if (power >= MIN_REFERRAL_STAKE_POWER) {
             // Referrer is above threshold — reset the timer
             lastBelowStakeTime[_referrer] = 0;
@@ -630,6 +686,14 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
             referrerPower = p;
         } catch {
             referrerPower = 0;
+        }
+        // AUDIT FIX (pass-8): GOV-ECON-01 / C10 — additively include restaked
+        // voting power so a referrer who restakes is not erroneously eligible
+        // for forfeiture (the forfeit gate is "below threshold AND inactive").
+        if (restakingContract != address(0)) {
+            try IRestakingForReferral(restakingContract).votingPowerOf(_referrer) returns (uint256 r) {
+                referrerPower += r;
+            } catch {}
         }
         if (
             referrerPower >= MIN_REFERRAL_STAKE_POWER ||

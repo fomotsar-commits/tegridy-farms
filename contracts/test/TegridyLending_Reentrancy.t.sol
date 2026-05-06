@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
 import "../src/TegridyLending.sol";
+import "../src/TegridyLendingAdmin.sol"; // AUDIT FIX (pass-8): EIP170-01 split
 import {TegridyTWAP} from "../src/TegridyTWAP.sol";
 
 // ─── Mock Contracts (reused from TegridyLending.t.sol) ──────────────
@@ -208,6 +209,7 @@ contract ReentrantRepayLender {
 // ─── Test Suite ────────────────────────────────────────────────────
 
 contract TegridyLending_ReentrancyTest is Test {
+    TegridyLendingAdmin public lendingAdmin; // AUDIT FIX (pass-8): EIP170-01 split (declared at top of test contract for setUp scope)
     MockToweli_Reentry public toweli;
     MockJBAC_Reentry public jbac;
     MockWETH_LendReentry public weth;
@@ -245,11 +247,15 @@ contract TegridyLending_ReentrancyTest is Test {
         TegridyTWAP twap = new TegridyTWAP(address(this), address(0));
         lending = new TegridyLending(treasury, 500, address(weth), address(pair), address(twap), address(0));
 
+        // AUDIT FIX (pass-8): EIP170-01 split — wire admin sister.
+        lendingAdmin = new TegridyLendingAdmin(address(lending));
+        lending.setLendingAdmin(address(lendingAdmin));
+
         // AUDIT R014: whitelist the staking contract so createLoanOffer accepts it as
         // collateral. 48h timelock is rolled forward inline.
-        lending.proposeAcceptedCollateral(address(staking), true);
+        lendingAdmin.proposeAcceptedCollateral(address(staking), true);
         vm.warp(block.timestamp + 48 hours + 1);
-        lending.executeAcceptedCollateral();
+        lendingAdmin.executeAcceptedCollateral();
 
         // Fund alice and have her stake
         toweli.transfer(alice, 100_000 ether);

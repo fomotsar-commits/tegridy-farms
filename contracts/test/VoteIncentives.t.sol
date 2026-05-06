@@ -4,6 +4,10 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../src/VoteIncentives.sol";
+// AUDIT FIX (pass-8): EIP170-03 split — propose/execute/cancel surface moved to
+// VoteIncentivesAdmin. Tests now drive the admin contract for all timelocked ops.
+import "../src/VoteIncentivesAdmin.sol";
+import "../src/base/TimelockAdmin.sol";
 
 // ─── Mocks ───────────────────────────────────────────────────────────
 
@@ -112,6 +116,7 @@ contract MockFactory {
 
 contract VoteIncentivesTest is Test {
     VoteIncentives public vi;
+    VoteIncentivesAdmin public viAdmin; // AUDIT FIX (pass-8): EIP170-03 split
     MockVE public ve;
     MockWETH public weth;
     MockBribeToken public bribeToken;
@@ -138,14 +143,19 @@ contract VoteIncentivesTest is Test {
 
         vi = new VoteIncentives(address(ve), treasury, address(weth), address(factory), address(bribeToken), 300); // 3% fee, bond in bribeToken for tests
 
+        // AUDIT FIX (pass-8): EIP170-03 split — wire VoteIncentivesAdmin so timelocked
+        // propose/execute/cancel ops can be driven by the test fixture.
+        viAdmin = new VoteIncentivesAdmin(address(vi));
+        vi.setVoteIncentivesAdmin(address(viAdmin));
+
         // Setup voting power
         ve.setVotingPower(alice, 7000e18);
         ve.setVotingPower(bob, 3000e18);
 
         // Whitelist the bribe token via timelock
-        vi.proposeWhitelistChange(address(bribeToken), true);
+        viAdmin.proposeWhitelistChange(address(bribeToken), true);
         vm.warp(block.timestamp + 24 hours + 1);
-        vi.executeWhitelistChange();
+        viAdmin.executeWhitelistChange();
 
         // AUDIT NEW-G8: MIN_EPOCH_INTERVAL raised from 1h to 7 days. The default
         // `lastEpochTime == 0` plus a 24h-warped timestamp would land tests inside
@@ -421,64 +431,64 @@ contract VoteIncentivesTest is Test {
     // ─── Timelocked Fee Change ───────────────────────────────────────
 
     function test_proposeFeeChange() public {
-        vi.proposeFeeChange(500);
-        assertEq(vi.pendingFeeBps(), 500);
+        viAdmin.proposeFeeChange(500);
+        assertEq(viAdmin.pendingFeeBps(), 500);
     }
 
     function test_executeFeeChange() public {
-        vi.proposeFeeChange(200);
+        viAdmin.proposeFeeChange(200);
         vm.warp(block.timestamp + 24 hours + 1);
-        vi.executeFeeChange();
+        viAdmin.executeFeeChange();
         assertEq(vi.bribeFeeBps(), 200);
     }
 
     function test_cancelFeeChange() public {
-        vi.proposeFeeChange(200);
-        vi.cancelFeeChange();
-        assertEq(vi.pendingFeeBps(), 0);
+        viAdmin.proposeFeeChange(200);
+        viAdmin.cancelFeeChange();
+        assertEq(viAdmin.pendingFeeBps(), 0);
     }
 
     function test_feeChange_reverts_too_high() public {
         vm.expectRevert(VoteIncentives.FeeTooHigh.selector);
-        vi.proposeFeeChange(501);
+        viAdmin.proposeFeeChange(501);
     }
 
     function test_feeChange_reverts_not_ready() public {
-        vi.proposeFeeChange(200);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, vi.FEE_CHANGE()));
-        vi.executeFeeChange();
+        viAdmin.proposeFeeChange(200);
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, viAdmin.FEE_CHANGE()));
+        viAdmin.executeFeeChange();
     }
 
     // ─── Timelocked Treasury Change ──────────────────────────────────
 
     function test_executeTreasuryChange() public {
         address newTreasury = address(0xDE1);
-        vi.proposeTreasuryChange(newTreasury);
+        viAdmin.proposeTreasuryChange(newTreasury);
         vm.warp(block.timestamp + 48 hours + 1);
-        vi.executeTreasuryChange();
+        viAdmin.executeTreasuryChange();
         assertEq(vi.treasury(), newTreasury);
     }
 
     function test_treasuryChange_reverts_zero() public {
         vm.expectRevert(VoteIncentives.ZeroAddress.selector);
-        vi.proposeTreasuryChange(address(0));
+        viAdmin.proposeTreasuryChange(address(0));
     }
 
     // ─── Timelocked Whitelist Change ─────────────────────────────────
 
     function test_whitelistRemove() public {
         assertTrue(vi.whitelistedTokens(address(bribeToken)));
-        vi.proposeWhitelistChange(address(bribeToken), false);
+        viAdmin.proposeWhitelistChange(address(bribeToken), false);
         vm.warp(block.timestamp + 24 hours + 1);
-        vi.executeWhitelistChange();
+        viAdmin.executeWhitelistChange();
         assertFalse(vi.whitelistedTokens(address(bribeToken)));
     }
 
     function test_whitelistAdd_new_token() public {
         MockBribeToken newToken = new MockBribeToken();
-        vi.proposeWhitelistChange(address(newToken), true);
+        viAdmin.proposeWhitelistChange(address(newToken), true);
         vm.warp(block.timestamp + 24 hours + 1);
-        vi.executeWhitelistChange();
+        viAdmin.executeWhitelistChange();
         assertTrue(vi.whitelistedTokens(address(newToken)));
     }
 
@@ -489,20 +499,20 @@ contract VoteIncentivesTest is Test {
         uint256 ts = block.timestamp;
         for (uint256 i = 0; i < 20; i++) {
             MockBribeToken t = new MockBribeToken();
-            vi.proposeWhitelistChange(address(t), true);
+            viAdmin.proposeWhitelistChange(address(t), true);
             ts += 24 hours + 1;
             vm.warp(ts);
-            vi.executeWhitelistChange();
+            viAdmin.executeWhitelistChange();
             t.approve(address(vi), 100e18);
             vi.depositBribe(pair, address(t), 100e18);
         }
 
         // 21st token should revert
         MockBribeToken excess = new MockBribeToken();
-        vi.proposeWhitelistChange(address(excess), true);
+        viAdmin.proposeWhitelistChange(address(excess), true);
         ts += 24 hours + 1;
         vm.warp(ts);
-        vi.executeWhitelistChange();
+        viAdmin.executeWhitelistChange();
         excess.approve(address(vi), 100e18);
         vm.expectRevert(VoteIncentives.TooManyBribeTokens.selector);
         vi.depositBribe(pair, address(excess), 100e18);
@@ -610,9 +620,9 @@ contract VoteIncentivesTest is Test {
     function _enableCommitReveal() internal returns (uint256 epochId) {
         // AUDIT NEW-G5: the instant owner flip was replaced with a 24h timelock
         // (propose → wait → execute). Mirror the real governance flow here.
-        vi.proposeEnableCommitReveal();
+        viAdmin.proposeEnableCommitReveal();
         vm.warp(block.timestamp + 24 hours + 1);
-        vi.executeEnableCommitReveal();
+        viAdmin.executeEnableCommitReveal();
         vi.advanceEpoch();
         epochId = vi.epochCount() - 1;
         // epochs[epochId].timestamp = block.timestamp - 1 (set in advanceEpoch).
@@ -918,32 +928,32 @@ contract VoteIncentivesTest is Test {
     /// @notice AUDIT NEW-G5: proposing sets the 24h timer; executing before
     ///         the delay elapses must revert.
     function test_NEWG5_proposeThenExecuteTooEarlyReverts() public {
-        vi.proposeEnableCommitReveal();
+        viAdmin.proposeEnableCommitReveal();
         vm.expectRevert();
-        vi.executeEnableCommitReveal();
+        viAdmin.executeEnableCommitReveal();
     }
 
     /// @notice AUDIT NEW-G5: happy path — propose, wait 24h, execute flips
     ///         `commitRevealEnabled = true`. Subsequent proposal is idempotent.
     function test_NEWG5_proposeThenExecuteAfterDelayFlipsFlag() public {
         assertFalse(vi.commitRevealEnabled());
-        vi.proposeEnableCommitReveal();
+        viAdmin.proposeEnableCommitReveal();
         vm.warp(block.timestamp + 24 hours + 1);
-        vi.executeEnableCommitReveal();
+        viAdmin.executeEnableCommitReveal();
         assertTrue(vi.commitRevealEnabled());
 
         // Idempotent — second propose returns without scheduling a new op.
-        vi.proposeEnableCommitReveal();
+        viAdmin.proposeEnableCommitReveal();
         assertTrue(vi.commitRevealEnabled());
     }
 
     /// @notice AUDIT NEW-G5: proposal can be cancelled before execute.
     function test_NEWG5_cancelBeforeExecute() public {
-        vi.proposeEnableCommitReveal();
-        vi.cancelEnableCommitReveal();
+        viAdmin.proposeEnableCommitReveal();
+        viAdmin.cancelEnableCommitReveal();
         vm.warp(block.timestamp + 24 hours + 1);
         vm.expectRevert();
-        vi.executeEnableCommitReveal();
+        viAdmin.executeEnableCommitReveal();
     }
 
     // ─── AUDIT NEW-G9: sweepToken(toweli) reserves in-flight commit bonds ──

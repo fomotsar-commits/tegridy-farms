@@ -7,9 +7,20 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
-import {TimelockAdmin} from "./base/TimelockAdmin.sol";
+// AUDIT FIX (pass-8): EIP170-01 — TimelockAdmin and the entire propose/execute/
+// cancel admin surface moved to TegridyLendingAdmin sister contract during the
+// Phase 0.1 split. TegridyLending now exposes `applyXxx` onlyAdmin setters that
+// the admin contract calls after consuming its own timelocked proposal slot.
 import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
 import {SequencerCheck} from "./lib/SequencerCheck.sol";
+import {SafeERC721Call} from "./lib/SafeERC721Call.sol";
+
+/// @notice Minimal admin interface for the cross-contract reads TegridyLending
+///         performs against TegridyLendingAdmin. Just the views needed by
+///         createOffer's pre-acceptance gate.
+interface ITegridyLendingAdminView {
+    function acceptedCollateralRemovalPending(address collateral) external view returns (bool);
+}
 
 /// @dev Minimal interface for TegridyStaking NFT position queries and transfers.
 ///      AUDIT R014: extended with `unsettledRewards(address)` and `claimUnsettled()`
@@ -96,23 +107,37 @@ interface ITegridyTWAP {
 ///  - OwnableNoRenounce: OZ Ownable2Step (industry standard)
 ///  - TimelockAdmin: MakerDAO DSPause pattern (billions TVL, never compromised)
 ///  - ReentrancyGuard + Pausable: OpenZeppelin 5.6.1
-contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, TimelockAdmin {
+contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
-    // ─── Timelock Operation Keys ─────────────────────────────────────
-    bytes32 public constant PROTOCOL_FEE_CHANGE = keccak256("PROTOCOL_FEE_CHANGE");
-    bytes32 public constant TREASURY_CHANGE = keccak256("TREASURY_CHANGE");
-    // AUDIT TF-06 / Spartan MEDIUM: keys for the previously-constant safety caps
-    // that are now timelocked state.
-    bytes32 public constant MAX_PRINCIPAL_CHANGE = keccak256("LENDING_MAX_PRINCIPAL_CHANGE");
-    bytes32 public constant MAX_APR_CHANGE = keccak256("LENDING_MAX_APR_CHANGE");
-    bytes32 public constant MIN_DURATION_CHANGE = keccak256("LENDING_MIN_DURATION_CHANGE");
-    bytes32 public constant MAX_DURATION_CHANGE = keccak256("LENDING_MAX_DURATION_CHANGE");
-    bytes32 public constant ORIGINATION_FEE_CHANGE = keccak256("LENDING_ORIGINATION_FEE_CHANGE"); // AUDIT C7
-    bytes32 public constant MIN_APR_CHANGE = keccak256("LENDING_MIN_APR_CHANGE"); // AUDIT H14
-    // AUDIT R014: minimum-principal floor (anti-dust) and per-collection whitelist.
-    bytes32 public constant MIN_PRINCIPAL_CHANGE = keccak256("LENDING_MIN_PRINCIPAL_CHANGE");
-    bytes32 public constant ACCEPTED_COLLATERAL_CHANGE = keccak256("LENDING_ACCEPTED_COLLATERAL_CHANGE");
+    /// @notice Sister contract holding the propose/execute/cancel timelock
+    ///         admin surface. Wired once via `setLendingAdmin`. All admin
+    ///         setters on this contract (`applyXxx*`) are gated on
+    ///         `msg.sender == lendingAdmin`.
+    /// @dev    AUDIT FIX (pass-8): EIP170-01 — split into sister contract to
+    ///         bring this contract under the 24,576-byte EIP-170 limit.
+    ///         Mirrors `swapFeeRouterAdmin` pattern. One-shot setter; for
+    ///         operational rotation use a new TegridyLending deploy.
+    address public lendingAdmin;
+
+    error LendingAdminNotSet();
+    error LendingAdminAlreadySet();
+    error NotLendingAdmin();
+
+    event LendingAdminSet(address indexed admin);
+
+    modifier onlyAdmin() {
+        if (msg.sender != lendingAdmin) revert NotLendingAdmin();
+        _;
+    }
+
+    function setLendingAdmin(address _admin) external onlyOwner {
+        if (_admin == address(0)) revert ZeroAddress();
+        if (lendingAdmin != address(0)) revert LendingAdminAlreadySet();
+        require(_admin.code.length > 0, "ADMIN_MUST_BE_CONTRACT");
+        lendingAdmin = _admin;
+        emit LendingAdminSet(_admin);
+    }
 
     // ─── Safety Caps ─────────────────────────────────────────────────
     // AUDIT TF-06 (Spartan MEDIUM): lending caps were compile-time constants with
@@ -177,8 +202,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     uint256 public minAprBps;
     uint256 public constant MAX_MIN_APR_BPS = 1000;
 
-    uint256 public pendingOriginationFeeBps;
-    uint256 public pendingMinAprBps;
+    // AUDIT FIX (pass-8): EIP170-01 — pendingOriginationFeeBps + pendingMinAprBps
+    // moved to TegridyLendingAdmin storage during the Phase 0.1 split.
 
     // ─── AUDIT R014: Minimum principal floor (anti-dust) ────────────────
     /// @notice Lenders cannot create offers with principal below this floor. Closes
@@ -189,7 +214,7 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         admin can never make the protocol unusable for small lenders.
     uint256 public minPrincipal = 0.001 ether;
     uint256 public constant MAX_MIN_PRINCIPAL = 1 ether;
-    uint256 public pendingMinPrincipal;
+    // AUDIT FIX (pass-8): EIP170-01 — pendingMinPrincipal moved to TegridyLendingAdmin.
 
     // ─── AUDIT R014: Per-collateral-contract whitelist ──────────────────
     /// @notice Only collateral contracts in this map may back loans. Replaces the
@@ -212,8 +237,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         all loans in flight against that collateral type until the
     ///         missing direction lands and clears its 48h delay.
     mapping(address => bool) public acceptedCollateralContracts;
-    address public pendingAcceptedCollateral;
-    bool public pendingAcceptedCollateralAdd;
+    // AUDIT FIX (pass-8): EIP170-01 — pendingAcceptedCollateral / pendingAcceptedCollateralAdd
+    // moved to TegridyLendingAdmin. Read via `lendingAdmin.acceptedCollateralRemovalPending(...)`.
 
     /// @notice AUDIT FIX: DEEP-LD-M1 — active-loan count per collateral contract.
     mapping(address => uint256) public activeLoansAgainstCollateral;
@@ -227,11 +252,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     mapping(address => uint256) public collateralRemovalRetryCount;
     uint256 public constant COLLATERAL_REMOVAL_MAX_CANCELLATIONS = 3;
 
-    // Pending proposal storage
-    uint256 public pendingMaxPrincipal;
-    uint256 public pendingMaxAprBps;
-    uint256 public pendingMinDuration;
-    uint256 public pendingMaxDuration;
+    // AUDIT FIX (pass-8): EIP170-01 — pendingMaxPrincipal / pendingMaxAprBps /
+    // pendingMinDuration / pendingMaxDuration moved to TegridyLendingAdmin.
     /// @notice AUDIT M-1: post-deadline grace window during which a borrower can still
     ///         repay before the lender is allowed to claim default. Buffer against
     ///         transient failures (gas spikes, provider outages, wallet delays). Interest
@@ -353,9 +375,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     uint256 public protocolFeeBps;    // Fee on interest earned (default 500 = 5%)
     address public treasury;
 
-    // ─── Pending Values (for timelocked changes) ─────────────────────
-    uint256 public pendingProtocolFeeBps;
-    address public pendingTreasury;
+    // AUDIT FIX (pass-8): EIP170-01 — pendingProtocolFeeBps + pendingTreasury
+    // moved to TegridyLendingAdmin during the Phase 0.1 split.
 
     // ─── AUDIT R014: Escrow rewards recovery ─────────────────────────
     /// @notice Per-loan reward attribution recovered after the loan settles. While
@@ -412,11 +433,7 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 minPositionETHValue
     );
     event LoanOfferCancelled(uint256 indexed offerId, address indexed lender);
-    /// @notice FRESH-EYES L: typed event for accepted-collateral proposal cancellations.
-    ///         Distinguished from the generic `ProposalCancelled(bytes32 key)` (TimelockAdmin)
-    ///         so off-chain alerts can select by the 4-byte selector and decode the
-    ///         collateral address + add/remove flag directly.
-    event AcceptedCollateralCancelled(address indexed collateral, bool wasAdd);
+    // AUDIT FIX (pass-8): EIP170-01 — AcceptedCollateralCancelled moved to TegridyLendingAdmin.
     event LoanAccepted(
         uint256 indexed loanId,
         uint256 indexed offerId,
@@ -438,33 +455,26 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         address indexed lender,
         uint256 tokenId
     );
-    event ProtocolFeeChangeProposed(uint256 currentBps, uint256 proposedBps, uint256 readyAt);
+    // AUDIT FIX (pass-8): EIP170-01 — Proposed/Cancelled events moved to
+    // TegridyLendingAdmin. The "happened" events stay here.
     event ProtocolFeeChanged(uint256 oldBps, uint256 newBps);
-    event ProtocolFeeChangeCancelled(uint256 cancelledBps);
-    event TreasuryChangeProposed(address indexed current, address indexed proposed, uint256 readyAt);
     event TreasuryChanged(address indexed oldTreasury, address indexed newTreasury);
-    event TreasuryChangeCancelled(address indexed cancelled);
 
     // AUDIT TF-06: cap-change events (48h timelock observability)
-    event MaxPrincipalProposed(uint256 newCap, uint256 readyAt);
+    // AUDIT FIX (pass-8): EIP170-01 — Proposed events moved to TegridyLendingAdmin.
     event MaxPrincipalChanged(uint256 oldCap, uint256 newCap);
-    event MaxAprBpsProposed(uint256 newCap, uint256 readyAt);
     event MaxAprBpsChanged(uint256 oldCap, uint256 newCap);
-    event MinDurationProposed(uint256 newValue, uint256 readyAt);
     event MinDurationChanged(uint256 oldValue, uint256 newValue);
-    event MaxDurationProposed(uint256 newValue, uint256 readyAt);
     event MaxDurationChanged(uint256 oldValue, uint256 newValue);
     // AUDIT C7 / H14
-    event OriginationFeeProposed(uint256 newBps, uint256 readyAt);
+    // AUDIT FIX (pass-8): EIP170-01 — Proposed events moved to TegridyLendingAdmin.
     event OriginationFeeChanged(uint256 oldBps, uint256 newBps);
     event OriginationFeeCollected(address indexed lender, uint256 amount);
-    event MinAprProposed(uint256 newBps, uint256 readyAt);
     event MinAprChanged(uint256 oldBps, uint256 newBps);
 
     // ─── AUDIT R014 events ──────────────────────────────────────────────
-    event MinPrincipalProposed(uint256 newValue, uint256 readyAt);
+    // AUDIT FIX (pass-8): EIP170-01 — Proposed events moved to TegridyLendingAdmin.
     event MinPrincipalChanged(uint256 oldValue, uint256 newValue);
-    event AcceptedCollateralProposed(address indexed collateral, bool add, uint256 readyAt);
     event AcceptedCollateralChanged(address indexed collateral, bool add);
     /// @notice Emitted when `pullEscrowRewards`/the inline settlement path attempted
     ///         `staking.claimUnsettled()` and the call reverted. Records the raw
@@ -565,13 +575,11 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///      collateral + count without ABI string handling.
     error ActiveLoansPresent(address collateral, uint256 count);
 
-    // ─── Legacy View Helpers (for test compatibility) ────────────────
-    function protocolFeeChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[PROTOCOL_FEE_CHANGE];
-    }
-    function treasuryChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[TREASURY_CHANGE];
-    }
+    // AUDIT FIX (pass-8): EIP170-01 — `protocolFeeChangeReadyAt` and
+    // `treasuryChangeReadyAt` view helpers moved to TegridyLendingAdmin
+    // alongside the propose/execute/cancel functions whose readiness they
+    // exposed. Off-chain readers should call the admin contract directly
+    // for these view helpers (selector parity preserved).
 
     // ─── Constructor ─────────────────────────────────────────────────
 
@@ -663,11 +671,11 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
         // AUDIT FIX: DEEP-LD-M4 — refuse new offers when this exact collateral has
         // a pending removal proposal in the timelock window.
-        if (
-            pendingAcceptedCollateral == _collateralContract
-            && !pendingAcceptedCollateralAdd
-            && _executeAfter[ACCEPTED_COLLATERAL_CHANGE] != 0
-        ) {
+        // AUDIT FIX (pass-8): EIP170-01 — pending state moved to TegridyLendingAdmin;
+        // single view-call replaces three storage reads. lendingAdmin set-once at
+        // deploy; reverts via the LendingAdminNotSet typed error if called pre-wire.
+        if (lendingAdmin == address(0)) revert LendingAdminNotSet();
+        if (ITegridyLendingAdminView(lendingAdmin).acceptedCollateralRemovalPending(_collateralContract)) {
             revert CollateralNotAccepted();
         }
 
@@ -1173,17 +1181,23 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         address to,
         uint256 tokenId
     ) internal returns (bool moved) {
-        try ITegridyStaking(stakingAddr).transferFrom(from, to, tokenId) {
-            try ITegridyStaking(stakingAddr).ownerOf(tokenId) returns (address newOwner) {
-                moved = (newOwner == to);
-                if (!moved && newOwner != from) {
-                    emit CollateralRedirected(tokenId, stakingAddr, to, newOwner);
-                }
-            } catch {
-                moved = false;
-            }
-        } catch {
-            moved = false;
+        // AUDIT FIX (pass-8): GAS-01 — bounded-returndata transferFrom + ownerOf.
+        // Mirrors the same fix applied to NFTLending._safeOutboundTransfer.
+        // Solidity's `try/catch` ALWAYS copies returndata before the catch
+        // fires, so a malicious staking-shaped contract returning huge
+        // returndata OOG-griefs every call. SafeERC721Call uses inline
+        // assembly to cap returndata at 0/32 bytes via raw call/staticcall.
+        bool ok = SafeERC721Call.safeTransferFromBounded(stakingAddr, from, to, tokenId);
+        if (!ok) {
+            return false;
+        }
+        (bool ownerOk, address newOwner) = SafeERC721Call.safeOwnerOfBounded(stakingAddr, tokenId);
+        if (!ownerOk) {
+            return false;
+        }
+        moved = (newOwner == to);
+        if (!moved && newOwner != from) {
+            emit CollateralRedirected(tokenId, stakingAddr, to, newOwner);
         }
     }
 
@@ -1475,187 +1489,58 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         return loans.length;
     }
 
-    // ─── Admin: Protocol Fee Timelock ────────────────────────────────
+    // ─── Admin: applyXxx setters (called by TegridyLendingAdmin) ─────
+    // AUDIT FIX (pass-8): EIP170-01 — the propose/execute/cancel triplets and
+    // their pending storage moved to TegridyLendingAdmin during the Phase 0.1
+    // contract split. Validation rules (ceilings, floors, cross-cap consistency)
+    // are duplicated on the admin side BEFORE the call lands here; this contract
+    // additionally re-validates against its own constants as defense in depth.
 
-    /// @notice Propose a new protocol fee. Takes effect after 48-hour timelock.
-    /// @param _newFeeBps The proposed protocol fee in basis points
-    function proposeProtocolFeeChange(uint256 _newFeeBps) external onlyOwner {
-        if (_newFeeBps > MAX_PROTOCOL_FEE_BPS) revert FeeTooHigh();
-
-        pendingProtocolFeeBps = _newFeeBps;
-        _propose(PROTOCOL_FEE_CHANGE, PROTOCOL_FEE_TIMELOCK);
-
-        emit ProtocolFeeChangeProposed(protocolFeeBps, _newFeeBps, _executeAfter[PROTOCOL_FEE_CHANGE]);
+    function applyProtocolFeeChange(uint256 newFee) external onlyAdmin {
+        if (newFee > MAX_PROTOCOL_FEE_BPS) revert FeeTooHigh();
+        uint256 old = protocolFeeBps;
+        protocolFeeBps = newFee;
+        emit ProtocolFeeChanged(old, newFee);
     }
 
-    /// @notice Execute the pending protocol fee change after timelock has elapsed.
-    function executeProtocolFeeChange() external onlyOwner {
-        _execute(PROTOCOL_FEE_CHANGE);
-
-        uint256 oldBps = protocolFeeBps;
-        protocolFeeBps = pendingProtocolFeeBps;
-        pendingProtocolFeeBps = 0;
-
-        emit ProtocolFeeChanged(oldBps, protocolFeeBps);
+    function applyTreasuryChange(address newTreasury) external onlyAdmin {
+        if (newTreasury == address(0)) revert ZeroAddress();
+        address old = treasury;
+        treasury = newTreasury;
+        emit TreasuryChanged(old, newTreasury);
     }
 
-    /// @notice Cancel a pending protocol fee change.
-    function cancelProtocolFeeChange() external onlyOwner {
-        _cancel(PROTOCOL_FEE_CHANGE);
-
-        uint256 cancelled = pendingProtocolFeeBps;
-        pendingProtocolFeeBps = 0;
-
-        emit ProtocolFeeChangeCancelled(cancelled);
-    }
-
-    // ─── Admin: Treasury Timelock ────────────────────────────────────
-
-    /// @notice Propose a new treasury address. Takes effect after 48-hour timelock.
-    /// @param _newTreasury The proposed new treasury address
-    function proposeTreasuryChange(address _newTreasury) external onlyOwner {
-        if (_newTreasury == address(0)) revert ZeroAddress();
-
-        pendingTreasury = _newTreasury;
-        _propose(TREASURY_CHANGE, TREASURY_TIMELOCK);
-
-        emit TreasuryChangeProposed(treasury, _newTreasury, _executeAfter[TREASURY_CHANGE]);
-    }
-
-    /// @notice Execute the pending treasury change after timelock has elapsed.
-    function executeTreasuryChange() external onlyOwner {
-        _execute(TREASURY_CHANGE);
-
-        address oldTreasury = treasury;
-        treasury = pendingTreasury;
-        pendingTreasury = address(0);
-
-        emit TreasuryChanged(oldTreasury, treasury);
-    }
-
-    /// @notice Cancel a pending treasury change.
-    function cancelTreasuryChange() external onlyOwner {
-        _cancel(TREASURY_CHANGE);
-
-        address cancelled = pendingTreasury;
-        pendingTreasury = address(0);
-
-        emit TreasuryChangeCancelled(cancelled);
-    }
-
-    // ─── AUDIT TF-06: Timelocked Safety-Cap Adjustments ──────────────
-    //
-    // maxPrincipal / maxAprBps / minDuration / maxDuration are now admin-tunable
-    // (via 48h timelock) so the protocol can scale with ETH price and market demand
-    // without a full redeploy. Each has an absolute *_CEILING / *_FLOOR hard cap
-    // declared at contract level — no admin can exceed it. Each setter uses the
-    // existing TimelockAdmin pattern (propose → wait → execute).
-
-    // maxPrincipal ------------------------------------------------------
-    function proposeMaxPrincipal(uint256 _new) external onlyOwner {
-        if (_new == 0) revert ZeroAmount();
-        if (_new > MAX_PRINCIPAL_CEILING) revert InvalidCapValue();
-        pendingMaxPrincipal = _new;
-        _propose(MAX_PRINCIPAL_CHANGE, CAP_CHANGE_TIMELOCK);
-        emit MaxPrincipalProposed(_new, _executeAfter[MAX_PRINCIPAL_CHANGE]);
-    }
-
-    function executeMaxPrincipal() external onlyOwner {
-        _execute(MAX_PRINCIPAL_CHANGE);
+    function applyMaxPrincipalChange(uint256 newCap) external onlyAdmin {
+        if (newCap == 0) revert ZeroAmount();
+        if (newCap > MAX_PRINCIPAL_CEILING) revert InvalidCapValue();
         uint256 old = maxPrincipal;
-        maxPrincipal = pendingMaxPrincipal;
-        pendingMaxPrincipal = 0;
-        emit MaxPrincipalChanged(old, maxPrincipal);
+        maxPrincipal = newCap;
+        emit MaxPrincipalChanged(old, newCap);
     }
 
-    function cancelMaxPrincipal() external onlyOwner {
-        _cancel(MAX_PRINCIPAL_CHANGE);
-        pendingMaxPrincipal = 0;
-    }
-
-    function maxPrincipalChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[MAX_PRINCIPAL_CHANGE];
-    }
-
-    // maxAprBps ---------------------------------------------------------
-    function proposeMaxAprBps(uint256 _new) external onlyOwner {
-        if (_new == 0) revert ZeroAmount();
-        if (_new > MAX_APR_BPS_CEILING) revert InvalidCapValue();
-        // AUDIT FIX: DEEP-LD-L4 — refuse `_new < minAprBps` to avoid bricking
-        // createLoanOffer (every APR would simultaneously fail < min AND > max).
-        if (_new < minAprBps) revert InvalidCapValue();
-        pendingMaxAprBps = _new;
-        _propose(MAX_APR_CHANGE, CAP_CHANGE_TIMELOCK);
-        emit MaxAprBpsProposed(_new, _executeAfter[MAX_APR_CHANGE]);
-    }
-
-    function executeMaxAprBps() external onlyOwner {
-        _execute(MAX_APR_CHANGE);
+    function applyMaxAprBpsChange(uint256 newCap) external onlyAdmin {
+        if (newCap == 0) revert ZeroAmount();
+        if (newCap > MAX_APR_BPS_CEILING) revert InvalidCapValue();
+        if (newCap < minAprBps) revert InvalidCapValue();
         uint256 old = maxAprBps;
-        maxAprBps = pendingMaxAprBps;
-        pendingMaxAprBps = 0;
-        emit MaxAprBpsChanged(old, maxAprBps);
+        maxAprBps = newCap;
+        emit MaxAprBpsChanged(old, newCap);
     }
 
-    function cancelMaxAprBps() external onlyOwner {
-        _cancel(MAX_APR_CHANGE);
-        pendingMaxAprBps = 0;
-    }
-
-    function maxAprBpsChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[MAX_APR_CHANGE];
-    }
-
-    // minDuration -------------------------------------------------------
-    function proposeMinDuration(uint256 _new) external onlyOwner {
-        if (_new < MIN_DURATION_FLOOR || _new > MIN_DURATION_CEILING) revert InvalidCapValue();
-        if (_new >= maxDuration) revert InvalidCapValue();
-        pendingMinDuration = _new;
-        _propose(MIN_DURATION_CHANGE, CAP_CHANGE_TIMELOCK);
-        emit MinDurationProposed(_new, _executeAfter[MIN_DURATION_CHANGE]);
-    }
-
-    function executeMinDuration() external onlyOwner {
-        _execute(MIN_DURATION_CHANGE);
+    function applyMinDurationChange(uint256 newValue) external onlyAdmin {
+        if (newValue < MIN_DURATION_FLOOR || newValue > MIN_DURATION_CEILING) revert InvalidCapValue();
+        if (newValue >= maxDuration) revert InvalidCapValue();
         uint256 old = minDuration;
-        minDuration = pendingMinDuration;
-        pendingMinDuration = 0;
-        emit MinDurationChanged(old, minDuration);
+        minDuration = newValue;
+        emit MinDurationChanged(old, newValue);
     }
 
-    function cancelMinDuration() external onlyOwner {
-        _cancel(MIN_DURATION_CHANGE);
-        pendingMinDuration = 0;
-    }
-
-    function minDurationChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[MIN_DURATION_CHANGE];
-    }
-
-    // maxDuration -------------------------------------------------------
-    function proposeMaxDuration(uint256 _new) external onlyOwner {
-        if (_new > MAX_DURATION_CEILING) revert InvalidCapValue();
-        if (_new <= minDuration) revert InvalidCapValue();
-        pendingMaxDuration = _new;
-        _propose(MAX_DURATION_CHANGE, CAP_CHANGE_TIMELOCK);
-        emit MaxDurationProposed(_new, _executeAfter[MAX_DURATION_CHANGE]);
-    }
-
-    function executeMaxDuration() external onlyOwner {
-        _execute(MAX_DURATION_CHANGE);
+    function applyMaxDurationChange(uint256 newValue) external onlyAdmin {
+        if (newValue > MAX_DURATION_CEILING) revert InvalidCapValue();
+        if (newValue <= minDuration) revert InvalidCapValue();
         uint256 old = maxDuration;
-        maxDuration = pendingMaxDuration;
-        pendingMaxDuration = 0;
-        emit MaxDurationChanged(old, maxDuration);
-    }
-
-    function cancelMaxDuration() external onlyOwner {
-        _cancel(MAX_DURATION_CHANGE);
-        pendingMaxDuration = 0;
-    }
-
-    function maxDurationChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[MAX_DURATION_CHANGE];
+        maxDuration = newValue;
+        emit MaxDurationChanged(old, newValue);
     }
 
     // ─── Pausable ────────────────────────────────────────────────────
@@ -1707,56 +1592,21 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         return base + pauseExt;
     }
 
-    // ─── AUDIT C7: Timelocked Origination Fee ────────────────────────
-    function proposeOriginationFee(uint256 _newBps) external onlyOwner {
-        if (_newBps > MAX_ORIGINATION_FEE_BPS) revert OriginationFeeTooHigh();
-        pendingOriginationFeeBps = _newBps;
-        _propose(ORIGINATION_FEE_CHANGE, CAP_CHANGE_TIMELOCK);
-        emit OriginationFeeProposed(_newBps, _executeAfter[ORIGINATION_FEE_CHANGE]);
-    }
-
-    function executeOriginationFeeChange() external onlyOwner {
-        _execute(ORIGINATION_FEE_CHANGE);
+    // ─── Origination Fee + Min APR (apply hooks) ─────────────────────
+    function applyOriginationFeeChange(uint256 newBps) external onlyAdmin {
+        if (newBps > MAX_ORIGINATION_FEE_BPS) revert OriginationFeeTooHigh();
         uint256 old = originationFeeBps;
-        originationFeeBps = pendingOriginationFeeBps;
-        pendingOriginationFeeBps = 0;
-        emit OriginationFeeChanged(old, originationFeeBps);
+        originationFeeBps = newBps;
+        emit OriginationFeeChanged(old, newBps);
     }
 
-    function cancelOriginationFeeChange() external onlyOwner {
-        _cancel(ORIGINATION_FEE_CHANGE);
-        pendingOriginationFeeBps = 0;
-    }
-
-    function originationFeeChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[ORIGINATION_FEE_CHANGE];
-    }
-
-    // ─── AUDIT H14: Timelocked Min APR ───────────────────────────────
-    function proposeMinApr(uint256 _newBps) external onlyOwner {
-        if (_newBps > MAX_MIN_APR_BPS) revert MinAprTooHigh();
+    function applyMinAprChange(uint256 newBps) external onlyAdmin {
+        if (newBps > MAX_MIN_APR_BPS) revert MinAprTooHigh();
         // Don't allow min > max — would brick createLoanOffer.
-        require(_newBps <= maxAprBps, "MIN_EXCEEDS_MAX");
-        pendingMinAprBps = _newBps;
-        _propose(MIN_APR_CHANGE, CAP_CHANGE_TIMELOCK);
-        emit MinAprProposed(_newBps, _executeAfter[MIN_APR_CHANGE]);
-    }
-
-    function executeMinAprChange() external onlyOwner {
-        _execute(MIN_APR_CHANGE);
+        require(newBps <= maxAprBps, "MIN_EXCEEDS_MAX");
         uint256 old = minAprBps;
-        minAprBps = pendingMinAprBps;
-        pendingMinAprBps = 0;
-        emit MinAprChanged(old, minAprBps);
-    }
-
-    function cancelMinAprChange() external onlyOwner {
-        _cancel(MIN_APR_CHANGE);
-        pendingMinAprBps = 0;
-    }
-
-    function minAprChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[MIN_APR_CHANGE];
+        minAprBps = newBps;
+        emit MinAprChanged(old, newBps);
     }
 
     // ─── AUDIT R014: Escrow Rewards Recovery ──────────────────────────
@@ -1914,32 +1764,18 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         }
     }
 
-    // ─── AUDIT FIX: DEEP-LD-M9 — Donated-TOWELI sweep ────────────────
-    bytes32 public constant SWEEP_DONATED_TOWELI = keccak256("LENDING_SWEEP_DONATED_TOWELI");
-    uint256 public pendingSweepAmount;
-    address public pendingSweepTo;
+    // ─── Sweep + MinPrincipal + AcceptedCollateral (apply hooks) ─────
+    // AUDIT FIX (pass-8): EIP170-01 — propose/execute/cancel + pending state +
+    // proposed/cancelled events all moved to TegridyLendingAdmin. The reservation-
+    // guard, active-loans gate, and cancel-rate-limit logic are preserved on the
+    // admin side; the `applyXxx` setters here perform the underlying state
+    // mutation + emit the "happened" events. Reservation guard for the sweep
+    // MUST stay here (it's a balance-time invariant on this contract's TOWELI),
+    // hence the inline check below.
 
-    event SweepDonatedToweliProposed(uint256 amount, address to, uint256 readyAt);
     event SweepDonatedToweliExecuted(uint256 amount, address to);
-    event SweepDonatedToweliCancelled();
 
-    /// @notice AUDIT FIX: DEEP-LD-M9 — propose a sweep of donated TOWELI (excess
-    ///         over totalEscrowRewardsOwed). 48h-timelocked, reservation-guarded.
-    function proposeSweepDonatedToweli(uint256 _amount, address _to) external onlyOwner {
-        if (_amount == 0) revert ZeroAmount();
-        if (_to == address(0)) revert ZeroAddress();
-        pendingSweepAmount = _amount;
-        pendingSweepTo = _to;
-        _propose(SWEEP_DONATED_TOWELI, CAP_CHANGE_TIMELOCK);
-        emit SweepDonatedToweliProposed(_amount, _to, _executeAfter[SWEEP_DONATED_TOWELI]);
-    }
-
-    function executeSweepDonatedToweli() external onlyOwner nonReentrant {
-        _execute(SWEEP_DONATED_TOWELI);
-        uint256 amount = pendingSweepAmount;
-        address to = pendingSweepTo;
-        pendingSweepAmount = 0;
-        pendingSweepTo = address(0);
+    function applySweepDonatedToweli(uint256 amount, address to) external onlyAdmin nonReentrant {
         uint256 bal = IERC20(toweli).balanceOf(address(this));
         // Reservation guard: sweep MUST leave totalEscrowRewardsOwed fully covered.
         if (bal < totalEscrowRewardsOwed || bal - totalEscrowRewardsOwed < amount) {
@@ -1949,122 +1785,32 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         emit SweepDonatedToweliExecuted(amount, to);
     }
 
-    function cancelSweepDonatedToweli() external onlyOwner {
-        _cancel(SWEEP_DONATED_TOWELI);
-        pendingSweepAmount = 0;
-        pendingSweepTo = address(0);
-        emit SweepDonatedToweliCancelled();
-    }
-
-    function sweepDonatedToweliReadyAt() external view returns (uint256) {
-        return _executeAfter[SWEEP_DONATED_TOWELI];
-    }
-
-    // ─── AUDIT R014: Timelocked Min Principal ────────────────────────
-    function proposeMinPrincipal(uint256 _new) external onlyOwner {
-        if (_new == 0) revert ZeroAmount();
-        if (_new > MAX_MIN_PRINCIPAL) revert InvalidCapValue();
-        pendingMinPrincipal = _new;
-        _propose(MIN_PRINCIPAL_CHANGE, CAP_CHANGE_TIMELOCK);
-        emit MinPrincipalProposed(_new, _executeAfter[MIN_PRINCIPAL_CHANGE]);
-    }
-
-    function executeMinPrincipalChange() external onlyOwner {
-        _execute(MIN_PRINCIPAL_CHANGE);
+    function applyMinPrincipalChange(uint256 newValue) external onlyAdmin {
+        if (newValue == 0) revert ZeroAmount();
+        if (newValue > MAX_MIN_PRINCIPAL) revert InvalidCapValue();
         uint256 old = minPrincipal;
-        minPrincipal = pendingMinPrincipal;
-        pendingMinPrincipal = 0;
-        emit MinPrincipalChanged(old, minPrincipal);
+        minPrincipal = newValue;
+        emit MinPrincipalChanged(old, newValue);
     }
 
-    function cancelMinPrincipalChange() external onlyOwner {
-        _cancel(MIN_PRINCIPAL_CHANGE);
-        pendingMinPrincipal = 0;
-    }
-
-    function minPrincipalChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[MIN_PRINCIPAL_CHANGE];
-    }
-
-    // ─── AUDIT R014: Timelocked Accepted-Collateral Whitelist ────────
-    /// @notice Propose adding or removing a collateral contract from the whitelist.
-    ///         48h timelock — same delay used for every other safety cap.
-    /// @param _collateral The collateral contract (TegridyStaking or compatible).
-    /// @param _add True to add, false to remove.
-    function proposeAcceptedCollateral(address _collateral, bool _add) external onlyOwner {
-        if (_collateral == address(0)) revert ZeroAddress();
-        pendingAcceptedCollateral = _collateral;
-        pendingAcceptedCollateralAdd = _add;
-        _propose(ACCEPTED_COLLATERAL_CHANGE, CAP_CHANGE_TIMELOCK);
-        emit AcceptedCollateralProposed(_collateral, _add, _executeAfter[ACCEPTED_COLLATERAL_CHANGE]);
-    }
-
-    /// @dev AUDIT FIX: LD3-M5 — pre-flight active-loan gate BEFORE `_execute`.
-    ///      Pre-fix: `_execute` cleared `_executeAfter[KEY] = 0`, then the
-    ///      ACTIVE_LOANS_PRESENT revert rolled the entire tx back. The proposal
-    ///      stayed pending; if the active loans didn't settle within the 7d
-    ///      validity window, the proposal expired AND the slot stayed occupied
-    ///      (because `_propose` rejects an existing pending). Doubly-stuck.
-    ///      Now: gate before `_execute` so admin can retry the moment loans clear.
-    /// @dev AUDIT FIX: LD3-L2 — typed `ActiveLoansPresent` error replaces the
-    ///      string revert for cheaper bytecode and selector-based off-chain monitoring.
-    /// @dev AUDIT FIX: LD3-M3 — reset the cancel-counter on successful removal
-    ///      execution so a future legitimate removal cycle has the full budget.
-    function executeAcceptedCollateral() external onlyOwner {
-        address collateral = pendingAcceptedCollateral;
-        bool add = pendingAcceptedCollateralAdd;
-        // AUDIT FIX: DEEP-LD-M1 / LD3-M5 — refuse removal while loans in flight,
-        // BEFORE `_execute` consumes the proposal slot.
+    function applyAcceptedCollateralChange(address collateral, bool add) external onlyAdmin {
+        if (collateral == address(0)) revert ZeroAddress();
+        // AUDIT FIX preserved: DEEP-LD-M1 / LD3-M5 — refuse removal while loans
+        // in flight, mirrored on the admin side as a pre-_execute gate. Re-checked
+        // here as defense in depth; should never trip if admin path runs first.
         if (!add && activeLoansAgainstCollateral[collateral] > 0) {
-            // AUDIT FIX: LD3-L2 — typed error.
             revert ActiveLoansPresent(collateral, activeLoansAgainstCollateral[collateral]);
         }
-        _execute(ACCEPTED_COLLATERAL_CHANGE);
         acceptedCollateralContracts[collateral] = add;
-        // AUDIT FIX: LD3-M3 — reset cancel-counter on successful removal.
+        // AUDIT FIX preserved: LD3-M3 — reset cancel-counter on successful removal.
         if (!add) collateralRemovalRetryCount[collateral] = 0;
-        pendingAcceptedCollateral = address(0);
-        pendingAcceptedCollateralAdd = false;
         emit AcceptedCollateralChanged(collateral, add);
     }
 
-    /// @dev AUDIT FIX: LD3-M3 — cancel-rate-limit on REMOVAL proposals (only).
-    ///      Mirrors NFTLending LD-L2. Add proposals are unrestricted (admin
-    ///      shouldn't be able to brick the protocol by cancelling adds; only
-    ///      removals carry the captured-admin-keeps-flagged-collection vector).
-    ///      Uses the LD3-M1 gate-then-cancel order so over-budget reverts don't
-    ///      leave the slot in a stuck state.
-    function cancelAcceptedCollateral() external onlyOwner {
-        address cancelled = pendingAcceptedCollateral;
-        bool wasRemoval = !pendingAcceptedCollateralAdd;
-        // AUDIT FIX: LD3-M3 — gate first (only for removal cancels), THEN cancel.
-        // FRESH-EYES L: only count toward the cancel budget when cancelling a STILL-LIVE
-        // proposal. Without this carve-out, a captured admin can `propose → wait for
-        // expiry → cancel` 3 times to consume the COLLATERAL_REMOVAL_MAX_CANCELLATIONS
-        // budget on a flagged collection without ever cancelling a live removal — bricking
-        // legitimate future cancels. The validity window comes from the same hook the
-        // base TimelockAdmin uses for `_execute`'s expiry check, so this stays in sync
-        // if `_proposalValidity()` is ever overridden.
-        if (wasRemoval && cancelled != address(0)) {
-            uint256 readyAt = _executeAfter[ACCEPTED_COLLATERAL_CHANGE];
-            bool stillLive = readyAt != 0 && block.timestamp <= readyAt + _proposalValidity();
-            if (stillLive) {
-                if (collateralRemovalRetryCount[cancelled] >= COLLATERAL_REMOVAL_MAX_CANCELLATIONS) {
-                    revert RemovalCancelLimitReached();
-                }
-                collateralRemovalRetryCount[cancelled] += 1;
-            }
-        }
-        _cancel(ACCEPTED_COLLATERAL_CHANGE);
-        pendingAcceptedCollateral = address(0);
-        pendingAcceptedCollateralAdd = false;
-        // FRESH-EYES L: typed cancellation event mirrors NFTLending's `CollectionRemovalCancelled`
-        // so off-chain monitors can subscribe by selector instead of decoding the generic
-        // `ProposalCancelled(bytes32)` and matching keccak256.
-        emit AcceptedCollateralCancelled(cancelled, !wasRemoval);
-    }
-
-    function acceptedCollateralChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[ACCEPTED_COLLATERAL_CHANGE];
+    /// @notice AUDIT FIX preserved: LD3-M3 — admin contract calls this on each
+    ///         live cancellation of a removal proposal so the rate-limit counter
+    ///         increments. Restricted to admin to prevent direct manipulation.
+    function bumpCollateralRemovalRetryCount(address collateral) external onlyAdmin {
+        collateralRemovalRetryCount[collateral] += 1;
     }
 }

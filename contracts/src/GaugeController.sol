@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
+import {VotePowerOracle} from "./lib/VotePowerOracle.sol";
 
 /// @dev Minimal interface for TegridyStaking voting power queries.
 interface ITegridyStakingGauge {
@@ -76,6 +77,14 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     // ─── Immutables ─────────────────────────────────────────────────
     ITegridyStakingGauge public immutable tegridyStaking;
     uint256 public immutable genesisEpoch; // Timestamp of first epoch start
+
+    /// @notice Optional restaking contract; voting power from restaked positions
+    ///         is added to staking-side power for gauge voting eligibility.
+    /// @dev    AUDIT FIX (pass-8): GOV-ECON-01 / C10 — without this, voters who
+    ///         restake their staking NFT have `tegridyStaking.votingPower*` return
+    ///         0 and silently lose ALL gauge-voting power. One-shot setter mirrors
+    ///         the `setSequencerFeed` pattern in SwapFeeRouter.
+    address public restakingContract;
 
     // ─── Gauge Registry ─────────────────────────────────────────────
     address[] public gaugeList;
@@ -182,6 +191,7 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     event GaugeRemoved(address gauge);
     event EmissionBudgetProposed(uint256 newBudget, uint256 executeAfter);
     event EmissionBudgetUpdated(uint256 oldBudget, uint256 newBudget);
+    event RestakingContractSet(address indexed restaking); // pass-8 GOV-ECON-01
 
     // ─── Errors ─────────────────────────────────────────────────────
     error ZeroAddress();
@@ -205,6 +215,8 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///         and dup-gauge cases.
     error NotAContract();
     error LockExpired();
+    /// @dev AUDIT FIX (pass-8): GOV-ECON-01 / C10 — restakingContract is one-shot.
+    error RestakingAlreadySet();
     error CommitWindowClosed();
     error RevealWindowNotOpen();
     error NoCommitment();
@@ -294,8 +306,12 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (amount == 0 || block.timestamp >= lockEnd) revert LockExpired();
         // AUDIT FIX: DEEP-GOV-01 — min(historical, current) clamp. A 1-wei sentinel
         // post-snapshot cannot anchor full pre-divest aggregate gauge weight.
-        uint256 historicalPower = tegridyStaking.votingPowerAtTimestamp(msg.sender, epochStartTime(epoch));
-        uint256 currentPower = tegridyStaking.votingPowerOf(msg.sender);
+        // AUDIT FIX (pass-8): GOV-ECON-01 / C10 — both reads are additive across
+        // staking + restaking so restakers aren't silently denied gauge votes.
+        uint256 historicalPower = VotePowerOracle.powerAt(
+            msg.sender, epochStartTime(epoch), address(tegridyStaking), restakingContract
+        );
+        uint256 currentPower = VotePowerOracle.powerOf(msg.sender, address(tegridyStaking), restakingContract);
         uint256 votingPower = historicalPower < currentPower ? historicalPower : currentPower;
         if (votingPower == 0) revert ZeroVotingPower();
 
@@ -544,8 +560,11 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // AUDIT FIX: DEEP-GOV-01 — min(historical, current) clamp on reveal too.
         // Mirrors legacy vote() so a divested voter cannot reveal stale aggregate
         // power.
-        uint256 historicalPower = tegridyStaking.votingPowerAtTimestamp(msg.sender, epochStartTime(epoch));
-        uint256 currentVP = tegridyStaking.votingPowerOf(msg.sender);
+        // AUDIT FIX (pass-8): GOV-ECON-01 / C10 — additive read across staking + restaking.
+        uint256 historicalPower = VotePowerOracle.powerAt(
+            msg.sender, epochStartTime(epoch), address(tegridyStaking), restakingContract
+        );
+        uint256 currentVP = VotePowerOracle.powerOf(msg.sender, address(tegridyStaking), restakingContract);
         uint256 votingPower = historicalPower < currentVP ? historicalPower : currentVP;
         if (votingPower == 0) revert ZeroVotingPower();
 
@@ -919,4 +938,16 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     // ─── Pause / Unpause ────────────────────────────────────────────
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
+
+    /// @notice One-shot wire of the TegridyRestaking contract address.
+    /// @dev    AUDIT FIX (pass-8): GOV-ECON-01 / C10. Without this, voters who
+    ///         restake their staking NFT have `tegridyStaking.votingPower*` return
+    ///         0 and silently lose ALL gauge-voting power. Mirrors the
+    ///         `setSequencerFeed` one-shot pattern.
+    function setRestakingContract(address _restaking) external onlyOwner {
+        if (_restaking == address(0)) revert ZeroAddress();
+        if (restakingContract != address(0)) revert RestakingAlreadySet();
+        restakingContract = _restaking;
+        emit RestakingContractSet(_restaking);
+    }
 }

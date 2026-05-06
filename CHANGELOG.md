@@ -10,6 +10,650 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Ongoing investor-polish and audit-closure work. Lands on `main` as it ships;
 a tagged release will cut from here once Wave 0 redeploys are complete.
 
+### Security — pass-8 adversarial 100-agent audit + remediation (2026-05-04 → ongoing)
+
+100-agent fresh-eye adversarial pass run end-to-end against the full source
+tree (no prior-audit-doc consultation), organized as five waves: 30 per-contract
+deep audits + 40 vulnerability-class scans + 15 cross-contract integration
+audits + 10 economic / MEV / game-theory + 5 specialized (compiler / toolchain
+/ size / test-coverage / latest-2026-exploit-pattern web research). Surfaced
+**~675 raw findings → ~275 unique after dedup**, with **10 Critical / ~140 High
+/ ~165 Medium / ~110 Low / ~250 Info**. Master report and full per-agent output:
+[`.audit_101/PASS8_2026_05_04.md`](./.audit_101/PASS8_2026_05_04.md).
+
+Remediation organized into 6 phases. Owner-trust findings (admin treasury
+rotation, captured-key drain paths, single-key pause, etc.) deferred to Phase 6
+per multisig-policy lane.
+
+#### Pass-8 Batch 1 — additive foundations (2026-05-05)
+
+Lowest-blast-radius fixes that unblock later phases. All additive — no edits
+to existing function logic, no breaking ABI changes, no semantic shifts.
+
+- **LD-04** — `TegridyNFTLending` now floors `createOffer._principal` at
+  `MIN_PRINCIPAL = 0.001 ether`, mirroring [`TegridyLending.minPrincipal`](contracts/src/TegridyLending.sol#L190).
+  Pre-fix, sub-2000-wei principals made both `MIN_INTEREST_PRINCIPAL_BPS`
+  and the duration-based interest floor round to zero, enabling free
+  same-block flash-loan round-trips against dust offers. Closed at
+  [TegridyNFTLending.sol:351-357](contracts/src/TegridyNFTLending.sol#L351)
+  + new constant
+  [TegridyNFTLending.sol:38-46](contracts/src/TegridyNFTLending.sol#L38)
+  + new `PrincipalTooSmall` error
+  [TegridyNFTLending.sol:262-263](contracts/src/TegridyNFTLending.sol#L262).
+- **GOV-ECON-01 (a.k.a. C10) — foundation layer** — added new
+  [`contracts/src/lib/VotePowerOracle.sol`](contracts/src/lib/VotePowerOracle.sol)
+  (`internal` library, no deploy footprint) that sums staking-side and
+  restaking-side voting power into a single read. Pattern reference:
+  Frax veFXS + Convex `veFXSStrategy`. Plus
+  [`TegridyRestaking.votingPowerOf`](contracts/src/TegridyRestaking.sol)
+  /
+  [`votingPowerAtTimestamp`](contracts/src/TegridyRestaking.sol)
+  aliases delegating to the existing `_boostedAmountAt` lazy-decay-safe
+  reader (preserves DEEP-DR-04 / DR2-02 / autoMaxLock carve-outs verbatim).
+  Library + aliases are additive only — no consumer is wired yet. Batch 2
+  will rewire `GaugeController` / `VoteIncentives` / `MemeBountyBoard` /
+  `CommunityGrants` / `ReferralSplitter` / `RevenueDistributor` to use
+  `VotePowerOracle.powerAt(...)` in place of the staking-side-only reads
+  that silently disenfranchise restakers across all four governance
+  consumers today.
+- **EIP170-01/02/03/04 — CI infrastructure** — bytecode size-budget
+  guard added to
+  [`.github/workflows/contracts-ci.yml`](.github/workflows/contracts-ci.yml).
+  Enforces a 24,000-byte safety floor (576-byte EIP-170 headroom) on
+  every src/ contract; the four currently-overflowing contracts
+  (`TegridyLending` 27,242 / `TegridyStaking` 26,912 / `VoteIncentives`
+  25,977 / `TegridyRestaking` 24,011) are tracked-exception warnings until
+  Phase 0 contract-splits land. Build step also split: compile-only first
+  (real errors block), then size-budget step (with allowlist), so CI no
+  longer dies on `forge build --sizes` before anything else gets a chance
+  to run.
+
+#### Pass-8 Batch 2 — restaker disenfranchisement closed across 6 governance consumers (2026-05-05)
+
+Wires [`lib/VotePowerOracle`](contracts/src/lib/VotePowerOracle.sol) into
+every governance / fee-eligibility consumer so a user who restakes their
+staking NFT (custody → `TegridyRestaking`) is no longer silently
+disenfranchised. Pre-fix, the restaker's per-owner enumerable set in
+TegridyStaking went to zero AND a 0-checkpoint was written at deposit
+time, making `staking.votingPower*(restaker)` return 0 across the board.
+Five of six consumers had no fallback at all; the sixth used an
+OR-fallback that silently dropped restaked share for multi-NFT holders.
+
+Per-consumer changes (each adds a `restakingContract` state var + `onlyOwner`
+one-shot `setRestakingContract(address)` setter, mirroring the
+`setSequencerFeed` pattern in SwapFeeRouter; existing call sites switched
+from direct `staking.votingPower*` reads to `VotePowerOracle.power*` so
+power becomes additive across staking + restaking):
+
+- **REV-RESTAKE-01** — `RevenueDistributor._calculateClaim`: changed the
+  OR-fallback `if (userPower == 0 && isRestaker)` to additive `if (isRestaker)
+  userPower += _restakedPowerAt(...)`. Multi-NFT holders (direct NFT-A staked
+  + NFT-B restaked) no longer have the restaked share silently dropped when
+  staking-side power happens to be non-zero. Closed at
+  [RevenueDistributor.sol:741-754](contracts/src/RevenueDistributor.sol#L741).
+- **GOV-ECON-01 / C10** — `ReferralSplitter._recordReferralFee` /
+  `markBelowStake` / `forfeitUnclaimedRewards`: every
+  `stakingContract.votingPowerOf(referrer)` read (3 sites) now additively
+  includes restaked power via a parallel try/catch on
+  `IRestakingForReferral(restakingContract).votingPowerOf`. A referrer who
+  restakes their staking NFT no longer fails the `MIN_REFERRAL_STAKE_POWER`
+  gate. Closed at
+  [ReferralSplitter.sol:373-389](contracts/src/ReferralSplitter.sol#L373) +
+  [:618-632](contracts/src/ReferralSplitter.sol#L618) +
+  [:651-666](contracts/src/ReferralSplitter.sol#L651).
+- **GOV-ECON-01 / C10** — `MemeBountyBoard.submitWork` /
+  `voteForSubmission`: switched both vote-power read sites to
+  `VotePowerOracle.powerAt` / `.powerOf` so restakers can submit and vote
+  again. Closed at
+  [MemeBountyBoard.sol:419-426](contracts/src/MemeBountyBoard.sol#L419) +
+  [:466-475](contracts/src/MemeBountyBoard.sol#L466).
+- **GOV-ECON-01 / C10** — `CommunityGrants.voteOnProposal`: vote-power
+  read switched to additive (preserves DEEP-GOV-01 min-clamp). Closed at
+  [CommunityGrants.sol:417-426](contracts/src/CommunityGrants.sol#L417).
+- **GOV-ECON-01 / C10** — `GaugeController.vote` / `revealVote`: both
+  vote-power sites switched to additive. Closed at
+  [GaugeController.sol:317-326](contracts/src/GaugeController.sol#L317) +
+  [:572-581](contracts/src/GaugeController.sol#L572).
+- **GOV-ECON-01 / C10** — `VoteIncentives.vote` / `commitVote`: both
+  vote-power sites switched to additive. Closed at
+  [VoteIncentives.sol:506-516](contracts/src/VoteIncentives.sol#L506) +
+  [:1373-1382](contracts/src/VoteIncentives.sol#L1373).
+
+`VotePowerOracle` library was also refactored from typed-interface
+parameters to plain `address` parameters so each consumer can keep its own
+local staking interface name (`IVotingEscrow`, `ITegridyStakingGauge`,
+`IStakingVote`, `IVotingEscrowGrants`) without forcing a cross-cutting
+interface rename. Library is `internal`-linkage only; functions inline
+into every consumer with negligible deploy-footprint overhead.
+
+Operational note: after deploy, owner must call `setRestakingContract` on
+each of the 5 consumers that didn't already have a restaking pointer. The
+setter is one-shot, so a future restaking-contract migration would require
+a fresh consumer deploy — same liability budget as the existing one-shot
+setters in the codebase. The guard fails closed: a consumer with
+`restakingContract == address(0)` reads only the staking side (current
+behavior) until the setter fires.
+
+#### Pass-8 Batch 3 — surgical exploit-by-anyone fixes across 5 contracts (2026-05-05)
+
+Five fixes touching disjoint files (NFTPoolFactory / NFTLending / Lending /
+MemeBountyBoard / NFTPool) — minimizes interaction risk while closing 1
+Critical, 1 High, and 3 Mediums reachable by any user without special
+permissions.
+
+- **C5 / LOOP-01** — `TegridyNFTPoolFactory`: hard cap on
+  `_poolsByCollection[c].length` at `MAX_POOLS_PER_COLLECTION = 200`, plus
+  raised `MIN_DEPOSIT` floor from 0.01 ETH to 0.05 ETH. Pre-fix, an attacker
+  could spam `createPool` for a target collection (≤0.01 ETH each) until the
+  per-collection list exceeded the eth_call gas budget, bricking router
+  discovery (`getBestBuyPool` / `getBestSellPool`) and any aggregator that
+  depends on enumeration. The combo (count cap + raised cost floor) raises
+  the spam attack from ~$5k to ~$25k per collection AND structurally caps
+  the worst case. Pattern reference: Sudoswap V2's per-collection pool
+  ceiling. Closed at
+  [TegridyNFTPoolFactory.sol:43-67](contracts/src/TegridyNFTPoolFactory.sol#L43)
+  +
+  [:188-198](contracts/src/TegridyNFTPoolFactory.sol#L188).
+- **NFTLEND-WL-1** — `TegridyNFTLending.proposeWhitelistCollection`:
+  `IERC165.supportsInterface(0x80ac58cd)` preflight added to reject EOAs and
+  contracts that don't claim ERC721 support. Wrapped in try/catch so legacy
+  pre-ERC165 ERC721s (CryptoPunks v1, Sandbox v1) are still admittable;
+  the typo / malicious-paste case where `_collection` is a non-ERC721 (e.g.
+  an ERC20 or an arbitrary EOA) is rejected at propose-time, before the 24h
+  timelock burns. Pattern reference: standard OZ ERC165 detection. Closed
+  at
+  [TegridyNFTLending.sol:945-967](contracts/src/TegridyNFTLending.sol#L945).
+- **GAS-01** — new
+  [`contracts/src/lib/SafeERC721Call.sol`](contracts/src/lib/SafeERC721Call.sol)
+  library + applied to `_safeOutboundTransfer` (NFTLending) and
+  `_safeOutboundTransferStaking` (Lending). Pre-fix, Solidity's `try/catch`
+  ALWAYS performs `returndatacopy(0, 0, returndatasize())` before the catch
+  block fires — the `gas:` modifier bounds inner gas but does NOT bound the
+  copy. A malicious whitelisted ERC721 returning 16 MB of returndata
+  OOG-griefs every caller, bricking `claimDefault` /
+  `claimStuckCollateral` permanently and causing total lender principal
+  loss. The library uses inline assembly to cap returndata at 0 bytes
+  (`safeTransferFromBounded` — return value unused) and 32 bytes
+  (`safeOwnerOfBounded` — single address). Pattern references: Nomad's
+  `ExcessivelySafeCall`, Solady's `LibCall.callContract`. Library is
+  `internal`-linkage only (~85 bytes deployed footprint). Closed at
+  [TegridyNFTLending.sol:781-812](contracts/src/TegridyNFTLending.sol#L781) +
+  [TegridyLending.sol:1170-1199](contracts/src/TegridyLending.sol#L1170).
+- **MBB-VOTE-01** — `MemeBountyBoard.voteForSubmission`: any voter who has
+  submitted ANY work to the same bounty is now disqualified from voting on
+  ANY submission in that bounty (was: only blocked from voting on OWN
+  submission). Pre-fix, three colluding submitters (A, B, C) could each
+  submit then cross-vote a confederate's submission (A→B, B→C, C→A) and
+  trivially clear `MIN_UNIQUE_VOTERS=3` quorum without any honest voters.
+  One-line check via the existing `hasSubmitted[bountyId][voter]` map.
+  Closed at
+  [MemeBountyBoard.sol:471-477](contracts/src/MemeBountyBoard.sol#L471).
+- **CLK-02** — `TegridyNFTPool` cooldowns: every `block.number`-based gate
+  (`lastSwapBlock`, `lastWithdrawBlock`, `WITHDRAW_NFT_COOLDOWN_BLOCKS=50`)
+  switched to `block.timestamp` semantics. Pre-fix, the "50-block ≈ 10
+  minute" cooldown comment held only on Ethereum mainnet (12s blocks).
+  On Optimism / Base / opBNB (`block.number` is L2 ≈ 2s/block), 50 blocks
+  collapsed to ~100 seconds — a 6× degradation that let an owner sandwich
+  trader liquidity in a fraction of the intended window. Constant value
+  changed from 50 (blocks) to 600 (seconds = 10 minutes); storage and
+  constant NAMES preserved for ABI continuity (autogenerated getters
+  still respond at the same selectors). To be renamed in the next major
+  version. Pattern reference: Aave v3 timestamp-based cooldowns universally.
+  Closed at
+  [TegridyNFTPool.sol:45-83](contracts/src/TegridyNFTPool.sol#L45) +
+  every read/write site.
+
+Bytecode deltas:
+- TegridyNFTPoolFactory: 10,097 → 10,267 (+170)
+- TegridyNFTLending: 17,390 → 18,773 (+1,383 — IERC165 import + assembly inlining)
+- TegridyLending: 27,242 → 28,177 (+935 — assembly inlining; Phase 0 split now MORE urgent)
+- MemeBountyBoard: 14,634 → 14,681 (+47)
+- TegridyNFTPool: 11,561 (unchanged — semantic-only refactor)
+- New SafeERC721Call: 85 bytes deployed (internal library, inlines)
+
+#### Pass-8 Batch 4 — Phase 0.1: TegridyLending → TegridyLending + TegridyLendingAdmin split (2026-05-05)
+
+EIP-170 unblock for the largest size offender. TegridyLending was 28,177 bytes
+of runtime bytecode (3,601 bytes over the 24,576 EIP-170 mainnet limit) AFTER
+the batch 3 GAS-01 / SafeERC721Call addition. Splitting the propose/execute/
+cancel/pending-state surface out into a sister contract — mirroring the precise
+pattern used for SwapFeeRouterAdmin in the 2026-04-26 size-reduction sprint —
+brought TegridyLending down to **17,658 bytes (saved 10,519, 6,342-byte EIP-170
+headroom)**.
+
+- **EIP170-01** — new
+  [`contracts/src/TegridyLendingAdmin.sol`](contracts/src/TegridyLendingAdmin.sol)
+  (574 LoC) holds the timelock propose/execute/cancel triplets + `pending*`
+  storage + `*Proposed` / `*Cancelled` events for **11 parameter groups**
+  (protocol fee, treasury, max principal, max APR, min duration, max duration,
+  origination fee, min APR, min principal, sweep donated TOWELI, accepted
+  collateral whitelist). Inherits `OwnableNoRenounce + TimelockAdmin`.
+  Constructor takes the lending address; reads validation constants
+  (ceilings, floors) and current values from lending via interface
+  (`MAX_PROTOCOL_FEE_BPS()`, `protocolFeeBps()`, `maxAprBps()`, etc.).
+- **TegridyLending changes** —
+  removed `TimelockAdmin` inheritance; removed all 11 admin parameter group
+  triplets (33 functions) + their `pending*` storage + `*Proposed` / `*Cancelled`
+  events + view-helper `*ChangeReadyAt()` getters; added `address public lendingAdmin`
+  one-shot setter, `onlyAdmin` modifier, and 11 `applyXxx*` setters that admin
+  calls after consuming a timelocked proposal. Each `applyXxx*` re-validates
+  against the local constant ceilings/floors as defense in depth (same checks
+  the admin performed pre-call).
+- **Cross-contract reads** — `TegridyLending.createOffer` previously read
+  `pendingAcceptedCollateral`, `pendingAcceptedCollateralAdd`, and
+  `_executeAfter[ACCEPTED_COLLATERAL_CHANGE]` directly to short-circuit offer
+  creation against pending-removal collaterals. Replaced with a single
+  `lendingAdmin.acceptedCollateralRemovalPending(_collateralContract)` view
+  call. Reverts with `LendingAdminNotSet` if called pre-`setLendingAdmin`.
+- **Cancel-rate-limit invariant preserved** — LD3-M3 cancel-rate-limit on
+  REMOVAL proposals was previously a single-contract storage read; now split
+  across both contracts (admin invokes
+  `lending.bumpCollateralRemovalRetryCount(coll)` on each live cancel; the
+  reset-on-successful-removal still happens inside `applyAcceptedCollateralChange`).
+- **CI guard** — TegridyLending removed from the bytecode-budget exception
+  list in
+  [`.github/workflows/contracts-ci.yml`](.github/workflows/contracts-ci.yml).
+  Future regressions over 24,000 bytes hard-fail CI.
+
+Operational note: after deploy, owner must call `lending.setLendingAdmin(adminAddr)`
+(one-shot, set-once-immutable thereafter) before any user can create an offer.
+Setter requires the admin to be a contract (`code.length > 0`) — the
+`require()` precludes wiring an EOA. Admin contract owner is independent of
+lending owner; both must point at the trusted multisig.
+
+Pattern reference: identical shape to `SwapFeeRouter` ↔ `SwapFeeRouterAdmin`
+already in production. Compound v2 Comptroller + ComptrollerStorage uses the
+same separation; Aave v3 splits Pool from PoolConfigurator on the same
+principle. Both have billions of TVL and have never been compromised via the
+split surface.
+
+Bytecode deltas:
+- TegridyLending: **28,177 → 17,658 (saved 10,519 bytes; now under EIP-170)**
+- TegridyLendingAdmin: **15,875 bytes (new contract; well under EIP-170)**
+- Total system increased by 5,356 bytes across the two — gain in deployability
+  outweighs the modest sum increase.
+
+3 Phase 0 split exceptions remain: TegridyStaking (26,912), VoteIncentives
+(26,350), TegridyRestaking (24,011 — only 11B over budget; Phase 0.4
+pre-emptive). These are scheduled for follow-up batches.
+
+#### Pass-8 Batch 5 — Phase 0.3: VoteIncentives → VoteIncentives + VoteIncentivesAdmin split (2026-05-05)
+
+Second EIP-170 unblock. VoteIncentives was 26,350 bytes (1,774 over EIP-170)
+AFTER batch 2's GOV-ECON-01 wiring added 373 bytes. Same split pattern as
+TegridyLending Phase 0.1: propose/execute/cancel/pending state moved to
+sister contract. VoteIncentives dropped to **21,665 bytes (saved 4,685,
+2,911-byte EIP-170 headroom restored)**.
+
+- **EIP170-03** — new
+  [`contracts/src/VoteIncentivesAdmin.sol`](contracts/src/VoteIncentivesAdmin.sol)
+  (~225 LoC) holds the timelock propose/execute/cancel triplets + pending
+  storage + Proposed/Cancelled events for **5 parameter groups**:
+  bribe fee, treasury, whitelist, per-token min-bribe amount, and the
+  one-way commit-reveal enable. Inherits `OwnableNoRenounce + TimelockAdmin`.
+  Constructor takes the VoteIncentives address; reads `MAX_FEE_BPS`,
+  `bribeFeeBps`, `commitRevealEnabled` for validation.
+- **VoteIncentives changes** — removed `TimelockAdmin` inheritance; removed
+  all 5 admin parameter group triplets (15 functions) + `pending*` storage
+  + Proposed/Cancelled events + view-helper `*ChangeTime()` getters; added
+  `voteIncentivesAdmin` one-shot setter, `onlyAdmin` modifier, and 5
+  `applyXxx*` setters (`applyFeeChange`, `applyTreasuryChange`,
+  `applyWhitelistChange`, `applyMinBribeAmountChange`,
+  `applyEnableCommitReveal`). Each `applyXxx*` re-validates against local
+  invariants as defense in depth (FEE_CANNOT_BE_ZERO M-08 fix preserved,
+  `whitelistedTokenList` swap-and-pop preserved on removal, idempotent
+  commit-reveal toggle preserved).
+- **Permissionless execute preserved for commit-reveal** — pre-split,
+  `executeEnableCommitReveal` was `external` (NOT `onlyOwner`) so any party
+  could fire the timelocked enable once delay had elapsed. Mirrored on the
+  admin contract — `executeEnableCommitReveal` is permissionless on admin,
+  but the underlying `applyEnableCommitReveal` on VoteIncentives is
+  `onlyAdmin`. End-to-end gating preserved (only the immutably-wired admin
+  can ever invoke the apply path).
+- **CI guard** — VoteIncentives removed from the bytecode-budget exception
+  list. 2 Phase 0 splits remain (Staking, Restaking).
+
+Operational note: after deploy, owner must call
+`voteIncentives.setVoteIncentivesAdmin(adminAddr)` (one-shot,
+set-once-immutable). Until called, every `applyXxx` reverts
+`NotVoteIncentivesAdmin`.
+
+Bytecode deltas:
+- VoteIncentives: **26,350 → 21,665 (saved 4,685; now under EIP-170 by 2,911 bytes)**
+- VoteIncentivesAdmin: **7,420 bytes (new contract)**
+- Total system increased by 2,735 bytes — gain in deployability outweighs
+  the modest sum increase.
+
+2 Phase 0 split exceptions remain: TegridyStaking (26,912 — Phase 0.2),
+TegridyRestaking (24,011 — Phase 0.4 pre-emptive).
+
+#### Pass-8 Batch 6 — Phase 0.2 (partial) + Phase 0.4 (full): TegridyStaking trim + TegridyRestaking under budget (2026-05-05)
+
+**Phase 0.2 (partial)** — TegridyStaking is unusual relative to Lending /
+VoteIncentives: TegridyStakingAdmin already exists from the 2026-04-26
+sprint, so the propose/execute/cancel surface that drove the prior splits is
+already extracted. The remaining bytecode is core ERC721 + lock/reward/JBAC
+logic — no obvious large extraction targets without breaking ABI or
+restructuring storage. This batch ships the **safe partial reductions** that
+shave ~240 bytes; the remaining ~2KB clearance to fit EIP-170 requires a
+dedicated follow-up batch.
+
+- **EIP170-02 (partial)** — visibility lowered from `public` to `internal`
+  on 5 mappings with zero on-chain consumers across the codebase
+  (verified by grep over all `contracts/src/*.sol`):
+  - `lastTransferTime` ([line 60](contracts/src/TegridyStaking.sol#L60))
+  - `emergencyExitRequests` ([line ~182](contracts/src/TegridyStaking.sol#L182))
+  - `strandedJbacOwner` ([line ~201](contracts/src/TegridyStaking.sol#L201))
+  - `strandedJbacTokenId` ([line ~202](contracts/src/TegridyStaking.sol#L202))
+  - `rewardNotifiers` ([line ~1688](contracts/src/TegridyStaking.sol#L1688))
+
+  Each removed autogenerated `public` getter saves ~80 bytes. Off-chain
+  readers query via existing events (`EmergencyExit*`, `JbacStranded`,
+  `RewardNotifierUpdated`).
+
+- **EIP170-02 (partial)** — replaced the dual auto-getters for
+  `strandedJbacOwner` + `strandedJbacTokenId` with a single explicit
+  `getStrandedJbac(uint256 tokenId) returns (address owner, uint256 jbacId)`
+  combined getter. Net savings: ~130 bytes (2 × ~80B getters → 1 × ~30B
+  combined getter).
+
+- **TegridyStaking total delta:** 26,912 → 26,674 (−238 bytes). Still
+  2,098 over EIP-170. Documented remaining options in
+  [`.github/workflows/contracts-ci.yml`](.github/workflows/contracts-ci.yml):
+    - **(a) Solady ERC721 swap** — replace OZ ERC721 with Solady's lighter
+      implementation (~3KB savings). Trade-off: ABI/event differences require
+      coordinated frontend + indexer migration.
+    - **(b) External library extraction of `kick(uint256)`** — move the
+      110-line cold-path cleanup function to a separate library called via
+      DELEGATECALL (~3-4KB savings). Trade-off: ~2,600 extra gas per kick
+      (cold delegatecall) and complex storage-pointer plumbing for the
+      library to access TegridyStaking's storage layout. Acceptable for a
+      permissionless cleanup that runs only when expired positions need
+      decay.
+  Either approach clears the remaining ~2KB. Both are dedicated batches
+  with isolated test migration.
+
+**Phase 0.4 (full)** — TegridyRestaking was 11B over the 24,000-byte budget
+floor (and 565B under EIP-170 — already deployable, just not under the
+safety cap). Trimmed ~150 bytes by lowering visibility on 2 internal-use
+mappings:
+  - `residualClaimant` ([line ~128](contracts/src/TegridyRestaking.sol#L128))
+  - `hasRecoveredPrincipal` ([line ~170](contracts/src/TegridyRestaking.sol#L170))
+
+  Both have zero on-chain consumers; off-chain readers can subscribe to
+  `ResidualClaimant*` and `PrincipalRecovered` events.
+
+- **TegridyRestaking delta:** 24,011 → 23,865 (−146 bytes). Now 711 bytes
+  under EIP-170 AND under the 24,000 CI budget. Removed from the
+  exception list.
+
+**Phase 0 progress (after this batch):**
+
+| Contract | Pre-fix | Post-fix | Status |
+|---|---:|---:|---|
+| TegridyLending | 28,177 | 17,658 | ✅ Phase 0.1 split landed |
+| VoteIncentives | 26,350 | 21,665 | ✅ Phase 0.3 split landed |
+| TegridyRestaking | 24,011 | 23,865 | ✅ Phase 0.4 trim landed |
+| TegridyStaking | 26,912 | **26,674** | ⏳ Phase 0.2 partial; needs Solady-ERC721 swap OR `kick` external-library extraction for full clearance |
+
+**1 Phase 0 exception remains: TegridyStaking** (still 2,098 over EIP-170;
+documented next-batch options in CI workflow comment).
+
+#### Pass-8 Batch 7 — Phase 0.2: Solmate ERC721 swap on TegridyStaking (2026-05-05)
+
+Replaces OpenZeppelin ERC721 with Solmate's minimalist ERC721 to further
+reduce TegridyStaking's runtime bytecode. **TegridyStaking 26,674 → 26,079
+(saved 595 bytes; cumulative pass-8 savings: 833 bytes).** Solmate's
+implementation lacks the IERC4906 / Errors integration of OZ v5.6.1 and uses
+inline assembly in the hot transferFrom/balanceOf paths. Battle-tested at
+scale by Uniswap V3 NFT positions (Position Manager NFT), Sudoswap, and
+Friend.tech.
+
+- **EIP170-02 (Solmate swap)** — base class change in
+  [TegridyStaking.sol](contracts/src/TegridyStaking.sol):
+  `import "@openzeppelin/contracts/token/ERC721/ERC721.sol"` →
+  `import {ERC721} from "solmate/tokens/ERC721.sol"`.
+- **`_update` override removed; replaced with three overrides**:
+  - `transferFrom(from, to, id)` — handles pre-transfer cooldown +
+    rate-limit + lending/restaking exemption + `_settleRewardsOnTransfer`,
+    then calls `super.transferFrom` then `_postTokenTransition`.
+  - `_mint(to, id)` — calls `super._mint` then
+    `_postTokenTransition(0, to, id)`.
+  - `_burn(id)` — captures `from = _ownerOf[id]` BEFORE `super._burn`
+    (Solmate clears the mapping in `_burn`), then calls
+    `_postTokenTransition(from, 0, id)`.
+  - New internal `_postTokenTransition(from, to, id)` helper centralizes
+    the `_positionsByOwner` updates, `userTokenId` writes,
+    `_writeCheckpoint`, autoMaxLock reset, `emergencyExitRequests` cleanup,
+    and the `MultipleNFTsAtAddress` event emission. Logic preserved
+    verbatim from the prior `_update` second-half body.
+- **`tokenURI(uint256)` override added** — Solmate makes this `abstract`
+  (OZ provided a default empty implementation). Returns `""` to match the
+  prior behaviour. Frontends/marketplaces still resolve metadata via
+  TegridyTokenURIReader off-chain per the existing architecture.
+- **`supportsInterface(bytes4)` override added** — Solmate's default
+  declares ERC165 + ERC721 + ERC721Metadata. We additionally declare
+  `0x150b7a02` (ERC721TokenReceiver) since this contract IS a receiver
+  (the JBAC inbound path via `onERC721Received`).
+- **`_ownerOf` access pattern** — Solmate exposes `_ownerOf` as an
+  `internal mapping`, not a `function`. The single call-site in the prior
+  `_update` (`from = _ownerOf(tokenId)`) was naturally removed when
+  `_update` was deleted. Inside `_burn` override, the pattern is
+  `address from = _ownerOf[id]` before `super._burn`.
+
+**Behaviour preservation:**
+- ABI-identical for all standard ERC721 surfaces (`transferFrom`,
+  `safeTransferFrom`, `ownerOf`, `balanceOf`, `approve`,
+  `setApprovalForAll`, `getApproved`, `isApprovedForAll`, `name`,
+  `symbol`, `supportsInterface`).
+- Standard `Transfer` / `Approval` / `ApprovalForAll` events are
+  byte-identical (same indexed signatures).
+- `safeTransferFrom` automatically routes through our overridden
+  `transferFrom` (Solmate calls `transferFrom` from `safeTransferFrom`
+  internally — no separate override needed).
+
+**Storage layout (breaking change for fresh deploy only):**
+- OZ used `_owners`, `_balances`, `_tokenApprovals`, `_operatorApprovals`.
+- Solmate uses `_ownerOf`, `_balanceOf`, `getApproved`, `isApprovedForAll`.
+- Live deployed contracts (using OZ slots) cannot be upgraded in place.
+- This migration applies to **fresh deploys only**. Documented in the
+  import-block comment.
+
+**Reverts:**
+- Solmate uses string requires (`"NOT_MINTED"`, `"WRONG_FROM"`,
+  `"INVALID_RECIPIENT"`, etc.) instead of OZ's typed errors.
+- Off-chain tooling that filtered on `ERC721NonexistentToken` /
+  `ERC721IncorrectOwner` etc. needs updating to match the string reasons.
+- All Tegridy custom errors (`TransferCooldownActive`, `TooManyPositions`,
+  `AlreadyHasPosition`) preserved verbatim on the override paths.
+
+**Honest remaining gap:** TegridyStaking still 1,503 bytes over EIP-170
+after this batch. OZ ERC721 v5.6.1 was already heavily optimized; the
+Solmate swap delivered 595B not the ~3KB I projected.
+
+**Phase 0 progress (after this batch):**
+
+| Contract | Pre-pass-8 | Post-pass-8 | Status |
+|---|---:|---:|---|
+| TegridyLending | 28,177 | 17,658 | ✅ Phase 0.1 split |
+| VoteIncentives | 26,350 | 21,665 | ✅ Phase 0.3 split |
+| TegridyRestaking | 24,011 | 23,865 | ✅ Phase 0.4 trim |
+| **TegridyStaking** | 26,912 | **26,079** | ⏳ Phase 0.2 partial; needs `kick` extraction for full EIP-170 clearance |
+
+Files touched:
+- `contracts/src/TegridyStaking.sol` (Solmate import + `_update` →
+  `transferFrom`/`_mint`/`_burn`/`_postTokenTransition` refactor +
+  `tokenURI` override + `supportsInterface` override)
+- `.github/workflows/contracts-ci.yml` (updated remaining-options
+  documentation)
+
+#### Pass-8 Batch 8 — Phase 0.2 final-state assessment (2026-05-05)
+
+After investigating multiple bytecode-reduction levers on TegridyStaking,
+documenting the empirical reality:
+
+**Attempts that did NOT save bytecode (measured):**
+
+- **Solmate `ReentrancyGuard` swap:** +135 bytes vs OZ. OZ v5's
+  transient-storage variant (`TLOAD` / `TSTORE` on Cancun) is more
+  bytecode-efficient than Solmate's `string require("REENTRANCY")` —
+  the ABI string + revert encoding is heavier than OZ's typed-error
+  selector. Reverted.
+- **Inline minimalist Pausable** (replacing OZ inheritance): +46 bytes.
+  OZ `Pausable` v5.6.1 is already very compact; inheritance overhead is
+  smaller than the custom-error selectors + event topic hashes the
+  inline copy adds. Reverted.
+
+**Why Phase 0.2 cannot be fully closed in this batch:**
+
+OZ Contracts v5.6.1 has already squeezed out most obvious optimization
+targets — the typed errors + transient-storage idioms it uses are
+genuinely byte-efficient. The Solmate ERC721 swap delivered 595B not
+the ~3KB the audit's plan projected, and follow-on Solmate utility
+swaps measured worse than OZ.
+
+**The remaining 1,503-byte gap requires one of three dedicated paths
+(documented in
+[`.github/workflows/contracts-ci.yml`](.github/workflows/contracts-ci.yml)):**
+
+1. **Add Solady as a Foundry dependency and swap ERC721 to Solady's
+   implementation.** Solady is ~200-500B smaller than Solmate (more
+   inline assembly in hot paths). Requires `forge install
+   Vectorized/solady` and matching test-fixture updates. Likely the
+   cleanest path remaining.
+2. **Migrate state to ERC-7201 namespaced storage + extract large
+   helpers (`kick`, `_settleRewardsOnTransfer`, etc.) to external
+   library via DELEGATECALL** with storage-pointer args. Major refactor;
+   storage layout breaks live deploy compatibility (acceptable since
+   the Solmate ERC721 swap already broke layout).
+3. **Split out non-ERC721 logic (JBAC management, stranded-NFT state,
+   emergency-exit flow)** to a sister contract holding its own state,
+   with TegridyStaking calling via privileged hooks. Larger surface
+   change; preserves storage layout but introduces cross-contract gas
+   overhead.
+
+**Honest end-state of Phase 0:**
+
+| Contract | Pre-pass-8 | Post-pass-8 | EIP-170 Status |
+|---|---:|---:|---|
+| TegridyLending | 28,177 | 17,658 | ✅ Cleared (Phase 0.1) |
+| VoteIncentives | 26,350 | 21,665 | ✅ Cleared (Phase 0.3) |
+| TegridyRestaking | 24,011 | 23,865 | ✅ Cleared (Phase 0.4) |
+| **TegridyStaking** | 26,912 | **26,079** | ⏳ −833B; still 1,503B over |
+
+**3 of 4 Phase 0 contracts are now deployable on mainnet.** The fourth
+(TegridyStaking) requires a dedicated deep-refactor batch with one of
+the three documented paths.
+
+**Updated 2026-05-04 (pass-8 batch-9):** TegridyStaking grew to **26,312 B**
+after the CCR-01 reorder + ABI shims (+233 B over the 26,079 figure
+above; 1,736 B over EIP-170). TegridyRestaking landed at **24,011 B**
+(11 B over the local 24,000-floor; 565 B under EIP-170). Both
+re-added to the CI bytecode-budget exception list.
+
+#### Pass-8 Batch 9 — CCR-01 cross-contract JBAC reentry + test/script migration (2026-05-04)
+
+**Verification (forge test results post-batch):**
+
+- TegridyStaking: 84 / 84 pass (incl. all 5 JBAC exit paths)
+- VoteIncentives: 60 / 60 pass
+- TegridyRestaking: 36 / 36 pass
+- AuditR014_Lending: 9 / 9 pass
+- PASS7_LENDING_01-04: 4 / 4 pass
+- Pass6_Regressions: 4 / 4 pass
+- Full unit suite (excluding invariants): **2,483 pass / 20 fail**.
+  All 20 failures are pre-existing fallout from pass-8 batch-3 (raised
+  `MIN_DEPOSIT` on TegridyNFTPoolFactory + `block.number` →
+  `block.timestamp` cooldown switch on TegridyNFTPool); the test
+  fixtures still encode the pre-batch-3 constants. Tracked for a
+  dedicated NFTPool test-fixture refresh batch.
+
+
+**Critical (1) — closed:**
+
+- **CCR-01 / C4 — JBAC return-callback cross-contract reentrancy.** Pre-fix,
+  every TegridyStaking exit path (`withdraw`, `earlyWithdraw`,
+  `emergencyWithdrawPosition`, `emergencyExitPosition`, `executeEmergencyExit`)
+  ran `_returnJbacIfDeposited(...)` BEFORE `_clearPosition(...)`. The JBAC
+  `safeTransferFrom` callback fires user-controlled code with the staking NFT
+  still owned by the attacker — re-entering `TegridyLending.acceptOffer(...)`
+  succeeds (transferFrom pulls the staking NFT from attacker; lending pays
+  principal ETH). When the callback returns, the outer `_clearPosition`
+  burns the staking NFT — burning the lender's collateral and permanently
+  trapping their principal. Closed by reordering all 5 exit paths so
+  `_clearPosition` (which calls `_burn`) runs BEFORE the JBAC return; helper
+  refactored from `_returnJbacIfDeposited(tokenId, to)` to `_returnJbac(tokenId, jbacId, to)`
+  with the JBAC id captured pre-clear (since `_clearPosition` deletes the
+  Position struct). After the reorder, Solmate's `_ownerOf[tokenId] == address(0)`
+  post-burn means any cross-contract `transferFrom`/`safeTransferFrom`/`acceptOffer`
+  attempt during the JBAC callback reverts on `from != _ownerOf[id]` — closes
+  the parallel ghost-restake attack on TegridyRestaking (CCR-02) by the same
+  defense.
+
+  Files changed:
+  - [TegridyStaking.sol:912](contracts/src/TegridyStaking.sol#L912) — `withdraw` reorder
+  - [TegridyStaking.sol:932](contracts/src/TegridyStaking.sol#L932) — `earlyWithdraw` reorder
+  - [TegridyStaking.sol:1647](contracts/src/TegridyStaking.sol#L1647) — `emergencyWithdrawPosition` reorder
+  - [TegridyStaking.sol:1671](contracts/src/TegridyStaking.sol#L1671) — `emergencyExitPosition` reorder
+  - [TegridyStaking.sol:1726](contracts/src/TegridyStaking.sol#L1726) — `executeEmergencyExit` reorder
+  - [TegridyStaking.sol:1956](contracts/src/TegridyStaking.sol#L1956) — `_returnJbac(tokenId, jbacId, to)` helper
+
+**Toolchain follow-ons that landed alongside the CCR-01 reorder (no
+runtime semantic change — compilability + auto-getter ABI shims for
+the audit/test surface):**
+
+- **Solmate ERC721 import alias.** [TegridyStaking.sol:28](contracts/src/TegridyStaking.sol#L28)
+  changed from `import {ERC721}` to `import {ERC721 as SolmateERC721}` so other
+  units that wildcard-import `../src/TegridyStaking.sol` (every script + several
+  tests) don't surface a colliding `ERC721` symbol against OZ's. Inheritance and
+  constructor renamed accordingly.
+- **ABI shims for newly-internal mappings.** Re-exposed
+  `emergencyExitRequests(uint256)`, `strandedJbacOwner(uint256)`,
+  `strandedJbacTokenId(uint256)` ([TegridyStaking.sol:255-258](contracts/src/TegridyStaking.sol#L255))
+  and `residualClaimant(uint256)` + `hasRecoveredPrincipal(address)`
+  ([TegridyRestaking.sol:451-454](contracts/src/TegridyRestaking.sol#L451)) as
+  external view functions, with the underlying state slots renamed to leading
+  underscore. Net effect: Pass-8 EIP170-02/04 visibility-trim savings preserved
+  on the assignment/read sites; off-chain readers and the audit test suite
+  retain the auto-getter ABI shape.
+
+**Test + deploy-script migration to admin sister contracts (Pass-8 Phase 0
+splits):**
+
+- **VoteIncentives → VoteIncentivesAdmin** wiring added (or callsites
+  redirected) in:
+  [test/VoteIncentives.t.sol](contracts/test/VoteIncentives.t.sol),
+  [test/AuditDemonstration.t.sol](contracts/test/AuditDemonstration.t.sol),
+  [test/AuditR014_VoteIncentives.t.sol](contracts/test/AuditR014_VoteIncentives.t.sol),
+  [test/AuditR016_AMMGov.t.sol](contracts/test/AuditR016_AMMGov.t.sol),
+  [test/Deep_Governance_2026_05_01.t.sol](contracts/test/Deep_Governance_2026_05_01.t.sol),
+  [test/R020_VoteIncentives.t.sol](contracts/test/R020_VoteIncentives.t.sol),
+  [test/invariants/VoteIncentivesShares.t.sol](contracts/test/invariants/VoteIncentivesShares.t.sol),
+  [script/DeployVoteIncentives.s.sol](contracts/script/DeployVoteIncentives.s.sol),
+  [script/DeployV2.s.sol](contracts/script/DeployV2.s.sol).
+- **TegridyLending → TegridyLendingAdmin** wiring added (or callsites
+  redirected) in:
+  [test/AuditR014_Lending.t.sol](contracts/test/AuditR014_Lending.t.sol),
+  [test/PASS7_LENDING_01.t.sol](contracts/test/PASS7_LENDING_01.t.sol),
+  [test/PASS7_LENDING_02.t.sol](contracts/test/PASS7_LENDING_02.t.sol),
+  [test/PASS7_LENDING_03.t.sol](contracts/test/PASS7_LENDING_03.t.sol),
+  [test/PASS7_LENDING_04.t.sol](contracts/test/PASS7_LENDING_04.t.sol),
+  [test/Pass6_Regressions.t.sol](contracts/test/Pass6_Regressions.t.sol),
+  [test/TegridyLending.t.sol](contracts/test/TegridyLending.t.sol),
+  [test/TegridyLending_ETHFloor.t.sol](contracts/test/TegridyLending_ETHFloor.t.sol),
+  [test/TegridyLending_Reentrancy.t.sol](contracts/test/TegridyLending_Reentrancy.t.sol),
+  [test/invariants/LendingInvariants.t.sol](contracts/test/invariants/LendingInvariants.t.sol),
+  [test/invariants/Pass6_LendingSolvency.t.sol](contracts/test/invariants/Pass6_LendingSolvency.t.sol),
+  [test/invariants/Pass6_RestakingResidualCrossProto.t.sol](contracts/test/invariants/Pass6_RestakingResidualCrossProto.t.sol),
+  [test/invariants/Pass7_LendingExtSolvency.t.sol](contracts/test/invariants/Pass7_LendingExtSolvency.t.sol).
+
+  Migration shape: each test/script now `new`'s the `*Admin` sister immediately
+  after the underlying contract, calls `set*Admin(address(<sister>))` on the
+  inheriting contract, and redirects every `propose*`/`execute*`/`cancel*`/`pending*`
+  callsite from the underlying contract to the admin sister. Mirrors the
+  production wiring path from [DeployVoteIncentives.s.sol](contracts/script/DeployVoteIncentives.s.sol)
+  and [DeployV2.s.sol](contracts/script/DeployV2.s.sol).
+
 ### Security — pass-7 adversarial multi-agent audit + remediation (2026-05-03 → 2026-05-04)
 
 Three parallel worktree agents (oracle/AMM/fees, staking/governance, lending/NFT)

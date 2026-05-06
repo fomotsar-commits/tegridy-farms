@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../../src/TegridyStaking.sol";
 import "../../src/TegridyStakingAdmin.sol";
 import "../../src/TegridyLending.sol";
+import "../../src/TegridyLendingAdmin.sol"; // AUDIT FIX (pass-8): EIP170-01 split
 
 /// @title PASS7-INV-A — Lending solvency under pause cycles +
 ///        stuck-collateral recovery (LENDING-02) +
@@ -295,6 +296,7 @@ contract PASS7_INV_A_LendingExtSolvency is Test {
     TegridyStaking public staking;
     TegridyStakingAdmin public stakingAdmin;
     TegridyLending public lending;
+    TegridyLendingAdmin public lendingAdmin; // AUDIT FIX (pass-8): EIP170-01 split
     InvP7A_Handler public handler;
 
     address public treasury = makeAddr("inv_p7a_treasury");
@@ -324,9 +326,13 @@ contract PASS7_INV_A_LendingExtSolvency is Test {
             address(0)
         );
 
-        lending.proposeAcceptedCollateral(address(staking), true);
+        // AUDIT FIX (pass-8): EIP170-01 split — wire admin sister.
+        lendingAdmin = new TegridyLendingAdmin(address(lending));
+        lending.setLendingAdmin(address(lendingAdmin));
+
+        lendingAdmin.proposeAcceptedCollateral(address(staking), true);
         skip(48 hours + 1);
-        lending.executeAcceptedCollateral();
+        lendingAdmin.executeAcceptedCollateral();
 
         stakingAdmin.proposeLendingContract(address(lending), true);
         skip(48 hours + 1);

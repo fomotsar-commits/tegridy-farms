@@ -8,6 +8,7 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyLending.sol";
+import "../src/TegridyLendingAdmin.sol"; // AUDIT FIX (pass-8): EIP170-01 split
 import "../src/TegridyNFTLending.sol";
 import {TegridyRestaking} from "../src/TegridyRestaking.sol";
 import {TegridyTWAP} from "../src/TegridyTWAP.sol";
@@ -118,6 +119,7 @@ contract Pass6_LD_NEW_H1_CrossLoanTest is Test {
     TegridyStaking staking;
     TegridyStakingAdmin admin;
     TegridyLending lending;
+    TegridyLendingAdmin lendingAdmin; // AUDIT FIX (pass-8): EIP170-01 split
 
     address treasury = makeAddr("treasury");
     address alice = makeAddr("alice"); // borrower of loan A
@@ -146,10 +148,14 @@ contract Pass6_LD_NEW_H1_CrossLoanTest is Test {
 
         lending = new TegridyLending(treasury, 500, address(weth), address(pair), address(twap), address(0));
 
+        // AUDIT FIX (pass-8): EIP170-01 split — wire admin sister.
+        lendingAdmin = new TegridyLendingAdmin(address(lending));
+        lending.setLendingAdmin(address(lendingAdmin));
+
         // Whitelist the staking contract as a valid collateral collection (48h timelock).
-        lending.proposeAcceptedCollateral(address(staking), true);
+        lendingAdmin.proposeAcceptedCollateral(address(staking), true);
         skip(48 hours + 1);
-        lending.executeAcceptedCollateral();
+        lendingAdmin.executeAcceptedCollateral();
 
         // Register the lending contract as a tracked holder so per-tokenId
         // attribution actually fires when kicks land on escrowed NFTs (the
@@ -314,6 +320,7 @@ contract Pass6_LD_NEW_H1_CrossProtocolMirrorTest is Test {
     TegridyStakingAdmin admin;
     TegridyRestaking restaking;
     TegridyLending lending;
+    TegridyLendingAdmin lendingAdmin; // AUDIT FIX (pass-8): EIP170-01 split
 
     address treasury = makeAddr("treasury_xp");
     address alice = makeAddr("alice_xp");      // restaker, becomes residualClaimant
@@ -353,10 +360,14 @@ contract Pass6_LD_NEW_H1_CrossProtocolMirrorTest is Test {
         pair = new P6_MockPair(address(toweli), address(weth), 1_000_000 ether, 1_000 ether);
         lending = new TegridyLending(treasury, 500, address(weth), address(pair), address(twap), address(0));
 
+        // AUDIT FIX (pass-8): EIP170-01 split — wire admin sister.
+        lendingAdmin = new TegridyLendingAdmin(address(lending));
+        lending.setLendingAdmin(address(lendingAdmin));
+
         // Whitelist staking as collateral on lending (48h timelock).
-        lending.proposeAcceptedCollateral(address(staking), true);
+        lendingAdmin.proposeAcceptedCollateral(address(staking), true);
         skip(48 hours + 1);
-        lending.executeAcceptedCollateral();
+        lendingAdmin.executeAcceptedCollateral();
 
         // Register lending as a tracked holder on staking.
         admin.proposeLendingContract(address(lending), true);

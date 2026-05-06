@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyLending.sol";
+import "../src/TegridyLendingAdmin.sol"; // AUDIT FIX (pass-8): EIP170-01 split
 
 /// @title PASS7-LENDING-02 — TegridyLending.repayLoan outbound silent-no-op
 ///
@@ -133,6 +134,7 @@ contract PASS7_LENDING_02_RepayLoanNoOpTest is Test {
     PASS7_LENDING_02_MockTWAP twap;
     PASS7_LENDING_02_OutboundNoOpStaking malStaking;
     TegridyLending lending;
+    TegridyLendingAdmin lendingAdmin; // AUDIT FIX (pass-8): EIP170-01 split
 
     address treasury = makeAddr("treasury");
     address alice = makeAddr("alice"); // lender
@@ -160,9 +162,13 @@ contract PASS7_LENDING_02_RepayLoanNoOpTest is Test {
 
         malStaking.setLending(address(lending));
 
-        lending.proposeAcceptedCollateral(address(malStaking), true);
+        // AUDIT FIX (pass-8): EIP170-01 split — wire admin sister.
+        lendingAdmin = new TegridyLendingAdmin(address(lending));
+        lending.setLendingAdmin(address(lendingAdmin));
+
+        lendingAdmin.proposeAcceptedCollateral(address(malStaking), true);
         skip(48 hours + 1);
-        lending.executeAcceptedCollateral();
+        lendingAdmin.executeAcceptedCollateral();
 
         bobTokenId = malStaking.mint(bob);
         vm.prank(bob);

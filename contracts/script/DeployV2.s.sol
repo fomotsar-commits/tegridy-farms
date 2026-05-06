@@ -4,6 +4,9 @@ pragma solidity ^0.8.26;
 import "forge-std/Script.sol";
 import {TegridyStaking} from "../src/TegridyStaking.sol";
 import {VoteIncentives} from "../src/VoteIncentives.sol";
+// AUDIT FIX (pass-8): EIP170-03 split — propose/execute/cancel surface lives on
+// VoteIncentivesAdmin. Wired post-deploy via setVoteIncentivesAdmin.
+import {VoteIncentivesAdmin} from "../src/VoteIncentivesAdmin.sol";
 import {TegridyRestaking} from "../src/TegridyRestaking.sol";
 import {CommunityGrants} from "../src/CommunityGrants.sol";
 import {SwapFeeRouter} from "../src/SwapFeeRouter.sol";
@@ -68,6 +71,11 @@ contract DeployV2Script is Script {
             BRIBE_FEE_BPS
         );
         console.log("2. VoteIncentives V2:", address(voteIncentives));
+
+        // AUDIT FIX (pass-8): EIP170-03 split — wire VoteIncentivesAdmin sister contract.
+        VoteIncentivesAdmin voteIncentivesAdmin = new VoteIncentivesAdmin(address(voteIncentives));
+        voteIncentives.setVoteIncentivesAdmin(address(voteIncentivesAdmin));
+        console.log("2b. VoteIncentivesAdmin:", address(voteIncentivesAdmin));
 
         // ═══════════════════════════════════════════════════════════════
         // 3. TegridyRestaking (immutable staking ref → new staking)
@@ -157,9 +165,9 @@ contract DeployV2Script is Script {
         referral.completeSetup();
         console.log(">> ReferralSplitter: approved caller set + setup locked");
 
-        // VoteIncentives: propose TOWELI whitelist (24h timelock)
-        voteIncentives.proposeWhitelistChange(TOWELI, true);
-        console.log(">> VoteIncentives: TOWELI whitelist proposed (24h timelock)");
+        // VoteIncentives: propose TOWELI whitelist (24h timelock) — via admin sister contract
+        voteIncentivesAdmin.proposeWhitelistChange(TOWELI, true);
+        console.log(">> VoteIncentivesAdmin: TOWELI whitelist proposed (24h timelock)");
 
         // RevenueDistributor: propose restaking link (48h timelock)
         revDist.proposeRestakingChange(address(restaking));
@@ -207,12 +215,12 @@ contract DeployV2Script is Script {
         console.log("");
         console.log("=== POST-DEPLOYMENT STEPS ===");
         console.log("1. Multisig: acceptOwnership() on all 9 contracts");
-        console.log("2. After 24h: VoteIncentives.executeWhitelistChange() (TOWELI)");
+        console.log("2. After 24h: VoteIncentivesAdmin.executeWhitelistChange() (TOWELI)");
         console.log("3. After 48h: TegridyStaking.executeRestakingContract()");
         console.log("4. After 48h: RevenueDistributor.executeRestakingChange()");
         console.log("5. SwapFeeRouterAdmin: proposeRevenueDistributor(RevenueDistributor) -> 48h -> execute");
         console.log("6. SwapFeeRouterAdmin: proposePremiumAccessChange(PremiumAccess) -> 48h -> execute");
-        console.log("7. VoteIncentives: proposeWhitelistChange(WETH, true) -> 24h -> execute");
+        console.log("7. VoteIncentivesAdmin: proposeWhitelistChange(WETH, true) -> 24h -> execute");
         console.log("8. Fund TegridyStaking with TOWELI rewards via fund()");
         console.log("9. Update frontend/src/lib/constants.ts with new addresses");
         console.log("10. Verify all contracts on Etherscan");

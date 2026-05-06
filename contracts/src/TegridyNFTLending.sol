@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -11,6 +12,7 @@ import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
 import {SequencerCheck} from "./lib/SequencerCheck.sol";
+import {SafeERC721Call} from "./lib/SafeERC721Call.sol";
 
 /// @title TegridyNFTLending — P2P Generic NFT-Collateralized Lending Protocol
 /// @notice Peer-to-peer lending where lenders create ETH loan offers
@@ -28,6 +30,16 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
 
     // ─── Safety Caps ─────────────────────────────────────────────────
     uint256 public constant MAX_PRINCIPAL = 1000 ether;
+    /// @notice Minimum principal floor.
+    /// @dev    AUDIT FIX: LD-04 — without a floor, sub-2000-wei principals make
+    ///         both `MIN_INTEREST_PRINCIPAL_BPS` and the duration-based interest
+    ///         floor round to 0, enabling free same-block flash-loans against
+    ///         dust offers. Mirrors `TegridyLending.minPrincipal=0.001 ether`.
+    ///         Constant rather than mutable: the parent (TegridyLending) uses a
+    ///         48h-timelocked setter, but a constant is sufficient — we never
+    ///         want to lower this below 0.001 ETH (no economic case for it),
+    ///         and raising it can be done at contract redeploy.
+    uint256 public constant MIN_PRINCIPAL = 0.001 ether;
     uint256 public constant MAX_APR_BPS = 50000;        // 500% APR
     uint256 public constant MIN_DURATION = 1 days;
     uint256 public constant MAX_DURATION = 365 days;
@@ -238,6 +250,8 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     error ZeroAddress();
     error ZeroPrincipal();
     error PrincipalTooLarge();
+    /// @dev AUDIT FIX: LD-04 — principal below `MIN_PRINCIPAL` floor.
+    error PrincipalTooSmall();
     error AprTooHigh();
     error AprTooLow();
     error OriginationFeeTooHigh();
@@ -342,6 +356,11 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     ) external payable nonReentrant whenNotPaused returns (uint256 offerId) {
         if (msg.value == 0) revert ZeroPrincipal();
         if (msg.value != _principal) revert MsgValueMismatch();
+        // AUDIT FIX: LD-04 — reject sub-MIN_PRINCIPAL offers. Without this,
+        // dust-principal offers escape both interest floors (MIN_INTEREST_DURATION
+        // and MIN_INTEREST_PRINCIPAL_BPS) since they round to zero, allowing
+        // free same-block flash-loan round-trips.
+        if (_principal < MIN_PRINCIPAL) revert PrincipalTooSmall();
         if (_principal > MAX_PRINCIPAL) revert PrincipalTooLarge();
         if (_aprBps > MAX_APR_BPS) revert AprTooHigh();
         if (_aprBps < minAprBps) revert AprTooLow();
@@ -766,26 +785,34 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         address to,
         uint256 tokenId
     ) internal returns (bool moved) {
-        try IERC721(collection).transferFrom(from, to, tokenId) {
-            // happy path — verify post-condition.
-            try IERC721(collection).ownerOf(tokenId) returns (address newOwner) {
-                moved = (newOwner == to);
-                // If newOwner is some unexpected third party (malicious collection
-                // that redirected the transfer), we ALSO return false — the loan
-                // settlement above stands but the NFT is unrecoverable through
-                // this contract's stuck path. Emit a forensic warning event so
-                // off-chain monitoring can flag the malicious collection.
-                if (!moved && newOwner != from) {
-                    emit CollateralRedirected(tokenId, collection, to, newOwner);
-                }
-            } catch {
-                // ownerOf reverted — token likely burned during transfer or the
-                // collection contract is broken. Treat as not-moved (caller will
-                // mark stuck), but recovery may not be possible.
-                moved = false;
-            }
-        } catch {
-            moved = false;
+        // AUDIT FIX (pass-8): GAS-01 — bounded-returndata transferFrom + ownerOf.
+        // Solidity's `try/catch` ALWAYS copies returndata before the catch fires,
+        // so a malicious whitelisted collection returning 16 MB of returndata
+        // OOG-griefs every call to this function — bricking lender's
+        // `claimDefault` and the `claimStuckCollateral` recovery permanently.
+        // SafeERC721Call uses inline assembly to cap the returndata copy at 0
+        // bytes (transferFrom — return value unused) and 32 bytes (ownerOf —
+        // single address), neutralizing the gas bomb.
+        bool ok = SafeERC721Call.safeTransferFromBounded(collection, from, to, tokenId);
+        if (!ok) {
+            return false;
+        }
+        // happy path — verify post-condition with bounded ownerOf.
+        (bool ownerOk, address newOwner) = SafeERC721Call.safeOwnerOfBounded(collection, tokenId);
+        if (!ownerOk) {
+            // ownerOf reverted or returned malformed data — token likely burned
+            // during transfer or collection is broken. Treat as not-moved
+            // (caller marks stuck); recovery may not be possible.
+            return false;
+        }
+        moved = (newOwner == to);
+        // If newOwner is some unexpected third party (malicious collection
+        // that redirected the transfer), we ALSO return false — the loan
+        // settlement above stands but the NFT is unrecoverable through
+        // this contract's stuck path. Emit a forensic warning event so
+        // off-chain monitoring can flag the malicious collection.
+        if (!moved && newOwner != from) {
+            emit CollateralRedirected(tokenId, collection, to, newOwner);
         }
     }
 
@@ -928,6 +955,21 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     function proposeWhitelistCollection(address _collection) external onlyOwner {
         if (_collection == address(0)) revert ZeroAddress();
         if (whitelistedCollections[_collection]) revert CollectionAlreadyWhitelisted();
+        // AUDIT FIX (pass-8): NFTLEND-WL-1 — ERC165 preflight. Reject EOAs and
+        // contracts that don't claim ERC721 support so a typo / malicious-paste
+        // can't whitelist a non-ERC721 contract that would silently no-op
+        // `transferFrom` (collateral never escrowed) or trap the lender's
+        // principal in a contract that can't release the NFT. Pattern matches
+        // OZ's standard ERC165 detection. Wrapped in try/catch because some
+        // legitimate ERC721s (e.g. CryptoPunks v1, Sandbox v1) predate ERC165
+        // — if the call reverts we conservatively fall through and let the
+        // 24h timelock + execute-side check block obvious mistakes.
+        require(_collection.code.length > 0, "NOT_CONTRACT");
+        try IERC165(_collection).supportsInterface(0x80ac58cd) returns (bool ok) {
+            require(ok, "NOT_ERC721");
+        } catch {
+            // Pre-ERC165 ERC721 — allow but operator should know.
+        }
 
         pendingWhitelistAdd = _collection;
         _propose(WHITELIST_ADD, WHITELIST_TIMELOCK);

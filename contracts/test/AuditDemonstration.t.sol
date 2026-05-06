@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../src/VoteIncentives.sol";
+import "../src/VoteIncentivesAdmin.sol"; // AUDIT FIX (pass-8): EIP170-03 split
 import {TegridyFactory} from "../src/TegridyFactory.sol";
 
 /// @title AuditDemonstration — concrete failing tests for vulnerabilities
@@ -91,6 +92,7 @@ contract MockPair {
 contract AuditDemonstrationTest is Test {
     // ── VoteIncentives setup ──
     VoteIncentives public bribes;
+    VoteIncentivesAdmin public bribesAdmin; // AUDIT FIX (pass-8): EIP170-03 split
     MockTOWELI public toweli;
     MockWETH public weth;
     MockEscrow public escrow;
@@ -127,10 +129,14 @@ contract AuditDemonstrationTest is Test {
             FEE_BPS
         );
 
+        // AUDIT FIX (pass-8): EIP170-03 split — wire admin sister.
+        bribesAdmin = new VoteIncentivesAdmin(address(bribes));
+        bribes.setVoteIncentivesAdmin(address(bribesAdmin));
+
         // Whitelist brbA via timelocked path
-        bribes.proposeWhitelistChange(address(brbA), true);
+        bribesAdmin.proposeWhitelistChange(address(brbA), true);
         vm.warp(block.timestamp + 24 hours + 1);
-        bribes.executeWhitelistChange();
+        bribesAdmin.executeWhitelistChange();
 
         // Fund depositor
         brbA.transfer(depositor, 1_000_000 ether);
@@ -247,15 +253,15 @@ contract AuditDemonstrationTest is Test {
         address brb = pair.token1();
 
         // Owner proposes a custom 1e3 min (e.g. for a 6-decimal token)
-        bribes.proposeMinBribeAmount(brb, 1e3);
+        bribesAdmin.proposeMinBribeAmount(brb, 1e3);
 
         // Cannot execute instantly
         vm.expectRevert();
-        bribes.executeMinBribeAmount();
+        bribesAdmin.executeMinBribeAmount();
 
         // After 24h: success
         vm.warp(block.timestamp + 24 hours + 1);
-        bribes.executeMinBribeAmount();
+        bribesAdmin.executeMinBribeAmount();
         assertEq(bribes.minBribeAmounts(brb), 1e3);
 
         // Now 1e3 deposits pass (below the 1e15 default but above the 1e3 override)
