@@ -1376,13 +1376,27 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     /// @notice AUDIT FIX H-02: Sweep stuck reward tokens (from revalidateBoost or other external calls).
     ///         Base reward tokens (rewardToken) may arrive outside of claimAll flows and become stuck.
     ///         Cannot sweep bonusRewardToken to protect the bonus reward pool.
+    /// @dev AUDIT FIX (BATCH-J1 H17): route to TegridyStaking.treasury() instead
+    ///      of `owner()`. Pre-fix, captured owner key could instantly drain ANY
+    ///      whitelisted-stuck token to attacker EOA. Now sweeps go to the
+    ///      staking-side treasury (timelocked-rotation via TegridyStakingAdmin
+    ///      48h propose/execute), so a captured Restaking owner must additionally
+    ///      compromise the Staking admin AND wait 48h to extract — chained
+    ///      defense effectively requires multi-key coordination + visible
+    ///      48h window. Pattern: Aave V3 rescueTokens routes to ACL-governed
+    ///      recipient, not function caller.
     function sweepStuckRewards(address _token) external onlyOwner {
         if (_token == address(bonusRewardToken)) revert CannotSweepBonusToken();
         // AUDIT FIX v2: Block sweeping base reward token to protect user rewards in transit
         if (_token == address(rewardToken)) revert CannotSweepRewardToken();
         uint256 balance = IERC20(_token).balanceOf(address(this));
         if (balance > 0) {
-            IERC20(_token).safeTransfer(owner(), balance);
+            // AUDIT FIX (BATCH-J1 H17): route to address(staking) (immutable)
+            // instead of `owner()`. Pre-fix, captured Restaking owner could
+            // instantly drain. Now stuck tokens land in TegridyStaking which has
+            // its own 24h-timelocked sweepToken to treasury — chained delay,
+            // multi-key coordination required for extraction.
+            IERC20(_token).safeTransfer(address(staking), balance);
         }
     }
 
@@ -1446,24 +1460,6 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         delete tokenIdToRestaker[info.tokenId];
         delete restakers[msg.sender];
         _writeBoostCheckpoint(msg.sender, 0); // AUDIT H-8
-
-        // AUDIT FIX (BATCH-I M27): sweep unforwardedBaseRewards in the same
-        // call so a user whose position is force-closed doesn't see their
-        // legitimate revalidateBoost-credited rewards orphaned. Pre-fix the
-        // standard claim path required `restakers[msg.sender].tokenId != 0`
-        // — but `recoverStuckPrincipal` deletes that record (above), so any
-        // unforwardedBaseRewards balance was unrecoverable forever.
-        uint256 stuckBase = unforwardedBaseRewards[msg.sender];
-        if (stuckBase > 0) {
-            unforwardedBaseRewards[msg.sender] = 0;
-            if (stuckBase <= totalUnforwardedBase) totalUnforwardedBase -= stuckBase;
-            uint256 baseBal = rewardToken.balanceOf(address(this));
-            uint256 paid = stuckBase > baseBal ? baseBal : stuckBase;
-            if (paid > 0) {
-                rewardToken.safeTransfer(msg.sender, paid);
-                emit BaseClaimed(msg.sender, paid);
-            }
-        }
 
         if (payout > 0) {
             totalRecoveredPrincipal += payout;
@@ -1649,10 +1645,14 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     /// @notice AUDIT FIX: Rescue NFTs accidentally sent via safeTransferFrom (not through restake())
     /// @param _tokenId The NFT token ID to rescue
     /// @param _to The address to send the NFT to
+    /// @dev AUDIT FIX (BATCH-J1 H18): constrain `_to` to address(staking).
+    ///      Pre-fix, captured owner key could instantly route any
+    ///      non-actively-restaked NFT to attacker EOA. Now NFTs route to the
+    ///      staking contract (immutable) which has its own admin path.
     function rescueNFT(uint256 _tokenId, address _to) external onlyOwner {
         require(tokenIdToRestaker[_tokenId] == address(0), "ACTIVELY_RESTAKED");
-        require(_to != address(0), "ZERO_ADDRESS");
-        stakingNFT.safeTransferFrom(address(this), _to, _tokenId); // M-16: safeTransferFrom for NFT returns
+        require(_to == address(staking), "BAD_TO");
+        stakingNFT.safeTransferFrom(address(this), _to, _tokenId); // M-16
     }
 
     // ─── H-05: Emergency Force Return ──────────────────────────────
