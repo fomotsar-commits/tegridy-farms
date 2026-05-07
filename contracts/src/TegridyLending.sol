@@ -567,6 +567,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     error InsufficientCollateralValue();
     /// AUDIT FIX (BATCH-G H22): applySweepDonatedToweli `to` must equal treasury.
     error InvalidSweepRecipient();
+    /// AUDIT FIX (BATCH-J3 H10): pause-asymmetry bound on lender liquidation.
+    uint256 public constant MAX_PAUSE_BLOCK_LIQUIDATION = 7 days;
     error NotNFTOwner();
     error LoanAlreadyRepaid();
     error LoanTooRecent();
@@ -1186,8 +1188,24 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     // ─── Default ─────────────────────────────────────────────────────
 
     /// @notice Claim the collateral NFT after a loan defaults (borrower missed deadline).
+    /// @dev    AUDIT FIX (BATCH-J3 H10): bound pause-blocking of lender claims
+    ///         to MAX_PAUSE_BLOCK_LIQUIDATION (7 days). Pre-fix, captured-key
+    ///         owner could pause indefinitely to block lender's exit — the
+    ///         pause-asymmetry weapon (borrower's repayLoan was always open).
+    ///         Now: pause for incident-response works for the first 7 days
+    ///         (legitimate use case); beyond that, lender claims proceed even
+    ///         while paused. 7d > GRACE_PERIOD + reasonable incident windows
+    ///         while ensuring no captured-key indefinite freeze. Pattern:
+    ///         MakerDAO Emergency Shutdown Module similar bounded-grace
+    ///         design.
     /// @param _loanId The ID of the defaulted loan
-    function claimDefaultedCollateral(uint256 _loanId) external nonReentrant whenNotPaused {
+    function claimDefaultedCollateral(uint256 _loanId) external nonReentrant {
+        if (paused()) {
+            require(
+                pauseStartTime != 0 && block.timestamp > pauseStartTime + MAX_PAUSE_BLOCK_LIQUIDATION,
+                "PausedShortOfBound"
+            );
+        }
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan storage loan = loans[_loanId];
 

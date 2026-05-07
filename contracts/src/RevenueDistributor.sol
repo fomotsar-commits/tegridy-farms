@@ -182,8 +182,14 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     // out 4 separate proposals each at 25% and reach 100% epoch drain — each
     // timelock visible but each individually within bounds. The aggregate cap
     // keeps the legitimate >25%-position recovery path open via 2 proposals
-    // while bounding the captured-key blast radius to half the epoch's pool.
-    uint256 public constant MAX_AGGREGATE_RECOVERY_POWER_BPS = 5000;
+    // while bounding the captured-key blast radius.
+    // AUDIT FIX (BATCH-J3 H21): tightened from 5000 (50%) to 2500 (25%) per
+    // 100-agent audit. Pre-fix, captured owner could shell out 5 proposals
+    // at 10% each across 5 EOAs → 50% epoch drain after 24h timelock.
+    // Tightened to 25% — legitimate >25%-power-recovery is rare and can
+    // be staged across multiple epochs (24h * N delay) instead. Halves
+    // the captured-key blast radius without breaking honest recovery.
+    uint256 public constant MAX_AGGREGATE_RECOVERY_POWER_BPS = 2500;
     /// @notice AUDIT FIX D-DR-L1: per-epoch aggregate of in-flight + executed
     ///         recovery power. Bumped on propose (when slot was empty), adjusted
     ///         on overwrite, decremented on cancel, RETAINED on execute (executed
