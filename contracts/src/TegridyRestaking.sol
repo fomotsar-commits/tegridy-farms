@@ -79,7 +79,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     using SafeERC20 for IERC20;
 
     // ─── Constants ──────────────────────────────────────────────────
-    uint256 private constant ACC_PRECISION = 1e12;
+    /// AUDIT FIX (BATCH-N1 M1): bumped from 1e12 to 1e18 (same as TegridyStaking).
+    /// Modern share-accumulator precision standard.
+    uint256 private constant ACC_PRECISION = 1e18;
 
     // ─── TimelockAdmin Keys ──────────────────────────────────────────
     bytes32 public constant BONUS_RATE_CHANGE = keccak256("BONUS_RATE_CHANGE");
@@ -1671,8 +1673,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      non-actively-restaked NFT to attacker EOA. Now NFTs route to the
     ///      staking contract (immutable) which has its own admin path.
     function rescueNFT(uint256 _tokenId, address _to) external onlyOwner {
-        require(tokenIdToRestaker[_tokenId] == address(0), "ACTIVELY_RESTAKED");
-        require(_to == address(staking), "BAD_TO");
+        if (tokenIdToRestaker[_tokenId] != address(0)) revert BadParam();
+        if (_to != address(staking)) revert BadParam();
         stakingNFT.safeTransferFrom(address(this), _to, _tokenId); // M-16
     }
 
@@ -1684,7 +1686,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     /// @param tokenId The tsTOWELI NFT token ID to force-return
     function emergencyForceReturn(uint256 tokenId) external onlyOwner whenPaused nonReentrant {
         // H-02 FIX: Rate-limit emergency force returns
-        require(block.timestamp >= lastForceReturnTime + FORCE_RETURN_COOLDOWN, "FORCE_RETURN_COOLDOWN");
+        if (block.timestamp < lastForceReturnTime + FORCE_RETURN_COOLDOWN) revert BadParam();
         lastForceReturnTime = block.timestamp;
 
         address restaker = tokenIdToRestaker[tokenId];
@@ -1961,9 +1963,22 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
             info.bonusDebt = accumulated; // CEI: anchor BEFORE external call
             if (bonusPending > 0) {
-                bonusRewardToken.safeTransfer(_restaker, bonusPending);
-                totalBonusDistributed += bonusPending;
-                emit BonusClaimed(_restaker, bonusPending);
+                // AUDIT FIX (BATCH-N4 M26): wrap bonus transfer in try/catch
+                // via this.* self-call so a bricked-recipient (blacklist, hook
+                // revert) doesn't brick the entire decay sync. Pre-fix, totalRestaked
+                // would stay inflated indefinitely after a bricked decay attempt,
+                // siphoning honest restakers' bonus emission until owner ran
+                // emergencyForceReturn. Now: on transfer failure, accumulate to
+                // unforwardedBaseRewards (re-uses existing path; restaker can
+                // sweep later via recoverStuckPrincipal or unrestake's stuck-base).
+                try this._safeBonusTransferExt(_restaker, bonusPending) {
+                    totalBonusDistributed += bonusPending;
+                    emit BonusClaimed(_restaker, bonusPending);
+                } catch {
+                    unforwardedBaseRewards[_restaker] += bonusPending;
+                    totalUnforwardedBase += bonusPending;
+                    emit BonusTransferDeferred(_restaker, bonusPending);
+                }
             }
         }
 
@@ -2106,4 +2121,11 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         return IERC721Receiver.onERC721Received.selector;
     }
 
+    /// AUDIT FIX (BATCH-N4 M26): self-call wrapper for try/catch on bonus transfer.
+    /// Permission-gated to address(this) so external callers can't grief.
+    event BonusTransferDeferred(address indexed restaker, uint256 amount);
+    function _safeBonusTransferExt(address to, uint256 amount) external {
+        if (msg.sender != address(this)) revert OnlyStakingNFT(); // reuse error for size
+        bonusRewardToken.safeTransfer(to, amount);
+    }
 }

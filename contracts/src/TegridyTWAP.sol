@@ -134,6 +134,18 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     ///      (spotPrice1) is gated symmetrically with the forward direction.
     mapping(address => uint256) public lastSpot0;
     mapping(address => uint256) public lastSpot1;
+    /// AUDIT FIX (BATCH-N3 H6): per-pair minimum reserve floor for `update()`
+    /// to admit observations. 0 = no floor (default, backward-compat).
+    /// Owner-set; gates against single-trader manipulation on low-TVL pairs.
+    mapping(address => uint256) public minReserveFloor;
+    error ReservesBelowFloor();
+    event MinReserveFloorSet(address indexed pair, uint256 floor);
+
+    function setMinReserveFloor(address pair, uint256 floor) external onlyOwner {
+        if (!factory.isPair(pair)) revert UnknownPair();
+        minReserveFloor[pair] = floor;
+        emit MinReserveFloorSet(pair, floor);
+    }
 
     /// @notice AUDIT M-2: timestamp of the most recent rebootstrap (deviation gate
     ///         bypassed because elapsed > DEVIATION_BYPASS_AFTER). Consumers reading
@@ -281,6 +293,17 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
 
         (uint112 reserve0, uint112 reserve1, uint32 pairBlockTs) = ITegridyPair(pair).getReserves();
         if (reserve0 == 0 || reserve1 == 0) revert NoReserves();
+        // AUDIT FIX (BATCH-N3 H6): per-pair minimum reserve floor. Pre-fix,
+        // any pair the factory recognized could be observed regardless of
+        // liquidity depth — a low-TVL pair is single-trader-manipulable
+        // within the ±50% deviation gate. Owner can set a per-pair floor
+        // (denominated in reserve units) that gates `update()`. Default 0
+        // = no floor (backward-compatible). Aerodrome uses analogous
+        // per-pool oracle approval lists; we use a numeric threshold.
+        uint256 floor0 = minReserveFloor[pair];
+        if (floor0 != 0 && (uint256(reserve0) < floor0 || uint256(reserve1) < floor0)) {
+            revert ReservesBelowFloor();
+        }
 
         uint32 blockTs = uint32(block.timestamp % 2 ** 32);
         uint256 spotPrice0 = (uint256(reserve1) * Q112) / reserve0;

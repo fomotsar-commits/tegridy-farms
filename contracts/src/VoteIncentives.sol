@@ -353,6 +353,13 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     // to treasury.
     mapping(uint256 => mapping(address => mapping(address => mapping(address => uint256)))) public bribeDeposits;
     mapping(uint256 => uint256) public epochBribeLastDeposit; // epoch => latest deposit timestamp
+    /// AUDIT FIX (BATCH-N2 M12): per-depositor last-deposit-at, indexed by
+    /// (epoch, pair, token, depositor). Closes the dust-grief shared-key
+    /// vulnerability where an attacker's MIN_BRIBE_AMOUNT dust deposit
+    /// extended the rescue clock for ALL legitimate depositors in the epoch.
+    /// Now refundOrphanedBribe is per-depositor-clocked: my rescue window
+    /// opens 30d after MY last deposit, regardless of others' activity.
+    mapping(uint256 => mapping(address => mapping(address => mapping(address => uint256)))) public lastBribeDepositPerUser;
 
     /// @notice AUDIT NEW-G3 (defensive observability): cumulative share paid out per
     ///         (epoch, pair, token). Makes the accounting invariant explicit:
@@ -695,6 +702,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // refunds go back to the original depositor, keyed off the freshest activity.
         bribeDeposits[epoch][pair][token][msg.sender] += netBribe;
         epochBribeLastDeposit[epoch] = block.timestamp;
+        lastBribeDepositPerUser[epoch][pair][token][msg.sender] = block.timestamp; // BATCH-N2 M12
         // AUDIT FIX (pass-8) Phase 1.6 — flag depositor so the same address cannot
         // claim ANY token on this (epoch, pair). See `SelfBribeClaimForbidden` natspec.
         depositedOnPair[msg.sender][epoch][pair] = true;
@@ -743,6 +751,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // AUDIT NEW-G2: track per-depositor amount + latest deposit timestamp.
         bribeDeposits[epoch][pair][address(0)][msg.sender] += netBribe;
         epochBribeLastDeposit[epoch] = block.timestamp;
+        lastBribeDepositPerUser[epoch][pair][address(0)][msg.sender] = block.timestamp; // BATCH-N2 M12
         // AUDIT FIX (pass-8) Phase 1.6 — flag depositor for self-bribe lockout.
         depositedOnPair[msg.sender][epoch][pair] = true;
 
@@ -1170,7 +1179,11 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         Battle-tested against Curve FeeDistributor's refund-to-origin pattern.
     function refundOrphanedBribe(uint256 epoch, address pair, address token) external nonReentrant {
         require(epoch >= epochs.length, "EPOCH_ALREADY_SNAPSHOTTED");
-        uint256 lastDeposit = epochBribeLastDeposit[epoch];
+        // AUDIT FIX (BATCH-N2 M12): per-depositor rescue clock. Pre-fix used
+        // shared `epochBribeLastDeposit[epoch]` which let an attacker dust-deposit
+        // to extend the rescue clock for ALL depositors in the epoch. Now MY
+        // rescue window opens 30d after MY last deposit only.
+        uint256 lastDeposit = lastBribeDepositPerUser[epoch][pair][token][msg.sender];
         require(lastDeposit != 0, "NO_BRIBES_IN_EPOCH");
         require(block.timestamp >= lastDeposit + BRIBE_RESCUE_DELAY, "RESCUE_TOO_EARLY");
 
@@ -1178,6 +1191,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         require(amount > 0, "NOTHING_TO_REFUND");
 
         bribeDeposits[epoch][pair][token][msg.sender] = 0;
+        lastBribeDepositPerUser[epoch][pair][token][msg.sender] = 0; // BATCH-N2 M12 cleanup
         uint256 remaining = epochBribes[epoch][pair][token];
         epochBribes[epoch][pair][token] = remaining > amount ? remaining - amount : 0;
 
@@ -1234,6 +1248,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         require(amount > 0, "NOTHING_TO_REFUND");
 
         bribeDeposits[epoch][pair][token][msg.sender] = 0;
+        lastBribeDepositPerUser[epoch][pair][token][msg.sender] = 0; // BATCH-N2 M12 cleanup
         uint256 remaining = epochBribes[epoch][pair][token];
         epochBribes[epoch][pair][token] = remaining > amount ? remaining - amount : 0;
 
@@ -1300,6 +1315,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         // CEI: clear depositor record + total ledger BEFORE outbound transfer.
         bribeDeposits[epoch][pair][token][msg.sender] = 0;
+        lastBribeDepositPerUser[epoch][pair][token][msg.sender] = 0; // BATCH-N2 M12 cleanup
         uint256 remaining = epochBribes[epoch][pair][token];
         epochBribes[epoch][pair][token] = remaining > amount ? remaining - amount : 0;
 
