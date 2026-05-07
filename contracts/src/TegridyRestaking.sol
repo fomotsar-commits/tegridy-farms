@@ -133,6 +133,20 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      auto-getter shape by name. Internal slot uses leading underscore.
     mapping(uint256 => address) internal _residualClaimant;
 
+    /// @notice AUDIT FIX (BATCH-C H5, mirrors TegridyStakingJbacVault.strandedJbacOwner):
+    ///         Records the entitled recipient when an NFT-out transfer (`unrestake` /
+    ///         `emergencyWithdrawNFT`) reverts because the recipient is a hostile
+    ///         contract OR an EIP-7702-delegated EOA without `onERC721Received`.
+    ///         Permissionless retry via `claimStrandedRestakeNFT(tokenId)` mirrors
+    ///         the `TegridyStakingJbacVault.claimStrandedJbac` battle-tested pattern
+    ///         already live in this codebase. Pre-fix, a 7702-EOA restaker who
+    ///         ran `unrestake` would self-DoS — the only recovery path was admin
+    ///         pause + 24h cooldown + emergencyForceReturn. Now they self-recover
+    ///         after removing their delegation.
+    mapping(uint256 => address) public strandedRestakeRecipient;
+    event RestakeNFTStranded(uint256 indexed tokenId, address indexed to);
+    event RestakeNFTReclaimed(uint256 indexed tokenId, address indexed to);
+
     /// @notice AUDIT H-8 (HIGH): per-restaker historical boost checkpoints. Without
     ///         this, boostedAmountAt(_user, _ts) was returning the CURRENT (already
     ///         decayed) cached boostedAmount for any historical timestamp — silently
@@ -1075,16 +1089,33 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // on the staking side, which credits any final-period accrual to BOTH
         // the holder bucket AND `unsettledRewardsByTokenId[tokenId]` (for the
         // restakingContract → user transfer leg).
-        stakingNFT.safeTransferFrom(address(this), msg.sender, tokenId);
+        // AUDIT FIX (BATCH-C H5): wrap in try/catch — if recipient is a hostile
+        // contract or 7702-delegated EOA without onERC721Received, record stranded
+        // mapping so user can self-recover via claimStrandedRestakeNFT after fixing
+        // their wallet. Mirrors TegridyStakingJbacVault.returnJbac pattern (already
+        // battle-tested in this codebase). Restaking-side state is already cleared
+        // pre-transfer (lines 1056-1058) so a re-entrant double-vote is not possible
+        // even on a hostile receive callback. The post-transfer claim is gated on
+        // success because no _settleRewardsOnTransfer fires when the transfer reverts.
+        bool nftDelivered;
+        try stakingNFT.safeTransferFrom(address(this), msg.sender, tokenId) {
+            nftDelivered = true;
+        } catch {
+            strandedRestakeRecipient[tokenId] = msg.sender;
+            emit RestakeNFTStranded(tokenId, msg.sender);
+        }
 
         // AUDIT FIX C-1: pull the just-credited per-tokenId share from the
         // transfer hook, again going directly to msg.sender. Two-step claim
         // (pre + post) is what makes per-tokenId attribution exact.
+        // (skipped on stranded path — _settleRewardsOnTransfer didn't fire)
         uint256 postPaid;
-        try staking.claimUnsettledForTokenId(tokenId, msg.sender) returns (uint256 _p2) {
-            postPaid = _p2;
-        } catch {
-            postPaid = 0;
+        if (nftDelivered) {
+            try staking.claimUnsettledForTokenId(tokenId, msg.sender) returns (uint256 _p2) {
+                postPaid = _p2;
+            } catch {
+                postPaid = 0;
+            }
         }
 
         uint256 totalUnsettled = prePaid + postPaid;
@@ -1507,9 +1538,18 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // Return NFT to user. The transfer triggers `_settleRewardsOnTransfer`
         // which credits any final-period accrual to BOTH holder bucket AND
         // `unsettledRewardsByTokenId[tokenId]`.
-        stakingNFT.safeTransferFrom(address(this), msg.sender, tokenId);
+        // AUDIT FIX (BATCH-C H5): same try/catch + stranded-record pattern as
+        // unrestake() above. Self-DoS protection for hostile / 7702 EOAs.
+        bool emNftDelivered;
+        try stakingNFT.safeTransferFrom(address(this), msg.sender, tokenId) {
+            emNftDelivered = true;
+        } catch {
+            strandedRestakeRecipient[tokenId] = msg.sender;
+            emit RestakeNFTStranded(tokenId, msg.sender);
+        }
 
         uint256 postPaid;
+        if (emNftDelivered)
         try staking.claimUnsettledForTokenId(tokenId, msg.sender) returns (uint256 _p2) {
             postPaid = _p2;
         } catch {
@@ -1559,6 +1599,25 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         }
 
         emit EmergencyWithdraw(msg.sender, tokenId);
+    }
+
+    /// @notice AUDIT FIX (BATCH-C H5, mirrors TegridyStakingJbacVault.claimStrandedJbac):
+    ///         Permissionless retry path for an NFT that failed delivery during
+    ///         `unrestake` / `emergencyWithdrawNFT` (recipient was a hostile contract
+    ///         or 7702-delegated EOA without `onERC721Received`). Caller must be the
+    ///         recorded entitled recipient — they typically retry after removing
+    ///         their EIP-7702 delegation or upgrading their wallet.
+    /// @dev    CEI: clear stranded record BEFORE outbound transfer so a re-entrant
+    ///         claim cannot double-collect. nonReentrant adds defense-in-depth.
+    /// @dev    No try/catch on the retry — if it still fails, the user can call
+    ///         again until they fix their wallet (state was rolled back by the
+    ///         outer `tx.revert`, so the stranded mapping persists).
+    function claimStrandedRestakeNFT(uint256 tokenId) external nonReentrant {
+        address to = strandedRestakeRecipient[tokenId];
+        if (to == address(0) || to != msg.sender) revert NotRestakedToken();
+        delete strandedRestakeRecipient[tokenId];
+        stakingNFT.safeTransferFrom(address(this), to, tokenId);
+        emit RestakeNFTReclaimed(tokenId, to);
     }
 
     // ─── Pause ────────────────────────────────────────────────────────
@@ -1653,6 +1712,27 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // the SAME NFT would silently drain it on their unrestake.
         try staking.claimUnsettledForTokenId(tokenId, restaker) {} catch {}
 
+        // AUDIT FIX (BATCH-C H4 — re-entrant double-vote close):
+        // CLEAR restaking-side state BEFORE the safeTransferFrom callback fires.
+        // Pre-fix sequence: stakingNFT.safeTransferFrom → staking-side _afterTokenTransfer
+        // adds tokenId to _positionsByOwner[restaker] and writes a vote checkpoint at T,
+        // so staking.votingPowerOf(restaker) returns boostedAmount. The recipient's
+        // onERC721Received callback can then read VotePowerOracle.powerOf(restaker)
+        // which sums staking + restaking. Because restakers[restaker].boostedAmount
+        // was STILL set at this moment (deletion was after the transfer), the read
+        // returned 2X — letting a malicious-recipient contract vote with double
+        // their real power inside any governance consumer (GaugeController,
+        // VoteIncentives, CommunityGrants, etc.).
+        // Fix: zero restaker boost in BOTH the storage struct AND the Trace208
+        // checkpoint BEFORE invoking safeTransferFrom. The unrestake() path at
+        // L1057-1078 already does this correctly — emergencyForceReturn was the
+        // outlier. Pattern: standard CEI (effects before interactions).
+        delete restakers[restaker];
+        _writeBoostCheckpoint(restaker, 0);
+        // tokenIdToRestaker is preserved here pre-transfer so the M-04 stuck-NFT
+        // recovery (rescueNFT only-original-restaker) still works. We delete it
+        // post-transfer-success, NOT pre-transfer.
+
         // Attempt to return the NFT — if staking contract is broken, this may fail
         bool nftReturned;
         try stakingNFT.safeTransferFrom(address(this), restaker, tokenId) {
@@ -1675,15 +1755,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         _reserveResidual(tokenId, restaker);
 
         if (nftReturned) {
-            // Full cleanup only if NFT was successfully returned
+            // Full cleanup only if NFT was successfully returned (restakers + boost
+            // checkpoint already cleared above pre-transfer for re-entrancy CEI).
             delete tokenIdToRestaker[tokenId];
-            delete restakers[restaker];
-        } else {
-            // NFT stuck — clear position data but preserve tokenIdToRestaker
-            // so rescueNFT knows who owns it. restakers mapping cleared for bonus accounting.
-            delete restakers[restaker];
         }
-        _writeBoostCheckpoint(restaker, 0); // AUDIT H-8: zero historical boost on emergency return
+        // If !nftReturned, tokenIdToRestaker is preserved so rescueNFT can route
+        // the stuck NFT back to the original restaker (M-04).
 
         emit EmergencyForceReturn(restaker, tokenId, nftReturned);
     }
