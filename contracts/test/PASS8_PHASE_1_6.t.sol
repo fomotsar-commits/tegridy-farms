@@ -106,6 +106,10 @@ contract PASS8_PHASE_1_6 is Test {
         skip(25 hours);
         viAdmin.executeWhitelistChange();
 
+        // BATCH-F H14: commitRevealEnabled = true at deploy. Force-disable so
+        // legacy `vote()` path under test stays exerciseable. Slot 10 = the flag.
+        vm.store(address(vi), bytes32(uint256(10)), bytes32(uint256(0)));
+
         // Funding
         bribeToken.transfer(briber, 1_000_000 ether);
         bribeToken.transfer(voter, 100 ether); // unused, just for parity
@@ -123,7 +127,8 @@ contract PASS8_PHASE_1_6 is Test {
     }
 
     /// @dev Helper: run a full bribe → vote → finalize cycle and return the
-    ///      epoch index that bribers + voters acted on.
+    ///      epoch index that bribers + voters acted on. Skips past VOTE_DEADLINE
+    ///      so subsequent claims are within the M14 claim window.
     function _bribeVoteAdvance(address briber_, uint256 bribeAmount, address voter_, uint256 votePower) internal returns (uint256 epochClaimable) {
         // Live (not yet snapshotted) epoch index = epochs.length.
         uint256 epoch = 0; // will be set after advanceEpoch below
@@ -139,6 +144,10 @@ contract PASS8_PHASE_1_6 is Test {
         // After advance, voters cast votes on the now-snapshotted epoch.
         vm.prank(voter_);
         vi.vote(epoch, address(pair), votePower);
+
+        // BATCH-H M14: claim is gated until block.timestamp > epoch.timestamp + VOTE_DEADLINE.
+        // Skip past the vote window so subsequent claimBribes() calls land in the claim window.
+        skip(vi.VOTE_DEADLINE() + 1);
 
         epochClaimable = epoch;
     }
@@ -190,6 +199,9 @@ contract PASS8_PHASE_1_6 is Test {
         vm.prank(briber);
         vi.vote(epoch, address(pair), 5000 ether);
 
+        // BATCH-H M14: skip past VOTE_DEADLINE so claim window is open.
+        skip(vi.VOTE_DEADLINE() + 1);
+
         // Briber locked out, even on the (un-bribed) token2.
         vm.prank(briber);
         vm.expectRevert(VoteIncentives.SelfBribeClaimForbidden.selector);
@@ -213,6 +225,9 @@ contract PASS8_PHASE_1_6 is Test {
         vm.prank(tinyVoter);
         vi.vote(epoch, address(pair), 50 ether);
         // totalGaugeVotes[epoch][pair] = 50e18 — below 100e18 quorum.
+
+        // BATCH-H M14: skip past VOTE_DEADLINE so claim window is open.
+        skip(vi.VOTE_DEADLINE() + 1);
 
         vm.prank(tinyVoter);
         vm.expectRevert(VoteIncentives.BribePoolBelowQuorum.selector);

@@ -220,7 +220,10 @@ contract R026_RevenueDistributor is Test {
         // but the 1% lifetime cap (0.1 ETH on 10 ETH distributed) keeps the
         // owner bounded.
         // DEEP-DR-M-01: DUST_RECLAIM_GRACE was bumped from 7d → 14d.
-        vm.warp(block.timestamp + rd.DUST_RECLAIM_GRACE() + 1);
+        // BATCH-L1 M32: an extra 30-day "extendedCutoff" half-discounts dust
+        // until the epoch is fully past primary grace + 30d. Warp +44d so the
+        // epoch fully exits both windows and 10 ether becomes fully eligible.
+        vm.warp(block.timestamp + rd.DUST_RECLAIM_GRACE() + 30 days + 1);
         vm.expectRevert(RevenueDistributor.ForfeitExceedsLifetimeCap.selector);
         rd.proposeForfeitReclaim(10 ether);
 
@@ -236,27 +239,30 @@ contract R026_RevenueDistributor is Test {
     }
 
     // ─── REV-H-01 — eligible-dust math sums multiple epochs correctly ──────
+    /// @dev BATCH-L1 M32: dust is half-discounted in the [extendedCutoff, cutoff)
+    ///      window. To verify FULL eligibility, epochs must be past `cutoff + 30 days`.
     function test_REV_H_01_reclaimEligibleAmount_sumsExpiredEpochsOnly() public {
         staking.setTotalBoostedStake(10_000e18);
         uint256 t0 = block.timestamp;
 
-        // Epoch 0 at t=t0, then warp DUST_RECLAIM_GRACE+1, distribute epoch 1.
+        // Epoch 0 at t=t0, then warp DUST_RECLAIM_GRACE + 30d + 1, distribute epoch 1.
         // DEEP-DR-M-01: DUST_RECLAIM_GRACE was bumped from 7d → 14d.
         vm.deal(address(rd), 100 ether);
         rd.distribute(); // epoch 0: 100 ETH
 
         uint256 grace = rd.DUST_RECLAIM_GRACE();
-        vm.warp(t0 + grace + 1);
+        // Warp far enough that epoch 0 exits both grace + extendedCutoff.
+        vm.warp(t0 + grace + 30 days + 1);
 
         vm.deal(address(rd), address(rd).balance + 50 ether);
         rd.distribute(); // epoch 1: 50 ETH (fresh)
         assertEq(rd.epochCount(), 2, "two epochs");
 
-        // Eligible amount: only epoch 0 is past grace → 100 ETH eligible.
+        // Eligible amount: only epoch 0 is past full grace → 100 ETH eligible.
         assertEq(rd.reclaimEligibleAmount(), 100 ether, "only expired epoch counts");
 
-        // Wait for epoch 1 to also expire — eligible should jump to 150 ETH.
-        vm.warp(t0 + 2 * grace + 1);
+        // Wait for epoch 1 to also fully expire — eligible should jump to 150 ETH.
+        vm.warp(t0 + 2 * (grace + 30 days) + 1);
         assertEq(rd.reclaimEligibleAmount(), 150 ether, "both epochs eligible after grace");
     }
 

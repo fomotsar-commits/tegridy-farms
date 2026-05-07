@@ -158,14 +158,18 @@ contract TegridyTWAPTest is Test {
     // ─── consult() tests ─────────────────────────────────────────────
 
     function test_consult_returnsCorrectTWAP() public {
-        // FRESH-EYES H-3: first observation is now marked `bypassed=true` so the lookup
-        // window cannot anchor on a bootstrap-without-deviation-gate. Need ≥3 observations
-        // for the anchor to land on a non-bypass slot when consult period == 15 min.
-        twap.update(address(pair));                             // bypassed bootstrap
+        // BATCH-M3 H7: obs 1, 2, 3 are now self-bootstrap-bypassed; obs 4+ are not.
+        // For a 15-min consult window the anchor lands ~16 min before the latest, so
+        // we need 5 observations: latest=obs#5(non-bypass), anchor=obs#4(non-bypass).
+        twap.update(address(pair));                             // #1 bypassed bootstrap
         skip(16 minutes);
-        twap.update(address(pair));                             // non-bypass
+        twap.update(address(pair));                             // #2 bypassed (self-bootstrap grace)
         skip(16 minutes);
-        twap.update(address(pair));                             // non-bypass (latest)
+        twap.update(address(pair));                             // #3 bypassed (self-bootstrap grace)
+        skip(16 minutes);
+        twap.update(address(pair));                             // #4 non-bypass
+        skip(16 minutes);
+        twap.update(address(pair));                             // #5 non-bypass (latest)
 
         // Consult: 1 tokenA should give ~2 tokenB (price ratio is 1:2)
         uint256 amountOut = twap.consult(address(pair), address(tokenA), 1 ether, 15 minutes);
@@ -175,7 +179,10 @@ contract TegridyTWAPTest is Test {
     }
 
     function test_consult_revertsWithInvalidToken() public {
-        _seedObservations(3, 15 minutes);
+        // BATCH-M3 H7: 5 observations so the 15-min consult anchor lands on a
+        // non-bypass slot, letting the consult fall through to the InvalidToken
+        // gate rather than tripping the bypassed-anchor check first.
+        _seedObservations(5, 15 minutes);
 
         address fakeToken = makeAddr("fakeToken");
         vm.expectRevert(TegridyTWAP.InvalidToken.selector);
@@ -183,7 +190,7 @@ contract TegridyTWAPTest is Test {
     }
 
     function test_consult_revertsWithZeroAmount() public {
-        _seedObservations(3, 15 minutes);
+        _seedObservations(5, 15 minutes);
 
         vm.expectRevert(TegridyTWAP.InvalidAmount.selector);
         twap.consult(address(pair), address(tokenA), 0, 15 minutes);
@@ -198,8 +205,12 @@ contract TegridyTWAPTest is Test {
     }
 
     function test_consult_reverseDirection() public {
-        // FRESH-EYES H-3: see test_consult_returnsCorrectTWAP — need ≥3 obs for the
+        // BATCH-M3 H7: see test_consult_returnsCorrectTWAP — 5 obs needed for the
         // 15-min lookup window to anchor on a non-bypass slot.
+        twap.update(address(pair));
+        skip(16 minutes);
+        twap.update(address(pair));
+        skip(16 minutes);
         twap.update(address(pair));
         skip(16 minutes);
         twap.update(address(pair));
@@ -214,11 +225,10 @@ contract TegridyTWAPTest is Test {
     // ─── Flash loan manipulation resistance ──────────────────────────
 
     function test_twap_resistsFlashLoanManipulation() public {
-        // FRESH-EYES H-3: shrink consult period so the lookup window doesn't cross the
-        // bypassed bootstrap observation at index 0. With 6 obs at 15-min intervals,
-        // the bootstrap is at T0 and the latest is at T0+75m; consult(60m) anchors at
-        // T0+15m (non-bypass), the next-non-bypass slot.
-        _seedObservations(6, 15 minutes);
+        // BATCH-M3 H7: obs 1-3 are all bypassed; need ≥8 obs at 15-min intervals
+        // for the 60-min consult anchor to land on a non-bypass slot.
+        // (latest is obs#8 at T+105m, anchor target is T+45m → obs#4 non-bypass.)
+        _seedObservations(8, 15 minutes);
 
         // Record pre-manipulation TWAP
         uint256 normalTWAP = twap.consult(address(pair), address(tokenA), 1 ether, 60 minutes);
@@ -239,8 +249,8 @@ contract TegridyTWAPTest is Test {
     }
 
     function test_twap_singleBlockManipulationMinimal() public {
-        // FRESH-EYES H-3: see above — consult period must avoid the bypassed bootstrap.
-        _seedObservations(6, 15 minutes);
+        // BATCH-M3 H7: see above — need 8 obs so 60-min consult anchor lands non-bypass.
+        _seedObservations(8, 15 minutes);
 
         uint256 normalTWAP = twap.consult(address(pair), address(tokenA), 1 ether, 60 minutes);
 
@@ -292,8 +302,10 @@ contract TegridyTWAPTest is Test {
     // ─── Staleness check tests ──────────────────────────────────────
 
     function test_consult_revertsWhenStale() public {
-        // Seed 3 observations at 15-minute intervals
-        _seedObservations(3, 15 minutes);
+        // BATCH-M3 H7: 6 obs so the 30-min consult anchor can land on a
+        // non-bypass slot, letting the staleness check fire instead of the
+        // bypassed-anchor check.
+        _seedObservations(6, 15 minutes);
 
         // Warp past MAX_STALENESS (2 hours) beyond the last observation
         vm.warp(block.timestamp + 2 hours + 1);
@@ -303,9 +315,9 @@ contract TegridyTWAPTest is Test {
     }
 
     function test_consult_succeedsJustBeforeStaleness() public {
-        // FRESH-EYES H-3: 4 obs so the 30-min lookup window can anchor on a non-bypass
-        // slot (index 1) rather than the bypassed bootstrap (index 0).
-        _seedObservations(4, 15 minutes);
+        // BATCH-M3 H7: 6 obs so the 30-min lookup window can anchor on a non-bypass
+        // slot (latest=obs#6, anchor target = T+30m before latest → obs#3 then obs#4).
+        _seedObservations(6, 15 minutes);
 
         // Warp to exactly MAX_STALENESS — should still work
         vm.warp(block.timestamp + 2 hours);
@@ -334,13 +346,11 @@ contract TegridyTWAPTest is Test {
     }
 
     function test_consult_succeedsAtMaxPeriod() public {
-        // PASS7-TWAP-01 FIX: dropping the `&& found` carve-out at L738 means
-        // consult can no longer anchor on the bypassed bootstrap (FRESH-EYES H-3
-        // marks slot 0 as bypassed). 48 writes fill the buffer leaving slot 0
-        // as the bootstrap; one MORE write overwrites slot 0 with a non-bypassed
-        // observation, so all anchors are honest. Consult at max period
-        // (12h = MAX_OBSERVATIONS * MIN_PERIOD) then succeeds.
-        _seedObservations(49, 15 minutes);
+        // BATCH-M3 H7: the self-bootstrap grace marks obs 1, 2, AND 3 bypassed.
+        // We need to overwrite ALL three bypassed slots in the 48-buffer before
+        // a max-period consult can anchor. 48 writes fill it; obs 49,50,51
+        // overwrite slots 0,1,2 with non-bypass observations.
+        _seedObservations(51, 15 minutes);
 
         uint256 maxPeriod = uint256(48) * 15 minutes;
         uint256 amountOut = twap.consult(address(pair), address(tokenA), 1 ether, maxPeriod);

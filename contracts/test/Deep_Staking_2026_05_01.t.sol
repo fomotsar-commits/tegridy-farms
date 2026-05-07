@@ -42,7 +42,10 @@ contract Deep_Staking_2026_05_01_Test is Test {
     function setUp() public {
         token = new MockTokenDeep();
         nft = new MockJBACDeep();
-        staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        // BATCH-J2 H8: kick reverts if pending rewards exceed unsettled cap
+        // (100k ether). Drop reward rate from 1 ether/sec → 1e14/sec so
+        // 5-7d accrual stays well under the cap regardless of stake size.
+        staking = new TegridyStaking(address(token), address(nft), treasury, 1e14);
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
 
@@ -106,17 +109,21 @@ contract Deep_Staking_2026_05_01_Test is Test {
 
     // ─── DS-02 (High) — kick settles pre-expiry rewards into unsettled ──
 
-    /// @notice DS-02 regression: kicking an expired position MUST settle the
-    ///         holder's pre-expiry rewards into `unsettledRewards[holder]`
-    ///         BEFORE decay zeros boostedAmount. Pre-fix, kick ran decay
-    ///         directly and the holder's pre-expiry yield was permanently
-    ///         unreachable.
+    /// @notice DS-02 regression: kicking an expired position MUST credit the
+    ///         holder's pre-expiry rewards into `unsettledRewards[holder]` (or
+    ///         pay them out via _getReward) BEFORE decay zeros boostedAmount.
+    ///         Pre-fix, kick ran decay directly and the holder's pre-expiry
+    ///         yield was permanently unreachable.
+    /// @dev    BATCH-J2 H8: kick now reverts `KickWouldForfeit` if any portion
+    ///         of pending rewards would not fit in the unsettledRewards cap.
+    ///         Stake sized so accrued rewards stay under 100_000e18 cap; that
+    ///         lets the kick succeed and we can assert unsettled was credited.
     function test_kick_settlesPreExpiryRewardsToUnsettled() public {
         vm.warp(1000);
         vm.prank(alice);
-        staking.stake(500_000 ether, 7 days);
+        staking.stake(50_000 ether, 7 days);
         vm.prank(bob);
-        staking.stake(500_000 ether, 365 days); // keep totalBoostedStake non-zero post-decay
+        staking.stake(50_000 ether, 365 days); // keep totalBoostedStake non-zero post-decay
 
         uint256 aliceTid = staking.userTokenId(alice);
 
@@ -165,11 +172,14 @@ contract Deep_Staking_2026_05_01_Test is Test {
     }
 
     function test_kick_revertsOnAlreadyDecayed() public {
+        // BATCH-J2 H8: smaller stake so accrued rewards fit unsettled cap and
+        // kick succeeds the first time (otherwise it reverts KickWouldForfeit
+        // and we never reach the second-kick NoOpKick assertion).
         vm.warp(1000);
         vm.prank(alice);
-        staking.stake(500_000 ether, 7 days);
+        staking.stake(50_000 ether, 7 days);
         vm.prank(bob);
-        staking.stake(500_000 ether, 365 days);
+        staking.stake(50_000 ether, 365 days);
         uint256 aliceTid = staking.userTokenId(alice);
 
         vm.warp(1000 + 7 days + 1);

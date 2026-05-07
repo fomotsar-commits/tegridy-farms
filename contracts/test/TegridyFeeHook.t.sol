@@ -571,6 +571,9 @@ contract TF_INT_02_ConvertTest is Test {
     }
 
     /// @notice Empty balance → NothingToConvert.
+    /// @dev    BATCH-L4 M6: minETHOut now has a 1e14 floor (`InsufficientETHOut`)
+    ///         that fires BEFORE the NothingToConvert check. Use a min above the
+    ///         floor so we still exercise the zero-balance NothingToConvert path.
     function test_convertERC20FeesToETH_zeroBalanceReverts() public {
         address[] memory path = new address[](2);
         path[0] = address(token);
@@ -581,7 +584,7 @@ contract TF_INT_02_ConvertTest is Test {
             address(token),
             address(router),
             path,
-            0,
+            1e14,
             block.timestamp + 5 minutes
         );
     }

@@ -90,12 +90,13 @@ contract R021_GaugeControllerTest is Test {
     }
 
     function _buildBallot() internal view returns (address[] memory gauges, uint256[] memory weights) {
+        // BATCH-J4 C4: per-vote per-gauge cap is 5000 BPS. Flip to 5000/5000.
         gauges = new address[](2);
         gauges[0] = gauge1;
         gauges[1] = gauge2;
         weights = new uint256[](2);
-        weights[0] = 6000;
-        weights[1] = 4000;
+        weights[0] = 5000;
+        weights[1] = 5000;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -108,18 +109,21 @@ contract R021_GaugeControllerTest is Test {
         // to silently complete the removal while leaving the dead gauge's weight
         // in `totalWeightByEpoch`, diluting every surviving gauge. This test now
         // verifies the new revert path.
+        // BATCH-J4 C4: per-vote per-gauge cap is 5000 BPS — split across 2 gauges.
         uint256 aliceId = aliceTokenId;
         uint256 bobId = bobTokenId;
 
-        address[] memory aliceGauges = new address[](1);
-        uint256[] memory aliceWeights = new uint256[](1);
-        aliceGauges[0] = gauge1; aliceWeights[0] = 10000;
+        address[] memory aliceGauges = new address[](2);
+        uint256[] memory aliceWeights = new uint256[](2);
+        aliceGauges[0] = gauge1; aliceWeights[0] = 5000;
+        aliceGauges[1] = gauge2; aliceWeights[1] = 5000;
         vm.prank(alice);
         gauge.vote(aliceId, aliceGauges, aliceWeights);
 
-        address[] memory bobGauges = new address[](1);
-        uint256[] memory bobWeights = new uint256[](1);
-        bobGauges[0] = gauge2; bobWeights[0] = 10000;
+        address[] memory bobGauges = new address[](2);
+        uint256[] memory bobWeights = new uint256[](2);
+        bobGauges[0] = gauge2; bobWeights[0] = 5000;
+        bobGauges[1] = gauge1; bobWeights[1] = 5000;
         vm.prank(bob);
         gauge.vote(bobId, bobGauges, bobWeights);
 

@@ -1144,15 +1144,20 @@ contract TegridyLendingTest is Test {
     // BONUS: Protocol fee change affects future repayments, not past
     // ═══════════════════════════════════════════════════════════════════
 
+    /// @dev BATCH-D H9: protocolFeeBpsAtCreate is now snapshotted at loan
+    ///      creation; mid-loan fee changes do NOT retroactively apply. This
+    ///      test inverts the prior pre-H9 expectation: treasury fee at repay
+    ///      time still uses the ORIGINAL 5% fee, not the new 8% fee.
     function test_feeChangeMidLoan_usesNewFee() public {
         uint256 loanId = _createAndAcceptLoan();
+        uint256 oldFee = lending.protocolFeeBps();
 
         // Change protocol fee from 5% to 8% mid-loan
         lendingAdmin.proposeProtocolFeeChange(800);
         vm.warp(block.timestamp + 48 hours);
         lendingAdmin.executeProtocolFeeChange();
 
-        assertEq(lending.protocolFeeBps(), 800);
+        assertEq(lending.protocolFeeBps(), 800, "live fee did update");
 
         // Warp more for interest
         vm.warp(block.timestamp + 10 days);
@@ -1165,12 +1170,15 @@ contract TegridyLendingTest is Test {
         vm.prank(alice);
         lending.repayLoan{value: repaymentAmount}(loanId);
 
-        // Treasury fee should be 8% of interest (new fee)
+        // BATCH-D H9: treasury fee uses the OFFER-TIME fee snapshot (oldFee = 500),
+        // not the live 800. This prevents post-creation fee bumps from drainin
+        // borrowers who already accepted under the prior fee.
         (,,,,,,uint256 startTime,,,,) = lending.getLoan(loanId);
         uint256 interest = lending.calculateInterest(1 ether, 1000, startTime, block.timestamp);
-        uint256 expectedFee = (interest * 800) / 10000;
+        uint256 expectedFee = (interest * oldFee) / 10000;
 
-        assertEq(treasury.balance - treasuryBefore, expectedFee);
+        assertEq(treasury.balance - treasuryBefore, expectedFee,
+            "BATCH-D H9: fee snapshotted at offer time, not bumped to live rate");
     }
 
     // ═══════════════════════════════════════════════════════════════════

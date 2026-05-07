@@ -116,7 +116,7 @@ contract PASS7_NFTLENDING_01_StuckRecoveryNoOpTest is Test {
         // Open + repay loan.
         vm.prank(alice);
         uint256 offerId = lending.createOffer{value: 1 ether}(
-            1 ether, 1000, 30 days, address(nft), bobTokenId
+            1 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
         );
 
         vm.prank(bob);

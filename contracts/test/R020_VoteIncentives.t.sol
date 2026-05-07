@@ -113,6 +113,13 @@ contract R020_VoteIncentivesTest is Test {
         bribesAdmin = new VoteIncentivesAdmin(address(bribes));
         bribes.setVoteIncentivesAdmin(address(bribesAdmin));
 
+        // BATCH-F H14: commitRevealEnabled defaults to true. The R020 suite
+        // tests the legacy migration path which assumed the flag started false,
+        // so we force-disable here to preserve the test's intent. The test
+        // body then verifies that timelocked enable still flips the flag on.
+        // Slot 10 is `commitRevealEnabled` (verified via forge inspect storageLayout).
+        vm.store(address(bribes), bytes32(uint256(10)), bytes32(uint256(0)));
+
         // Whitelist bribeToken via the timelock flow.
         bribesAdmin.proposeWhitelistChange(address(bribeToken), true);
         vm.warp(block.timestamp + 24 hours + 1);

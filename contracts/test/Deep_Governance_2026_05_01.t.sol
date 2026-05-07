@@ -119,6 +119,10 @@ contract DeepGov01_VoteIncentivesTest is Test {
         vm.warp(block.timestamp + 24 hours + 1);
         viAdmin.executeWhitelistChange();
 
+        // BATCH-F H14: commitRevealEnabled = true at deploy. Force-disable so the
+        // legacy `vote()` path under test stays exerciseable. Slot 10 is the flag.
+        vm.store(address(vi), bytes32(uint256(10)), bytes32(uint256(0)));
+
         vm.warp(block.timestamp + 7 days);
         vi.advanceEpoch();
     }
@@ -219,20 +223,23 @@ contract DeepGov03_14_GaugeControllerTest is Test {
     ///         the new pure-proportional semantic: weights sum to exactly BPS,
     ///         no cap, no leak.
     function test_GaugeRelativeWeight_renormalizes() public {
-        // alice votes 80% to g1, 20% to g2.
+        // BATCH-J4 C4: per-vote per-gauge cap is 5000 BPS. No single gauge can
+        // receive >50% from one voter's allocation. Use 50/50 splits.
+        // alice votes 50% to g1, 50% to g2.
         uint256 aliceTokenId = staking.userTokenId(alice);
         address[] memory g_a = new address[](2);
         uint256[] memory w_a = new uint256[](2);
-        g_a[0] = g1; w_a[0] = 8000;
-        g_a[1] = g2; w_a[1] = 2000;
+        g_a[0] = g1; w_a[0] = 5000;
+        g_a[1] = g2; w_a[1] = 5000;
         vm.prank(alice);
         gauge.vote(aliceTokenId, g_a, w_a);
 
-        // bob votes 100% to g3.
+        // bob votes 50% to g3, 50% to g1 (so g1 has bigger combined share).
         uint256 bobTokenId = staking.userTokenId(bob);
-        address[] memory g_b = new address[](1);
-        uint256[] memory w_b = new uint256[](1);
-        g_b[0] = g3; w_b[0] = 10000;
+        address[] memory g_b = new address[](2);
+        uint256[] memory w_b = new uint256[](2);
+        g_b[0] = g3; w_b[0] = 5000;
+        g_b[1] = g1; w_b[1] = 5000;
         vm.prank(bob);
         gauge.vote(bobTokenId, g_b, w_b);
 
@@ -240,9 +247,8 @@ contract DeepGov03_14_GaugeControllerTest is Test {
         uint256 g2w = gauge.getRelativeWeight(g2);
         uint256 g3w = gauge.getRelativeWeight(g3);
 
-        // Pure proportional distribution — no cap, no leak.
-        // Sum should equal BPS exactly (modulo 1-2 wei rounding).
-        assertGt(g1w, g2w, "g1 should have largest share");
+        // Pure proportional distribution — no cap leak from the relative-weight side.
+        assertGt(g1w, g2w, "g1 should have largest share (alice 50% + bob 50%)");
         assertGt(g1w, g3w, "g1 should outweigh g3");
         assertLe(g1w + g2w + g3w, 10000, "sum bounded by BPS");
         // Sum ≈ BPS (no leak) — no per-gauge cap removes the structural
@@ -253,11 +259,12 @@ contract DeepGov03_14_GaugeControllerTest is Test {
     /// @notice DEEP-GOV-14: executeRemoveGauge reverts mid-epoch when the gauge
     ///         already has votes cast for the current epoch.
     function test_executeRemoveGauge_revertsOnActiveEpochVotes() public {
-        // alice votes some weight to g1.
+        // BATCH-J4 C4: per-vote per-gauge cap is 5000 BPS. Use 2-gauge split.
         uint256 aliceTokenId = staking.userTokenId(alice);
-        address[] memory g_a = new address[](1);
-        uint256[] memory w_a = new uint256[](1);
-        g_a[0] = g1; w_a[0] = 10000;
+        address[] memory g_a = new address[](2);
+        uint256[] memory w_a = new uint256[](2);
+        g_a[0] = g1; w_a[0] = 5000;
+        g_a[1] = g2; w_a[1] = 5000;
         vm.prank(alice);
         gauge.vote(aliceTokenId, g_a, w_a);
 

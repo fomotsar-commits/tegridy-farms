@@ -96,15 +96,26 @@ contract Pass7_Gauge_DuplicateOnReAdd is Test {
         gauge.executeAddGauge();
         assertTrue(gauge.isGauge(gaugeAddr), "gauge added");
 
+        // BATCH-J4 C4: per-vote per-gauge cap = 5000 BPS. Add a 2nd gauge so the
+        // setUp's vote can split 50/50 across two gauges and still exercise the
+        // primary gauge having votes.
+        address gaugeAddr2 = makeAddr("gaugeG2");
+        vm.etch(gaugeAddr2, hex"60006000fd");
+        address pairAddr2 = address(uint160(gaugeAddr2) ^ uint160(1));
+        vm.etch(pairAddr2, hex"60006000fd");
+        gauge.proposeAddGauge(gaugeAddr2, pairAddr2);
+        skip(25 hours);
+        gauge.executeAddGauge();
+
         // Advance one epoch so the staker checkpoint is in-range.
         vm.warp(block.timestamp + 7 days);
 
         // Vote on the gauge so it has weight in the current epoch.
         uint256 tokenId = staking.userTokenId(alice);
-        address[] memory gauges = new address[](1);
-        uint256[] memory weights = new uint256[](1);
-        gauges[0] = gaugeAddr;
-        weights[0] = 10000;
+        address[] memory gauges = new address[](2);
+        uint256[] memory weights = new uint256[](2);
+        gauges[0] = gaugeAddr;  weights[0] = 5000;
+        gauges[1] = gaugeAddr2; weights[1] = 5000;
         vm.prank(alice);
         gauge.vote(tokenId, gauges, weights);
         assertGt(gauge.getGaugeWeight(gaugeAddr), 0, "gauge has votes");

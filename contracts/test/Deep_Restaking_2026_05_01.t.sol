@@ -50,7 +50,10 @@ contract DeepRestakingTest is Test {
     address carol = makeAddr("carol");
     address treasury = makeAddr("treasury");
 
-    uint256 constant REWARD_RATE = 1 ether;
+    // BATCH-J2 H8: REWARD_RATE drops to 1e14/sec so 30-day accrual stays under
+    // the unsettled cap. BONUS_RATE is a separate stream — keep it at the old
+    // value to preserve assertion math.
+    uint256 constant REWARD_RATE = 1e14;
     uint256 constant BONUS_RATE = 0.1 ether;
     uint256 constant STAKE_AMOUNT = 100_000 ether;
 

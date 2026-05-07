@@ -663,13 +663,13 @@ contract Audit195Restaking is Test {
     }
 
     function test_sweepStuckRewards_sweepsRandomToken() public {
-        // Create a random token stuck in the contract
+        // BATCH-J1 H17: sweepStuckRewards now routes to address(staking), not owner.
         A195_MockWETH randomToken = new A195_MockWETH();
         randomToken.transfer(address(restaking), 100 ether);
 
-        uint256 ownerBefore = randomToken.balanceOf(owner);
+        uint256 stakingBefore = randomToken.balanceOf(address(staking));
         restaking.sweepStuckRewards(address(randomToken));
-        assertEq(randomToken.balanceOf(owner) - ownerBefore, 100 ether, "Should sweep random token to owner");
+        assertEq(randomToken.balanceOf(address(staking)) - stakingBefore, 100 ether, "Should sweep random token to staking");
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -679,12 +679,14 @@ contract Audit195Restaking is Test {
     function test_rescueNFT_revertIfActivelyRestaked() public {
         uint256 tokenId = _stakeAndRestake(alice, STAKE_AMOUNT);
 
-        vm.expectRevert("ACTIVELY_RESTAKED");
+        vm.expectRevert(TegridyRestaking.BadParam.selector); // BATCH-N4: typed error replaces "ACTIVELY_RESTAKED"
         restaking.rescueNFT(tokenId, bob);
     }
 
     function test_rescueNFT_revertZeroAddress() public {
-        vm.expectRevert("ZERO_ADDRESS");
+        // BATCH-J1 H18: rescueNFT now requires _to == address(staking), not !=0.
+        // address(0) trips the same require with new typed-error revert.
+        vm.expectRevert(TegridyRestaking.BadParam.selector);
         restaking.rescueNFT(1, address(0));
     }
 
@@ -803,7 +805,7 @@ contract Audit195Restaking is Test {
         restaking.proposeAttributeStuckRewards(alice, 1 ether);
         vm.warp(block.timestamp + 24 hours + 1);
 
-        vm.expectRevert("EXCEEDS_UNATTRIBUTED");
+        vm.expectRevert(TegridyRestaking.BadParam.selector); // BATCH-N4: typed error
         restaking.executeAttributeStuckRewards();
     }
 

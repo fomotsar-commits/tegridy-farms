@@ -549,7 +549,7 @@ contract AuditR014LendingTest is Test {
         // Lender (bob) creates an offer pinned to alice's tokenId.
         vm.prank(bob);
         uint256 offerId = nftLending.createOffer{value: 1 ether}(
-            1 ether, 1000, 30 days, address(collection), tokenId
+            1 ether, 1000, 30 days, address(collection), tokenId, uint64(block.timestamp + 30 days)
         );
 
         // Alice accepts the offer to lock the loan in.
@@ -687,14 +687,14 @@ contract AuditR014LendingTest is Test {
         vm.prank(bob);
         vm.expectRevert(TegridyNFTLending.CollectionPendingRemoval.selector);
         nftLending.createOffer{value: 1 ether}(
-            1 ether, 1000, 30 days, address(collection), tokenId
+            1 ether, 1000, 30 days, address(collection), tokenId, uint64(block.timestamp + 30 days)
         );
 
         // Owner cancels the removal — offers can be created again.
         nftLending.cancelRemoveCollection();
         vm.prank(bob);
         nftLending.createOffer{value: 1 ether}(
-            1 ether, 1000, 30 days, address(collection), tokenId
+            1 ether, 1000, 30 days, address(collection), tokenId, uint64(block.timestamp + 30 days)
         );
     }
 

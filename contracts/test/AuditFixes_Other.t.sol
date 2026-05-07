@@ -84,6 +84,16 @@ contract MockVotingEscrow {
         return uint256(uint160(user)) == tokenId;
     }
 
+    /// @dev BATCH-A C3: historical denominator — mock returns current total.
+    function totalBoostedStakeAtTimestamp(uint256) external view returns (uint256) {
+        return _totalBoostedStake;
+    }
+
+    /// @dev BATCH-E H11: proposer-must-have-single-position rule — mock returns 1.
+    function userPositionCount(address) external pure returns (uint256) {
+        return 1;
+    }
+
     function positions(uint256 tokenId) external view returns (
         uint256 amount, uint256, uint256, uint256 lockEndVal,
         uint256, bool, int256, uint256, bool, uint256, bool

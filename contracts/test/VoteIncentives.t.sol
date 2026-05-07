@@ -169,6 +169,13 @@ contract VoteIncentivesTest is Test {
         // very first test-level `advanceEpoch()` succeeds.
         vm.warp(block.timestamp + 7 days);
 
+        // BATCH-F H14: commitRevealEnabled = true at deploy. Many legacy-vote tests
+        // exercise the older `vote()` path which reverts `LegacyVoteOnCommitRevealEpoch`
+        // on commit-reveal epochs. Force-disable for those tests; the `_enableCommitReveal`
+        // helper re-enables for the dedicated commit-reveal tests.
+        // Slot 10 is `commitRevealEnabled` (verified via forge inspect storageLayout).
+        vm.store(address(vi), bytes32(uint256(10)), bytes32(uint256(0)));
+
         // Fund alice and bob
         bribeToken.transfer(alice, 100_000e18);
         bribeToken.transfer(bob, 100_000e18);
@@ -305,6 +312,9 @@ contract VoteIncentivesTest is Test {
         vm.prank(bob);
         vi.vote(0, pair, 3000e18);
 
+        // BATCH-H M14: skip past VOTE_DEADLINE before claiming.
+        vm.warp(block.timestamp + vi.VOTE_DEADLINE() + 1);
+
         // Alice has 70% of votes, Bob has 30%
         uint256 netBribe = amount - (amount * 300 / 10000);
         uint256 aliceExpected = (netBribe * 7000e18) / 10000e18; // 70%
@@ -323,6 +333,9 @@ contract VoteIncentivesTest is Test {
 
     function test_claimBribes_reverts_nothing() public {
         vi.advanceEpoch();
+        // BATCH-H M14: claim is gated until block.timestamp > epoch.timestamp + VOTE_DEADLINE.
+        // Skip past the vote window so we can verify the NothingToClaim path.
+        vm.warp(block.timestamp + vi.VOTE_DEADLINE() + 1);
         // Carol has no voting power
         address carol = address(0xCA201);
         vm.prank(carol);
@@ -350,6 +363,9 @@ contract VoteIncentivesTest is Test {
         vi.vote(0, pair, 7000e18);
         vm.prank(bob);
         vi.vote(0, pair, 3000e18);
+
+        // BATCH-H M14: skip past VOTE_DEADLINE before claiming.
+        vm.warp(block.timestamp + vi.VOTE_DEADLINE() + 1);
 
         uint256 netBribe = amount - (amount * 300 / 10000);
         uint256 aliceExpected = (netBribe * 7000e18) / 10000e18;
@@ -386,6 +402,9 @@ contract VoteIncentivesTest is Test {
         vm.prank(alice);
         vi.vote(1, pair, 7000e18);
 
+        // BATCH-H M14: skip past VOTE_DEADLINE so both epochs' claim windows are open.
+        vm.warp(block.timestamp + vi.VOTE_DEADLINE() + 1);
+
         uint256 aliceBefore = bribeToken.balanceOf(alice);
         vm.prank(alice);
         vi.claimBribesBatch(0, 2, pair);
@@ -405,6 +424,9 @@ contract VoteIncentivesTest is Test {
         // V2: Must vote before claiming
         vm.prank(alice);
         vi.vote(0, pair, 7000e18);
+
+        // BATCH-H M14: skip past VOTE_DEADLINE before claiming.
+        vm.warp(block.timestamp + vi.VOTE_DEADLINE() + 1);
 
         vm.prank(alice);
         vi.claimBribes(0, pair);
@@ -611,6 +633,9 @@ contract VoteIncentivesTest is Test {
         vm.prank(bob);
         vi.vote(0, pair, 3000e18);
 
+        // BATCH-H M14: skip past VOTE_DEADLINE before claiming.
+        vm.warp(block.timestamp + vi.VOTE_DEADLINE() + 1);
+
         uint256 balBefore = bribeToken.balanceOf(alice);
         vm.prank(alice);
         vi.claimBribes(0, pair);
@@ -630,11 +655,11 @@ contract VoteIncentivesTest is Test {
     // give them enough balance to cover bonds (10 TOWELI each).
 
     function _enableCommitReveal() internal returns (uint256 epochId) {
-        // AUDIT NEW-G5: the instant owner flip was replaced with a 24h timelock
-        // (propose → wait → execute). Mirror the real governance flow here.
-        viAdmin.proposeEnableCommitReveal();
-        vm.warp(block.timestamp + 24 hours + 1);
-        viAdmin.executeEnableCommitReveal();
+        // BATCH-F H14: commit-reveal is enabled by default at deploy. setUp()
+        // force-disables for legacy-vote test compatibility; we flip it back on
+        // here via the same direct storage write so the new epoch is commit-reveal.
+        // (Pre-fix this called proposeEnableCommitReveal → wait 24h → execute.)
+        vm.store(address(vi), bytes32(uint256(10)), bytes32(uint256(1)));
         vi.advanceEpoch();
         epochId = vi.epochCount() - 1;
         // epochs[epochId].timestamp = block.timestamp - 1 (set in advanceEpoch).
@@ -850,26 +875,21 @@ contract VoteIncentivesTest is Test {
         assertEq(alice.balance - aliceBefore, expectedNet, "alice reclaims her own net bribe");
     }
 
-    /// @notice AUDIT NEW-G2: the rescue delay now runs from the LATEST deposit.
-    ///         After alice+bob both deposit with bob's last at T+15d, at T+30d+1
-    ///         the gate (T+45d) has not yet elapsed — refund must revert.
+    /// @notice BATCH-N2 M12: the rescue delay is now PER-DEPOSITOR. Each user's
+    ///         own 30-day clock gates THEIR refund. To verify the gate fires,
+    ///         we deposit and try to refund 1 second before the 30-day window.
     function test_NEWG2_rescueDelayBlocksEarlyRefund() public {
         uint256 epoch = vi.currentEpoch();
 
+        uint256 t0 = block.timestamp;
+
+        // Alice deposits at t0.
         vm.deal(alice, 1 ether);
         vm.prank(alice);
         vi.depositBribeETH{value: 1 ether}(pair);
 
-        // Bob's deposit sets epochBribeLastDeposit to this timestamp.
-        uint256 bobDepositTs = 2_000_000;
-        vm.warp(bobDepositTs);
-        vm.deal(bob, 1 ether);
-        vm.prank(bob);
-        vi.depositBribeETH{value: 1 ether}(pair);
-
-        // At bobDepositTs + 30 days - 1, the gate (bobDepositTs + 30 days) has NOT
-        // elapsed yet — refund must revert. BRIBE_RESCUE_DELAY = 30 days = 2_592_000s.
-        vm.warp(bobDepositTs + 2_592_000 - 1);
+        // 1 second before alice's own 30d window — must revert RESCUE_TOO_EARLY.
+        vm.warp(t0 + 30 days - 1);
         vm.prank(alice);
         vm.expectRevert(bytes("RESCUE_TOO_EARLY"));
         vi.refundOrphanedBribe(epoch, pair, address(0));
@@ -912,8 +932,11 @@ contract VoteIncentivesTest is Test {
         vi.rescueOrphanedBribes(epoch, pair, address(0));
     }
 
-    /// @notice AUDIT NEW-G2: depositor who didn't fund THIS specific bucket
-    ///         can't refund it. Prevents griefers from claiming others' funds.
+    /// @notice AUDIT NEW-G2 + BATCH-N2 M12: depositor who didn't fund THIS specific
+    ///         bucket can't refund it. Prevents griefers from claiming others' funds.
+    /// @dev    M12 changed lastBribeDeposit lookup from per-pair-token to per-user,
+    ///         so a non-depositor now hits "NO_BRIBES_IN_EPOCH" before the
+    ///         "NOTHING_TO_REFUND" amount check fires.
     function test_NEWG2_refundOnlyForDepositor() public {
         uint256 epoch = vi.currentEpoch();
         vm.deal(alice, 1 ether);
@@ -922,7 +945,7 @@ contract VoteIncentivesTest is Test {
         vm.warp(block.timestamp + 30 days + 1);
 
         vm.prank(bob);
-        vm.expectRevert(bytes("NOTHING_TO_REFUND"));
+        vm.expectRevert(bytes("NO_BRIBES_IN_EPOCH"));
         vi.refundOrphanedBribe(epoch, pair, address(0));
     }
 
@@ -937,9 +960,19 @@ contract VoteIncentivesTest is Test {
         vi.enableCommitReveal();
     }
 
+    /// @dev BATCH-F H14: commitRevealEnabled is true at deploy. To exercise the
+    ///      propose/execute admin-recovery path we have to simulate the disabled
+    ///      state via a direct storage write. Slot 10 is `commitRevealEnabled`
+    ///      (verified via `forge inspect VoteIncentives storageLayout`).
+    function _forceDisableCommitReveal() internal {
+        vm.store(address(vi), bytes32(uint256(10)), bytes32(uint256(0)));
+        require(!vi.commitRevealEnabled(), "force-disable failed");
+    }
+
     /// @notice AUDIT NEW-G5: proposing sets the 24h timer; executing before
     ///         the delay elapses must revert.
     function test_NEWG5_proposeThenExecuteTooEarlyReverts() public {
+        _forceDisableCommitReveal();
         viAdmin.proposeEnableCommitReveal();
         vm.expectRevert();
         viAdmin.executeEnableCommitReveal();
@@ -948,6 +981,7 @@ contract VoteIncentivesTest is Test {
     /// @notice AUDIT NEW-G5: happy path — propose, wait 24h, execute flips
     ///         `commitRevealEnabled = true`. Subsequent proposal is idempotent.
     function test_NEWG5_proposeThenExecuteAfterDelayFlipsFlag() public {
+        _forceDisableCommitReveal();
         assertFalse(vi.commitRevealEnabled());
         viAdmin.proposeEnableCommitReveal();
         vm.warp(block.timestamp + 24 hours + 1);
@@ -961,6 +995,7 @@ contract VoteIncentivesTest is Test {
 
     /// @notice AUDIT NEW-G5: proposal can be cancelled before execute.
     function test_NEWG5_cancelBeforeExecute() public {
+        _forceDisableCommitReveal();
         viAdmin.proposeEnableCommitReveal();
         viAdmin.cancelEnableCommitReveal();
         vm.warp(block.timestamp + 24 hours + 1);

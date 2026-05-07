@@ -167,7 +167,10 @@ contract AuditR014OracleTest is Test {
         uint256 spotPrice0 = (uint256(r1) * (2 ** 112)) / r0;
         uint256 expected = spotPrice0 * uint256(elapsed);
         assertEq(obs1.price0Cumulative, expected, "TWAP integrated the idle window via the bridge term");
-        assertFalse(obs1.bypassed, "1h gap is well below DEVIATION_BYPASS_AFTER");
+        // BATCH-M3 H7: obs 2 is now self-bootstrap-bypassed (count <= 2 grace window).
+        // The bypassed flag is orthogonal to the bridge-cumulative semantics this test
+        // exercises, but observation #2 is now `bypassed = true` regardless of the gap.
+        assertTrue(obs1.bypassed, "obs#2 is in the self-bootstrap grace window");
     }
 
     /// @notice After a long dormancy (> DEVIATION_BYPASS_AFTER), the next update
@@ -238,26 +241,32 @@ contract AuditR014OracleTest is Test {
     ///         2^31). The plain-comparison version of the search would silently
     ///         degrade once `targetTimestamp` wrapped past zero.
     function test_R014_twap_consultWrapAwareAcrossYear2106() public {
-        // Park ourselves just shy of the uint32 rollover so the next set of
-        // observations straddles it. Arbitrum-era L2 timestamps don't actually
-        // wrap until 2106-02-07; we synthesise the moment.
-        uint256 wrapAt = uint256(type(uint32).max) - 30 minutes; // 2106-02-07T06:28:13 UTC -ish
+        // BATCH-M3 H7: obs 1, 2, 3 are now self-bootstrap-bypassed. Need ≥6 obs
+        // so the 30-min consult anchor can land on a non-bypass slot.
+        // Park ourselves further before the uint32 rollover so all 6 spaced-out
+        // observations straddle the wrap. Each step is 16 min (MIN_PERIOD = 15).
+        uint256 max32 = uint256(type(uint32).max);
+        uint256 wrapAt = max32 - 200 minutes;
         vm.warp(wrapAt);
 
-        // Bootstrap two pre-wrap observations.
-        twap.update(address(pair));
-        vm.warp(block.timestamp + 16 minutes);
-        twap.update(address(pair));
+        twap.update(address(pair));                                 // #1 bypass at wrapAt
+        vm.warp(wrapAt + 16 minutes);
+        twap.update(address(pair));                                 // #2 bypass
+        vm.warp(wrapAt + 32 minutes);
+        twap.update(address(pair));                                 // #3 bypass
 
-        // Cross the rollover with a third, post-wrap observation.
-        vm.warp(uint256(type(uint32).max) + 16 minutes);
-        twap.update(address(pair));
+        // Cross the rollover with later, post-wrap observations.
+        vm.warp(max32 + 16 minutes);                                // ~16 sec past wrap
+        twap.update(address(pair));                                 // #4 non-bypass
+        vm.warp(max32 + 32 minutes);
+        twap.update(address(pair));                                 // #5 non-bypass
+        vm.warp(max32 + 48 minutes);
+        twap.update(address(pair));                                 // #6 non-bypass (latest)
 
         // Confirm consult resolves to a legitimate (non-zero) TWAP across the wrap
         // — the canonical regression here is that the pre-wrap observations would
         // appear "after" the post-wrap target under the old non-wrap-aware test
-        // and the lookup would fall back to the oldest entry, mis-sizing the
-        // window.
+        // and the lookup would fall back to the oldest entry, mis-sizing the window.
         uint256 amountOut = twap.consult(address(pair), address(tokenA), 1 ether, 30 minutes);
         assertGt(amountOut, 0, "consult succeeds over a wrap-spanning window");
     }

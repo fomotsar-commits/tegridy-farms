@@ -103,10 +103,13 @@ contract GaugeControllerTest is Test {
     // ── Voting ──────────────────────────────────────────────────────
 
     function test_vote_basic() public {
+        // BATCH-J4 C4: per-vote per-gauge cap is 50% (MAX_WEIGHT_PER_GAUGE_BPS=5000),
+        // so the test must split across at least 2 gauges to satisfy WeightsMustSumToBPS.
         uint256 tokenId = staking.userTokenId(alice);
-        address[] memory g = new address[](1);
-        uint256[] memory w = new uint256[](1);
-        g[0] = gauge1; w[0] = 10000;
+        address[] memory g = new address[](2);
+        uint256[] memory w = new uint256[](2);
+        g[0] = gauge1; w[0] = 5000;
+        g[1] = gauge2; w[1] = 5000;
         vm.prank(alice);
         gauge.vote(tokenId, g, w);
         assertGt(gauge.getGaugeWeight(gauge1), 0);
@@ -151,10 +154,12 @@ contract GaugeControllerTest is Test {
     }
 
     function test_vote_doubleVoteSameEpochReverts() public {
+        // BATCH-J4 C4: split across 2 gauges to satisfy 5000 BPS per-gauge cap.
         uint256 tokenId = staking.userTokenId(alice);
-        address[] memory g = new address[](1);
-        uint256[] memory w = new uint256[](1);
-        g[0] = gauge1; w[0] = 10000;
+        address[] memory g = new address[](2);
+        uint256[] memory w = new uint256[](2);
+        g[0] = gauge1; w[0] = 5000;
+        g[1] = gauge2; w[1] = 5000;
         vm.prank(alice);
         gauge.vote(tokenId, g, w);
         vm.prank(alice);
@@ -163,10 +168,12 @@ contract GaugeControllerTest is Test {
     }
 
     function test_vote_newEpochAllowsRevote() public {
+        // BATCH-J4 C4: split across 2 gauges to satisfy 5000 BPS per-gauge cap.
         uint256 tokenId = staking.userTokenId(alice);
-        address[] memory g = new address[](1);
-        uint256[] memory w = new uint256[](1);
-        g[0] = gauge1; w[0] = 10000;
+        address[] memory g = new address[](2);
+        uint256[] memory w = new uint256[](2);
+        g[0] = gauge1; w[0] = 5000;
+        g[1] = gauge2; w[1] = 5000;
         vm.prank(alice);
         gauge.vote(tokenId, g, w);
         vm.warp(block.timestamp + 7 days + 1);
@@ -177,19 +184,26 @@ contract GaugeControllerTest is Test {
     // ── Weight Queries ──────────────────────────────────────────────
 
     function test_getRelativeWeight() public {
+        // BATCH-J4 C4: split across 2 gauges per voter to satisfy 5000 BPS cap.
+        // Alice → 50% gauge1 + 50% gauge3; Bob → 50% gauge2 + 50% gauge3.
+        // Aggregate: gauge1 = alice/2, gauge2 = bob/2, gauge3 = (alice+bob)/2.
         uint256 aliceId = staking.userTokenId(alice);
         uint256 bobId = staking.userTokenId(bob);
-        address[] memory g = new address[](1);
-        uint256[] memory w = new uint256[](1);
-        g[0] = gauge1; w[0] = 10000;
+        address[] memory g = new address[](2);
+        uint256[] memory w = new uint256[](2);
+        w[0] = 5000; w[1] = 5000;
+        g[0] = gauge1; g[1] = gauge3;
         vm.prank(alice);
         gauge.vote(aliceId, g, w);
-        g[0] = gauge2;
+        g[0] = gauge2; g[1] = gauge3;
         vm.prank(bob);
         gauge.vote(bobId, g, w);
-        // Equal stakers => ~50% each
-        assertApproxEqAbs(gauge.getRelativeWeight(gauge1), 5000, 10);
-        assertApproxEqAbs(gauge.getRelativeWeight(gauge2), 5000, 10);
+        // Alice and Bob have equal stake. Each splits 50/50 across 2 gauges.
+        // gauge1 has 25% (alice's half), gauge2 has 25% (bob's half),
+        // gauge3 has 50% (alice's half + bob's half).
+        assertApproxEqAbs(gauge.getRelativeWeight(gauge1), 2500, 10);
+        assertApproxEqAbs(gauge.getRelativeWeight(gauge2), 2500, 10);
+        assertApproxEqAbs(gauge.getRelativeWeight(gauge3), 5000, 10);
     }
 
     // ── Gauge Removal ──────────────────────────────────────────────
@@ -212,14 +226,18 @@ contract GaugeControllerTest is Test {
     // ── Voting Power Source ──────────────────────────────────────────
 
     function test_votingPower_fromStaking() public {
+        // BATCH-J4 C4: per-vote per-gauge cap is 5000 BPS — split across 2 gauges.
+        // Alice's full power is split 50/50 so gauge1 gets exactly half of expectedPower.
         uint256 tokenId = staking.userTokenId(alice);
         (uint256 amount,,,, uint16 boostBps,,,,,,) = staking.positions(tokenId);
         uint256 expectedPower = (amount * uint256(boostBps)) / 10000;
-        address[] memory g = new address[](1);
-        uint256[] memory w = new uint256[](1);
-        g[0] = gauge1; w[0] = 10000;
+        address[] memory g = new address[](2);
+        uint256[] memory w = new uint256[](2);
+        g[0] = gauge1; w[0] = 5000;
+        g[1] = gauge2; w[1] = 5000;
         vm.prank(alice);
         gauge.vote(tokenId, g, w);
-        assertEq(gauge.getGaugeWeight(gauge1), expectedPower);
+        assertEq(gauge.getGaugeWeight(gauge1), expectedPower / 2);
+        assertEq(gauge.getGaugeWeight(gauge2), expectedPower / 2);
     }
 }

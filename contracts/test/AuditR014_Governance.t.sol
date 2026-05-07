@@ -137,6 +137,16 @@ contract MockVE_R014G {
     function holdsToken(address user, uint256 tokenId) external pure returns (bool) {
         return uint256(uint160(user)) == tokenId;
     }
+
+    /// @dev BATCH-A C3: historical denominator — mock returns current total.
+    function totalBoostedStakeAtTimestamp(uint256) external view returns (uint256) {
+        return totalLocked;
+    }
+
+    /// @dev BATCH-E H11: proposer-must-have-single-position rule — mock returns 1.
+    function userPositionCount(address) external pure returns (uint256) {
+        return 1;
+    }
 }
 
 /// @dev WETH mock kept here for interface parity (these tests don't exercise the WETH path).

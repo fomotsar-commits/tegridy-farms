@@ -131,7 +131,9 @@ contract Audit195Factory is Test {
 
         address pair = factory.createPair(address(tokenA), address(tokenB));
 
-        bytes32 salt = keccak256(abi.encodePacked(t0, t1));
+        // BATCH-L4 M2: salt now includes chainid + factory address to prevent
+        // cross-chain CREATE2 collisions. Mirror that here.
+        bytes32 salt = keccak256(abi.encode(block.chainid, address(factory), t0, t1));
         bytes32 initCodeHash = keccak256(type(TegridyPair).creationCode);
         address predicted = address(uint160(uint256(keccak256(abi.encodePacked(
             bytes1(0xff),

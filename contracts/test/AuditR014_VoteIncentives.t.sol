@@ -114,6 +114,12 @@ contract AuditR014_VoteIncentivesTest is Test {
         bribesAdmin = new VoteIncentivesAdmin(address(bribes));
         bribes.setVoteIncentivesAdmin(address(bribesAdmin));
 
+        // BATCH-F H14: commitRevealEnabled defaults to true. The legacy-epoch
+        // tests need the flag OFF at deploy. Slot 10 = the flag (forge inspect).
+        // Tests that need the commit-reveal branch flip it back on via the
+        // timelock path mid-test.
+        vm.store(address(bribes), bytes32(uint256(10)), bytes32(uint256(0)));
+
         // Whitelist bribeToken via the timelock flow.
         bribesAdmin.proposeWhitelistChange(address(bribeToken), true);
         vm.warp(block.timestamp + 24 hours + 1);
@@ -241,6 +247,9 @@ contract AuditR014_VoteIncentivesTest is Test {
         bribes.vote(unfinalized, address(pair), 1_000 ether);
         vm.prank(bob);
         bribes.vote(unfinalized, address(pair), 4_000 ether);
+
+        // BATCH-H M14: skip past VOTE_DEADLINE so claim window is open.
+        vm.warp(block.timestamp + bribes.VOTE_DEADLINE() + 1);
 
         // Claim bribes — share is computed from the CONFIRMED pool only.
         uint256 net = 10_000 ether - (10_000 ether * FEE_BPS / bribes.BPS());

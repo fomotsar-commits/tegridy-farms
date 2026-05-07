@@ -133,6 +133,10 @@ contract AuditDemonstrationTest is Test {
         bribesAdmin = new VoteIncentivesAdmin(address(bribes));
         bribes.setVoteIncentivesAdmin(address(bribesAdmin));
 
+        // BATCH-F H14: commitRevealEnabled = true at deploy. Force-disable so
+        // legacy `vote()` path under test stays exerciseable. Slot 10 = the flag.
+        vm.store(address(bribes), bytes32(uint256(10)), bytes32(uint256(0)));
+
         // Whitelist brbA via timelocked path
         bribesAdmin.proposeWhitelistChange(address(brbA), true);
         vm.warp(block.timestamp + 24 hours + 1);

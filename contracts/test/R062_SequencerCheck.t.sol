@@ -119,17 +119,19 @@ contract R062SequencerCheckTest is Test {
     }
 
     function _bootstrap(TegridyTWAP _twap) internal {
-        // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): TWAP HIGH-3 — first observation now
-        // sets bypassed=true so consult() refuses lookup windows that anchor on the
-        // bootstrap. Seed ≥3 observations so a 15-min lookup window can land on a
-        // non-bypass slot (originally seeded only 2). `skip()` is used over
-        // `vm.warp(block.timestamp + N)` so each warp advances reliably across
-        // back-to-back calls.
-        _twap.update(address(pair));               // bypassed bootstrap
+        // BATCH-M3 H7: obs 1, 2, 3 are now self-bootstrap-bypassed. Seed ≥5 obs
+        // so the 15-min consult anchor can land on a non-bypass slot. Pre-fix
+        // only obs#1 was bypassed; H7 now bypasses #2 and #3 as well to give the
+        // oracle a 3-slot self-correction window before deviation enforcement.
+        _twap.update(address(pair));               // #1 bypassed bootstrap
         skip(16 minutes);
-        _twap.update(address(pair));               // non-bypass
+        _twap.update(address(pair));               // #2 bypassed (self-bootstrap grace)
         skip(16 minutes);
-        _twap.update(address(pair));               // non-bypass (latest)
+        _twap.update(address(pair));               // #3 bypassed (self-bootstrap grace)
+        skip(16 minutes);
+        _twap.update(address(pair));               // #4 non-bypass
+        skip(16 minutes);
+        _twap.update(address(pair));               // #5 non-bypass (latest)
     }
 
     // ─── Mainnet posture (no-op) ─────────────────────────────────────

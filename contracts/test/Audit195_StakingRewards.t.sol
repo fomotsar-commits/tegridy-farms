@@ -42,7 +42,7 @@ contract Audit195StakingRewards is Test {
 
     uint256 constant REWARD_RATE = 1 ether; // 1 TOWELI/s
     uint256 constant MIN_STAKE = 100e18;
-    uint256 constant ACC_PRECISION = 1e12;
+    uint256 constant ACC_PRECISION = 1e18; // BATCH-N1 M1: bumped from 1e12 (Synthetix StakingRewards canonical)
     uint256 constant BOOST_PRECISION = 10000;
     uint256 constant MIN_LOCK = 7 days;
     uint256 constant MAX_LOCK = 4 * 365 days;

@@ -81,12 +81,21 @@ contract DeepAMMTest is Test {
     // ─── D-AMM-H1: bypass branch is owner-only ──────────────────────
 
     function test_DAmmH1_bypassBranch_ownerOnly() public {
-        twap.update(address(pair));
-        vm.warp(block.timestamp + 30 minutes);
-        twap.update(address(pair));
+        // BATCH-M3 H7: obs 1, 2, 3 are now self-bootstrap-bypassed regardless
+        // of dormancy gap. The owner-only `BypassObservationOwnerOnly` branch
+        // only fires from observation #4 onwards (when the deviation gate is
+        // armed and `elapsed > DEVIATION_BYPASS_AFTER`). Seed 3 obs first.
+        // Use `skip` instead of consecutive `vm.warp(block.timestamp + ...)` —
+        // the latter reads `block.timestamp` before the prior cheatcode lands.
+        twap.update(address(pair));                         // #1 bypass
+        skip(30 minutes);
+        twap.update(address(pair));                         // #2 bypass
+        skip(30 minutes);
+        twap.update(address(pair));                         // #3 bypass
 
-        // Wait > DEVIATION_BYPASS_AFTER (1 day) so the bypass branch fires.
-        vm.warp(block.timestamp + 2 days);
+        // Wait > DEVIATION_BYPASS_AFTER (1 day) so the dormancy bypass branch
+        // fires on observation #4 (which IS subject to deviation enforcement).
+        skip(2 days);
 
         vm.prank(alice);
         vm.expectRevert(TegridyTWAP.BypassObservationOwnerOnly.selector);

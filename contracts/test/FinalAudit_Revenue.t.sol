@@ -122,6 +122,16 @@ contract FA_MockVEGrants {
         if (powers[user] == 0) return false;
         return tokenId == uint256(uint160(user));
     }
+
+    /// @dev BATCH-A C3: historical denominator — mock returns current total.
+    function totalBoostedStakeAtTimestamp(uint256) external view returns (uint256) {
+        return totalBoostedStakeVal;
+    }
+
+    /// @dev BATCH-E H11: proposer-must-have-single-position rule — mock returns 1.
+    function userPositionCount(address) external pure returns (uint256) {
+        return 1;
+    }
 }
 
 contract FA_MockStaking {

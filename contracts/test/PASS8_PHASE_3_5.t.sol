@@ -148,7 +148,7 @@ contract PASS8_PHASE_3_5 is Test {
         uint256 offerId = lending.createLoanOffer{value: 1 ether}(
             1000, 30 days, address(staking), 1000 ether, 0
         );
-        (,,,,,,,,,, uint64 expiry) = lending.offers(offerId);
+        (,,,,,,,,,, uint64 expiry,) = lending.offers(offerId);
         assertEq(expiry, uint64(block.timestamp + lending.MAX_OFFER_VALIDITY()));
     }
 
@@ -159,7 +159,7 @@ contract PASS8_PHASE_3_5 is Test {
         uint256 offerId = lending.createLoanOfferWithExpiry{value: 1 ether}(
             1000, 30 days, address(staking), 1000 ether, 0, customExpiry
         );
-        (,,,,,,,,,, uint64 expiry) = lending.offers(offerId);
+        (,,,,,,,,,, uint64 expiry,) = lending.offers(offerId);
         assertEq(expiry, customExpiry);
     }
 

@@ -51,6 +51,11 @@ contract MockVE195 {
         return totalLocked;
     }
 
+    /// @dev BATCH-A C3: historical denominator — mock returns current total.
+    function totalBoostedStakeAtTimestamp(uint256) external view returns (uint256) {
+        return totalLocked;
+    }
+
     function userTokenId(address user) external pure returns (uint256) {
         // AUDIT NEW-G7 mock convenience: non-zero per-address default so proposers
         // automatically satisfy the new ProposerMissingStakingPointer guard.
@@ -59,6 +64,11 @@ contract MockVE195 {
 
     function holdsToken(address user, uint256 tokenId) external pure returns (bool) {
         return uint256(uint160(user)) == tokenId;
+    }
+
+    /// @dev BATCH-E H11: proposer-must-have-single-position rule — mock returns 1.
+    function userPositionCount(address) external pure returns (uint256) {
+        return 1;
     }
 }
 

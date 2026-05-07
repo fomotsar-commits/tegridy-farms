@@ -92,12 +92,14 @@ contract GaugeCommitRevealTest is Test {
     }
 
     function _buildBallot() internal view returns (address[] memory gauges, uint256[] memory weights) {
+        // BATCH-J4 C4: per-vote per-gauge cap is 5000 BPS. Original 6000/4000
+        // split breaks the cap; flip to a 5000/5000 split that satisfies it.
         gauges = new address[](2);
         gauges[0] = gauge1;
         gauges[1] = gauge2;
         weights = new uint256[](2);
-        weights[0] = 6000;
-        weights[1] = 4000;
+        weights[0] = 5000;
+        weights[1] = 5000;
     }
 
     // ═══════════════════════════════════════════════════════════════

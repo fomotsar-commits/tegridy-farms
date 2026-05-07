@@ -133,8 +133,11 @@ contract Pass6_LD_NEW_H1_CrossLoanTest is Test {
         toweli = new P6_MockToweli();
         jbac = new P6_MockJBAC();
         weth = new P6_MockWETH();
-        // Stake-rate large enough that kick credits are non-trivial in tests.
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1e18);
+        // BATCH-J2 H8: kick now reverts KickWouldForfeit if pending rewards
+        // exceed the unsettled cap (100k ether). At 1e18/sec rewardRate, 7 days
+        // of accrual = 604,800 ether — way over cap. Drop rate to 1e14/sec so
+        // 7-day accrual stays well under the cap (604.8 ether < 100k).
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1e14);
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
 
@@ -335,8 +338,9 @@ contract Pass6_LD_NEW_H1_CrossProtocolMirrorTest is Test {
         jbac = new P6_MockJBAC();
         weth = new P6_MockWETH();
 
-        // Reward rate is non-trivial so a kick credits a meaningful slice.
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1e18);
+        // BATCH-J2 H8: kick reverts if pending rewards exceed unsettled cap.
+        // 1e18/sec * 7d = 604,800 ether > 100k cap. Use 1e14/sec instead.
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1e14);
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
 
@@ -558,7 +562,7 @@ contract Pass6_LD_NEW_H2_NoOpTransferTest is Test {
         // Alice creates a loan offer for Bob's NFT.
         vm.prank(alice);
         uint256 offerId = lending.createOffer{value: 1 ether}(
-            1 ether, 1000, 30 days, address(nft), bobTokenId
+            1 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
         );
 
         // Bob accepts — NFT escrowed in lending. Note: inbound transferFrom is
@@ -637,9 +641,12 @@ contract Pass6_TWAP_DisabledPair_LendingTest is Test {
     ///         downstream consumers (lending oracle, POL harvest) act on
     ///         poisoned data even while the pair was disabled.
     function test_TWAP_HIGH_2_consultRevertsWhenPairDisabled() public {
-        // Seed observations honestly (4 obs to clear the FRESH-EYES H-3
-        // bypassed-bootstrap window for any consult period ≤ 30 minutes).
+        // BATCH-M3 H7: obs 1, 2, 3 all bypassed (self-bootstrap grace). Need 6
+        // obs at 16-min spacing so the 30-min consult anchor lands on a
+        // non-bypass slot.
         twap.update(address(pair));
+        skip(16 minutes); twap.update(address(pair));
+        skip(16 minutes); twap.update(address(pair));
         skip(16 minutes); twap.update(address(pair));
         skip(16 minutes); twap.update(address(pair));
         skip(16 minutes); twap.update(address(pair));

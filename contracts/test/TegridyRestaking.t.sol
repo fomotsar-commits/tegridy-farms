@@ -62,7 +62,12 @@ contract TegridyRestakingTest is Test {
     address bob = makeAddr("bob");
     address treasury = makeAddr("treasury");
 
-    uint256 constant REWARD_RATE = 1 ether;
+    // BATCH-J2 H8: kick reverts if pending rewards (REWARD_RATE-driven) exceed
+    // unsettled cap (100k). Drop REWARD_RATE from 1e18/sec → 1e14/sec so 30-day
+    // accrual stays under cap. BONUS_RATE controls a separate accrual stream
+    // that doesn't go through the unsettled cap, so leave it at the old value
+    // to keep prior assertion math intact.
+    uint256 constant REWARD_RATE = 1e14;
     uint256 constant BONUS_RATE = 0.1 ether;
     uint256 constant STAKE_AMOUNT = 100_000 ether;
 

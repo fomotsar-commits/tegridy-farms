@@ -58,6 +58,16 @@ contract MockVEGrants {
         uint256 effective = id == 0 ? uint256(uint160(user)) : id;
         return effective == tokenId;
     }
+
+    /// @dev BATCH-A C3: historical denominator — mock returns current total.
+    function totalBoostedStakeAtTimestamp(uint256) external view returns (uint256) {
+        return totalLocked;
+    }
+
+    /// @dev BATCH-E H11: proposer-must-have-single-position rule — mock returns 1.
+    function userPositionCount(address) external pure returns (uint256) {
+        return 1;
+    }
 }
 
 /// @dev Mock WETH that always reverts on deposit — ensures both ETH and WETH paths fail for FailedExecution tests
