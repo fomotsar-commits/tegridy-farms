@@ -264,7 +264,15 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     /// @notice Admin switch. Flip to true; next `advanceEpoch()` will flag
     /// the new epoch `usesCommitReveal = true`. Epochs created before the
     /// flip keep their legacy behaviour. Once flipped, leave it on.
-    bool public commitRevealEnabled;
+    /// @dev    AUDIT FIX (BATCH-F H14): defaults to TRUE so fresh deployments
+    ///         start with commit-reveal active from epoch 0. Pre-fix, the
+    ///         field defaulted to false, meaning all initial epochs ran with
+    ///         the see-bribes-then-vote legacy path until the admin flipped
+    ///         it via the 24h-timelocked applyEnableCommitReveal call. That
+    ///         left an N-epoch window of bribe-arbitrage-by-design at every
+    ///         relaunch. Hidden Hand v2 / Aerodrome ship commit-reveal ON
+    ///         from genesis for the same reason.
+    bool public commitRevealEnabled = true;
 
     struct CommitInfo {
         bytes32 commitHash;  // keccak256(chainid, addr, user, epoch, pair, power, salt)

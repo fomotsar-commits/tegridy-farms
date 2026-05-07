@@ -551,8 +551,19 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///         Only the bounty creator can complete it (owner cannot override).
     ///         SECURITY FIX #15: Requires minimum vote quorum and dispute period.
     ///         AUDIT FIX M-20/M-06: State finalized before external call; on failure, credits pendingPayouts.
+    /// @dev    AUDIT FIX (BATCH-F H16): removed `whenNotPaused`. Pre-fix this was
+    ///         pause-gated, but creator-side `cancelBounty`/`refundStaleBounty`
+    ///         were NOT — meaning a captured-key owner could pause to block the
+    ///         winner's settlement while creators (potentially colluding) still
+    ///         drained their refundable paths. Pause should freeze creation/entry
+    ///         paths (createBounty, submitWork, voteForSubmission — already
+    ///         `whenNotPaused`) but NOT the settlement/exit path. OZ Pausable
+    ///         best practice: a paused contract should always honor in-progress
+    ///         exits to prevent fund-trapping. Pre-existing pendingPayouts
+    ///         pull-pattern (M-20/M-06) already handles the failed-receive case;
+    ///         winners now have a complete pause-resilient settlement path.
     /// @param _bountyId The bounty ID to complete and pay out
-    function completeBounty(uint256 _bountyId) external nonReentrant whenNotPaused {
+    function completeBounty(uint256 _bountyId) external nonReentrant {
         if (_bountyId >= bounties.length) revert InvalidBounty();
         Bounty storage bounty = bounties[_bountyId];
         if (bounty.status != BountyStatus.Open) revert BountyNotOpen();
