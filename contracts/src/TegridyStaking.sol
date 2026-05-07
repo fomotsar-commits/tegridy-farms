@@ -426,6 +426,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     error JbacVaultAlreadySet();
     error NotRewardNotifier(); // SIZE-OPT: replaces revert("NOT_NOTIFIER")
     error NoOpKick(); // AUDIT FIX: DEEP-DS-07 — kick on non-expired or already-decayed position
+    error KickWouldForfeit(); // AUDIT FIX (BATCH-J2 H8): kick aborted to avoid reward destruction
     error PendingLendingPositions(); // AUDIT FIX: DEEP-DS-10 — revoking lending while NFTs escrowed
     error NotAContract(); // AUDIT FIX: DEEP-DS-12 — first-time admin setter must be a contract
 
@@ -1141,15 +1142,23 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
                     }
                 }
             }
-            // Final forfeited slice — what neither rewardPool nor unsettled cap absorbed.
-            // Loud kick-specific event so monitors don't miss it.
-            uint256 forfeitedTotal = pending - totalSettled;
-            if (forfeitedTotal > 0) {
-                emit RewardsForfeitedDuringKick(holder, forfeitedTotal);
-                // Keep the legacy RewardsForfeited event firing for backward compat
-                // with off-chain consumers that already index it from _getReward.
-                emit RewardsForfeited(holder, forfeitedTotal);
-            }
+            // AUDIT FIX (BATCH-J2 H8): revert kick when ANY portion of pending
+            // rewards would be forfeited. Pre-fix, the forfeited slice was
+            // emitted via RewardsForfeitedDuringKick + RewardsForfeited and
+            // PERMANENTLY DESTROYED for the kicked holder (the slice re-accrued
+            // to all active stakers via the next _accumulateRewards cycle —
+            // positive-sum protocol but zero-sum for the holder). Attacker
+            // could frontrun a whale's claim, kick the tokenId, saturate the
+            // 100k unsettled cap, and burn the whale's surplus.
+            // Curve LiquidityGaugeV4.kick NEVER forfeits — it credits the
+            // FULL pending slice into integrate_fraction unconditionally.
+            // Mirror that semantic here: if we cannot fully credit the
+            // pending amount (because reward-pool shortfall + unsettled cap
+            // collectively block it), abort the kick. The holder retains
+            // their boost (anti-dilution defense weakens when bucket is
+            // saturated), and a subsequent kick after the holder claims
+            // succeeds. NEVER destroy user value silently.
+            if (totalSettled < pending) revert KickWouldForfeit();
             // AUDIT FIX: DS2-01 — advance p.rewardDebt by ONLY the actually-credited
             // slice.
             // AUDIT FIX DS3-04: previous NatSpec falsely claimed "forfeited
