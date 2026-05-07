@@ -198,7 +198,11 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
         uint256 _delta,
         uint256 _feeBps,
         uint256[] calldata initialTokenIds
-    ) external payable whenNotPaused returns (address pool) {
+    ) external payable whenNotPaused nonReentrant returns (address pool) {
+        // AUDIT FIX (BATCH-H M9): added `nonReentrant`. Pre-fix, a malicious
+        // `nftCollection` whose `safeTransferFrom` reentered `createPool` could
+        // bypass MAX_POOLS_PER_COLLECTION (the cap is read at re-entry before
+        // outer push) and deploy multiple pools in one tx. Defense-in-depth.
         if (nftCollection == address(0)) revert ZeroAddress();
         require(nftCollection.code.length > 0, "NOT_CONTRACT");
         // AUDIT FIX (pass-8): C5 / LOOP-01 — MIN_DEPOSIT raised to 0.05 ETH

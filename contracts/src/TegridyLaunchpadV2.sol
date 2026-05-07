@@ -205,8 +205,13 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
         // 32-byte length prefix, eliminating the collision class. DO NOT
         // refactor to encodePacked for "gas savings" — the saving is sub-100
         // gas and trades it for a real CREATE2 front-run vector.
+        // AUDIT FIX (BATCH-H M3, mirrors NFTPoolFactory.sol:225-234):
+        // include chainid + address(this) so cross-chain CREATE2 collisions
+        // and same-name/symbol collisions across multiple launchpad deploys
+        // are structurally impossible. NFTPoolFactory got this fix as
+        // DEEP-NFTPOOL-09; Launchpad was the asymmetric outlier.
         bytes32 salt = keccak256(
-            abi.encode(msg.sender, allCollections.length, cfg.name, cfg.symbol)
+            abi.encode(block.chainid, address(this), msg.sender, allCollections.length, cfg.name, cfg.symbol)
         );
 
         collection = Clones.cloneDeterministic(dropTemplate, salt);

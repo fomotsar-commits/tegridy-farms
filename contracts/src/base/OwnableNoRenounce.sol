@@ -84,8 +84,20 @@ abstract contract OwnableNoRenounce is Ownable2Step {
     ///      directly will now correctly trip `OwnerNotContract` when the
     ///      subclass opts in to contract-only ownership.
     function _transferOwnership(address newOwner) internal virtual override {
-        if (_ownerMustBeContract() && newOwner.code.length == 0) {
-            revert OwnerNotContract(newOwner);
+        if (_ownerMustBeContract()) {
+            // AUDIT FIX (BATCH-H M29): EIP-7702 detection. Post-Pectra (live
+            // 2025-05-07), an EOA can delegate to code via `0xef0100 ‖ addr`,
+            // making `code.length == 23` (3-byte prefix + 20-byte address).
+            // Pre-fix, a 7702-EOA passed the `code.length > 0` check, silently
+            // defeating the multisig-only invariant the hook was meant to
+            // enforce. Now we additionally reject `code.length == 23` which is
+            // the 7702 delegation indicator length (genuine multisig contracts
+            // have non-23-byte runtime bytecode). This is the conservative-
+            // direction filter recommended by ERC-7702 §3. Length-only check
+            // avoids inline assembly + stack pressure — sufficient because no
+            // legitimate contract has exactly 23 bytes of runtime code.
+            uint256 codeLen = newOwner.code.length;
+            if (codeLen == 0 || codeLen == 23) revert OwnerNotContract(newOwner);
         }
         super._transferOwnership(newOwner);
     }

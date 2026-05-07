@@ -471,6 +471,9 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         epoch is finalized via `advanceEpoch`. Surfaces clearly in
     ///         vote/claim/preview/dust paths instead of silently zeroing.
     error EpochNotFinalized();
+    /// AUDIT FIX (BATCH-H M14): claim attempted before VOTE_DEADLINE crystallizes
+    /// the totalGaugeVotes denominator (early-claimer over-share defense).
+    error ClaimWindowNotOpen();
     /// @notice AUDIT R016 M-1 (MEDIUM): the targeted pair is currently flagged as
     ///         disabled by the TegridyFactory (governance-timelocked OR guardian
     ///         emergency disable). Bribes against a disabled pair would be wasted —
@@ -763,6 +766,20 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (pair == address(0)) revert InvalidPair();
         // AUDIT FIX: DEEP-GOV-08 — refuse claims for disabled pairs.
         _validatePair(pair);
+
+        // AUDIT FIX (BATCH-H M14): gate claim on post-VOTE_DEADLINE so early
+        // claimers cannot over-share against an in-flight `totalGaugeVotes`
+        // denominator that grows as more voters cast through the vote window.
+        // Pre-fix, an early claimer's share was computed against a smaller
+        // totalVotesForPair, then late voters' arrivals reduced their effective
+        // share — late claimers saw under-pay or insolvency-fallback.
+        // Pattern: Aerodrome gates claim on `nextEpochStart` to ensure the
+        // denominator is fully crystallized before any payout flows.
+        EpochInfo memory _ep = epochs[epoch];
+        uint256 _voteEnd = _ep.usesCommitReveal
+            ? revealDeadline(epoch)
+            : _ep.timestamp + VOTE_DEADLINE;
+        if (block.timestamp <= _voteEnd) revert ClaimWindowNotOpen();
 
         // V2: Use gauge votes instead of raw voting power
         uint256 userVoteForPair = gaugeVotes[msg.sender][epoch][pair];
@@ -1303,8 +1320,15 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
     event MinBribeAmountChangeExecuted(address indexed token, uint256 oldAmount, uint256 newAmount);
 
+    /// AUDIT FIX (BATCH-H M13): cap at 1e24 (1M tokens with 18 decimals).
+    /// Pre-fix, captured admin could set min to type(uint256).max → DoS all
+    /// future deposits of that token until next 24h propose/execute cycle.
+    /// Aave V3 reserve params have analogous on-chain sanity bounds.
+    uint256 public constant MAX_MIN_BRIBE_AMOUNT = 1e24;
+
     function applyMinBribeAmountChange(address token, uint256 amount) external onlyAdmin {
         if (token == address(0)) revert ZeroAddress();
+        if (amount > MAX_MIN_BRIBE_AMOUNT) revert ZeroAmount(); // BATCH-H M13: reuse existing error
         uint256 oldAmount = minBribeAmounts[token];
         minBribeAmounts[token] = amount;
         emit MinBribeAmountChangeExecuted(token, oldAmount, amount);

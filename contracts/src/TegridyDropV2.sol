@@ -43,6 +43,9 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     error AlreadyRevealed();
     error WithdrawFailed();
     error ZeroQuantity();
+    /// AUDIT FIX (BATCH-H M8): per-tx mint quantity cap.
+    error ExceedsMintBatchCap();
+    uint256 internal constant MAX_MINT_PER_TX = 50;
     error InvalidMaxSupply();
     error InvalidFeeBps();
     error InvalidRoyaltyBps();
@@ -497,6 +500,12 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         whenNotPaused
     {
         if (quantity == 0) revert ZeroQuantity();
+        // AUDIT FIX (BATCH-H M8): hard per-tx mint cap. Pre-fix unbounded
+        // `quantity` enabled self-DoS (caller passes maxSupply → tx OOGs)
+        // and indexer/subgraph bloat from huge Transfer event bursts.
+        // 50 matches MAX_POSITIONS_PER_HOLDER on TegridyStaking — same
+        // operational ceiling rationale (fits in block gas, indexable).
+        if (quantity > MAX_MINT_PER_TX) revert ExceedsMintBatchCap();
         if (mintPhase == MintPhase.CLOSED) revert MintClosed();
         if (mintPhase == MintPhase.CANCELLED) revert SaleCancelled();
         if (mintPhase == MintPhase.DUTCH_AUCTION && block.timestamp < dutchStartTime) {

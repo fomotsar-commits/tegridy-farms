@@ -129,6 +129,11 @@ abstract contract TimelockAdmin {
         // and not overridable.
         if (minD < MIN_DELAY) minD = MIN_DELAY;
         uint256 maxD = _maxDelay();
+        // AUDIT FIX (BATCH-H M30): symmetric protocol-wide floor on `_maxDelay()`
+        // override. Pre-fix, a child returning maxD == 0 (or maxD < minD) would
+        // make `delay > maxD` trip on EVERY proposal, permanently bricking the
+        // child's admin surface. Mirror the MIN_DELAY hard-floor on minD above.
+        if (maxD < minD) maxD = MAX_DELAY;
         if (delay < minD) revert DelayTooShort(delay, minD);
         // AUDIT MICROSCOPE_2026_04_30 M-Lib1: cap the per-call delay.
         if (delay > maxD) revert DelayTooLong(delay, maxD);
@@ -145,7 +150,12 @@ abstract contract TimelockAdmin {
         uint256 readyAt = _executeAfter[key];
         if (readyAt == 0) revert NoPendingProposal(key);
         if (block.timestamp < readyAt) revert ProposalNotReady(key);
-        if (block.timestamp > readyAt + _proposalValidity()) revert ProposalExpired(key);
+        // AUDIT FIX (BATCH-H M30): floor _proposalValidity() at MIN_DELAY (1h).
+        // Pre-fix, a child returning 0 would make this comparison `block.timestamp > readyAt`
+        // — a 1-second execution window. Floor mirrors the minD floor in _propose.
+        uint256 validity = _proposalValidity();
+        if (validity < MIN_DELAY) validity = MIN_DELAY;
+        if (block.timestamp > readyAt + validity) revert ProposalExpired(key);
         _executeAfter[key] = 0; // Clear before external effects (CEI)
         emit ProposalExecuted(key);
     }

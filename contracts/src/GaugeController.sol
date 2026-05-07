@@ -337,8 +337,18 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // post-snapshot cannot anchor full pre-divest aggregate gauge weight.
         // AUDIT FIX (pass-8): GOV-ECON-01 / C10 — both reads are additive across
         // staking + restaking so restakers aren't silently denied gauge votes.
+        // AUDIT FIX (BATCH-H M21): use `epochStartTime(epoch) - 1` so OZ Trace208
+        // upperLookup excludes a same-block stake at the epoch boundary. Mirrors
+        // RevenueDistributor's `block.timestamp - 1` pattern (REV-M-01) and the
+        // VotePowerOracle docstring's stated convention. The min-clamp below
+        // already neutralized any economic exploit, but this closes the
+        // doc/code mismatch and removes the boundary-stake-counted-toward-vote
+        // edge case entirely.
         uint256 historicalPower = VotePowerOracle.powerAt(
-            msg.sender, epochStartTime(epoch), address(tegridyStaking), restakingContract
+            msg.sender,
+            epochStartTime(epoch) > 0 ? epochStartTime(epoch) - 1 : 0,
+            address(tegridyStaking),
+            restakingContract
         );
         uint256 currentPower = VotePowerOracle.powerOf(msg.sender, address(tegridyStaking), restakingContract);
         uint256 votingPower = historicalPower < currentPower ? historicalPower : currentPower;
@@ -590,8 +600,18 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // Mirrors legacy vote() so a divested voter cannot reveal stale aggregate
         // power.
         // AUDIT FIX (pass-8): GOV-ECON-01 / C10 — additive read across staking + restaking.
+        // AUDIT FIX (BATCH-H M21): use `epochStartTime(epoch) - 1` so OZ Trace208
+        // upperLookup excludes a same-block stake at the epoch boundary. Mirrors
+        // RevenueDistributor's `block.timestamp - 1` pattern (REV-M-01) and the
+        // VotePowerOracle docstring's stated convention. The min-clamp below
+        // already neutralized any economic exploit, but this closes the
+        // doc/code mismatch and removes the boundary-stake-counted-toward-vote
+        // edge case entirely.
         uint256 historicalPower = VotePowerOracle.powerAt(
-            msg.sender, epochStartTime(epoch), address(tegridyStaking), restakingContract
+            msg.sender,
+            epochStartTime(epoch) > 0 ? epochStartTime(epoch) - 1 : 0,
+            address(tegridyStaking),
+            restakingContract
         );
         uint256 currentVP = VotePowerOracle.powerOf(msg.sender, address(tegridyStaking), restakingContract);
         uint256 votingPower = historicalPower < currentVP ? historicalPower : currentVP;
