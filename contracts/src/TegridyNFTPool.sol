@@ -3,6 +3,8 @@ pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
@@ -110,8 +112,11 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     uint256 public constant PARAMETER_TIMELOCK = 24 hours;
 
     // ─── Errors ─────────────────────────────────────────────────────────
+    using SafeERC20 for IERC20; // AUDIT FIX (BATCH-B H3): for rescueStrandedRoyalty WETH transfer
     error Expired();
     error MaxCostExceeded();
+    /// AUDIT FIX (BATCH-B H3): rescueStrandedRoyalty when WETH balance == 0
+    error NoStrandedRoyalty();
     error TooManyItems();
     error DeltaTooHigh();
     error NotFactory();
@@ -184,6 +189,13 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     ///         most ERC-2981 implementations use a single rate per collection).
     event RoyaltyPaid(address indexed receiver, uint256 amount, uint256 indexed tokenId);
     event RoyaltyFallbackToWETH(address indexed receiver, uint256 amount, uint256 indexed tokenId);
+    /// AUDIT FIX (BATCH-B H3): emitted when both ETH leg AND WETH leg of royalty
+    /// payment fail (mode == 2). The royalty is silently skipped at swap time;
+    /// off-chain monitoring can flag the receiver for `rescueStrandedRoyalty`.
+    event RoyaltyOrphaned(address indexed receiver, uint256 amount, uint256 indexed tokenId);
+    /// AUDIT FIX (BATCH-B H3): emitted when owner sweeps stranded WETH that
+    /// accumulated from one or more `RoyaltyOrphaned` events.
+    event RoyaltyRescued(address indexed to, uint256 amount);
     /// AUDIT FIX: DEEP-NFTPOOL-03
     event OwnerChangeProposed(address indexed oldOwner, address indexed newOwner, uint256 executeAfter);
     event OwnerChanged(address indexed oldOwner, address indexed newOwner);
@@ -962,7 +974,21 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         try IERC2981(address(nftCollection)).royaltyInfo(firstTokenId, totalSale)
             returns (address receiver, uint256 amount)
         {
-            if (receiver == address(0) || amount == 0 || amount >= totalSale) return 0;
+            if (receiver == address(0) || amount == 0) return 0;
+            // AUDIT FIX (BATCH-B H1, Sudoswap V2 LSSVMPair pattern):
+            // Cap royalty at 25% of sale. Without a cap, a malicious or
+            // collection-author-compromised ERC-2981 implementation could
+            // return amount = totalSale - 1 (≈99.999% royalty), draining
+            // sellers down to 1 wei. Sudoswap V2 enforces exactly this with
+            // the bit-shift `saleAmount >> 2` for gas efficiency; we mirror
+            // it. The pre-existing `amount >= totalSale` revert remains as
+            // a redundant outer guard. Refs: sudoswap/lssvm2 LSSVMPair.sol
+            // `_calculateRoyaltiesLogic` — "defends against a rogue Manifold
+            // registry that charges extremely high royalties".
+            if (amount > totalSale >> 2) return 0;
+            // (defensive — the cap above already implies this, but keeps the
+            // explicit invariant readable for downstream auditors)
+            if (amount >= totalSale) return 0;
             (bool success, uint8 mode) =
                 WETHFallbackLib.safeTransferETHOrWrapNoRevert(weth, receiver, amount);
             if (success) {
@@ -972,13 +998,39 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
                 } else {
                     emit RoyaltyPaid(receiver, amount, firstTokenId);
                 }
+            } else {
+                // AUDIT FIX (BATCH-B H3): mode == 2 means BOTH the ETH leg AND
+                // the WETH-deposit leg failed (or the WETH-transfer leg failed
+                // AFTER deposit succeeded — leaving WETH stranded in this pool).
+                // Pre-fix this was silently skipped. Now we emit an event so
+                // off-chain monitoring can flag the orphaned receiver and
+                // governance can use `rescueStrandedRoyalty` (below) to push
+                // the funds to the right place after manual investigation.
+                emit RoyaltyOrphaned(receiver, amount, firstTokenId);
             }
-            // If both legs fail (mode == 2), the royalty is silently skipped
-            // — the swap proceeds with the receiver getting nothing. This
-            // mirrors the OpenSea / Sudoswap V2 behavior where a misbehaving
-            // royalty receiver cannot brick a sale.
         } catch {
             // Collection doesn't implement ERC-2981 (or reverted). Pay zero.
         }
+    }
+
+    /// @notice AUDIT FIX (BATCH-B H3, Sudoswap V2 withdrawERC20 + Aave V3 rescueTokens pattern):
+    ///         Recover stranded WETH that piled up from royalty receiver dual-revert
+    ///         (mode == 2) — the only path by which non-trivial WETH can sit in this
+    ///         contract without being attributable to LP/protocol fees (which are
+    ///         tracked in `accumulatedLPFees` / `accumulatedProtocolFees` ETH).
+    /// @dev    Reservation: forwards ONLY the WETH balance — pool ETH balance and
+    ///         accumulated fee accounting are not touched. Recipient is the pool
+    ///         owner (same trust boundary that already controls withdrawNFTs /
+    ///         withdrawETH / claimLPFees). No timelock — these funds were never
+    ///         supposed to be in the pool, and routing them out same-day matches
+    ///         Sudoswap V2's owner-can-withdraw-anytime model.
+    /// @dev    Emits `RoyaltyRescued` for indexer observability so anyone tracking
+    ///         the orphaned RoyaltyOrphaned event chain can confirm settlement.
+    function rescueStrandedRoyalty() external onlyOwner nonReentrant {
+        IERC20 wethToken = IERC20(weth);
+        uint256 stranded = wethToken.balanceOf(address(this));
+        if (stranded == 0) revert NoStrandedRoyalty();
+        wethToken.safeTransfer(msg.sender, stranded);
+        emit RoyaltyRescued(msg.sender, stranded);
     }
 }
