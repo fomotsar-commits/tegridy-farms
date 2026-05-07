@@ -563,6 +563,13 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         if (deadline < block.timestamp || deadline > block.timestamp + 30 minutes) revert DeadlineOutOfRange();
         if (path.length < 2 || path[0] != currency || path[path.length - 1] != WETH) revert InvalidConversionPath();
         if (ITegridyFeeHookV2Router(router).WETH() != WETH) revert InvalidConversionPath();
+        // AUDIT FIX (BATCH-L4 M6): absolute non-zero minETHOut floor. Pre-fix,
+        // a captured owner could pass minETHOut=1 and accept full sandwich.
+        // 1e14 wei (0.0001 ETH) matches SwapFeeRouter's MIN_MULTIHOP_ETH_OUT_WEI
+        // floor for owner multi-hop paths (DEEP-R3-M01). Caller-supplied
+        // minETHOut can still TIGHTEN above this floor. Bounds the
+        // captured-owner sandwich loss to (twap_value - 1e14).
+        if (minETHOut < 1e14) revert InsufficientETHOut();
 
         // Sync proposal lockout — same gate as `claimFees` so a pending sync can't be
         // raced to drain the ERC20 balance during the 24h timelock.

@@ -184,7 +184,14 @@ contract TegridyFactory is TimelockAdmin {
 
         // Deploy new pair contract
         bytes memory bytecode = type(TegridyPair).creationCode;
-        bytes32 salt = keccak256(abi.encodePacked(token0, token1));
+        // AUDIT FIX (BATCH-L4 M2, mirrors NFTPoolFactory + LaunchpadV2 M3):
+        // include chainid + factory so cross-chain CREATE2 collisions and
+        // pre-deployed-elsewhere squatting are structurally impossible.
+        // NOTE: this changes the deterministic pair address. Existing v1
+        // deployments compute salt as keccak(token0,token1); new deployments
+        // produce different addresses. Acceptable for the Wave-0 relaunch
+        // (no cross-version address compatibility required).
+        bytes32 salt = keccak256(abi.encode(block.chainid, address(this), token0, token1));
         assembly {
             pair := create2(0, add(bytecode, 32), mload(bytecode), salt)
         }
