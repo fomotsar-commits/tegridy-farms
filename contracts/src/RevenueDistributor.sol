@@ -298,7 +298,16 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
 
     // ─── Receive ETH ──────────────────────────────────────────────────
 
+    /// AUDIT FIX (BATCH-I M35): mirror POLAccumulator + SwapFeeRouter pass-8
+    /// batch-18 monotonic ETH-ingress counter so off-chain monitoring can
+    /// reconcile inflows symmetrically across all three ETH-receiving sister
+    /// contracts. Also catches selfdestruct/coinbase ETH that bypasses
+    /// `receive()` only when off-chain readers diff this counter against
+    /// `address(this).balance` (a divergence flags donation drift).
+    uint256 public totalETHReceived;
+
     receive() external payable {
+        unchecked { totalETHReceived += msg.value; }
         emit ETHReceived(msg.sender, msg.value);
     }
 

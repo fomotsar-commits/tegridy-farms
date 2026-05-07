@@ -1447,6 +1447,24 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         delete restakers[msg.sender];
         _writeBoostCheckpoint(msg.sender, 0); // AUDIT H-8
 
+        // AUDIT FIX (BATCH-I M27): sweep unforwardedBaseRewards in the same
+        // call so a user whose position is force-closed doesn't see their
+        // legitimate revalidateBoost-credited rewards orphaned. Pre-fix the
+        // standard claim path required `restakers[msg.sender].tokenId != 0`
+        // — but `recoverStuckPrincipal` deletes that record (above), so any
+        // unforwardedBaseRewards balance was unrecoverable forever.
+        uint256 stuckBase = unforwardedBaseRewards[msg.sender];
+        if (stuckBase > 0) {
+            unforwardedBaseRewards[msg.sender] = 0;
+            if (stuckBase <= totalUnforwardedBase) totalUnforwardedBase -= stuckBase;
+            uint256 baseBal = rewardToken.balanceOf(address(this));
+            uint256 paid = stuckBase > baseBal ? baseBal : stuckBase;
+            if (paid > 0) {
+                rewardToken.safeTransfer(msg.sender, paid);
+                emit BaseClaimed(msg.sender, paid);
+            }
+        }
+
         if (payout > 0) {
             totalRecoveredPrincipal += payout;
             rewardToken.safeTransfer(msg.sender, payout);
@@ -2066,4 +2084,5 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         if (msg.sender != address(staking)) revert OnlyStakingNFT();
         return IERC721Receiver.onERC721Received.selector;
     }
+
 }

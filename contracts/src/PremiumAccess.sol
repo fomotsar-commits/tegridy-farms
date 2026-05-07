@@ -244,6 +244,12 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     /// @param maxCost Maximum TOWELI the caller is willing to pay (front-running protection)
     function subscribe(uint256 months, uint256 maxCost) external nonReentrant whenNotPaused {
         if (months == 0) revert ZeroMonths();
+        // AUDIT FIX (BATCH-I M23): cap `months` at 120 (10 years). Pre-fix,
+        // unbounded `months` enabled (a) overflow grief on `monthlyFeeToweli * months`
+        // when months ≈ type(uint256).max, and (b) post-extension `expiresAt`
+        // landing near year-9999, making cancel-refund pro-rata round to zero.
+        // 120 covers any realistic prepayment horizon.
+        require(months <= 120, "MONTHS_TOO_HIGH");
 
         uint256 cost = monthlyFeeToweli * months;
         // AUDIT FIX M-11: Protect against fee front-running

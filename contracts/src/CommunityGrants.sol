@@ -869,6 +869,39 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         emit ProposalLapsed(_proposalId);
     }
 
+    /// @notice AUDIT FIX (BATCH-I M11): permissionless lapse for STALE ACTIVE
+    ///         proposals — those past `deadline` that never reached
+    ///         MIN_UNIQUE_VOTERS, so `finalizeProposal` permanently reverts
+    ///         INSUFFICIENT_VOTERS. Pre-fix, those slots occupied
+    ///         `MAX_ACTIVE_PROPOSALS = 50` forever; sybil-flood attacker could
+    ///         pay 50 × PROPOSAL_FEE to lock the entire pipeline until owner
+    ///         manually `cancelProposal`'d each one.
+    /// @dev    Permissionless after deadline + EXECUTION_DEADLINE (matches
+    ///         lapseProposal's grace). Routes the FULL deposit (not the 50%
+    ///         partial-refund) to feeReceiver since the proposer effectively
+    ///         abandoned the proposal — same forfeit semantics as
+    ///         cancelProposal post-deadline.
+    /// @dev    Status flips Active → Rejected (skipping Approved entirely);
+    ///         no refund obligation, no totalApprovedPending impact.
+    function lapseStaleProposal(uint256 _proposalId) external nonReentrant whenNotPaused {
+        if (_proposalId >= proposals.length) revert InvalidProposal();
+        Proposal storage proposal = proposals[_proposalId];
+        if (proposal.status != ProposalStatus.Active) revert ProposalNotActive();
+        if (block.timestamp <= proposal.deadline + EXECUTION_DEADLINE) revert ExecutionDeadlineNotExpired();
+        require(proposalUniqueVoters[_proposalId] < MIN_UNIQUE_VOTERS, "HAS_QUORUM_VOTERS");
+        if (depositRefunded[_proposalId]) revert AlreadyRefunded();
+
+        proposal.status = ProposalStatus.Rejected;
+        activeProposalCount--;
+        depositRefunded[_proposalId] = true;
+        // Forfeit the full PROPOSAL_FEE to feeReceiver (proposer abandoned).
+        uint256 forfeit = PROPOSAL_FEE - PROPOSAL_FEE / 2; // matches partial-refund slot tracked by totalRefundableDeposits
+        totalRefundableDeposits -= forfeit;
+        toweli.safeTransfer(feeReceiver, forfeit);
+        emit DepositRedirectedToFeeReceiver(_proposalId, proposal.proposer, forfeit);
+        emit ProposalLapsed(_proposalId);
+    }
+
     /// @notice Sweep accumulated TOWELI fees (from approved/cancelled proposals) to feeReceiver.
     ///         Protects deposits held for active proposals that may be refunded on rejection.
     function sweepFees() external onlyOwner {

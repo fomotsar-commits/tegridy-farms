@@ -349,6 +349,17 @@ library SequencerCheck {
         // sequencer is up; in the down case we already block via SequencerDown.
         if (answer != 0) return 0;
 
+        // AUDIT FIX (BATCH-I M5): symmetric directional check on `startedAt`.
+        // Pre-fix, `checkSequencerUp` rejected `startedAt > block.timestamp`
+        // (v3-LIB-M1) but `getResumeTimestamp` propagated it unmodified.
+        // Consumers compute `resumeAt + GRACE` for observation-validity
+        // gates (TWAP, POL, SwapFeeRouter); a future-dated startedAt would
+        // push that gate arbitrarily far into the future, blocking ALL
+        // existing observations until on-chain time catches up — an
+        // unintended DoS on bridged/relayed feeds with clock skew.
+        // Mirror the line-341 fix: future-dated → treat as no resume info.
+        if (startedAt > block.timestamp) return 0;
+
         return startedAt;
     }
 }

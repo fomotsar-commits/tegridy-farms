@@ -125,7 +125,21 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         ///      create and accept cannot silently redirect a lender's fee.
         ///      Closes the audit-trail-asymmetry and front-running surface.
         address treasuryAtCreate;
+        /// @dev AUDIT FIX (BATCH-I M10, mirrors TegridyLending Phase 3.5 LD-EXP-1):
+        ///      Offer expiry timestamp. Pre-fix, an NFT-lending offer with stale
+        ///      market terms could be accepted indefinitely until the lender
+        ///      remembered to cancelOffer. With NFT collateral particularly, a
+        ///      crash in floor price would let a borrower take a loan against
+        ///      worthless collateral at obsolete favorable terms. Pattern: same
+        ///      shape as TegridyLending's `uint64 expiry` — bounded between
+        ///      MIN_OFFER_VALIDITY and MAX_OFFER_VALIDITY at create-time, and
+        ///      acceptOffer reverts OfferExpired once block.timestamp > expiry.
+        uint64 expiry;
     }
+    uint256 public constant MIN_OFFER_VALIDITY = 1 hours;
+    uint256 public constant MAX_OFFER_VALIDITY = 90 days;
+    error OfferExpired();
+    error InvalidOfferValidity();
 
     struct Loan {
         address borrower;
@@ -388,8 +402,12 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         uint256 _aprBps,
         uint256 _duration,
         address _collateralContract,
-        uint256 _tokenId
+        uint256 _tokenId,
+        uint64 _expiry
     ) external payable nonReentrant whenNotPaused returns (uint256 offerId) {
+        // AUDIT FIX (BATCH-I M10): bound expiry between MIN/MAX_OFFER_VALIDITY.
+        if (_expiry < block.timestamp + MIN_OFFER_VALIDITY ||
+            _expiry > block.timestamp + MAX_OFFER_VALIDITY) revert InvalidOfferValidity();
         if (msg.value == 0) revert ZeroPrincipal();
         if (msg.value != _principal) revert MsgValueMismatch();
         // AUDIT FIX: LD-04 — reject sub-MIN_PRINCIPAL offers. Without this,
@@ -428,7 +446,8 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
             active: true,
             originationFee: originationFee,
             // AUDIT FIX: DEEP-LD2-M3 — snapshot the live treasury at offer creation.
-            treasuryAtCreate: treasury
+            treasuryAtCreate: treasury,
+            expiry: _expiry // BATCH-I M10
         }));
 
         emit LoanOfferCreated(
@@ -472,6 +491,11 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         Offer storage offer = offers[_offerId];
 
         if (!offer.active) revert OfferNotActive();
+        // AUDIT FIX (BATCH-I M10): reject expired offers. Mirrors TegridyLending
+        // Phase 3.5 / batch-15 fix that closed the same stale-quote vector.
+        // Legacy offers (pre-M10 deployments) have expiry == 0 → treat as
+        // backward-compatible "never expires" since lender can always cancelOffer.
+        if (offer.expiry != 0 && block.timestamp > offer.expiry) revert OfferExpired();
 
         uint256 principal = offer.principal;
         uint256 aprBps = offer.aprBps;
