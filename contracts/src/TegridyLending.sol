@@ -375,6 +375,15 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         ///         The lender can still `cancelOffer` an unexpired offer to recover
         ///         their principal + originationFee at any time.
         uint64 expiry;
+        /// @notice AUDIT FIX (BATCH-D H9, mirrors LD3-H3 treasuryAtCreate):
+        ///         Snapshot of `protocolFeeBps` at offer creation, used at
+        ///         `repayLoan` instead of live `protocolFeeBps`. Closes the
+        ///         retroactive-tax-on-in-flight-loans vector — pre-fix, owner
+        ///         could increase fee bps mid-loan and silently siphon up to
+        ///         MAX_PROTOCOL_FEE_BPS (1000 / 10%) of the lender's interest
+        ///         net at every repay. uint16 fits the 0..1000 BPS range with
+        ///         room to spare; storage extension is a half-slot at most.
+        uint16 protocolFeeBpsAtCreate;
     }
 
     struct Loan {
@@ -783,6 +792,14 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
             originationFee: originationFee,
             // AUDIT FIX: LD3-H3 — snapshot the live treasury at offer creation.
             treasuryAtCreate: treasury,
+            // AUDIT FIX (BATCH-D H9, mirrors LD3-H3): snapshot protocolFeeBps at
+            // offer creation so live governance changes cannot retroactively tax
+            // in-flight loans. Lenders quote APR off the post-fee net; if the fee
+            // changes after acceptance, the lender's expected net is silently
+            // reduced. By snapshotting at create-time, the lender's expectation
+            // is contractually pinned. MAX_PROTOCOL_FEE_BPS = 1000 (10%) fits in
+            // uint16 (max 65535) so storage cost is one slot extension only.
+            protocolFeeBpsAtCreate: uint16(protocolFeeBps),
             // AUDIT FIX (pass-8 batch-15): Phase 3.5 — offer expiry.
             expiry: _expiry
         }));
@@ -1048,7 +1065,17 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         }
 
         // Calculate protocol fee on interest
-        uint256 fee = (interest * protocolFeeBps) / BPS;
+        // AUDIT FIX (BATCH-D H9): use the snapshot taken at offer creation
+        // (offer.protocolFeeBpsAtCreate), not live `protocolFeeBps`. Closes
+        // the retroactive-tax surface where a captured-key fee bump silently
+        // re-prices in-flight loans against the lender's net expectation.
+        // Mirrors the LD3-H3 treasuryAtCreate snapshot already used at
+        // origination-fee leg. Backward-compat: for legacy offers created
+        // before this fix (where protocolFeeBpsAtCreate == 0), fall back to
+        // live protocolFeeBps so existing loans don't see free-fee at repay.
+        uint16 snapBps = offers[offerId].protocolFeeBpsAtCreate;
+        uint256 effectiveFeeBps = snapBps == 0 ? protocolFeeBps : uint256(snapBps);
+        uint256 fee = (interest * effectiveFeeBps) / BPS;
         uint256 lenderAmount = principal + interest - fee;
 
         // Return NFT to borrower

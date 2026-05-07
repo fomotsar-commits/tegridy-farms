@@ -72,7 +72,14 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     /// @notice Optional Chainlink L2 Sequencer Uptime feed. address(0) on
     ///         mainnet / non-L2 (no-op). Used in repayLoan to extend the
     ///         deadline grace if the sequencer recently came back up.
-    address public immutable sequencerFeed;
+    /// @dev    AUDIT FIX (BATCH-D H13): one-shot post-deploy setter via
+    ///         setSequencerFeed(). Pre-fix this field was `immutable` and
+    ///         baked to address(0) in constructor (DEEP-LD-M10) — meaning
+    ///         L2 deploys had ZERO sequencer-up protection because there
+    ///         was no setter. Aave V3 PriceOracleSentinel uses a replaceable
+    ///         setter; we use ONE-SHOT (set once, never replace) since this
+    ///         is a single-purpose lending pool, not a multi-market protocol.
+    address public sequencerFeed;
     uint256 public constant SEQUENCER_GRACE_PERIOD = 1 hours;
 
     // ─── Timelock Delays ─────────────────────────────────────────────
@@ -343,6 +350,35 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         emit CollectionWhitelisted(0xd37264c71e9af940e49795F0d3a8336afAaFDdA9);
         emit CollectionWhitelisted(0xd774557b647330C91Bf44cfEAB205095f7E6c367);
         emit CollectionWhitelisted(0xa1De9f93c56C290C48849B1393b09eB616D55dbb);
+    }
+
+    // AUDIT FIX (BATCH-D H13): events + errors for the one-shot setSequencerFeed.
+    event SequencerFeedSet(address indexed feed);
+    error SequencerFeedAlreadySet();
+    error SequencerFeedNotContract();
+
+    /// @notice AUDIT FIX (BATCH-D H13, Aave V3 PriceOracleSentinel pattern):
+    ///         One-shot post-deploy wire of the L2 Chainlink Sequencer Uptime feed.
+    ///         Pre-fix the field was `immutable address(0)` with NO setter — meaning
+    ///         every L2 deploy (Arbitrum / Optimism / Base) had ZERO sequencer-up
+    ///         protection. After a sequencer outage, attackers could re-open the
+    ///         repay/claim grace window at stale collateral values.
+    /// @dev    One-shot (vs Aave V3's replaceable) is appropriate here because this is
+    ///         a single-purpose lending pool, not a multi-market protocol that needs
+    ///         to rotate per-feed. Once set, the deploy is committed; key rotation
+    ///         is via OwnableNoRenounce (Ownable2Step + RenounceDisabled).
+    /// @dev    Validation: address must be a contract (rejects EOAs and EIP-7702
+    ///         delegations whose code length == 23 indicates a delegation pointer
+    ///         rather than a real Chainlink feed implementation). Mainnet deploys
+    ///         simply skip this call → field stays address(0) → SequencerCheck
+    ///         no-ops (which is the documented mainnet path).
+    /// @param  _sequencerFeed  Chainlink L2 Sequencer Uptime feed address.
+    function setSequencerFeed(address _sequencerFeed) external onlyOwner {
+        if (sequencerFeed != address(0)) revert SequencerFeedAlreadySet();
+        if (_sequencerFeed == address(0)) revert ZeroAddress();
+        if (_sequencerFeed.code.length == 0) revert SequencerFeedNotContract();
+        sequencerFeed = _sequencerFeed;
+        emit SequencerFeedSet(_sequencerFeed);
     }
 
     // ─── Loan Offers ─────────────────────────────────────────────────
