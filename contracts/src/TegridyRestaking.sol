@@ -248,6 +248,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     // ─── Errors ─────────────────────────────────────────────────────
     error NotRestaked();
     error AlreadyRestaked();
+    error BadParam(); // BATCH-M2: typed error for compressed require strings (size budget)
     error NotNFTOwner();
     /// @notice REVIEW C-1-FINDING-1: re-restake of a tokenId is blocked while a
     ///         prior restaker still has an unrecovered residual claim.
@@ -312,7 +313,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         if (_bonusRewardToken == address(0)) revert ZeroAddress();
         if (_rewardToken == _bonusRewardToken) revert RewardTokenMatchesBonusToken();
         // AUDIT FIX M-20: Bounds check for bonusRewardPerSecond to prevent extreme values
-        require(_bonusRewardPerSecond <= 10e18, "BONUS_RATE_TOO_HIGH");
+        if (_bonusRewardPerSecond > 10e18) revert BadParam();
         staking = ITegridyStaking(_staking);
         stakingNFT = IERC721(_staking); // TegridyStaking IS the ERC721
         rewardToken = IERC20(_rewardToken);
@@ -601,7 +602,11 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // claim survives the second deposit and they can recover it on their next
         // unrestake.
         address claimant = _residualClaimant[_tokenId];
-        if (claimant != address(0) && claimant != msg.sender) revert TokenIdHasPendingResidual();
+        // AUDIT FIX (BATCH-M2 M28): only block if residue is non-zero. Pre-fix
+        // a stale-but-not-cleared zero-residue record locked re-restake by anyone
+        // but the original claimant.
+        if (claimant != address(0) && claimant != msg.sender
+            && staking.unsettledRewardsByTokenId(_tokenId) > 0) revert TokenIdHasPendingResidual();
 
         // Verify caller owns the NFT
         if (stakingNFT.ownerOf(_tokenId) != msg.sender) revert NotNFTOwner();
@@ -1410,11 +1415,11 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         if (info.tokenId == 0) revert NotRestaked();
 
         // H-01 FIX: Prevent duplicate recovery
-        require(!_hasRecoveredPrincipal[msg.sender], "ALREADY_RECOVERED");
+        if (_hasRecoveredPrincipal[msg.sender]) revert BadParam();
 
         // Verify the underlying position is actually zeroed out (force-closed)
         (uint256 currentAmount,,,,,,,,, , ) = staking.positions(info.tokenId);
-        require(currentAmount == 0, "POSITION_STILL_ACTIVE");
+        if (currentAmount != 0) revert BadParam();
 
         // Calculate how much rewardToken (TOWELI) this contract has beyond tracked obligations.
         // SECURITY FIX: Include totalPendingUnsettled in reserved amount to protect other
@@ -1439,7 +1444,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
         // C-01 FIX: Require non-zero payout. Without this, calling when balance is fully reserved
         // sets hasRecoveredPrincipal=true and deletes state, permanently locking out the user.
-        require(payout > 0, "NO_RECOVERABLE_BALANCE");
+        if (payout == 0) revert BadParam();
 
         // H-01 FIX: Mark as recovered before transfer (CEI pattern)
         _hasRecoveredPrincipal[msg.sender] = true;
@@ -1460,6 +1465,22 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         delete tokenIdToRestaker[info.tokenId];
         delete restakers[msg.sender];
         _writeBoostCheckpoint(msg.sender, 0); // AUDIT H-8
+
+        // AUDIT FIX (BATCH-M2 M27): sweep unforwardedBaseRewards inline. Pre-fix
+        // force-closed user lost their revalidateBoost-credited rewards forever
+        // since restakers[msg.sender] is now deleted. Mirrors unrestake() base-
+        // forward path (compressed inline to fit EIP-170 budget).
+        uint256 stuckBase = unforwardedBaseRewards[msg.sender];
+        if (stuckBase > 0) {
+            unforwardedBaseRewards[msg.sender] = 0;
+            if (totalUnforwardedBase >= stuckBase) totalUnforwardedBase -= stuckBase;
+            uint256 baseBal = rewardToken.balanceOf(address(this));
+            uint256 paid = stuckBase > baseBal ? baseBal : stuckBase;
+            if (paid > 0) {
+                rewardToken.safeTransfer(msg.sender, paid);
+                emit BaseClaimed(msg.sender, paid);
+            }
+        }
 
         if (payout > 0) {
             totalRecoveredPrincipal += payout;
@@ -1503,7 +1524,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         uint256 balance = rewardToken.balanceOf(address(this));
         uint256 reserved = totalUnforwardedBase + totalActivePrincipal + totalPendingUnsettled;
         uint256 unattributed = balance > reserved ? balance - reserved : 0;
-        require(p.amount <= unattributed, "EXCEEDS_UNATTRIBUTED");
+        if (p.amount > unattributed) revert BadParam();
         unforwardedBaseRewards[p.restaker] += p.amount;
         totalUnforwardedBase += p.amount;
         delete pendingAttribution;

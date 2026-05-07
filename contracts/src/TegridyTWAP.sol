@@ -351,7 +351,20 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
             // gate is defense-in-depth on top of the new pair-native accumulator: the
             // accumulator itself already integrates price across the entire idle period,
             // so the gate should not block legitimate post-dormancy refreshes.
-            if (uint256(elapsed) <= DEVIATION_BYPASS_AFTER) {
+            // AUDIT FIX (BATCH-M3 H7): self-bootstrap grace. Observations 2 and 3
+            // are admitted with `bypassed = true` (skip deviation gate). Pre-fix,
+            // observation #2 was deviation-gated against #1's lastSpot — if #1 was
+            // bootstrapped at a manipulated/non-real ratio, every subsequent honest
+            // observation tripped the gate and bricked the pair for 24-48h until
+            // owner ran proposeAdminResetPair. Allowing 3 self-correction observations
+            // before deviation enforcement kicks in lets the oracle recover from a
+            // bad bootstrap without admin intervention. Observation #4 onwards
+            // enforces normal ±50% deviation. The 3-observation grace is bounded by
+            // MIN_UPDATE_INTERVAL = 15min, so a manipulator would need 30min of
+            // sustained reserve push at extreme ratios — economically expensive.
+            if (count <= 2) {
+                bypassed = true;
+            } else if (uint256(elapsed) <= DEVIATION_BYPASS_AFTER) {
                 uint256 prev0 = lastSpot0[pair];
                 uint256 prev1 = lastSpot1[pair];
                 if (prev0 > 0) {
