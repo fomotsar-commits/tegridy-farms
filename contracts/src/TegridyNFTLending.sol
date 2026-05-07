@@ -740,7 +740,8 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         // window, leaving the borrower zero usable repay time. The gate
         // mirrors the symmetric fix in TegridyLending.claimDefaultedCollateral
         // and the existing acceptOffer guard above.
-        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
+        // AUDIT FIX (BATCH-L3 M4): 4h staleness on price-sensitive path.
+        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD, 4 hours);
 
         address lender = loan.lender;
         uint256 tokenId = loan.tokenId;

@@ -1219,7 +1219,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // window, leaving the borrower zero usable repay time. Matches the
         // symmetric fix on TegridyNFTLending.claimDefault and the existing
         // _positionETHValue guard.
-        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
+        // AUDIT FIX (BATCH-L3 M4): tighten staleness to 4h (price-sensitive path).
+        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD, 4 hours);
 
         // GAS: Cache storage reads into local variables
         address lender = loan.lender;
@@ -1590,7 +1591,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // sequencerFeed is a no-op (mainnet / non-L2 deployments). The
         // downstream `twap.consult` ALSO performs this check, but having it
         // at the call site gives a typed revert before any TWAP read happens.
-        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
+        // AUDIT FIX (BATCH-L3 M4): tighten staleness to 4h (price-sensitive path).
+        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD, 4 hours);
 
         // Defence-in-depth staleness gate. The TWAP itself enforces the same
         // 2-hour bound inside `consult`, but we want a typed `OracleStale` error

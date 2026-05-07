@@ -402,7 +402,8 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // down or has just resumed within SEQUENCER_GRACE_PERIOD. Pool reserves
         // drift while the chain is offline, so swapping ETH→TOWELI the moment
         // the chain wakes up risks executing at stale spot price.
-        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
+        // AUDIT FIX (BATCH-L3 M4): 4h staleness on price-sensitive path.
+        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD, 4 hours);
         require(block.timestamp >= lastAccumulateTime + ACCUMULATE_COOLDOWN, "ACCUMULATE_COOLDOWN");
         require(_deadline >= block.timestamp, "EXPIRED");
         // SECURITY FIX: Enforce tight deadline cap — accumulate() is high-value MEV target
@@ -658,7 +659,8 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // down or has just resumed within SEQUENCER_GRACE_PERIOD. Pool reserves
         // drift while the chain is offline; running the harvest the moment the
         // chain resumes risks burning LP at stale spot reserves.
-        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
+        // AUDIT FIX (BATCH-L3 M4): 4h staleness on price-sensitive path.
+        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD, 4 hours);
         _execute(POL_HARVEST);
         uint256 lpAmount = pendingHarvestLpAmount;
         pendingHarvestLpAmount = 0;
