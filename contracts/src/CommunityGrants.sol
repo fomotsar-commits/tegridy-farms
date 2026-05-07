@@ -21,6 +21,8 @@ interface IVotingEscrowGrants {
     function userTokenId(address user) external view returns (uint256); // SECURITY FIX C1: Track proposer's NFT
     // AUDIT M13: per-owner set membership check used to detect multi-NFT self-vote bypass.
     function holdsToken(address user, uint256 tokenId) external view returns (bool);
+    /// AUDIT FIX (BATCH-E H11): position count for the proposer-must-have-single-position rule.
+    function userPositionCount(address user) external view returns (uint256);
 }
 
 /// @title CommunityGrants
@@ -214,6 +216,9 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     /// @notice AUDIT NEW-G7: proposer must have a non-zero userTokenId pointer at
     ///         proposal creation time so the self-vote check can't be silently bypassed.
     error ProposerMissingStakingPointer();
+    /// AUDIT FIX (BATCH-E H11): proposer must have exactly one staking position
+    /// (closes the multi-NFT sybil-vote bypass).
+    error ProposerMustHaveSinglePosition();
     error ZeroAddress();
     error InsufficientFunds();
     error ProposalNotActive();
@@ -329,6 +334,23 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // or by staking a new position.
         uint256 _proposerTokenId = votingEscrow.userTokenId(msg.sender);
         if (_proposerTokenId == 0) revert ProposerMissingStakingPointer();
+        // AUDIT FIX (BATCH-E H11): close the multi-NFT sybil-vote bypass.
+        // Pre-fix attack: proposer with N≥2 staking positions has userTokenId
+        // == NFT_A (just one of the N). Proposer transfers NFT_B to a sybil
+        // EOA. At vote time, holdsToken(sybil, NFT_A) returns false because
+        // sybil holds NFT_B not NFT_A → check passes → sybil votes with their
+        // historical voting power that includes NFT_B's contribution.
+        // The cleanest battle-tested fix: REQUIRE PROPOSER HAS EXACTLY ONE
+        // POSITION at proposal creation. With single-position constraint, the
+        // existing holdsToken(voter, proposerTokenId) check is exhaustive —
+        // there is no other NFT for the proposer to route to a sybil.
+        // Trade-off: multi-NFT holders (Safes with multiple positions) must
+        // consolidate before they can propose. Pattern matches Compound /
+        // OZ Governor's `proposalThreshold` philosophy: a proposer must
+        // present a single auditable position rather than a fragmented set.
+        if (votingEscrow.userPositionCount(msg.sender) != 1) {
+            revert ProposerMustHaveSinglePosition();
+        }
 
         proposals.push(Proposal({
             proposer: msg.sender,
@@ -791,7 +813,24 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     /// @notice Lapse an approved proposal whose execution deadline has passed (H-03).
     ///         Anyone can call this. The proposal is set to Rejected and the deposit is refunded.
     /// @param _proposalId The ID of the approved proposal to lapse
-    function lapseProposal(uint256 _proposalId) external nonReentrant {
+    /// @dev    AUDIT FIX (BATCH-E H12): added `whenNotPaused`. Pre-fix, `pause()` blocked
+    ///         `executeProposal` and `retryExecution` (both `whenNotPaused`) so the
+    ///         recipient could not pull approved funds — but `lapseProposal` was
+    ///         pause-INDEPENDENT. Combined with `emergencyRecoverETH` (whenPaused +
+    ///         onlyOwner), a captured-key owner could: (1) wait for a proposal to
+    ///         reach Approved, (2) `pause()` to block recipient execution, (3) wait
+    ///         30d EXECUTION_DEADLINE, (4) anyone calls `lapseProposal` decrementing
+    ///         totalApprovedPending and reverting status to Rejected, (5) owner calls
+    ///         `emergencyRecoverETH` to redirect the freed balance to attacker.
+    ///         This bypassed the M-G01 24h cancel-approved timelock that the prior
+    ///         audit explicitly added to defend against fast-cancel-approved drains.
+    ///         Pause-gating `lapseProposal` closes the loop: under pause, the proposal
+    ///         remains Approved, `totalApprovedPending` continues protecting the
+    ///         balance from emergencyRecoverETH, and on unpause the recipient can
+    ///         still execute. Pattern of record: OZ Pausable consistent-coverage
+    ///         guidance ("freeze ALL state-mutating paths during incident response,
+    ///         not a strict subset").
+    function lapseProposal(uint256 _proposalId) external nonReentrant whenNotPaused {
         if (_proposalId >= proposals.length) revert InvalidProposal();
         Proposal storage proposal = proposals[_proposalId];
 
