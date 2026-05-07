@@ -565,6 +565,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     error OfferNotActive();
     error NotOfferLender();
     error InsufficientCollateralValue();
+    /// AUDIT FIX (BATCH-G H22): applySweepDonatedToweli `to` must equal treasury.
+    error InvalidSweepRecipient();
     error NotNFTOwner();
     error LoanAlreadyRepaid();
     error LoanTooRecent();
@@ -1896,7 +1898,20 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
     event SweepDonatedToweliExecuted(uint256 amount, address to);
 
+    /// @dev    AUDIT FIX (BATCH-G H22): the `to` parameter is preserved for ABI
+    ///         compatibility with TegridyLendingAdmin's existing propose/execute
+    ///         pair, but is now CONSTRAINED to equal the contract's `treasury`
+    ///         field (which is itself 48h-timelocked via TREASURY_TIMELOCK).
+    ///         Pre-fix, a captured admin key could route donated TOWELI to ANY
+    ///         arbitrary address in one 48h cycle. Now the captured key must
+    ///         additionally rotate `treasury` first (+48h) — chaining two
+    ///         timelocks, so the effective drain window grows from 48h to 96h
+    ///         and is fully observable on-chain. Pattern: Aave V3 rescueTokens
+    ///         relies on the treasury-recipient invariant + role layer for the
+    ///         same reason. The reservation guard against escrowRewardsOwed
+    ///         is preserved verbatim (DEEP-LD-M2).
     function applySweepDonatedToweli(uint256 amount, address to) external onlyAdmin nonReentrant {
+        if (to != treasury) revert InvalidSweepRecipient();
         uint256 bal = IERC20(toweli).balanceOf(address(this));
         // Reservation guard: sweep MUST leave totalEscrowRewardsOwed fully covered.
         if (bal < totalEscrowRewardsOwed || bal - totalEscrowRewardsOwed < amount) {
