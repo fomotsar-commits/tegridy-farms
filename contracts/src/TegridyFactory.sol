@@ -168,7 +168,12 @@ contract TegridyFactory is TimelockAdmin {
         (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
         require(token0 != address(0), "ZERO_ADDRESS");
         // AUDIT FIX: Verify both tokens are contracts (not EOAs)
-        require(token0.code.length > 0 && token1.code.length > 0, "NOT_CONTRACT");
+        // AUDIT FIX (BATCH-L1 M16, mirrors M29 OwnableNoRenounce): also reject
+        // EIP-7702-delegated EOAs (code.length == 23 indicates the canonical
+        // 0xef0100‖addr delegation pointer, NOT a real ERC-20).
+        uint256 t0len = token0.code.length;
+        uint256 t1len = token1.code.length;
+        require(t0len > 0 && t0len != 23 && t1len > 0 && t1len != 23, "NOT_CONTRACT");
         // A4-M-10: Reject ERC-777 tokens — they have transfer callbacks that enable
         // cross-contract reentrancy with stale reserves. Check for ERC-1820 registry
         // introspection (ERC-777 tokens register their tokensReceived hook via ERC-1820).

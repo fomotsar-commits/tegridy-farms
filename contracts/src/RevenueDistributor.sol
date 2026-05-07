@@ -961,9 +961,27 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     function reclaimEligibleAmount() public view returns (uint256 eligible) {
         uint256 cutoff = block.timestamp > DUST_RECLAIM_GRACE ? block.timestamp - DUST_RECLAIM_GRACE : 0;
         uint256 len = epochs.length;
+        // AUDIT FIX (BATCH-L1 M32): tighten the eligibility window further. Pre-fix
+        // the cutoff was the only filter; here we add an EXTRA active-stake-grace
+        // ahead of cutoff so a still-locked staker who just hasn't claimed yet
+        // (e.g., user with auto-MaxLock who claims monthly) doesn't see their
+        // share force-reclaimed at exactly DUST_RECLAIM_GRACE. The lifetime cap
+        // (MAX_LIFETIME_FORFEIT_BPS = 1%) is still the primary bound; this just
+        // pushes the per-epoch cutoff further back to be conservative.
+        uint256 extendedCutoff = cutoff > 30 days ? cutoff - 30 days : 0;
         for (uint256 i = 0; i < len; i++) {
             Epoch memory ep = epochs[i];
             if (ep.timestamp >= cutoff) continue; // Still in grace — skip.
+            // AUDIT FIX (BATCH-L1 M32): epochs in the [extendedCutoff, cutoff) window
+            // are eligible by primary grace but defensively under-eligible — only
+            // half their unclaimed dust counts toward `eligible`. This halves the
+            // force-reclaim pressure on still-active stakers' just-past-grace shares.
+            if (ep.timestamp >= extendedCutoff) {
+                if (pendingRecoveryCount[i] > 0) continue;
+                uint256 unclaimedHalf = ep.totalETH > epochClaimed[i] ? (ep.totalETH - epochClaimed[i]) / 2 : 0;
+                eligible += unclaimedHalf;
+                continue;
+            }
             // AUDIT FIX: V2-DR-M-04 — exclude pending-recovery epochs from the
             // forfeit-reclaim eligible pool. Without this skip the owner can
             // sequence `proposeForfeitReclaim` against an `eligible` figure that

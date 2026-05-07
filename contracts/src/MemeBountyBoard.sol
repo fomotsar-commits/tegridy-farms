@@ -607,8 +607,38 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         } else {
             // AUDIT FIX M-06: Credit to pendingPayouts instead of rolling back state
             pendingPayouts[winner] += reward;
+            // AUDIT FIX (BATCH-L1 M18): record credit timestamp so non-claiming
+            // winners' ETH can be swept to feeReceiver after PAYOUT_EXPIRY (1 year),
+            // mirroring the existing M-09 refund-expiry pattern. Only updates on
+            // first credit (preserves earliest-credit anchor on subsequent appends).
+            if (pendingPayoutTime[winner] == 0) pendingPayoutTime[winner] = block.timestamp;
             emit PayoutCredited(_bountyId, winner, reward);
         }
+    }
+
+    /// @notice AUDIT FIX (BATCH-L1 M18): timestamp of first pendingPayouts credit per address.
+    /// Used by `sweepExpiredPayout` to detect 1-year-stale payouts.
+    mapping(address => uint256) public pendingPayoutTime;
+    uint256 public constant PAYOUT_EXPIRY = 365 days;
+    error PayoutNotExpired();
+    error NoExpiredPayout();
+    event PayoutSweptExpired(address indexed winner, uint256 amount);
+
+    /// @notice Sweep an unclaimed payout that has been pending > PAYOUT_EXPIRY.
+    /// @dev    Permissionless trigger; routes to `treasury` (timelocked-rotation
+    ///         via TimelockAdmin). Mirrors M-09 sweepExpiredRefund pattern.
+    ///         Closes the M18 finding where non-claiming winners' ETH was
+    ///         locked forever (e.g., self-destructed contract winners).
+    function sweepExpiredPayout(address winner) external nonReentrant {
+        uint256 amount = pendingPayouts[winner];
+        if (amount == 0) revert NoExpiredPayout();
+        uint256 creditedAt = pendingPayoutTime[winner];
+        if (creditedAt == 0 || block.timestamp <= creditedAt + PAYOUT_EXPIRY) revert PayoutNotExpired();
+        pendingPayouts[winner] = 0;
+        pendingPayoutTime[winner] = 0;
+        (bool ok,) = treasury.call{value: amount, gas: 50_000}("");
+        if (!ok) revert ETHTransferFailed();
+        emit PayoutSweptExpired(winner, amount);
     }
 
     /// @notice FIX 1: Withdraw pending payout (pull-pattern for winners who cannot receive ETH via push)
@@ -617,6 +647,8 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         uint256 amount = pendingPayouts[msg.sender];
         if (amount == 0) revert NoPendingPayout();
         pendingPayouts[msg.sender] = 0;
+        // AUDIT FIX (BATCH-L1 M18): clear timestamp on successful withdraw.
+        pendingPayoutTime[msg.sender] = 0;
         WETHFallbackLib.safeTransferETHOrWrap(weth, msg.sender, amount);
         emit PayoutWithdrawn(msg.sender, amount);
     }
