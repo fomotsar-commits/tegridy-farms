@@ -497,20 +497,33 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         );
         if (amount > accruedFees[currency]) revert ExceedsAccrued();
         accruedFees[currency] -= amount;
-        // AUDIT FIX (pass-8): TF-INT-02 — only WETH can be claimed via this path.
-        // For currencies != WETH, the caller must use convertERC20FeesToETH to swap
-        // the ERC20 to ETH first, otherwise the value gets stranded at RevenueDistributor.
-        if (currency != WETH) revert MustConvertERC20First();
-        // amount == 0 short-circuits cleanly through WETHFallbackLib (which returns
-        // for zero amount). Preserves the legacy "0-amount as health check" tests.
+        // AUDIT FIX (BATCH-A C2 — Bunni v2 mainnet hook pattern):
+        // Currency dispatch — three cases, all CEI-clean (state already decremented):
+        //   1) currency == address(0): native ETH was already taken to this contract via
+        //      `poolManager.take(ADDRESS_ZERO, hook, fee)` and is sitting as raw ETH.
+        //      Forward directly via the same WETHFallbackLib (10k-gas stipend + WETH-wrap
+        //      fallback). No unwrap needed because we never wrapped. Closes the C2 stranding
+        //      where claimFees previously rejected address(0) and convertERC20FeesToETH
+        //      also rejected address(0) — leaving accruedFees[address(0)] permanently uncleanable.
+        //   2) currency == WETH: unwrap on-hand WETH then forward as native ETH (legacy path).
+        //   3) anything else: reject — caller must use convertERC20FeesToETH for ERC20s.
+        // Refs: Bunni v2 BunniHook._claimFees branches `if (currency.isAddressZero())`;
+        //       Uniswap v4-periphery DeltaResolver._take is currency-agnostic via
+        //       Currency.transfer's internal native/ERC20 split.
         if (amount > 0) {
-            // Unwrap on-hand WETH and forward as native ETH. WETHFallbackLib uses a
-            // 10k gas stipend for the .call leg (cross-contract reentrancy defense)
-            // and falls back to wrapping back into WETH if the recipient receive()
-            // reverts — covers the case where revenueDistributor migrates to a
-            // contract whose receive() outgrew the stipend.
-            IWETH(WETH).withdraw(amount);
-            WETHFallbackLib.safeTransferETHOrWrap(WETH, revenueDistributor, amount);
+            if (currency == address(0)) {
+                // Native ETH path — already on hand, forward directly.
+                WETHFallbackLib.safeTransferETHOrWrap(WETH, revenueDistributor, amount);
+            } else if (currency == WETH) {
+                // Canonical WETH path — unwrap to native, then forward.
+                IWETH(WETH).withdraw(amount);
+                WETHFallbackLib.safeTransferETHOrWrap(WETH, revenueDistributor, amount);
+            } else {
+                revert MustConvertERC20First();
+            }
+        } else {
+            // amount == 0 health-check path: still validate the currency is claimable.
+            if (currency != address(0) && currency != WETH) revert MustConvertERC20First();
         }
         emit FeeCollected(currency, amount);
     }

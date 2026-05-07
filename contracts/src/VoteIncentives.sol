@@ -1223,6 +1223,72 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         emit UnvotedBribeRefunded(epoch, pair, token, msg.sender, amount);
     }
 
+    // ─── AUDIT FIX (BATCH-A C1): SUB-QUORUM BRIBE REFUND ───────────────
+    /// @notice AUDIT FIX (BATCH-A C1, Hidden Hand BribeVault per-depositor pattern):
+    ///         Closes the THREE-WAY REJECT TRAP discovered by the 100-agent audit.
+    ///         When `0 < totalGaugeVotes[epoch][pair] < MIN_BRIBE_CLAIM_QUORUM`:
+    ///         (a) `claimBribes` reverts `BribePoolBelowQuorum` — voters cannot pull;
+    ///         (b) `refundOrphanedBribe` reverts because epoch IS finalized;
+    ///         (c) `refundUnvotedBribe` reverts because votes != 0.
+    ///         Result: the bribe is permanently locked. This refund path lets the
+    ///         original depositor recover after the same `UNVOTED_REFUND_GRACE` window
+    ///         applied to refundUnvotedBribe — symmetric and trustless.
+    ///
+    ///         Pattern: per-depositor `bribeDeposits[e][p][t][msg.sender]` is the
+    ///         already-tracked ledger (per-depositor accounting was added pre-launch
+    ///         specifically to enable this class of recovery, mirroring the per-deposit
+    ///         struct that Hidden Hand v2 BribeVault uses for its multi-year-live
+    ///         `emergencyWithdraw`-equivalent recovery — but trustless here, no admin
+    ///         multisig in the loop).
+    ///
+    ///         Velodrome v2 / Aerodrome / Curve BribeV2 LACK this path entirely
+    ///         (Code4rena 2022 #168 documents the stranded-bribe outcome on Velodrome) —
+    ///         every production bribe market either accepts the loss or relies on
+    ///         off-chain admin reimbursement. We add the trustless on-chain recovery.
+    /// @dev    Atomicity: same CEI ordering as refundUnvotedBribe (state cleared
+    ///         before transfer); 14d grace prevents racing legitimate late voters
+    ///         and dust-pump griefs.
+    /// @dev    Voters who voted on a sub-quorum pair CANNOT recover their voting
+    ///         allocation through this path — the bribe-side refund does not affect
+    ///         the gauge-controller-side accounting (commit bond is its own track).
+    ///         This matches refundUnvotedBribe's symmetric scope.
+    event SubQuorumBribeRefunded(uint256 indexed epoch, address indexed pair, address indexed token, address depositor, uint256 amount);
+
+    function refundSubQuorumBribe(uint256 epoch, address pair, address token) external nonReentrant {
+        if (epoch >= epochs.length) revert InvalidEpoch();
+        if (!epochBribesFinalized[epoch]) revert EpochNotFinalized();
+        // STRICTLY SUB-QUORUM: 0 < votes < MIN_BRIBE_CLAIM_QUORUM. The == 0 case is
+        // owned by refundUnvotedBribe (semantic separation preserved); the >= quorum
+        // case is owned by claimBribes. This branch is the third leg that closes
+        // the 100-agent-audited C1 trap.
+        uint256 totalVotes = totalGaugeVotes[epoch][pair];
+        require(totalVotes > 0 && totalVotes < MIN_BRIBE_CLAIM_QUORUM, "NOT_SUB_QUORUM");
+
+        EpochInfo memory ep = epochs[epoch];
+        uint256 voteEnd = ep.usesCommitReveal
+            ? revealDeadline(epoch)
+            : ep.timestamp + VOTE_DEADLINE;
+        require(block.timestamp >= voteEnd + UNVOTED_REFUND_GRACE, "GRACE_NOT_ELAPSED");
+
+        uint256 amount = bribeDeposits[epoch][pair][token][msg.sender];
+        require(amount > 0, "NOTHING_TO_REFUND");
+
+        // CEI: clear depositor record + total ledger BEFORE outbound transfer.
+        bribeDeposits[epoch][pair][token][msg.sender] = 0;
+        uint256 remaining = epochBribes[epoch][pair][token];
+        epochBribes[epoch][pair][token] = remaining > amount ? remaining - amount : 0;
+
+        if (token == address(0)) {
+            totalUnclaimedETHBribes = totalUnclaimedETHBribes > amount ? totalUnclaimedETHBribes - amount : 0;
+            WETHFallbackLib.safeTransferETHOrWrap(address(weth), msg.sender, amount);
+        } else {
+            totalUnclaimedBribes[token] = totalUnclaimedBribes[token] > amount ? totalUnclaimedBribes[token] - amount : 0;
+            IERC20(token).safeTransfer(msg.sender, amount);
+        }
+
+        emit SubQuorumBribeRefunded(epoch, pair, token, msg.sender, amount);
+    }
+
     // ─── AUDIT R020 H-3: per-token min-bribe configuration (timelocked) ───
     // AUDIT FIX (pass-8): EIP170-03 — propose/execute/cancel + Proposed/Cancelled
     // events moved to VoteIncentivesAdmin.

@@ -16,6 +16,8 @@ interface IVotingEscrowGrants {
     function votingPowerAtTimestamp(address user, uint256 ts) external view returns (uint256);
     function totalLocked() external view returns (uint256);
     function totalBoostedStake() external view returns (uint256);
+    /// AUDIT FIX (BATCH-A C3): historical denominator for OZ-Governor-style snapshot quorum.
+    function totalBoostedStakeAtTimestamp(uint256 ts) external view returns (uint256);
     function userTokenId(address user) external view returns (uint256); // SECURITY FIX C1: Track proposer's NFT
     // AUDIT M13: per-owner set membership check used to detect multi-NFT self-vote bypass.
     function holdsToken(address user, uint256 tokenId) external view returns (bool);
@@ -347,7 +349,22 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             snapshotTimestamp: block.timestamp >= SNAPSHOT_LOOKBACK
                 ? block.timestamp - SNAPSHOT_LOOKBACK
                 : block.timestamp - 1,
-            snapshotTotalStake: votingEscrow.totalBoostedStake(), // SECURITY FIX: snapshot quorum denominator
+            // SECURITY FIX (BATCH-A C3, OZ Governor v5 pattern): quorum denominator MUST be
+            // read at the SAME snapshot timepoint as voter power, never live. OZ Governor's
+            // canonical formula is `quorum = getPastTotalSupply(snapshot) * num / denom` and
+            // voter weight is `getPastVotes(account, snapshot)` — both keyed off the same
+            // proposal snapshot. Reading totalBoostedStake() live while voters use the
+            // historical Trace208 lookup created a denominator-skew window: a whale who
+            // unstaked between snapshot and createProposal would deflate the denominator,
+            // making the 10% MIN_QUORUM_BPS trivially clearable for malicious 50%-treasury
+            // grants. Now both numerator and denominator share `snapshotTimestamp`.
+            // Refs: OpenZeppelin/openzeppelin-contracts Governor.sol & GovernorVotesQuorumFraction.sol;
+            //       compound-finance/compound-protocol GovernorBravoDelegate.sol
+            snapshotTotalStake: votingEscrow.totalBoostedStakeAtTimestamp(
+                block.timestamp >= SNAPSHOT_LOOKBACK
+                    ? block.timestamp - SNAPSHOT_LOOKBACK
+                    : block.timestamp - 1
+            ),
             proposerTokenId: _proposerTokenId, // AUDIT NEW-G7: non-zero pointer guaranteed
             // AUDIT FIX: DEEP-GOV-09 — lock the per-proposal cap at creation time.
             // executeProposal/retryExecution validate `amount <= absoluteCap` instead
