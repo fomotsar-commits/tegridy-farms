@@ -41,6 +41,9 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     // ─── Constants ──────────────────────────────────────────────────
     uint256 public constant EPOCH_DURATION = 7 days;
     uint256 public constant MAX_GAUGES_PER_VOTER = 8;
+    /// AUDIT FIX (BATCH-J4 C4): per-vote per-gauge weight cap. Closes the
+    /// whale flywheel by forcing emission allocation across at least 2 gauges.
+    uint256 public constant MAX_WEIGHT_PER_GAUGE_BPS = 5000;
     uint256 public constant MAX_TOTAL_GAUGES = 50;
     uint256 public constant BPS = 10000;
     uint256 public constant BOOST_PRECISION = 10000;
@@ -258,6 +261,7 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error CancelWindowClosed();         // AUDIT R014-HIGH: cannot cancel after reveal opens
     error NoActiveCommit();             // AUDIT R014-HIGH: cancel called with no commit
     error ZeroWeight();                 // AUDIT R014-LOW: zero-weight gauge entries rejected
+    error WeightAboveCap();             // AUDIT FIX (BATCH-J4 C4): per-vote per-gauge cap exceeded
     /// @notice AUDIT FIX: DEEP-GOV-14 — gauge removal rejected mid-epoch when the
     ///         target gauge already has votes cast against it.
     error GaugeHasActiveVotes();
@@ -363,6 +367,16 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         for (uint256 i; i < gauges.length; ++i) {
             if (!isGauge[gauges[i]]) revert InvalidGauge(gauges[i]);
             if (weights[i] == 0) revert ZeroWeight();
+            // AUDIT FIX (BATCH-J4 C4): per-vote per-gauge cap. Pre-fix, V3-GOV-03
+            // removed all gauge caps enabling Curve-style "natural distribution"
+            // — but combined with the cross-contract whale flywheel (C4), a
+            // majority voter could direct 100% of emissions to a self-controlled
+            // gauge same epoch they win a 50% treasury grant on CommunityGrants.
+            // Capping per-vote allocation at 50% (5000 BPS) per gauge forces
+            // concentration across at least 2 gauges, halving the captured
+            // emission share without breaking legitimate medium-confidence
+            // voting (single-gauge votes still allowed up to 50%).
+            if (weights[i] > MAX_WEIGHT_PER_GAUGE_BPS) revert WeightAboveCap();
             totalWeight += weights[i];
         }
         if (totalWeight != BPS) revert WeightsMustSumToBPS();
