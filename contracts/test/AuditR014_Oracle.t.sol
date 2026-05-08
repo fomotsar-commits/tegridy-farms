@@ -8,7 +8,7 @@ import "../src/TegridyTWAP.sol";
 import "../src/TegridyPair.sol";
 import "../src/TegridyFactory.sol";
 
-/// @title AuditR014_OracleTest — coverage for the R014 / Wave-014 oracle layer hardening
+/// @title AuditR014_OracleTest â€” coverage for the R014 / Wave-014 oracle layer hardening
 /// @notice One test per item in the remediation plan:
 ///           1. TegridyPair cumulative price accumulators (Uniswap V2 pattern, unchecked wrap).
 ///           2. TegridyFactory `isPair` registry.
@@ -30,7 +30,7 @@ contract AuditR014OracleTest is Test {
     address public feeTo = makeAddr("feeTo");
 
     function setUp() public {
-        factory = new TegridyFactory(address(this), address(this));
+        factory = new TegridyFactory(address(this), address(this), address(this)); // F-30-9 initial guardian
         // Promote feeTo through the timelock so the pair fee logic engages later if needed.
         factory.proposeFeeToChange(feeTo);
         vm.warp(block.timestamp + 48 hours);
@@ -58,9 +58,9 @@ contract AuditR014OracleTest is Test {
         tokenB.transfer(alice, 10_000 ether);
     }
 
-    // ────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Item 1: TegridyPair cumulative price accumulators
-    // ────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// @notice After a non-zero `timeElapsed` between two `_update()` calls (driven here
     ///         by a swap), `price0CumulativeLast` and `price1CumulativeLast` must advance
@@ -68,7 +68,7 @@ contract AuditR014OracleTest is Test {
     ///         the PRE-update reserves. Confirms the Uniswap V2 integration formula.
     function test_R014_pair_cumulativeAdvancesOnUpdate() public {
         // First touch happened during initial mint() in setUp; at that time reserves
-        // were 0 → no cumulative was integrated. Capture the baseline.
+        // were 0 â†’ no cumulative was integrated. Capture the baseline.
         uint256 cum0Before = pair.price0CumulativeLast();
         uint256 cum1Before = pair.price1CumulativeLast();
         assertEq(cum0Before, 0, "baseline cum0 should be zero (first mint had no prior reserves)");
@@ -100,9 +100,9 @@ contract AuditR014OracleTest is Test {
         assertEq(pair.price0CumulativeLast(), cum0Snapshot, "sync at the same block must not double-integrate");
     }
 
-    // ────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Item 2: TegridyFactory isPair registry
-    // ────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// @notice `isPair[pair]` must be true for every pair the factory created and false
     ///         for everything else (including LP token contracts that look pair-shaped).
@@ -122,9 +122,9 @@ contract AuditR014OracleTest is Test {
         assertTrue(factory.isPair(newPair), "second factory-created pair is registered");
     }
 
-    // ────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Item 3: TegridyTWAP factory validation + pair-native reads + bypassed flag
-    // ────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// @notice `update(forgedPair)` reverts UnknownPair when the address is not in
     ///         the bound factory's registry, even if the contract returns a sane
@@ -137,15 +137,15 @@ contract AuditR014OracleTest is Test {
 
     /// @notice Pair-native cumulative read: when the pair has been idle for some
     ///         period before TWAP.update(), the observation must reflect the spot
-    ///         price integrated over the idle window — not just the post-update
+    ///         price integrated over the idle window â€” not just the post-update
     ///         spot price. Verifies the (pairCum + spotPrice * elapsedSinceLastPairTouch)
     ///         bridge term.
     function test_R014_twap_pairNativeWithIdleBridge() public {
-        // First observation (t0) — pair was just minted, cumulative is 0, idle = 0.
+        // First observation (t0) â€” pair was just minted, cumulative is 0, idle = 0.
         twap.update(address(pair));
         TegridyTWAP.Observation memory obs0 = twap.getLatestObservation(address(pair));
         assertEq(obs0.price0Cumulative, 0, "first observation captures zero pair cumulative + zero bridge");
-        // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): TWAP HIGH-3 — first observation now
+        // AUDIT FIX REALIGNMENT (pass-6, 2026-05-03): TWAP HIGH-3 â€” first observation now
         // intentionally sets bypassed=true so consult() refuses any lookup window that
         // anchors on the bootstrap (pre-fix, an attacker could anchor a poisoned 1:N
         // baseline because there was no prior lastSpot to gate against).
@@ -185,7 +185,7 @@ contract AuditR014OracleTest is Test {
         // Move price *substantially* (>50%) on the pair, then sleep past
         // DEVIATION_BYPASS_AFTER (1 day). After dormancy the deviation gate must be
         // bypassed and the observation must carry `bypassed = true`.
-        _swapAForB(40 ether); // ~40% reserves shift → spot moves > 50% in deviation terms
+        _swapAForB(40 ether); // ~40% reserves shift â†’ spot moves > 50% in deviation terms
         vm.warp(block.timestamp + 2 days);
 
         twap.update(address(pair));
@@ -194,9 +194,9 @@ contract AuditR014OracleTest is Test {
         assertGt(twap.lastBypassUsed(address(pair)), 0, "bypass is also stamped on the per-pair record");
     }
 
-    // ────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Item 4: Observation cumulative widened to uint256
-    // ────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// @notice Storing a cumulative value that would have truncated under the prior
     ///         uint224 layout must survive intact under uint256. We compare the stored
@@ -220,7 +220,7 @@ contract AuditR014OracleTest is Test {
 
         // Direct truncation probe: simulate writing a synthetic Observation whose
         // cumulative exceeds the prior uint224 ceiling (2^224 - 1). The struct we
-        // declare in tests must hold the full uint256 — if Observation's layout had
+        // declare in tests must hold the full uint256 â€” if Observation's layout had
         // remained uint224, this assignment would not even compile.
         TegridyTWAP.Observation memory synth = TegridyTWAP.Observation({
             timestamp: uint32(block.timestamp),
@@ -232,16 +232,16 @@ contract AuditR014OracleTest is Test {
         assertGt(synth.price0Cumulative, uint256(type(uint224).max), "value strictly above prior uint224 cap");
     }
 
-    // ────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Item 5: Wrap-aware binary search in _getCumulativePricesOverPeriod
-    // ────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// @notice Across the year-2106 uint32 timestamp wrap, consult() must continue
     ///         to find observations using cyclic-time ordering (modular distance <
     ///         2^31). The plain-comparison version of the search would silently
     ///         degrade once `targetTimestamp` wrapped past zero.
     function test_R014_twap_consultWrapAwareAcrossYear2106() public {
-        // BATCH-M3 H7: obs 1, 2, 3 are now self-bootstrap-bypassed. Need ≥6 obs
+        // BATCH-M3 H7: obs 1, 2, 3 are now self-bootstrap-bypassed. Need â‰¥6 obs
         // so the 30-min consult anchor can land on a non-bypass slot.
         // Park ourselves further before the uint32 rollover so all 6 spaced-out
         // observations straddle the wrap. Each step is 16 min (MIN_PERIOD = 15).
@@ -264,16 +264,16 @@ contract AuditR014OracleTest is Test {
         twap.update(address(pair));                                 // #6 non-bypass (latest)
 
         // Confirm consult resolves to a legitimate (non-zero) TWAP across the wrap
-        // — the canonical regression here is that the pre-wrap observations would
+        // â€” the canonical regression here is that the pre-wrap observations would
         // appear "after" the post-wrap target under the old non-wrap-aware test
         // and the lookup would fall back to the oldest entry, mis-sizing the window.
         uint256 amountOut = twap.consult(address(pair), address(tokenA), 1 ether, 30 minutes);
         assertGt(amountOut, 0, "consult succeeds over a wrap-spanning window");
     }
 
-    // ────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Helpers
-    // ────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function _swapAForB(uint256 amountIn) internal {
         (uint112 r0, uint112 r1, ) = pair.getReserves();

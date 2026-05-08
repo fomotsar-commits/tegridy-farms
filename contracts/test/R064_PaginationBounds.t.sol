@@ -8,10 +8,10 @@ import {TegridyFactory} from "../src/TegridyFactory.sol";
 import {TegridyNFTPoolFactory} from "../src/TegridyNFTPoolFactory.sol";
 import {TegridyNFTPool} from "../src/TegridyNFTPool.sol";
 
-// ─── R064 — Pagination & bound-tightening test suite ─────────────────────────
+// â”€â”€â”€ R064 â€” Pagination & bound-tightening test suite â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // Coverage:
-//   1. TegridyFactory.MAX_PAIRS = 10000 — `createPair` reverts at the cap.
+//   1. TegridyFactory.MAX_PAIRS = 10000 â€” `createPair` reverts at the cap.
 //   2. TegridyFactory.allPairsPaginated returns the requested window and
 //      clamps when start+count exceeds total.
 //   3. TegridyNFTPoolFactory.getBestBuyPoolPaginated /
@@ -22,7 +22,7 @@ import {TegridyNFTPool} from "../src/TegridyNFTPool.sol";
 //      from R064 M-041-1; old ceiling was 500). We assert the constant
 //      directly so a future regression that bumps it to 500+ trips the test.
 //
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 contract R064_MockToken is ERC20 {
     constructor(string memory n, string memory s) ERC20(n, s) {
@@ -45,14 +45,14 @@ contract R064_MockWETH is ERC20 {
     receive() external payable { _mint(msg.sender, msg.value); }
 }
 
-// ─── TegridyFactory: MAX_PAIRS bound + pagination ───────────────────────────
+// â”€â”€â”€ TegridyFactory: MAX_PAIRS bound + pagination â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 contract R064_TegridyFactoryBoundsTest is Test {
     TegridyFactory factory;
     address admin = makeAddr("admin");
 
     function setUp() public {
-        factory = new TegridyFactory(admin, admin);
+        factory = new TegridyFactory(admin, admin, admin); // F-30-9 initial guardian
     }
 
     /// @notice MAX_PAIRS constant should be 10000 (R064 ceiling).
@@ -63,25 +63,25 @@ contract R064_TegridyFactoryBoundsTest is Test {
     /// @notice allPairsPaginated returns empty when start past total.
     function test_allPairsPaginated_emptyWhenStartPastTotal() public view {
         address[] memory page = factory.allPairsPaginated(0, 50);
-        // Empty factory → empty slice (start=0 ≥ total=0).
+        // Empty factory â†’ empty slice (start=0 â‰¥ total=0).
         assertEq(page.length, 0);
     }
 
     /// @notice Create some pairs then walk allPairsPaginated.
     function test_allPairsPaginated_returnsWindow() public {
         // Create 5 pairs: 5 distinct token0/token1 combinations with token A
-        // recurring is fine — uniswap-V2-style factories key by (a,b) sorted.
+        // recurring is fine â€” uniswap-V2-style factories key by (a,b) sorted.
         R064_MockToken[] memory tokens = new R064_MockToken[](6);
         for (uint256 i; i < 6; i++) {
             tokens[i] = new R064_MockToken("T", "T");
         }
-        // Pairs: (0,1), (0,2), (0,3), (0,4), (0,5) — 5 pairs.
+        // Pairs: (0,1), (0,2), (0,3), (0,4), (0,5) â€” 5 pairs.
         for (uint256 i = 1; i < 6; i++) {
             factory.createPair(address(tokens[0]), address(tokens[i]));
         }
         assertEq(factory.allPairsLength(), 5);
 
-        // Window [1,3]: items at index 1,2,3 → length 3
+        // Window [1,3]: items at index 1,2,3 â†’ length 3
         address[] memory window = factory.allPairsPaginated(1, 3);
         assertEq(window.length, 3);
         assertEq(window[0], factory.allPairs(1));
@@ -115,7 +115,7 @@ contract R064_TegridyFactoryBoundsTest is Test {
     }
 }
 
-// ─── TegridyNFTPoolFactory: pagination + claimPoolFeesBatch membership ──────
+// â”€â”€â”€ TegridyNFTPoolFactory: pagination + claimPoolFeesBatch membership â”€â”€â”€â”€â”€â”€
 
 contract R064_NFTPoolFactoryBoundsTest is Test {
     TegridyNFTPoolFactory factory;
@@ -163,7 +163,7 @@ contract R064_NFTPoolFactoryBoundsTest is Test {
 
     /// @notice Pagination scans only the requested window. With 3 trade pools
     ///         (indices 0,1,2), a window starting at index 2 with count=10
-    ///         scans only pool[2] — but since pool[2] has no NFT inventory yet
+    ///         scans only pool[2] â€” but since pool[2] has no NFT inventory yet
     ///         (only ETH seeded), getHeldCount<numItems and the function
     ///         returns the empty signal. We assert both: (a) call succeeds,
     ///         and (b) windowed result matches a direct unbounded call's
@@ -174,7 +174,7 @@ contract R064_NFTPoolFactoryBoundsTest is Test {
         _createTradePool();
         assertEq(factory.getPoolCount(), 3);
 
-        // Empty inventory in all 3 pools (no NFTs deposited) → no quote lands.
+        // Empty inventory in all 3 pools (no NFTs deposited) â†’ no quote lands.
         // Both legacy and paginated return the same empty signal.
         (address legacyBest, uint256 legacyCost) = factory.getBestBuyPool(address(nft), 1);
         (address pageBest, uint256 pageCost) = factory.getBestBuyPoolPaginated(address(nft), 0, 3, 1);
@@ -201,13 +201,13 @@ contract R064_NFTPoolFactoryBoundsTest is Test {
 
         address[] memory pools = new address[](1);
         pools[0] = pool;
-        // Should not revert. Pool has no accumulated fees → no-op inside.
+        // Should not revert. Pool has no accumulated fees â†’ no-op inside.
         factory.claimPoolFeesBatch(pools);
     }
 
     /// @notice claimPoolFeesBatch reverts on first invalid address (mixed input).
     ///         The check is `revert` not `continue`, so a poisoned batch fails
-    ///         atomically — protecting integrators from silent partial success.
+    ///         atomically â€” protecting integrators from silent partial success.
     function test_claimPoolFeesBatch_revertsOnMixedInput() public {
         address pool = _createTradePool();
         address fake = makeAddr("notAPool");
@@ -229,13 +229,13 @@ contract R064_NFTPoolFactoryBoundsTest is Test {
         assertTrue(factory.isPool(pool), "deployed pool true");
     }
 
-    // ═══════════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // AUDIT NFT-CL-M3: single-pool claimPoolFees parity with batch
-    // ═══════════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     /// @notice Pre-fix `claimPoolFees(address)` accepted ANY caller-supplied
     ///         address. The batch sibling already had `isPool[pool]` membership
-    ///         enforcement (R064/M-064) — the single-pool variant was missing
+    ///         enforcement (R064/M-064) â€” the single-pool variant was missing
     ///         it. This test asserts the variant now rejects non-pool addresses
     ///         with the same `NotAPool(address)` typed error.
     function test_NFT_CL_M3_claimPoolFees_rejectsNonPoolAddress() public {
@@ -250,7 +250,7 @@ contract R064_NFTPoolFactoryBoundsTest is Test {
     ///         pools (the membership flag is set in createPool).
     function test_NFT_CL_M3_claimPoolFees_acceptsFactoryPool() public {
         address pool = _createTradePool();
-        // Should not revert — pool has no accumulated fees so the inner
+        // Should not revert â€” pool has no accumulated fees so the inner
         // claimProtocolFees is a no-op, but the outer membership gate succeeds.
         factory.claimPoolFees(pool);
     }
@@ -259,7 +259,7 @@ contract R064_NFTPoolFactoryBoundsTest is Test {
     ///         The batch sibling adds `nonReentrant` (R064/M-064 commentary
     ///         calls this out as a forward-compat guard against malicious
     ///         pool implementations). This test simulates a hostile pool
-    ///         whose `claimProtocolFees()` re-enters `claimPoolFees` — proving
+    ///         whose `claimProtocolFees()` re-enters `claimPoolFees` â€” proving
     ///         the new `nonReentrant` modifier blocks the re-entry.
     ///
     ///         The hostile contract is registered as a "pool" via direct slot
@@ -275,7 +275,7 @@ contract R064_NFTPoolFactoryBoundsTest is Test {
         vm.store(address(factory), isPoolSlot, bytes32(uint256(1)));
         assertTrue(factory.isPool(address(hostile)), "hostile registered as pool via storage poke");
 
-        // Trigger claimPoolFees → hostile.claimProtocolFees() runs → tries
+        // Trigger claimPoolFees â†’ hostile.claimProtocolFees() runs â†’ tries
         // to re-enter factory.claimPoolFees(hostile). nonReentrant must trip.
         // The inner call's revert is caught and re-raised as the outer call's
         // revert (no try/catch around the inner call site).
@@ -286,7 +286,7 @@ contract R064_NFTPoolFactoryBoundsTest is Test {
 
 /// @dev Hostile pool used in `test_NFT_CL_M3_claimPoolFees_reentrancyBlocked`.
 ///      Its `claimProtocolFees()` recursively calls back into the factory's
-///      `claimPoolFees(self)` — the `nonReentrant` modifier should reject the
+///      `claimPoolFees(self)` â€” the `nonReentrant` modifier should reject the
 ///      re-entry attempt.
 contract ReentrantHostilePool {
     address payable public immutable factory;
@@ -297,7 +297,7 @@ contract ReentrantHostilePool {
     }
 }
 
-// ─── RevenueDistributor: MAX_CLAIM_EPOCHS lowered to 250 ────────────────────
+// â”€â”€â”€ RevenueDistributor: MAX_CLAIM_EPOCHS lowered to 250 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface IRevenueDistributor {
     function MAX_CLAIM_EPOCHS() external view returns (uint256);

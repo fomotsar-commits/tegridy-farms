@@ -536,7 +536,7 @@ contract Pass6_LD_NEW_H2_NoOpTransferTest is Test {
 
         weth = new P6_MockWETH();
         nft = new P6_NoOpERC721();
-        lending = new TegridyNFTLending(treasury, 500, address(weth));
+        lending = new TegridyNFTLending(treasury, 500, address(weth), address(0));
 
         // Whitelist the NoOp NFT — simulates a (later-discovered-malicious)
         // collection that admin previously added in good faith.

@@ -7,7 +7,7 @@ import "../src/TegridyPair.sol";
 import "../src/TegridyFactory.sol";
 import "../src/TegridyRouter.sol";
 
-// ─── Mock Contracts ──────────────────────────────────────────────────────────
+// â”€â”€â”€ Mock Contracts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 contract MockToken18 is ERC20 {
     constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {
@@ -37,7 +37,7 @@ contract MockWETH is ERC20 {
     }
 }
 
-// ─── Test Suite ──────────────────────────────────────────────────────────────
+// â”€â”€â”€ Test Suite â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 contract AuditFixes_PairTest is Test {
     TegridyFactory public factory;
@@ -55,13 +55,13 @@ contract AuditFixes_PairTest is Test {
         owner = address(this);
 
         // Deploy factory (this contract is the feeToSetter)
-        factory = new TegridyFactory(address(this), address(this));
+        factory = new TegridyFactory(address(this), address(this), address(this)); // F-30-9 initial guardian
         // AUDIT FIX: Use timelocked feeTo change
         factory.proposeFeeToChange(feeTo);
         vm.warp(block.timestamp + 48 hours);
         factory.executeFeeToChange();
 
-        // Deploy tokens — ensure tokenA < tokenB for consistent ordering
+        // Deploy tokens â€” ensure tokenA < tokenB for consistent ordering
         tokenA = new MockToken18("Token A", "TKA");
         tokenB = new MockToken18("Token B", "TKB");
         weth = new MockWETH();
@@ -99,7 +99,7 @@ contract AuditFixes_PairTest is Test {
         );
     }
 
-    // ─── #5: 0.3% swap fee via K-invariant ───────────────────────────────
+    // â”€â”€â”€ #5: 0.3% swap fee via K-invariant â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// @notice Verify that the pair enforces a 0.3% fee on swaps.
     ///         Swap 1000 tokenA -> tokenB. Expected output with 0.3% fee:
@@ -129,7 +129,7 @@ contract AuditFixes_PairTest is Test {
         assertEq(amounts[1], expectedOut, "Output should match 0.3% fee formula");
 
         // Verify fee is ~0.3%: with 1:1 reserves, output should be ~997 * 1M / (1M * 1000 + 997k)
-        // ≈ 996.009 tokens (slightly less than 997 due to price impact)
+        // â‰ˆ 996.009 tokens (slightly less than 997 due to price impact)
         assertGt(amounts[1], 996 ether, "Output too low");
         assertLt(amounts[1], 1000 ether, "Output should be less than input (fee applied)");
 
@@ -137,7 +137,7 @@ contract AuditFixes_PairTest is Test {
         // A swap with 0 fee (all 1000 tokens as output) would violate K
     }
 
-    // ─── #10: Protocol fee = 1/6 of growth ───────────────────────────────
+    // â”€â”€â”€ #10: Protocol fee = 1/6 of growth â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// @notice Verify that _mintFee gives protocol (feeTo) ~1/6 of total fee growth.
     ///         Standard Uniswap V2 formula: protocol gets 1/6 of 0.3% = 0.05%.
@@ -176,13 +176,13 @@ contract AuditFixes_PairTest is Test {
 
         // Protocol should get ~1/6 of total fee growth.
         // The denominator in the formula is rootK * 5 + rootKLast, meaning:
-        //   protocol_share / total_fee_growth ≈ 1/6
+        //   protocol_share / total_fee_growth â‰ˆ 1/6
         // We verify the ratio is reasonable (between 10% and 25% of total fee growth)
         // feeToLP should be a meaningful fraction of total supply growth
         assertGt(feeToLP, 0, "Protocol should receive fee shares");
     }
 
-    // ─── #63: Reinitialize reverts ───────────────────────────────────────
+    // â”€â”€â”€ #63: Reinitialize reverts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_revert_reinitialize() public {
         // Pair is already initialized by factory.createPair()
@@ -192,7 +192,7 @@ contract AuditFixes_PairTest is Test {
         pair.initialize(address(tokenA), address(tokenB));
     }
 
-    // ─── #7: Router uses nonReentrant (functional verification) ──────────
+    // â”€â”€â”€ #7: Router uses nonReentrant (functional verification) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// @notice We can't directly test the nonReentrant modifier from Solidity,
     ///         but we verify that the router's swap functions work correctly,
@@ -219,7 +219,7 @@ contract AuditFixes_PairTest is Test {
         vm.stopPrank();
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────
+    // â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function _path(address from, address to) internal pure returns (address[] memory) {
         address[] memory p = new address[](2);

@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SequencerCheck} from "./lib/SequencerCheck.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 
@@ -40,8 +41,8 @@ interface ITegridyFactoryForTWAP {
 ///     wrapped values produce correct differences.
 ///   - MIN_PERIOD of 15 minutes between observations prevents rapid buffer filling.
 ///   - MAX_STALENESS of 2 hours ensures consult() rejects stale data.
-///   - Price deviation check rejects observations that deviate >50% from the previous,
-///     mitigating flash-loan manipulation of reserves.
+///   - Price deviation check rejects observations that deviate >=MAX_DEVIATION_BPS from
+///     the previous, mitigating flash-loan manipulation of reserves.
 /// @dev Minimal Ownable2Step + timelock-style admin for the optional update fee.
 abstract contract TWAPAdmin {
     address public owner;
@@ -106,8 +107,17 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     uint256 public constant MIN_PERIOD = 15 minutes;
     uint8 public constant MAX_OBSERVATIONS = 48;
     uint256 public constant MAX_STALENESS = 2 hours;
-    /// @dev Maximum allowed price deviation from previous observation (50% = 5000 bps)
-    uint256 public constant MAX_DEVIATION_BPS = 5000;
+    /// @dev Maximum allowed price deviation from previous observation.
+    ///      AUDIT FIX F-46-1 (2026-05): tightened from 5000 to 2000 bps (20%).
+    ///      Pre-fix the 50% per-observation cap allowed a multi-block grind to
+    ///      compound: 4 successive 50% steps move TWAP ~5x within 1h on a
+    ///      low-TVL pair (F-89-I cost analysis: ~$200-800 to bend a $15K
+    ///      pool 5x). At 20% the same compounding takes 9+ steps and the
+    ///      per-step swap-cost rises non-linearly, raising the multi-block
+    ///      grind floor ~6x — into the range arbitrageurs reliably defend
+    ///      against. The boundary is enforced as `>=` below so an exact
+    ///      2000-bps step also reverts.
+    uint256 public constant MAX_DEVIATION_BPS = 2000;
     /// @dev Minimum interval between successive update() calls (DoS / drift gate).
     ///      Equal to MIN_PERIOD; named explicitly per R012 (audit 013 H-1) so consumers can rely on it.
     uint256 public constant MIN_UPDATE_INTERVAL = MIN_PERIOD;
@@ -115,6 +125,21 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     ///      to allow re-bootstrapping. Prevents permanent self-bricking when real price has
     ///      drifted >50% during dormancy. (audit 013 M-2)
     uint256 public constant DEVIATION_BYPASS_AFTER = 1 days;
+    /// @dev AUDIT FIX F-24-1 (2026-05) — post-resume / long-idle reserve
+    ///      poisoning guard. If the pair's last touch
+    ///      (`pair.blockTimestampLast`) is more than MAX_BRIDGING_GAP behind
+    ///      `block.timestamp` at observation time, the bridging math
+    ///      integrates `currentSpot * elapsedSinceLastPairTouch` across an
+    ///      idle window we cannot trust (frozen disable interval, multi-day
+    ///      dormancy without arbitrage corrections, etc.). The resulting
+    ///      observation is forced `bypassed = true` so consult() fail-closes
+    ///      via the existing `best.bypassed`/`latest.bypassed` guards until
+    ///      honest activity refreshes the buffer. 2 hours = MAX_STALENESS:
+    ///      anything beyond that already breaks the staleness contract for
+    ///      `consult()`, so admitting the observation as a non-bypass anchor
+    ///      would only widen the manipulation surface without expanding what
+    ///      consumers can rely on.
+    uint256 public constant MAX_BRIDGING_GAP = 2 hours;
     uint256 private constant Q112 = 2 ** 112;
     uint256 private constant BPS = 10000;
 
@@ -137,14 +162,68 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     /// AUDIT FIX (BATCH-N3 H6): per-pair minimum reserve floor for `update()`
     /// to admit observations. 0 = no floor (default, backward-compat).
     /// Owner-set; gates against single-trader manipulation on low-TVL pairs.
+    /// AUDIT FIX F-31-C / M-24 (FRESH-EYES 2026-05): the per-pair mapping defaults
+    /// to 0, which was effectively "no floor" — a permissive default that left
+    /// every newly-registered pair vulnerable to single-trader TWAP grind until
+    /// the owner manually called `setMinReserveFloor`. The new
+    /// `DEFAULT_MIN_RESERVE_FLOOR_WEI` constant supplies a non-zero floor when
+    /// the per-pair value is unset, so the safe default is "gated" and the owner
+    /// must EXPLICITLY lower it (via `setMinReserveFloor` to a non-zero value
+    /// below the constant) on pairs that legitimately operate at smaller depth.
+    /// 10 ether matches the typical ETH-side liquidity floor below which a lone
+    /// trader could move spot beyond MAX_DEVIATION_BPS in a single block on an
+    /// 18:18 equal-decimal pair.
+    uint256 public constant DEFAULT_MIN_RESERVE_FLOOR_WEI = 10 ether;
+    /// @dev AUDIT FIX F-24-2 (2026-05) — per-side floor.
+    ///      `minReserveFloor` (the legacy mapping) is the side-0 floor and
+    ///      remains the default applied to BOTH reserves on equal-decimal
+    ///      pairs (the protocol's current TOWELI/WETH 18:18 case). When a
+    ///      cross-decimal pair is registered the owner can set
+    ///      `minReserveFloor1` independently so the side-1 reserve is gated
+    ///      against its own decimal-appropriate threshold, eliminating the
+    ///      single-threshold misconfiguration footgun documented in F-24-2.
+    ///      A side-1 value of 0 means "fall back to side-0 effective floor"
+    ///      (backward compatible).
     mapping(address => uint256) public minReserveFloor;
+    mapping(address => uint256) public minReserveFloor1;
     error ReservesBelowFloor();
     event MinReserveFloorSet(address indexed pair, uint256 floor);
+    /// @dev AUDIT FIX F-24-2 — distinct event for the side-1 setter so
+    ///      off-chain monitoring sees per-side configuration changes.
+    event MinReserveFloor1Set(address indexed pair, uint256 floor);
 
     function setMinReserveFloor(address pair, uint256 floor) external onlyOwner {
         if (!factory.isPair(pair)) revert UnknownPair();
         minReserveFloor[pair] = floor;
         emit MinReserveFloorSet(pair, floor);
+    }
+
+    /// @notice AUDIT FIX F-24-2 (2026-05): per-side override for the reserve-1
+    ///         floor. Owner-only. A non-zero value here unbinds reserve-1 from
+    ///         the side-0 floor, which is the correct behaviour on any
+    ///         cross-decimal pair. Setting back to 0 restores fallback.
+    function setMinReserveFloor1(address pair, uint256 floor) external onlyOwner {
+        if (!factory.isPair(pair)) revert UnknownPair();
+        minReserveFloor1[pair] = floor;
+        emit MinReserveFloor1Set(pair, floor);
+    }
+
+    /// @notice AUDIT FIX F-31-C / M-24 (FRESH-EYES 2026-05): effective floor used
+    ///         by `update()`. Returns the per-pair override when set (`!= 0`),
+    ///         else falls back to `DEFAULT_MIN_RESERVE_FLOOR_WEI`. Exposed as a
+    ///         public view so consumers and integrators can read the same value
+    ///         the gate enforces.
+    function effectiveMinReserveFloor(address pair) public view returns (uint256) {
+        uint256 override_ = minReserveFloor[pair];
+        return override_ == 0 ? DEFAULT_MIN_RESERVE_FLOOR_WEI : override_;
+    }
+
+    /// @notice AUDIT FIX F-24-2 (2026-05): side-1 effective floor. Falls back
+    ///         to the side-0 effective floor when the override is unset, so
+    ///         18:18 equal-decimal pairs continue to behave as before.
+    function effectiveMinReserveFloor1(address pair) public view returns (uint256) {
+        uint256 override_ = minReserveFloor1[pair];
+        return override_ == 0 ? effectiveMinReserveFloor(pair) : override_;
     }
 
     /// @notice AUDIT M-2: timestamp of the most recent rebootstrap (deviation gate
@@ -164,8 +243,27 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     ///         Capped at MAX_UPDATE_FEE (0.01 ETH) to prevent griefing.
     uint256 public updateFee;
     uint256 public constant MAX_UPDATE_FEE = 0.01 ether;
+    /// @notice AUDIT FIX F-95-K-4 (2026-05): default minimum update-fee floor
+    ///         applied when the owner has NOT explicitly set `updateFee`.
+    ///         Pre-fix the default of 0 made `update()` callable for ~80k gas,
+    ///         enabling a permanent keeper-race grief on every authentic pair
+    ///         (an attacker front-runs honest keepers at every MIN_PERIOD
+    ///         boundary). 1e14 wei (~$0.30 at 3000 USD/ETH) prices the grief
+    ///         out of practicality while staying affordable for honest keepers.
+    ///         Owners can override to ANY value in `[0, MAX_UPDATE_FEE]` via
+    ///         `setUpdateFee` (including back to zero on chains where the
+    ///         keeper-grief threat does not apply).
+    uint256 public constant MIN_UPDATE_FEE = 1e14;
     uint256 public accumulatedFees;
     address public feeRecipient;
+    /// @notice AUDIT FIX F-95-K-4 (2026-05): tracks whether the owner has
+    ///         explicitly configured `updateFee`. While false, `update()`
+    ///         enforces `MIN_UPDATE_FEE` as the effective floor. Once the
+    ///         owner calls `setUpdateFee` (with ANY value, including 0) the
+    ///         flag flips and the explicit value applies. This preserves the
+    ///         "owner can opt out of fees entirely" intent without leaving
+    ///         fresh deployments wide-open to keeper-race griefing.
+    bool public updateFeeConfigured;
 
     // ─── AUDIT R062: L2 Sequencer Uptime gating ──────────────────────
     /// @notice Optional Chainlink L2 Sequencer Uptime feed. address(0) on
@@ -276,17 +374,44 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         // cumulative before the next observation lands.
         if (factory.disabledPairs(pair)) revert PairDisabled();
 
-        if (updateFee > 0) {
-            if (msg.value < updateFee) revert InsufficientFee();
-            accumulatedFees += updateFee;
-            // Refund overpayment
-            uint256 excess = msg.value - updateFee;
+        // AUDIT FIX F-95-K-4 (2026-05): when the owner has not explicitly
+        // configured `updateFee`, enforce a `MIN_UPDATE_FEE` floor so the
+        // permissionless `update()` cannot be cheap-grief-spammed at every
+        // MIN_PERIOD boundary. Once the owner calls `setUpdateFee` (with ANY
+        // value, including 0) the explicit configuration applies and the
+        // default floor no longer engages.
+        uint256 effectiveFee = updateFeeConfigured ? updateFee : MIN_UPDATE_FEE;
+        if (effectiveFee > 0) {
+            if (msg.value < effectiveFee) revert InsufficientFee();
+            accumulatedFees += effectiveFee;
+            // Refund overpayment.
+            // AUDIT FIX M-44 / F-55-8 (2026-05): bound the gas stipend on the
+            // refund leg and divert overflow into `accumulatedFees` on
+            // failure rather than reverting. Pre-fix, an unbounded raw call
+            // with `require(ok)` let any contract caller whose receive() is
+            // gas-heavy (or hostile) brick the entire `update()` path —
+            // freezing TWAP advancement until the keeper rotates wallets.
+            // The 30k stipend is enough for an EOA refund and a typical
+            // Safe/SCW receive() while preventing the recipient from running
+            // arbitrary code that would justify reverting. If the stipend is
+            // insufficient (or the recipient deliberately reverts), the
+            // excess stays in `accumulatedFees` — the caller effectively
+            // tipped the protocol. This matches the F-55-8 recommendation
+            // ("on failure, accumulate the excess into accumulatedFees").
+            uint256 excess = msg.value - effectiveFee;
             if (excess > 0) {
-                (bool ok,) = msg.sender.call{value: excess}("");
-                if (!ok) revert InsufficientFee(); // refund must succeed
+                (bool ok,) = msg.sender.call{value: excess, gas: 30000}("");
+                if (!ok) {
+                    // Failed refund -> bank as fee tip. Cannot revert because
+                    // doing so re-opens the F-55-8 brick vector.
+                    accumulatedFees += excess;
+                }
             }
         } else {
-            // No fee → reject any sent value to prevent accidental ETH lock-in.
+            // Owner has explicitly opted into a zero fee; reject any sent
+            // value to prevent accidental ETH lock-in. (Cannot reach this
+            // branch on a fresh deploy because MIN_UPDATE_FEE > 0 applies
+            // until `setUpdateFee` flips `updateFeeConfigured`.)
             require(msg.value == 0, "FEE_NOT_SET");
         }
         if (!canUpdate(pair)) revert PeriodNotElapsed();
@@ -296,12 +421,18 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         // AUDIT FIX (BATCH-N3 H6): per-pair minimum reserve floor. Pre-fix,
         // any pair the factory recognized could be observed regardless of
         // liquidity depth — a low-TVL pair is single-trader-manipulable
-        // within the ±50% deviation gate. Owner can set a per-pair floor
-        // (denominated in reserve units) that gates `update()`. Default 0
-        // = no floor (backward-compatible). Aerodrome uses analogous
-        // per-pool oracle approval lists; we use a numeric threshold.
-        uint256 floor0 = minReserveFloor[pair];
-        if (floor0 != 0 && (uint256(reserve0) < floor0 || uint256(reserve1) < floor0)) {
+        // within the deviation gate. Owner can set a per-pair floor
+        // (denominated in reserve units) that gates `update()`.
+        // AUDIT FIX F-31-C / M-24 (FRESH-EYES 2026-05): use the effective floor
+        // (per-pair override OR `DEFAULT_MIN_RESERVE_FLOOR_WEI` fallback) so newly
+        // registered pairs ship with a non-zero floor by default. Owner can lower
+        // explicitly via `setMinReserveFloor` for legitimate small-depth pairs.
+        // AUDIT FIX F-24-2 (2026-05): per-side floor — side-0 floor gates
+        // reserve0; side-1 effective floor (with side-0 fallback) gates
+        // reserve1, eliminating the cross-decimal misconfiguration footgun.
+        uint256 floor0 = effectiveMinReserveFloor(pair);
+        uint256 floor1 = effectiveMinReserveFloor1(pair);
+        if (uint256(reserve0) < floor0 || uint256(reserve1) < floor1) {
             revert ReservesBelowFloor();
         }
 
@@ -331,6 +462,40 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
 
         bool bypassed = false;
         uint256 count = observationCount[pair];
+
+        // AUDIT FIX F-24-1 (2026-05) — post-resume / long-idle reserve
+        // poisoning. If the pair's last touch is more than MAX_BRIDGING_GAP
+        // behind the current block, the bridging math integrates
+        // `currentSpot * elapsedSinceLastPairTouch` across an idle window we
+        // cannot trust (frozen disable interval, multi-day dormancy without
+        // arbitrage corrections, etc.). Force `bypassed = true` so consult
+        // fail-closes via `best.bypassed` / `latest.bypassed` until honest
+        // activity refreshes the buffer. Stamp `lastBypassUsed[pair]` so
+        // consumer-side cooldowns (TegridyLending._positionETHValue,
+        // POL._twapMinOut) also refuse the read for `TWAP_PERIOD * 2`. We
+        // only trip this for `count > 0` because the very first observation
+        // already has its own bypass path with no prior pair-touch baseline
+        // to compare against.
+        bool bridgingGapTrip = (count > 0) && (uint256(elapsedSinceLastPairTouch) > MAX_BRIDGING_GAP);
+
+        // AUDIT FIX F-74-11 (2026-05) — sequencer-outage observation. By
+        // design, `update()` is callable during outages so the buffer can
+        // refresh while the chain is unavailable; but observations recorded
+        // during the outage integrate against frozen reserves a malicious
+        // keeper could have pre-positioned. Mark such observations
+        // `bypassed = true` so the existing `best.bypassed` /
+        // `latest.bypassed` guards in `_getCumulativePricesOverPeriod`
+        // discard them. address(0) sequencerFeed (mainnet) is a no-op via
+        // `tryCheckSequencerUp`. Use a 4h staleness window to mirror the
+        // tighter price-sensitive cadence used by the lending and POL
+        // consumers (DEEP-LIB-M3 / F-74-4).
+        bool sequencerOutage = false;
+        if (sequencerFeed != address(0)) {
+            (bool seqOk,) =
+                SequencerCheck.tryCheckSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD, 4 hours);
+            sequencerOutage = !seqOk;
+        }
+
         if (count == 0) {
             // FRESH-EYES H-3 (first-observation manipulation): mark the very first
             // observation as `bypassed = true` so consult() refuses to serve any
@@ -341,8 +506,8 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
             // against), letting an attacker create a pool at a manipulated 1:100
             // ratio, fund it asymmetrically, and call `update()` to permanently
             // anchor a poisoned baseline. The deviation gate then accepts subsequent
-            // observations within ±50% of the manipulated anchor — and any
-            // downstream consumer (lending oracle, POL harvest) silently reads
+            // observations within the deviation cap of the manipulated anchor — and
+            // any downstream consumer (lending oracle, POL harvest) silently reads
             // the lie. By marking bypassed=true here, we reuse the same fail-safe
             // path that already guards the dormancy-bypass case (D-AMM-M5 +
             // V2-AMM-H1 + the `best.bypassed` check inside
@@ -370,10 +535,11 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
 
             // M-2 (audit 013): dormancy-bypass — if the pair has been dormant for longer
             // than DEVIATION_BYPASS_AFTER, skip the deviation gate so a stale baseline
-            // cannot self-brick the oracle when real price has drifted >50%. The deviation
-            // gate is defense-in-depth on top of the new pair-native accumulator: the
-            // accumulator itself already integrates price across the entire idle period,
-            // so the gate should not block legitimate post-dormancy refreshes.
+            // cannot self-brick the oracle when real price has drifted past the deviation
+            // cap during dormancy. The deviation gate is defense-in-depth on top of the
+            // new pair-native accumulator: the accumulator itself already integrates price
+            // across the entire idle period, so the gate should not block legitimate
+            // post-dormancy refreshes.
             // AUDIT FIX (BATCH-M3 H7): self-bootstrap grace. Observations 2 and 3
             // are admitted with `bypassed = true` (skip deviation gate). Pre-fix,
             // observation #2 was deviation-gated against #1's lastSpot — if #1 was
@@ -382,11 +548,25 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
             // owner ran proposeAdminResetPair. Allowing 3 self-correction observations
             // before deviation enforcement kicks in lets the oracle recover from a
             // bad bootstrap without admin intervention. Observation #4 onwards
-            // enforces normal ±50% deviation. The 3-observation grace is bounded by
-            // MIN_UPDATE_INTERVAL = 15min, so a manipulator would need 30min of
-            // sustained reserve push at extreme ratios — economically expensive.
+            // enforces normal deviation. The 3-observation grace is bounded by
+            // MIN_UPDATE_INTERVAL = 15min.
             if (count <= 2) {
+                // AUDIT FIX H-13 / F-89-K / F-46-2 / F-24-3 (2026-05): stamp
+                // `lastBypassUsed[pair]` here so consumer cooldowns
+                // (TegridyLending._positionETHValue, POL._twapMinOut) fire
+                // for the BATCH-M3 H7 self-bootstrap grace observations
+                // (#2 and #3) as well as the count==0 bootstrap and the
+                // owner-only dormancy-bypass branch. Pre-fix the
+                // `lastBypassUsed` cooldown was silent on obs #2/#3 even
+                // though those observations were admitted with the
+                // deviation gate skipped — the `best.bypassed` revert in
+                // consult masked the gap, but the lender's typed
+                // `OracleStale` revert was bypassed in favour of the inner
+                // `OracleRebootstrapping` revert. Off-chain monitoring that
+                // keys off typed errors missed the rebootstrap signal.
                 bypassed = true;
+                lastBypassUsed[pair] = block.timestamp;
+                emit DeviationBypassed(pair, elapsed, spotPrice0, spotPrice1);
             } else if (uint256(elapsed) <= DEVIATION_BYPASS_AFTER) {
                 uint256 prev0 = lastSpot0[pair];
                 uint256 prev1 = lastSpot1[pair];
@@ -394,13 +574,20 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
                     uint256 deviation0 = spotPrice0 > prev0
                         ? ((spotPrice0 - prev0) * BPS) / prev0
                         : ((prev0 - spotPrice0) * BPS) / prev0;
-                    if (deviation0 > MAX_DEVIATION_BPS) revert PriceDeviationTooLarge();
+                    // AUDIT FIX F-46-1 (2026-05): tighten boundary to `>=` so
+                    // an exact `MAX_DEVIATION_BPS` step also reverts. Pre-fix
+                    // the strict `>` allowed an exact-2000-bps step to slide
+                    // through, giving manipulators a free deviation-cap bend
+                    // per observation on low-TVL pairs.
+                    if (deviation0 >= MAX_DEVIATION_BPS) revert PriceDeviationTooLarge();
                 }
                 if (prev1 > 0) {
                     uint256 deviation1 = spotPrice1 > prev1
                         ? ((spotPrice1 - prev1) * BPS) / prev1
                         : ((prev1 - spotPrice1) * BPS) / prev1;
-                    if (deviation1 > MAX_DEVIATION_BPS) revert PriceDeviationTooLarge();
+                    // AUDIT FIX F-46-1 (2026-05): inclusive boundary; see
+                    // `deviation0` comment above.
+                    if (deviation1 >= MAX_DEVIATION_BPS) revert PriceDeviationTooLarge();
                 }
             } else {
                 // AUDIT M-2 / R014: rebootstrap path — gate skipped after dormancy.
@@ -428,12 +615,34 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
                 // window (~12 h). Owners SHOULD be a multisig (Wave 0
                 // hardening) and the bypass branch's only legitimate use is
                 // post-dormancy rebootstrap on tokens whose real price has
-                // drifted >50% during dormancy — see DEVIATION_BYPASS_AFTER.
+                // drifted past the deviation cap during dormancy — see
+                // DEVIATION_BYPASS_AFTER.
                 if (msg.sender != owner) revert BypassObservationOwnerOnly();
                 bypassed = true;
                 lastBypassUsed[pair] = block.timestamp;
                 emit DeviationBypassed(pair, elapsed, spotPrice0, spotPrice1);
             }
+        }
+
+        // AUDIT FIX F-24-1 / F-74-11 (2026-05): apply the post-resume
+        // bridging-gap and sequencer-outage flags *after* the deviation
+        // branches so they OR with whatever decision the deviation gate
+        // produced. If either trip fires we force `bypassed = true` and
+        // stamp `lastBypassUsed[pair]` so consumer cooldowns engage. Both
+        // tripwires are no-ops on the count==0 bootstrap path (which
+        // already set bypassed=true) and the count==2/3 self-bootstrap
+        // grace; their value comes from gating the count>=4 honest path
+        // when the underlying conditions for that honest cumulative are
+        // not met (frozen disable interval / unrefreshed reserves during
+        // a sequencer outage).
+        if (!bypassed && (bridgingGapTrip || sequencerOutage)) {
+            bypassed = true;
+            lastBypassUsed[pair] = block.timestamp;
+            uint32 elapsedForEvent;
+            unchecked {
+                elapsedForEvent = blockTs - pairBlockTs;
+            }
+            emit DeviationBypassed(pair, elapsedForEvent, spotPrice0, spotPrice1);
         }
 
         // R012: capture the spot prices for the next deviation gate (H-1/H-2).
@@ -455,6 +664,19 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     }
 
     /// @notice Query the TWAP-adjusted output amount for a given input over a time period.
+    ///
+    /// @notice AUDIT FIX F-46-3 (2026-05) — bootstrap timeline. After a fresh
+    ///         pair is registered, observations #1, #2, and #3 are admitted
+    ///         with `bypassed = true` (the count==0 fail-closed bootstrap
+    ///         and the count<=2 self-bootstrap grace). Observation #4 is the
+    ///         first non-bypass anchor candidate. For a 30-min `consult()`
+    ///         period at the canonical 15-min cadence, the lookback target
+    ///         lands on the bypassed slots at observations #4 and #5 — both
+    ///         of those calls revert `OracleRebootstrapping` via the
+    ///         `best.bypassed` guard. Only at observation #6 (~75 min after
+    ///         pair creation) does `consult(period=30 min)` first return a
+    ///         non-revert price. Integrators bootstrapping new pairs MUST
+    ///         account for this ~6-observation warm-up window.
     ///
     /// @notice AUDIT R016 M-1 (MEDIUM, DOCUMENTATION): post-bypass observations participate
     ///         in the cumulative immediately. When the deviation gate is skipped because the
@@ -494,7 +716,13 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         // R062 (HIGH): refuse to serve TWAP reads when the L2 sequencer is
         // currently down or has just resumed within SEQUENCER_GRACE_PERIOD.
         // address(0) sequencerFeed is a no-op (mainnet / non-L2 deployments).
-        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
+        // AUDIT FIX M-48 / F-74-4 (2026-05): pass an explicit 4h staleness
+        // window via the 3-arg overload, matching the price-sensitive
+        // cadence used by TegridyLending and POLAccumulator. The lib's
+        // 24h default would otherwise let a Chainlink keeper that has not
+        // pushed for >4h-but-<=24h pass the gate, even though the cached
+        // "up" answer may no longer reflect reality.
+        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD, 4 hours);
 
         // FRESH-EYES H-5 (companion to FRESH-EYES H-2 on update): refuse to serve
         // a TWAP read for a pair that is currently disabled at the factory. Even
@@ -550,7 +778,17 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         unchecked {
             priceDiff = priceCumEnd - priceCumStart;
         }
-        amountOut = (amountIn * priceDiff) / (uint256(elapsed) * Q112);
+        // AUDIT FIX F-24-4 / F-42-2 (2026-05): use OZ Math.mulDiv to compute
+        // `(amountIn * priceDiff) / (uint256(elapsed) * Q112)` without
+        // requiring the intermediate product to fit in 256 bits. Pre-fix,
+        // an extreme-imbalance pair (large 18-decimal reserve paired with
+        // a tiny low-decimal reserve) could push `priceDiff` near 2^200,
+        // and at `amountIn` near 2^60 (~ 1e18) the checked multiplication
+        // panicked with `Panic(0x11)` — turning `consult()` into an
+        // unconditional revert for any meaningfully-sized `amountIn`. The
+        // V3 OracleLibrary pattern uses the same 512-bit mulDiv to
+        // sidestep the overflow without changing observable semantics.
+        amountOut = Math.mulDiv(amountIn, priceDiff, uint256(elapsed) * Q112);
     }
 
     /// @notice Check whether enough time has passed to record a new observation.
@@ -581,6 +819,28 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         obs = observations[pair][lastIdx];
     }
 
+    /// @notice AUDIT FIX M-45 / F-72-5 (2026-05): non-reverting sister of
+    ///         `getLatestObservation`. Returns `(zero-init, false)` when no
+    ///         observation has been recorded for `pair` instead of reverting
+    ///         `InsufficientObservations()`. This lets view-path consumers
+    ///         (POLAccumulator harvest dashboards, TegridyLending
+    ///         dust-eligibility frontends) degrade gracefully on brand-new
+    ///         pairs that have not yet been bootstrapped, rather than
+    ///         showing an opaque revert. The reverting variant remains for
+    ///         callers that want fail-loud semantics. Mirrors the
+    ///         `tryCheckSequencerUp` pattern in `lib/SequencerCheck.sol`.
+    function tryGetLatestObservation(address pair)
+        external
+        view
+        returns (Observation memory obs, bool exists)
+    {
+        uint256 count = observationCount[pair];
+        if (count == 0) return (obs, false);
+        uint8 lastIdx = observationIndex[pair] == 0 ? MAX_OBSERVATIONS - 1 : observationIndex[pair] - 1;
+        obs = observations[pair][lastIdx];
+        exists = true;
+    }
+
     /// @notice Get the number of usable observations stored for a pair.
     function getObservationCount(address pair) external view returns (uint256) {
         uint256 count = observationCount[pair];
@@ -592,10 +852,16 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     // ─── AUDIT L7: Fee admin ─────────────────────────────────────────
 
     /// @notice Set the per-update fee. Capped at MAX_UPDATE_FEE.
+    /// @dev    AUDIT FIX F-95-K-4 (2026-05): flipping `updateFeeConfigured`
+    ///         here disengages the `MIN_UPDATE_FEE` floor and lets the
+    ///         caller-supplied value (including 0) apply on subsequent
+    ///         `update()` calls. Pre-fix the default of 0 made the
+    ///         permissionless `update()` cheap-grief-spammable.
     function setUpdateFee(uint256 _newFee) external onlyOwner {
         if (_newFee > MAX_UPDATE_FEE) revert FeeTooHigh();
         uint256 old = updateFee;
         updateFee = _newFee;
+        updateFeeConfigured = true;
         emit UpdateFeeChanged(old, _newFee);
     }
 
@@ -609,7 +875,13 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
 
     /// @notice Withdraw accumulated update fees to feeRecipient (or owner if unset).
     /// @dev AUDIT FIX D-AMM-L3: nonReentrant for defense-in-depth.
-    function withdrawFees() external nonReentrant {
+    /// @dev AUDIT FIX F-95-K-8 (2026-05): gated to `onlyOwner`. Pre-fix
+    ///      this was permissionless — funds always flowed to the
+    ///      `feeRecipient`/`owner` so it was not a theft vector, but ANY
+    ///      caller could force the recipient (typically a multisig) to
+    ///      handle many small inbound transfers, burning their gas budget.
+    ///      Sweep timing should be admin-controlled.
+    function withdrawFees() external nonReentrant onlyOwner {
         uint256 amount = accumulatedFees;
         if (amount == 0) revert NoFees();
         accumulatedFees = 0;
@@ -694,7 +966,7 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
 
         // R012 (audit 013 H-3): wrap-safe staleness check. Cast block.timestamp to
         // uint32 BEFORE subtraction so modular arithmetic correctly handles the
-        // year-2106 rollover. Previously the uint32→uint256 implicit upcast made the
+        // year-2106 rollover. Previously the uint32->uint256 implicit upcast made the
         // staleness diff explode at the wrap, bricking every consult() consumer.
         uint32 nowTs = uint32(block.timestamp % 2 ** 32);
         uint32 staleness;

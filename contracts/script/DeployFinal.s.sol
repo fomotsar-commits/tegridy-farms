@@ -76,7 +76,10 @@ contract DeployFinalScript is Script {
         console.log(" 1. TegridyStaking:", d.staking);
 
         // 2. TegridyFactory
-        TegridyFactory factory = new TegridyFactory(deployer, TREASURY);
+        // AUDIT FIX F-30-9: 3rd arg is initial guardian (must be non-zero).
+        // Pass deployer EOA for bootstrap; rotate to multisig post-deploy via
+        // proposeGuardianChange / executeGuardianChange (48h timelock).
+        TegridyFactory factory = new TegridyFactory(deployer, TREASURY, deployer);
         d.factory = address(factory);
         console.log(" 2. TegridyFactory:", d.factory);
 

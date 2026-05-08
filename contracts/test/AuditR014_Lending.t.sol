@@ -264,7 +264,7 @@ contract AuditR014LendingTest is Test {
         // Stand up the NFT lending contract for the pause-aware deadline test
         // and the pending-removal-block test.
         collection = new R014MockJBAC();
-        nftLending = new TegridyNFTLending(treasury, 500, address(weth));
+        nftLending = new TegridyNFTLending(treasury, 500, address(weth), address(0));
         nftLending.proposeWhitelistCollection(address(collection));
         skip(25 hours);
         nftLending.executeWhitelistCollection();

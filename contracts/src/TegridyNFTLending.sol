@@ -27,8 +27,28 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     bytes32 public constant WHITELIST_REMOVE = keccak256("WHITELIST_REMOVE");
     bytes32 public constant ORIGINATION_FEE_CHANGE = keccak256("NFT_LENDING_ORIGINATION_FEE_CHANGE"); // AUDIT C7
     bytes32 public constant MIN_APR_CHANGE = keccak256("NFT_LENDING_MIN_APR_CHANGE"); // AUDIT H5
+    /// @notice AUDIT FIX FRESH-2026: F-95-K-7 — timelock key for the
+    ///         owner-only `sweepUnsolicitedNFT` (24h delay).
+    bytes32 public constant SWEEP_UNSOLICITED_NFT = keccak256("NFT_LENDING_SWEEP_UNSOLICITED");
 
     // ─── Safety Caps ─────────────────────────────────────────────────
+    /// @notice AUDIT FIX FRESH-2026: H-8 [F-71-1, F-78-C, F-74-10] —
+    ///         pause-asymmetry bound on lender liquidation. Mirrors
+    ///         TegridyLending's 7d cap. Pre-fix `claimDefault` was
+    ///         `whenNotPaused` with NO cap; a captured-owner key could
+    ///         pause indefinitely and block every lender's seize forever
+    ///         while `repayLoan` stayed open. Now the lender's claim
+    ///         unblocks once cumulative pause time crosses 7 days.
+    uint256 public constant MAX_PAUSE_BLOCK_LIQUIDATION = 7 days;
+    /// @notice AUDIT FIX FRESH-2026: F-71-9 — cumulative pause window.
+    ///         Pre-fix the cap was measured from `pauseStartTime` (resets
+    ///         on every pause), so cycle-pause evaded the cap indefinitely.
+    ///         Now we sum pause durations within a rolling 30-day window.
+    uint256 public constant CUMULATIVE_PAUSE_WINDOW = 30 days;
+    /// @notice AUDIT FIX FRESH-2026: F-95-K-2 — global cap on offers list.
+    uint256 public constant MAX_TOTAL_OFFERS = 10000;
+    /// @notice AUDIT FIX FRESH-2026: F-95-K-2 — per-lender offer cap.
+    uint256 public constant MAX_OFFERS_PER_LENDER = 100;
     uint256 public constant MAX_PRINCIPAL = 1000 ether;
     /// @notice Minimum principal floor.
     /// @dev    AUDIT FIX: LD-04 — without a floor, sub-2000-wei principals make
@@ -187,6 +207,33 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     uint256 public pauseStartTime;
     uint256 public totalPausedDuration;
 
+    // ─── AUDIT FIX FRESH-2026: F-71-9 — cumulative pause history ─────
+    /// @notice Append-only log of completed pause windows used by
+    ///         `_cumulativePausedInWindow` to compute the rolling 30-day
+    ///         cumulative pause budget. Each entry packs pause start +
+    ///         end into one storage slot.
+    struct PauseEpisode {
+        uint128 startedAt;
+        uint128 endedAt;
+    }
+    PauseEpisode[] public pauseHistory;
+
+    // ─── AUDIT FIX FRESH-2026: F-95-K-2 — per-lender offer count ─────
+    /// @notice Running count of OPEN (active) offers per lender.
+    ///         Decremented when an offer flips inactive (cancel or accept).
+    mapping(address => uint256) public openOffersOfLender;
+
+    // ─── AUDIT FIX FRESH-2026: F-95-K-7 — stranded-NFT queue ─────────
+    /// @notice Composite-key queue of unsolicited NFTs swept by
+    ///         `executeSweepUnsolicitedNFT`. Recipient claims via
+    ///         `claimStrandedNFT`. Key = keccak(collection, tokenId).
+    mapping(bytes32 => address) public strandedNFTRecipient;
+
+    // ─── AUDIT FIX FRESH-2026: F-95-K-7 — pending sweep proposal ─────
+    address public pendingSweepCollection;
+    uint256 public pendingSweepTokenId;
+    address public pendingSweepRecipient;
+
     /// @notice AUDIT FIX L-2: per-loanId recipient for collateral whose
     ///         transferFrom() reverted during repayLoan / claimDefault.
     ///
@@ -265,6 +312,24 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     event OriginationFeeCollected(address indexed lender, uint256 amount);
     event MinAprProposed(uint256 newBps, uint256 readyAt);
     event MinAprChanged(uint256 oldBps, uint256 newBps);
+    /// @notice AUDIT FIX FRESH-2026: F-95-K-7 — sweep events for the
+    ///         stranded-NFT recovery flow.
+    event SweepUnsolicitedNFTProposed(
+        address indexed collection,
+        uint256 indexed tokenId,
+        address indexed recipient,
+        uint256 readyAt
+    );
+    event SweepUnsolicitedNFTExecuted(
+        address indexed collection,
+        uint256 indexed tokenId,
+        address indexed recipient
+    );
+    event StrandedNFTClaimed(
+        address indexed collection,
+        uint256 indexed tokenId,
+        address indexed recipient
+    );
 
     // ─── Errors ──────────────────────────────────────────────────────
 
@@ -328,6 +393,24 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     ///      whitelisted collection. Without this, a borrower could pocket the principal
     ///      while keeping the NFT.
     error CollateralNotEscrowed();
+    /// @dev AUDIT FIX FRESH-2026: H-8 [F-71-1] — `claimDefault` called while
+    ///      paused and within the cumulative MAX_PAUSE_BLOCK_LIQUIDATION cap.
+    ///      Mirrors TegridyLending's `PausedShortOfBound`.
+    error PausedShortOfBound();
+    /// @dev AUDIT FIX FRESH-2026: F-95-K-2 — global / per-lender offer caps.
+    error TooManyOffers();
+    error TooManyOffersPerLender();
+    /// @dev AUDIT FIX FRESH-2026: F-95-K-7 — `sweepUnsolicitedNFT` would
+    ///      seize an NFT recorded as active collateral.
+    error NFTIsActiveCollateral();
+    /// @dev AUDIT FIX FRESH-2026: F-95-K-7 — `claimStrandedNFT` caller is
+    ///      not the recorded recipient (or no entry).
+    error NotStrandedRecipient();
+    error NoStrandedNFT();
+    /// @dev AUDIT FIX FRESH-2026: F-14-2 — `proposeWhitelistCollection`
+    ///      target reverts on `supportsInterface(0x80ac58cd)` or returns
+    ///      false. Replaces the silent try/catch fall-through.
+    error CollectionNotERC721();
 
     // ─── Legacy View Helpers (for test compatibility) ────────────────
     function protocolFeeChangeReadyAt() external view returns (uint256) {
@@ -339,22 +422,62 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
 
     // ─── Constructor ─────────────────────────────────────────────────
 
+    /// @notice AUDIT FIX FRESH-2026: F-14-1 — constructor now requires the
+    ///         L2 sequencer feed up-front so a deploy that forgets to wire
+    ///         it is detected at deploy time, not silently shipped with
+    ///         protection inert. Mainnet (chainid 1) may pass address(0)
+    ///         since the feed is no-op there.
+    /// @dev    The post-deploy `setSequencerFeed` setter remains as an
+    ///         escape hatch for re-rotation if the feed implementation
+    ///         changes after deployment.
+    /// @dev    Origination-fee policy (F-14-3 NOTE): the fee bucket on
+    ///         `createOffer` is held in escrow on the offer until
+    ///         acceptance. `cancelOffer` refunds it. `acceptOffer` honors a
+    ///         LOWER live rate (re-computes and refunds the delta to the
+    ///         borrower's principal) but does NOT penalize the lender if
+    ///         the rate has been RAISED — snapshot wins on increases, live
+    ///         rate wins on cuts. min-APR uses snapshot semantics in both
+    ///         directions: an offer created at the old `minAprBps` remains
+    ///         acceptable even if `minAprBps` is later raised. These are
+    ///         deliberate fairness asymmetries.
+    /// @dev    Interest-during-outage (F-14-4 NOTE): `pauseAdjustedElapsed`
+    ///         credits ADMIN PAUSE time but NOT sequencer-outage time
+    ///         against accrued interest. Aave V3 takes the same stance —
+    ///         outages are external events; interest continues to accrue
+    ///         while the borrower could not transact. Compensation is via
+    ///         the symmetric `getSequencerOutageBuffer` deadline extension
+    ///         on both repay and claim, NOT via interest pause.
     constructor(
         address _treasury,
         uint256 _protocolFeeBps,
-        address _weth
+        address _weth,
+        address _sequencerFeed
     ) OwnableNoRenounce(msg.sender) {
         if (_treasury == address(0)) revert ZeroAddress();
         if (_weth == address(0)) revert ZeroAddress();
         if (_protocolFeeBps > MAX_PROTOCOL_FEE_BPS) revert FeeTooHigh();
+        // AUDIT FIX FRESH-2026: F-14-1 — L2 deploys must wire a non-zero
+        // sequencer feed at deploy time. Mainnet (chainid 1) may pass
+        // address(0) since the feed is documented no-op there.
+        require(
+            block.chainid == 1 || _sequencerFeed != address(0),
+            "L2_SEQUENCER_FEED_REQUIRED"
+        );
 
         treasury = _treasury;
         protocolFeeBps = _protocolFeeBps;
         weth = _weth;
-        // AUDIT FIX: DEEP-LD-M10 — sequencerFeed defaults to address(0). Zero
-        // means non-L2 / mainnet (no-op). Constructor stays backward-compatible
-        // with existing test deployments.
-        sequencerFeed = address(0);
+        // AUDIT FIX FRESH-2026: F-60-2 — reject EIP-7702 delegated EOAs
+        // (code.length == 23) at constructor wiring. Mainnet path
+        // (chainid 1 with address(0)) skips both checks (no-op feed).
+        if (_sequencerFeed != address(0)) {
+            uint256 feedLen = _sequencerFeed.code.length;
+            if (feedLen == 0 || feedLen == 23) revert SequencerFeedNotContract();
+            sequencerFeed = _sequencerFeed;
+            emit SequencerFeedSet(_sequencerFeed);
+        } else {
+            sequencerFeed = address(0);
+        }
 
         // Whitelist initial collections
         whitelistedCollections[0xd37264c71e9af940e49795F0d3a8336afAaFDdA9] = true; // JBAC
@@ -390,7 +513,13 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     function setSequencerFeed(address _sequencerFeed) external onlyOwner {
         if (sequencerFeed != address(0)) revert SequencerFeedAlreadySet();
         if (_sequencerFeed == address(0)) revert ZeroAddress();
-        if (_sequencerFeed.code.length == 0) revert SequencerFeedNotContract();
+        // AUDIT FIX FRESH-2026: F-60-2 — reject EIP-7702 delegated EOAs.
+        // Pre-fix `code.length == 0` accepted any address with code,
+        // including a 7702-delegated EOA whose code length is exactly 23
+        // (the canonical `0xef0100‖addr` delegation pointer). Mirrors
+        // OwnableNoRenounce reference pattern.
+        uint256 feedLen = _sequencerFeed.code.length;
+        if (feedLen == 0 || feedLen == 23) revert SequencerFeedNotContract();
         sequencerFeed = _sequencerFeed;
         emit SequencerFeedSet(_sequencerFeed);
     }
@@ -428,6 +557,11 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         ) {
             revert CollectionPendingRemoval();
         }
+        // AUDIT FIX FRESH-2026: F-95-K-2 — global + per-lender offer caps.
+        if (offers.length >= MAX_TOTAL_OFFERS) revert TooManyOffers();
+        if (openOffersOfLender[msg.sender] >= MAX_OFFERS_PER_LENDER) {
+            revert TooManyOffersPerLender();
+        }
 
         IERC721(_collateralContract).ownerOf(_tokenId);
 
@@ -449,6 +583,8 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
             treasuryAtCreate: treasury,
             expiry: _expiry // BATCH-I M10
         }));
+        // AUDIT FIX FRESH-2026: F-95-K-2 — increment per-lender open count.
+        openOffersOfLender[msg.sender] += 1;
 
         emit LoanOfferCreated(
             offerId,
@@ -473,6 +609,10 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
 
         // CEI: state change before external call
         offer.active = false;
+        // AUDIT FIX FRESH-2026: F-95-K-2 — decrement per-lender open count.
+        if (openOffersOfLender[msg.sender] > 0) {
+            openOffersOfLender[msg.sender] -= 1;
+        }
         // AUDIT FIX: DEEP-LD-M8 — refund principal + held origination fee.
         uint256 refundAmount = offer.principal + offer.originationFee;
         offer.originationFee = 0;
@@ -551,6 +691,11 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
 
         // CEI: state changes before external calls
         offer.active = false;
+        // AUDIT FIX FRESH-2026: F-95-K-2 — decrement per-lender open count
+        // when an offer flips inactive via acceptance.
+        if (openOffersOfLender[lender] > 0) {
+            openOffersOfLender[lender] -= 1;
+        }
         // AUDIT FIX: DEEP-LD-M8 — clear escrowed origination fee.
         offer.originationFee = 0;
 
@@ -646,11 +791,24 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         // reverted while the deadline elapsed). Now an in-flight outage extends
         // BOTH the borrower's repay window AND the lender's claim window
         // symmetrically by the buffer (matching value used in claimDefault below).
+        // AUDIT FIX FRESH-2026: F-71-3 — pass 4h staleness to match the
+        // 4h staleness used by `checkSequencerUp` on the claim path. Pre-fix
+        // the 2-arg overload defaulted to 24h, so during a 4h-24h Chainlink
+        // keeper-lapse window the lender's claim was hard-blocked while the
+        // borrower's repay window was NOT extended.
         uint256 outageBuffer = SequencerCheck.getSequencerOutageBuffer(
             sequencerFeed,
-            SEQUENCER_GRACE_PERIOD
+            SEQUENCER_GRACE_PERIOD,
+            4 hours
         );
-        if (block.timestamp > effectiveDeadline(_loanId) + GRACE_PERIOD + outageBuffer) {
+        // AUDIT FIX FRESH-2026: F-71-2 — pause-extended grace. Pre-fix a
+        // pause that lands MID-GRACE compressed the borrower's wall-clock
+        // repay window. Now the grace is extended by any pause time
+        // overlapping the [base_deadline, base_deadline + GRACE_PERIOD]
+        // interval — restoring full GRACE_PERIOD of usable wall-clock once
+        // the chain resumes.
+        // AUDIT FIX FRESH-2026: F-72-6 — strict variant on state-changing path.
+        if (block.timestamp > _effectiveDeadlineStrict(_loanId) + _graceWithPauseExtension(_loanId) + outageBuffer) {
             revert LoanNotDefaulted();
         }
 
@@ -662,7 +820,8 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         // paused since start (pause-adjusted elapsed == 0). Pre-fix the floor was
         // taxing borrowers who repaid during a long admin-pause where they had no
         // chance to use the principal productively.
-        uint256 elapsed = pauseAdjustedElapsed(_loanId);
+        // AUDIT FIX FRESH-2026: F-72-6 — strict variant on state-changing path.
+        uint256 elapsed = _pauseAdjustedElapsedStrict(_loanId);
         if (elapsed > 0) {
             // AUDIT FIX: DEEP-LD-M6 — minimum interest floor (1-day APR equivalent).
             uint256 minInterest = Math.mulDiv(
@@ -726,12 +885,35 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
 
     // ─── Default ─────────────────────────────────────────────────────
 
-    function claimDefault(uint256 _loanId) external nonReentrant whenNotPaused {
+    /// @notice Claim the collateral NFT after a loan defaults.
+    /// @dev    AUDIT FIX FRESH-2026: H-8 [F-71-1, F-78-C, F-74-10] — pause
+    ///         cannot indefinitely block lender claims. Mirrors
+    ///         `TegridyLending.MAX_PAUSE_BLOCK_LIQUIDATION = 7 days`.
+    ///         `whenNotPaused` is REMOVED; reverts with `PausedShortOfBound`
+    ///         if currently paused AND the CUMULATIVE pause time within the
+    ///         rolling 30-day window has not yet reached 7 days. Beyond
+    ///         the cap the lender's claim proceeds regardless of pause.
+    /// @dev    AUDIT FIX FRESH-2026: F-71-9 — cap is measured CUMULATIVELY
+    ///         within a 30-day rolling window rather than as the
+    ///         consecutive interval since the last `_pause()`. Closes the
+    ///         cycle-pause bypass.
+    function claimDefault(uint256 _loanId) external nonReentrant {
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan storage loan = loans[_loanId];
 
         if (loan.repaid) revert LoanAlreadyRepaid();
         if (loan.defaultClaimed) revert LoanAlreadyDefaultClaimed();
+
+        // AUDIT FIX FRESH-2026: H-8 [F-71-1, F-78-C, F-74-10] + F-71-9 —
+        // cumulative pause cap. Pre-fix `whenNotPaused` was an infinite
+        // weapon; this gate caps the pause-blockable window at 7 days
+        // CUMULATIVE within a 30-day rolling window.
+        if (paused()) {
+            uint256 cumulative = _cumulativePausedInWindow();
+            if (cumulative <= MAX_PAUSE_BLOCK_LIQUIDATION) {
+                revert PausedShortOfBound();
+            }
+        }
 
         // AUDIT FIX: DEEP-LIB-H3 — sequencer-uptime gate at the top of the
         // liquidation entrypoint. Pre-fix the lender could call claimDefault
@@ -755,11 +937,16 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         // state and only contributes when an outage is actively detected (e.g. a
         // racy in-flight transition between the two reads, or future buffer-window
         // adjustments). Keeps the symmetry with repayLoan above intact.
+        // AUDIT FIX FRESH-2026: F-71-3 — 4h staleness on the buffer overload
+        // mirrors `checkSequencerUp` above for consistent semantics.
         uint256 outageBuffer = SequencerCheck.getSequencerOutageBuffer(
             sequencerFeed,
-            SEQUENCER_GRACE_PERIOD
+            SEQUENCER_GRACE_PERIOD,
+            4 hours
         );
-        if (block.timestamp <= effectiveDeadline(_loanId) + GRACE_PERIOD + outageBuffer) {
+        // AUDIT FIX FRESH-2026: F-71-2 — boundary uses pause-extended grace.
+        // AUDIT FIX FRESH-2026: F-72-6 — strict variant on state-changing path.
+        if (block.timestamp <= _effectiveDeadlineStrict(_loanId) + _graceWithPauseExtension(_loanId) + outageBuffer) {
             revert LoanNotDefaulted();
         }
 
@@ -953,14 +1140,36 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     }
 
     /// @notice AUDIT FIX: DEEP-LD-H1 (mirror H11) — total elapsed excluding pauses.
-    /// @dev    AUDIT FIX: LD3-M4 (LD2-L2) — fail-loud on the pause invariant
-    ///         instead of the prior silent ternary clamp. See `PauseInvariantViolated`.
+    /// @dev    AUDIT FIX FRESH-2026: F-72-6 — VIEW path now silent-clamps on
+    ///         the pause invariant. Pre-fix, an invariant inversion would
+    ///         brick `getRepaymentAmount`, `isDefaulted`, and any frontend
+    ///         view that traverses this function. Mirrors
+    ///         `TegridyLending.sol:1502` silent-clamp pattern. The strict
+    ///         revert is preserved on state-changing paths via the internal
+    ///         `_pauseAdjustedElapsedStrict` helper.
     function pauseAdjustedElapsed(uint256 _loanId) public view returns (uint256) {
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan storage loan = loans[_loanId];
         if (block.timestamp <= loan.startTime) return 0;
         uint256 raw = block.timestamp - loan.startTime;
-        // AUDIT FIX: LD3-M4 (LD2-L2) — invariant check.
+        // AUDIT FIX FRESH-2026: F-72-6 — silent-clamp ternary instead of revert.
+        uint256 pausedSinceStart = totalPausedDuration > loan.pausedDurationAtStart
+            ? totalPausedDuration - loan.pausedDurationAtStart
+            : 0;
+        if (paused() && pauseStartTime != 0 && block.timestamp > pauseStartTime) {
+            pausedSinceStart += block.timestamp - pauseStartTime;
+        }
+        return pausedSinceStart >= raw ? 0 : raw - pausedSinceStart;
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: F-72-6 — strict variant for
+    ///         state-changing paths. Fails loud on pause-bookkeeping
+    ///         invariant inversion while view paths silently clamp.
+    function _pauseAdjustedElapsedStrict(uint256 _loanId) internal view returns (uint256) {
+        if (_loanId >= loans.length) revert InvalidLoanId();
+        Loan storage loan = loans[_loanId];
+        if (block.timestamp <= loan.startTime) return 0;
+        uint256 raw = block.timestamp - loan.startTime;
         if (loan.pausedDurationAtStart > totalPausedDuration) revert PauseInvariantViolated();
         uint256 pausedSinceStart = totalPausedDuration - loan.pausedDurationAtStart;
         if (paused() && pauseStartTime != 0 && block.timestamp > pauseStartTime) {
@@ -1210,26 +1419,113 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         uint256 start = pauseStartTime;
         if (start != 0 && block.timestamp > start) {
             totalPausedDuration += block.timestamp - start;
+            // AUDIT FIX FRESH-2026: F-71-9 — append pause window so cumulative
+            // pause time within a 30-day rolling window can be summed by
+            // `_cumulativePausedInWindow`. Closes cycle-pause bypass of the
+            // MAX_PAUSE_BLOCK_LIQUIDATION cap.
+            pauseHistory.push(PauseEpisode({
+                startedAt: uint128(start),
+                endedAt: uint128(block.timestamp)
+            }));
         }
         pauseStartTime = 0;
         super._unpause();
     }
 
     /// @notice Pause-extended deadline for a loan.
-    /// @dev    AUDIT FIX: DEEP-LD-H2 (mirror H10) — only count pause-time
-    ///         that occurred AFTER this loan started.
-    /// @dev    AUDIT FIX: LD3-M4 (LD2-L2) — fail-loud on the pause invariant.
+    /// @dev    AUDIT FIX FRESH-2026: F-72-6 — VIEW path now silent-clamps on
+    ///         the pause invariant. Strict revert preserved on
+    ///         state-changing paths via `_effectiveDeadlineStrict`.
     function effectiveDeadline(uint256 _loanId) public view returns (uint256) {
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan storage loan = loans[_loanId];
         uint256 base = loan.deadline;
-        // AUDIT FIX: LD3-M4 (LD2-L2) — invariant check.
+        // AUDIT FIX FRESH-2026: F-72-6 — silent-clamp ternary instead of revert.
+        uint256 pauseExt = totalPausedDuration > loan.pausedDurationAtStart
+            ? totalPausedDuration - loan.pausedDurationAtStart
+            : 0;
+        if (paused() && pauseStartTime != 0 && block.timestamp > pauseStartTime) {
+            pauseExt += block.timestamp - pauseStartTime;
+        }
+        return base + pauseExt;
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: F-72-6 — strict variant for
+    ///         state-changing paths.
+    function _effectiveDeadlineStrict(uint256 _loanId) internal view returns (uint256) {
+        if (_loanId >= loans.length) revert InvalidLoanId();
+        Loan storage loan = loans[_loanId];
+        uint256 base = loan.deadline;
         if (loan.pausedDurationAtStart > totalPausedDuration) revert PauseInvariantViolated();
         uint256 pauseExt = totalPausedDuration - loan.pausedDurationAtStart;
         if (paused() && pauseStartTime != 0 && block.timestamp > pauseStartTime) {
             pauseExt += block.timestamp - pauseStartTime;
         }
         return base + pauseExt;
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: F-71-2 — pause-extended grace.
+    ///         Pre-fix the GRACE_PERIOD term added on top of
+    ///         `effectiveDeadline` was a fixed constant, so a pause that
+    ///         lands MID-GRACE compressed the borrower's wall-clock repay
+    ///         window. Now the grace is extended by any pause time
+    ///         overlapping the [base_deadline, base_deadline + GRACE_PERIOD]
+    ///         interval.
+    function _graceWithPauseExtension(uint256 _loanId) internal view returns (uint256) {
+        Loan storage loan = loans[_loanId];
+        uint256 baseDeadline = loan.deadline;
+        uint256 graceStart = baseDeadline;
+        uint256 graceEnd = baseDeadline + GRACE_PERIOD;
+        uint256 graceExt = 0;
+
+        // Sum overlap from completed pause episodes within [graceStart, graceEnd).
+        // Bounded loop: PauseEpisode is appended only on _unpause; realistic
+        // upper bound is a few dozen entries before the rolling 30-day cap
+        // kicks in.
+        uint256 len = pauseHistory.length;
+        for (uint256 i = 0; i < len; i++) {
+            PauseEpisode storage ep = pauseHistory[i];
+            uint256 epStart = uint256(ep.startedAt);
+            uint256 epEnd = uint256(ep.endedAt);
+            if (epEnd <= graceStart) continue;
+            if (epStart >= graceEnd) break; // append-only, time-ordered
+            uint256 lo = epStart > graceStart ? epStart : graceStart;
+            uint256 hi = epEnd < graceEnd ? epEnd : graceEnd;
+            if (hi > lo) graceExt += (hi - lo);
+        }
+
+        // Live (in-flight) pause overlap.
+        if (paused() && pauseStartTime != 0 && pauseStartTime < graceEnd) {
+            uint256 livEnd = block.timestamp < graceEnd ? block.timestamp : graceEnd;
+            uint256 livStart = pauseStartTime > graceStart ? pauseStartTime : graceStart;
+            if (livEnd > livStart) graceExt += (livEnd - livStart);
+        }
+
+        return GRACE_PERIOD + graceExt;
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: F-71-9 — sum of pause durations
+    ///         intersecting the rolling 30-day window. Includes the
+    ///         in-flight pause if currently paused. Used by `claimDefault`
+    ///         to enforce the MAX_PAUSE_BLOCK_LIQUIDATION cap CUMULATIVELY
+    ///         rather than consecutively.
+    function _cumulativePausedInWindow() internal view returns (uint256 total) {
+        uint256 windowStart = block.timestamp > CUMULATIVE_PAUSE_WINDOW
+            ? block.timestamp - CUMULATIVE_PAUSE_WINDOW
+            : 0;
+        uint256 len = pauseHistory.length;
+        for (uint256 i = 0; i < len; i++) {
+            PauseEpisode storage ep = pauseHistory[i];
+            uint256 epEnd = uint256(ep.endedAt);
+            if (epEnd <= windowStart) continue;
+            uint256 epStart = uint256(ep.startedAt);
+            uint256 lo = epStart > windowStart ? epStart : windowStart;
+            if (epEnd > lo) total += (epEnd - lo);
+        }
+        if (paused() && pauseStartTime != 0 && block.timestamp > pauseStartTime) {
+            uint256 lo = pauseStartTime > windowStart ? pauseStartTime : windowStart;
+            total += (block.timestamp - lo);
+        }
     }
 
     // ─── AUDIT C7: Timelocked Origination Fee ────────────────────────
@@ -1281,5 +1577,125 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
 
     function minAprChangeReadyAt() external view returns (uint256) {
         return _executeAfter[MIN_APR_CHANGE];
+    }
+
+    // ─── AUDIT FIX FRESH-2026: F-95-K-7 — stranded-NFT sweep ────────
+    //
+    // Pre-fix, an attacker could call `nftCollection.transferFrom(attacker,
+    // address(this), tokenId)` for any whitelisted collection and orphan
+    // the NFT here permanently — `claimStuckCollateral` only handles NFTs
+    // tied to a `loanId`, so unsolicited NFTs not associated with any loan
+    // were stuck forever. Now: owner-only, 24h-timelocked sweep that
+    // refuses to seize an NFT recorded as active collateral, then
+    // escrows the token under a stranded-recipient queue for the rightful
+    // owner to claim via `claimStrandedNFT`.
+
+    /// @notice AUDIT FIX FRESH-2026: F-95-K-7 — propose owner-only sweep
+    ///         of an unsolicited NFT into the stranded-recipient queue.
+    ///         24h timelock matches WHITELIST_TIMELOCK.
+    /// @dev    Reverts if the (collection, tokenId) pair is recorded as
+    ///         active collateral via any non-settled loan or via the
+    ///         `stuckCollateralRecipient` mapping.
+    function proposeSweepUnsolicitedNFT(
+        address _collection,
+        uint256 _tokenId,
+        address _recipient
+    ) external onlyOwner {
+        if (_collection == address(0)) revert ZeroAddress();
+        if (_recipient == address(0)) revert ZeroAddress();
+        // Refuse to seize active collateral.
+        uint256 lenLoans = loans.length;
+        for (uint256 i = 0; i < lenLoans; i++) {
+            Loan storage l = loans[i];
+            if (
+                l.collateralContract == _collection &&
+                l.tokenId == _tokenId &&
+                !l.repaid &&
+                !l.defaultClaimed
+            ) revert NFTIsActiveCollateral();
+        }
+        // Refuse if a stuck-collateral entry references this NFT —
+        // claimStuckCollateral is the right path for that case.
+        for (uint256 i = 0; i < lenLoans; i++) {
+            if (stuckCollateralRecipient[i] != address(0)) {
+                Loan storage l = loans[i];
+                if (l.collateralContract == _collection && l.tokenId == _tokenId) {
+                    revert NFTIsActiveCollateral();
+                }
+            }
+        }
+
+        pendingSweepCollection = _collection;
+        pendingSweepTokenId = _tokenId;
+        pendingSweepRecipient = _recipient;
+        _propose(SWEEP_UNSOLICITED_NFT, WHITELIST_TIMELOCK);
+
+        emit SweepUnsolicitedNFTProposed(
+            _collection,
+            _tokenId,
+            _recipient,
+            _executeAfter[SWEEP_UNSOLICITED_NFT]
+        );
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: F-95-K-7 — execute the proposed sweep
+    ///         after the 24h timelock has elapsed. Re-runs the
+    ///         active-collateral guard since loans may have been created
+    ///         during the timelock window. Pull-based: actual ERC721
+    ///         transfer is deferred to `claimStrandedNFT` to neutralize
+    ///         hostile collection re-entry.
+    function executeSweepUnsolicitedNFT() external onlyOwner {
+        address collection = pendingSweepCollection;
+        uint256 tokenId = pendingSweepTokenId;
+        address recipient = pendingSweepRecipient;
+
+        // Re-check active-collateral state.
+        uint256 lenLoans = loans.length;
+        for (uint256 i = 0; i < lenLoans; i++) {
+            Loan storage l = loans[i];
+            if (
+                l.collateralContract == collection &&
+                l.tokenId == tokenId &&
+                !l.repaid &&
+                !l.defaultClaimed
+            ) revert NFTIsActiveCollateral();
+        }
+
+        _execute(SWEEP_UNSOLICITED_NFT);
+
+        bytes32 key = keccak256(abi.encode(collection, tokenId));
+        strandedNFTRecipient[key] = recipient;
+
+        pendingSweepCollection = address(0);
+        pendingSweepTokenId = 0;
+        pendingSweepRecipient = address(0);
+
+        emit SweepUnsolicitedNFTExecuted(collection, tokenId, recipient);
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: F-95-K-7 — cancel a pending sweep.
+    function cancelSweepUnsolicitedNFT() external onlyOwner {
+        _cancel(SWEEP_UNSOLICITED_NFT);
+        pendingSweepCollection = address(0);
+        pendingSweepTokenId = 0;
+        pendingSweepRecipient = address(0);
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: F-95-K-7 — pull-based claim of a
+    ///         stranded NFT. Only the recipient recorded by
+    ///         `executeSweepUnsolicitedNFT` may call.
+    /// @dev    `whenNotPaused` intentionally OMITTED — recipient's right to
+    ///         recover their NFT is independent of pause state.
+    function claimStrandedNFT(address _collection, uint256 _tokenId) external nonReentrant {
+        bytes32 key = keccak256(abi.encode(_collection, _tokenId));
+        address recipient = strandedNFTRecipient[key];
+        if (recipient == address(0)) revert NoStrandedNFT();
+        if (msg.sender != recipient) revert NotStrandedRecipient();
+
+        bool moved = _safeOutboundTransfer(_collection, address(this), recipient, _tokenId);
+        if (!moved) revert StuckCollateralStillStuck();
+
+        delete strandedNFTRecipient[key];
+        emit StrandedNFTClaimed(_collection, _tokenId, recipient);
     }
 }

@@ -29,7 +29,7 @@ contract TegridyTWAPTest is Test {
 
     function setUp() public {
         // Deploy factory
-        factory = new TegridyFactory(address(this), address(this));
+        factory = new TegridyFactory(address(this), address(this), address(this)); // F-30-9 initial guardian
         factory.proposeFeeToChange(feeTo);
         vm.warp(block.timestamp + 48 hours);
         factory.executeFeeToChange();
@@ -62,7 +62,7 @@ contract TegridyTWAPTest is Test {
         tokenB.transfer(alice, 10_000 ether);
     }
 
-    // ─── Helpers ──────────────────────────────────────────────────────
+    // â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function _swapAForB(uint256 amountIn) internal {
         (uint112 r0, uint112 r1,) = pair.getReserves();
@@ -83,7 +83,7 @@ contract TegridyTWAPTest is Test {
         }
     }
 
-    // ─── update() tests ──────────────────────────────────────────────
+    // â”€â”€â”€ update() tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_update_recordsFirstObservation() public {
         twap.update(address(pair));
@@ -120,7 +120,7 @@ contract TegridyTWAPTest is Test {
     function test_update_revertsIfTooSoon() public {
         twap.update(address(pair));
 
-        // Try to update again immediately — should revert
+        // Try to update again immediately â€” should revert
         vm.expectRevert(TegridyTWAP.PeriodNotElapsed.selector);
         twap.update(address(pair));
     }
@@ -138,7 +138,7 @@ contract TegridyTWAPTest is Test {
         twap.update(emptyPair);
     }
 
-    // ─── canUpdate() tests ───────────────────────────────────────────
+    // â”€â”€â”€ canUpdate() tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_canUpdate_trueWhenNoObservations() public view {
         assertTrue(twap.canUpdate(address(pair)));
@@ -155,7 +155,7 @@ contract TegridyTWAPTest is Test {
         assertTrue(twap.canUpdate(address(pair)));
     }
 
-    // ─── consult() tests ─────────────────────────────────────────────
+    // â”€â”€â”€ consult() tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_consult_returnsCorrectTWAP() public {
         // BATCH-M3 H7: obs 1, 2, 3 are now self-bootstrap-bypassed; obs 4+ are not.
@@ -197,7 +197,7 @@ contract TegridyTWAPTest is Test {
     }
 
     function test_consult_revertsWithInsufficientObservations() public {
-        // Only 1 observation — need at least 2
+        // Only 1 observation â€” need at least 2
         twap.update(address(pair));
 
         vm.expectRevert(TegridyTWAP.InsufficientObservations.selector);
@@ -205,7 +205,7 @@ contract TegridyTWAPTest is Test {
     }
 
     function test_consult_reverseDirection() public {
-        // BATCH-M3 H7: see test_consult_returnsCorrectTWAP — 5 obs needed for the
+        // BATCH-M3 H7: see test_consult_returnsCorrectTWAP â€” 5 obs needed for the
         // 15-min lookup window to anchor on a non-bypass slot.
         twap.update(address(pair));
         skip(16 minutes);
@@ -222,19 +222,19 @@ contract TegridyTWAPTest is Test {
         assertApproxEqRel(amountOut, 0.5 ether, 0.01e18, "TWAP should reflect 2:1 reverse ratio");
     }
 
-    // ─── Flash loan manipulation resistance ──────────────────────────
+    // â”€â”€â”€ Flash loan manipulation resistance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_twap_resistsFlashLoanManipulation() public {
-        // BATCH-M3 H7: obs 1-3 are all bypassed; need ≥8 obs at 15-min intervals
+        // BATCH-M3 H7: obs 1-3 are all bypassed; need â‰¥8 obs at 15-min intervals
         // for the 60-min consult anchor to land on a non-bypass slot.
-        // (latest is obs#8 at T+105m, anchor target is T+45m → obs#4 non-bypass.)
+        // (latest is obs#8 at T+105m, anchor target is T+45m â†’ obs#4 non-bypass.)
         _seedObservations(8, 15 minutes);
 
         // Record pre-manipulation TWAP
         uint256 normalTWAP = twap.consult(address(pair), address(tokenA), 1 ether, 60 minutes);
 
         // Simulate a large swap that distorts the spot price (flash loan attack)
-        // Swap 50 tokenA in (50% of reserves) — massive price impact
+        // Swap 50 tokenA in (50% of reserves) â€” massive price impact
         vm.warp(block.timestamp + 15 minutes);
         _swapAForB(50 ether);
 
@@ -249,13 +249,13 @@ contract TegridyTWAPTest is Test {
     }
 
     function test_twap_singleBlockManipulationMinimal() public {
-        // BATCH-M3 H7: see above — need 8 obs so 60-min consult anchor lands non-bypass.
+        // BATCH-M3 H7: see above â€” need 8 obs so 60-min consult anchor lands non-bypass.
         _seedObservations(8, 15 minutes);
 
         uint256 normalTWAP = twap.consult(address(pair), address(tokenA), 1 ether, 60 minutes);
 
         // Attacker manipulates price in a single block (no time warp)
-        // This simulates what would happen in a flash loan — same block as update
+        // This simulates what would happen in a flash loan â€” same block as update
         _swapAForB(30 ether);
 
         // Even if attacker calls update immediately (won't work due to MIN_PERIOD),
@@ -267,7 +267,7 @@ contract TegridyTWAPTest is Test {
         assertEq(postAttackTWAP, normalTWAP, "TWAP should be unchanged when no new observation recorded");
     }
 
-    // ─── Circular buffer tests ───────────────────────────────────────
+    // â”€â”€â”€ Circular buffer tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_circularBuffer_wrapsCorrectly() public {
         // Fill the entire buffer (MAX_OBSERVATIONS = 48) + 1 to wrap
@@ -281,7 +281,7 @@ contract TegridyTWAPTest is Test {
         assertGt(amountOut, 0, "consult should work after buffer wrap");
     }
 
-    // ─── getLatestObservation() tests ────────────────────────────────
+    // â”€â”€â”€ getLatestObservation() tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_getLatestObservation_revertsWhenEmpty() public {
         vm.expectRevert(TegridyTWAP.InsufficientObservations.selector);
@@ -299,7 +299,7 @@ contract TegridyTWAPTest is Test {
         assertEq(obs.timestamp, secondTs, "Should return the most recent observation");
     }
 
-    // ─── Staleness check tests ──────────────────────────────────────
+    // â”€â”€â”€ Staleness check tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_consult_revertsWhenStale() public {
         // BATCH-M3 H7: 6 obs so the 30-min consult anchor can land on a
@@ -316,17 +316,17 @@ contract TegridyTWAPTest is Test {
 
     function test_consult_succeedsJustBeforeStaleness() public {
         // BATCH-M3 H7: 6 obs so the 30-min lookup window can anchor on a non-bypass
-        // slot (latest=obs#6, anchor target = T+30m before latest → obs#3 then obs#4).
+        // slot (latest=obs#6, anchor target = T+30m before latest â†’ obs#3 then obs#4).
         _seedObservations(6, 15 minutes);
 
-        // Warp to exactly MAX_STALENESS — should still work
+        // Warp to exactly MAX_STALENESS â€” should still work
         vm.warp(block.timestamp + 2 hours);
 
         uint256 amountOut = twap.consult(address(pair), address(tokenA), 1 ether, 30 minutes);
         assertGt(amountOut, 0, "consult should succeed at exactly MAX_STALENESS boundary");
     }
 
-    // ─── Period validation tests ─────────────────────────────────────
+    // â”€â”€â”€ Period validation tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_consult_revertsWithZeroPeriod() public {
         _seedObservations(3, 15 minutes);
@@ -357,7 +357,7 @@ contract TegridyTWAPTest is Test {
         assertGt(amountOut, 0, "consult should succeed at exactly max period");
     }
 
-    // ─── Price deviation protection test ─────────────────────────────
+    // â”€â”€â”€ Price deviation protection test â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_update_revertsOnLargePriceDeviation() public {
         // Seed 3 observations at normal 1:2 price ratio
@@ -365,7 +365,7 @@ contract TegridyTWAPTest is Test {
 
         // Warp forward, then do a massive swap to distort price >50%
         vm.warp(block.timestamp + 15 minutes);
-        _swapAForB(80 ether); // 80% of reserves — well over 50% price impact
+        _swapAForB(80 ether); // 80% of reserves â€” well over 50% price impact
 
         // update should revert because the spot price deviates >50% from previous
         vm.expectRevert(TegridyTWAP.PriceDeviationTooLarge.selector);

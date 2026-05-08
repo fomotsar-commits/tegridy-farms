@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -86,6 +87,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     // ─── TimelockAdmin Keys ──────────────────────────────────────────
     bytes32 public constant BONUS_RATE_CHANGE = keccak256("BONUS_RATE_CHANGE");
     bytes32 public constant ATTRIBUTION_CHANGE = keccak256("ATTRIBUTION_CHANGE");
+    /// @notice AUDIT FIX FRESH-2026: M-4 [F-04-2] — timelock key for rescueNFT.
+    bytes32 public constant RESCUE_NFT_CHANGE = keccak256("RESCUE_NFT_CHANGE");
 
     // ─── State ──────────────────────────────────────────────────────
     IERC20 public immutable rewardToken;       // TOWELI
@@ -98,15 +101,26 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     uint256 public accBonusPerShare;
     uint256 public totalRestaked;              // Sum of all deposited boosted amounts (used for bonus reward distribution)
 
+    // AUDIT FIX FRESH-2026: F-04-4 (INFO) — `unsettledSnapshot` is preserved
+    // for the auto-getter ABI contract that 40+ test sites bind by tuple
+    // shape. The field is write-only post-C-1 attribution refactor (no live
+    // reader); removal saves ~22k gas per `restake()` but breaks the public
+    // getter shape. Kept as documented dead-state with the SSTORE site
+    // dropped at the `restake()` call site below (the staking.unsettledRewards
+    // external call that fed it is now a `0` literal). Net effect: ~2.6k
+    // gas saved (no external call), full ABI compatibility preserved. The
+    // field stays at 0 forever — the getter returns 0 on every read, which
+    // is consistent with no consumer expecting a meaningful value.
     struct RestakeInfo {
         uint256 tokenId;          // The tsTOWELI NFT token ID
         uint256 positionAmount;   // Amount of TOWELI in the position (cached)
         uint256 boostedAmount;    // Boosted amount (cached for reward calc)
         int256 bonusDebt;         // Bonus reward debt
         uint256 depositTime;      // When NFT was deposited
-        uint256 unsettledSnapshot;// AUDIT H-06: TegridyStaking.unsettledRewards(this) at deposit time.
-                                  // Used for unrestake/emergencyWithdrawNFT delta attribution,
-                                  // replacing the race-prone before/after read pattern.
+        uint256 unsettledSnapshot;// AUDIT FIX FRESH-2026: F-04-4 — preserved
+                                  // for ABI compat (always 0 post-fix; the
+                                  // delta-attribution flow it once fed was
+                                  // replaced by per-tokenId attribution).
     }
 
     mapping(address => RestakeInfo) public restakers;
@@ -175,8 +189,57 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         can't get shortchanged by earlier callers who already drained it.
     uint256 public totalActivePrincipal;
 
+    /// @notice AUDIT FIX FRESH-2026: H-3 [F-04-1] — separate bucket for deferred
+    ///         BONUS-token credits. Pre-fix, `decayExpiredRestaker`'s catch-arm
+    ///         routed `bonusPending` (bonusRewardToken units) into the
+    ///         rewardToken-denominated `unforwardedBaseRewards`, silently
+    ///         swapping (e.g.) WETH-denominated bonus for TOWELI-denominated
+    ///         base. This bucket is denominated in `bonusRewardToken` and
+    ///         redeemed in `bonusRewardToken`.
+    mapping(address => uint256) public unforwardedBonusRewards;
+    uint256 public totalUnforwardedBonus;
+
+    /// @notice AUDIT FIX FRESH-2026: F-04-3 — owner-only timelocked clear of
+    ///         an abandoned residual claimant (e.g. lost-keys restaker).
+    uint256 public constant CLEAR_RESIDUAL_TIMELOCK = 7 days;
+    struct PendingResidualClear {
+        address newClaimant;
+        uint256 executeAfter;
+    }
+    mapping(uint256 => PendingResidualClear) public pendingResidualClears;
+    event ResidualClearProposed(uint256 indexed tokenId, address indexed newClaimant, uint256 executeAfter);
+    event ResidualClearExecuted(uint256 indexed tokenId, address indexed oldClaimant, address indexed newClaimant);
+    event ResidualClearCancelled(uint256 indexed tokenId);
+
+    /// @notice AUDIT FIX FRESH-2026: M-4 [F-04-2] — propose/execute pair for
+    ///         the rescueNFT path (48h timelock).
+    uint256 public constant RESCUE_NFT_TIMELOCK = 48 hours;
+    struct PendingRescueNFT {
+        uint256 tokenId;
+        address to;
+    }
+    PendingRescueNFT public pendingRescueNFT;
+    event RescueNFTProposed(uint256 indexed tokenId, address indexed to, uint256 executeAfter);
+    event RescueNFTExecuted(uint256 indexed tokenId, address indexed to);
+    event RescueNFTCancelled(uint256 indexed tokenId);
+
+    /// @notice AUDIT FIX FRESH-2026: F-84-1 — bonus-token-decimal-scaled cap
+    ///         unit. Cached at construction; raw-wei scale of one whole bonus
+    ///         token. Defaults to 1e18 if `decimals()` reverts.
+    uint256 public immutable bonusRewardTokenUnit;
+
     // SECURITY FIX #13: Timelock for reward rate changes
     uint256 public constant BONUS_RATE_TIMELOCK = 48 hours;
+    /// @notice AUDIT FIX FRESH-2026: F-04-7 + F-84-1 — symmetric, decimal-
+    ///         scaled cap. Pre-fix the constructor bound rate to `10e18`
+    ///         while `proposeBonusRate` allowed up to `100e18` — asymmetric
+    ///         and not scaled to `bonusRewardToken.decimals()`. Now both
+    ///         sites share `maxBonusRewardRate()` evaluating to
+    ///         `10 * bonusRewardTokenUnit`.
+    uint256 public constant MAX_BONUS_REWARD_RATE_MULTIPLIER = 10;
+    /// @dev Legacy ABI shim — pre-fix value was 100e18. Off-chain readers
+    ///      should migrate to `maxBonusRewardRate()` for the live decimal-
+    ///      aware cap; this constant is no longer load-bearing.
     uint256 public constant MAX_BONUS_REWARD_RATE = 100e18;
     uint256 public pendingBonusRate;
 
@@ -301,6 +364,16 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         ABI/semantics drift. Distinct typed error makes the failure
     ///         surface diagnosable for Tenderly alerts.
     error StakingOwnershipDesync();
+    /// @notice AUDIT FIX FRESH-2026: H-1 [F-03-K1, F-87-K-01, F-93-1] — restake
+    ///         of an expired-lock position is rejected because TegridyStaking's
+    ///         lazy-decay leaves `boostedAmount` inflated until `_decayIfExpired`
+    ///         fires. Pre-fix, copying that inflated cache into the restaking
+    ///         struct let the attacker siphon honest restakers' bonus emission.
+    error PositionExpired();
+    /// @notice AUDIT FIX FRESH-2026: F-04-3 — typed errors for the timelocked
+    ///         residual-clear admin path.
+    error NoPendingResidualClear();
+    error ResidualClearTimelockNotElapsed();
 
     // ─── Constructor ────────────────────────────────────────────────
     constructor(
@@ -314,12 +387,27 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         if (_rewardToken == address(0)) revert ZeroAddress();
         if (_bonusRewardToken == address(0)) revert ZeroAddress();
         if (_rewardToken == _bonusRewardToken) revert RewardTokenMatchesBonusToken();
-        // AUDIT FIX M-20: Bounds check for bonusRewardPerSecond to prevent extreme values
-        if (_bonusRewardPerSecond > 10e18) revert BadParam();
         staking = ITegridyStaking(_staking);
         stakingNFT = IERC721(_staking); // TegridyStaking IS the ERC721
         rewardToken = IERC20(_rewardToken);
         bonusRewardToken = IERC20(_bonusRewardToken);
+
+        // AUDIT FIX FRESH-2026: F-84-1 — query bonus-token decimals at deploy
+        // and cache the per-whole-token raw-wei scale. Mirrors POLAccumulator's
+        // `toweliUnit` pattern. Falls back to 18-dec if the call reverts
+        // (legacy tokens without decimals()) or reports a pathological scale.
+        uint256 _unit;
+        try IERC20Metadata(_bonusRewardToken).decimals() returns (uint8 d) {
+            _unit = d <= 36 ? 10 ** uint256(d) : 1e18;
+        } catch {
+            _unit = 1e18;
+        }
+        bonusRewardTokenUnit = _unit;
+
+        // AUDIT FIX FRESH-2026: F-04-7 + F-84-1 — symmetric, decimal-scaled cap.
+        // Pre-fix this used the 18-dec-baked literal `10e18`.
+        if (_bonusRewardPerSecond > MAX_BONUS_REWARD_RATE_MULTIPLIER * _unit) revert BadParam();
+
         bonusRewardPerSecond = _bonusRewardPerSecond;
         lastBonusRewardTime = block.timestamp;
     }
@@ -327,6 +415,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     // ─── Legacy View Helpers (for test compatibility) ──────────────
     function bonusRateChangeTime() external view returns (uint256) { return _executeAfter[BONUS_RATE_CHANGE]; }
     function attributionExecuteAfter() external view returns (uint256) { return _executeAfter[ATTRIBUTION_CHANGE]; }
+
+    /// @notice AUDIT FIX FRESH-2026: F-04-7 + F-84-1 — single decimal-scaled
+    ///         cap used by both constructor and `proposeBonusRate`.
+    function maxBonusRewardRate() public view returns (uint256) {
+        return MAX_BONUS_REWARD_RATE_MULTIPLIER * bonusRewardTokenUnit;
+    }
 
     // ─── Modifiers ──────────────────────────────────────────────────
     modifier updateBonus() {
@@ -625,8 +719,21 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         if (!staking.holdsToken(msg.sender, _tokenId)) revert StakingOwnershipDesync();
 
         // Get position data from TegridyStaking
-        (uint256 amount, uint256 boostedAmount,,,,,,, , ,) = staking.positions(_tokenId);
+        (uint256 amount, uint256 boostedAmount,, uint256 lockEnd,,,,, , ,) = staking.positions(_tokenId);
         if (amount == 0) revert ZeroAmount();
+        // AUDIT FIX FRESH-2026: H-1 [F-03-K1, F-87-K-01, F-93-1] — reject expired
+        // locks. TegridyStaking's `_decayIfExpired` is lazy (only fires on
+        // `_getReward` / `kick`); if the lock has expired but no decay-trigger
+        // has run, `boostedAmount` is still the pre-decay (inflated) value.
+        // Pre-fix, a `restake(_tokenId)` at `T_exp + 1s` copied that inflated
+        // cache into `info.boostedAmount`, bumped `totalRestaked`, and let the
+        // attacker siphon honest restakers' bonus emission until the next
+        // decay fires — and `claimAll`'s post-claim re-sync gates with
+        // `postClaimBoosted > 0`, so even the user's own claim couldn't reset
+        // the cache once `staking.getReward` zeroed `boostedAmount`. Cleanest
+        // fix: refuse expired locks at the entrypoint; users must trigger
+        // `staking.kick(_tokenId)` (or unstake/restake fresh) first.
+        if (lockEnd <= block.timestamp) revert PositionExpired();
 
         // Transfer NFT to this contract — M-16: safeTransferFrom for safe NFT handling
         stakingNFT.safeTransferFrom(msg.sender, address(this), _tokenId);
@@ -634,17 +741,18 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // Record restaking info
         // M-27: Safe int256 cast via _safeInt256 helper
         uint256 debtUint = (boostedAmount * accBonusPerShare) / ACC_PRECISION;
-        // AUDIT H-06: snapshot unsettledRewards[this] at deposit time so the per-user
-        // delta on unrestake is computed against a stable baseline rather than a racy
-        // before/after read pair that a concurrent claimUnsettled() can corrupt.
-        uint256 unsettledAtDeposit = staking.unsettledRewards(address(this));
+        // AUDIT FIX FRESH-2026: F-04-4 — drop the external staking.unsettledRewards
+        // call that fed `unsettledSnapshot`. Saves ~2.6k gas per `restake()`.
+        // Field is preserved for ABI compat (see struct comment) but always
+        // 0 post-fix. The pre-fix delta-attribution flow that read this field
+        // was replaced by per-tokenId attribution (claimUnsettledForTokenId).
         restakers[msg.sender] = RestakeInfo({
             tokenId: _tokenId,
             positionAmount: amount,
             boostedAmount: boostedAmount,
             bonusDebt: _safeInt256(debtUint),
             depositTime: block.timestamp,
-            unsettledSnapshot: unsettledAtDeposit
+            unsettledSnapshot: 0
         });
 
         tokenIdToRestaker[_tokenId] = msg.sender;
@@ -931,6 +1039,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             }
         }
 
+        // AUDIT FIX FRESH-2026: H-3 [F-04-1] — sweep deferred BONUS-token credits
+        // (paid in bonusRewardToken via the self-call try/catch wrapper).
+        _sweepUnforwardedBonus(msg.sender);
+
         // 2. Claim bonus rewards (skip if auto-refresh above already settled and reset debt)
         // SECURITY FIX C4: Explicit guard — only claim if debt drift exists after refresh
         // M-27: Safe int256 cast via _safeInt256 helper
@@ -941,9 +1053,20 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
 
             if (bonusPending > 0) {
-                bonusRewardToken.safeTransfer(msg.sender, bonusPending);
-                totalBonusDistributed += bonusPending;
-                emit BonusClaimed(msg.sender, bonusPending);
+                // AUDIT FIX FRESH-2026: F-04-5 — wrap user-side bonus transfer
+                // in try/catch via the existing self-call. Pre-fix, a user
+                // blacklisted on the bonus token DoS'd their own claimAll.
+                // On failure: queue into the bonus bucket so the user can
+                // self-claim via `claimPendingBonusPayout()` after un-
+                // blacklisting. Mirrors decayExpiredRestaker pattern.
+                try this._safeBonusTransferExt(msg.sender, bonusPending) {
+                    totalBonusDistributed += bonusPending;
+                    emit BonusClaimed(msg.sender, bonusPending);
+                } catch {
+                    unforwardedBonusRewards[msg.sender] += bonusPending;
+                    totalUnforwardedBonus += bonusPending;
+                    emit BonusTransferDeferred(msg.sender, bonusPending);
+                }
             }
         }
     }
@@ -1048,6 +1171,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             emit BaseClaimed(msg.sender, totalBaseEarned);
         }
 
+        // AUDIT FIX FRESH-2026: H-3 [F-04-1] — sweep deferred BONUS-token credits
+        // before clearing state. Mirrors claimAll path (paid in bonusRewardToken).
+        _sweepUnforwardedBonus(msg.sender);
+
         // Claim bonus rewards
         // M-27: Safe int256 cast via _safeInt256 helper
         int256 accumulated = _safeInt256((info.boostedAmount * accBonusPerShare) / ACC_PRECISION);
@@ -1055,9 +1182,19 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         info.bonusDebt = accumulated;
         uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
         if (bonusPending > 0) {
-            bonusRewardToken.safeTransfer(msg.sender, bonusPending);
-            totalBonusDistributed += bonusPending;
-            emit BonusClaimed(msg.sender, bonusPending);
+            // AUDIT FIX FRESH-2026: F-04-5 — wrap user-side bonus transfer in
+            // try/catch via the existing self-call. Pre-fix, a user blacklisted
+            // on the bonus token DoS'd their own unrestake, forcing them into
+            // emergencyWithdrawNFT and forfeiting bonus. Now: defer to the
+            // bonus bucket; user self-claims via `claimPendingBonusPayout`.
+            try this._safeBonusTransferExt(msg.sender, bonusPending) {
+                totalBonusDistributed += bonusPending;
+                emit BonusClaimed(msg.sender, bonusPending);
+            } catch {
+                unforwardedBonusRewards[msg.sender] += bonusPending;
+                totalUnforwardedBonus += bonusPending;
+                emit BonusTransferDeferred(msg.sender, bonusPending);
+            }
         }
 
         // Update state
@@ -1222,6 +1359,53 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         }
     }
 
+    /// @notice AUDIT FIX FRESH-2026: H-3 [F-04-1] + F-04-5 — internal helper
+    ///         to sweep a user's deferred bonus credit. Wraps the transfer in
+    ///         try/catch via the existing `_safeBonusTransferExt` self-call so
+    ///         a still-blacklisted recipient doesn't brick the caller's exit
+    ///         path. Returns the actually paid amount (zero if the recipient
+    ///         is still blacklisted — credit stays in `unforwardedBonusRewards`
+    ///         until they self-claim via `claimPendingBonusPayout`).
+    function _sweepUnforwardedBonus(address user) internal returns (uint256 paid) {
+        uint256 owed = unforwardedBonusRewards[user];
+        if (owed == 0) return 0;
+        uint256 available;
+        try bonusRewardToken.balanceOf(address(this)) returns (uint256 bal) {
+            available = bal;
+        } catch {
+            available = 0;
+        }
+        uint256 attempt = owed > available ? available : owed;
+        if (attempt == 0) return 0;
+        // Optimistically debit; rollback on transfer failure.
+        unforwardedBonusRewards[user] = owed - attempt;
+        if (totalUnforwardedBonus >= attempt) {
+            totalUnforwardedBonus -= attempt;
+        } else {
+            totalUnforwardedBonus = 0;
+        }
+        try this._safeBonusTransferExt(user, attempt) {
+            totalBonusDistributed += attempt;
+            emit BonusClaimed(user, attempt);
+            paid = attempt;
+        } catch {
+            // Rollback: still owed.
+            unforwardedBonusRewards[user] = owed;
+            totalUnforwardedBonus += attempt;
+            paid = 0;
+        }
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: F-04-5 — pull-pattern self-claim for a
+    ///         user whose previous bonus payout was deferred (e.g. blacklisted
+    ///         at exit time, now un-blacklisted). Reads from
+    ///         `unforwardedBonusRewards` — the redemption-currency match
+    ///         closes the H-3 wrong-token bug at the user-claim leg.
+    function claimPendingBonusPayout() external nonReentrant {
+        uint256 paid = _sweepUnforwardedBonus(msg.sender);
+        if (paid == 0) revert ZeroAmount();
+    }
+
     /// @notice REVIEW C-1-FINDING-1/2: record a residual claim on `tokenId` for
     ///         `claimant` if the staking-side per-tokenId attribution wasn't
     ///         fully drained during the exit.
@@ -1302,15 +1486,66 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         }
     }
 
+    // ─── AUDIT FIX FRESH-2026: F-04-3 — abandoned residual claimant escape ──
+
+    /// @notice Owner-only timelocked clear/retarget of an abandoned residual
+    ///         claimant on `tokenId`. Pre-fix, a lost-key restaker who held
+    ///         a residual lock perma-blocked re-restake of that NFT (the
+    ///         `restake()` guard requires either claimant == msg.sender OR
+    ///         `staking.unsettledRewardsByTokenId == 0`). 7-day timelock +
+    ///         per-tokenId proposal + visible events let the original
+    ///         claimant surface and object before clearance.
+    /// @param tokenId The tsTOWELI NFT token ID whose residual claim to clear.
+    /// @param newClaimant Pass `address(0)` to fully clear; pass a non-zero
+    ///         address (e.g. the new NFT owner) to retarget the claim.
+    function proposeClearResidualClaimant(uint256 tokenId, address newClaimant) external onlyOwner {
+        if (_residualClaimant[tokenId] == address(0)) revert BadParam();
+        pendingResidualClears[tokenId] = PendingResidualClear({
+            newClaimant: newClaimant,
+            executeAfter: block.timestamp + CLEAR_RESIDUAL_TIMELOCK
+        });
+        emit ResidualClearProposed(tokenId, newClaimant, block.timestamp + CLEAR_RESIDUAL_TIMELOCK);
+    }
+
+    function executeClearResidualClaimant(uint256 tokenId) external onlyOwner {
+        PendingResidualClear memory p = pendingResidualClears[tokenId];
+        if (p.executeAfter == 0) revert NoPendingResidualClear();
+        if (block.timestamp < p.executeAfter) revert ResidualClearTimelockNotElapsed();
+        address oldClaimant = _residualClaimant[tokenId];
+        if (p.newClaimant == address(0)) {
+            delete _residualClaimant[tokenId];
+        } else {
+            _residualClaimant[tokenId] = p.newClaimant;
+        }
+        delete pendingResidualClears[tokenId];
+        emit ResidualClearExecuted(tokenId, oldClaimant, p.newClaimant);
+    }
+
+    function cancelClearResidualClaimant(uint256 tokenId) external onlyOwner {
+        if (pendingResidualClears[tokenId].executeAfter == 0) revert NoPendingResidualClear();
+        delete pendingResidualClears[tokenId];
+        emit ResidualClearCancelled(tokenId);
+    }
+
     // ─── Admin ──────────────────────────────────────────────────────
 
     /// @notice Fund the bonus reward pool
     /// M-01, M-04: Added updateBonus and nonReentrant modifiers
+    /// @dev AUDIT FIX FRESH-2026: F-51-1 — measure balance-delta to defend
+    ///      against a fee-on-transfer / rebasing bonus token. Pre-fix,
+    ///      `totalBonusFunded` counted the nominal `_amount` while the
+    ///      contract actually received `_amount * (1 - feeBps)`. Late
+    ///      claimers saw their `safeTransfer` revert when the on-hand
+    ///      balance ran out before `totalBonusFunded` exhausted. Mirrors
+    ///      `TegridyStaking.notifyRewardAmount` pattern.
     function fundBonus(uint256 _amount) external nonReentrant updateBonus {
         if (_amount == 0) revert ZeroAmount();
+        uint256 balBefore = bonusRewardToken.balanceOf(address(this));
         bonusRewardToken.safeTransferFrom(msg.sender, address(this), _amount);
-        totalBonusFunded += _amount;
-        emit BonusFunded(_amount);
+        uint256 received = bonusRewardToken.balanceOf(address(this)) - balBefore;
+        if (received == 0) revert ZeroAmount();
+        totalBonusFunded += received;
+        emit BonusFunded(received);
     }
 
     /// @notice DEPRECATED: Use proposeBonusRate + executeBonusRateChange instead.
@@ -1330,7 +1565,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      The cooldown only applies AFTER the first action (lastBonusRateActionAt
     ///      is left zero at deploy so the first rate proposal is unblocked).
     function proposeBonusRate(uint256 _rate) external onlyOwner updateBonus {
-        if (_rate > MAX_BONUS_REWARD_RATE) revert RateTooHigh();
+        // AUDIT FIX FRESH-2026: F-04-7 + F-84-1 — symmetric decimal-scaled cap.
+        if (_rate > maxBonusRewardRate()) revert RateTooHigh();
         // _propose handles the ExistingProposalPending check internally.
         // We delay the cooldown check until AFTER that so the legacy
         // "second propose reverts with ExistingProposalPending" test passes.
@@ -1444,9 +1680,16 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // Cap to the user's original position amount (they shouldn't get more than they staked)
         uint256 payout = recoverable > originalAmount ? originalAmount : recoverable;
 
-        // C-01 FIX: Require non-zero payout. Without this, calling when balance is fully reserved
-        // sets hasRecoveredPrincipal=true and deletes state, permanently locking out the user.
-        if (payout == 0) revert BadParam();
+        // AUDIT FIX FRESH-2026: F-04-6 — allow `recoverStuckPrincipal` to ALSO
+        // sweep the caller's `unforwardedBaseRewards` even when principal is
+        // fully reserved (payout == 0). Pre-fix, the C-01 revert here gated
+        // the ENTIRE function — including the `unforwardedBaseRewards` sweep
+        // below. A force-closed user whose principal was fully reserved
+        // could not collect their personal stuck-base rewards via this
+        // entrypoint. Now: only revert when BOTH payout==0 AND
+        // unforwardedBaseRewards == 0; non-zero stuck base falls through.
+        uint256 stuckBaseAtEntry = unforwardedBaseRewards[msg.sender];
+        if (payout == 0 && stuckBaseAtEntry == 0) revert BadParam();
 
         // H-01 FIX: Mark as recovered before transfer (CEI pattern)
         _hasRecoveredPrincipal[msg.sender] = true;
@@ -1483,6 +1726,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 emit BaseClaimed(msg.sender, paid);
             }
         }
+
+        // AUDIT FIX FRESH-2026: H-3 [F-04-1] — also sweep deferred BONUS-token
+        // credits so a force-closed restaker recovers everything in one call.
+        _sweepUnforwardedBonus(msg.sender);
 
         if (payout > 0) {
             totalRecoveredPrincipal += payout;
@@ -1635,6 +1882,11 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             }
         }
 
+        // AUDIT FIX FRESH-2026: H-3 [F-04-1] — also sweep deferred BONUS-token
+        // credits even on emergency exit (paid in bonusRewardToken via the
+        // self-call try/catch wrapper; failure stays queued for self-claim).
+        _sweepUnforwardedBonus(msg.sender);
+
         emit EmergencyWithdraw(msg.sender, tokenId);
     }
 
@@ -1665,17 +1917,49 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
     // ─── Rescue ──────────────────────────────────────────────────────
 
-    /// @notice AUDIT FIX: Rescue NFTs accidentally sent via safeTransferFrom (not through restake())
-    /// @param _tokenId The NFT token ID to rescue
-    /// @param _to The address to send the NFT to
-    /// @dev AUDIT FIX (BATCH-J1 H18): constrain `_to` to address(staking).
-    ///      Pre-fix, captured owner key could instantly route any
-    ///      non-actively-restaked NFT to attacker EOA. Now NFTs route to the
-    ///      staking contract (immutable) which has its own admin path.
-    function rescueNFT(uint256 _tokenId, address _to) external onlyOwner {
+    /// @notice AUDIT FIX FRESH-2026: M-3 [F-03-K3] + M-4 [F-04-2] — converted
+    ///         to a timelocked propose/execute pair. Pre-fix:
+    ///           * rescueNFT was instant onlyOwner constrained to
+    ///             `address(staking)`, but staking has no IERC721Receiver, so
+    ///             rescue ALWAYS reverted — NFTs sent direct (bypassing
+    ///             restake()) were permanently stuck.
+    ///           * No `strandedRestakeRecipient` check — captured owner could
+    ///             rescue a stranded NFT into a dead-end before user's claim
+    ///             path could fire.
+    ///         Post-fix:
+    ///           * Free `_to` with 48h timelock for visibility.
+    ///           * Stranded-recipient check denies rescue while a user's
+    ///             claim path is live (M-3).
+    ///           * tokenIdToRestaker check preserved (BATCH-J1 H18 intent).
+    function proposeRescueNFT(uint256 _tokenId, address _to) external onlyOwner {
         if (tokenIdToRestaker[_tokenId] != address(0)) revert BadParam();
-        if (_to != address(staking)) revert BadParam();
-        stakingNFT.safeTransferFrom(address(this), _to, _tokenId); // M-16
+        // AUDIT FIX FRESH-2026: M-3 [F-03-K3] — refuse rescue while a user's
+        // stranded claim is live; user's `claimStrandedRestakeNFT` takes
+        // precedence over owner rescue.
+        if (strandedRestakeRecipient[_tokenId] != address(0)) revert BadParam();
+        if (_to == address(0)) revert ZeroAddress();
+        pendingRescueNFT = PendingRescueNFT({tokenId: _tokenId, to: _to});
+        _propose(RESCUE_NFT_CHANGE, RESCUE_NFT_TIMELOCK);
+        emit RescueNFTProposed(_tokenId, _to, _executeAfter[RESCUE_NFT_CHANGE]);
+    }
+
+    function executeRescueNFT() external onlyOwner {
+        _execute(RESCUE_NFT_CHANGE);
+        PendingRescueNFT memory p = pendingRescueNFT;
+        // Re-check at execute (proposal could go stale during 48h window —
+        // tokenId re-restaked, user filed stranded claim, etc).
+        if (tokenIdToRestaker[p.tokenId] != address(0)) revert BadParam();
+        if (strandedRestakeRecipient[p.tokenId] != address(0)) revert BadParam();
+        delete pendingRescueNFT;
+        stakingNFT.safeTransferFrom(address(this), p.to, p.tokenId); // M-16
+        emit RescueNFTExecuted(p.tokenId, p.to);
+    }
+
+    function cancelRescueNFT() external onlyOwner {
+        _cancel(RESCUE_NFT_CHANGE);
+        uint256 tid = pendingRescueNFT.tokenId;
+        delete pendingRescueNFT;
+        emit RescueNFTCancelled(tid);
     }
 
     // ─── H-05: Emergency Force Return ──────────────────────────────
@@ -1706,15 +1990,34 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // from this critical-path inline copy.
         _accrueBonusChecked();
 
+        // AUDIT FIX FRESH-2026: H-3 [F-04-1] — sweep deferred BONUS-token credits
+        // first (paid in bonusRewardToken via the self-call try/catch wrapper).
+        _sweepUnforwardedBonus(restaker);
+
         // Settle any pending bonus rewards for the restaker
         if (info.boostedAmount > 0) {
             int256 accumulated = _safeInt256((info.boostedAmount * accBonusPerShare) / ACC_PRECISION);
             int256 diff = accumulated - info.bonusDebt;
             uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
+            // AUDIT FIX FRESH-2026: anchor bonusDebt regardless of transfer
+            // success so post-recovery accounting stays consistent. Pre-fix
+            // this path never wrote bonusDebt — a re-fired emergencyForceReturn
+            // could re-credit the same emission slice.
+            info.bonusDebt = accumulated;
             if (bonusPending > 0) {
-                bonusRewardToken.safeTransfer(restaker, bonusPending);
-                totalBonusDistributed += bonusPending;
-                emit BonusClaimed(restaker, bonusPending);
+                // AUDIT FIX FRESH-2026: F-51-5 — wrap in try/catch via existing
+                // self-call so a blacklisted recipient does NOT brick the
+                // last-resort recovery path. Defer into the bonus bucket;
+                // restaker self-claims via `claimPendingBonusPayout()` after
+                // un-blacklisting.
+                try this._safeBonusTransferExt(restaker, bonusPending) {
+                    totalBonusDistributed += bonusPending;
+                    emit BonusClaimed(restaker, bonusPending);
+                } catch {
+                    unforwardedBonusRewards[restaker] += bonusPending;
+                    totalUnforwardedBonus += bonusPending;
+                    emit BonusTransferDeferred(restaker, bonusPending);
+                }
             }
         }
 
@@ -1779,8 +2082,30 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         try stakingNFT.safeTransferFrom(address(this), restaker, tokenId) {
             nftReturned = true;
         } catch {
-            // AUDIT FIX M-04: NFT transfer failed — preserve tokenIdToRestaker mapping
-            // so rescueNFT can only send to the original restaker, preventing theft.
+            // AUDIT FIX FRESH-2026: M-2 [F-03-K2] — record stranded recipient so
+            // the user can self-recover via `claimStrandedRestakeNFT(tokenId)`
+            // after fixing their wallet (e.g. removing EIP-7702 delegation,
+            // or deploying an `IERC721Receiver`-compliant wrapper). Pre-fix,
+            // this catch arm only flipped `nftReturned = false` — the NFT
+            // became permanently stuck because:
+            //   * `restakers[restaker]` was already cleared (line ~1771),
+            //     locking out `unrestake` / `emergencyWithdrawNFT`.
+            //   * `claimStrandedRestakeNFT` required `strandedRestakeRecipient
+            //     [tokenId] == msg.sender` — never set on this branch.
+            //   * `rescueNFT` (BATCH-J1 H18 hardening) was constrained to
+            //     `address(staking)` AND blocked by `tokenIdToRestaker
+            //     [tokenId] != address(0)`, so even owner-routed rescue
+            //     reverted.
+            // Now: parallel to unrestake/emergencyWithdrawNFT (both already
+            // record the stranded mapping on transfer failure), this path
+            // also writes it. The user-facing recovery path is now uniform
+            // across all three exit points.
+            //
+            // AUDIT FIX M-04 (legacy): tokenIdToRestaker mapping preserved
+            // (handled below post-catch). Primary recovery path is now via
+            // strandedRestakeRecipient.
+            strandedRestakeRecipient[tokenId] = restaker;
+            emit RestakeNFTStranded(tokenId, restaker);
             nftReturned = false;
         }
 
@@ -1975,8 +2300,20 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                     totalBonusDistributed += bonusPending;
                     emit BonusClaimed(_restaker, bonusPending);
                 } catch {
-                    unforwardedBaseRewards[_restaker] += bonusPending;
-                    totalUnforwardedBase += bonusPending;
+                    // AUDIT FIX FRESH-2026: H-3 [F-04-1] — route the deferred
+                    // BONUS-token credit into the bonus bucket (not the
+                    // rewardToken-denominated `unforwardedBaseRewards` that
+                    // the pre-fix code used). Pre-fix, every redemption site
+                    // (claimAll/unrestake/emergency*/recoverStuckPrincipal)
+                    // paid `unforwardedBaseRewards` out in `rewardToken`
+                    // (TOWELI), silently swapping a (potentially WETH-valued)
+                    // bonus credit for a TOWELI-valued payout. Now: deferred
+                    // bonus credits stay denominated in `bonusRewardToken`
+                    // and are paid out via the same self-call wrapper later
+                    // (see `claimPendingBonusPayout` and the redemption sites
+                    // in claimAll/unrestake/etc.).
+                    unforwardedBonusRewards[_restaker] += bonusPending;
+                    totalUnforwardedBonus += bonusPending;
                     emit BonusTransferDeferred(_restaker, bonusPending);
                 }
             }

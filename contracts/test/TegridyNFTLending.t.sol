@@ -97,7 +97,7 @@ contract TegridyNFTLendingTest is Test {
 
         // 2. Deploy MockWETH and TegridyNFTLending
         weth = new MockWETHNFTLending();
-        lending = new TegridyNFTLending(treasury, 500, address(weth)); // 5% protocol fee
+        lending = new TegridyNFTLending(treasury, 500, address(weth), address(0)); // 5% protocol fee
 
         // 3. Whitelist our test NFT collections (via timelock)
         lending.proposeWhitelistCollection(address(nft));

@@ -50,7 +50,7 @@ contract DeepAMMTest is Test {
     address public distributor = makeAddr("distributor");
 
     function setUp() public {
-        factory = new TegridyFactory(address(this), address(this));
+        factory = new TegridyFactory(address(this), address(this), address(this)); // F-30-9 initial guardian
         factory.proposeFeeToChange(feeTo);
         vm.warp(block.timestamp + 48 hours);
         factory.executeFeeToChange();
@@ -78,14 +78,14 @@ contract DeepAMMTest is Test {
         hook = TegridyFeeHook(payable(hookAddr));
     }
 
-    // ─── D-AMM-H1: bypass branch is owner-only ──────────────────────
+    // â”€â”€â”€ D-AMM-H1: bypass branch is owner-only â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_DAmmH1_bypassBranch_ownerOnly() public {
         // BATCH-M3 H7: obs 1, 2, 3 are now self-bootstrap-bypassed regardless
         // of dormancy gap. The owner-only `BypassObservationOwnerOnly` branch
         // only fires from observation #4 onwards (when the deviation gate is
         // armed and `elapsed > DEVIATION_BYPASS_AFTER`). Seed 3 obs first.
-        // Use `skip` instead of consecutive `vm.warp(block.timestamp + ...)` —
+        // Use `skip` instead of consecutive `vm.warp(block.timestamp + ...)` â€”
         // the latter reads `block.timestamp` before the prior cheatcode lands.
         twap.update(address(pair));                         // #1 bypass
         skip(30 minutes);
@@ -105,7 +105,7 @@ contract DeepAMMTest is Test {
         twap.update(address(pair));
     }
 
-    // ─── D-AMM-H2: sync()/skim() are gated when pair disabled ──────
+    // â”€â”€â”€ D-AMM-H2: sync()/skim() are gated when pair disabled â”€â”€â”€â”€â”€â”€
 
     function test_DAmmH2_sync_revertsOnDisabledPair() public {
         factory.proposePairDisabled(address(pair), true);
@@ -125,7 +125,7 @@ contract DeepAMMTest is Test {
         pair.skim(address(this));
     }
 
-    // ─── D-AMM-H3: adminResetPair (24h timelock) ────────────────────
+    // â”€â”€â”€ D-AMM-H3: adminResetPair (24h timelock) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_DAmmH3_adminResetPair_clearsState() public {
         twap.update(address(pair));
@@ -153,7 +153,7 @@ contract DeepAMMTest is Test {
         twap.proposeAdminResetPair(address(0));
     }
 
-    // ─── D-AMM-M1: claimFees reverts while sync pending ─────────────
+    // â”€â”€â”€ D-AMM-M1: claimFees reverts while sync pending â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_DAmmM1_claimFees_revertsWhenSyncPending() public {
         address tok = address(tokenA);
@@ -162,7 +162,7 @@ contract DeepAMMTest is Test {
         hook.claimFees(tok, 0);
     }
 
-    // ─── D-AMM-M2: harvest reverts on no-op ─────────────────────────
+    // â”€â”€â”€ D-AMM-M2: harvest reverts on no-op â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_DAmmM2_harvest_revertsOnNoFeeMaterialised() public {
         // Without any swaps, harvest() should revert NO_FEE_TO_MATERIALIZE.
@@ -171,7 +171,7 @@ contract DeepAMMTest is Test {
         pair.harvest();
     }
 
-    // ─── D-AMM-M3: claimFees + executeSync gated by paused ─────────
+    // â”€â”€â”€ D-AMM-M3: claimFees + executeSync gated by paused â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_DAmmM3_claimFees_revertsWhenPaused() public {
         hook.pause();
@@ -179,7 +179,7 @@ contract DeepAMMTest is Test {
         hook.claimFees(address(tokenA), 0);
     }
 
-    // ─── D-AMM-M4: snapshot at propose time ─────────────────────────
+    // â”€â”€â”€ D-AMM-M4: snapshot at propose time â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_DAmmM4_snapshotCapturedAtProposeTime() public {
         address tok = address(tokenA);
@@ -194,7 +194,7 @@ contract DeepAMMTest is Test {
         assertEq(hook.pendingSyncCreditSnapshot(tok), 1000);
     }
 
-    // ─── D-AMM-M5: consult reverts on bypassed observation ─────────
+    // â”€â”€â”€ D-AMM-M5: consult reverts on bypassed observation â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_DAmmM5_consult_revertsOnBypassedLatest() public {
         twap.update(address(pair));
@@ -209,32 +209,34 @@ contract DeepAMMTest is Test {
         twap.consult(address(pair), address(tokenA), 1 ether, 15 minutes);
     }
 
-    // ─── D-AMM-L1: SAME_VALUE guard on propose ─────────────────────
+    // â”€â”€â”€ D-AMM-L1: SAME_VALUE guard on propose â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_DAmmL1_proposeSync_revertsOnSameValue() public {
         vm.expectRevert(bytes("SAME_VALUE"));
         hook.proposeSyncAccruedFees(address(tokenA), 0); // accrued is already 0
     }
 
-    // ─── D-AMM-L2: SAME_GUARDIAN guard on propose ──────────────────
+    // â”€â”€â”€ D-AMM-L2: SAME_GUARDIAN guard on propose â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_DAmmL2_proposeGuardian_revertsOnSameGuardian() public {
-        factory.setGuardian(guardian);
+        // AUDIT FIX F-30-9: constructor now seeds the guardian as the deployer
+        // (`address(this)` in this test). Re-proposing the same address must
+        // revert SAME_GUARDIAN (D-AMM-L2 invariant).
         vm.expectRevert(bytes("SAME_GUARDIAN"));
-        factory.proposeGuardianChange(guardian);
+        factory.proposeGuardianChange(address(this));
     }
 
-    // ─── D-AMM-L3: nonReentrant on update / withdrawFees ───────────
+    // â”€â”€â”€ D-AMM-L3: nonReentrant on update / withdrawFees â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_DAmmL3_update_isNonReentrant() public {
         twap.update(address(pair));
         assertEq(twap.observationCount(address(pair)), 1);
     }
 
-    // ─── D-AMM-L4: sweepETH takes a recipient ──────────────────────
+    // â”€â”€â”€ D-AMM-L4: sweepETH takes a recipient â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_DAmmL4_sweepETH_acceptsRecipient() public {
-        // AUDIT FIX: V2-AMM-M3 — sweepETH(address) is now restricted to
+        // AUDIT FIX: V2-AMM-M3 â€” sweepETH(address) is now restricted to
         // {revenueDistributor, owner()} only. Sweeping to an arbitrary EOA
         // (the prior test) is rejected; the legitimate paths are these two.
         vm.deal(address(hook), 1 ether);
@@ -244,7 +246,7 @@ contract DeepAMMTest is Test {
     }
 
     function test_DAmmL4_sweepETH_rejectsArbitraryRecipient() public {
-        // AUDIT FIX: V2-AMM-M3 — arbitrary recipient now reverts
+        // AUDIT FIX: V2-AMM-M3 â€” arbitrary recipient now reverts
         // InvalidSweepRecipient (was: D-AMM-L4 originally allowed any owner-
         // chosen recipient; restored M-32 protection).
         vm.deal(address(hook), 1 ether);
@@ -253,14 +255,14 @@ contract DeepAMMTest is Test {
     }
 
     function test_DAmmL4_sweepETH_zeroRecipient() public {
-        // AUDIT FIX: V2-AMM-M3 — zero address is not in the {revenueDistributor,
+        // AUDIT FIX: V2-AMM-M3 â€” zero address is not in the {revenueDistributor,
         // owner} allowlist, so the same InvalidSweepRecipient applies.
         vm.deal(address(hook), 1 ether);
         vm.expectRevert(TegridyFeeHook.InvalidSweepRecipient.selector);
         hook.sweepETH(address(0));
     }
 
-    // ─── D-AMM-INFO2: 30k gas cap on _rejectERC777 staticcalls ─────
+    // â”€â”€â”€ D-AMM-INFO2: 30k gas cap on _rejectERC777 staticcalls â”€â”€â”€â”€â”€
 
     function test_DAmmInfo2_createPair_succeedsWithGasCappedStaticcalls() public {
         DeepAMM_MockERC20 tokenC = new DeepAMM_MockERC20("C", "C");

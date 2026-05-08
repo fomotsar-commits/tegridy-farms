@@ -94,6 +94,16 @@ contract TegridyPair is ERC20, ReentrancyGuard {
     event Skim(address indexed to, uint256 amount0, uint256 amount1);
     /// @dev AUDIT FIX L-04: Emit event from initialize() for off-chain indexers.
     event Initialize(address indexed token0, address indexed token1);
+    /// @dev AUDIT FIX F-31-F (FRESH-EYES 2026-05): dedicated `harvest()` event so off-chain
+    ///      monitoring can distinguish the harvest materialisation path from incidental
+    ///      `_mintFee` accrual fired by `mint()`/`burn()`. `lpMinted` is the protocol-fee
+    ///      LP minted on this call (zero for bootstrap/cleanup branches); `kLastNew` is
+    ///      the post-call `kLast` value (zero on cleanup, non-zero on bootstrap or normal).
+    event ProtocolFeeHarvested(address indexed caller, uint256 lpMinted, uint256 kLastNew);
+
+    /// @dev AUDIT FIX F-31-E (FRESH-EYES 2026-05): explicit revert for the rebase-induced
+    ///      empty-reserve state. Replaces silent panic-on-divide-by-zero in `mint()`.
+    error ReservesZeroPostRebase();
 
     constructor() ERC20("Tegridy LP", "TGLP") {
         factory = msg.sender;
@@ -156,6 +166,11 @@ contract TegridyPair is ERC20, ReentrancyGuard {
             liquidity = rawLiquidity - MINIMUM_LIQUIDITY;
             _mint(address(0xdead), MINIMUM_LIQUIDITY); // Lock minimum liquidity
         } else {
+            // AUDIT FIX F-31-E (FRESH-EYES 2026-05): rebase-token + sync() can drive
+            // reserves to 0 while totalSupply > 0. Pre-fix the divisions below would
+            // panic with division-by-zero. Reverting with a typed error makes the
+            // off-chain monitoring path obvious and burn() remains available for exits.
+            if (_reserve0 == 0 || _reserve1 == 0) revert ReservesZeroPostRebase();
             uint256 liq0 = (amount0 * _totalSupply) / _reserve0;
             uint256 liq1 = (amount1 * _totalSupply) / _reserve1;
             liquidity = liq0 < liq1 ? liq0 : liq1;
@@ -166,7 +181,20 @@ contract TegridyPair is ERC20, ReentrancyGuard {
 
         _update(balance0, balance1);
         // AUDIT FIX C-02: kLast stores raw reserve0 * reserve1 (no normalization).
-        if (feeOn) kLast = uint256(reserve0) * uint256(reserve1);
+        // AUDIT FIX F-31-A / H-7 (FRESH-EYES 2026-05): only update `kLast` here when
+        // it was already non-zero. Pre-fix, this line bootstrapped `kLast` from 0 on
+        // any feeOn-enabled mint() — defeating the `harvest()` bootstrap-anchoring
+        // gate (line 402) which restricts the FIRST `kLast` write to feeToSetter.
+        // After the fix, `kLast` is bootstrapped EXCLUSIVELY through `harvest()`,
+        // and mint()/burn() merely refresh the baseline on subsequent interactions.
+        // AUDIT FIX F-31-B / M-23 (FRESH-EYES 2026-05): additionally skip the
+        // refresh while the pair is `disabledPairs`-flagged. mint() already gates
+        // disabledPairs at the top, so this guard is double-defence; burn() (which
+        // intentionally does NOT gate disabledPairs to preserve LP exit) carries
+        // the same skip below.
+        if (feeOn && kLast != 0 && !ITegridyFactory(factory).disabledPairs(address(this))) {
+            kLast = uint256(reserve0) * uint256(reserve1);
+        }
 
         emit Mint(msg.sender, amount0, amount1);
     }
@@ -195,7 +223,21 @@ contract TegridyPair is ERC20, ReentrancyGuard {
         // AUDIT FIX M-02: Update reserves BEFORE outbound transfers (CEI pattern).
         // Prevents read-only reentrancy where a token callback reads stale getReserves().
         _update(balance0 - amount0, balance1 - amount1);
-        if (feeOn) kLast = uint256(reserve0) * uint256(reserve1);
+        // AUDIT FIX F-31-A / H-7 (FRESH-EYES 2026-05): only refresh `kLast` when
+        // it was already non-zero. burn() must NEVER bootstrap `kLast` from 0 — the
+        // sole bootstrap path is `harvest()` (gated to feeToSetter). Pre-fix, an
+        // attacker holding minimal LP could donate tokens and call burn() to anchor
+        // `kLast` at a manipulated K, suppressing protocol _mintFee accrual until
+        // natural K growth caught up.
+        // AUDIT FIX F-31-B / M-23 (FRESH-EYES 2026-05): additionally skip the
+        // refresh while the pair is `disabledPairs`-flagged. burn() intentionally
+        // remains callable on disabled pairs (LP exit), but the kLast refresh would
+        // re-anchor protocol fee accounting at the post-disable (potentially
+        // donation-skewed) reserves. Skipping the write keeps the pre-disable
+        // baseline intact for re-enable.
+        if (feeOn && kLast != 0 && !ITegridyFactory(factory).disabledPairs(address(this))) {
+            kLast = uint256(reserve0) * uint256(reserve1);
+        }
 
         // Transfer tokens AFTER reserves are updated
         IERC20(token0).safeTransfer(to, amount0);
@@ -226,7 +268,13 @@ contract TegridyPair is ERC20, ReentrancyGuard {
         // Read balances to compute amountIn from pre-transfer state, validate K-invariant,
         // and update reserves BEFORE any outbound transfers (checks-effects-interactions).
         // This prevents ERC-777 / callback tokens from reading stale reserves via getReserves().
-        require(to != token0 && to != token1, "INVALID_TO_IS_TOKEN");
+        // AUDIT FIX F-31-D (FRESH-EYES 2026-05): only block `to` when it matches the OUTPUT
+        // token. Pre-fix the check was unconditional, rejecting legitimate integrations
+        // whose recipient address coincided with the INPUT token contract address (e.g.
+        // a re-investment bot deployed at the input token's address). The defence-in-depth
+        // intent (don't send a token to its own contract) only applies to the output side.
+        if (amount0Out > 0) require(to != token0, "INVALID_TO_IS_TOKEN");
+        if (amount1Out > 0) require(to != token1, "INVALID_TO_IS_TOKEN");
 
         // Compute expected post-swap balances to derive input amounts
         uint256 balance0 = IERC20(token0).balanceOf(address(this));
@@ -410,9 +458,16 @@ contract TegridyPair is ERC20, ReentrancyGuard {
         bool cleanup = (!feeOn && kLastBefore != 0);
         require(totalSupply() > supplyBefore || bootstrap || cleanup, "NO_FEE_TO_MATERIALIZE");
         lastHarvestAt = block.timestamp;
+        uint256 supplyAfter = totalSupply();
+        uint256 lpMinted = supplyAfter > supplyBefore ? supplyAfter - supplyBefore : 0;
         if (feeOn) {
             kLast = uint256(_reserve0) * uint256(_reserve1);
         }
+        // AUDIT FIX F-31-F (FRESH-EYES 2026-05): dedicated harvest event so off-chain
+        // monitoring can distinguish protocol-fee materialisation via this path from
+        // incidental `_mintFee` accrual fired by mint()/burn(). `kLast` is read AFTER
+        // any bootstrap/cleanup write so the event reports the post-call value.
+        emit ProtocolFeeHarvested(msg.sender, lpMinted, kLast);
     }
 
     // ─── Internal ─────────────────────────────────────────────────────

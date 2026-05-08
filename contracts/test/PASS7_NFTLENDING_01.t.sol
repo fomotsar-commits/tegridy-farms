@@ -91,7 +91,7 @@ contract PASS7_NFTLENDING_01_StuckRecoveryNoOpTest is Test {
 
         weth = new MockWETH_PASS7_NFTLending();
         nft = new PASS7_NoOpERC721();
-        lending = new TegridyNFTLending(treasury, 500, address(weth));
+        lending = new TegridyNFTLending(treasury, 500, address(weth), address(0));
 
         // Whitelist the malicious-but-future-discovered NFT collection.
         lending.proposeWhitelistCollection(address(nft));

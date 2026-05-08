@@ -47,7 +47,7 @@ contract TegridyPairTest is Test {
     address public bob = makeAddr("bob");
 
     function setUp() public {
-        factory = new TegridyFactory(address(this), address(this));
+        factory = new TegridyFactory(address(this), address(this), address(this)); // F-30-9 initial guardian
         // AUDIT FIX: Use timelocked feeTo change
         factory.proposeFeeToChange(feeTo);
         vm.warp(block.timestamp + 48 hours);
@@ -321,21 +321,21 @@ contract TegridyPairTest is Test {
         assertGt(liquidity, 0);
     }
 
-    // ─── AUDIT NEW-A1: FoT-output desync revert ────────────────────────
+    // â”€â”€â”€ AUDIT NEW-A1: FoT-output desync revert â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// @notice AUDIT NEW-A1: after output transfer, pair asserts actual balance
     ///         matches predicted post-transfer balance. An output-token that
     ///         deducts a fee on transfer (desynchronising reserves vs balances)
     ///         is rejected with a descriptive revert.
     function test_NEWA1_foTOutputTokenRevertsSwap() public {
-        // Use the existing pair (tokenA/tokenB) — seed initial liquidity.
+        // Use the existing pair (tokenA/tokenB) â€” seed initial liquidity.
         _addLiquidity(alice, 10_000 ether, 10_000 ether);
 
         // Simulate FoT by siphoning tokens from the pair between `_update` and
         // the balance re-check. We can't deploy a real FoT token here easily
         // (factory's _rejectERC777 bypass is the production concern), but we
         // can verify the post-transfer assertion fires by manually violating
-        // it via vm.store on pair balance — using the existing token since no
+        // it via vm.store on pair balance â€” using the existing token since no
         // FoT-safe fixture exists in this suite.
         //
         // Instead: assert the production code path IS the revert string. A
@@ -366,7 +366,7 @@ contract TegridyPairTest is Test {
         vm.stopPrank();
     }
 
-    // ─── AUDIT NEW-A7: permissionless mint-fee harvest ─────────────────
+    // â”€â”€â”€ AUDIT NEW-A7: permissionless mint-fee harvest â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// @notice AUDIT NEW-A7: anyone can call harvest() to realise the 1/6th
     ///         protocol-fee share as LP tokens to `feeTo` without needing a
@@ -392,12 +392,12 @@ contract TegridyPairTest is Test {
     /// @notice AUDIT NEW-A7: harvest on a pair with no K-growth is a no-op
     ///         (no LP minted to feeTo, but call doesn't revert).
     /// @dev    AUDIT R016 M-1: warp by HARVEST_INTERVAL between calls so the
-    ///         rate-limit gate is satisfied — without the warp the second
+    ///         rate-limit gate is satisfied â€” without the warp the second
     ///         harvest now reverts HARVEST_TOO_SOON, which is its own
     ///         test (test_R016M1_harvestRateLimitWindow).
     function test_NEWA7_harvestIdempotentWithoutVolume() public {
         _addLiquidity(alice, 10_000 ether, 10_000 ether);
-        // AUDIT FIX: DEEP-D-AMM-M2 — harvest now reverts NO_FEE_TO_MATERIALIZE
+        // AUDIT FIX: DEEP-D-AMM-M2 â€” harvest now reverts NO_FEE_TO_MATERIALIZE
         // when there is no growth in K to mint against. Pre-fix the no-op
         // call silently bumped lastHarvestAt, opening a 5-min cadence
         // griefing surface. Post-fix every no-op reverts and `lastHarvestAt`
@@ -412,7 +412,7 @@ contract TegridyPairTest is Test {
         assertEq(feeToLPAfter1, feeToLPAfter2, "harvest without volume doesn't mint extra");
     }
 
-    // ─── AUDIT R016 M-1: harvest rate-limit gate ─────────────────────
+    // â”€â”€â”€ AUDIT R016 M-1: harvest rate-limit gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// @notice AUDIT R016 M-1: a second harvest within the HARVEST_INTERVAL
     ///         window must revert HARVEST_TOO_SOON. Caps the per-pair MEV
@@ -421,16 +421,16 @@ contract TegridyPairTest is Test {
         _addLiquidity(alice, 10_000 ether, 10_000 ether);
         _swapAForB(bob, 1_000 ether);
 
-        pair.harvest(); // ok — first call sets lastHarvestAt
+        pair.harvest(); // ok â€” first call sets lastHarvestAt
         vm.expectRevert(bytes("HARVEST_TOO_SOON"));
-        pair.harvest(); // immediate retry — must revert
+        pair.harvest(); // immediate retry â€” must revert
 
-        // Warp PARTWAY through the window — still rejected.
+        // Warp PARTWAY through the window â€” still rejected.
         vm.warp(block.timestamp + 4 minutes);
         vm.expectRevert(bytes("HARVEST_TOO_SOON"));
         pair.harvest();
 
-        // After full HARVEST_INTERVAL — accepted, but only with fresh K growth
+        // After full HARVEST_INTERVAL â€” accepted, but only with fresh K growth
         // per DEEP-D-AMM-M2. Generate volume so K grows.
         _swapAForB(bob, 500 ether);
         vm.warp(block.timestamp + 1 minutes + 1);
@@ -438,12 +438,12 @@ contract TegridyPairTest is Test {
     }
 
     /// @notice AUDIT R016 M-1: rate-limit gate doesn't block legitimate
-    ///         feeTo accrual on hot pairs — keepers calling at the gate
+    ///         feeTo accrual on hot pairs â€” keepers calling at the gate
     ///         cadence still capture protocol fees as K grows.
     function test_R016M1_harvestKeeperCadenceMaterialisesFee() public {
         _addLiquidity(alice, 10_000 ether, 10_000 ether);
 
-        // AUDIT FIX: DEEP-D-AMM-M2 — first harvest needs prior volume to
+        // AUDIT FIX: DEEP-D-AMM-M2 â€” first harvest needs prior volume to
         // materialise non-zero fee LP. Pre-fix the call could no-op succeed
         // and silently advance lastHarvestAt. Post-fix every harvest must
         // mint a real LP slice.
@@ -451,7 +451,7 @@ contract TegridyPairTest is Test {
         pair.harvest();
         uint256 lp0 = pair.balanceOf(feeTo);
 
-        // Generate more volume, warp through gate, harvest again — feeTo gains LP.
+        // Generate more volume, warp through gate, harvest again â€” feeTo gains LP.
         _swapAForB(bob, 1_000 ether);
         _swapAForB(bob, 1_000 ether);
         vm.warp(block.timestamp + pair.HARVEST_INTERVAL());

@@ -7,7 +7,7 @@ import "../src/VoteIncentives.sol";
 import "../src/VoteIncentivesAdmin.sol"; // AUDIT FIX (pass-8): EIP170-03 split
 import {TegridyFactory} from "../src/TegridyFactory.sol";
 
-/// @title AuditDemonstration — concrete failing tests for vulnerabilities
+/// @title AuditDemonstration â€” concrete failing tests for vulnerabilities
 ///        the parallel-agent audit identified and we then verified by
 ///        reading the code. Each test demonstrates the vulnerability
 ///        BEHAVIOR. A passing test = the vulnerability is reproducible.
@@ -26,7 +26,7 @@ import {TegridyFactory} from "../src/TegridyFactory.sol";
 ///          H-7  TegridyRestaking decayExpiredRestaker accrual ordering
 ///               (verified at TegridyRestaking.sol:1092 vs 1110)
 
-// ─── Mocks ───────────────────────────────────────────────────────────────
+// â”€â”€â”€ Mocks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 contract MockTOWELI is ERC20 {
     constructor() ERC20("Towelie", "TOWELI") { _mint(msg.sender, 1_000_000_000 ether); }
@@ -87,10 +87,10 @@ contract MockPair {
     constructor(address a, address b) { token0 = a; token1 = b; }
 }
 
-// ─── Test ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Test â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 contract AuditDemonstrationTest is Test {
-    // ── VoteIncentives setup ──
+    // â”€â”€ VoteIncentives setup â”€â”€
     VoteIncentives public bribes;
     VoteIncentivesAdmin public bribesAdmin; // AUDIT FIX (pass-8): EIP170-03 split
     MockTOWELI public toweli;
@@ -103,7 +103,7 @@ contract AuditDemonstrationTest is Test {
     address public alice = makeAddr("alice");
     uint256 internal constant FEE_BPS = 300;
 
-    // ── TegridyFactory setup ──
+    // â”€â”€ TegridyFactory setup â”€â”€
     TegridyFactory public factory;
     address public feeToSetter = makeAddr("feeToSetter");
     address public feeTo = makeAddr("feeTo");
@@ -129,7 +129,7 @@ contract AuditDemonstrationTest is Test {
             FEE_BPS
         );
 
-        // AUDIT FIX (pass-8): EIP170-03 split — wire admin sister.
+        // AUDIT FIX (pass-8): EIP170-03 split â€” wire admin sister.
         bribesAdmin = new VoteIncentivesAdmin(address(bribes));
         bribes.setVoteIncentivesAdmin(address(bribesAdmin));
 
@@ -150,7 +150,7 @@ contract AuditDemonstrationTest is Test {
         escrow.setTotal(1_000_000 ether);
 
         // TegridyFactory stack
-        factory = new TegridyFactory(feeToSetter, feeTo);
+        factory = new TegridyFactory(feeToSetter, feeTo, feeToSetter); // F-30-9 initial guardian
     }
 
     function _advance() internal {
@@ -162,7 +162,7 @@ contract AuditDemonstrationTest is Test {
         bribes.advanceEpoch();
     }
 
-    // ─── C-4: Zero-vote epoch bribes are RECOVERABLE via refundUnvotedBribe (post-fix) ─
+    // â”€â”€â”€ C-4: Zero-vote epoch bribes are RECOVERABLE via refundUnvotedBribe (post-fix) â”€
     //
     // After the fix: depositor can recover their bribe from a snapshotted,
     // zero-vote pair after a 14-day grace period.
@@ -192,13 +192,13 @@ contract AuditDemonstrationTest is Test {
         uint256 balAfter = IERC20(brb).balanceOf(depositor);
         assertGt(balAfter, balBefore, "depositor should receive refund");
 
-        // Second call reverts — already refunded
+        // Second call reverts â€” already refunded
         vm.prank(depositor);
         vm.expectRevert(bytes("NOTHING_TO_REFUND"));
         bribes.refundUnvotedBribe(0, address(pair), brb);
     }
 
-    // ─── C-4.b: Pair WITH votes is NOT eligible for unvoted-refund ───────
+    // â”€â”€â”€ C-4.b: Pair WITH votes is NOT eligible for unvoted-refund â”€â”€â”€â”€â”€â”€â”€
     function test_C4b_PairWithVotesNotEligible() public {
         address brb = pair.token1();
         vm.startPrank(depositor);
@@ -213,19 +213,19 @@ contract AuditDemonstrationTest is Test {
         vm.prank(alice);
         bribes.vote(0, address(pair), 100 ether);
 
-        // Even after grace, refundUnvotedBribe rejects — pair has votes
+        // Even after grace, refundUnvotedBribe rejects â€” pair has votes
         vm.warp(block.timestamp + 21 days + 1);
         vm.prank(depositor);
         vm.expectRevert(bytes("PAIR_HAS_VOTES"));
         bribes.refundUnvotedBribe(0, address(pair), brb);
     }
 
-    // ─── H-12: Dust DoS exhausts MAX_BRIBE_TOKENS ────────────────────────
+    // â”€â”€â”€ H-12: Dust DoS exhausts MAX_BRIBE_TOKENS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     //
     // Whitelist 20 different tokens. Attacker deposits 1 wei of each to
     // the same pair in the current epoch. A legitimate briber with a
     // 21st token then reverts with TooManyBribeTokens.
-    // ─── H-12: 1-wei dust ERC20 deposits are now REJECTED (post-fix) ─────
+    // â”€â”€â”€ H-12: 1-wei dust ERC20 deposits are now REJECTED (post-fix) â”€â”€â”€â”€â”€
     //
     // After fix: depositBribe enforces an effective minimum of
     // DEFAULT_MIN_TOKEN_BRIBE (1e15) for tokens without a configured
@@ -252,7 +252,7 @@ contract AuditDemonstrationTest is Test {
         vm.stopPrank();
     }
 
-    // ─── H-12.b: per-token min override via timelocked setter ────────────
+    // â”€â”€â”€ H-12.b: per-token min override via timelocked setter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function test_H12b_PerTokenMinTimelocked() public {
         address brb = pair.token1();
 
@@ -278,65 +278,64 @@ contract AuditDemonstrationTest is Test {
         vm.stopPrank();
     }
 
-    // ─── H-1: Guardian rotation IS timelocked (post-fix) ─────────────────
+    // --- H-1: Guardian rotation IS timelocked (post-fix) ---
     //
-    // After the R028 H-01 remediation, the initial set is allowed via
-    // setGuardian() ONLY when guardian == address(0). All subsequent
-    // rotations require proposeGuardianChange + 48h + executeGuardianChange.
+    // Post F-30-9 / H-16: constructor seeds a non-zero guardian, and
+    // setGuardian / proposeGuardianChange require a contract-class address
+    // (multisig requirement). Initial-set is a recovery path only reachable
+    // when guardian rotation has landed address(0).
     function test_H1_GuardianRotationRequiresTimelock() public {
-        // Initial set works in a single tx (deploy/migration path)
-        assertEq(factory.guardian(), address(0));
-        vm.prank(feeToSetter);
-        factory.setGuardian(attacker);
-        assertEq(factory.guardian(), attacker);
+        // Constructor seeded `feeToSetter` as initial guardian (F-30-9).
+        assertEq(factory.guardian(), feeToSetter);
 
-        // Second setGuardian must revert — initial-only gate
+        // Direct re-set blocked - initial-only gate.
         vm.prank(feeToSetter);
         vm.expectRevert("Use proposeGuardianChange()");
         factory.setGuardian(makeAddr("evil"));
 
-        // Timelocked path: propose, can't execute early, then execute after 48h
-        address newGuardian = makeAddr("new-guardian");
+        // Timelocked rotation: must use a multisig-class contract address.
+        AuditDemoMultisig newGuardian = new AuditDemoMultisig();
         vm.prank(feeToSetter);
-        factory.proposeGuardianChange(newGuardian);
+        factory.proposeGuardianChange(address(newGuardian));
 
-        // Cannot execute instantly
+        // Cannot execute instantly.
         vm.prank(feeToSetter);
         vm.expectRevert();
         factory.executeGuardianChange();
 
-        // After the 48h delay: success
+        // After the 48h delay: success.
         vm.warp(block.timestamp + 48 hours + 1);
         vm.prank(feeToSetter);
         factory.executeGuardianChange();
-        assertEq(factory.guardian(), newGuardian);
+        assertEq(factory.guardian(), address(newGuardian));
+
+        // EOA rotation rejected.
+        vm.prank(feeToSetter);
+        vm.expectRevert("GUARDIAN_NOT_MULTISIG");
+        factory.proposeGuardianChange(makeAddr("evil-eoa"));
     }
 
-    // ─── H-1.b: cancelGuardianChange clears pending ──────────────────────
+    // --- H-1.b: cancelGuardianChange clears pending ---
     function test_H1b_CancelGuardianChange() public {
+        AuditDemoMultisig rotation = new AuditDemoMultisig();
         vm.prank(feeToSetter);
-        factory.setGuardian(attacker);
-
-        vm.prank(feeToSetter);
-        factory.proposeGuardianChange(makeAddr("rotation"));
-        assertEq(factory.pendingGuardian(), makeAddr("rotation"));
+        factory.proposeGuardianChange(address(rotation));
+        assertEq(factory.pendingGuardian(), address(rotation));
 
         vm.prank(feeToSetter);
         factory.cancelGuardianChange();
         assertEq(factory.pendingGuardian(), address(0));
-        assertEq(factory.guardian(), attacker, "guardian unchanged after cancel");
+        assertEq(factory.guardian(), feeToSetter, "guardian unchanged after cancel");
     }
 
-    // ─── H-2: emergencyDisable preserves pending DISABLES, cancels RE-ENABLES (post-fix) ─
-    //
-    // After the H-2 fix, emergencyDisablePair() only cancels pending
-    // RE-ENABLE proposals (pendingPairDisableValue == false). A pending
-    // DISABLE proposal is left in place because it's benign (same end
-    // state) and silencing it amounts to a guardian veto over governance.
+    // --- H-2: emergencyDisable preserves pending DISABLES (post-fix) ---
     function test_H2_PendingDisableSurvivesEmergency() public {
-        address victimPair = makeAddr("victim-pair");
+        // Create a real factory pair (F-30-1: emergencyDisablePair requires isPair).
+        AuditDemoToken tA = new AuditDemoToken();
+        AuditDemoToken tB = new AuditDemoToken();
+        address victimPair = factory.createPair(address(tA), address(tB));
 
-        // feeToSetter queues a timelocked DISABLE
+        // feeToSetter queues a timelocked DISABLE.
         vm.prank(feeToSetter);
         factory.proposePairDisabled(victimPair, true);
 
@@ -347,13 +346,11 @@ contract AuditDemonstrationTest is Test {
         assertGt(factory.proposalExecuteAfter(key), 0);
         assertEq(factory.pendingPairDisableValue(victimPair), true);
 
-        // Guardian fires emergency disable
+        // Guardian (already set at construction = feeToSetter) fires emergency.
         vm.prank(feeToSetter);
-        factory.setGuardian(attacker);
-        vm.prank(attacker);
         factory.emergencyDisablePair(victimPair);
 
-        // Post-fix: pending DISABLE proposal IS PRESERVED (governance audit trail intact)
+        // Post-fix: pending DISABLE proposal IS PRESERVED.
         assertGt(factory.proposalExecuteAfter(key), 0,
             "pending disable proposal preserved");
         assertEq(factory.pendingPairDisableValue(victimPair), true,
@@ -361,18 +358,20 @@ contract AuditDemonstrationTest is Test {
         assertEq(factory.disabledPairs(victimPair), true,
             "pair was disabled by emergency action");
 
-        // Governance can still execute its proposal after timelock — no-op state-wise
+        // Governance can still execute its proposal after timelock.
         vm.warp(block.timestamp + 48 hours + 1);
         vm.prank(feeToSetter);
         factory.executePairDisabled(victimPair);
         assertEq(factory.disabledPairs(victimPair), true);
     }
 
-    // ─── H-2.b: emergencyDisable still cancels pending RE-ENABLE (circuit breaker preserved) ─
+    // --- H-2.b: emergencyDisable cancels pending RE-ENABLE (circuit breaker preserved) ---
     function test_H2b_PendingReEnableStillCancelled() public {
-        address victimPair = makeAddr("victim-pair-2");
+        AuditDemoToken tA = new AuditDemoToken();
+        AuditDemoToken tB = new AuditDemoToken();
+        address victimPair = factory.createPair(address(tA), address(tB));
 
-        // Disable the pair via the normal timelocked path
+        // Disable the pair via the normal timelocked path.
         vm.prank(feeToSetter);
         factory.proposePairDisabled(victimPair, true);
         vm.warp(block.timestamp + 48 hours + 1);
@@ -380,7 +379,7 @@ contract AuditDemonstrationTest is Test {
         factory.executePairDisabled(victimPair);
         assertEq(factory.disabledPairs(victimPair), true);
 
-        // Now governance queues a RE-ENABLE
+        // Now governance queues a RE-ENABLE.
         vm.prank(feeToSetter);
         factory.proposePairDisabled(victimPair, false);
         bytes32 key = keccak256(abi.encodePacked(
@@ -390,25 +389,23 @@ contract AuditDemonstrationTest is Test {
         assertGt(factory.proposalExecuteAfter(key), 0);
         assertEq(factory.pendingPairDisableValue(victimPair), false);
 
-        // Guardian sees a fresh exploit and fires emergency
+        // Guardian fires emergency.
         vm.prank(feeToSetter);
-        factory.setGuardian(attacker);
-        vm.prank(attacker);
         factory.emergencyDisablePair(victimPair);
 
-        // The pending RE-ENABLE is force-cancelled (circuit breaker preserved)
+        // The pending RE-ENABLE is force-cancelled.
         assertEq(factory.proposalExecuteAfter(key), 0,
             "pending re-enable was cancelled");
         assertEq(factory.pendingPairDisableValue(victimPair), false);
         assertEq(factory.disabledPairs(victimPair), true);
     }
 
-    // ─── Code-only confirmations (no foundry test required) ──────────────
+    // â”€â”€â”€ Code-only confirmations (no foundry test required) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     //
     // These findings were verified by reading the actual contracts
     // and confirming the prescribed remediation did not ship.
     //
-    // C-1: FIXED in Batch C (commit msg "Batch C — TegridyDropV2 R023 H-01").
+    // C-1: FIXED in Batch C (commit msg "Batch C â€” TegridyDropV2 R023 H-01").
     //      Legacy setMerkleRoot(bytes32) now reverts with "Use proposeMerkleRoot()".
     //      proposeMerkleRoot / executeMerkleRoot(bytes32) / cancelMerkleRoot
     //      added with 24h timelock. Phase guard restricts rotation to
@@ -419,7 +416,7 @@ contract AuditDemonstrationTest is Test {
     //      Existing 27 TegridyDropV2.t.sol tests pass without changes.
     //
     // C-2: PARTIALLY FIXED in Batch F. MAX_POSITIONS_PER_HOLDER lowered
-    //      from 100 → 50, halving the worst-case votingPowerOf gas cost
+    //      from 100 â†’ 50, halving the worst-case votingPowerOf gas cost
     //      paid by every external integrator (ReferralSplitter on each
     //      fee credit, RevenueDistributor's checkpoint-fallback path,
     //      governance consumers). 50 still gives Gnosis Safe / vault
@@ -433,7 +430,7 @@ contract AuditDemonstrationTest is Test {
     //      blocks UPWARD sync corrections. If accruedFees ever drifts
     //      below the true PoolManager balance (rounding bug, accounting
     //      drift), there is no recovery path. The error name is also
-    //      misleading — "SyncReductionTooLarge" actually fires on
+    //      misleading â€” "SyncReductionTooLarge" actually fires on
     //      attempted increases, not large reductions.
     //
     // H-7: TegridyRestaking.decayExpiredRestaker calls _accrueBonus()
@@ -446,7 +443,7 @@ contract AuditDemonstrationTest is Test {
     //      boost checkpoints via OZ Checkpoints.Trace208 (same pattern
     //      TegridyStaking uses for voting power). boostedAmountAt(_user,
     //      _ts) now returns the historical value from the checkpoint
-    //      via upperLookup — the actual boost the user held at _ts —
+    //      via upperLookup â€” the actual boost the user held at _ts â€”
     //      instead of the current (potentially decayed) cached value.
     //      _writeBoostCheckpoint hooks every site that mutates boost:
     //      restake, refreshPosition, claimAll auto-refresh, unrestake,
@@ -463,4 +460,36 @@ contract AuditDemonstrationTest is Test {
     //      this codebase) correctly uses hasPremiumSecure (line 309).
     //      Risk is real for THIRD-PARTY integrators that misuse
     //      hasPremium() but is mitigated within this protocol.
+}
+
+// AUDIT FIX H-16 - minimal contract to satisfy the multisig-class guardian
+// gate used by the rewritten H-1/H-2 tests.
+contract AuditDemoMultisig {
+    fallback() external {}
+}
+
+// AUDIT FIX F-30-1 - minimal ERC20-ish token used to create real factory
+// pairs in the rewritten H-2 tests. Has bytecode and is not 23 bytes long.
+contract AuditDemoToken {
+    string public name = "AD";
+    string public symbol = "AD";
+    uint8 public decimals = 18;
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+    function transfer(address to, uint256 amt) external returns (bool) {
+        balanceOf[msg.sender] -= amt;
+        balanceOf[to] += amt;
+        return true;
+    }
+    function approve(address sp, uint256 amt) external returns (bool) {
+        allowance[msg.sender][sp] = amt;
+        return true;
+    }
+    function transferFrom(address from, address to, uint256 amt) external returns (bool) {
+        allowance[from][msg.sender] -= amt;
+        balanceOf[from] -= amt;
+        balanceOf[to] += amt;
+        return true;
+    }
+    function mint(address to, uint256 amt) external { balanceOf[to] += amt; }
 }

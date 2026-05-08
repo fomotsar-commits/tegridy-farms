@@ -53,6 +53,18 @@ library SequencerCheck {
     ///      consumers trust the price.
     error SequencerGracePeriodNotOver();
 
+    /// @dev AUDIT FIX FRESH-2026: H-9 [F-74-1, F-74-2] — reverted when a
+    ///      consumer on a non-mainnet chain (i.e. an L2) calls
+    ///      `checkSequencerUp` with `feed == address(0)`. Pre-fix, the
+    ///      `feed == address(0)` branch silently no-op'd on every chain,
+    ///      so a deploy script that omitted `setSequencerFeed(...)` (or
+    ///      passed `vm.envOr("SEQUENCER_FEED", address(0))` with the env
+    ///      unset) would ship with sequencer protection inert on L2 with
+    ///      no on-chain warning. The lib now refuses the no-op on any
+    ///      chain except `chainid == 1` (Ethereum mainnet, which has no
+    ///      sequencer concept). Mainnet keeps the no-op fast path.
+    error SequencerFeedNotConfigured();
+
     /// @notice AUDIT MICROSCOPE_2026_04_30 M-Lib2 / DEEP-LIB-M3: max acceptable
     ///         staleness on the uptime feed itself. Chainlink's L2 uptime feed is
     ///         keeper-updated; if the keeper lapses, `latestRoundData` returns a
@@ -116,7 +128,18 @@ library SequencerCheck {
     /// @param  staleness    Max acceptable `block.timestamp - updatedAt` on the feed.
     function checkSequencerUp(address feed, uint256 gracePeriod, uint256 staleness) internal view {
         // Mainnet / non-L2 deployments: feed = address(0) → skip entirely.
-        if (feed == address(0)) return;
+        // AUDIT FIX FRESH-2026: H-9 [F-74-1, F-74-2] — but ONLY if we're
+        // actually on mainnet. Pre-fix every L2 chain that shipped without
+        // `setSequencerFeed(...)` got the no-op too, silently disabling
+        // sequencer protection. The deploy-side fix (Wave C) requires
+        // explicit feed wiring; this lib-side guard is the structural
+        // backstop that makes the failure visible at first call rather
+        // than silent at deploy time. NatSpec invariant: ANY non-mainnet
+        // deploy MUST configure the feed; this revert surfaces the gap.
+        if (feed == address(0)) {
+            if (block.chainid != 1) revert SequencerFeedNotConfigured();
+            return;
+        }
 
         (
             uint80 roundId,
@@ -300,20 +323,43 @@ library SequencerCheck {
     }
 
     /// @notice AUDIT R014 H-6: return the wall-clock timestamp at which the
-    ///         sequencer most recently transitioned to "up", or zero if the
-    ///         sequencer is currently down / the feed is the no-op address.
+    ///         sequencer most recently transitioned to "up". Sentinel
+    ///         semantics differ by failure mode — see the return-value doc below.
     ///
     /// @dev    `checkSequencerUp` only proves the sequencer is currently up AND
     ///         the post-resume grace window has elapsed. It does NOT expose
     ///         WHEN the resume happened — so a downstream consumer can pass the
     ///         gate while still consuming a stale oracle observation that
     ///         pre-dates the resume. This is the core H-6 staleness gap.
+    /// @dev    AUDIT FIX FRESH-2026: M-34 [F-40-SEQ-2] — on every STALE
+    ///         path (uninitialized round, stale answer, keeper lapse,
+    ///         clock-skew on `updatedAt`) the lib now returns
+    ///         `type(uint256).max` (a fail-CLOSED sentinel) instead of 0.
+    ///         Pre-fix consumers computed `resumeAt + GRACE` and compared
+    ///         against observation timestamps; with `resumeAt == 0` the
+    ///         comparison `observation.timestamp >= 0 + GRACE` passed for
+    ///         any post-2024 timestamp, silently bypassing the H6
+    ///         staleness gate. Returning `type(uint256).max` makes the
+    ///         comparison fail closed: `observation.timestamp >= max + GRACE`
+    ///         overflows checked-math (or stays false if the consumer uses
+    ///         unchecked), forcing the consumer to refuse the read. Mainnet
+    ///         (feed == address(0)) and the "sequencer currently down"
+    ///         (answer != 0) branches still return 0 — those are the
+    ///         "use the up/down decision from checkSequencerUp" paths.
     /// @param  feed Chainlink L2 Sequencer Uptime feed address.
-    /// @return resumeAt The `startedAt` of the latest round (i.e. when the
-    ///         current `answer` was posted). Zero if the sequencer is currently
-    ///         reporting down OR if the feed is `address(0)` (mainnet no-op).
-    ///         Callers MUST treat zero as "no resume gating applies" and rely
-    ///         on `checkSequencerUp`'s revert semantics for the up/down decision.
+    /// @return resumeAt One of:
+    ///           - `startedAt` (latest round's start) when the sequencer is
+    ///             currently up and the feed is fresh — the resume gating
+    ///             timestamp.
+    ///           - 0 when `feed == address(0)` (mainnet no-op) OR the
+    ///             sequencer is currently down (`answer != 0`); callers
+    ///             must rely on `checkSequencerUp`'s typed revert for the
+    ///             up/down decision.
+    ///           - `type(uint256).max` when the feed is stale (round
+    ///             uninitialized, keeper lapse, clock-skew, etc.); the
+    ///             fail-closed sentinel makes any
+    ///             `observation.timestamp >= resumeAt + GRACE` comparison
+    ///             reject silently, preserving the H6 staleness gate.
     function getResumeTimestamp(address feed) internal view returns (uint256 resumeAt) {
         // Mainnet / non-L2: no feed → no resume timestamp to gate on. Return 0
         // and let the caller skip the staleness comparison entirely.
@@ -330,17 +376,19 @@ library SequencerCheck {
         // AUDIT MICROSCOPE_2026_04_30 M-Lib2: same freshness gates as
         // `checkSequencerUp`. A stale uptime feed must NOT contribute a
         // post-resume timestamp that consumers then trust as "fresh enough".
-        if (updatedAt == 0) return 0;
-        if (answeredInRound < roundId) return 0;
+        // AUDIT FIX FRESH-2026: M-34 [F-40-SEQ-2] — return type(uint256).max
+        // on each stale path so the consumer's `resumeAt + GRACE` comparison
+        // fails closed (was: returned 0 → silently bypassed gate).
+        if (updatedAt == 0) return type(uint256).max;
+        if (answeredInRound < roundId) return type(uint256).max;
         // AUDIT FIX: v3-LIB-M1 — directional ordering check BEFORE the
         // subtraction so a future-dated `updatedAt` (clock skew on a
         // bridged/relayed feed) cannot underflow checked-math and propagate
-        // a `Panic(0x11)` to consumers that expect this helper to return 0
-        // on stale feeds. Treat any future-dated round as stale → return 0
-        // and let the caller skip the H-6 staleness gate.
-        if (updatedAt > block.timestamp) return 0; // clock skew → treat as stale
+        // a `Panic(0x11)` to consumers that expect this helper to return a
+        // sentinel on stale feeds. Treat any future-dated round as stale.
+        if (updatedAt > block.timestamp) return type(uint256).max;
         unchecked {
-            if (block.timestamp - updatedAt > MAX_FEED_STALENESS) return 0;
+            if (block.timestamp - updatedAt > MAX_FEED_STALENESS) return type(uint256).max;
         }
 
         // If the sequencer is currently down, there is no meaningful "resume"
@@ -357,8 +405,9 @@ library SequencerCheck {
         // push that gate arbitrarily far into the future, blocking ALL
         // existing observations until on-chain time catches up — an
         // unintended DoS on bridged/relayed feeds with clock skew.
-        // Mirror the line-341 fix: future-dated → treat as no resume info.
-        if (startedAt > block.timestamp) return 0;
+        // AUDIT FIX FRESH-2026: M-34 [F-40-SEQ-2] — clock-skew on startedAt
+        // is also a stale-path → fail-closed sentinel.
+        if (startedAt > block.timestamp) return type(uint256).max;
 
         return startedAt;
     }

@@ -80,7 +80,7 @@ contract PASS7_NFTLENDING_02_RemovalRetryDosTest is Test {
         vm.warp(1_700_000_000);
         weth = new MockWETH_PASS7_NFTL_02();
         nft = new MockERC721_PASS7_NFTL_02();
-        lending = new TegridyNFTLending(treasury, 500, address(weth));
+        lending = new TegridyNFTLending(treasury, 500, address(weth), address(0));
 
         // Whitelist the collection we want to later remove.
         lending.proposeWhitelistCollection(address(nft));

@@ -63,6 +63,19 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     uint256 public constant MIN_NOTIFY_AMOUNT = 1000e18;
     uint256 public constant BOOST_PRECISION = 10000;        // Matches TegridyStaking BPS
     uint256 public constant BASE_BOOST_BPS = 10000;         // 1.0x — no boost baseline
+    /// @dev AUDIT FIX FRESH-2026: F-61-6 — minimum stake floor mirroring
+    ///      TegridyStaking.MIN_STAKE = 100e18. Without this, sybil dust-stakers
+    ///      could inflate `totalEffectiveSupply` 1 wei at a time, diluting honest
+    ///      stakers' per-second slice. The per-call cost is amortised against the
+    ///      reward dilution; with 100e18 LP minimum the attack is uneconomic.
+    uint256 public constant MIN_STAKE = 100e18;
+    /// @dev AUDIT FIX FRESH-2026: F-93-2 — minimum interval between notifyRewardAmount
+    ///      invocations. Closes the same-block / same-mempool sandwich window where an
+    ///      attacker watches the owner's pending notify tx and front-runs a `stake()`
+    ///      to capture the new period's rate. 1 hour is the residual operational
+    ///      compromise; for full immunity, route notifyRewardAmount through a private
+    ///      mempool relay (Flashbots Protect / MEV-blocker).
+    uint256 public constant NOTIFY_COOLDOWN = 1 hours;
     /// @dev Audit C-01 defence-in-depth: cap boost at 4.5x (MAX_BOOST 40000 + JBAC bonus
     /// ceiling). Even if the interface is ever re-mis-aligned against TegridyStaking's
     /// Position struct in a future upgrade, this cap prevents unbounded reward capture.
@@ -106,6 +119,10 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     uint256 public totalRewardsFunded;
     uint256 public pendingRewardsDuration;
     address public pendingTreasury;
+    /// @dev AUDIT FIX FRESH-2026: F-93-2 — timestamp of last notifyRewardAmount.
+    ///      Enforces NOTIFY_COOLDOWN between calls so a captured-mempool sandwich
+    ///      cannot re-notify in the same block to compound a rate jack.
+    uint256 public lastNotifyTime;
 
     // ─── Events ─────────────────────────────────────────────────────
     event Staked(address indexed user, uint256 amount, uint256 effectiveAmount);
@@ -139,6 +156,10 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     error CannotRecoverRewardToken();
     error PreviousPeriodNotComplete();
     error RewardEqualsStakingToken();
+    /// @dev AUDIT FIX FRESH-2026: F-93-2 — enforced cooldown gate.
+    error NotifyCooldownActive();
+    /// @dev AUDIT FIX FRESH-2026: F-61-6 — minimum stake floor.
+    error StakeBelowMinimum();
 
     // ─── Constructor ────────────────────────────────────────────────
     constructor(
@@ -202,29 +223,29 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
         // is forfeit, not banked for the next staker.
         lastUpdateTime = lastTimeRewardApplicable();
         if (account != address(0)) {
-            // PASS7-LPFARM-M1 FIX: re-derive boost cache before computing rewards.
-            // Pre-fix, `_getEffectiveBalance` was only re-derived on user-initiated
-            // `stake / withdraw / refreshBoost`. After lock expiry or staking-NFT
-            // transfer, `effectiveBalanceOf[account]` stayed inflated until
-            // someone permissionlessly called `refreshBoost(account)` — and there
-            // was no on-chain incentive to do so. This let an attacker continue
-            // earning at the legacy boost ratio for the entire window between
-            // boost-source removal and the next refresh (~29% over-credit on
-            // 1y-lock 1.29x boost over 30 days, ~300% at MAX_BOOST = 4.5x).
+            // AUDIT FIX FRESH-2026: C-1 / F-28-1 — anchor rewards FIRST under the
+            // current (pre-refresh) boost cache, THEN refresh the cache for future
+            // emissions. The previous order (cache refresh BEFORE earned) silently
+            // applied any new boost retroactively to the entire un-checkpointed
+            // delta `(rewardPerToken - userRewardPerTokenPaid)`, allowing an
+            // attacker to wait while their staking-side boost grew, then trigger
+            // any LP-farming function and capture the new boost on past emission.
+            // PoC: 30d wait at 1.0x with 4.5x ratchet → ~4.5× over-credit on the
+            // entire period (insolvent reward bucket). Reorder restores the
+            // canonical Synthetix StakingRewards anchor pattern: rewards are
+            // crystallised at the OLD boost, then the cache is updated so the new
+            // boost applies only to future emissions.
             //
-            // By refreshing INSIDE updateReward, every user-initiated state
-            // change (stake, withdraw, getReward, exit, refreshBoost itself)
-            // re-anchors the boost cache against the current staking-side state.
-            // Pattern of record: Synthetix-style `updateReward` checkpoints all
-            // cached state at every interaction.
-            //
-            // Refresh BEFORE `earned(account)` so the new effective balance
-            // applies to the about-to-be-credited slice. Honest edge case: a
-            // user who held a high boost for the elapsed period and dropped it
-            // just before claiming gets credited at the LOWER boost — a small
-            // under-credit in exchange for closing the much larger stale-boost
-            // over-credit attack surface. This is the trade-off the F-1
-            // restaking-side fix made and is mirrored here for symmetry.
+            // The remaining staleness (between staking-side mutation and the next
+            // LP-farming interaction) is the same Curve-veCRV trade-off — the
+            // proper cure is a `kick(user)` callback wired from TegridyStaking
+            // into LP-farming, but the immediate retroactive credit must be fixed
+            // first and that is the change made here.
+            rewards[account] = earned(account);
+            userRewardPerTokenPaid[account] = rewardPerTokenStored;
+
+            // AUDIT FIX FRESH-2026: C-1 / F-28-1 — refresh boost cache AFTER
+            // anchoring rewards/userPaid. Future emissions accrue at the new boost.
             uint256 raw = rawBalanceOf[account];
             if (raw > 0) {
                 uint256 oldEff = effectiveBalanceOf[account];
@@ -235,8 +256,6 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
                     emit BoostUpdated(account, oldEff, newEff);
                 }
             }
-            rewards[account] = earned(account);
-            userRewardPerTokenPaid[account] = rewardPerTokenStored;
         }
         _;
     }
@@ -284,6 +303,15 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     ///      under any future staking ABI breakage. With the fallback gone, an ABI
     ///      mismatch loudly reverts at the staking call instead of silently halving
     ///      reward boost for affected holders.
+    ///
+    /// @dev AUDIT FIX FRESH-2026: F-28-4 — BASE_BOOST_BPS (1.0×) floor is INTENTIONAL.
+    ///      If `aggregateActiveBoostBps(user) <= BASE_BOOST_BPS`, the user is rewarded
+    ///      as a non-staker (1.0×) rather than penalised below 1.0×. Sub-1.0× boost
+    ///      values from the staking side are floored to 1.0× — there is no path by
+    ///      which a staking position can REDUCE a user's LP-farming effective balance
+    ///      below their raw deposit. This matches operator intent (staking should be
+    ///      additive, not punitive) and aligns with TegridyStaking's documented
+    ///      MIN_BOOST_BPS being for time-weighted lock decay, not reward floor.
     function _getEffectiveBalance(address user, uint256 rawAmount) internal view returns (uint256) {
         uint256 boostBps = BASE_BOOST_BPS;
         uint256 aggBps = tegridyStaking.aggregateActiveBoostBps(user);
@@ -294,6 +322,18 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     }
 
     /// @notice Refresh a user's effective balance (call after staking NFT changes)
+    /// @dev AUDIT FIX FRESH-2026: F-65-4 — Cross-state staleness: this contract has
+    ///      no on-restake / on-unrestake / on-extend hook from TegridyStaking or
+    ///      TegridyRestaking, so a user whose staking-side boost mutates between
+    ///      LP-farming interactions carries a stale `effectiveBalanceOf` until the
+    ///      next interaction. After C-1 / F-28-1, the stale cache only affects
+    ///      FUTURE emissions (past emissions are anchored to the old cache when
+    ///      `updateReward` runs at next interaction). Consumers and integrators
+    ///      that mutate staking-side state (TegridyStaking.extendLock, .stake,
+    ///      .restake on TegridyRestaking, .unrestake) SHOULD call this function
+    ///      with `account = self` immediately after the staking-side action so
+    ///      forward emissions accrue at the correct boost. This call is
+    ///      permissionless — anyone can refresh anyone's cache.
     function refreshBoost(address account) external nonReentrant updateReward(account) {
         uint256 raw = rawBalanceOf[account];
         if (raw == 0) return;
@@ -313,8 +353,18 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     /// @notice Stake LP tokens to earn boosted TOWELI rewards.
     /// @dev Also refreshes the caller's effective balance against their current staking NFT
     ///      position so newly-acquired JBAC boost applies without a separate refreshBoost call.
+    /// @dev AUDIT FIX FRESH-2026: F-28-3 — body-level reconcile is KEPT (not removed) by
+    ///      design after C-1's modifier reorder. The modifier now anchors rewards under
+    ///      the OLD boost and refreshes the cache for future emissions; the body-level
+    ///      reconcile here is a no-op against the modifier's just-written cache for
+    ///      existing balance, but is structurally retained as a defence-in-depth
+    ///      checkpoint for the NEW deposit's boost (the `_getEffectiveBalance(amount)`
+    ///      call below). The redundant external call to `_getEffectiveBalance(existing)`
+    ///      is acceptable gas overhead (~2.6k) for the safety margin.
     function stake(uint256 amount) external nonReentrant whenNotPaused updateReward(msg.sender) {
         if (amount == 0) revert ZeroAmount();
+        // AUDIT FIX FRESH-2026: F-61-6 — minimum stake to prevent sybil dust dilution.
+        if (amount < MIN_STAKE) revert StakeBelowMinimum();
 
         // Reconcile any pre-existing effective balance with the current boost first.
         uint256 existingRaw = rawBalanceOf[msg.sender];
@@ -369,6 +419,13 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
         // over-credited rewards on the retained LP + diluted pool for honest stakers.
         // Matches the stake() / refreshBoost() pattern already used elsewhere
         // (Curve LiquidityGaugeV4 model).
+        // AUDIT FIX FRESH-2026: F-28-3 — body-level recompute is KEPT after C-1's
+        // modifier reorder. The modifier now writes the post-refresh cache for the
+        // OLD raw amount; this body recomputes for the NEW (smaller) raw amount.
+        // Without this body-level reconcile, partial withdraws would leave
+        // `effectiveBalanceOf[user]` reflecting the OLD raw — over-stated by the
+        // withdrawn portion. The `_getEffectiveBalance` external call here is
+        // accepted gas overhead for arithmetic correctness on partial withdraws.
         uint256 oldEff = effectiveBalanceOf[user];
         uint256 newRaw = rawBalanceOf[user] - amount;
         uint256 newEff = _getEffectiveBalance(user, newRaw);
@@ -399,21 +456,55 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     ///      stranded tokens can later be swept to treasury via reclaimForfeitedRewards.
     ///      Without this, the forfeited amount silted up as unrecoverable dust
     ///      (recoverERC20 blocks rewardToken).
-    /// @dev AUDIT NEW-S6 (MEDIUM): added `updateReward(msg.sender)` modifier so
-    ///      `rewardPerTokenStored` + `lastUpdateTime` are synced to `now` BEFORE
-    ///      `totalEffectiveSupply` shrinks. Otherwise, the next claimer's
-    ///      `rewardPerToken()` divides the elapsed × rewardRate by the NEW smaller
-    ///      denominator, over-crediting rewards for the pre-emergency-withdraw
-    ///      period (during which this user was still in the denominator).
-    function emergencyWithdraw() external nonReentrant updateReward(msg.sender) {
+    /// @dev AUDIT FIX FRESH-2026: F-28-2 — DROPPED the `updateReward(msg.sender)`
+    ///      modifier so this function never makes an external call to
+    ///      `tegridyStaking.aggregateActiveBoostBps`. If the staking contract
+    ///      ever returns malformed data, runs out of gas, or reverts on the
+    ///      boost-query path, users would lose their last-resort exit. Pattern
+    ///      of record: MasterChef-class `emergencyWithdraw` makes ZERO external
+    ///      calls beyond the LP token transfer.
+    ///
+    ///      The original AUDIT NEW-S6 concern (subsequent claimers over-credited
+    ///      because `totalEffectiveSupply` shrinks before `rewardPerTokenStored`
+    ///      is synced) is addressed inline below: we sync rewardPerTokenStored
+    ///      + lastUpdateTime under the OLD totalEffectiveSupply, then shrink it.
+    ///      No boost cache refresh is needed — the user is exiting and zeros
+    ///      their cache anyway.
+    function emergencyWithdraw() external nonReentrant {
         uint256 amount = rawBalanceOf[msg.sender];
         if (amount == 0) revert ZeroAmount();
-        uint256 forfeited = earned(msg.sender);
         uint256 effective = effectiveBalanceOf[msg.sender];
 
-        // Zero out user state (CEI). AUDIT FIX D-LPF-L1: removed redundant
-        // `userRewardPerTokenPaid[msg.sender] = rewardPerTokenStored` — the
-        // updateReward(msg.sender) modifier already wrote that exact value.
+        // AUDIT FIX FRESH-2026: F-28-2 — inline minimal state sync (no external
+        // calls). Anchor reward accumulator under the CURRENT totalEffectiveSupply
+        // BEFORE shrinking it; otherwise the next claimer's per-second slice is
+        // computed over the smaller denominator for the pre-emergency-withdraw
+        // window, retroactively over-crediting them at this user's expense.
+        // Empty-period observability event preserved for symmetry with
+        // `updateReward`.
+        if (totalEffectiveSupply == 0 && lastUpdateTime < lastTimeRewardApplicable()) {
+            uint256 forfeit = (lastTimeRewardApplicable() - lastUpdateTime) * rewardRate;
+            if (forfeit > 0) emit RewardsForfeitedDuringEmptyPeriod(forfeit);
+        }
+        rewardPerTokenStored = rewardPerToken();
+        lastUpdateTime = lastTimeRewardApplicable();
+
+        // AUDIT FIX FRESH-2026: F-28-2 — compute forfeited reward INLINE without
+        // calling earned() first (earned() reads the not-yet-anchored userPaid).
+        // Use the just-written rewardPerTokenStored against the user's stale
+        // userRewardPerTokenPaid + their effective balance. This matches the
+        // value `earned()` would have returned, but does it explicitly so the
+        // dependency chain is auditable.
+        uint256 forfeited = (
+            effective * (rewardPerTokenStored - userRewardPerTokenPaid[msg.sender]) / 1e18
+        ) + rewards[msg.sender];
+
+        // Anchor userRewardPerTokenPaid so any latent re-entry path can't
+        // double-count this user's slice (defence-in-depth; user state is
+        // about to be zeroed anyway).
+        userRewardPerTokenPaid[msg.sender] = rewardPerTokenStored;
+
+        // Zero out user state (CEI).
         totalRawSupply -= amount;
         totalEffectiveSupply -= effective;
         rawBalanceOf[msg.sender] = 0;
@@ -460,6 +551,11 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     function notifyRewardAmount(uint256 amount, uint256 duration) external onlyOwner nonReentrant updateReward(address(0)) {
         if (amount < MIN_NOTIFY_AMOUNT) revert NotifyAmountTooSmall();
         if (duration < MIN_REWARDS_DURATION || duration > MAX_REWARDS_DURATION) revert DurationOutOfRange();
+        // AUDIT FIX FRESH-2026: F-93-2 — cooldown gate against same-block / same-mempool
+        // sandwich. Skip the gate on the first-ever call (lastNotifyTime == 0).
+        if (lastNotifyTime != 0 && block.timestamp < lastNotifyTime + NOTIFY_COOLDOWN) {
+            revert NotifyCooldownActive();
+        }
         // AUDIT FIX M-3 (LP-Farming dead timelock): require the per-call duration
         // to match the timelocked `rewardsDuration`. Pre-fix this function
         // unconditionally OVERWROTE rewardsDuration on every call, making the
@@ -477,11 +573,22 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
         rewardToken.safeTransferFrom(msg.sender, address(this), amount);
         uint256 actualReward = rewardToken.balanceOf(address(this)) - balanceBefore;
 
+        // AUDIT FIX FRESH-2026: F-61-1 — capture the integer-division residue from
+        // `rewardRate = N / duration` into the existing `forfeitedRewards` bucket
+        // so the up-to-(duration-1) wei stranded per cycle is reclaimable by the
+        // owner via reclaimForfeitedRewards (rather than silting as unrecoverable
+        // dust — recoverERC20 blocks the reward token).
+        uint256 budget;
         if (block.timestamp >= periodFinish) {
-            rewardRate = actualReward / duration;
+            budget = actualReward;
         } else {
             uint256 leftover = (periodFinish - block.timestamp) * rewardRate;
-            rewardRate = (leftover + actualReward) / duration;
+            budget = leftover + actualReward;
+        }
+        rewardRate = budget / duration;
+        uint256 residue = budget - (rewardRate * duration);
+        if (residue > 0) {
+            forfeitedRewards += residue;
         }
 
         if (rewardRate > MAX_REWARD_RATE) revert RewardRateExceedsCap();
@@ -491,6 +598,7 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
         rewardsDuration = duration;
         lastUpdateTime = block.timestamp;
         periodFinish = block.timestamp + duration;
+        lastNotifyTime = block.timestamp; // AUDIT FIX FRESH-2026: F-93-2
         totalRewardsFunded += actualReward;
         emit RewardAdded(actualReward, duration);
     }

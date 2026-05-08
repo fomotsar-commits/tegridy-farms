@@ -23,6 +23,31 @@ abstract contract OwnableNoRenounce is Ownable2Step {
     ///      (typed selectors), so off-chain alerts and Tenderly filters can subscribe by
     ///      4-byte selector instead of fragile string parsing.
     error RenounceDisabled();
+    /// @dev AUDIT FIX FRESH-2026: F-40-ONR-1 — typed error for the
+    ///      pending-transfer expiry path. After `OWNERSHIP_TRANSFER_EXPIRY`
+    ///      (14 days) elapses without `acceptOwnership`, the pending slot
+    ///      auto-clears and any acceptance attempt reverts with this error.
+    error OwnershipTransferExpired();
+    /// @dev AUDIT FIX FRESH-2026: F-40-ONR-1 — caller of
+    ///      `cancelOwnershipTransfer` must be the current owner.
+    error NoPendingOwnershipTransfer();
+
+    /// @notice AUDIT FIX FRESH-2026: F-40-ONR-1 — emitted when the owner
+    ///         cancels a pending ownership transfer before acceptance.
+    event OwnershipTransferCancelled(address indexed previousPendingOwner, string reason);
+
+    /// @notice AUDIT FIX FRESH-2026: F-40-ONR-1 — pending-transfer expiry
+    ///         window. After this period elapses without acceptance, the
+    ///         pendingOwner slot is treated as auto-cleared. 14 days
+    ///         matches the Compound Timelock GRACE_PERIOD pattern.
+    uint256 public constant OWNERSHIP_TRANSFER_EXPIRY = 14 days;
+
+    /// @notice AUDIT FIX FRESH-2026: F-40-ONR-1 — wall-clock at which the
+    ///         current pending ownership transfer expires. Zero when no
+    ///         pending transfer exists. Set on every successful
+    ///         `transferOwnership(newOwner)` call AND cleared on
+    ///         `acceptOwnership` / `cancelOwnershipTransfer`.
+    uint256 public ownershipTransferExpiresAt;
 
     /// @dev AUDIT FIX: DEEP-LIB-M1 — opt-in flag (returned by the virtual
     ///      hook below). Children that need contract-only ownership
@@ -99,6 +124,78 @@ abstract contract OwnableNoRenounce is Ownable2Step {
             uint256 codeLen = newOwner.code.length;
             if (codeLen == 0 || codeLen == 23) revert OwnerNotContract(newOwner);
         }
+        // AUDIT FIX FRESH-2026: F-40-ONR-1 — clear the pending-transfer
+        // expiry slot whenever ownership is finalized (initial set during
+        // construction OR `acceptOwnership` flow). The slot's invariant is
+        // "non-zero iff a pending transfer is awaiting acceptance"; on
+        // successful transition we collapse to zero.
+        ownershipTransferExpiresAt = 0;
         super._transferOwnership(newOwner);
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: F-40-ONR-1 — override
+    ///         `transferOwnership` to stamp a 14-day expiry on the pending
+    ///         slot. Without this, a malicious / misconfigured pendingOwner
+    ///         (e.g. a contract whose `acceptOwnership` flow reverts) could
+    ///         freeze the rotation surface indefinitely. After
+    ///         `OWNERSHIP_TRANSFER_EXPIRY` elapses the pending slot is
+    ///         treated as auto-cleared and `acceptOwnership` reverts with
+    ///         `OwnershipTransferExpired()` — at which point the current
+    ///         owner can `transferOwnership` to a different recipient
+    ///         OR call `cancelOwnershipTransfer(reason)` to clear early.
+    /// @dev    Calls super to preserve OZ Ownable2Step semantics
+    ///         (`_pendingOwner = newOwner`, `OwnershipTransferStarted`).
+    function transferOwnership(address newOwner) public virtual override onlyOwner {
+        super.transferOwnership(newOwner);
+        ownershipTransferExpiresAt = block.timestamp + OWNERSHIP_TRANSFER_EXPIRY;
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: F-40-ONR-1 — override
+    ///         `acceptOwnership` so the expiry guard fires before OZ's
+    ///         pending-owner check.
+    /// @dev    The current owner can pre-empt the expiry by calling
+    ///         `cancelOwnershipTransfer(reason)` first; pendingOwner can
+    ///         simply re-trigger by asking the owner to `transferOwnership`
+    ///         again with a fresh window.
+    function acceptOwnership() public virtual override {
+        // Mirror OZ Ownable2Step.acceptOwnership() msg.sender == pendingOwner
+        // gate ordering: expiry comes first so an expired-but-still-set
+        // pending slot reverts with the typed `OwnershipTransferExpired`
+        // (more diagnostic) rather than `OwnableUnauthorizedAccount`.
+        uint256 expiry = ownershipTransferExpiresAt;
+        if (expiry != 0 && block.timestamp > expiry) {
+            revert OwnershipTransferExpired();
+        }
+        super.acceptOwnership();
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: F-40-ONR-1 — current owner can
+    ///         cancel a pending ownership transfer before the
+    ///         pendingOwner accepts. Closes the bricked-rotation primitive
+    ///         where a malicious / misconfigured pendingOwner could freeze
+    ///         the rotation surface (OZ Ownable2Step has no native cancel
+    ///         path — relies on the owner re-calling `transferOwnership` to
+    ///         a different recipient, which may not be possible if the
+    ///         pendingOwner is in a state where their reverts are
+    ///         consuming gas before the new transfer lands).
+    /// @param  reason Free-form string for off-chain audit trail; emitted
+    ///                in the `OwnershipTransferCancelled` event.
+    function cancelOwnershipTransfer(string calldata reason) external virtual onlyOwner {
+        address prev = pendingOwner();
+        if (prev == address(0)) revert NoPendingOwnershipTransfer();
+        // Use OZ's internal API to clear the pending slot. Ownable2Step's
+        // `_transferOwnership` deletes `_pendingOwner` unconditionally at
+        // its head, so the safe way to "cancel" without rotating to a new
+        // owner is to call `_transferOwnership(owner())` — same owner,
+        // pendingOwner cleared as a side-effect. The `OwnershipTransferred`
+        // event will fire with identical previous/new params; the
+        // `OwnershipTransferCancelled` event below carries the diagnostic
+        // breadcrumb (the cancelled pendingOwner address + reason).
+        _transferOwnership(owner());
+        // Note: `_transferOwnership` zeros `ownershipTransferExpiresAt` via
+        // the override above, so the expiry slot is implicitly cleared.
+        // We emit the cancellation event AFTER the clear for canonical
+        // ordering (state → event).
+        emit OwnershipTransferCancelled(prev, reason);
     }
 }

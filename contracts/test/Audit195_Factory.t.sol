@@ -90,7 +90,7 @@ contract Audit195Factory is Test {
     event FactoryInitialized(address indexed feeToSetter, address indexed feeTo);
 
     function setUp() public {
-        factory = new TegridyFactory(admin, treasury);
+        factory = new TegridyFactory(admin, treasury, admin); // F-30-9 initial guardian
         tokenA = new MockToken195("Token A", "TKA");
         tokenB = new MockToken195("Token B", "TKB");
         tokenC = new MockToken195("Token C", "TKC");
@@ -102,18 +102,24 @@ contract Audit195Factory is Test {
 
     function test_F01_constructor_rejects_zero_setter() public {
         vm.expectRevert("ZERO_SETTER");
-        new TegridyFactory(address(0), treasury);
+        new TegridyFactory(address(0), treasury, admin);
     }
 
     function test_F01_constructor_rejects_zero_feeTo() public {
         vm.expectRevert("ZERO_FEE_TO");
-        new TegridyFactory(admin, address(0));
+        new TegridyFactory(admin, address(0), admin);
+    }
+
+    /// @notice AUDIT FIX F-30-9 (LOW): constructor must reject zero guardian.
+    function test_F01_constructor_rejects_zero_guardian() public {
+        vm.expectRevert("ZERO_GUARDIAN");
+        new TegridyFactory(admin, treasury, address(0));
     }
 
     function test_F01_constructor_emits_event() public {
         vm.expectEmit(true, true, false, false);
         emit FactoryInitialized(admin, treasury);
-        new TegridyFactory(admin, treasury);
+        new TegridyFactory(admin, treasury, admin);
     }
 
     // ============================================================
@@ -566,7 +572,7 @@ contract Audit195Factory is Test {
     function test_F15_proposeFeeToSetter_emits_event() public {
         vm.prank(admin);
         vm.expectEmit(true, true, false, true);
-        emit FeeToSetterProposed(admin, newSetter, block.timestamp + 48 hours);
+        emit FeeToSetterProposed(admin, newSetter, block.timestamp + 24 hours); // F-30-2 / M-22 setter delay reduced to 24h
         factory.proposeFeeToSetter(newSetter);
     }
 
@@ -679,15 +685,15 @@ contract Audit195Factory is Test {
     }
 
     // ============================================================
-    // F-20: proposePairDisabled accepts arbitrary addresses [Low]
-    // No check that the pair was actually created by this factory.
+    // F-20: AUDIT FIX F-30-1 / M-21 - proposePairDisabled rejects
+    //       non-factory pairs. Pre-fix it accepted any address.
     // ============================================================
 
-    function test_F20_proposePairDisabled_arbitrary_address() public {
+    function test_F20_proposePairDisabled_rejects_arbitrary_address() public {
         address fakeAddr = makeAddr("fakeNotAPair");
         vm.prank(admin);
+        vm.expectRevert(TegridyFactory.NotAPair.selector);
         factory.proposePairDisabled(fakeAddr, true);
-        assertEq(factory.pendingPairDisableTime(fakeAddr), block.timestamp + 48 hours);
     }
 
     function test_F20_proposePairDisabled_rejects_zero() public {

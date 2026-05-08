@@ -10,9 +10,9 @@ import "../src/TegridyFactory.sol";
 // Import SwapFeeRouter but avoid IWETH collision with TegridyRouter's IWETH
 import {SwapFeeRouter} from "../src/SwapFeeRouter.sol";
 
-// ═══════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // Mock Tokens
-// ═══════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 contract MockToken is ERC20 {
     uint8 private _dec;
@@ -109,7 +109,7 @@ contract ReentrancyAttacker {
         pair.mint(address(this));
     }
 
-    // Token receive callback would trigger reentrancy — but nonReentrant blocks it
+    // Token receive callback would trigger reentrancy â€” but nonReentrant blocks it
     receive() external payable {}
 }
 
@@ -153,9 +153,9 @@ contract SandwichBot {
     receive() external payable {}
 }
 
-// ═══════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // RED TEAM TEST SUITE
-// ═══════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 contract RedTeamAMM is Test {
     TegridyFactory public factory;
@@ -176,7 +176,7 @@ contract RedTeamAMM is Test {
         deployer = address(this);
 
         weth = new WETH9();
-        factory = new TegridyFactory(deployer, deployer);
+        factory = new TegridyFactory(deployer, deployer, deployer); // F-30-9 initial guardian
 
         // Set feeTo via timelock
         factory.proposeFeeToChange(feeTo);
@@ -214,11 +214,11 @@ contract RedTeamAMM is Test {
         vm.deal(alice, 100 ether);
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 1: Drain LP funds via swap manipulation
     //           Try to extract more value than deposited through
     //           repeated swaps or manipulated reserves
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK1_drainLPViaSwapManipulation() public {
         // Strategy: Attacker tries many small swaps to accumulate rounding errors
@@ -268,10 +268,10 @@ contract RedTeamAMM is Test {
         // DEFENDED: Each round-trip costs ~0.6% in fees
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 2: Fee-on-transfer token exploitation
     //           Create a pair with FoT token and try to drain it
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK2_feeOnTransferDrainViaRouter() public {
         // Create a fee-on-transfer token (5% fee)
@@ -315,7 +315,7 @@ contract RedTeamAMM is Test {
 
         uint256 correctOut = _getAmountOut(pairActualReceived, rIn, rOut);
 
-        // Try to claim more than correctOut — should revert with "K"
+        // Try to claim more than correctOut â€” should revert with "K"
         bool success;
         if (address(fotToken) == fotPair.token0()) {
             // FoT is token0, want token1 out
@@ -338,10 +338,10 @@ contract RedTeamAMM is Test {
         // DEFENDED: K-invariant check catches the mismatch
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 2b: FoT via the FoT-supporting router swap
     //            Test that _swapSupportingFeeOnTransferTokens works correctly
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK2b_fotRouterSwapAccounting() public {
         FeeOnTransferToken fotToken = new FeeOnTransferToken("FoT", "FOT", 5);
@@ -370,7 +370,7 @@ contract RedTeamAMM is Test {
         // Use the FoT-supporting swap function
         router.swapExactTokensForTokensSupportingFeeOnTransferTokens(
             10 ether,
-            0, // no min — just testing accounting
+            0, // no min â€” just testing accounting
             path,
             attacker,
             block.timestamp + 30 minutes
@@ -388,10 +388,10 @@ contract RedTeamAMM is Test {
         // DEFENDED: Router correctly measures actual balance received by pair
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 3: First depositor inflation attack
     //           Try to steal from the second depositor
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK3_firstDepositorInflation() public {
         // Create a fresh pair
@@ -489,10 +489,10 @@ contract RedTeamAMM is Test {
         fp.mint(msg.sender);
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 4: K-invariant decrease
     //           Try to make K go down after a swap
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK4_kInvariantDecrease() public {
         (uint112 r0_before, uint112 r1_before,) = pairAB.getReserves();
@@ -527,7 +527,7 @@ contract RedTeamAMM is Test {
         // Try to claim a disproportionately large output
         bool reverted = false;
         try pairAB.swap(1 ether, 0, attacker, "") {
-            // If this succeeds, K decreased — CRITICAL BUG
+            // If this succeeds, K decreased â€” CRITICAL BUG
         } catch {
             reverted = true;
         }
@@ -538,10 +538,10 @@ contract RedTeamAMM is Test {
         // DEFENDED: K-invariant check prevents this
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 5: Bypass disabled pairs
     //           Try to swap through a disabled pair
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK5_bypassDisabledPairs() public {
         // Disable the pair via timelock
@@ -551,7 +551,7 @@ contract RedTeamAMM is Test {
 
         assertTrue(factory.disabledPairs(address(pairAB)), "Pair should be disabled");
 
-        // Try to swap through router — should revert
+        // Try to swap through router â€” should revert
         vm.startPrank(attacker);
         tokenA.approve(address(router), type(uint256).max);
 
@@ -571,7 +571,7 @@ contract RedTeamAMM is Test {
         assertTrue(reverted, "CRITICAL: Swap succeeded on disabled pair via router!");
 
         // But can we bypass by calling the pair directly?
-        // The pair itself has no disabled check — only the router does
+        // The pair itself has no disabled check â€” only the router does
         tokenA.transfer(address(pairAB), 1 ether);
         (uint112 r0, uint112 r1,) = pairAB.getReserves();
         uint256 amountOut = _getAmountOut(1 ether, r0, r1);
@@ -594,12 +594,12 @@ contract RedTeamAMM is Test {
         // RESULT: The pair itself does NOT check if it's disabled.
         // Only the router's _pairFor() checks factory.disabledPairs().
         // Direct interaction with the pair bypasses this protection.
-        // FINDING: MEDIUM — disabled pair bypass via direct pair interaction
+        // FINDING: MEDIUM â€” disabled pair bypass via direct pair interaction
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 6: Steal funds via skim() or sync()
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK6a_skimStealsExcessTokens() public {
         // Alice sends tokens directly to the pair (not via router)
@@ -632,7 +632,7 @@ contract RedTeamAMM is Test {
 
         assertTrue(stolenA == 5 ether && stolenB == 5 ether,
             "skim() should return excess above reserves to caller");
-        // FINDING: MEDIUM (by design) — permissionless skim() steals direct deposits
+        // FINDING: MEDIUM (by design) â€” permissionless skim() steals direct deposits
         // This is documented but still exploitable against naive users
     }
 
@@ -656,15 +656,15 @@ contract RedTeamAMM is Test {
 
         // sync() updated reserves to include the donation
         assertTrue(r0_after > r0_before, "sync should update reserves");
-        // This means the price is now skewed — next swapper gets a bad deal
+        // This means the price is now skewed â€” next swapper gets a bad deal
         // But since TWAP is not implemented, this only affects the spot price
         // DEFENDED: No TWAP means sync-based oracle manipulation is not applicable
-        // NOTE: The donation is irreversible — the donator loses their tokens
+        // NOTE: The donation is irreversible â€” the donator loses their tokens
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 7: SwapFeeRouter fee calculation overflow/underflow
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK7_swapFeeRouterOverflow() public {
         // Deploy SwapFeeRouter pointing to our TegridyRouter as the underlying
@@ -731,7 +731,7 @@ contract RedTeamAMM is Test {
         path[0] = address(weth);
         path[1] = address(tokenA);
 
-        // Try a 9999 wei swap — fee should be 0 but clamped to 1
+        // Try a 9999 wei swap â€” fee should be 0 but clamped to 1
         bool reverted = false;
         try feeRouter.swapExactETHForTokens{value: 9999}(
             0, path, attacker, block.timestamp + 30 minutes, 100
@@ -749,9 +749,9 @@ contract RedTeamAMM is Test {
         // DEFENDED: Minimum fee of 1 wei prevents zero-fee grinding
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 8: Duplicate/cyclic path exploitation
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK8_cyclicPathExploit() public {
         // Create A -> B -> C pairs
@@ -813,13 +813,13 @@ contract RedTeamAMM is Test {
         // Result logged above
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 9: Sandwich attack through the router
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK9_sandwichAttack() public {
         // Sandwich attack: Front-run a large swap to profit from price impact
-        // This is an MEV exploit, not a smart contract bug — but we test if
+        // This is an MEV exploit, not a smart contract bug â€” but we test if
         // the slippage protection works.
 
         // Attacker sees alice's pending swap: 10 ether A -> B
@@ -853,13 +853,13 @@ contract RedTeamAMM is Test {
         vm.startPrank(alice);
         tokenA.approve(address(router), type(uint256).max);
 
-        // Alice uses amountOutMin = 0 (no slippage protection — easy target)
+        // Alice uses amountOutMin = 0 (no slippage protection â€” easy target)
         router.swapExactTokensForTokens(
             aliceSwapAmount, 0, pathAtoB, alice, block.timestamp + 30 minutes
         );
         vm.stopPrank();
 
-        // Step 3: Attacker back-runs — sells all B back to A
+        // Step 3: Attacker back-runs â€” sells all B back to A
         vm.startPrank(attacker);
         uint256 attackerABefore = tokenA.balanceOf(attacker);
 
@@ -886,12 +886,12 @@ contract RedTeamAMM is Test {
             emit log("Severity: INFORMATIONAL - This is inherent to AMMs, not a contract bug");
             emit log("Mitigation: Users must set proper amountOutMin");
         }
-        // DEFENDED (by design) — amountOutMin is the protection
+        // DEFENDED (by design) â€” amountOutMin is the protection
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 10: WETH wrapping/unwrapping exploit
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK10_wethWrappingExploit() public {
         // Create WETH/tokenA pair
@@ -905,7 +905,7 @@ contract RedTeamAMM is Test {
 
         // Test: Can attacker profit from ETH refund mechanism?
         // In swapETHForExactTokens, excess ETH is refunded.
-        // If refund fails, it wraps to WETH — can this be exploited?
+        // If refund fails, it wraps to WETH â€” can this be exploited?
 
         vm.deal(attacker, 10 ether);
         vm.startPrank(attacker);
@@ -994,9 +994,9 @@ contract RedTeamAMM is Test {
         // DEFENDED: WETH fallback correctly handles contracts that can't receive ETH
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 11: Reentrancy attack
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK11_reentrancyOnPair() public {
         // The pair uses nonReentrant on mint, burn, swap, skim, sync
@@ -1004,7 +1004,7 @@ contract RedTeamAMM is Test {
 
         // Since flash swaps are disabled (data.length == 0 required),
         // the only way to get a callback is through a token with transfer hooks.
-        // But we can test by calling swap again after a swap — should fail.
+        // But we can test by calling swap again after a swap â€” should fail.
 
         vm.startPrank(attacker);
 
@@ -1014,7 +1014,7 @@ contract RedTeamAMM is Test {
         uint256 out = _getAmountOut(1 ether, r0, r1);
         pairAB.swap(0, out, attacker, "");
 
-        // Now try to call swap again in the same tx — this is not reentrancy
+        // Now try to call swap again in the same tx â€” this is not reentrancy
         // but tests that the lock is released after the first swap
         tokenA.transfer(address(pairAB), 1 ether);
         (r0, r1,) = pairAB.getReserves();
@@ -1049,18 +1049,18 @@ contract RedTeamAMM is Test {
         // DEFENDED: Flash swaps explicitly disabled
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 12: Factory create2 address collision
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK12_create2AddressCollision() public {
         // The factory uses create2 with salt = keccak256(token0, token1)
         // Can we create a pair that collides with an existing one?
 
-        // Attempt to create the same pair again — should revert
+        // Attempt to create the same pair again â€” should revert
         bool reverted = false;
         try factory.createPair(address(tokenA), address(tokenB)) {
-            // Should not succeed — pair already exists
+            // Should not succeed â€” pair already exists
         } catch Error(string memory reason) {
             reverted = true;
             assertEq(reason, "PAIR_EXISTS");
@@ -1071,7 +1071,7 @@ contract RedTeamAMM is Test {
         // Can we create with reversed order? The factory sorts them
         reverted = false;
         try factory.createPair(address(tokenB), address(tokenA)) {
-            // Should also revert — same pair
+            // Should also revert â€” same pair
         } catch Error(string memory reason) {
             reverted = true;
             assertEq(reason, "PAIR_EXISTS");
@@ -1081,9 +1081,9 @@ contract RedTeamAMM is Test {
         // DEFENDED: PAIR_EXISTS check prevents duplicates
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 13 (BONUS): Swap to token0 or token1 address
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK13_swapToTokenAddress() public {
         vm.startPrank(attacker);
@@ -1115,9 +1115,9 @@ contract RedTeamAMM is Test {
         // DEFENDED: "INVALID_TO" check prevents this
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 14 (BONUS): Mint LP tokens to the pair itself
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK14_mintToPair() public {
         // If you mint LP tokens to the pair's own address, the next burn()
@@ -1171,11 +1171,11 @@ contract RedTeamAMM is Test {
         // RESULT: Direct mint to pair IS possible, but attacker donates their tokens
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 15 (BONUS): SwapFeeRouter adjustedMin calculation
     //           In swapExactTokensForETH, check if adjustedMin can be
     //           manipulated to bypass slippage protection
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK15_adjustedMinOverflow() public {
         // The adjustedMin formula:
@@ -1236,10 +1236,10 @@ contract RedTeamAMM is Test {
         // DEFENDED: Overflow case handled by falling back to raw amountOutMin
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 16 (BONUS): Direct pair interaction bypasses router checks
     //           The pair has fewer validations than the router
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK16_directPairInteraction() public {
         // The router adds several safety checks:
@@ -1260,7 +1260,7 @@ contract RedTeamAMM is Test {
         (uint112 r0, uint112 r1,) = pairAB.getReserves();
         uint256 amountOut = _getAmountOut(amountIn, r0, r1);
 
-        // This succeeds — no deadline, no slippage check
+        // This succeeds â€” no deadline, no slippage check
         uint256 balBefore = tokenB.balanceOf(attacker);
         pairAB.swap(0, amountOut, attacker, "");
         uint256 balAfter = tokenB.balanceOf(attacker);
@@ -1273,9 +1273,9 @@ contract RedTeamAMM is Test {
         vm.stopPrank();
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 17 (BONUS): Burn with zero liquidity edge case
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK17_burnZeroLiquidity() public {
         // Try to burn when pair holds 0 LP of the caller
@@ -1293,9 +1293,9 @@ contract RedTeamAMM is Test {
         // DEFENDED: "INSUFFICIENT_LIQUIDITY_BURNED" check
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 18 (BONUS): Swap with both outputs = 0
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK18_swapZeroOutput() public {
         vm.startPrank(attacker);
@@ -1314,9 +1314,9 @@ contract RedTeamAMM is Test {
         // DEFENDED
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 19 (BONUS): Drain entire reserve
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK19_drainEntireReserve() public {
         (uint112 r0, uint112 r1,) = pairAB.getReserves();
@@ -1355,9 +1355,9 @@ contract RedTeamAMM is Test {
         // DEFENDED: K-invariant and amount < reserve check protect against full drain
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ATTACK 20 (BONUS): Router deadline bypass
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK20_routerDeadlineLimits() public {
         vm.startPrank(attacker);
@@ -1383,9 +1383,9 @@ contract RedTeamAMM is Test {
         // DEFENDED: MAX_DEADLINE = 30 minutes enforced
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // Helpers
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function _getAmountOut(uint256 amountIn, uint256 reserveIn, uint256 reserveOut) internal pure returns (uint256) {
         uint256 amountInWithFee = amountIn * 997;

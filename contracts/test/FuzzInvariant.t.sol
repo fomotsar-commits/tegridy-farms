@@ -9,7 +9,7 @@ import "../src/TegridyFactory.sol";
 import "../src/TegridyStaking.sol";
 import "../src/RevenueDistributor.sol";
 
-// ─── Mock Contracts ──────────────────────────────────────────────────────
+// â”€â”€â”€ Mock Contracts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 contract MockERC20Fuzz is ERC20 {
     constructor(string memory name, string memory symbol) ERC20(name, symbol) {
@@ -81,9 +81,9 @@ contract MockVotingEscrow {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // SECTION 1: TegridyPair Fuzz Tests
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 contract TegridyPairFuzzTest is Test {
     TegridyFactory public factory;
@@ -96,7 +96,7 @@ contract TegridyPairFuzzTest is Test {
     uint256 constant INIT_LIQ_1 = 100_000 ether;
 
     function setUp() public {
-        factory = new TegridyFactory(address(this), address(this));
+        factory = new TegridyFactory(address(this), address(this), address(this)); // F-30-9 initial guardian
         factory.proposeFeeToChange(makeAddr("feeTo"));
         vm.warp(block.timestamp + 48 hours);
         factory.executeFeeToChange();
@@ -121,7 +121,7 @@ contract TegridyPairFuzzTest is Test {
         tokenB.transfer(alice, 1_000_000_000 ether);
     }
 
-    // ─── Fuzz: swap maintains K ──────────────────────────────────────
+    // â”€â”€â”€ Fuzz: swap maintains K â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function testFuzz_swapMaintainsK(uint256 amount0In) public {
         (uint112 r0Before, uint112 r1Before,) = pair.getReserves();
@@ -149,13 +149,13 @@ contract TegridyPairFuzzTest is Test {
         assertGe(kAfter, kBefore, "K decreased after swap");
     }
 
-    // ─── Fuzz: mint/burn symmetry ────────────────────────────────────
+    // â”€â”€â”€ Fuzz: mint/burn symmetry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function testFuzz_mintBurnSymmetry(uint256 amount0, uint256 amount1) public {
         // Pool is already initialized, so this is a subsequent deposit
         (uint112 r0, uint112 r1,) = pair.getReserves();
 
-        // Bound to reasonable range — at least some tokens, not overflow
+        // Bound to reasonable range â€” at least some tokens, not overflow
         amount0 = bound(amount0, 1 ether, 1_000_000 ether);
         amount1 = bound(amount1, 1 ether, 1_000_000 ether);
 
@@ -180,7 +180,7 @@ contract TegridyPairFuzzTest is Test {
 
         // The key AMM property: the LP share you burn returns tokens proportional
         // to your share of the pool. When deposit ratio != pool ratio, the
-        // "excess" token is donated — so at least one token should be returned
+        // "excess" token is donated â€” so at least one token should be returned
         // close to input, and the other may be less (capped by the ratio).
         // We verify: out0 * out1 > 0 (non-trivial return) and each output > 0.
         assertGt(out0, 0, "token0 output is zero");
@@ -197,7 +197,7 @@ contract TegridyPairFuzzTest is Test {
         assertGe(out1 + 1, expectedOut1, "token1 return below expected LP share");
     }
 
-    // ─── Fuzz: first deposit minimum liquidity ───────────────────────
+    // â”€â”€â”€ Fuzz: first deposit minimum liquidity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function testFuzz_firstDepositMinLiquidity(uint256 amount0, uint256 amount1) public {
         // Deploy a fresh pair
@@ -224,9 +224,9 @@ contract TegridyPairFuzzTest is Test {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // SECTION 2: TegridyPair Invariant Tests (Handler + Invariant Contract)
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 contract PairHandler is Test {
     TegridyPair public pair;
@@ -297,7 +297,7 @@ contract TegridyPairInvariantTest is Test {
     PairHandler public handler;
 
     function setUp() public {
-        factory = new TegridyFactory(address(this), address(this));
+        factory = new TegridyFactory(address(this), address(this), address(this)); // F-30-9 initial guardian
         factory.proposeFeeToChange(makeAddr("feeTo"));
         vm.warp(block.timestamp + 48 hours);
         factory.executeFeeToChange();
@@ -351,9 +351,9 @@ contract TegridyPairInvariantTest is Test {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // SECTION 3: TegridyStaking Fuzz Tests
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 contract TegridyStakingFuzzTest is Test {
     TegridyStaking public staking;
@@ -377,7 +377,7 @@ contract TegridyStakingFuzzTest is Test {
         token.approve(address(staking), type(uint256).max);
     }
 
-    // ─── Fuzz: stake then withdraw preserves balance ─────────────────
+    // â”€â”€â”€ Fuzz: stake then withdraw preserves balance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function testFuzz_stakeWithdrawPreservesBalance(uint256 amount, uint256 lockDays) public {
         // MIN_STAKE = 100e18, cap to avoid overflow
@@ -411,7 +411,7 @@ contract TegridyStakingFuzzTest is Test {
         assertEq(balAfter - balBefore >= 0, true, "Lost tokens");
     }
 
-    // ─── Fuzz: reward calculation is non-negative ────────────────────
+    // â”€â”€â”€ Fuzz: reward calculation is non-negative â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function testFuzz_rewardCalculationNonNegative(uint256 amount, uint256 time) public {
         amount = bound(amount, 100 ether, 10_000_000 ether);
@@ -434,7 +434,7 @@ contract TegridyStakingFuzzTest is Test {
         }
     }
 
-    // ─── Fuzz: early withdrawal penalty is exactly 25% ──────────────
+    // â”€â”€â”€ Fuzz: early withdrawal penalty is exactly 25% â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function testFuzz_earlyWithdrawPenalty(uint256 amount) public {
         amount = bound(amount, 100 ether, 10_000_000 ether);
@@ -458,7 +458,7 @@ contract TegridyStakingFuzzTest is Test {
         assertGe(received, expectedMinimum, "Received less than 75% on early withdraw");
     }
 
-    // ─── Fuzz: boost calculation within bounds ───────────────────────
+    // â”€â”€â”€ Fuzz: boost calculation within bounds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function testFuzz_boostCalculationBounds(uint256 duration) public pure {
         // Any duration maps to [MIN_BOOST_BPS, MAX_BOOST_BPS]
@@ -489,9 +489,9 @@ contract TegridyStakingFuzzTest is Test {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // SECTION 4: RevenueDistributor Fuzz Tests
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 contract MockWETHFuzz {
     function deposit() external payable {}
@@ -516,7 +516,7 @@ contract RevenueDistributorFuzzTest is Test {
         distributor = new RevenueDistributor(address(votingEscrow), treasury, address(weth));
     }
 
-    // ─── Fuzz: distribute + claim accounting ─────────────────────────
+    // â”€â”€â”€ Fuzz: distribute + claim accounting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function testFuzz_distributeClaimAccounting(uint256 ethAmount, uint256 lockAmount) public {
         ethAmount = bound(ethAmount, 0.3 ether, 1000 ether);
@@ -549,13 +549,13 @@ contract RevenueDistributorFuzzTest is Test {
         assertEq(claimed, totalFunded, "Sole registrant did not receive full distribution");
     }
 
-    // ─── Fuzz: proportional distribution among multiple users ────────
+    // â”€â”€â”€ Fuzz: proportional distribution among multiple users â”€â”€â”€â”€â”€â”€â”€â”€
 
     function testFuzz_proportionalDistribution(uint256 ethAmount, uint256 lockA, uint256 lockB) public {
         ethAmount = bound(ethAmount, 0.3 ether, 100 ether);
         // AUDIT FIX PASS5-REV-H1: distribute() now requires
         // totalBoostedStake >= MIN_DISTRIBUTE_STAKE (1000 ether). Each lock
-        // is bounded at 500 ether so the SUM is at least 1000 ether — exercises
+        // is bounded at 500 ether so the SUM is at least 1000 ether â€” exercises
         // the legitimate path while the new guard correctly rejects below-floor.
         lockA = bound(lockA, 500 ether, 5_000_000 ether);
         lockB = bound(lockB, 500 ether, 5_000_000 ether);
@@ -600,7 +600,7 @@ contract RevenueDistributorFuzzTest is Test {
         }
     }
 
-    // ─── Fuzz: nothing to claim when no epochs exist ─────────
+    // â”€â”€â”€ Fuzz: nothing to claim when no epochs exist â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function testFuzz_nothingToClaimWhenNoEpochs(uint256 lockAmount) public {
         lockAmount = bound(lockAmount, 1 ether, 1_000_000 ether);
@@ -609,7 +609,7 @@ contract RevenueDistributorFuzzTest is Test {
         uint256 lockEnd = block.timestamp + 365 days;
         votingEscrow.setLock(charlie, lockAmount, lockEnd);
 
-        // Charlie tries to claim with no epochs — should revert
+        // Charlie tries to claim with no epochs â€” should revert
         vm.prank(charlie);
         vm.expectRevert(RevenueDistributor.NothingToClaim.selector);
         distributor.claim();

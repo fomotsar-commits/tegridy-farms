@@ -8,7 +8,7 @@ import "../src/TegridyRouter.sol";
 import "../src/TegridyFactory.sol";
 import "../src/TegridyPair.sol";
 
-// ─── Mock Tokens ────────────────────────────────────────────────────
+// â”€â”€â”€ Mock Tokens â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 contract MockERC20_195 is ERC20 {
     constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {
@@ -105,7 +105,7 @@ contract NoReceiveContract {
     }
 }
 
-// ─── Tests ──────────────────────────────────────────────────────────
+// â”€â”€â”€ Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 contract Audit195RouterTest is Test {
     TegridyRouter public router;
@@ -125,7 +125,7 @@ contract Audit195RouterTest is Test {
         deployer = address(this);
 
         weth = new WETH9Mock_195();
-        factory = new TegridyFactory(deployer, deployer);
+        factory = new TegridyFactory(deployer, deployer, deployer); // F-30-9 initial guardian
         router = new TegridyRouter(address(factory), address(weth));
 
         tokenA = new MockERC20_195("Token A", "TKA");
@@ -140,7 +140,7 @@ contract Audit195RouterTest is Test {
         vm.deal(deployer, 1000 ether);
     }
 
-    // ─── Helpers ────────────────────────────────────────────────────
+    // â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function _createAndFundPair(address t0, address t1, uint256 amt0, uint256 amt1) internal returns (address pair) {
         pair = factory.createPair(t0, t1);
@@ -160,7 +160,7 @@ contract Audit195RouterTest is Test {
         TegridyPair(pair).mint(deployer);
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // FINDING 1 (LOW): Fee-on-transfer swap functions lack path
     //   length limit. getAmountsOut/getAmountsIn enforce <= 10 hops,
     //   but the SupportingFeeOnTransfer variants call
@@ -172,7 +172,7 @@ contract Audit195RouterTest is Test {
     //   quadratically. A 50-hop path means 1225 pair comparisons.
     //   Mitigated by gas limits, but inconsistent with normal swap
     //   functions.
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_Finding1_FeeOnTransferSwap_NoPathLengthLimit() public {
         // Demonstrate that swapExactTokensForTokensSupportingFeeOnTransferTokens
@@ -185,7 +185,7 @@ contract Audit195RouterTest is Test {
         address[] memory longPath = new address[](11);
         longPath[0] = address(tokenA);
         for (uint256 i = 1; i < 11; i++) {
-            // Alternate tokens — these pairs don't exist, but the point
+            // Alternate tokens â€” these pairs don't exist, but the point
             // is to demonstrate the missing length check.
             longPath[i] = i % 2 == 0 ? address(tokenA) : address(tokenB);
         }
@@ -207,13 +207,13 @@ contract Audit195RouterTest is Test {
         vm.stopPrank();
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // FINDING 2 (INFO): swapExactETHForTokens — msg.value is fully
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // FINDING 2 (INFO): swapExactETHForTokens â€” msg.value is fully
     //   consumed (amounts[0] == msg.value). No ETH can be "stuck",
     //   but unlike swapETHForExactTokens, there is no refund path.
     //   Users sending extra ETH get it all swapped.
     //   This is by-design but verify the invariant holds.
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_Finding2_swapExactETHForTokens_AllMsgValueConsumed() public {
         _createAndFundWETHPair(address(tokenA), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -230,7 +230,7 @@ contract Audit195RouterTest is Test {
         );
         vm.stopPrank();
 
-        // amounts[0] must equal msg.value — all ETH consumed
+        // amounts[0] must equal msg.value â€” all ETH consumed
         assertEq(amounts[0], 5 ether, "amounts[0] should equal msg.value");
         // Alice spent exactly 5 ETH
         assertEq(ethBefore - alice.balance, 5 ether, "All ETH consumed");
@@ -239,7 +239,7 @@ contract Audit195RouterTest is Test {
         assertEq(IERC20(address(weth)).balanceOf(address(router)), 0, "Router holds no WETH");
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // FINDING 3 (LOW): quote() rounds to zero for dust on
     //   imbalanced pools: amountA * reserveB < reserveA => 0.
     //   _calculateLiquidity uses quote(), so with amountBMin = 0,
@@ -247,7 +247,7 @@ contract Audit195RouterTest is Test {
     //   However, TegridyPair.mint() will revert if amount0 or
     //   amount1 is 0 (INSUFFICIENT_LIQUIDITY_MINTED), so this is
     //   safely caught at the pair level.
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_Finding3_QuoteRoundsToZero() public pure {
         // Small amountA with large reserveA and small reserveB
@@ -261,12 +261,12 @@ contract Audit195RouterTest is Test {
         return (amountA * reserveB) / reserveA;
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // FINDING 4 (LOW): addLiquidityETH WETH fallback for contracts
     //   that cannot receive ETH. Excess ETH refund falls back to
     //   WETH transfer. The user contract gets WETH instead of ETH.
     //   Verify the fallback works correctly.
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_Finding4_addLiquidityETH_WETHFallback_NoReceiveContract() public {
         _createAndFundWETHPair(address(tokenA), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -296,11 +296,11 @@ contract Audit195RouterTest is Test {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // FINDING 5 (LOW): swapExactTokensForETH — WETH fallback for
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // FINDING 5 (LOW): swapExactTokensForETH â€” WETH fallback for
     //   contracts without receive(). Verify the to address gets
     //   WETH instead of ETH.
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_Finding5_swapTokensForETH_WETHFallback_NoReceiveContract() public {
         _createAndFundWETHPair(address(tokenA), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -326,10 +326,10 @@ contract Audit195RouterTest is Test {
         assertEq(address(noRcv).balance, 0, "No ETH balance (cannot receive)");
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // FINDING 6 (LOW): removeLiquidityETH — WETH fallback for
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // FINDING 6 (LOW): removeLiquidityETH â€” WETH fallback for
     //   contracts without receive(). Verify correctness.
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_Finding6_removeLiquidityETH_WETHFallback_NoReceiveContract() public {
         address pair = _createAndFundWETHPair(address(tokenA), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -357,11 +357,11 @@ contract Audit195RouterTest is Test {
         assertEq(address(noRcv).balance, 0, "No ETH balance");
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // FINDING 7 (INFO): Deadline enforcement — ensure modifier
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // FINDING 7 (INFO): Deadline enforcement â€” ensure modifier
     //   rejects deadlines more than 2 hours in the future.
     //   This is a DoS/griefing protection. Verify it works.
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_Finding7_DeadlineTooFar_Reverts() public {
         _createAndFundPair(address(tokenA), address(tokenB), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -384,7 +384,7 @@ contract Audit195RouterTest is Test {
         vm.stopPrank();
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // FINDING 8 (MEDIUM): _getAmountOut overflow for extreme inputs.
     //   amountIn * 997 can overflow if amountIn > type(uint256).max / 997.
     //   However, reserves are uint112, so reserveOut * amountInWithFee
@@ -393,7 +393,7 @@ contract Audit195RouterTest is Test {
     //   In practice, reserves are capped at uint112, so actual
     //   amountIn that matters is bounded. Verify that Solidity 0.8
     //   safely reverts on overflow.
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_Finding8_GetAmountOut_OverflowReverts() public {
         _createAndFundPair(address(tokenA), address(tokenB), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -410,11 +410,11 @@ contract Audit195RouterTest is Test {
         router.getAmountsOut(hugeAmount, path);
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // FINDING 9 (INFO): Cyclic path rejection. Verify that _swap
     //   and _swapSupportingFeeOnTransferTokens both reject cyclic
     //   paths (A->B->A).
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_Finding9_CyclicPathReverts() public {
         _createAndFundPair(address(tokenA), address(tokenB), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -439,10 +439,10 @@ contract Audit195RouterTest is Test {
         vm.stopPrank();
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // FINDING 10 (INFO): Verify swapExactTokensForETH to == pair
     //   is rejected (H-09 fix).
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_Finding10_SwapToPairReverts() public {
         _createAndFundWETHPair(address(tokenA), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -461,10 +461,10 @@ contract Audit195RouterTest is Test {
         vm.stopPrank();
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // FINDING 11 (INFO): Multi-hop swap works correctly through
     //   3 pools. Verify amounts chain correctly.
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_Finding11_MultiHopSwap() public {
         _createAndFundPair(address(tokenA), address(tokenB), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -491,12 +491,12 @@ contract Audit195RouterTest is Test {
         assertEq(tokenC.balanceOf(bob) - cBefore, amounts[2], "Bob receives final output");
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // FINDING 12 (LOW): Fee-on-transfer token swap correctly
     //   measures actual received balance, not nominal amountIn.
     //   A 5% FoT token means the pair receives 95% of amountIn.
     //   Verify the output is based on actual received amount.
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_Finding12_FeeOnTransferTokenSwapCorrectness() public {
         FeeOnTransferToken_195 fot = new FeeOnTransferToken_195("FeeToken", "FOT", 5);
@@ -528,10 +528,10 @@ contract Audit195RouterTest is Test {
         assertGt(bobReceived, 0, "Bob should receive tokenB");
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // FINDING 13 (INFO): Slippage protection — amountOutMin is
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // FINDING 13 (INFO): Slippage protection â€” amountOutMin is
     //   enforced on all swap variants. Verify each path.
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_Finding13_SlippageProtectionEnforced() public {
         _createAndFundPair(address(tokenA), address(tokenB), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -575,10 +575,10 @@ contract Audit195RouterTest is Test {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // FINDING 14 (INFO): removeLiquidity slippage protection —
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // FINDING 14 (INFO): removeLiquidity slippage protection â€”
     //   amountAMin/amountBMin enforced.
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_Finding14_RemoveLiquidity_SlippageEnforced() public {
         address pair = _createAndFundPair(address(tokenA), address(tokenB), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -611,10 +611,10 @@ contract Audit195RouterTest is Test {
         vm.stopPrank();
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // FINDING 15 (INFO): to == address(0) rejected on all public
     //   functions that accept a `to` parameter.
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_Finding15_ZeroAddressToReverts() public {
         _createAndFundPair(address(tokenA), address(tokenB), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -641,10 +641,10 @@ contract Audit195RouterTest is Test {
         vm.stopPrank();
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // FINDING 16 (INFO): _pairFor reverts for disabled pairs.
     //   Verify swaps fail if a pair is disabled via factory.
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_Finding16_DisabledPairSwapReverts() public {
         _createAndFundPair(address(tokenA), address(tokenB), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -667,10 +667,10 @@ contract Audit195RouterTest is Test {
         vm.stopPrank();
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // FINDING 17 (INFO): getAmountsIn inverse calculation correct.
     //   Verify amountsIn -> swap -> receive amountOut.
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_Finding17_SwapTokensForExactTokens_Correctness() public {
         _createAndFundPair(address(tokenA), address(tokenB), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -695,9 +695,9 @@ contract Audit195RouterTest is Test {
         assertEq(tokenB.balanceOf(bob) - bobBBefore, desiredOut, "Bob got exact amount");
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // FINDING 18 (INFO): ETH refund in swapETHForExactTokens works.
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_Finding18_SwapETHForExactTokens_RefundsExcess() public {
         _createAndFundWETHPair(address(tokenA), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);

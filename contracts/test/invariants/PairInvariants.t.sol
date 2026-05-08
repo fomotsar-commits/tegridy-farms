@@ -14,7 +14,7 @@ import "../../src/TegridyFactory.sol";
 ///
 ///         fail_on_revert is left at the foundry.toml default (false) so
 ///         handler-bound reverts (slippage, paused, bound limits) don't fail
-///         the run — invariants assert post-state instead.
+///         the run â€” invariants assert post-state instead.
 
 contract PairR061Token is ERC20 {
     constructor(string memory n, string memory s) ERC20(n, s) {
@@ -23,7 +23,7 @@ contract PairR061Token is ERC20 {
     function mint(address to, uint256 amount) external { _mint(to, amount); }
 }
 
-/// @notice Narrow attack surface — only swap and mint, both bounded so they
+/// @notice Narrow attack surface â€” only swap and mint, both bounded so they
 ///         don't trivially revert. burn/skim/sync excluded for now (existing
 ///         FuzzInvariant.t.sol covers donation paths once it lands).
 contract PairR061Handler is Test {
@@ -32,7 +32,7 @@ contract PairR061Handler is Test {
     PairR061Token public t1;
     address public actor;
 
-    // Recorded reserves immediately before each handler action — used by the
+    // Recorded reserves immediately before each handler action â€” used by the
     // K-grows-by-fees invariant to prove the swap leg respected the fee curve.
     uint112 public lastR0;
     uint112 public lastR1;
@@ -115,7 +115,7 @@ contract PairInvariantsTest is Test {
     address public actor = makeAddr("r061_pair_actor");
 
     function setUp() public {
-        factory = new TegridyFactory(address(this), address(this));
+        factory = new TegridyFactory(address(this), address(this), address(this)); // F-30-9 initial guardian
         t0 = new PairR061Token("T0", "T0");
         t1 = new PairR061Token("T1", "T1");
         if (address(t0) > address(t1)) (t0, t1) = (t1, t0);
@@ -135,7 +135,7 @@ contract PairInvariantsTest is Test {
         targetContract(address(handler));
     }
 
-    /// @notice invariant_LPBalanceSumEqTotalSupply — sum of LP holders' balances
+    /// @notice invariant_LPBalanceSumEqTotalSupply â€” sum of LP holders' balances
     ///         (this contract, actor, dead address) equals totalSupply. Guards
     ///         against silent supply drift from a buggy mint/burn path.
     function invariant_LPBalanceSumEqTotalSupply() public view {
@@ -147,7 +147,7 @@ contract PairInvariantsTest is Test {
         assertEq(sum, pair.totalSupply(), "R061 LP supply drift");
     }
 
-    /// @notice invariant_kGrowsByFeesOnly — canonical Uniswap V2 K-invariant:
+    /// @notice invariant_kGrowsByFeesOnly â€” canonical Uniswap V2 K-invariant:
     ///         after any swap, balance0Adj * balance1Adj >= reserve0_old *
     ///         reserve1_old * 1000^2, where balanceXAdj = balanceX_new * 1000
     ///         - amountXIn * 3 (the 0.3% fee carved out of the input leg).
@@ -164,7 +164,7 @@ contract PairInvariantsTest is Test {
         assertGe(kAdjAfter, kAdjBefore, "R061 K bypass detected");
     }
 
-    /// @notice invariant_minLiquidityLocked — the dead-address lock minted on
+    /// @notice invariant_minLiquidityLocked â€” the dead-address lock minted on
     ///         the first deposit must remain (>=1000) for the lifetime of the
     ///         pair. Catches a regression where a future change drains it.
     function invariant_minLiquidityLocked() public view {

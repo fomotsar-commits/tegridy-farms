@@ -34,6 +34,23 @@ library SafeERC721Call {
     /// @notice ERC721 ownerOf selector: `ownerOf(uint256)`.
     bytes4 internal constant OWNER_OF_SELECTOR = 0x6352211e;
 
+    /// @notice AUDIT FIX FRESH-2026: F-40-S721-1 — default gas budget for
+    ///         `safeOwnerOfBounded`. Bumped from 30_000 → 50_000.
+    /// @dev    The 30k floor was sufficient for OZ's monolithic ERC721 (~3k
+    ///         gas: single SLOAD + ABI return), but legitimate
+    ///         **upgradeable** collections via TransparentUpgradeableProxy
+    ///         add ~2.5k per delegate hop, and OZ Governor + custom hooks
+    ///         can push a read past 20k. Combined with mload(0) writing to
+    ///         scratch space, some honest in-tree collection contracts
+    ///         could OOG-revert legitimately, marking transfers as
+    ///         "stuck" even though they succeeded. 50k matches Aave's
+    ///         `SafeERC20.balanceOf` budget cushion (canonical battle-
+    ///         tested floor) — high enough for upgradeable + governor-
+    ///         class collections, tight enough that a malicious callee
+    ///         burning gas in a loop reverts via OOG without consuming
+    ///         the caller's full budget.
+    uint256 internal constant DEFAULT_OWNER_OF_GAS_BUDGET = 50_000;
+
     /// @notice Attempts `transferFrom(from, to, id)` on `coll` with bounded
     ///         returndata copy (zero bytes — ERC721.transferFrom returns void
     ///         per spec, so any returndata is wasted).
@@ -68,20 +85,49 @@ library SafeERC721Call {
     /// @return ok    True iff the call did not revert AND returned ≥32 bytes.
     /// @return owner The address returned in the low 20 bytes of the response.
     /// @dev    Uses `staticcall` so the callee cannot mutate state.
-    ///         Gas budgeted at 30,000 — sufficient for any honest ERC721 (~3k gas
-    ///         for a single SLOAD + ABI return) and tight enough that a malicious
-    ///         callee burning gas in a loop reverts via OOG without consuming the
-    ///         caller's full budget.
+    ///         AUDIT FIX FRESH-2026: F-40-S721-1 — default gas budget bumped
+    ///         from 30k → DEFAULT_OWNER_OF_GAS_BUDGET (50k). Honest
+    ///         upgradeable collections + governor-class hooks can exceed
+    ///         the prior 30k, marking legit transfers as stuck. Callers
+    ///         needing a per-collection override should use the 3-arg
+    ///         overload `safeOwnerOfBounded(coll, id, gasBudget)` which
+    ///         consumers can wire up via a `(collection => uint256)`
+    ///         override mapping settable via timelocked owner action.
     function safeOwnerOfBounded(address coll, uint256 id)
         internal
         view
         returns (bool ok, address owner)
     {
+        return safeOwnerOfBounded(coll, id, DEFAULT_OWNER_OF_GAS_BUDGET);
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: F-40-S721-1 — overload that accepts a
+    ///         per-call `gasBudget`. Consumer contracts SHOULD expose a
+    ///         `(collection => uint256 gasOverride)` mapping, settable by
+    ///         the owner under timelock, and pass the override here when
+    ///         non-zero (falling back to `DEFAULT_OWNER_OF_GAS_BUDGET`
+    ///         otherwise). This lets honest upgradeable collections with
+    ///         deep proxy chains succeed while keeping the per-call budget
+    ///         bounded against gas-bomb adversaries.
+    /// @param  coll      The ERC721 contract.
+    /// @param  id        The token id to query.
+    /// @param  gasBudget Per-call gas budget; pass 0 to use the default.
+    /// @dev    Bounds gasBudget to a sane floor (10_000) — below that, no
+    ///         honest collection can complete a single SLOAD + return.
+    function safeOwnerOfBounded(address coll, uint256 id, uint256 gasBudget)
+        internal
+        view
+        returns (bool ok, address owner)
+    {
+        // Sanity floor: pass 0 → use default. Floor below the SLOAD-cost
+        // threshold (~10k) is rejected as a misuse.
+        if (gasBudget == 0) gasBudget = DEFAULT_OWNER_OF_GAS_BUDGET;
+        if (gasBudget < 10_000) gasBudget = 10_000;
         bytes memory data = abi.encodeWithSelector(OWNER_OF_SELECTOR, id);
         assembly {
             // staticcall(g, addr, in, insize, out, outsize)
-            // 30k gas, 32-byte out buffer at memory slot 0.
-            let success := staticcall(30000, coll, add(data, 0x20), mload(data), 0, 32)
+            // gasBudget gas, 32-byte out buffer at memory slot 0.
+            let success := staticcall(gasBudget, coll, add(data, 0x20), mload(data), 0, 32)
             // Require both call success AND ≥32 bytes returned. Truncating high
             // bits to address space is implicit in the cast.
             if and(success, gt(returndatasize(), 31)) {

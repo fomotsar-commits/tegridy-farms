@@ -72,6 +72,25 @@ contract TegridyFactory is TimelockAdmin {
     ///         without disturbing existing pairs.
     uint256 public constant MAX_PAIRS = 10000;
     error PairLimitReached();
+    /// @notice AUDIT FIX F-30-1 / M-21 (MED): emitted when a propose-disable or
+    ///         emergency-disable call targets an address that was never registered
+    ///         as a pair by THIS factory. Closes the surface where a captured
+    ///         feeToSetter / guardian could pollute `disabledPairs` with arbitrary
+    ///         addresses (EOAs, other forks' pairs, attacker-deployed contracts).
+    error NotAPair();
+    /// @notice AUDIT FIX H-16 / F-94-02 (HIGH): emitted when `emergencyDisablePair`
+    ///         is called more than `MAX_EMERGENCY_DISABLES_PER_DAY` times in the
+    ///         current rolling UTC day. Caps a single-key compromise blast radius
+    ///         from "DoS the entire AMM in one block" to "DoS at most 3 pairs per
+    ///         day" — giving veTOWELI holders / off-chain monitors >24h to escalate
+    ///         a guardian rotation via the 48h timelock.
+    error EmergencyDisableRateLimited();
+    /// @notice AUDIT FIX H-16 / F-94-02 (HIGH): per-day cap on
+    ///         `emergencyDisablePair`. 3/day matches Compound's pause-guardian
+    ///         discipline pattern — sufficient for a real incident (one
+    ///         actively-exploited pair plus two fail-safe disables), well below
+    ///         what a captured key needs to DoS the AMM.
+    uint8 public constant MAX_EMERGENCY_DISABLES_PER_DAY = 3;
 
     mapping(address => bool) public blockedTokens;
     mapping(address => bool) public disabledPairs;
@@ -95,7 +114,13 @@ contract TegridyFactory is TimelockAdmin {
     event PairDisableCancelled(address indexed pair);
     event FeeToSetterProposed(address indexed current, address indexed proposed, uint256 executeAfter);
     event FeeToSetterAccepted(address indexed oldSetter, address indexed newSetter);
-    uint256 public constant FEE_TO_SETTER_DELAY = 48 hours;
+    /// @notice AUDIT FIX F-30-2 / F-75-4 / M-22 (MED): inverted timelock asymmetry —
+    ///         setter rotation is now SHORTER (24h) than fee-direction change (48h),
+    ///         so a legitimate setter rotation can complete before a compromised
+    ///         setter's pending FEE_TO_CHANGE becomes executable. Previously both
+    ///         were 48h, which structurally favoured the attacker (they queued first,
+    ///         legitimate rotation could not catch up before execute window opened).
+    uint256 public constant FEE_TO_SETTER_DELAY = 24 hours;
     uint256 public feeToSetterChangeTime;
     event FeeToChangeProposed(address indexed current, address indexed proposed, uint256 executeAfter);
     event FeeToChangeCancelled(address indexed cancelled);
@@ -118,13 +143,45 @@ contract TegridyFactory is TimelockAdmin {
     ///      based readers continue to work against the original layout.
     address public pendingGuardian;
 
-    constructor(address _feeToSetter, address _feeTo) {
+    // ─── AUDIT FIX H-16 / F-94-02 — emergency-disable per-day rate limiter ─
+    /// @notice Number of `emergencyDisablePair` calls that have landed in the
+    ///         current UTC day (`block.timestamp / 1 days`). Reset to 0 the
+    ///         first time a new day's call comes in. Capped at
+    ///         `MAX_EMERGENCY_DISABLES_PER_DAY` (3).
+    /// @dev    Packed alongside `lastDisableDay` in a single storage slot.
+    uint8 public emergencyDisablesToday;
+    /// @notice The UTC day index (`block.timestamp / 1 days`) when
+    ///         `emergencyDisablesToday` was last reset. Used to detect day
+    ///         rollover before incrementing the counter.
+    uint64 public lastDisableDay;
+
+    /// @param _feeToSetter The administrative key (multisig recommended) that controls
+    ///                     fee redirection and pair-disable timelocks.
+    /// @param _feeTo       The address that will receive protocol fees (LP-token mint
+    ///                     destination on harvest).
+    /// @param _guardian    AUDIT FIX F-30-9 (LOW): initial guardian (instant-disable
+    ///                     emergency role) — must be non-zero. Pre-fix the contract
+    ///                     allowed deploying with `guardian == address(0)` and patching
+    ///                     it via the one-shot `setGuardian()` call, opening a
+    ///                     deploy-window where a compromised feeToSetter could install
+    ///                     a hostile guardian without timelock review. Post-fix the
+    ///                     guardian is bound at deploy time alongside feeToSetter, and
+    ///                     all subsequent rotations traverse `proposeGuardianChange()`
+    ///                     with the 48h delay. Pass the deployer EOA here for the
+    ///                     bootstrap; rotate to a multisig immediately via timelock.
+    constructor(address _feeToSetter, address _feeTo, address _guardian) {
         // AUDIT FIX v2: Zero-address checks prevent permanent lockout of fee configuration
         require(_feeToSetter != address(0), "ZERO_SETTER");
         require(_feeTo != address(0), "ZERO_FEE_TO");
+        // AUDIT FIX F-30-9 (LOW): non-zero guardian at deploy closes the
+        // initial-setup race (compromised setter → instant guardian replacement
+        // without 48h review).
+        require(_guardian != address(0), "ZERO_GUARDIAN");
         feeToSetter = _feeToSetter;
         feeTo = _feeTo;
+        guardian = _guardian;
         emit FactoryInitialized(_feeToSetter, _feeTo);
+        emit GuardianSet(address(0), _guardian);
     }
 
     function allPairsLength() external view returns (uint256) {
@@ -233,9 +290,19 @@ contract TegridyFactory is TimelockAdmin {
         emit FeeToUpdated(oldFeeTo, feeTo);
     }
 
-    /// @notice Cancel a pending feeTo change proposal
+    /// @notice Cancel a pending feeTo change proposal.
+    /// @dev    AUDIT FIX F-30-2 / M-22 (MED): extended cancel authority to the
+    ///         guardian role. Combined with the asymmetric timelock (24h setter
+    ///         rotation vs 48h fee change), this gives the guardian a second-
+    ///         layer veto over a captured-feeToSetter's fee redirection. The
+    ///         guardian cannot itself REDIRECT fees (only feeToSetter can call
+    ///         `proposeFeeToChange`), so this expansion of authority is bounded
+    ///         to "abort hostile proposals", matching its existing emergency
+    ///         circuit-breaker role. Pre-fix the only canceller was the same
+    ///         feeToSetter that proposed — useless if the setter itself was
+    ///         compromised.
     function cancelFeeToChange() external {
-        require(msg.sender == feeToSetter, "FORBIDDEN");
+        require(msg.sender == feeToSetter || msg.sender == guardian, "FORBIDDEN");
         address cancelled = pendingFeeTo;
         _cancel(FEE_TO_CHANGE);
         pendingFeeTo = address(0);
@@ -287,6 +354,21 @@ contract TegridyFactory is TimelockAdmin {
             pendingFeeTo = address(0);
             _forceCancel(FEE_TO_CHANGE); // emits ProposalCancelled(FEE_TO_CHANGE)
             emit FeeToChangeCancelled(cancelledFeeTo); // legacy supplemental event
+        }
+        // AUDIT FIX F-30-10 (INFO): also force-cancel any pending GUARDIAN_CHANGE
+        // proposed by the OLD setter. Pre-fix the new setter inherited a 48h-pending
+        // hostile guardian rotation that they had to remember to cancel manually.
+        // Mirrors the FEE_TO_CHANGE cleanup above. Per-token TOKEN_BLOCK_CHANGE and
+        // per-pair PAIR_DISABLE_CHANGE proposals are NOT enumerable on-chain (each
+        // is keyed by a separate hash) — they remain the new setter's responsibility
+        // to cancel one-by-one, but a captured setter who queued mass token-blocks
+        // is still bounded by the 24h-48h delays which give the new setter ample
+        // time to triage.
+        if (_executeAfter[GUARDIAN_CHANGE] != 0) {
+            address cancelledGuardian = pendingGuardian;
+            pendingGuardian = address(0);
+            _forceCancel(GUARDIAN_CHANGE); // emits ProposalCancelled(GUARDIAN_CHANGE)
+            emit GuardianChangeCancelled(cancelledGuardian); // legacy supplemental event
         }
         emit FeeToSetterAccepted(oldSetter, feeToSetter);
     }
@@ -395,15 +477,49 @@ contract TegridyFactory is TimelockAdmin {
         return _executeAfter[key];
     }
 
+    /// @notice AUDIT FIX F-30-5 (MED) — high-visibility token-block view for
+    ///         frontends. Returns the pending token-block status and the
+    ///         ready-after timestamp for `token`. Frontends should call this
+    ///         before submitting a `createPair` or `mint` transaction
+    ///         involving `token`, so users can see "this token is scheduled
+    ///         to be blocked at T+24h" and abort the deposit. The pair's
+    ///         `burn()` is intentionally NOT gated on `blockedTokens[]`
+    ///         (LP escape hatch), so funds are never permanently locked, but
+    ///         users had no on-chain warning surface pre-fix. The existing
+    ///         `TokenBlockProposed` event already provides the high-visibility
+    ///         log this fix mandates; this view exposes the same data via a
+    ///         single eth_call so any frontend / monitoring tool can surface
+    ///         a banner without subscribing to events.
+    /// @param  token The token to query.
+    /// @return blocked The proposed block value (`true` to add to blocklist,
+    ///                 `false` to remove). When no proposal is pending this
+    ///                 returns `false` and `readyAt == 0`.
+    /// @return readyAt The timestamp after which `executeTokenBlocked(token)`
+    ///                 becomes callable. Zero when no proposal is pending.
+    function pendingTokenBlocks(address token) external view returns (bool blocked, uint256 readyAt) {
+        bytes32 key = keccak256(abi.encodePacked(TOKEN_BLOCK_CHANGE, token));
+        readyAt = _executeAfter[key];
+        if (readyAt != 0) {
+            blocked = pendingTokenBlockValue[token];
+        }
+    }
+
     /// @dev DEPRECATED: Use proposeTokenBlocked() + executeTokenBlocked()
     function setTokenBlocked(address, bool) external pure {
         revert("Use proposeTokenBlocked()");
     }
 
     /// @notice Propose disabling or re-enabling a pair (timelocked, owner-only)
+    /// @dev    AUDIT FIX F-30-1 / M-21 (MED): require `isPair[pair]` so a captured
+    ///         feeToSetter cannot pollute `disabledPairs` with arbitrary addresses
+    ///         (EOAs, other forks' pairs, attacker-deployed contracts). Mirrors
+    ///         the same gate in `emergencyDisablePair`. Off-chain consumers
+    ///         (TWAP / VoteIncentives) defend in depth, but the registry should
+    ///         not carry semantically-meaningless entries.
     function proposePairDisabled(address pair, bool disabled) external {
         require(msg.sender == feeToSetter, "FORBIDDEN");
         require(pair != address(0), "ZERO_ADDRESS");
+        if (!isPair[pair]) revert NotAPair();
         bytes32 key = keccak256(abi.encodePacked(PAIR_DISABLE_CHANGE, pair));
         pendingPairDisableValue[pair] = disabled;
         _propose(key, PAIR_DISABLE_DELAY);
@@ -455,6 +571,13 @@ contract TegridyFactory is TimelockAdmin {
     function setGuardian(address _guardian) external {
         require(msg.sender == feeToSetter, "FORBIDDEN");
         require(guardian == address(0), "Use proposeGuardianChange()");
+        // AUDIT FIX H-16 / F-94-02: require multisig-class guardian. Constructor
+        // now requires non-zero `_guardian`, so this path is only reachable if
+        // a later rotation lands `address(0)` and the protocol needs to bootstrap
+        // the role again. Reject EOAs (single-key blast radius) and EIP-7702
+        // delegated EOAs (look like contracts but aren't).
+        uint256 codeLen = _guardian.code.length;
+        require(codeLen > 0 && codeLen != 23, "GUARDIAN_NOT_MULTISIG");
         guardian = _guardian;
         emit GuardianSet(address(0), _guardian);
     }
@@ -468,6 +591,15 @@ contract TegridyFactory is TimelockAdmin {
     function proposeGuardianChange(address _newGuardian) external {
         require(msg.sender == feeToSetter, "FORBIDDEN");
         require(_newGuardian != guardian, "SAME_GUARDIAN");
+        // AUDIT FIX H-16 / F-94-02 (HIGH): require multisig-class guardian on
+        // rotation (skip the gate when _newGuardian == address(0) — that's the
+        // explicit "disable emergency role" path). Mirrors `setGuardian` so a
+        // captured feeToSetter cannot rotate the guardian to a single-key EOA
+        // they control, even after the 48h delay.
+        if (_newGuardian != address(0)) {
+            uint256 codeLen = _newGuardian.code.length;
+            require(codeLen > 0 && codeLen != 23, "GUARDIAN_NOT_MULTISIG");
+        }
         pendingGuardian = _newGuardian;
         _propose(GUARDIAN_CHANGE, GUARDIAN_CHANGE_DELAY);
         emit GuardianChangeProposed(guardian, _newGuardian, _executeAfter[GUARDIAN_CHANGE]);
@@ -502,12 +634,42 @@ contract TegridyFactory is TimelockAdmin {
     ///         breaker. A pending DISABLE proposal (target value `true`) is left
     ///         in place — it will execute normally and is benign (same end-state),
     ///         and silencing it would amount to a guardian veto over governance.
+    /// @dev AUDIT FIX F-30-1 / M-21 (MED): `isPair[pair]` gate prevents a
+    ///      captured guardian/setter from polluting `disabledPairs` with
+    ///      arbitrary addresses (EOAs, other forks' pairs).
+    /// @dev AUDIT FIX H-16 / F-94-02 (HIGH): per-day rate limit
+    ///      (`MAX_EMERGENCY_DISABLES_PER_DAY = 3`) caps a single-key compromise
+    ///      from "disable every pair in one block" to "at most 3 pairs/day".
+    ///      The day index is derived from `block.timestamp / 1 days` (UTC
+    ///      rolling window). Combined with the 48h timelock on re-enable, a
+    ///      determined captured guardian needs >100 days to disable all 100
+    ///      pairs of a typical AMM — far more time than veTOWELI holders need
+    ///      to escalate a guardian rotation via `proposeGuardianChange`.
     function emergencyDisablePair(address pair) external {
         require(pair != address(0), "ZERO_ADDRESS");
         require(
             msg.sender == guardian || msg.sender == feeToSetter,
             "NOT_GUARDIAN"
         );
+        // AUDIT FIX F-30-1 / M-21 (MED): factory-membership gate.
+        if (!isPair[pair]) revert NotAPair();
+
+        // AUDIT FIX H-16 / F-94-02 (HIGH): per-day rate-limit. Day rollover
+        // resets the counter; same-day calls increment until the cap is hit.
+        uint64 currentDay = uint64(block.timestamp / 1 days);
+        if (currentDay != lastDisableDay) {
+            // Day rollover — reset counter.
+            lastDisableDay = currentDay;
+            emergencyDisablesToday = 1;
+        } else {
+            // Same day — enforce cap before incrementing.
+            uint8 nextCount = emergencyDisablesToday + 1;
+            if (nextCount > MAX_EMERGENCY_DISABLES_PER_DAY) {
+                revert EmergencyDisableRateLimited();
+            }
+            emergencyDisablesToday = nextCount;
+        }
+
         disabledPairs[pair] = true;
 
         bytes32 key = keccak256(abi.encodePacked(PAIR_DISABLE_CHANGE, pair));

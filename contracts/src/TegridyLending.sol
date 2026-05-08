@@ -123,8 +123,23 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     error LendingAdminNotSet();
     error LendingAdminAlreadySet();
     error NotLendingAdmin();
+    /// @dev AUDIT FIX (F-60-2 / F-43-B-class): admin pointer must be a genuine
+    ///      contract — not an EOA, and not an EIP-7702 (Pectra) delegated EOA
+    ///      whose runtime length is exactly 23 bytes (`0xef0100 ‖ addr`).
+    error NotAContract();
+    /// @dev AUDIT FIX (H-15): admin replacement lifecycle errors. Mirror
+    ///      TegridyStaking's pattern but split into typed errors here for
+    ///      off-chain alerting clarity.
+    error AdminReplacementNoProposal();
+    error AdminReplacementNotReady();
+    error AdminReplacementExpired();
+    error AdminReplacementProposalPending();
 
     event LendingAdminSet(address indexed admin);
+    /// @dev AUDIT FIX (H-15): rotation lifecycle events.
+    event LendingAdminReplacementProposed(address indexed newAdmin, uint256 executeAfter);
+    event LendingAdminReplaced(address indexed oldAdmin, address indexed newAdmin);
+    event LendingAdminReplacementCancelled(address indexed proposed);
 
     modifier onlyAdmin() {
         if (msg.sender != lendingAdmin) revert NotLendingAdmin();
@@ -134,9 +149,90 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     function setLendingAdmin(address _admin) external onlyOwner {
         if (_admin == address(0)) revert ZeroAddress();
         if (lendingAdmin != address(0)) revert LendingAdminAlreadySet();
-        require(_admin.code.length > 0, "ADMIN_MUST_BE_CONTRACT");
+        // AUDIT FIX (F-60-2): reject EOA AND EIP-7702 delegated EOA
+        // (length 23 = `0xef0100 ‖ addr` delegation pointer).
+        uint256 codeLen = _admin.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
         lendingAdmin = _admin;
         emit LendingAdminSet(_admin);
+    }
+
+    // ─── AUDIT FIX (H-15 / F-43-D / F-75-2): Admin replacement flow ──
+    // Pre-fix, `setLendingAdmin` was permanently one-shot — a compromised
+    // or buggy admin contract could only be replaced by redeploying
+    // TegridyLending and migrating every active loan + offer. The flow
+    // below mirrors TegridyStaking's `proposeAdminReplacement` /
+    // `executeAdminReplacement` pattern with 48h timelock + 7-day
+    // proposal validity expiry (DEEP-R-M01) — held inline here (rather
+    // than on the admin sister) so a broken or compromised admin contract
+    // cannot block its own removal.
+    /// @notice Mandatory delay between propose and execute for an admin swap.
+    /// @dev    Mirrors TegridyStaking.ADMIN_REPLACEMENT_TIMELOCK = 48h.
+    uint256 internal constant ADMIN_REPLACEMENT_TIMELOCK = 48 hours;
+    /// @notice Validity window after `readyAt`. Past this point the proposal
+    ///         is no longer executable and must be re-proposed.
+    /// @dev    AUDIT FIX (DEEP-R-M01): mirror SwapFeeRouter's 7-day expiry on
+    ///         `executeAdminReplacement`. A years-old stale proposal must NOT
+    ///         remain executable indefinitely — a forgotten candidate address
+    ///         could be co-opted (CREATE2 redeploy, abandoned multisig,
+    ///         expired-key custody) to install a hostile admin.
+    uint256 internal constant ADMIN_REPLACEMENT_VALIDITY = 7 days;
+
+    /// @notice Pending replacement admin address. Zero when no proposal is pending.
+    address public pendingLendingAdmin;
+    /// @notice block.timestamp after which `executeLendingAdminReplacement` is callable.
+    ///         Zero when no proposal is pending.
+    uint256 public lendingAdminReplacementReadyAt;
+
+    /// @notice Propose a replacement TegridyLendingAdmin. Reverts if no admin
+    ///         is set yet — the first-time installation path is `setLendingAdmin`.
+    /// @dev    AUDIT FIX (H-15): mirror of TegridyStaking.proposeAdminReplacement.
+    ///         Held inline on the lending contract (rather than on the admin
+    ///         sister) so a broken or compromised admin contract cannot block
+    ///         its own removal. The 48h delay + 7d validity provides the same
+    ///         rotation path SwapFeeRouter / TegridyStaking already enjoy.
+    /// @dev    AUDIT FIX (F-60-2): same EOA + 7702-delegated-EOA filter as
+    ///         setLendingAdmin so a stale-handoff or typo cannot install
+    ///         a `code.length == 23` impostor at rotation time.
+    function proposeLendingAdminReplacement(address _newAdmin) external onlyOwner {
+        if (_newAdmin == address(0)) revert ZeroAddress();
+        if (lendingAdmin == address(0)) revert LendingAdminNotSet(); // use setLendingAdmin first
+        if (lendingAdminReplacementReadyAt != 0) revert AdminReplacementProposalPending();
+        // AUDIT FIX (F-60-2): same EOA / 7702 filter as setLendingAdmin.
+        uint256 codeLen = _newAdmin.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        pendingLendingAdmin = _newAdmin;
+        lendingAdminReplacementReadyAt = block.timestamp + ADMIN_REPLACEMENT_TIMELOCK;
+        emit LendingAdminReplacementProposed(_newAdmin, lendingAdminReplacementReadyAt);
+    }
+
+    /// @notice Execute a previously proposed admin replacement after the 48-hour
+    ///         delay has elapsed and before the 7-day validity window expires.
+    /// @dev    AUDIT FIX (DEEP-R-M01): typed `AdminReplacementExpired` revert
+    ///         caps the validity window at 7 days; without this, a years-old
+    ///         stale proposal (forgotten + un-cancelled) could be executed at
+    ///         any later block to install a now-hostile admin.
+    function executeLendingAdminReplacement() external onlyOwner {
+        uint256 readyAt = lendingAdminReplacementReadyAt;
+        if (readyAt == 0) revert AdminReplacementNoProposal();
+        if (block.timestamp < readyAt) revert AdminReplacementNotReady();
+        if (block.timestamp > readyAt + ADMIN_REPLACEMENT_VALIDITY) revert AdminReplacementExpired();
+        address newAdmin = pendingLendingAdmin;
+        if (newAdmin == address(0)) revert ZeroAddress(); // defensive
+        address oldAdmin = lendingAdmin;
+        lendingAdmin = newAdmin;
+        pendingLendingAdmin = address(0);
+        lendingAdminReplacementReadyAt = 0;
+        emit LendingAdminReplaced(oldAdmin, newAdmin);
+    }
+
+    /// @notice Cancel a pending admin replacement proposal.
+    function cancelLendingAdminReplacement() external onlyOwner {
+        if (lendingAdminReplacementReadyAt == 0) revert AdminReplacementNoProposal();
+        address proposed = pendingLendingAdmin;
+        pendingLendingAdmin = address(0);
+        lendingAdminReplacementReadyAt = 0;
+        emit LendingAdminReplacementCancelled(proposed);
     }
 
     // ─── Safety Caps ─────────────────────────────────────────────────
@@ -166,7 +262,31 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     uint256 public constant MIN_DURATION_CEILING = 7 days;      // never higher than 7d
     uint256 public constant MAX_DURATION_CEILING = 3650 days;   // 10-year hard cap
 
+    /// @notice AUDIT FIX (M-25 / F-33-1): bricking-resistant floor on `maxPrincipal`.
+    ///         Mirrors `MIN_DURATION_FLOOR`. Defense-in-depth — the admin sister
+    ///         contract enforces this at propose time too. 0.01 ETH (= 1e16 wei).
+    uint256 public constant MAX_PRINCIPAL_FLOOR = 0.01 ether;
+
     uint256 public constant CAP_CHANGE_TIMELOCK = 48 hours;
+
+    // ─── AUDIT FIX (F-95-K-2 MED): offer-list caps ───────────────────────
+    /// @notice Hard ceiling on total offer-array length to bound worst-case
+    ///         storage / enumeration cost. Mirrors `MAX_PAIRS` on TegridyFactory.
+    ///         A would-be griefer minting offers at `minPrincipal` (0.001 ETH)
+    ///         is bounded to MAX_TOTAL_OFFERS=10_000 entries protocol-wide, plus
+    ///         MAX_OFFERS_PER_LENDER=100 active offers per lender. cancelOffer
+    ///         frees a slot's `active` flag and decrements per-lender counter
+    ///         but does NOT shrink the array (each slot's storage is permanently
+    ///         consumed); MAX_TOTAL_OFFERS therefore caps lifetime, MAX_OFFERS_PER_LENDER
+    ///         caps active-only.
+    /// @dev    Mirrors the NFTLending-side liquidity-griefing fix
+    ///         (F-95-K-2 paired finding).
+    uint256 public constant MAX_TOTAL_OFFERS = 10_000;
+    uint256 public constant MAX_OFFERS_PER_LENDER = 100;
+    /// @notice AUDIT FIX (F-95-K-2): per-lender ACTIVE offer count. Decremented
+    ///         on cancelOffer / acceptOffer so legitimate lenders are not
+    ///         permanently capped by their own cancellation history.
+    mapping(address => uint256) public activeOffersByLender;
 
     // ─── AUDIT FIX: DEEP-LD-M6 — minimum interest floor ──────────────
     /// @notice Minimum interest charged on any repayment, equivalent to 1 full day
@@ -381,9 +501,21 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         ///         retroactive-tax-on-in-flight-loans vector — pre-fix, owner
         ///         could increase fee bps mid-loan and silently siphon up to
         ///         MAX_PROTOCOL_FEE_BPS (1000 / 10%) of the lender's interest
-        ///         net at every repay. uint16 fits the 0..1000 BPS range with
-        ///         room to spare; storage extension is a half-slot at most.
-        uint16 protocolFeeBpsAtCreate;
+        ///         net at every repay.
+        /// @dev    AUDIT FIX (M-8 / F-07-01): widened from `uint16` to `int16`.
+        ///         A NEGATIVE value (e.g. type(int16).min) is now the explicit
+        ///         "unset / legacy" sentinel — pre-fix a `uint16` field could
+        ///         not differentiate "zero because unset" from "zero because
+        ///         the live fee was zero at creation", causing offers minted
+        ///         while `protocolFeeBps == 0` to silently fall through to the
+        ///         live fee at repay (defeating the snapshot's purpose for
+        ///         that class of offer). Freshly minted offers always store
+        ///         `int16(uint16(protocolFeeBps))` (a non-negative value
+        ///         `[0..1000]`); the negative branch covers any pre-fix
+        ///         legacy storage state. uint16 0..1000 fits cleanly in int16
+        ///         (-32768..32767) — change is a storage-layout-compatible
+        ///         reinterpretation of the same slot.
+        int16 protocolFeeBpsAtCreate;
     }
 
     struct Loan {
@@ -620,6 +752,22 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///      monitoring can now select on the 4-byte selector and decode the
     ///      collateral + count without ABI string handling.
     error ActiveLoansPresent(address collateral, uint256 count);
+    /// @dev AUDIT FIX (F-08-K-01): typed bounds-check revert for the public
+    ///      `calculateInterest` pure helper. Off-chain integrators get a
+    ///      deterministic 4-byte selector instead of an opaque Panic(0x11).
+    error ParamOutOfBounds();
+    /// @dev AUDIT FIX (F-95-K-2 MED): MAX_TOTAL_OFFERS / MAX_OFFERS_PER_LENDER
+    ///      caps tripped by lender attempting to mint more offers than the
+    ///      protocol-wide or per-lender ceiling permits.
+    error TooManyOffers();
+    error TooManyOffersPerLender();
+    /// @dev AUDIT FIX (F-95-K-7 LOW): admin sweepUnsolicitedNFT against an NFT
+    ///      that is currently in active escrow (a loan reference exists for
+    ///      this `(collection, tokenId)` pair).
+    error CollateralInUse();
+    /// @dev AUDIT FIX (F-95-K-7 LOW): sweepUnsolicitedNFT must target a token
+    ///      this contract actually holds.
+    error NotHeldByContract();
 
     // AUDIT FIX (pass-8): EIP170-01 — `protocolFeeChangeReadyAt` and
     // `treasuryChangeReadyAt` view helpers moved to TegridyLendingAdmin
@@ -779,11 +927,29 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
             revert CollateralNotAccepted();
         }
 
+        // AUDIT FIX (F-95-K-2 MED): MAX_TOTAL_OFFERS / MAX_OFFERS_PER_LENDER
+        // caps. Mirrors the NFTLending-side liquidity-griefing fix. Without
+        // these caps, a 1-ETH attack budget mints 1000 dust offers per
+        // protocol; both views/indexers degrade and borrowers must filter
+        // through noise. activeOffersByLender is a per-lender ACTIVE counter
+        // (decremented on cancel/accept) so legitimate lenders are never
+        // permanently squeezed out by their own cancel history.
+        if (offers.length >= MAX_TOTAL_OFFERS) revert TooManyOffers();
+        if (activeOffersByLender[msg.sender] >= MAX_OFFERS_PER_LENDER) {
+            revert TooManyOffersPerLender();
+        }
+
         // AUDIT FIX: DEEP-LD-M8 — origination fee held on offer struct until accept.
         uint256 originationFee = (msg.value * originationFeeBps) / BPS;
         uint256 effectivePrincipal = msg.value - originationFee;
 
         offerId = offers.length;
+        // AUDIT FIX (F-95-K-2): bump active counter BEFORE the push so
+        // re-entrancy through a callback can't desync. nonReentrant on the
+        // function plus CEI throughout already preclude actual re-entry,
+        // but ordering here matches the cancel/accept decrements at the
+        // counterpart sites.
+        activeOffersByLender[msg.sender] += 1;
         offers.push(LoanOffer({
             lender: msg.sender,
             principal: effectivePrincipal,
@@ -801,9 +967,15 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
             // in-flight loans. Lenders quote APR off the post-fee net; if the fee
             // changes after acceptance, the lender's expected net is silently
             // reduced. By snapshotting at create-time, the lender's expectation
-            // is contractually pinned. MAX_PROTOCOL_FEE_BPS = 1000 (10%) fits in
-            // uint16 (max 65535) so storage cost is one slot extension only.
-            protocolFeeBpsAtCreate: uint16(protocolFeeBps),
+            // is contractually pinned.
+            // AUDIT FIX (M-8 / F-07-01): now an `int16`. Cast through `uint16`
+            // first so the BPS value fits cleanly in the non-negative range
+            // [0..1000] (uint16 of protocolFeeBps is bounded by
+            // MAX_PROTOCOL_FEE_BPS = 1000). Zero is now a VALID captured
+            // snapshot — distinct from "unset" which never occurs on freshly
+            // minted offers. The repay-side fallback only applies to legacy
+            // storage state where the field reads as `< 0`.
+            protocolFeeBpsAtCreate: int16(uint16(protocolFeeBps)),
             // AUDIT FIX (pass-8 batch-15): Phase 3.5 — offer expiry.
             expiry: _expiry
         }));
@@ -822,6 +994,7 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
     /// @notice Cancel an active loan offer and refund ETH to lender.
     /// @dev    AUDIT FIX: DEEP-LD-M8 — refund principal + held origination fee.
+    /// @dev    AUDIT FIX (F-95-K-2): decrement per-lender active counter.
     function cancelOffer(uint256 _offerId) external nonReentrant {
         if (_offerId >= offers.length) revert InvalidOfferId();
         LoanOffer storage offer = offers[_offerId];
@@ -831,6 +1004,10 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         // CEI: state change before external call
         offer.active = false;
+        // AUDIT FIX (F-95-K-2): release lender's per-lender quota slot.
+        if (activeOffersByLender[msg.sender] > 0) {
+            activeOffersByLender[msg.sender] -= 1;
+        }
         // AUDIT FIX: DEEP-LD-M8 — refund principal + held origination fee.
         uint256 refundAmount = offer.principal + offer.originationFee;
         offer.originationFee = 0;
@@ -925,6 +1102,13 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         // CEI: state changes before external calls
         offer.active = false;
+        // AUDIT FIX (F-95-K-2): release lender's per-lender quota slot — the
+        // offer just transitioned active→consumed (the slot stays in offers[]
+        // for historical-record but no longer counts against the lender's
+        // ACTIVE budget).
+        if (activeOffersByLender[lender] > 0) {
+            activeOffersByLender[lender] -= 1;
+        }
         // AUDIT FIX: DEEP-LD-M8 — clear escrowed fee on offer.
         offer.originationFee = 0;
 
@@ -1077,8 +1261,18 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // origination-fee leg. Backward-compat: for legacy offers created
         // before this fix (where protocolFeeBpsAtCreate == 0), fall back to
         // live protocolFeeBps so existing loans don't see free-fee at repay.
-        uint16 snapBps = offers[offerId].protocolFeeBpsAtCreate;
-        uint256 effectiveFeeBps = snapBps == 0 ? protocolFeeBps : uint256(snapBps);
+        // AUDIT FIX (M-8 / F-07-01): widened `protocolFeeBpsAtCreate` from
+        // `uint16` to `int16`. A NEGATIVE value is now the explicit "unset
+        // sentinel" — fall back to live `protocolFeeBps`. A non-negative
+        // value (`0..1000`) is the captured snapshot and is used verbatim,
+        // including the legitimate 0-bps captured-snapshot case that the
+        // pre-fix `snapBps == 0` heuristic could not distinguish from
+        // legacy/unset. Freshly minted offers always write `int16(uint16(bps))`
+        // which is non-negative.
+        int16 snapBps = offers[offerId].protocolFeeBpsAtCreate;
+        uint256 effectiveFeeBps = snapBps < 0
+            ? protocolFeeBps
+            : uint256(uint16(snapBps));
         uint256 fee = (interest * effectiveFeeBps) / BPS;
         uint256 lenderAmount = principal + interest - fee;
 
@@ -1582,6 +1776,18 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         is older than `TWAP_MAX_STALENESS`. Reverts with the TWAP's own
     ///         `InsufficientObservations` if the oracle has not been bootstrapped
     ///         with at least two observations spaced by `MIN_PERIOD`.
+    /// @dev AUDIT FIX (F-09-L1): position size limits — `toweliAmount` SHOULD be
+    ///      bounded by the realistic TOWELI supply (≤ 1e30 in 18-decimal wei).
+    ///      The downstream `twap.consult` computes `toweliAmount * priceDiff`
+    ///      in checked uint256; at TOWELI's 1e30 supply ceiling and a maximum
+    ///      `priceDiff ≈ 2^112 × ratio` the product stays comfortably under
+    ///      2^256. A caller that fabricated a position with `toweliAmount`
+    ///      orders of magnitude above supply (only possible via a malicious
+    ///      whitelisted staking-shaped contract) could trigger Panic(0x11);
+    ///      the lender can recover by re-creating the offer with
+    ///      `minPositionETHValue = 0`. Defense-in-depth: the staking-side
+    ///      whitelist (acceptedCollateralContracts) and the 50% deviation
+    ///      gate on TWAP updates jointly bound this surface.
     function _positionETHValue(uint256 toweliAmount) internal view returns (uint256) {
         // R062 (HIGH): refuse to value collateral when the L2 sequencer is
         // currently down or has just resumed within SEQUENCER_GRACE_PERIOD.
@@ -1653,8 +1859,14 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         emit TreasuryChanged(old, newTreasury);
     }
 
+    /// @dev AUDIT FIX (M-25 / F-33-1): `MAX_PRINCIPAL_FLOOR` defense-in-depth
+    ///      check. Mirrors the propose-time check on TegridyLendingAdmin so a
+    ///      direct admin call cannot collapse the principal window to a
+    ///      single-wei range and brick offer creation.
     function applyMaxPrincipalChange(uint256 newCap) external onlyAdmin {
         if (newCap == 0) revert ZeroAmount();
+        // AUDIT FIX (M-25 / F-33-1): floor enforcement on the apply path.
+        if (newCap < MAX_PRINCIPAL_FLOOR) revert InvalidCapValue();
         if (newCap > MAX_PRINCIPAL_CEILING) revert InvalidCapValue();
         uint256 old = maxPrincipal;
         maxPrincipal = newCap;
@@ -1968,5 +2180,64 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         increments. Restricted to admin to prevent direct manipulation.
     function bumpCollateralRemovalRetryCount(address collateral) external onlyAdmin {
         collateralRemovalRetryCount[collateral] += 1;
+    }
+
+    /// @notice AUDIT FIX (F-33-4): admin contract calls this on a successful
+    ///         cancel of an ADD proposal to reset the per-collateral retry
+    ///         counter. A cancel is a legitimate revoke and should not burn
+    ///         the budget for that collateral if a future legitimate REMOVAL
+    ///         is needed. Mirrors the success-path reset inside
+    ///         `applyAcceptedCollateralChange`. Restricted to admin to
+    ///         prevent direct manipulation.
+    function resetCollateralRemovalRetryCount(address collateral) external onlyAdmin {
+        collateralRemovalRetryCount[collateral] = 0;
+    }
+
+    // ─── AUDIT FIX (F-95-K-7 LOW): orphan NFT recovery ─────────────────
+    /// @notice Sweep an unsolicited NFT that was sent to this contract via
+    ///         `transferFrom` (NOT through `acceptOffer`). Recipient is the
+    ///         current TegridyLending owner. Refuses to sweep an NFT that is
+    ///         currently in active escrow against any open loan.
+    /// @dev    AUDIT FIX (F-95-K-7): pre-fix, an attacker could `transferFrom`
+    ///         a (possibly worthless) NFT of any whitelisted collection into
+    ///         this contract; without this admin sweeper the NFT was orphaned
+    ///         forever and the contract's balanceOf(collection) was polluted
+    ///         off-chain. The active-loan gate uses a tokenId scan over loans[]
+    ///         (capped by MAX_TOTAL_OFFERS — bounded enumeration). Pattern
+    ///         mirrored from every mature P2P NFT-lending protocol.
+    /// @param  _collection ERC721 contract whose NFT is stuck in this address.
+    /// @param  _tokenId    Token ID held at `address(this)`.
+    /// @param  _to         Recipient. Owner-controlled to avoid griefer-influences.
+    function sweepUnsolicitedNFT(
+        address _collection,
+        uint256 _tokenId,
+        address _to
+    ) external onlyOwner nonReentrant {
+        if (_collection == address(0)) revert ZeroAddress();
+        if (_to == address(0)) revert ZeroAddress();
+        // Defense-in-depth: ensure the NFT is actually held here (no-op
+        // sweep otherwise wastes gas without changing state).
+        (bool ownerOk, address currentOwner) = SafeERC721Call.safeOwnerOfBounded(_collection, _tokenId);
+        if (!ownerOk) revert NotHeldByContract();
+        if (currentOwner != address(this)) revert NotHeldByContract();
+        // Refuse to sweep an NFT that is collateral to an active loan. We
+        // walk loans[] and check (collateralContract, tokenId, !repaid &&
+        // !defaultClaimed) — bounded by MAX_TOTAL_OFFERS in the worst case.
+        // For typical operating volumes this scan is well under any block
+        // gas limit; the alternative (a per-(collection, tokenId) reverse
+        // index) costs a slot per active loan and is overkill given owner-
+        // only callability + nonReentrant + bounded loans[] cap.
+        uint256 nLoans = loans.length;
+        for (uint256 i = 0; i < nLoans; i++) {
+            Loan storage l = loans[i];
+            if (l.repaid || l.defaultClaimed) continue;
+            if (l.tokenId != _tokenId) continue;
+            address coll = offers[l.offerId].collateralContract;
+            if (coll == _collection) revert CollateralInUse();
+        }
+        // Use the bounded transferFrom helper so a malicious whitelisted
+        // collection cannot OOG-grief this admin path via giant returndata.
+        bool moved = SafeERC721Call.safeTransferFromBounded(_collection, address(this), _to, _tokenId);
+        if (!moved) revert NotHeldByContract();
     }
 }

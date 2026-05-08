@@ -36,6 +36,19 @@ interface ITegridyStakingGauge {
 /// @dev Inspired by Curve's GaugeController. Epoch-based with discrete weight snapshots.
 ///      AUDIT NOTE: Uses block.timestamp for epoch boundaries. Validator manipulation of
 ///      ~15 seconds is negligible relative to 7-day epochs.
+/// @dev AUDIT FIX FRESH-2026 F-69-6 (INFO): restakers cannot vote on gauges directly —
+///      `vote()` / `commitVote()` / `revealVote()` all require
+///      `tegridyStaking.ownerOf(tokenId) == msg.sender`, but after a user restakes the
+///      NFT moves to the restaking contract so they fail this check. Voting power FROM
+///      the restaking-side checkpoints is still aggregated for users who have BOTH a
+///      direct staking position AND a restaked position (additive read in
+///      `VotePowerOracle.powerOf` / `powerAt`). For users whose only position is
+///      restaked, gauge voting is a temporary forfeiture for the duration of the
+///      restake — by design, in exchange for the restaking-side bonus yield. Document
+///      this in user-facing UI; the other governance surfaces (VoteIncentives,
+///      CommunityGrants, MemeBountyBoard) DO accept restaker votes via the additive
+///      `VotePowerOracle.powerOf` path because they don't bind votes to tokenId
+///      ownership.
 contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, TimelockAdmin {
 
     // ─── Constants ──────────────────────────────────────────────────
@@ -74,8 +87,31 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     bytes32 public constant GAUGE_ADD = keccak256("GAUGE_ADD");
     bytes32 public constant GAUGE_REMOVE = keccak256("GAUGE_REMOVE");
     bytes32 public constant EMISSION_BUDGET_CHANGE = keccak256("EMISSION_BUDGET_CHANGE");
+    /// @notice AUDIT FIX FRESH-2026: F-65-2 — timelock key for restaking-contract
+    ///         pointer rotation. Mirrors TegridyStakingAdmin / RevenueDistributor's
+    ///         48h-timelocked propose/execute pattern so a captured-owner cannot
+    ///         instantly re-point gauge voting power to a hostile restaking surface.
+    bytes32 public constant RESTAKING_CHANGE = keccak256("RESTAKING_CHANGE");
     uint256 public constant GAUGE_TIMELOCK = 24 hours;
     uint256 public constant EMISSION_TIMELOCK = 48 hours;
+    /// @notice AUDIT FIX FRESH-2026: F-65-2 — 48h timelock for restaking rotation.
+    uint256 public constant RESTAKING_CHANGE_TIMELOCK = 48 hours;
+
+    /// @notice AUDIT FIX FRESH-2026: F-69-2 — minimum total vote weight (relative
+    ///         to BPS) below which the gauge tally is treated as having
+    ///         insufficient quorum. Without this, a single 1-wei voter who is the
+    ///         only participant in an epoch directs 100% of `getGaugeEmission`
+    ///         output. 5% of BPS chosen to mirror common DAO quorum minima while
+    ///         remaining permissive for normal participation.
+    /// @dev    The check is a public oracle (`quorumMet()`) — emission distribution
+    ///         is downstream and consumers MUST gate distribution on this view.
+    uint256 public constant MIN_TOTAL_VOTE_WEIGHT_BPS = 500;
+
+    /// @notice AUDIT FIX FRESH-2026: F-69-2 — minimum number of distinct voting
+    ///         NFTs that must have cast votes in an epoch for quorum to be met.
+    ///         Mirrors CommunityGrants' MIN_UNIQUE_VOTERS pattern (3) so a single
+    ///         whale cannot direct emissions in isolation.
+    uint256 public constant MIN_VOTING_NFTS_PER_EPOCH = 3;
 
     // ─── Immutables ─────────────────────────────────────────────────
     ITegridyStakingGauge public immutable tegridyStaking;
@@ -85,9 +121,19 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///         is added to staking-side power for gauge voting eligibility.
     /// @dev    AUDIT FIX (pass-8): GOV-ECON-01 / C10 — without this, voters who
     ///         restake their staking NFT have `tegridyStaking.votingPower*` return
-    ///         0 and silently lose ALL gauge-voting power. One-shot setter mirrors
-    ///         the `setSequencerFeed` pattern in SwapFeeRouter.
+    ///         0 and silently lose ALL gauge-voting power.
+    /// @dev    AUDIT FIX FRESH-2026: F-65-2 — converted from one-shot to a 48h
+    ///         timelocked rotation (`proposeRestakingContract` /
+    ///         `executeRestakingContract` / `cancelRestakingContract`) so a captured
+    ///         owner cannot instantly re-point voting-power reads at a hostile
+    ///         restaking surface, AND so honest rotations (admin migration) don't
+    ///         strand the consumer behind a one-shot pointer. Mirrors
+    ///         TegridyStakingAdmin's restaking-rotation ceremony.
     address public restakingContract;
+
+    /// @notice AUDIT FIX FRESH-2026: F-65-2 — pending restaking contract awaiting
+    ///         48h-timelock execution. Cleared on execute or cancel.
+    address public pendingRestakingContract;
 
     // ─── Gauge Registry ─────────────────────────────────────────────
     address[] public gaugeList;
@@ -117,20 +163,22 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     /// @notice Total voting power cast across all gauges in a given epoch
     mapping(uint256 => uint256) public totalWeightByEpoch;
 
-    /// @notice AUDIT FIX: V2-GOV-05 — cached per-epoch top gauge weight. Updated
-    ///         incrementally during `vote()` and `revealVote()` so that
-    ///         `_getRelativeWeightAt` is O(1) per call instead of O(n) over the
-    ///         entire `gaugeList`. With MAX_TOTAL_GAUGES = 50 the pre-fix scan was
-    ///         up to 50 SLOADs per relative-weight read; an emission distributor
-    ///         that loops through gauges would inherit O(n²) cost. Cache is
-    ///         monotonically increasing within an epoch — gauge weights only ever
-    ///         grow during votes, never shrink, so we never need a re-scan.
-    /// @dev    AUDIT FIX: V2-GOV-03 — using the cache also closes the past-epoch
-    ///         topWeight undercount: when a gauge is removed via `executeRemoveGauge`
-    ///         (allowed only when current-epoch weight is zero), the cache for past
-    ///         epochs is left intact so historical reads still see the correct top.
-    mapping(uint256 => uint256) public topWeightByEpoch;
-    mapping(uint256 => address) public topGaugeByEpoch;
+    /// @notice AUDIT FIX FRESH-2026: F-17-4 — `topWeightByEpoch` /
+    ///         `topGaugeByEpoch` removed (V3-GOV-03 + V3-GOV-06 rewrote
+    ///         `_getRelativeWeightAt` to use `totalWeightByEpoch` only, leaving
+    ///         the per-epoch top cache as write-only dead state — up to 8
+    ///         redundant SSTOREs per `vote()` / `revealVote()`). With the V3
+    ///         natural-distribution formula the cache is no longer read anywhere
+    ///         in-tree, so it is removed entirely (relaunch — no observability
+    ///         dependents). The `_updateEpochTop` helper is also removed.
+
+    /// @notice AUDIT FIX FRESH-2026: F-69-2 — number of distinct voting NFTs
+    ///         that have applied a vote (legacy `vote()` or `revealVote()`) in
+    ///         each epoch. Used by `quorumMet()` to gate downstream emission
+    ///         distribution against single-voter capture. Each tokenId
+    ///         increments the counter at most once per epoch (gated by
+    ///         `hasVotedInEpoch[tokenId][epoch]`).
+    mapping(uint256 => uint256) public distinctVotersPerEpoch;
 
     /// @notice Tracks the epoch in which a tokenId last voted (metadata only; reads 0
     ///         for "never voted" AND for "voted in epoch 0" — do NOT use as a guard).
@@ -220,6 +268,11 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     event EmissionBudgetProposed(uint256 newBudget, uint256 executeAfter);
     event EmissionBudgetUpdated(uint256 oldBudget, uint256 newBudget);
     event RestakingContractSet(address indexed restaking); // pass-8 GOV-ECON-01
+    /// @notice AUDIT FIX FRESH-2026: F-65-2 — propose/execute/cancel events for
+    ///         the timelocked restaking-rotation ceremony.
+    event RestakingContractProposed(address indexed restaking, uint256 executeAfter);
+    event RestakingContractChanged(address indexed oldRestaking, address indexed newRestaking);
+    event RestakingContractProposalCancelled(address indexed pendingRestaking);
 
     // ─── Errors ─────────────────────────────────────────────────────
     error ZeroAddress();
@@ -244,6 +297,8 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error NotAContract();
     error LockExpired();
     /// @dev AUDIT FIX (pass-8): GOV-ECON-01 / C10 — restakingContract is one-shot.
+    ///      AUDIT FIX FRESH-2026: F-65-2 — converted to timelocked rotation; this
+    ///      error is retained for storage-layout / ABI-compat but no longer thrown.
     error RestakingAlreadySet();
     /// @dev AUDIT FIX (pass-8): GOV-INT-01 / C8 — pair address invalid.
     ///      Either zero, not a contract, or already mapped to a different gauge.
@@ -262,6 +317,11 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error NoActiveCommit();             // AUDIT R014-HIGH: cancel called with no commit
     error ZeroWeight();                 // AUDIT R014-LOW: zero-weight gauge entries rejected
     error WeightAboveCap();             // AUDIT FIX (BATCH-J4 C4): per-vote per-gauge cap exceeded
+    /// @notice AUDIT FIX FRESH-2026: H-5/H-6 [F-17-1, F-17-2] — duplicate gauge
+    ///         entries in a single vote/revealVote bypass the per-gauge cap by
+    ///         summing into the same `gaugeWeightByEpoch` slot. Rejected via an
+    ///         O(n²) dedup check (n ≤ MAX_GAUGES_PER_VOTER = 8 so cost is bounded).
+    error DuplicateGauge();
     /// @notice AUDIT FIX: DEEP-GOV-14 — gauge removal rejected mid-epoch when the
     ///         target gauge already has votes cast against it.
     error GaugeHasActiveVotes();
@@ -377,6 +437,15 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             // emission share without breaking legitimate medium-confidence
             // voting (single-gauge votes still allowed up to 50%).
             if (weights[i] > MAX_WEIGHT_PER_GAUGE_BPS) revert WeightAboveCap();
+            // AUDIT FIX FRESH-2026: H-5 [F-17-1] — dedup gauges within the vote.
+            // Pre-fix, the per-gauge cap could be fully bypassed by repeating
+            // the same gauge with weights summing to 100% (e.g. 8 entries of
+            // 1250 each on a single attacker-controlled gauge). The allocation
+            // loop accumulated all 8 slices into the same `gaugeWeightByEpoch`
+            // slot. n ≤ MAX_GAUGES_PER_VOTER = 8 so O(n²) is bounded.
+            for (uint256 j; j < i; ++j) {
+                if (gauges[j] == gauges[i]) revert DuplicateGauge();
+            }
             totalWeight += weights[i];
         }
         if (totalWeight != BPS) revert WeightsMustSumToBPS();
@@ -386,6 +455,10 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         lastVotedEpoch[tokenId] = epoch;
         hasVotedInEpoch[tokenId][epoch] = true;
         hasUserVotedInEpoch[msg.sender][epoch] = true; // AUDIT C2
+        // AUDIT FIX FRESH-2026: F-69-2 — track distinct voters per epoch for the
+        // `quorumMet()` oracle. Each tokenId can only increment the counter once
+        // per epoch (the `hasVotedInEpoch` guard above gates re-entry).
+        unchecked { ++distinctVotersPerEpoch[epoch]; }
 
         // Apply weighted voting power to each gauge
         for (uint256 i; i < gauges.length; ++i) {
@@ -393,9 +466,9 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             gaugeWeightByEpoch[epoch][gauges[i]] += allocatedPower;
             totalWeightByEpoch[epoch] += allocatedPower;
             _tokenVotes[tokenId].push(VoteAllocation({gauge: gauges[i], weight: weights[i]}));
-            // AUDIT FIX: V2-GOV-05 — maintain the per-epoch top cache so
-            // `_getRelativeWeightAt` is O(1) per call.
-            _updateEpochTop(epoch, gauges[i]);
+            // AUDIT FIX FRESH-2026: F-17-4 — `_updateEpochTop` removed (write-only
+            // dead state; not read anywhere after V3-GOV-03 + V3-GOV-06 rewrote
+            // `_getRelativeWeightAt` to use only `totalWeightByEpoch`).
         }
 
         emit Voted(msg.sender, tokenId, epoch, gauges, weights);
@@ -636,6 +709,20 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             if (!isGauge[gauges[i]]) revert InvalidGauge(gauges[i]);
             // AUDIT R014-LOW: same zero-weight rejection as legacy vote().
             if (weights[i] == 0) revert ZeroWeight();
+            // AUDIT FIX FRESH-2026: H-6 [F-17-2] — mirror legacy vote()'s per-gauge
+            // weight cap. Pre-fix, `revealVote()` did NOT enforce
+            // `MAX_WEIGHT_PER_GAUGE_BPS`, so any voter on the canonical commit-reveal
+            // path could allocate 100% of their power to a single gauge — the C4
+            // mitigation was unconditionally bypassable on the recommended forward
+            // path. Brings revealVote into parity with vote().
+            if (weights[i] > MAX_WEIGHT_PER_GAUGE_BPS) revert WeightAboveCap();
+            // AUDIT FIX FRESH-2026: H-5 [F-17-1] — dedup gauges within the reveal.
+            // Mirror the same O(n²) check used in vote(); without dedup the cap
+            // is bypassable via repeated gauge entries even AFTER the per-element
+            // cap fix above. n ≤ MAX_GAUGES_PER_VOTER = 8.
+            for (uint256 j; j < i; ++j) {
+                if (gauges[j] == gauges[i]) revert DuplicateGauge();
+            }
             totalWeight += weights[i];
         }
         if (totalWeight != BPS) revert WeightsMustSumToBPS();
@@ -652,15 +739,17 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         lastVotedEpoch[tokenId] = epoch;
         hasVotedInEpoch[tokenId][epoch] = true;
         hasUserVotedInEpoch[msg.sender][epoch] = true; // AUDIT C2
+        // AUDIT FIX FRESH-2026: F-69-2 — track distinct voters per epoch for the
+        // `quorumMet()` oracle. The `hasVotedInEpoch` guard above ensures each
+        // tokenId can only increment the counter once per epoch.
+        unchecked { ++distinctVotersPerEpoch[epoch]; }
 
         for (uint256 i; i < gauges.length; ++i) {
             uint256 allocatedPower = (votingPower * weights[i]) / BPS;
             gaugeWeightByEpoch[epoch][gauges[i]] += allocatedPower;
             totalWeightByEpoch[epoch] += allocatedPower;
             _tokenVotes[tokenId].push(VoteAllocation({gauge: gauges[i], weight: weights[i]}));
-            // AUDIT FIX: V2-GOV-05 — maintain the per-epoch top cache so
-            // `_getRelativeWeightAt` is O(1) per call.
-            _updateEpochTop(epoch, gauges[i]);
+            // AUDIT FIX FRESH-2026: F-17-4 — `_updateEpochTop` removed (dead state).
         }
 
         emit VoteRevealed(msg.sender, tokenId, epoch, gauges, weights);
@@ -724,15 +813,22 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
     /// @notice Returns a gauge's share of total emissions in basis points for the current epoch
     /// @return Relative weight in BPS (0-10000). Returns 0 if no votes cast.
-    /// @dev    AUDIT FIX: DEEP-GOV-03 — uses option-b denominator scaling. When the
-    ///         top gauge would otherwise capture >50% of votes, the denominator is
-    ///         scaled to `2 * topGauge.weight` so its share is exactly 50% but the
-    ///         remainder stays distributable to surviving gauges.
+    /// @dev    AUDIT FIX V3-GOV-03 + V3-GOV-06 — Curve-style natural distribution.
+    ///         No per-gauge cap: the H14 single-actor capture scenario is closed
+    ///         UPSTREAM by the C2 commit `committedPower` cap and the
+    ///         `min(historical, current)` clamp at every vote site.
+    /// @dev    AUDIT FIX FRESH-2026: F-69-2 — view does NOT incorporate the
+    ///         `quorumMet()` gate. Downstream consumers MUST check `quorumMet(epoch)`
+    ///         before using `getGaugeEmission` / `getRelativeWeight*`. See `quorumMet`.
     function getRelativeWeight(address gauge) external view returns (uint256) {
         return _getRelativeWeightAt(gauge, currentEpoch());
     }
 
     /// @notice Returns a gauge's share of the emission budget for the current epoch
+    /// @dev    AUDIT FIX FRESH-2026: F-69-2 — does NOT incorporate the `quorumMet()`
+    ///         gate. Off-chain emission distributors MUST check `quorumMet(epoch)`
+    ///         before honoring this number; without quorum, distributing emissions
+    ///         lets a single voter direct 100% of the budget. See `quorumMet`.
     function getGaugeEmission(address gauge) external view returns (uint256) {
         return (emissionBudget * _getRelativeWeightAt(gauge, currentEpoch())) / BPS;
     }
@@ -742,42 +838,44 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         return _getRelativeWeightAt(gauge, epoch);
     }
 
-    /// @dev AUDIT FIX: V2-GOV-04 + V2-GOV-05 — true renormalization (option-a)
-    ///      with O(1) per-epoch top-weight cache. Pre-fix the option-b
-    ///      denominator scaling left up to 49% of emissions undistributed when
-    ///      the top gauge dominated; this version exact-distributes BPS by
-    ///      capping the top to MAX_GAUGE_RELATIVE_WEIGHT_BPS and proportionally
-    ///      redistributing the over-cap to all other gauges.
-    ///      Pre-fix the topWeight scan was an O(n) loop over the entire
-    ///      `gaugeList`; this version reads the cached `topWeightByEpoch[epoch]`
-    ///      maintained at vote / revealVote sites.
-    /// @dev AUDIT FIX: V2-GOV-03 — past-epoch reads now use the cached top from
-    ///      that epoch, so a post-epoch gauge removal (allowed only when current
-    ///      weight is zero) cannot retroactively change the historical top.
+    /// @notice AUDIT FIX FRESH-2026: F-69-2 — quorum oracle for downstream emission
+    ///         distributors. Returns true iff BOTH:
+    ///           - `totalWeightByEpoch[epoch]` is non-zero (any positive vote
+    ///             allocation); AND
+    ///           - distinct voting NFTs in `epoch` is at least
+    ///             `MIN_VOTING_NFTS_PER_EPOCH` (3).
+    ///         Off-chain emission distributors and any future on-chain consumer MUST
+    ///         gate emission distribution on this view; without it, GaugeController is
+    ///         a permissive oracle that returns natural-distribution weights even when
+    ///         only one tokenId has voted. Mirrors CommunityGrants' `MIN_UNIQUE_VOTERS`
+    ///         pattern.
+    /// @dev    The `MIN_TOTAL_VOTE_WEIGHT_BPS` constant documents an additional
+    ///         relative-weight floor; the load-bearing constraint is the
+    ///         distinct-voter gate. With >= 3 distinct voters required, no single
+    ///         actor can reach quorum in isolation regardless of stake.
+    function quorumMet(uint256 epoch) public view returns (bool) {
+        if (totalWeightByEpoch[epoch] == 0) return false;
+        if (distinctVotersPerEpoch[epoch] < MIN_VOTING_NFTS_PER_EPOCH) return false;
+        return true;
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: F-69-2 — current-epoch convenience overload.
+    function quorumMet() external view returns (bool) {
+        return quorumMet(currentEpoch());
+    }
+
+    /// @dev AUDIT FIX V3-GOV-03 + V3-GOV-06 — Curve-style natural-distribution
+    ///      relative weight, no per-gauge cap. The H14 single-actor capture
+    ///      scenario the cap was designed to block is closed UPSTREAM by:
+    ///        - C2 commitVote `committedPower` cap
+    ///        - C3 / DEEP-GOV-01 `min(historical, current)` clamp at every vote site
+    ///      so the cap+renormalize formula's two unfixable edges (over-amplification
+    ///      of 1-wei lone voters and zero-divide leak of 50% emissions) are both
+    ///      eliminated by going to natural distribution.
+    /// @dev AUDIT FIX FRESH-2026: F-17-4 — stale NatSpec referencing the
+    ///      removed `topWeightByEpoch` cache deleted; the V3 formula reads only
+    ///      `totalWeightByEpoch[epoch]` and `gaugeWeightByEpoch[epoch][gauge]`.
     function _getRelativeWeightAt(address gauge, uint256 epoch) internal view returns (uint256) {
-        // AUDIT FIX V3-GOV-03 + V3-GOV-06: switch to the Curve-style natural
-        // distribution algorithm. Drop the per-gauge cap + renormalization
-        // entirely.
-        //
-        // The cap+renormalize formula `(gw * (BPS - cap)) / othersTotal` had
-        // two unfixable edges:
-        //   - V3-GOV-03 over-amplification: a 1-wei voter who is the ONLY
-        //     non-top voter received `(1 * 5000) / 1 = 5000` (50% of
-        //     emissions) — wildly disproportionate to their stake.
-        //   - V3-GOV-06 zero-divide leak: when `othersTotal == 0` (single
-        //     gauge has all votes), the function returned 0, silently leaking
-        //     50% of the budget.
-        //
-        // These edges aren't fixable by tweaking the formula — they're
-        // intrinsic to "cap one then redistribute the cap-overflow." The H14
-        // attack scenario the cap was designed to block (a 1-wei voter
-        // controlling 100% of emissions) is already closed UPSTREAM by:
-        //   - C2 commitVote `committedPower` cap (voters can't commit more
-        //     than their userPower)
-        //   - C3 / DEEP-GOV-01 `min(historical, current)` clamp at every
-        //     vote site (voters can't apply post-divest aggregate)
-        // So the cap is now solving a problem that's already solved.
-        //
         // Pattern of record: Curve `GaugeController.gauge_relative_weight`
         // returns `gauge_weights[gauge] * 10**18 / total_weight` with NO cap.
         // The natural distribution is fair because vote weight is
@@ -790,17 +888,6 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (gw == 0) return 0;
 
         return (gw * BPS) / total;
-    }
-
-    /// @dev AUDIT FIX: V2-GOV-05 — internal helper to update the per-epoch top
-    ///      cache after a gauge's weight has been incremented. Cheap O(1) compare
-    ///      against the existing top. Called from both `vote()` and `revealVote()`.
-    function _updateEpochTop(uint256 epoch, address gauge) internal {
-        uint256 newWeight = gaugeWeightByEpoch[epoch][gauge];
-        if (newWeight > topWeightByEpoch[epoch]) {
-            topWeightByEpoch[epoch] = newWeight;
-            topGaugeByEpoch[epoch] = gauge;
-        }
     }
 
     /// @notice Returns the vote allocations for a tokenId in its last voted epoch
@@ -827,20 +914,33 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///      VoteIncentives can gate `depositBribe` on `pairToGauge[pair] != 0`
     ///      and avoid stranded bonds on un-gauged pairs. Pair must be a
     ///      contract and must not already be mapped to a different gauge.
+    /// @dev AUDIT FIX FRESH-2026: F-60-2 — both `gauge` and `pair` checked with
+    ///      `code.length > 0 && code.length != 23` to reject EIP-7702-delegated
+    ///      EOAs (which have a 23-byte delegation pointer). Mirrors
+    ///      `OwnableNoRenounce._transferOwnership` and `TegridyFactory.createPair`.
     function proposeAddGauge(address gauge, address pair) external onlyOwner {
         if (gauge == address(0)) revert ZeroAddress();
         // AUDIT FIX G-02: refuse to register an EOA / non-contract as a gauge.
+        // AUDIT FIX FRESH-2026: F-60-2 — also reject 7702-delegated EOAs (length 23).
         // Pre-fix, an owner mistake (typo, malformed address, copy-paste from a
         // different chain) could whitelist a non-contract — voters would
         // allocate weight to it, downstream emission distribution would route
         // to an EOA (or a non-existent address on this chain), and emissions
         // would be lost or routed to a coincidental EOA. Battle-tested
         // defensive check used by every major gauge-controller (Curve, etc.).
-        if (gauge.code.length == 0) revert NotAContract();
+        {
+            uint256 gaugeLen = gauge.code.length;
+            if (gaugeLen == 0 || gaugeLen == 23) revert NotAContract();
+        }
         if (isGauge[gauge]) revert GaugeAlreadyExists();
         // AUDIT FIX (pass-8): GOV-INT-01 / C8 — pair coupling.
+        // AUDIT FIX FRESH-2026: F-60-2 — also reject 7702-delegated EOAs (length 23)
+        // for pair so the (gauge, pair) coupling is genuine-contract on both ends.
         if (pair == address(0)) revert InvalidPair();
-        if (pair.code.length == 0) revert InvalidPair();
+        {
+            uint256 pairLen = pair.code.length;
+            if (pairLen == 0 || pairLen == 23) revert InvalidPair();
+        }
         if (pairToGauge[pair] != address(0)) revert PairAlreadyMapped();
         // PASS7-GAUGE-H1 FIX: refuse to re-add a gauge that is currently the
         // subject of a deferred removal (`executeRemoveGaugeNextEpoch` was called,
@@ -889,16 +989,7 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (!isGauge[gauge]) revert GaugeDoesNotExist();
         // AUDIT FIX N-1 (orphan-gauge): refuse a fresh propose if a prior
         // `executeRemoveGaugeNextEpoch` has staged a deferred prune that
-        // hasn't been finalized. Without this guard, calling proposeRemoveGauge(B)
-        // overwrites `pendingGaugeRemove = A` (set by the prior next-epoch path
-        // and intentionally left non-zero so finalize knows which gauge to prune)
-        // — A is now permanently in gaugeList with isGauge[A]=false because the
-        // finalize path keys off `pendingGaugeRemove` and would only ever prune B.
-        // Repeated administration would slowly fill gaugeList up to MAX_TOTAL_GAUGES
-        // (50) with dead entries, eventually bricking proposeAddGauge.
-        // Owner must call `executeRemoveGaugeFinalize` (permissionless once weight
-        // zeroes) before staging the next removal — or use the synchronous
-        // `executeRemoveGauge` path (which clears pendingGaugeRemove on success).
+        // hasn't been finalized.
         if (pendingGaugeRemove != address(0)) revert GaugeRemovePending();
         pendingGaugeRemove = gauge;
         _propose(GAUGE_REMOVE, GAUGE_TIMELOCK);
@@ -909,26 +1000,11 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         _execute(GAUGE_REMOVE);
         address gauge = pendingGaugeRemove;
         // AUDIT FIX: DEEP-GOV-14 — refuse mid-epoch removal when the gauge already
-        // received votes for the current epoch. Without this, the dead gauge's weight
-        // stays in `totalWeightByEpoch[currentEpoch]` even though `isGauge` flips to
-        // false, diluting every surviving gauge's relative weight for the rest of
-        // the epoch. Owner must wait until next epoch (when the gauge has zero
-        // weight in the new bucket). Pattern: Curve change_gauge_weight applies
-        // at next epoch boundary.
-        // AUDIT FIX: V2-GOV-07 — when current-epoch votes exist, owners now have a
-        // documented escape via `executeRemoveGaugeNextEpoch()` below: it flips
-        // `isGauge` immediately so future votes for the gauge revert
-        // (`InvalidGauge`), but defers the gaugeList swap-and-pop to the natural
-        // epoch boundary. This means a single voter cannot perpetually block
-        // removal by voting at the start of every epoch — the owner can immediately
-        // disarm new votes while the current epoch's emissions finish out cleanly.
+        // received votes for the current epoch.
         if (gaugeWeightByEpoch[currentEpoch()][gauge] > 0) revert GaugeHasActiveVotes();
         isGauge[gauge] = false;
 
-        // AUDIT FIX (pass-8): GOV-INT-01 — clear the (gauge, pair) mapping so a
-        // subsequent `proposeAddGauge` for the same pair (or a fresh gauge for it)
-        // can re-register without `PairAlreadyMapped`. Captured in `removedPair`
-        // for the GaugeRemoved event downstream.
+        // AUDIT FIX (pass-8): GOV-INT-01 — clear the (gauge, pair) mapping.
         address removedPair = gaugeToPair[gauge];
         if (removedPair != address(0)) {
             delete pairToGauge[removedPair];
@@ -951,51 +1027,23 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
     /// @notice AUDIT FIX: V2-GOV-07 — alternative removal path that disables the
     ///         gauge IMMEDIATELY (no future votes accepted) but defers the
-    ///         gaugeList prune to a manual second step. Closes the
-    ///         "voter-veto-by-perpetual-voting" attack on `executeRemoveGauge`:
-    ///         pre-fix, a single voter calling `vote()` at every epoch start could
-    ///         keep `gaugeWeightByEpoch[currentEpoch][gauge] > 0` forever and
-    ///         cause every owner removal proposal to expire unused.
-    ///         With this path, the owner flips `isGauge` to false the moment the
-    ///         timelock elapses, blocking new votes regardless of any active
-    ///         votes already cast for the current epoch. The current-epoch's
-    ///         emissions still distribute against the cast votes (no retroactive
-    ///         change) — only future votes are blocked.
-    /// @dev    Followed up by `executeRemoveGaugeFinalize()` once the current
-    ///         epoch's votes naturally age out, to prune `gaugeList`.
+    ///         gaugeList prune to a manual second step.
     function executeRemoveGaugeNextEpoch() external onlyOwner {
         _execute(GAUGE_REMOVE);
         address gauge = pendingGaugeRemove;
-        // Disarm new votes immediately. Existing votes for currentEpoch keep
-        // their weight (no retroactive shrink); finalize() prunes once safe.
         isGauge[gauge] = false;
-        // AUDIT FIX (pass-8): GOV-INT-01 — clear pair mapping at disarm time so
-        // bribers can no longer deposit against the now-orphaned pair while we
-        // wait for the natural epoch boundary to prune `gaugeList`. The
-        // gaugeToPair entry is also cleared to keep the bidirectional view honest.
         address removedPair = gaugeToPair[gauge];
         if (removedPair != address(0)) {
             delete pairToGauge[removedPair];
             delete gaugeToPair[gauge];
         }
-        // pendingGaugeRemove is INTENTIONALLY left set so finalize knows which
-        // gauge to prune from gaugeList. emit signals the change is staged.
         emit GaugeRemoved(gauge, removedPair);
     }
 
-    /// @notice AUDIT FIX: V2-GOV-07 — finalizes the removal staged by
-    ///         `executeRemoveGaugeNextEpoch`: prunes `gaugeList` once the gauge
-    ///         no longer has any current-epoch weight (i.e., the epoch in which
-    ///         the active votes were cast has fully aged out).
-    ///         Permissionless because by the time current-epoch weight is zero,
-    ///         the gauge is already disarmed (`isGauge == false`) and there's
-    ///         nothing to wait on.
     function executeRemoveGaugeFinalize() external {
         address gauge = pendingGaugeRemove;
         if (gauge == address(0)) revert GaugeDoesNotExist();
-        // Allow finalize ONLY after currentEpoch's weight is zero.
         if (gaugeWeightByEpoch[currentEpoch()][gauge] > 0) revert GaugeHasActiveVotes();
-        // Defensive: must already be disarmed.
         if (isGauge[gauge]) revert GaugeAlreadyExists();
 
         uint256 len = gaugeList.length;
@@ -1040,15 +1088,48 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
 
-    /// @notice One-shot wire of the TegridyRestaking contract address.
-    /// @dev    AUDIT FIX (pass-8): GOV-ECON-01 / C10. Without this, voters who
-    ///         restake their staking NFT have `tegridyStaking.votingPower*` return
-    ///         0 and silently lose ALL gauge-voting power. Mirrors the
-    ///         `setSequencerFeed` one-shot pattern.
-    function setRestakingContract(address _restaking) external onlyOwner {
+    // ─── Restaking Contract (48h timelocked rotation) ───────────────
+
+    /// @notice AUDIT FIX FRESH-2026: F-65-2 — propose a new restaking contract.
+    ///         48h timelocked rotation replaces the previous one-shot setter.
+    /// @dev    AUDIT FIX FRESH-2026: F-17-3 + F-60-2 — `_restaking` must be a
+    ///         genuine contract (`code.length > 0 && code.length != 23`).
+    function proposeRestakingContract(address _restaking) external onlyOwner {
         if (_restaking == address(0)) revert ZeroAddress();
-        if (restakingContract != address(0)) revert RestakingAlreadySet();
-        restakingContract = _restaking;
-        emit RestakingContractSet(_restaking);
+        uint256 codeLen = _restaking.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        pendingRestakingContract = _restaking;
+        _propose(RESTAKING_CHANGE, RESTAKING_CHANGE_TIMELOCK);
+        emit RestakingContractProposed(_restaking, _proposalReadyAt(RESTAKING_CHANGE));
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: F-65-2 — execute a previously proposed
+    ///         restaking-contract rotation.
+    /// @dev    AUDIT FIX FRESH-2026: F-17-3 + F-60-2 — re-check code length at
+    ///         execute time defensively.
+    function executeRestakingContract() external onlyOwner {
+        _execute(RESTAKING_CHANGE);
+        address oldR = restakingContract;
+        address newR = pendingRestakingContract;
+        pendingRestakingContract = address(0);
+        uint256 codeLen = newR.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        restakingContract = newR;
+        emit RestakingContractChanged(oldR, newR);
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: F-65-2 — cancel a pending restaking-contract
+    ///         rotation proposal.
+    function cancelRestakingContract() external onlyOwner {
+        address pending = pendingRestakingContract;
+        pendingRestakingContract = address(0);
+        _cancel(RESTAKING_CHANGE);
+        emit RestakingContractProposalCancelled(pending);
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: F-65-2 — view helper for the pending
+    ///         restaking-contract rotation's execute-after timestamp.
+    function restakingChangeReadyAt() external view returns (uint256) {
+        return _proposalReadyAt(RESTAKING_CHANGE);
     }
 }

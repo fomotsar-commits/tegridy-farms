@@ -679,15 +679,19 @@ contract Audit195Restaking is Test {
     function test_rescueNFT_revertIfActivelyRestaked() public {
         uint256 tokenId = _stakeAndRestake(alice, STAKE_AMOUNT);
 
-        vm.expectRevert(TegridyRestaking.BadParam.selector); // BATCH-N4: typed error replaces "ACTIVELY_RESTAKED"
-        restaking.rescueNFT(tokenId, bob);
+        // AUDIT FIX FRESH-2026: M-3 [F-03-K3] + M-4 [F-04-2] — rescueNFT is now
+        // a propose/execute pair. proposeRescueNFT reverts BadParam when an
+        // active restaker still owns the tokenId.
+        vm.expectRevert(TegridyRestaking.BadParam.selector);
+        restaking.proposeRescueNFT(tokenId, bob);
     }
 
     function test_rescueNFT_revertZeroAddress() public {
-        // BATCH-J1 H18: rescueNFT now requires _to == address(staking), not !=0.
-        // address(0) trips the same require with new typed-error revert.
-        vm.expectRevert(TegridyRestaking.BadParam.selector);
-        restaking.rescueNFT(1, address(0));
+        // AUDIT FIX FRESH-2026: M-3 [F-03-K3] + M-4 [F-04-2] — proposeRescueNFT
+        // rejects address(0) with ZeroAddress (was BadParam pre-fix when
+        // constrained to address(staking) only).
+        vm.expectRevert(TegridyRestaking.ZeroAddress.selector);
+        restaking.proposeRescueNFT(1, address(0));
     }
 
     // ═══════════════════════════════════════════════════════════════════

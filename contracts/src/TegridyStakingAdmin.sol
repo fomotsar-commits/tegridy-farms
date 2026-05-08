@@ -54,11 +54,16 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     error ZeroAddress();
     error RateTooHigh();
     error CapTooLow();
+    /// @notice AUDIT FIX FRESH-2026: F-35-3 — sanity ceiling on maxUnsettledRewards.
+    error CapTooHigh();
     error ExtendFeeTooHigh();
     error PenaltyRecycleTooHigh();
     /// @notice AUDIT M-AUDIT-2026-1 (MEDIUM, 2026-04-28): the proposed extend-fee
     ///         recycle bps exceeds `BPS` (10000 = 100% recycle).
     error ExtendFeeRecycleTooHigh();
+    /// @notice AUDIT FIX FRESH-2026: F-43-C / F-60-2 — proposed restaking address
+    ///         is an EOA or EIP-7702 delegated EOA (code.length == 0 or 23).
+    error NotAContract();
 
     // ─── Timelock keys ────────────────────────────────────────────────
     bytes32 public constant REWARD_RATE_CHANGE = keccak256("REWARD_RATE_CHANGE");
@@ -179,6 +184,11 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     // ─── Restaking contract ───────────────────────────────────────────
     function proposeRestakingContract(address _restaking) external onlyOwner {
         if (_restaking == address(0)) revert ZeroAddress();
+        // AUDIT FIX FRESH-2026: F-43-C + F-60-2 — reject EOA / EIP-7702 delegated
+        // EOAs at propose time. Mirrors TegridyStaking.setStakingAdmin /
+        // proposeAdminReplacement contract-only enforcement.
+        uint256 codeLen = _restaking.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
         pendingRestakingContract = _restaking;
         _propose(RESTAKING_CHANGE, RESTAKING_CHANGE_TIMELOCK);
         emit RestakingContractChangeProposed(_restaking, _executeAfter[RESTAKING_CHANGE]);
@@ -203,8 +213,14 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     }
 
     // ─── Max unsettled rewards ────────────────────────────────────────
+    /// @notice AUDIT FIX FRESH-2026: F-35-3 — sanity ceiling shared with staking-side.
+    uint256 public constant MAX_MAX_UNSETTLED = 1e10 ether;
+
     function proposeMaxUnsettledRewards(uint256 _newCap) external onlyOwner {
         if (_newCap < 10_000e18) revert CapTooLow();
+        // AUDIT FIX FRESH-2026: F-35-3 — fail-fast at propose time so the 48h
+        // wait isn't burned on a doomed proposal. Mirrors the staking-side guard.
+        if (_newCap > MAX_MAX_UNSETTLED) revert CapTooHigh();
         pendingMaxUnsettledRewards = _newCap;
         _propose(UNSETTLED_CAP_CHANGE, UNSETTLED_CAP_TIMELOCK);
         // AUDIT ADMIN-1 (2026-04-28): emit proposal event for parity with sister proposers.

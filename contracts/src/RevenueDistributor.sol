@@ -158,6 +158,14 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     // epochs.
     uint256 public constant MAX_CLAIM_EPOCHS = 250;
     uint256 public constant MAX_VIEW_EPOCHS = 250;
+    /// @notice AUDIT FIX F-13-3 [F-50-1, F-72-7] (LOW): per-call window cap on
+    ///         the paginated reclaim-eligibility scan. 250 mirrors
+    ///         `MAX_VIEW_EPOCHS` / `MAX_CLAIM_EPOCHS` so the same window-shape
+    ///         that is gas-safe for `_calculateClaim` is reused here. The
+    ///         legacy whole-history view is preserved for off-chain callers
+    ///         and for the propose-time gate; new on-chain consumers should
+    ///         use `reclaimEligibleAmountPaginated`.
+    uint256 public constant MAX_RECLAIM_PAGE_SIZE = 250;
 
     // Minimum interval between permissionless distributions
     uint256 public constant MIN_DISTRIBUTE_INTERVAL = 4 hours;
@@ -238,6 +246,11 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     event ClaimRecoveryCancelled(address indexed user, uint256 indexed epoch);
     // AUDIT R014 M-8: auto-reconcile events
     event DustAutoReconciled(uint256 fromEpoch, uint256 toEpoch, uint256 amount, uint256 routedToEpoch);
+    /// @notice AUDIT FIX F-12-K-3 (LOW / fairness): emitted when `autoReconcileDust`
+    ///         routes per-epoch dust into the protocol-wide pool (instead of the
+    ///         previous mutate-into-`epochs[length-1]` shape). Mirrors
+    ///         `DustAutoReconciled` but is emitted per-epoch with a clearer name.
+    event DustRoutedToProtocolPool(uint256 fromEpoch, uint256 toEpoch, uint256 amount);
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -292,6 +305,27 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     error GracePeriodActive();
     // AUDIT REV-H-02: propose-time guard for already-reconciled epochs.
     error EpochAlreadyReconciled();
+    /// @notice AUDIT FIX F-12-K-4 (LOW / liveness): typed error emitted when both the
+    ///         historical `totalBoostedStakeAtTimestamp(T-1)` AND the live
+    ///         `totalBoostedStake()` fallback fail (revert on a future staking-side
+    ///         ABI break or new revert path). Lets ops dashboards distinguish
+    ///         "staking contract is broken" from "no stakers" / "amount too small".
+    error StakingTotalBoostedStakeFailed();
+    /// @notice AUDIT FIX F-13-3 [F-50-1, F-72-7] (LOW): paginated-form callers must
+    ///         supply a window no larger than `MAX_RECLAIM_PAGE_SIZE` (250).
+    error ReclaimPageSizeExceeded();
+    /// @notice AUDIT FIX F-13-3 [F-50-1, F-72-7] (LOW): paginated-form callers must
+    ///         supply `endEpoch <= epochs.length`.
+    error ReclaimEndEpochOutOfBounds();
+    /// @notice AUDIT FIX F-13-3 [F-50-1, F-72-7] (LOW): paginated-form callers must
+    ///         supply `startEpoch < endEpoch`.
+    error ReclaimRangeEmpty();
+    /// @notice AUDIT FIX F-13-4 (INFO): `executeTokenSweep` deny-list — WETH cannot
+    ///         be swept because the WETHFallbackLib's wrap-on-fail path leaves WETH
+    ///         that is part of the staker pool (e.g., from `withdrawPending`'s
+    ///         fallback leg). Sweeping WETH would rug stakers whose share landed
+    ///         in `pendingWithdrawals` after a failed direct ETH push.
+    error TokenSweepWETHDenied();
 
     // ─── Constructor ──────────────────────────────────────────────────
 
@@ -300,6 +334,24 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         votingEscrow = IVotingEscrow(_votingEscrow);
         weth = IWETH(_weth);
         treasury = _treasury;
+
+        // ─── AUDIT FIX H-11 [F-55-1, F-80-02] (HIGH) ──────────────────────────
+        // Pre-warm the `_totalETHReceivedRaw` storage slot so the first ingress
+        // through the receive() body does NOT incur the 22.1k zero→non-zero
+        // SSTORE (Berlin/Shanghai pricing). Without this, the very first ETH
+        // delivery to RevenueDistributor via `WETHFallbackLib.safeTransferETHOrWrap`
+        // (10k stipend) would always blow the gas budget on the SSTORE alone,
+        // causing the lib to fall back to wrapping the ETH as WETH ERC20 — and
+        // since `_distribute()` reads only `address(this).balance`, the wrapped
+        // WETH is invisible to the distribution loop and stakers never see it.
+        //
+        // We seed the slot with 1 wei (the smallest non-zero value) so every
+        // future receive() SSTORE is non-zero→non-zero (~5k gas), comfortably
+        // within the 10k stipend together with the LOG2 emit (~1.7k) and
+        // arithmetic. The public `totalETHReceived()` getter below subtracts the
+        // pre-warm offset so external observers see the same monotonic counter
+        // as the sister contracts (POLAccumulator, SwapFeeRouter).
+        _totalETHReceivedRaw = 1;
     }
 
     // ─── Receive ETH ──────────────────────────────────────────────────
@@ -310,10 +362,22 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     /// contracts. Also catches selfdestruct/coinbase ETH that bypasses
     /// `receive()` only when off-chain readers diff this counter against
     /// `address(this).balance` (a divergence flags donation drift).
-    uint256 public totalETHReceived;
+    /// @dev AUDIT FIX H-11 [F-55-1, F-80-02]: stored as `_totalETHReceivedRaw`
+    ///      (pre-warmed to 1 in the constructor) so the first SSTORE in
+    ///      receive() is non-zero→non-zero (~5k gas) instead of zero→non-zero
+    ///      (~22.1k gas). External observers MUST use the public getter
+    ///      `totalETHReceived()` below which subtracts the 1-wei pre-warm.
+    uint256 private _totalETHReceivedRaw;
+
+    /// @notice Monotonic counter of ETH delivered through the receive() path.
+    ///         Subtracts the 1-wei constructor pre-warm (see H-11 fix above) so
+    ///         observers see the same semantic as POLAccumulator / SwapFeeRouter.
+    function totalETHReceived() external view returns (uint256) {
+        unchecked { return _totalETHReceivedRaw - 1; }
+    }
 
     receive() external payable {
-        unchecked { totalETHReceived += msg.value; }
+        unchecked { _totalETHReceivedRaw += msg.value; }
         emit ETHReceived(msg.sender, msg.value);
     }
 
@@ -330,6 +394,18 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     ///      guard) to concentrate the entire epoch's revenue to themselves —
     ///      a cross-contract attack chain confirmed by the PASS5 PoC.
     function distribute() external nonReentrant whenNotPaused {
+        // AUDIT FIX M-14 [F-13-2] (MEDIUM): mirror the `claim()`/`claimUpTo()`/
+        // `executeClaimRecovery()` `_isStakingPaused()` gate. The pause flag is
+        // the protocol's universal kill-switch for "staking-side checkpoint data
+        // is corrupt / under exploit"; if claims must refuse to use that data,
+        // distributions must refuse to CEMENT it into a new epoch. Without this
+        // gate, an attacker who exploited TegridyStaking to inflate their
+        // boostedAmount could (a) wait for the team to pause staking, (b)
+        // permissionlessly call `distributePermissionless()` to lock the
+        // corrupt denominator into `epochs[i].totalLocked`, then (c) claim
+        // the inflated share post-unpause. The gate makes the kill-switch
+        // symmetric across read AND write paths.
+        if (_isStakingPaused()) revert StakingPaused();
         require(votingEscrow.totalBoostedStake() >= MIN_DISTRIBUTE_STAKE, "STAKE_TOO_LOW");
         _distribute();
     }
@@ -344,6 +420,12 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     uint256 public constant MIN_DISTRIBUTE_STAKE = 1000e18; // Minimum 1000 TOWELI equivalent staked
 
     function distributePermissionless() external nonReentrant whenNotPaused {
+        // AUDIT FIX M-14 [F-13-2] (MEDIUM): same `_isStakingPaused()` gate as
+        // `distribute()` above. See that function's comment for full rationale.
+        // Attacker route: corrupt-checkpoint exploit → team pauses staking →
+        // attacker calls THIS permissionless path to cement the corrupt
+        // denominator into a new epoch → claims after unpause. Closed here.
+        if (_isStakingPaused()) revert StakingPaused();
         // AUDIT FIX M-12: Prevent distribution at low stake levels to avoid concentration attacks
         require(votingEscrow.totalBoostedStake() >= MIN_DISTRIBUTE_STAKE, "STAKE_TOO_LOW");
         uint256 reserved = (totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0) + totalPendingWithdrawals;
@@ -396,8 +478,20 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // to the live value so the very first distribution after a fresh deploy doesn't
         // brick. The live value also serves as the floor when the upgraded staking
         // contract hasn't yet been wired in.
+        //
+        // AUDIT FIX F-12-K-4 (LOW / liveness): wrap the live-fallback in try/catch
+        // mirroring the historical lookup above. Without this, a future staking-side
+        // ABI break or new revert path on `totalBoostedStake()` would brick
+        // distribution permanently (votingEscrow is immutable). With the try/catch,
+        // a broken live read surfaces as a typed `StakingTotalBoostedStakeFailed`
+        // error instead of an opaque cascade — keeper and ops dashboards can detect
+        // and trigger the staking-contract recovery path immediately.
         if (locked == 0) {
-            locked = votingEscrow.totalBoostedStake();
+            try votingEscrow.totalBoostedStake() returns (uint256 live) {
+                locked = live;
+            } catch {
+                revert StakingTotalBoostedStakeFailed();
+            }
         }
         if (locked == 0) revert NoLockedTokens();
 
@@ -418,6 +512,14 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
 
     /// @notice Recover stuck ETH when ALL stakers have unlocked (totalBoostedStake == 0).
     ///         Only withdraws excess ETH, preserving unclaimed amounts.
+    /// @dev AUDIT FIX M-38 [F-55-2, F-80-06] (MEDIUM): route through
+    ///      `WETHFallbackLib.safeTransferETHOrWrap` instead of raw `.call`.
+    ///      Treasury is rotatable behind a 48h timelock; if rotation has just
+    ///      landed and the new treasury's `receive()` reverts (paused multisig,
+    ///      misconfigured Safe guard), the prior raw-call shape would have
+    ///      bricked this dust-recovery hatch and required ANOTHER 48h treasury
+    ///      rotation to recover. The lib's WETH-wrap fallback ensures the funds
+    ///      always land in treasury (as ETH or as WETH ERC20) without bricking.
     function emergencyWithdraw() external onlyOwner nonReentrant {
         if (votingEscrow.totalBoostedStake() != 0) revert StillHasLockedTokens();
 
@@ -426,8 +528,7 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         uint256 withdrawable = balance > unclaimed ? balance - unclaimed : 0;
         if (withdrawable == 0) revert NoETHToWithdraw();
 
-        (bool success,) = treasury.call{value: withdrawable}("");
-        if (!success) revert ETHTransferFailed();
+        WETHFallbackLib.safeTransferETHOrWrap(address(weth), treasury, withdrawable);
 
         emit EmergencyWithdraw(treasury, withdrawable);
     }
@@ -455,8 +556,10 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         uint256 excess = balance > reserved ? balance - reserved : 0;
         if (excess == 0) revert NoETHToWithdraw();
 
-        (bool success,) = treasury.call{value: excess}("");
-        if (!success) revert ETHTransferFailed();
+        // AUDIT FIX M-38 [F-55-2, F-80-06] (MEDIUM): route through WETHFallbackLib
+        // for treasury-contract robustness. See `emergencyWithdraw` above for
+        // the full rationale (treasury rotation race vs reverting receive).
+        WETHFallbackLib.safeTransferETHOrWrap(address(weth), treasury, excess);
 
         emit EmergencyWithdrawExcess(treasury, excess);
     }
@@ -540,7 +643,15 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     ///      by `epoch.totalLocked` in _calculateClaim.
     function _restakedPowerAt(address _user, uint256 _ts) internal view returns (uint256) {
         if (address(restakingContract) == address(0)) return 0;
-        try restakingContract.boostedAmountAt(_user, _ts) returns (uint256 p) {
+        // AUDIT FIX F-50-8 [agent_50] (INFO / defense-in-depth): cap the gas
+        // forwarded to the restaking-contract call at 50_000 wei. The function
+        // is documented as a Trace208 lookup (~5k gas typical), so 50k is
+        // generous. Without the cap, an upgraded/captured restaking contract
+        // that consumes unbounded legitimate gas (not a revert — just slow)
+        // could push 250-iteration `_calculateClaim` loops past the block gas
+        // limit. Bounded gas closes that surface while preserving the existing
+        // try/catch zero-return defense for revert paths.
+        try restakingContract.boostedAmountAt{gas: 50_000}(_user, _ts) returns (uint256 p) {
             return p;
         } catch {
             return 0;
@@ -873,8 +984,10 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         uint256 dust = balance > reserved ? balance - reserved : 0;
         if (dust == 0) revert NoDustToSweep();
 
-        (bool success,) = treasury.call{value: dust}("");
-        if (!success) revert ETHTransferFailed();
+        // AUDIT FIX M-38 [F-55-2, F-80-06] (MEDIUM): route through WETHFallbackLib
+        // for treasury-contract robustness. See `emergencyWithdraw` above for
+        // the full rationale (treasury rotation race vs reverting receive).
+        WETHFallbackLib.safeTransferETHOrWrap(address(weth), treasury, dust);
 
         emit DustSwept(treasury, dust);
     }
@@ -890,6 +1003,11 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     function proposeTokenSweep(address token, address to) external onlyOwner {
         if (token == address(0)) revert ZeroAddress();
         if (to == address(0)) revert ZeroAddress();
+        // AUDIT FIX F-13-4 (INFO): fail fast at propose time so admins do not
+        // burn a 48h timelock on a doomed proposal that the execute-time deny
+        // would revert anyway. See `executeTokenSweep` below for the full
+        // rationale on why WETH must be excluded.
+        if (token == address(weth)) revert TokenSweepWETHDenied();
         pendingSweepToken = token;
         pendingSweepTo = to;
         _propose(TOKEN_SWEEP, TOKEN_SWEEP_DELAY);
@@ -904,6 +1022,16 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         address to = pendingSweepTo;
         pendingSweepToken = address(0);
         pendingSweepTo = address(0);
+        // AUDIT FIX F-13-4 (INFO): explicit deny-list for the canonical WETH.
+        // The WETHFallbackLib's wrap-on-fail leaves WETH ERC20 inside this
+        // contract whenever a 10k-stipend ETH push fails (e.g., a contract
+        // recipient whose `receive()` exceeds the budget). That WETH is
+        // semantically part of the staker pool — a user whose claim landed in
+        // `pendingWithdrawals` and whose subsequent `withdrawPending` push
+        // wrapped is owed that WETH. Sweeping WETH here would rug those users.
+        // Mirror lib-side wrap recovery is via the existing claim/withdraw
+        // mechanics; admin-side sweep MUST exclude WETH.
+        if (token == address(weth)) revert TokenSweepWETHDenied();
         uint256 balance = IERC20(token).balanceOf(address(this));
         require(balance > 0, "NO_TOKEN_BALANCE");
         IERC20(token).safeTransfer(to, balance);
@@ -958,9 +1086,45 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     ///         has elapsed. This is the ONLY pool the owner is permitted to forfeit-reclaim.
     /// @dev Bounded loop scanning every epoch — O(epochs.length). Used in propose-time gate
     ///      and exposed as a view so off-chain callers can size proposals correctly.
+    /// @dev AUDIT FIX F-13-3 [F-50-1, F-72-7] (LOW): preserved as the legacy
+    ///      whole-history view for off-chain callers + the propose-time gate.
+    ///      Long-tail O(epochs.length) — at ~6 epochs/day for 5 years this hits
+    ///      ~10k epochs and approaches the eth_call gas budget. New paginated
+    ///      sister `reclaimEligibleAmountPaginated` (below) is the canonical
+    ///      on-chain shape; the propose path also accepts a paginated form.
     function reclaimEligibleAmount() public view returns (uint256 eligible) {
+        return _reclaimEligibleInRange(0, epochs.length);
+    }
+
+    /// @notice AUDIT FIX F-13-3 [F-50-1, F-72-7] (LOW): paginated reclaim-eligibility
+    ///         view. Off-chain callers and the propose path can chunk through
+    ///         `epochs.length` with `MAX_RECLAIM_PAGE_SIZE` per call so the scan
+    ///         remains gas-safe past the 5-year eth_call envelope.
+    /// @param startEpoch The first epoch index to scan (inclusive).
+    /// @param endEpoch   The end epoch index (exclusive). Must be `<= epochs.length`
+    ///                   and `endEpoch - startEpoch <= MAX_RECLAIM_PAGE_SIZE`.
+    function reclaimEligibleAmountPaginated(uint256 startEpoch, uint256 endEpoch)
+        external
+        view
+        returns (uint256 eligible)
+    {
+        if (endEpoch > epochs.length) revert ReclaimEndEpochOutOfBounds();
+        if (startEpoch >= endEpoch) revert ReclaimRangeEmpty();
+        if (endEpoch - startEpoch > MAX_RECLAIM_PAGE_SIZE) revert ReclaimPageSizeExceeded();
+        return _reclaimEligibleInRange(startEpoch, endEpoch);
+    }
+
+    /// @dev Shared body for `reclaimEligibleAmount` (whole-history) and
+    ///      `reclaimEligibleAmountPaginated` (windowed). The eligibility logic
+    ///      is identical to the prior pre-pagination implementation — only the
+    ///      loop bounds differ. Centralised here to keep view↔write parity for
+    ///      the M-12 fix in `executeForfeitReclaim`.
+    function _reclaimEligibleInRange(uint256 startEpoch, uint256 endEpoch)
+        internal
+        view
+        returns (uint256 eligible)
+    {
         uint256 cutoff = block.timestamp > DUST_RECLAIM_GRACE ? block.timestamp - DUST_RECLAIM_GRACE : 0;
-        uint256 len = epochs.length;
         // AUDIT FIX (BATCH-L1 M32): tighten the eligibility window further. Pre-fix
         // the cutoff was the only filter; here we add an EXTRA active-stake-grace
         // ahead of cutoff so a still-locked staker who just hasn't claimed yet
@@ -969,7 +1133,7 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // (MAX_LIFETIME_FORFEIT_BPS = 1%) is still the primary bound; this just
         // pushes the per-epoch cutoff further back to be conservative.
         uint256 extendedCutoff = cutoff > 30 days ? cutoff - 30 days : 0;
-        for (uint256 i = 0; i < len; i++) {
+        for (uint256 i = startEpoch; i < endEpoch; i++) {
             Epoch memory ep = epochs[i];
             if (ep.timestamp >= cutoff) continue; // Still in grace — skip.
             // AUDIT FIX (BATCH-L1 M32): epochs in the [extendedCutoff, cutoff) window
@@ -994,6 +1158,54 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
             if (pendingRecoveryCount[i] > 0) continue;
             uint256 unclaimed = ep.totalETH > epochClaimed[i] ? ep.totalETH - epochClaimed[i] : 0;
             eligible += unclaimed;
+        }
+    }
+
+    /// @notice AUDIT FIX M-12 [F-12-K-1] (MEDIUM): consume eligible per-epoch
+    ///         dust in lockstep with the forfeit-reclaim accounting and bump
+    ///         `epochClaimed[i]` on each consumed epoch so subsequent legitimate
+    ///         late claims correctly compute zero remaining instead of being
+    ///         routed to unfundable `pendingWithdrawals`.
+    /// @dev Walks epochs in chronological order from `startEpoch` to `endEpoch`,
+    ///      applying the same eligibility filter as `_reclaimEligibleInRange`,
+    ///      but on the WRITE side. Each consumed epoch's `epochClaimed[i]` is
+    ///      advanced by the consumed slice so future `_calculateClaim` returns
+    ///      the correct (zero) remaining for those epochs. Returns the actual
+    ///      amount consumed (≤ `targetAmount`).
+    function _consumeEligibleAndBumpClaimed(
+        uint256 startEpoch,
+        uint256 endEpoch,
+        uint256 targetAmount
+    ) internal returns (uint256 consumed) {
+        if (targetAmount == 0) return 0;
+        uint256 cutoff = block.timestamp > DUST_RECLAIM_GRACE ? block.timestamp - DUST_RECLAIM_GRACE : 0;
+        uint256 extendedCutoff = cutoff > 30 days ? cutoff - 30 days : 0;
+        uint256 remaining = targetAmount;
+        for (uint256 i = startEpoch; i < endEpoch && remaining > 0; i++) {
+            Epoch memory ep = epochs[i];
+            if (ep.timestamp >= cutoff) continue;
+            if (pendingRecoveryCount[i] > 0) continue;
+            uint256 epochUnclaimed = ep.totalETH > epochClaimed[i]
+                ? ep.totalETH - epochClaimed[i]
+                : 0;
+            // Apply the same half-window cap that the eligibility view applies
+            // to epochs in [extendedCutoff, cutoff). The write-side accounting
+            // MUST mirror the view-side eligibility so the propose-time/execute-
+            // time `eligible` figures stay consistent with the `epochClaimed[i]`
+            // bumps applied here.
+            if (ep.timestamp >= extendedCutoff) {
+                epochUnclaimed = epochUnclaimed / 2;
+            }
+            if (epochUnclaimed == 0) continue;
+            uint256 take = epochUnclaimed > remaining ? remaining : epochUnclaimed;
+            // SECURITY: bump `epochClaimed[i]` so a still-locked late claimer
+            // computing `remaining = epoch.totalETH - epochClaimed[i]` in
+            // `_calculateClaim` will see zero (or strictly less) for this
+            // epoch — closing the F-12-K-1 rug where late claimers were
+            // routed to unfundable `pendingWithdrawals`.
+            epochClaimed[i] += take;
+            consumed += take;
+            remaining -= take;
         }
     }
 
@@ -1034,6 +1246,29 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
             amount = lifetimeCap > totalForfeitedReclaimed ? lifetimeCap - totalForfeitedReclaimed : 0;
         }
         if (amount == 0) revert ForfeitExceedsLifetimeCap();
+
+        // ─── AUDIT FIX M-12 [F-12-K-1] (MEDIUM) ────────────────────────────
+        // Walk eligible epochs in chronological order and bump `epochClaimed[i]`
+        // for each consumed epoch in lockstep with `totalEarmarked` decrement.
+        // Without this, a long-locked late claimer (e.g., an auto-MaxLock user
+        // claiming monthly) whose epoch share was reclaimed could still compute
+        // their full owed amount via `_calculateClaim` (which reads the
+        // immutable `epoch.totalETH` and `epochClaimed[i]` per-epoch high-water
+        // mark) and be routed to `pendingWithdrawals` — but the contract
+        // balance would be insufficient, bricking their `withdrawPending` call
+        // permanently. By bumping `epochClaimed[i]` here, those late claimers
+        // see zero remaining for the consumed epochs and skip them cleanly.
+        //
+        // The consume loop applies the same eligibility filter as
+        // `_reclaimEligibleInRange` (the view used to size `eligible` above),
+        // so the consumed slice exactly equals the slice the view counted as
+        // eligible. By construction `consumed <= amount <= eligible`, but we
+        // re-clamp `amount` to `consumed` defensively in case a future filter
+        // change introduces drift.
+        uint256 consumed = _consumeEligibleAndBumpClaimed(0, epochs.length, amount);
+        if (consumed < amount) amount = consumed;
+        if (amount == 0) revert ForfeitExceedsEligibleDust();
+
         totalEarmarked -= amount;
         totalForfeited += amount;
         totalForfeitedReclaimed += amount;
@@ -1083,10 +1318,41 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     /// @notice Cursor tracking the next epoch index to attempt auto-reconcile for.
     uint256 public lastReconciledEpoch;
 
+    /// @notice AUDIT FIX F-12-K-3 (LOW / fairness): cumulative dust collected
+    ///         from `autoReconcileDust` across the protocol's lifetime.
+    ///         Pre-fix, dust was mutated into `epochs[length-1].totalETH` —
+    ///         which created a perverse incentive: users who already claimed
+    ///         the destination epoch (`claimedAtEpoch[user][destEpoch] == true`)
+    ///         were locked out of the redirected dust, while patient claimers
+    ///         who delayed their latest-epoch claim until after `autoReconcileDust`
+    ///         captured a disproportionate share. By routing dust into this
+    ///         protocol-wide pool, all active stakers are treated symmetrically
+    ///         and the dust is swept to treasury via the existing
+    ///         48h-timelocked `executeForfeitReclaim` → `sweepDust` cycle.
+    /// @dev The pool is decremented in step with `totalEarmarked` because the
+    ///      dust was originally part of `totalEarmarked`. `sweepDust` reads
+    ///      `address(this).balance - reserved` where `reserved = unclaimed +
+    ///      pending`, so once `totalEarmarked` is decremented, the dust falls
+    ///      into the sweepable surplus and is timelock-routed to treasury.
+    uint256 public protocolDustPool;
+
     /// @notice AUDIT R014 M-8: Auto-reclaim per-epoch dust (epoch.totalETH - epochClaimed[i])
-    ///         from finalized epochs whose 7-day grace period has elapsed. Dust above
-    ///         MIN_DUST_RECONCILE is moved into the most recent (current) epoch's pool so
-    ///         active stakers absorb the unclaimed share.
+    ///         from finalized epochs whose 14-day grace period has elapsed. Dust above
+    ///         MIN_DUST_RECONCILE is routed into a protocol-wide dust pool that is
+    ///         eventually swept to treasury via the existing 48h-timelocked
+    ///         `executeForfeitReclaim` → `sweepDust` cycle.
+    ///
+    ///         AUDIT FIX F-12-K-3 (LOW / fairness): the prior shape mutated
+    ///         `epochs[length-1].totalETH += dust` which locked-out already-claimed
+    ///         users from the redirected dust and gave patient claimers a perverse
+    ///         timing advantage. Routing dust into a generic pool eliminates the
+    ///         race condition; all stakers are treated symmetrically and the dust
+    ///         is timelock-routed to treasury via the same path as
+    ///         `executeForfeitReclaim`. The change ALSO eliminates the unbounded
+    ///         `epochs[length-1].totalETH` growth that would otherwise inflate
+    ///         `_calculateClaim` per-epoch math past `epoch.totalLocked`-cap math
+    ///         (a 4-year-old protocol with significant straggler dust could see
+    ///         the latest epoch's `totalETH` reach 5-10x its native value).
     ///
     ///         Bounded loop — at most MAX_AUTO_RECONCILE_EPOCHS (10) per call. The
     ///         lastReconciledEpoch cursor advances even when an epoch is skipped (e.g.
@@ -1096,10 +1362,6 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     ///         Permissionless — anyone may call. The grace period + threshold + cursor
     ///         together prevent griefing: a caller cannot reclaim dust that stragglers
     ///         could still rightfully claim, and cannot replay reclamations.
-    ///
-    ///         Routes the reclaimed dust into the latest epoch (epochs[length-1]).
-    ///         If there is no current epoch (epochs.length == 0) or only one epoch exists
-    ///         (no separate destination available), the call reverts.
     /// @dev AUDIT FIX: DEEP-DR-M-02 — `whenNotPaused` so this permissionless mutator
     ///      cannot advance state while the universal kill-switch is engaged.
     function autoReconcileDust() external nonReentrant whenNotPaused returns (uint256 totalReclaimed, uint256 epochsProcessed) {
@@ -1154,10 +1416,36 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
             uint256 dust = epoch.totalETH > epochClaimed[i] ? epoch.totalETH - epochClaimed[i] : 0;
             if (dust >= MIN_DUST_RECONCILE) {
                 // Mark the source epoch fully claimed so future claims/views correctly
-                // see no remaining share, and credit the destination epoch's pool.
+                // see no remaining share.
                 epochClaimed[i] = epoch.totalETH;
-                epochs[destEpoch].totalETH += dust;
+                // ─── AUDIT FIX F-12-K-3 (LOW / fairness) ─────────────────────
+                // Pre-fix: `epochs[destEpoch].totalETH += dust` mutated the
+                // latest epoch's pool, locking out already-claimed users from
+                // the redirected dust and giving patient claimers a perverse
+                // timing advantage.
+                //
+                // New shape: route the dust into the protocol-wide
+                // `protocolDustPool`, decrement `totalEarmarked` (the dust is
+                // no longer earmarked for stakers), and bump `totalForfeited`
+                // to keep the `totalDistributed = totalClaimed + totalEarmarked +
+                // totalForfeited` invariant intact. The dust then becomes
+                // sweepable via the existing 48h-timelocked owner sweep path
+                // (sweepDust reads `balance - reserved` and `reserved` is
+                // `unclaimed + pending`, so once `totalEarmarked` is decremented
+                // the dust falls into the sweepable surplus).
+                //
+                // This eliminates the racing-claimer fairness issue AND caps
+                // unbounded growth of `epochs[destEpoch].totalETH` over the
+                // protocol's lifetime.
+                if (totalEarmarked >= dust) {
+                    totalEarmarked -= dust;
+                } else {
+                    totalEarmarked = 0;
+                }
+                totalForfeited += dust;
+                protocolDustPool += dust;
                 totalReclaimed += dust;
+                emit DustRoutedToProtocolPool(i, destEpoch, dust);
             }
         }
 
@@ -1395,12 +1683,20 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
             if (claimedAtEpoch[user][i]) continue;
             if (epoch.totalLocked > 0) {
                 uint256 userPower = votingEscrow.votingPowerAtTimestamp(user, epoch.timestamp);
-                // AUDIT NEW-S1: restaker fallback — mirror _calculateClaim so the UI shows
-                // non-zero pendingETH for restakers.
+                // AUDIT FIX M-13 [F-12-K-2, F-13-1] (MEDIUM): mirror the
+                // REV-RESTAKE-01 ADDITIVE math from `_calculateClaim` (line ~767).
+                // The previous OR-fallback shape (`if (userPower == 0 && isRestaked)`)
+                // silently dropped the restaking-side share for multi-source holders
+                // (direct NFT-A staked + NFT-B restaked) — view reported the staking
+                // share only, while `claim()` actually paid the SUM. View/write
+                // divergence broke frontends, indexers, and keeper bots that read this
+                // view to size claims. Now ADDITIVE: a user's epoch share is the SUM
+                // of their staking-side power AND their restaking-side power.
+                //
                 // AUDIT FIX: DEEP-DR-L-03 — only consult restaking contract if user has
                 // an active restaker position (cached in `isRestaked` above the loop).
-                if (userPower == 0 && isRestaked) {
-                    userPower = _restakedPowerAt(user, epoch.timestamp);
+                if (isRestaked) {
+                    userPower += _restakedPowerAt(user, epoch.timestamp);
                 }
                 if (userPower > 0) {
                     uint256 effectivePower = userPower > epoch.totalLocked ? epoch.totalLocked : userPower;

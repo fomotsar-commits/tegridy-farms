@@ -37,7 +37,7 @@ contract HugeSupplyToken is ERC20 {
     }
 }
 
-/// @title Audit195Pair — Deep audit PoC tests for TegridyPair.sol
+/// @title Audit195Pair â€” Deep audit PoC tests for TegridyPair.sol
 /// @notice Tests for: reentrancy, arithmetic, state consistency, edge cases,
 ///         return values, and event emissions across all public/external functions.
 contract Audit195Pair is Test {
@@ -60,7 +60,7 @@ contract Audit195Pair is Test {
     address public attacker = makeAddr("attacker");
 
     function setUp() public {
-        factory = new TegridyFactory(address(this), address(this));
+        factory = new TegridyFactory(address(this), address(this), address(this)); // F-30-9 initial guardian
         factory.proposeFeeToChange(feeTo);
         vm.warp(block.timestamp + 48 hours);
         factory.executeFeeToChange();
@@ -120,10 +120,10 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 1 (Low): mint() first deposit — sqrt overflow for huge amounts
+    // FINDING 1 (Low): mint() first deposit â€” sqrt overflow for huge amounts
     // If amount0 * amount1 > type(uint256).max, the multiplication overflows
     // before _update's uint112 check can catch it.
-    // Severity: Low — requires tokens with supply > uint112.max which _update rejects.
+    // Severity: Low â€” requires tokens with supply > uint112.max which _update rejects.
     // ================================================================
 
     function test_F1_mint_overflowInSqrt_hugeAmounts() public {
@@ -147,7 +147,7 @@ contract Audit195Pair is Test {
         IERC20(tB).transfer(address(freshPair), hugeAmount);
 
         // Should revert at _update's OVERFLOW check since amount > uint112.max.
-        // The sqrt(amount0 * amount1) calculation happens first —
+        // The sqrt(amount0 * amount1) calculation happens first â€”
         // amount0 * amount1 = (uint112.max+1)^2 which fits in uint256 (2^226),
         // so no overflow here. But _update will catch the uint112 overflow.
         vm.expectRevert(bytes("OVERFLOW"));
@@ -156,8 +156,8 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 2 (Low): burn() with zero LP tokens — wastes gas on _mintFee
-    // Severity: Low/Gas — no funds at risk, but _mintFee and external calls
+    // FINDING 2 (Low): burn() with zero LP tokens â€” wastes gas on _mintFee
+    // Severity: Low/Gas â€” no funds at risk, but _mintFee and external calls
     // are executed unnecessarily.
     // ================================================================
 
@@ -212,7 +212,7 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 4 (Info): initialize() — access control and idempotency
+    // FINDING 4 (Info): initialize() â€” access control and idempotency
     // ================================================================
 
     function test_F4_initialize_onlyFactory() public {
@@ -239,7 +239,7 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 5 (Medium): swap() — disabled pair check
+    // FINDING 5 (Medium): swap() â€” disabled pair check
     // If factory.disabledPairs(pair) is true, swap must revert.
     // ================================================================
 
@@ -259,7 +259,7 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 6 (Info): swap() — flash swap data rejected
+    // FINDING 6 (Info): swap() â€” flash swap data rejected
     // ================================================================
 
     function test_F6_swap_flashDataRejected() public {
@@ -273,12 +273,12 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 7 (Medium): swap() — to == token0 or token1 is rejected
+    // FINDING 7 (Medium): swap() â€” to == token0 or token1 is rejected
     // Prevents draining pair by swapping to its own tokens.
     // ================================================================
 
     // AUDIT NEW-I4: Pair now uses distinct revert strings so indexers can tell the
-    // two `INVALID_TO` branches apart — `INVALID_TO_ZERO_OR_SELF` for address(0)
+    // two `INVALID_TO` branches apart â€” `INVALID_TO_ZERO_OR_SELF` for address(0)
     // and address(this), `INVALID_TO_IS_TOKEN` for token0/token1.
     function test_F7_swap_toToken0Reverts() public {
         _addLiquidity(alice, 100_000 ether, 100_000 ether);
@@ -321,7 +321,7 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 8 (Low): swap() — zero output amounts revert
+    // FINDING 8 (Low): swap() â€” zero output amounts revert
     // ================================================================
 
     function test_F8_swap_zeroOutputReverts() public {
@@ -335,7 +335,7 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 9 (Medium): swap() — output >= reserve drains pool
+    // FINDING 9 (Medium): swap() â€” output >= reserve drains pool
     // Must revert with INSUFFICIENT_LIQUIDITY.
     // ================================================================
 
@@ -360,14 +360,14 @@ contract Audit195Pair is Test {
         vm.startPrank(bob);
         token0.transfer(address(pair), 50_000 ether);
         token1.transfer(address(pair), 50_000 ether);
-        // amount0Out >= _reserve0 AND amount1Out < _reserve1 — should still revert
+        // amount0Out >= _reserve0 AND amount1Out < _reserve1 â€” should still revert
         vm.expectRevert(bytes("INSUFFICIENT_LIQUIDITY"));
         pair.swap(uint256(r0), 1 ether, bob, "");
         vm.stopPrank();
     }
 
     // ================================================================
-    // FINDING 10 (Low): swap() — no input tokens sent reverts
+    // FINDING 10 (Low): swap() â€” no input tokens sent reverts
     // ================================================================
 
     function test_F10_swap_noInputReverts() public {
@@ -380,7 +380,7 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 11 (Info): burn() — to == address(0) reverts
+    // FINDING 11 (Info): burn() â€” to == address(0) reverts
     // ================================================================
 
     function test_F11_burn_toZeroReverts() public {
@@ -404,7 +404,7 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 12 (Info): skim() — no excess tokens, no transfer
+    // FINDING 12 (Info): skim() â€” no excess tokens, no transfer
     // ================================================================
 
     function test_F12_skim_noExcess() public {
@@ -448,7 +448,7 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 13 (Info): sync() — reserves match actual balances
+    // FINDING 13 (Info): sync() â€” reserves match actual balances
     // ================================================================
 
     function test_F13_sync_updatesReserves() public {
@@ -473,7 +473,7 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 14 (Medium): mint() — K-invariant consistency between
+    // FINDING 14 (Medium): mint() â€” K-invariant consistency between
     // mint and swap. Verify that first depositor cannot manipulate
     // price via donation + swap sandwich.
     // ================================================================
@@ -508,7 +508,7 @@ contract Audit195Pair is Test {
         // MINIMUM_LIQUIDITY (1000) is locked at 0xdead
         assertEq(fp.balanceOf(address(0xdead)), 1000);
 
-        // Alice deposits a normal amount — should get proportional LP tokens
+        // Alice deposits a normal amount â€” should get proportional LP tokens
         vm.startPrank(alice);
         IERC20(aX).transfer(address(fp), 100 ether);
         IERC20(aY).transfer(address(fp), 100 ether);
@@ -521,7 +521,7 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 15 (Low): burn() — full withdrawal leaves only dead address
+    // FINDING 15 (Low): burn() â€” full withdrawal leaves only dead address
     // with MINIMUM_LIQUIDITY. Verify reserves go to near-zero correctly.
     // ================================================================
 
@@ -546,7 +546,7 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 16 (Info): _safeTransfer — handles non-returning tokens
+    // FINDING 16 (Info): _safeTransfer â€” handles non-returning tokens
     // ================================================================
 
     // (Covered implicitly by all swap/burn/skim tests since they use _safeTransfer)
@@ -611,7 +611,7 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 18 (Low): mint() — asymmetric deposits lose value
+    // FINDING 18 (Low): mint() â€” asymmetric deposits lose value
     // Second+ depositor providing imbalanced amounts gets LP based on
     // the smaller ratio. Excess tokens are donated to the pool.
     // This is standard UniV2 behavior but worth documenting.
@@ -624,7 +624,7 @@ contract Audit195Pair is Test {
         uint256 bobLiq = _addLiquidity(bob, 10_000 ether, 5_000 ether);
 
         // Bob's liquidity is based on min(10000/10000, 5000/10000) * totalSupply
-        // = 0.5 * totalSupply — the extra 5000 token0 is donated
+        // = 0.5 * totalSupply â€” the extra 5000 token0 is donated
         uint256 totalLiq = pair.totalSupply();
         uint256 aliceLiq = pair.balanceOf(alice);
 
@@ -637,7 +637,7 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 19 (Medium): _mintFee — protocol fee accuracy
+    // FINDING 19 (Medium): _mintFee â€” protocol fee accuracy
     // Verify protocol gets exactly 1/6 of fees, LPs get 5/6.
     // ================================================================
 
@@ -668,11 +668,11 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 20 (Info): _update — uint112 overflow protection
+    // FINDING 20 (Info): _update â€” uint112 overflow protection
     // ================================================================
 
     function test_F20_update_overflowProtection() public {
-        // Covered by test_F1 — _update reverts when balance > uint112.max
+        // Covered by test_F1 â€” _update reverts when balance > uint112.max
         // This test just verifies the bound directly
         uint256 maxU112 = uint256(type(uint112).max);
 
@@ -709,7 +709,7 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 22 (FIXED — critique 5.6): getReserves() returns
+    // FINDING 22 (FIXED â€” critique 5.6): getReserves() returns
     // blockTimestampLast of the last _update() call (Uniswap V2 parity).
     // ================================================================
 
@@ -724,7 +724,7 @@ contract Audit195Pair is Test {
     }
 
     // ================================================================
-    // FINDING 23 (Low): mint() subsequent deposit — division by zero
+    // FINDING 23 (Low): mint() subsequent deposit â€” division by zero
     // impossible because _totalSupply > 0 when _reserve > 0.
     // But if reserves are 0 and totalSupply > 0 (impossible state),
     // it would divide by zero. Verify this state is unreachable.
@@ -739,7 +739,7 @@ contract Audit195Pair is Test {
         assertGt(r1, 0);
         assertGt(pair.totalSupply(), 0);
 
-        // Second mint — no division by zero possible
+        // Second mint â€” no division by zero possible
         _addLiquidity(bob, 5_000 ether, 5_000 ether);
     }
 

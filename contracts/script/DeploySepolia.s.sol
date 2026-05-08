@@ -101,7 +101,9 @@ contract DeploySepoliaScript is Script {
         d.staking = address(staking);
         console.log(" 4. TegridyStaking:", d.staking);
 
-        TegridyFactory factory = new TegridyFactory(deployer, deployer);
+        // AUDIT FIX F-30-9: 3rd arg is initial guardian (must be non-zero).
+        // Pass deployer EOA for bootstrap; rotate via proposeGuardianChange post-deploy.
+        TegridyFactory factory = new TegridyFactory(deployer, deployer, deployer);
         d.factory = address(factory);
         console.log(" 5. TegridyFactory:", d.factory);
 

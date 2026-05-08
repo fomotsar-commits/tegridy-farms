@@ -7,7 +7,7 @@ import "../src/TegridyRouter.sol";
 import "../src/TegridyFactory.sol";
 import "../src/TegridyPair.sol";
 
-// ─── Mock Tokens ────────────────────────────────────────────────────
+// â”€â”€â”€ Mock Tokens â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 contract MockERC20 is ERC20 {
     constructor(string memory name, string memory symbol) ERC20(name, symbol) {
@@ -60,7 +60,7 @@ contract FeeOnTransferToken is ERC20 {
     }
 }
 
-// ─── Tests ──────────────────────────────────────────────────────────
+// â”€â”€â”€ Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 contract TegridyRouterTest is Test {
     TegridyRouter public router;
@@ -79,7 +79,7 @@ contract TegridyRouterTest is Test {
         deployer = address(this);
 
         weth = new WETH9Mock();
-        factory = new TegridyFactory(deployer, deployer);
+        factory = new TegridyFactory(deployer, deployer, deployer); // F-30-9 initial guardian
         router = new TegridyRouter(address(factory), address(weth));
 
         tokenA = new MockERC20("Token A", "TKA");
@@ -91,7 +91,7 @@ contract TegridyRouterTest is Test {
         vm.deal(alice, 100 ether);
     }
 
-    // ─── Helpers ────────────────────────────────────────────────────
+    // â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function _createAndFundPair(address t0, address t1, uint256 amt0, uint256 amt1) internal returns (address pair) {
         pair = factory.createPair(t0, t1);
@@ -113,9 +113,9 @@ contract TegridyRouterTest is Test {
         TegridyPair(pair).mint(deployer);
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // Deadline (ensure modifier)
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_swapExactTokensForTokens_revertWhen_expired() public {
         _createAndFundPair(address(tokenA), address(tokenB), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -150,9 +150,9 @@ contract TegridyRouterTest is Test {
         vm.stopPrank();
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // addLiquidity
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_addLiquidity_basicFlow() public {
         _createAndFundPair(address(tokenA), address(tokenB), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -187,9 +187,9 @@ contract TegridyRouterTest is Test {
         vm.stopPrank();
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // addLiquidityETH
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_addLiquidityETH_basicFlow() public {
         _createAndFundWETHPair(address(tokenA), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -231,9 +231,9 @@ contract TegridyRouterTest is Test {
         assertLt(ethSpent, 10 ether, "Should have refunded some ETH");
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // swapExactTokensForTokens
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_swapExactTokensForTokens_happyPath() public {
         _createAndFundPair(address(tokenA), address(tokenB), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -273,9 +273,9 @@ contract TegridyRouterTest is Test {
         vm.stopPrank();
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // swapExactETHForTokens
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_swapExactETHForTokens_happyPath() public {
         _createAndFundWETHPair(address(tokenA), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -299,7 +299,7 @@ contract TegridyRouterTest is Test {
         _createAndFundWETHPair(address(tokenA), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
 
         address[] memory path = new address[](2);
-        path[0] = address(tokenA); // Wrong — should be WETH
+        path[0] = address(tokenA); // Wrong â€” should be WETH
         path[1] = address(weth);
 
         vm.prank(alice);
@@ -307,9 +307,9 @@ contract TegridyRouterTest is Test {
         router.swapExactETHForTokens{value: 1 ether}(0, path, bob, block.timestamp + 300);
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // swapExactTokensForETH
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_swapExactTokensForETH_happyPath() public {
         _createAndFundWETHPair(address(tokenA), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -336,16 +336,16 @@ contract TegridyRouterTest is Test {
 
         address[] memory path = new address[](2);
         path[0] = address(tokenA);
-        path[1] = address(tokenB); // Wrong — last must be WETH
+        path[1] = address(tokenB); // Wrong â€” last must be WETH
 
         vm.prank(alice);
         vm.expectRevert(TegridyRouter.InvalidPath.selector);
         router.swapExactTokensForETH(1 ether, 0, path, bob, block.timestamp + 300);
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // getAmountsOut / quote view functions
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_getAmountsOut_returnsCorrectLength() public {
         _createAndFundPair(address(tokenA), address(tokenB), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -365,9 +365,9 @@ contract TegridyRouterTest is Test {
         assertEq(result, 2 ether); // 1 * 200 / 100 = 2
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // M-04: removeLiquidity revert when to == pair
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_removeLiquidity_revertWhen_toIsPair() public {
         address pair = _createAndFundPair(address(tokenA), address(tokenB), INITIAL_LIQUIDITY, INITIAL_LIQUIDITY);
@@ -406,9 +406,9 @@ contract TegridyRouterTest is Test {
         vm.stopPrank();
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // M-05: Fee-on-transfer ETH swap doesn't drain extra WETH
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_feeOnTransferETHSwap_doesNotDrainExtraWETH() public {
         FeeOnTransferToken fot = new FeeOnTransferToken("FeeToken", "FOT", 5);

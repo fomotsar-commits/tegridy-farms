@@ -3,7 +3,7 @@ pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-// Named imports — TegridyPair, TegridyFactory and VoteIncentives all expose
+// Named imports â€” TegridyPair, TegridyFactory and VoteIncentives all expose
 // helper interfaces with the same name (`ITegridyPair`, `ITegridyFactory`),
 // so importing whole files would clash. Pull only the contracts we need.
 import {TegridyFactory} from "../src/TegridyFactory.sol";
@@ -12,22 +12,22 @@ import {GaugeController} from "../src/GaugeController.sol";
 import {VoteIncentives} from "../src/VoteIncentives.sol";
 import {VoteIncentivesAdmin} from "../src/VoteIncentivesAdmin.sol"; // AUDIT FIX (pass-8): EIP170-03 split
 
-/// @title AuditR016_AMMGov — regression coverage for the R016 AMM + governance audit.
+/// @title AuditR016_AMMGov â€” regression coverage for the R016 AMM + governance audit.
 /// @notice One test per FIX finding from the R016 batch:
-///   * M-1 (LPFarming) — multi-NFT contract holders get correct effective balance
+///   * M-1 (LPFarming) â€” multi-NFT contract holders get correct effective balance
 ///                       via the canonical `aggregateActiveBoostBps` path (the
 ///                       legacy single-pointer fallback removal must not break
 ///                       multi-NFT crediting).
-///   * M-1 (GaugeController) — tightened cancelCommit gate: the see-then-cancel
+///   * M-1 (GaugeController) â€” tightened cancelCommit gate: the see-then-cancel
 ///                       window is closed by requiring `block.timestamp + 2*REVEAL_GRACE
 ///                       >= revealOpens`.
-///   * M-1 (VoteIncentives) — `_validatePair` rejects bribes against pairs the
+///   * M-1 (VoteIncentives) â€” `_validatePair` rejects bribes against pairs the
 ///                       factory has flagged disabled.
-///   * L-1 (Factory)   — `cancelPairDisabled` emits `PairDisableCancelled`.
+///   * L-1 (Factory)   â€” `cancelPairDisabled` emits `PairDisableCancelled`.
 /// (Pair harvest rate-limit is covered in TegridyPair.t.sol next to its other
 /// harvest tests.)
 
-// ─── Shared mocks ────────────────────────────────────────────────────────
+// â”€â”€â”€ Shared mocks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 contract MockToweli_R016 is ERC20 {
     constructor() ERC20("Towelie", "TOWELI") {
@@ -126,7 +126,7 @@ contract MockStaking_R016LP {
         return (
             1, 1, int256(0),
             uint64(block.timestamp + 365 days),
-            uint16(20000), // 2.0x — but only ONE tokenId pointer
+            uint16(20000), // 2.0x â€” but only ONE tokenId pointer
             uint32(365 days),
             false, false,
             uint64(block.timestamp), 0, false
@@ -165,22 +165,22 @@ contract MockStaking_R016Gov {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //   Test contract
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 contract AuditR016_AMMGovTest is Test {
-    // ── LPFarming side ──
+    // â”€â”€ LPFarming side â”€â”€
     MockToweli_R016 public toweliLP;
     ERC20 public lp;
     MockStaking_R016LP public stakingLP;
     TegridyLPFarming public farm;
 
-    // ── GaugeController side ──
+    // â”€â”€ GaugeController side â”€â”€
     MockStaking_R016Gov public stakingGov;
     GaugeController public gauge;
 
-    // ── VoteIncentives + Factory side ──
+    // â”€â”€ VoteIncentives + Factory side â”€â”€
     VoteIncentives public vi;
     VoteIncentivesAdmin public viAdmin; // AUDIT FIX (pass-8): EIP170-03 split
     MockFactory_R016 public viFactory;
@@ -190,7 +190,7 @@ contract AuditR016_AMMGovTest is Test {
     MockVE_R016 public ve;
     MockPair_R016 public viPair;
 
-    // ── Real factory for cancelPairDisabled event test ──
+    // â”€â”€ Real factory for cancelPairDisabled event test â”€â”€
     TegridyFactory public realFactory;
 
     address public alice = makeAddr("alice");
@@ -203,7 +203,7 @@ contract AuditR016_AMMGovTest is Test {
     uint256 public constant TOKEN_B = 7002;
 
     function setUp() public {
-        // ── LPFarming ──
+        // â”€â”€ LPFarming â”€â”€
         toweliLP = new MockToweli_R016();
         lp = new MockToweli_R016(); // reuse ERC20 for staking token mock
         stakingLP = new MockStaking_R016LP();
@@ -214,7 +214,7 @@ contract AuditR016_AMMGovTest is Test {
         vm.prank(multiSafe);
         lp.approve(address(farm), type(uint256).max);
 
-        // ── GaugeController ──
+        // â”€â”€ GaugeController â”€â”€
         stakingGov = new MockStaking_R016Gov();
         gauge = new GaugeController(address(stakingGov), 1_000_000 ether);
         stakingGov.setOwner(TOKEN_A, multiSafe);
@@ -231,7 +231,7 @@ contract AuditR016_AMMGovTest is Test {
         vm.warp(block.timestamp + 24 hours + 1);
         gauge.executeAddGauge();
 
-        // ── VoteIncentives ──
+        // â”€â”€ VoteIncentives â”€â”€
         viToweli = new MockToweli_R016();
         bribeToken = new MockBribe_R016();
         weth = new MockWETH_R016();
@@ -243,7 +243,7 @@ contract AuditR016_AMMGovTest is Test {
             address(ve), treasury, address(weth), address(viFactory),
             address(viToweli), 300
         );
-        // AUDIT FIX (pass-8): EIP170-03 split — wire admin sister.
+        // AUDIT FIX (pass-8): EIP170-03 split â€” wire admin sister.
         viAdmin = new VoteIncentivesAdmin(address(vi));
         vi.setVoteIncentivesAdmin(address(viAdmin));
         // Whitelist the bribe token via timelock so depositBribe can run.
@@ -257,12 +257,12 @@ contract AuditR016_AMMGovTest is Test {
         vm.prank(alice);
         bribeToken.approve(address(vi), type(uint256).max);
 
-        // ── Real factory ──
-        realFactory = new TegridyFactory(address(this), address(this));
+        // â”€â”€ Real factory â”€â”€
+        realFactory = new TegridyFactory(address(this), address(this), address(this)); // F-30-9 initial guardian
     }
 
-    // ─── Finding 3 (LPFarming) — multi-NFT contract holder credited via
-    //     aggregateActiveBoostBps after legacy fallback removal ────────────
+    // â”€â”€â”€ Finding 3 (LPFarming) â€” multi-NFT contract holder credited via
+    //     aggregateActiveBoostBps after legacy fallback removal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     /// @notice AUDIT R016 M-1 (LPFarming): with the legacy single-pointer fallback
     ///         REMOVED, a multi-NFT contract holder must still receive boost via
     ///         the canonical aggregate view. We set `userTokenId(multiSafe) == 0`
@@ -298,11 +298,11 @@ contract AuditR016_AMMGovTest is Test {
         farm.stake(1_000 ether);
     }
 
-    // ─── Finding 4 (GaugeController) — tightened cancel gate ─────────────
+    // â”€â”€â”€ Finding 4 (GaugeController) â€” tightened cancel gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     /// @notice AUDIT R016 M-1 (GaugeController): the cancel window must close one
     ///         full REVEAL_GRACE BEFORE any reveal could possibly be admitted.
     ///         Previous gate closed at exactly `revealOpens - REVEAL_GRACE`, the
-    ///         same instant the first reveal becomes valid — giving a 1-block
+    ///         same instant the first reveal becomes valid â€” giving a 1-block
     ///         see-then-cancel ordering window. New gate closes at
     ///         `revealOpens - 2 * REVEAL_GRACE`.
     function test_R016M1_GaugeCancelGateClosesBeforeAnyRevealCouldLand() public {
@@ -328,7 +328,7 @@ contract AuditR016_AMMGovTest is Test {
         // would have been allowed under the previous `+ 1*REVEAL_GRACE` gate.
         // Under the new `+ 2*REVEAL_GRACE` gate this must REVERT.
         // Pick a moment where (block.timestamp + 2*GRACE >= revealOpens) but
-        // (block.timestamp + 1*GRACE < revealOpens) — i.e. the closed slice.
+        // (block.timestamp + 1*GRACE < revealOpens) â€” i.e. the closed slice.
         uint256 t = revealOpens - grace - 1; // old gate: pass (<= revealOpens - grace - 1 + grace = revealOpens - 1)
         vm.warp(t);
         vm.prank(multiSafe);
@@ -343,7 +343,7 @@ contract AuditR016_AMMGovTest is Test {
     }
 
     /// @notice AUDIT R016 M-1 (GaugeController): cancellation is still permitted in
-    ///         the bulk of the commit window — the tightened gate doesn't lock
+    ///         the bulk of the commit window â€” the tightened gate doesn't lock
     ///         users out of legitimate cancels.
     function test_R016M1_GaugeCancelStillAllowedDuringCommitWindow() public {
         uint256 epoch = gauge.currentEpoch();
@@ -368,7 +368,7 @@ contract AuditR016_AMMGovTest is Test {
         );
     }
 
-    // ─── Finding 5 (VoteIncentives) — disabled-pair rejection ────────────
+    // â”€â”€â”€ Finding 5 (VoteIncentives) â€” disabled-pair rejection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     /// @notice AUDIT R016 M-1 (VoteIncentives): bribes against a factory-disabled
     ///         pair must be refused. Without this gate the bribe sits unspendable
     ///         because votes/swaps against the disabled pair are themselves
@@ -387,7 +387,7 @@ contract AuditR016_AMMGovTest is Test {
         vi.depositBribe(address(viPair), address(bribeToken), 1 ether);
     }
 
-    // ─── Finding 7 (Factory) — cancelPairDisabled emits event ────────────
+    // â”€â”€â”€ Finding 7 (Factory) â€” cancelPairDisabled emits event â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     /// @notice AUDIT R016 L-1: cancelPairDisabled must emit PairDisableCancelled.
     function test_R016L1_FactoryCancelPairDisabledEmitsEvent() public {
         // Need a pair to disable. Use a valid pair via createPair.

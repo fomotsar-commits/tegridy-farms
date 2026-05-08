@@ -22,7 +22,7 @@ contract TegridyFactoryTest is Test {
     address public random = makeAddr("random");
 
     function setUp() public {
-        factory = new TegridyFactory(admin, admin);
+        factory = new TegridyFactory(admin, admin, admin); // F-30-9 initial guardian
         tokenA = new MockERC20Factory("Token A", "TKA");
         tokenB = new MockERC20Factory("Token B", "TKB");
     }
@@ -279,34 +279,51 @@ contract TegridyFactoryTest is Test {
         factory.proposePairDisabled(pair, true);
     }
 
-    // ─── AUDIT NEW-A2: guardian emergency-pause lane ────────────────────
+    // --- AUDIT NEW-A2: guardian emergency-pause lane ---
+    // Post-fix (F-30-9 / H-16): guardian is set at construction (must be
+    // non-zero) and rotations require a multisig-class contract address. The
+    // legacy `setGuardian` one-shot is now a recovery path only reachable if
+    // `pendingGuardian` rotation lands `address(0)`.
 
-    /// @notice AUDIT NEW-A2: only feeToSetter can set the guardian role.
-    function test_NEWA2_setGuardian_onlySetter() public {
+    /// @notice AUDIT NEW-A2 / F-30-9 / H-16: setGuardian is callable only while
+    ///         guardian == address(0) AND requires a multisig-class contract.
+    function test_NEWA2_setGuardian_recoveryPath() public {
+        // Rotate guardian to address(0) (the documented "disable role" path).
+        vm.prank(admin);
+        factory.proposeGuardianChange(address(0));
+        vm.warp(block.timestamp + factory.GUARDIAN_CHANGE_DELAY());
+        vm.prank(admin);
+        factory.executeGuardianChange();
+        assertEq(factory.guardian(), address(0));
+
+        // Random cannot call setGuardian.
+        DummyMultisig newGuardian = new DummyMultisig();
         vm.prank(random);
         vm.expectRevert("FORBIDDEN");
+        factory.setGuardian(address(newGuardian));
+
+        // EOA rejected (multisig requirement).
+        vm.prank(admin);
+        vm.expectRevert("GUARDIAN_NOT_MULTISIG");
         factory.setGuardian(random);
 
+        // Contract-class address accepted.
         vm.prank(admin);
-        factory.setGuardian(random);
-        assertEq(factory.guardian(), random);
+        factory.setGuardian(address(newGuardian));
+        assertEq(factory.guardian(), address(newGuardian));
     }
 
     /// @notice AUDIT NEW-A2: guardian can INSTANTLY disable a pair, no timelock.
     function test_NEWA2_guardianEmergencyDisableInstant() public {
         address pair = factory.createPair(address(tokenA), address(tokenB));
-        address guardian = makeAddr("guardian");
-        vm.prank(admin);
-        factory.setGuardian(guardian);
-
+        // admin is the initial guardian (set at construction).
         assertFalse(factory.disabledPairs(pair));
-        vm.prank(guardian);
+        vm.prank(admin);
         factory.emergencyDisablePair(pair);
         assertTrue(factory.disabledPairs(pair));
     }
 
-    /// @notice AUDIT NEW-A2: feeToSetter can also call emergencyDisablePair
-    ///         directly as a fallback when the guardian role is empty.
+    /// @notice AUDIT NEW-A2: feeToSetter can also call emergencyDisablePair.
     function test_NEWA2_setterCanEmergencyDisable() public {
         address pair = factory.createPair(address(tokenA), address(tokenB));
         vm.prank(admin);
@@ -314,8 +331,7 @@ contract TegridyFactoryTest is Test {
         assertTrue(factory.disabledPairs(pair));
     }
 
-    /// @notice AUDIT NEW-A2: random address cannot emergencyDisablePair —
-    ///         emergency instant-pause is strictly guardian/setter-gated.
+    /// @notice AUDIT NEW-A2: random address cannot emergencyDisablePair.
     function test_NEWA2_randomCannotEmergencyDisable() public {
         address pair = factory.createPair(address(tokenA), address(tokenB));
         vm.prank(random);
@@ -323,9 +339,7 @@ contract TegridyFactoryTest is Test {
         factory.emergencyDisablePair(pair);
     }
 
-    /// @notice AUDIT NEW-A2: if a re-enable proposal is queued, guardian's
-    ///         emergencyDisablePair force-cancels it so the attacker can't
-    ///         race the circuit-breaker.
+    /// @notice AUDIT NEW-A2: emergencyDisablePair force-cancels a pending re-enable.
     function test_NEWA2_emergencyDisableCancelsPendingReEnable() public {
         address pair = factory.createPair(address(tokenA), address(tokenB));
         vm.prank(admin);
@@ -334,23 +348,118 @@ contract TegridyFactoryTest is Test {
         vm.prank(admin);
         factory.executePairDisabled(pair);
 
-        // Queue a re-enable (`disabled = false`) that would pass in 48h.
+        // Queue a re-enable (disabled = false) that would pass in 48h.
         vm.prank(admin);
         factory.proposePairDisabled(pair, false);
-        bytes32 key = keccak256(abi.encodePacked(factory.PAIR_DISABLE_CHANGE(), pair));
         assertTrue(factory.pendingPairDisableTime(pair) != 0, "proposal queued");
 
-        // Guardian triggers emergency — re-enable proposal is wiped.
-        address guardian = makeAddr("guardian");
+        // Guardian (admin) triggers emergency - re-enable proposal is wiped.
         vm.prank(admin);
-        factory.setGuardian(guardian);
-        vm.prank(guardian);
         factory.emergencyDisablePair(pair);
         assertTrue(factory.disabledPairs(pair), "still disabled");
         assertEq(factory.pendingPairDisableTime(pair), 0, "pending re-enable force-cancelled");
         assertFalse(factory.pendingPairDisableValue(pair), "pending value cleared");
-        // Key unused — silence unused-variable warning
-        key;
+    }
+
+    /// @notice AUDIT FIX F-30-1 / M-21 (MED): emergencyDisablePair rejects
+    ///         arbitrary addresses that aren't factory-registered pairs.
+    function test_F30_1_emergencyDisablePair_rejectsNonFactoryPair() public {
+        address fakePair = makeAddr("fakeNotAPair");
+        vm.prank(admin);
+        vm.expectRevert(TegridyFactory.NotAPair.selector);
+        factory.emergencyDisablePair(fakePair);
+    }
+
+    /// @notice AUDIT FIX H-16 / F-94-02 (HIGH): emergencyDisablePair is
+    ///         per-day rate-limited at MAX_EMERGENCY_DISABLES_PER_DAY = 3.
+    function test_H16_emergencyDisablePair_rateLimited() public {
+        MockERC20Factory tokenC = new MockERC20Factory("Token C", "TKC");
+        MockERC20Factory tokenD = new MockERC20Factory("Token D", "TKD");
+        MockERC20Factory tokenE = new MockERC20Factory("Token E", "TKE");
+        address[] memory pairs = new address[](4);
+        pairs[0] = factory.createPair(address(tokenA), address(tokenB));
+        pairs[1] = factory.createPair(address(tokenA), address(tokenC));
+        pairs[2] = factory.createPair(address(tokenA), address(tokenD));
+        pairs[3] = factory.createPair(address(tokenA), address(tokenE));
+
+        // First 3 disables in same day succeed.
+        vm.startPrank(admin);
+        factory.emergencyDisablePair(pairs[0]);
+        factory.emergencyDisablePair(pairs[1]);
+        factory.emergencyDisablePair(pairs[2]);
+        // 4th in same day reverts.
+        vm.expectRevert(TegridyFactory.EmergencyDisableRateLimited.selector);
+        factory.emergencyDisablePair(pairs[3]);
+        vm.stopPrank();
+
+        // Counter resets on new UTC day.
+        vm.warp(block.timestamp + 1 days);
+        vm.prank(admin);
+        factory.emergencyDisablePair(pairs[3]);
+        assertTrue(factory.disabledPairs(pairs[3]));
+    }
+
+    /// @notice AUDIT FIX F-30-2 / M-22 (MED): FEE_TO_SETTER_DELAY is now 24h
+    ///         (vs FEE_TO_CHANGE_DELAY = 48h).
+    function test_F30_2_setterRotation_fasterThanFeeChange() public {
+        assertEq(factory.FEE_TO_SETTER_DELAY(), 24 hours, "setter delay 24h");
+        assertEq(factory.FEE_TO_CHANGE_DELAY(), 48 hours, "fee change delay 48h");
+    }
+
+    /// @notice AUDIT FIX F-30-2 / M-22 (MED): guardian can also cancel a
+    ///         pending FEE_TO_CHANGE proposal (second-layer veto).
+    function test_F30_2_guardianCanCancelFeeToChange() public {
+        vm.prank(admin);
+        factory.proposeFeeToChange(makeAddr("attackerFeeTo"));
+
+        // Rotate guardian to a separate multisig-class address.
+        DummyMultisig newGuardian = new DummyMultisig();
+        vm.prank(admin);
+        factory.proposeGuardianChange(address(newGuardian));
+        vm.warp(block.timestamp + factory.GUARDIAN_CHANGE_DELAY());
+        vm.prank(admin);
+        factory.executeGuardianChange();
+
+        // Guardian aborts the fee redirection.
+        vm.prank(address(newGuardian));
+        factory.cancelFeeToChange();
+        assertEq(factory.pendingFeeTo(), address(0));
+    }
+
+    /// @notice AUDIT FIX F-30-5 (MED): pendingTokenBlocks view exposes
+    ///         pending block + readyAt for frontends.
+    function test_F30_5_pendingTokenBlocksView() public {
+        // No proposal - both fields zero.
+        (bool blocked, uint256 readyAt) = factory.pendingTokenBlocks(address(tokenA));
+        assertFalse(blocked);
+        assertEq(readyAt, 0);
+
+        vm.prank(admin);
+        factory.proposeTokenBlocked(address(tokenA), true);
+        (blocked, readyAt) = factory.pendingTokenBlocks(address(tokenA));
+        assertTrue(blocked);
+        assertEq(readyAt, block.timestamp + 24 hours);
+    }
+
+    /// @notice AUDIT FIX F-30-10 (INFO): acceptFeeToSetter force-cancels a
+    ///         pending GUARDIAN_CHANGE proposed by the OLD setter.
+    function test_F30_10_setterAccept_cancelsPendingGuardianChange() public {
+        // Old setter (admin) queues a guardian rotation.
+        DummyMultisig hostileGuardian = new DummyMultisig();
+        vm.prank(admin);
+        factory.proposeGuardianChange(address(hostileGuardian));
+        assertTrue(factory.proposalExecuteAfter(factory.GUARDIAN_CHANGE()) != 0);
+
+        // Rotate setter (24h delay per F-30-2).
+        vm.prank(admin);
+        factory.proposeFeeToSetter(newSetter);
+        vm.warp(block.timestamp + 24 hours);
+        vm.prank(newSetter);
+        factory.acceptFeeToSetter();
+
+        // Pending guardian change was force-cancelled.
+        assertEq(factory.proposalExecuteAfter(factory.GUARDIAN_CHANGE()), 0);
+        assertEq(factory.pendingGuardian(), address(0));
     }
 
     receive() external payable {}
@@ -363,4 +472,12 @@ contract MockERC777WithGranularity is ERC20 {
     function granularity() external pure returns (uint256) {
         return 1;
     }
+}
+
+/// @notice AUDIT FIX H-16 / F-94-02 - minimal contract used in tests as a
+///         stand-in for a guardian multisig. The factory rejects EOAs
+///         (code.length 0) and EIP-7702 delegations (code.length 23); any
+///         non-trivial contract bytecode satisfies the gate.
+contract DummyMultisig {
+    fallback() external {}
 }

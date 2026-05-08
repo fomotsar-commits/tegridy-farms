@@ -28,7 +28,10 @@ contract DeployNFTLendingScript is Script {
         console.log("Deployer:", msg.sender);
 
         // 1. Deploy TegridyNFTLending - P2P generic NFT-collateralized lending
-        TegridyNFTLending nftLending = new TegridyNFTLending(TREASURY, NFT_LENDING_FEE_BPS, WETH);
+        // AUDIT FIX FRESH-2026: F-14-1 — sequencer feed is constructor-arg.
+        // Mainnet (chainid 1) passes address(0) since the L2 sequencer
+        // uptime feed is no-op there.
+        TegridyNFTLending nftLending = new TegridyNFTLending(TREASURY, NFT_LENDING_FEE_BPS, WETH, address(0));
         console.log("1. TegridyNFTLending:", address(nftLending));
 
         // 2. Transfer ownership to multisig

@@ -268,7 +268,12 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     mapping(uint256 => uint256) internal _emergencyExitRequests;
 
     // SECURITY FIX #13: Reward rate cap (timelocked propose/execute lives on TegridyStakingAdmin).
-    uint256 public constant MAX_REWARD_RATE = 100e18; // Cap maximum reward rate
+    // AUDIT FIX FRESH-2026: F-35-2 [LOW-MED] — tightened from 100e18 → 1e18.
+    // Previous cap allowed ~3.15B TOWELI/yr emissions (3.15× total supply); the new cap
+    // is ~31.5M/yr (~3.15% of supply) — still emergency-high but ratchets the
+    // captured-owner runway-burn ceiling. Routine rate adjustments remain gated by
+    // the 48h timelock.
+    uint256 public constant MAX_REWARD_RATE = 1e18; // Cap maximum reward rate
 
     // AUDIT FIX H8: Restaking contract reference for restaking-aware view functions
     address public restakingContract;
@@ -436,6 +441,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     error KickWouldForfeit(); // AUDIT FIX (BATCH-J2 H8): kick aborted to avoid reward destruction
     error PendingLendingPositions(); // AUDIT FIX: DEEP-DS-10 — revoking lending while NFTs escrowed
     error NotAContract(); // AUDIT FIX: DEEP-DS-12 — first-time admin setter must be a contract
+    error PendingRestakingPositions(); // AUDIT FIX FRESH-2026: M-28/F-35-1/F-65-1 — symmetric guard for restaking rotation
+    error CapTooHigh(); // AUDIT FIX FRESH-2026: F-35-3 — applyMaxUnsettledRewards sanity ceiling
 
     // ─── Constructor ──────────────────────────────────────────────────
 
@@ -838,6 +845,14 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @notice Toggle auto-max-lock. When enabled, lock auto-extends on every claim.
     /// @dev    AUDIT C5: enabling autoMaxLock charges the extendFeeBps fee (default 0)
     ///         since it permanently maximises boost. Disabling is free.
+    /// @dev    AUDIT NOTE FRESH-2026: F-02-K-06 [INFO] — enabling autoMaxLock
+    ///         unconditionally rewrites `p.lockDuration = MAX_LOCK_DURATION`.
+    ///         Future `revalidateBoost` JBAC-loss DOWNGRADE will compute boost
+    ///         via `calculateBoost(p.lockDuration) = MAX_BOOST_BPS` not the
+    ///         user's original chosen duration. Disabling autoMaxLock does NOT
+    ///         restore original lockDuration. By design (perpetual MAX), but
+    ///         users who toggled then want a shorter conceptual lock must
+    ///         withdraw and re-stake fresh.
     function toggleAutoMaxLock(uint256 tokenId) external nonReentrant whenNotPaused updateReward {
         if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
         Position storage p = positions[tokenId];
@@ -885,7 +900,12 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
         Position storage p = positions[tokenId];
         if (p.amount == 0) revert NoPosition();
-        if (_newLockDuration <= p.lockDuration) revert LockNotExtended();
+        // AUDIT FIX FRESH-2026: F-02-K-03 [LOW] — compare against the resulting
+        // lockEnd, not the original duration. Without this, a user who staked
+        // with a long original duration and is now mid-lock cannot extend even
+        // when the new lockEnd would push past the current one — they are
+        // forced to use the autoMaxLock workaround.
+        if (block.timestamp + _newLockDuration <= p.lockEnd) revert LockNotExtended();
         if (_newLockDuration > MAX_LOCK_DURATION) revert LockTooLong();
         // AUDIT FIX: DEEP-DS-06 — reject expired positions, mirroring increaseAmount.
         // Without this, a user can revive a decayed position by paying the fee on stale
@@ -935,7 +955,21 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // Update amounts
         totalStaked += _additionalAmount;
         p.amount += _additionalAmount;
-        _applyNewBoost(p, uint256(p.boostBps));
+        // AUDIT FIX FRESH-2026: F-02-K-04 [LOW] — clamp boost on combined principal
+        // to whatever the REMAINING lock time would justify. Previously the
+        // original `boostBps` was retro-applied to the new principal, fee-free,
+        // letting a whale dribble in additional stake at MAX boost in the final
+        // days of a long lock — bypassing `extendFeeBps` for top-ups. We use the
+        // SMALLER of cached `boostBps` and the boost derivable from current
+        // remaining lock time. Existing-principal earned its rate honestly so
+        // we never raise above cached; new principal earns only what the
+        // remaining lock supports.
+        uint256 cachedBoost = uint256(p.boostBps);
+        uint256 remaining = p.lockEnd > block.timestamp ? p.lockEnd - block.timestamp : 0;
+        uint256 remainingBoost = calculateBoost(remaining);
+        if (p.hasJbacBoost) remainingBoost += JBAC_BONUS_BPS;
+        uint256 effectiveBoost = remainingBoost < cachedBoost ? remainingBoost : cachedBoost;
+        _applyNewBoost(p, effectiveBoost);
 
         // Auto-extend lock if autoMaxLock is enabled (consistency with getReward behavior)
         if (p.autoMaxLock) {
@@ -1032,8 +1066,23 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
             p.lockEnd = uint64(block.timestamp + MAX_LOCK_DURATION);
             p.lockDuration = uint32(MAX_LOCK_DURATION);
             if (p.boostedAmount == 0 && p.amount > 0) {
+                // AUDIT FIX FRESH-2026: H-2 [F-02-K-01] — Verify JBAC bonus is still
+                // valid before restoring it on legacy `hasJbacBoost && !jbacDeposited`
+                // positions. Without this gate, a user who lost their JBAC NFT
+                // (transferred/sold) keeps the 5000 BPS bonus indefinitely once the
+                // lock decays and autoMaxLock fires. `revalidateBoost`'s LockExpired
+                // guard is one-way (DS2-07) so it cannot strip this on a position
+                // whose lockEnd was just rewritten to `now + MAX_LOCK_DURATION`.
+                bool jbacStillValid =
+                    p.jbacDeposited ||
+                    (p.hasJbacBoost && jbacNFT.balanceOf(msg.sender) > 0);
                 uint256 newBoost = MAX_BOOST_BPS;
-                if (p.hasJbacBoost) newBoost += JBAC_BONUS_BPS;
+                if (jbacStillValid) {
+                    newBoost += JBAC_BONUS_BPS;
+                } else if (p.hasJbacBoost) {
+                    // Clear stale flag so future cycles agree with reality.
+                    p.hasJbacBoost = false;
+                }
                 _applyNewBoost(p, newBoost);
                 _writeCheckpoint(msg.sender);
             }
@@ -1223,6 +1272,14 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      already-expired lock. Holders whose JBAC was lost AND whose lock has
     ///      expired must withdraw + re-stake fresh, not get a free post-expiry
     ///      boost slot.
+    /// @dev AUDIT NOTE FRESH-2026: F-02-K-05 [INFO] — for legacy
+    ///      `hasJbacBoost && !jbacDeposited` positions, this checks
+    ///      `jbacNFT.balanceOf(holder) > 0` (a balance check, NOT a tokenId
+    ///      match). A user can swap JBAC tokenId X for Y and the boost
+    ///      remains valid. By design — for legacy (pre-deposit) positions,
+    ///      tokenId continuity cannot be enforced post-hoc. Deposit-based
+    ///      positions (`jbacDeposited == true`) are immune (JBAC sits in the
+    ///      vault).
     function revalidateBoost(uint256 tokenId) external nonReentrant whenNotPaused updateReward {
         address positionOwner = ownerOf(tokenId); // reverts if token doesn't exist
         // AUDIT FIX M-23: Allow restaking contract to call revalidateBoost on behalf of the position owner
@@ -1344,10 +1401,16 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // AUDIT NEW-L2 (HIGH) preserved: when the NFT returns to its original
         // owner from a whitelisted lending contract, the borrower may have
         // re-staked in the meantime — relax the guard so the round-trip closes.
+        // AUDIT FIX FRESH-2026: F-60-3 [LOW] — also treat EIP-7702 delegated
+        // EOAs (code.length == 23) as EOAs so the safety rail still fires
+        // post-Pectra. Without this, a 7702 user with an existing position can
+        // silently receive a second NFT and lose `userTokenId` resolution to
+        // the older one.
+        uint256 toCodeLen = to.code.length;
         if (
             to != address(0) &&
             userTokenId[to] != 0 &&
-            to.code.length == 0 &&
+            (toCodeLen == 0 || toCodeLen == 23) &&
             !isLendingContract[from]
         ) revert AlreadyHasPosition();
 
@@ -1498,6 +1561,26 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
                 emit TransferRewardPoolShortfall(from, pending, rewardPool);
             }
             uint256 actualSettled = _settleUnsettled(from, cappedPending);
+            // AUDIT FIX FRESH-2026: M-1 [F-02-K-02] — route the rewardPool
+            // shortfall (`pending - cappedPending`) through `_settleUnsettled`
+            // for later reclaim, mirroring `_getReward` and `kick()`. Previously
+            // this slice was silently destroyed because `p.rewardDebt = accumulated`
+            // (line below) advances the anchor by the full pending amount.
+            uint256 shortfall = pending - cappedPending;
+            uint256 shortfallSettled;
+            if (shortfall > 0) {
+                shortfallSettled = _settleUnsettled(from, shortfall);
+                if (shortfallSettled > 0) {
+                    emit RewardSettledToUnsettled(from, tokenId, shortfallSettled);
+                    if (_isTrackedHolder(from)) {
+                        unsettledRewardsByTokenId[tokenId] += shortfallSettled;
+                    }
+                }
+                uint256 shortfallForfeited = shortfall - shortfallSettled;
+                if (shortfallForfeited > 0) {
+                    emit RewardsForfeited(from, shortfallForfeited);
+                }
+            }
             // AUDIT FIX C-02: Emit forfeiture event when cap blocks settlement
             uint256 forfeited = cappedPending - actualSettled;
             if (forfeited > 0) {
@@ -1882,7 +1965,11 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // wire-up. Catches the typo that points at a wallet instead of a deployed
         // TegridyStakingAdmin; recovery is otherwise gated by the 48h
         // `proposeAdminReplacement` timelock.
-        if (_admin.code.length == 0) revert NotAContract();
+        // AUDIT FIX FRESH-2026: F-60-2 — also reject EIP-7702 delegated EOAs
+        // (code.length == 23 is the canonical 0xef0100‖addr delegation pointer).
+        // Pattern matches OwnableNoRenounce._transferOwnership.
+        uint256 codeLen = _admin.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
         stakingAdmin = _admin;
         emit StakingAdminReplaced(address(0), _admin);
     }
@@ -1915,16 +2002,32 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (_newAdmin == address(0)) revert ZeroAddress();
         if (stakingAdmin == address(0)) revert Unauthorized(); // use setStakingAdmin first
         if (adminReplacementReadyAt != 0) revert Unauthorized(); // existing proposal pending
+        // AUDIT FIX FRESH-2026: F-43-B + F-60-2 — mirror setStakingAdmin's
+        // contract-only enforcement on the rotation path. Also reject EIP-7702
+        // delegated EOAs (code.length == 23). Without this, a typo / phished
+        // proposal that points at an EOA gets installed at the 48h mark and
+        // bricks every onlyAdmin path because the EOA cannot construct external
+        // `apply*` calls.
+        uint256 codeLen = _newAdmin.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
         pendingStakingAdmin = _newAdmin;
         adminReplacementReadyAt = block.timestamp + ADMIN_REPLACEMENT_TIMELOCK;
         emit StakingAdminReplacementProposed(_newAdmin, adminReplacementReadyAt);
     }
 
     /// @notice Execute a previously proposed admin replacement after the 48-hour delay.
+    /// @dev    AUDIT FIX FRESH-2026: H-14 [F-75-1, F-43-A] — backport DEEP-R-M01
+    ///         7-day validity window from SwapFeeRouter.executeAdminReplacement.
+    ///         Without this, a years-old stale `pendingStakingAdmin` slot stays
+    ///         executable forever — and a forgotten candidate address could be
+    ///         co-opted (CREATE2 redeploy, abandoned multisig, expired-key
+    ///         custody) to install a hostile admin.
     function executeAdminReplacement() external onlyOwner {
         uint256 readyAt = adminReplacementReadyAt;
         if (readyAt == 0) revert Unauthorized(); // no pending proposal
         if (block.timestamp < readyAt) revert Unauthorized(); // delay not elapsed
+        // AUDIT FIX FRESH-2026: H-14 — 7-day validity window after readyAt.
+        if (block.timestamp > readyAt + 7 days) revert Unauthorized();
         address newAdmin = pendingStakingAdmin;
         if (newAdmin == address(0)) revert ZeroAddress(); // defensive
         address oldAdmin = stakingAdmin;
@@ -1964,8 +2067,19 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     }
 
     /// @notice Apply a restaking-contract change. Caller must be the wired admin contract.
+    /// @dev    AUDIT FIX FRESH-2026: M-28 [F-35-1, F-65-1] — symmetric guard with
+    ///         `applyLendingContract`. Revoking the restaking contract while it
+    ///         still holds escrowed staking NFTs strands per-tokenId reward
+    ///         attribution (`unsettledRewardsByTokenId`) because `_isTrackedHolder`
+    ///         flips false for the OLD restaker post-rotation, bricking
+    ///         `claimUnsettledForTokenId` for every escrowed position.
     function applyRestakingContract(address _restaking) external onlyAdmin {
         if (_restaking == address(0)) revert ZeroAddress();
+        // AUDIT FIX FRESH-2026: M-28 — block rotation while old restaker still escrows NFTs.
+        address oldRestaking = restakingContract;
+        if (oldRestaking != address(0) && balanceOf(oldRestaking) > 0) {
+            revert PendingRestakingPositions();
+        }
         restakingContract = _restaking;
     }
 
@@ -2217,8 +2331,16 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     }
 
     /// @notice Apply a new maxUnsettledRewards cap. Caller must be the wired admin contract.
+    /// @dev    AUDIT FIX FRESH-2026: F-35-3 [INFO] — added a 10B TOWELI sanity ceiling
+    ///         so a captured owner cannot reverse AUDIT FIX L-06 by setting cap to
+    ///         `type(uint256).max` (which restores the unbounded-growth state L-06
+    ///         was meant to prevent).
+    uint256 public constant MAX_MAX_UNSETTLED = 1e10 ether; // 10B TOWELI sanity ceiling
+
     function applyMaxUnsettledRewards(uint256 _cap) external onlyAdmin {
         if (_cap < 10_000e18) revert CapTooLow();
+        // AUDIT FIX FRESH-2026: F-35-3 — sanity ceiling against captured-owner bypass.
+        if (_cap > MAX_MAX_UNSETTLED) revert CapTooHigh();
         maxUnsettledRewards = _cap;
     }
 }

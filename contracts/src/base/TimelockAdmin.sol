@@ -12,6 +12,39 @@ pragma solidity ^0.8.20;
 /// - Mandatory delay between propose and execute
 /// - Proposal expires after validity window (prevents stale proposals from lurking)
 /// - Only one pending proposal per key (must cancel before re-proposing)
+///
+/// AUDIT FIX FRESH-2026 — F-75-9..15 review (negative findings):
+///   - F-75-9 (boundary check at exact expiration): verified safe — `_execute`
+///     uses `block.timestamp > readyAt + validity` (strict-`>`), so execution
+///     at the exact expiry instant succeeds and `>` ensures expiry exclusive.
+///   - F-75-10 (MIN_DELAY-1 attack): mitigated by `if (minD < MIN_DELAY) minD = MIN_DELAY`
+///     hard floor on the `_minDelay()` hook return. Cannot be triggered.
+///   - F-75-11 (executeAfter overflow): unreachable — `delay > maxD` is
+///     rejected, MAX_DELAY = 30 days, and Solidity 0.8+ checked-math
+///     prevents `block.timestamp + delay` overflow.
+///   - F-75-12 (queue same proposal twice): per-key uniqueness via
+///     `_executeAfter[key] != 0 → revert ExistingProposalPending`.
+///   - F-75-13 (stale slot via idempotent re-propose): no exploit; child
+///     contracts that short-circuit `propose*` on idempotent state have
+///     their `_executeAfter` slot cleared by the prior `_execute`.
+///   - F-75-14 (pendingStakingAdmin race): unreachable due to ordering.
+///   - F-75-15 (force-cancel migration): all in-tree direct-write paths
+///     use `_forceCancel(KEY)` which fires the canonical
+///     `ProposalCancelled` event.
+/// AUDIT FIX FRESH-2026 — F-40-TLA-2 (`_maxDelay` fallback): documented
+/// LOW. The `if (maxD < minD) maxD = MAX_DELAY` fallback uses MAX_DELAY
+/// (30 days) directly. A future child override returning `_minDelay > 30 days`
+/// would still trip `DelayTooShort` on every propose since `MAX_DELAY < minD`
+/// would short-circuit. In-tree no child does this — flagged for future
+/// auditors. The mitigation is "use `max(MAX_DELAY, minD * 2)` instead",
+/// but that requires the override-hook contract to declare both `_minDelay`
+/// and `_maxDelay` consistently, which is on the child author.
+/// AUDIT FIX FRESH-2026 — F-40-TLA-3 (`_executeAfter` direct-write):
+/// `_executeAfter` is `internal` (not `private`) so child contracts CAN
+/// direct-write `_executeAfter[KEY] = 0` to bypass the `ProposalCancelled`
+/// event. Mitigation: every in-tree child has been audited and uses
+/// `_forceCancel(KEY)` for out-of-band clears (see F-75-15). New child
+/// contracts MUST use `_forceCancel`; direct-writes are forbidden.
 abstract contract TimelockAdmin {
     // ─── Errors ──────────────────────────────────────────────────────
     error NoPendingProposal(bytes32 key);
@@ -118,6 +151,15 @@ abstract contract TimelockAdmin {
     /// @param key   Unique identifier for the operation (e.g., keccak256("FEE_CHANGE"))
     /// @param delay Minimum seconds before the proposal becomes executable
     /// @dev Reverts if a proposal for this key is already pending. Caller must cancel first.
+    /// @dev AUDIT FIX FRESH-2026: F-40-TLA-1 — the emitted `expiresAt` now
+    ///      uses the FLOORED validity (max(_proposalValidity(), MIN_DELAY))
+    ///      rather than the raw hook return. Pre-fix a child overriding
+    ///      `_proposalValidity()` to return below MIN_DELAY would emit a
+    ///      misleading `expiresAt` to off-chain indexers (apparent expiry
+    ///      = readyAt + 0) while `_execute` actually allowed execution up
+    ///      to readyAt + MIN_DELAY (via the M30 floor). On-chain and
+    ///      off-chain views were divergent — a footgun for any future
+    ///      override.
     function _propose(bytes32 key, uint256 delay) internal {
         uint256 minD = _minDelay();
         // FRESH-EYES L: protocol-wide hard floor on the override-hook return value. Without
@@ -139,7 +181,16 @@ abstract contract TimelockAdmin {
         if (delay > maxD) revert DelayTooLong(delay, maxD);
         if (_executeAfter[key] != 0) revert ExistingProposalPending(key);
         _executeAfter[key] = block.timestamp + delay;
-        emit ProposalCreated(key, _executeAfter[key], _executeAfter[key] + _proposalValidity());
+        // AUDIT FIX FRESH-2026: F-40-TLA-1 — floor the validity used in
+        // the event so off-chain indexers see the same window that
+        // `_execute` actually enforces. Without the floor, a child that
+        // overrides `_proposalValidity()` to return < MIN_DELAY would emit
+        // a tighter window than the contract honors at execute time —
+        // off-chain monitors would mark the proposal as expired before
+        // the contract actually rejects it, masking the divergence.
+        uint256 validityForEvent = _proposalValidity();
+        if (validityForEvent < MIN_DELAY) validityForEvent = MIN_DELAY;
+        emit ProposalCreated(key, _executeAfter[key], _executeAfter[key] + validityForEvent);
     }
 
     /// @notice Execute a previously proposed change.

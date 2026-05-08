@@ -8,7 +8,7 @@ import "../src/TegridyPair.sol";
 import "../src/TegridyFactory.sol";
 import "../src/lib/SequencerCheck.sol";
 
-/// @title R062 — L2 Sequencer Uptime gating regression suite
+/// @title R062 â€” L2 Sequencer Uptime gating regression suite
 /// @notice Verifies that every oracle / grace-sensitive read in the protocol
 ///         refuses to serve when the configured Chainlink L2 Sequencer Uptime
 ///         feed reports the sequencer as down (answer == 1) or as having just
@@ -17,7 +17,7 @@ import "../src/lib/SequencerCheck.sol";
 ///         Mainnet posture (sequencerFeed == address(0)) is exercised by every
 ///         pre-existing test in the suite; this file targets the L2 path.
 ///
-/// Per-target: TegridyTWAP.consult() — a TWAP read is the canonical oracle
+/// Per-target: TegridyTWAP.consult() â€” a TWAP read is the canonical oracle
 ///             surface protected by SequencerCheck. Validating the library
 ///             behaviour through this caller proves the gate fires at the
 ///             contract boundary, not just inside the helper. The other four
@@ -34,9 +34,9 @@ contract R062MockToken is ERC20 {
 ///      AggregatorV3 surface that `SequencerCheck` reads.
 ///
 ///      Spec recap:
-///        answer == 0 → sequencer up
-///        answer == 1 → sequencer down (or recently transitioned to down)
-///        startedAt   → timestamp at which the current `answer` was set; used
+///        answer == 0 â†’ sequencer up
+///        answer == 1 â†’ sequencer down (or recently transitioned to down)
+///        startedAt   â†’ timestamp at which the current `answer` was set; used
 ///                      by consumers to enforce a post-resume grace window.
 contract MockSequencerFeed {
     int256 public answer;
@@ -83,7 +83,7 @@ contract R062SequencerCheckTest is Test {
         // (post-resume grace).
         vm.warp(10 days);
 
-        factory = new TegridyFactory(address(this), address(this));
+        factory = new TegridyFactory(address(this), address(this), address(this)); // F-30-9 initial guardian
         factory.proposeFeeToChange(feeTo);
         vm.warp(block.timestamp + 48 hours);
         factory.executeFeeToChange();
@@ -107,7 +107,7 @@ contract R062SequencerCheckTest is Test {
         // AUDIT R014: TegridyTWAP constructor now takes (factory, sequencerFeed).
         twap = new TegridyTWAP(address(factory), address(seq));
 
-        // No-feed twap to confirm address(0) → no-op (mainnet posture).
+        // No-feed twap to confirm address(0) â†’ no-op (mainnet posture).
         twapNoFeed = new TegridyTWAP(address(factory), address(0));
 
         // Bootstrap 2 observations on each TWAP so consult() is callable.
@@ -119,7 +119,7 @@ contract R062SequencerCheckTest is Test {
     }
 
     function _bootstrap(TegridyTWAP _twap) internal {
-        // BATCH-M3 H7: obs 1, 2, 3 are now self-bootstrap-bypassed. Seed ≥5 obs
+        // BATCH-M3 H7: obs 1, 2, 3 are now self-bootstrap-bypassed. Seed â‰¥5 obs
         // so the 15-min consult anchor can land on a non-bypass slot. Pre-fix
         // only obs#1 was bypassed; H7 now bypasses #2 and #3 as well to give the
         // oracle a 3-slot self-correction window before deviation enforcement.
@@ -134,7 +134,7 @@ contract R062SequencerCheckTest is Test {
         _twap.update(address(pair));               // #5 non-bypass (latest)
     }
 
-    // ─── Mainnet posture (no-op) ─────────────────────────────────────
+    // â”€â”€â”€ Mainnet posture (no-op) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// @notice On a chain with `sequencerFeed == address(0)` (mainnet, any
     ///         non-L2), `consult()` MUST behave identically to the pre-R062
@@ -149,7 +149,7 @@ contract R062SequencerCheckTest is Test {
             "TWAP must reflect 1:2 reserves regardless of R062");
     }
 
-    // ─── Sequencer down (answer == 1) ────────────────────────────────
+    // â”€â”€â”€ Sequencer down (answer == 1) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// @notice Sequencer reporting `answer == 1` (down) MUST cause every
     ///         oracle read to revert with `SequencerDown`. This is the core
@@ -173,7 +173,7 @@ contract R062SequencerCheckTest is Test {
         twap.consult(address(pair), address(tokenA), 1 ether, 15 minutes);
     }
 
-    /// @notice Halfway through the grace window — still rejected.
+    /// @notice Halfway through the grace window â€” still rejected.
     function test_R062_sequencerInGracePeriod_StillReverts() public {
         seq.setStatus(0, block.timestamp - (GRACE / 2));
 
@@ -181,7 +181,7 @@ contract R062SequencerCheckTest is Test {
         twap.consult(address(pair), address(tokenA), 1 ether, 15 minutes);
     }
 
-    /// @notice One second before the grace window elapses — still rejected.
+    /// @notice One second before the grace window elapses â€” still rejected.
     ///         Boundary test: gate uses strict `<`, not `<=`.
     function test_R062_sequencerOneSecondBeforeGraceEnds_StillReverts() public {
         seq.setStatus(0, block.timestamp - (GRACE - 1));
@@ -213,7 +213,7 @@ contract R062SequencerCheckTest is Test {
         assertGt(amountOut, 0, "consult must serve once grace has elapsed");
     }
 
-    /// @notice Long-running healthy sequencer (started a day ago) — passes
+    /// @notice Long-running healthy sequencer (started a day ago) â€” passes
     ///         the same way as a feed-less mainnet deploy. We use 1 day rather
     ///         than 30 days because `setUp()` only warps to 10 days, so a
     ///         30-day backwards subtraction would underflow.
@@ -227,7 +227,7 @@ contract R062SequencerCheckTest is Test {
         assertApproxEqRel(amountOut, 2 ether, 0.02e18);
     }
 
-    // ─── Defensive: round-not-initialized ────────────────────────────
+    // â”€â”€â”€ Defensive: round-not-initialized â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// @notice Chainlink convention: a `startedAt == 0` round means the feed
     ///         has not yet recorded a real status. `SequencerCheck` treats
@@ -241,7 +241,7 @@ contract R062SequencerCheckTest is Test {
         twap.consult(address(pair), address(tokenA), 1 ether, 15 minutes);
     }
 
-    // ─── Library direct-call sanity ──────────────────────────────────
+    // â”€â”€â”€ Library direct-call sanity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// @notice Sanity check on the library entry-point itself: passing
     ///         `address(0)` as the feed must short-circuit without ever
