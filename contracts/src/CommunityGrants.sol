@@ -7,8 +7,9 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
-import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
+import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
 import {VotePowerOracle} from "./lib/VotePowerOracle.sol";
+import {SequencerCheck} from "./lib/SequencerCheck.sol";
 
 interface IVotingEscrowGrants {
     function votingPowerOf(address user) external view returns (uint256);
@@ -66,6 +67,16 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     IERC20 public immutable toweli;
     address public immutable weth; // WETH address for fallback grant disbursement
 
+    // ─── AUDIT FIX FRESH-2026 BATCH-B F-69-1: L2 Sequencer Uptime gating ──
+    /// @notice Optional Chainlink L2 Sequencer Uptime feed. address(0) on
+    ///         mainnet / non-L2 (no-op). One-shot setter mirrors
+    ///         setRestakingContract.
+    address public sequencerFeed;
+    /// @notice AUDIT FIX FRESH-2026 BATCH-B F-69-1: buffer added to voting,
+    ///         execution-delay, and execution-deadline windows when the
+    ///         sequencer was unavailable. 4h matches the audit recommendation.
+    uint256 public constant SEQUENCER_OUTAGE_BUFFER = 4 hours;
+
     uint256 public constant PROPOSAL_FEE = 42_069 ether; // 42,069 TOWELI to submit a proposal
     address public feeReceiver; // Where submission fees go (treasury)
     uint256 public totalFeesCollected;
@@ -114,7 +125,14 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     uint256 public constant VOTING_PERIOD = 7 days;
     uint256 public constant PROPOSAL_COOLDOWN = 1 days;
     uint256 public constant EXECUTION_DEADLINE = 30 days; // H-03: time limit to execute after approval
-    uint256 public constant PERMISSIONLESS_EXECUTION_DELAY = 3 days; // H-21: anyone can execute after this delay post-approval
+    /// @notice AUDIT FIX FRESH-2026 BATCH-B F-94-05: aligned with EXECUTION_DELAY.
+    ///         Pre-fix, owner could execute at deadline+1d while non-owner waited
+    ///         until deadline+3d, creating a 2d sandwich window where a captured-key
+    ///         owner could outpace the community-side defenses. Aligning means owner
+    ///         and everyone-else share the SAME EXECUTION_DELAY. Community-side defense
+    ///         is now the cancel-approved timelock (raised to 7d via M-15) plus
+    ///         pause-gating on every totalApprovedPending-decrementing path.
+    uint256 public constant PERMISSIONLESS_EXECUTION_DELAY = 1 days; // F-94-05: faster opening
     uint256 public constant MIN_PROPOSAL_AMOUNT = 0.01 ether;
     uint256 public constant MIN_QUORUM_BPS = 1000; // At least 10% of total locked must vote
     /// @notice FRESH-EYES M-4: minimum BOOSTED-vote total a proposal must accumulate.
@@ -151,7 +169,21 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     // SECURITY FIX H-5: Mandatory execution delay for ALL callers (GovernorBravo timelock pattern)
     uint256 public constant EXECUTION_DELAY = 1 days;
     // SECURITY FIX H-6: Minimum unique voters to prevent whale governance capture (Nouns DAO pattern)
-    uint256 public constant MIN_UNIQUE_VOTERS = 3;
+    /// @dev AUDIT FIX FRESH-2026 BATCH-B F-15-K-03: raised 3 -> 5 to tighten
+    ///      the voter-diversity floor. The cited 'Nouns DAO pattern' assumes a much
+    ///      larger genuine delegate set; 3 was trivially defeated by sybil-splitting
+    ///      a TOWELI bag across 3 EOAs at minimum stake. Combined with
+    ///      MIN_UNIQUE_VOTER_VP below, sybil-splitting now requires both 5 EOAs
+    ///      AND 100e18 boosted stake per EOA — a meaningful economic hurdle.
+    uint256 public constant MIN_UNIQUE_VOTERS = 5;
+    /// @notice AUDIT FIX FRESH-2026 BATCH-B F-15-K-03: minimum boosted voting
+    ///         power required for a vote to count toward the proposalUniqueVoters
+    ///         diversity tally. 100e18 = 100 boosted veTOWELI per voter. Voters
+    ///         whose min(historical, current) boosted power falls below 100e18
+    ///         still cast their vote (votesFor/votesAgainst still incremented),
+    ///         they just don't contribute to MIN_UNIQUE_VOTERS — preserving
+    ///         inclusive voting while preventing the bag-of-1-wei-EOAs attack.
+    uint256 public constant MIN_UNIQUE_VOTER_VP = 100e18;
 
     uint256 public totalGranted;
     uint256 public totalRefundableDeposits; // TOWELI held for active proposal refunds
@@ -162,7 +194,11 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     uint256 public constant ROLLING_WINDOW = 30 days;
     uint256 public constant MAX_ROLLING_DISBURSEMENT_BPS = 3000; // 30% of treasury per rolling window
     // H-07 FIX: Ring buffer for rolling disbursement tracking (bounded gas)
-    uint256 public constant MAX_DISBURSEMENTS = 100; // Max entries in ring buffer
+    /// @dev AUDIT FIX FRESH-2026 BATCH-B M-16 [F-15-K-02]: raised 100 -> 500.
+    ///      Pipeline math: MAX_ACTIVE_PROPOSALS=50 * ceil(30d/7d) = 250 with 2x
+    ///      safety margin = 500. Pruning of entries older than 30d is already
+    ///      handled by _pruneAndGetRollingDisbursed at every executeProposal/retry.
+    uint256 public constant MAX_DISBURSEMENTS = 500; // Max entries in ring buffer
     mapping(uint256 => uint256) public disbursementTimestamps;
     mapping(uint256 => uint256) public disbursementAmounts;
     uint256 public disbursementHead; // oldest entry index
@@ -175,6 +211,15 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     // ─── Fee Receiver Timelock Constants ─────────────────────────────
     uint256 public constant FEE_RECEIVER_TIMELOCK = 48 hours;
 
+    // ─── View Pagination Limits ──────────────────────────────────────
+    /// @notice AUDIT FIX FRESH-2026 BATCH-B M-46 [F-72-1, F-72-2]: per-call
+    ///         page-size cap on the indexer-helper views. Each Proposal struct
+    ///         is >= 2.1 KB. Without the cap, callers could exceed RPC
+    ///         response-size ceilings (Infura 10MB) once the proposals array
+    ///         passes ~5k entries. 1000 matches TegridyLaunchpadV2's
+    ///         MAX_PAGINATED_LIMIT.
+    uint256 public constant MAX_VIEW_PAGE_SIZE = 1000;
+
     // ─── Cancel-Approved Timelock (AUDIT M-G01) ──────────────────────
     /// @notice 24h window between proposing the cancellation of an APPROVED grant
     ///         proposal and executing it. Active and FailedExecution cancellations
@@ -182,7 +227,12 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///         loops or one-off failures without delay) — only Approved proposals,
     ///         which already passed quorum + community review and have ETH committed
     ///         via `totalApprovedPending`, require the additional review window.
-    uint256 public constant CANCEL_APPROVED_TIMELOCK = 24 hours;
+    /// @dev AUDIT FIX FRESH-2026 BATCH-B M-15 [F-15-K-01]: raised 24h -> 7d
+    ///      to match the BATCH-E H12 commentary's assumed community reaction window.
+    ///      Combined with the new whenNotPaused gate on executeCancelApproved (this
+    ///      batch), pause is now a true universal kill-switch for both
+    ///      totalApprovedPending-decrementing paths.
+    uint256 public constant CANCEL_APPROVED_TIMELOCK = 7 days;
 
     // ─── Events ───────────────────────────────────────────────────────
 
@@ -209,6 +259,9 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///         proposed fee receiver fails. The change is auto-cancelled in that case.
     event FeeReceiverChangeRejected(address indexed proposed, string reason);
     event RestakingContractSet(address indexed restaking); // pass-8 GOV-ECON-01
+    /// @notice AUDIT FIX FRESH-2026 BATCH-B F-69-1: emitted on one-shot wiring
+    ///         of the L2 Sequencer Uptime feed.
+    event SequencerFeedSet(address indexed feed);
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -240,6 +293,8 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error AlreadyRefunded(); // AUDIT FIX H-01: Deposit already consumed or refunded
     /// @dev AUDIT FIX (pass-8): GOV-ECON-01 / C10 — restakingContract is one-shot.
     error RestakingAlreadySet();
+    /// @dev AUDIT FIX FRESH-2026 BATCH-B F-69-1: sequencerFeed is one-shot.
+    error SequencerFeedAlreadySet();
     /// @notice AUDIT FIX: DEEP-GOV-05 — disbursement ring buffer is full and the
     ///         oldest entry is still within ROLLING_WINDOW. Forces caller to wait
     ///         for the oldest entry to age out before recording new disbursements,
@@ -265,6 +320,10 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///         was designed to close. Voters must wait for the staking contract
     ///         upgrade to complete before voting on this proposal.
     error HoldsTokenCheckFailed();
+    /// @notice AUDIT FIX FRESH-2026 BATCH-B M-46 [F-72-1, F-72-2]: requested
+    ///         view page exceeds MAX_VIEW_PAGE_SIZE. Off-chain callers must
+    ///         paginate.
+    error PageSizeExceeded();
 
     // Legacy error aliases (kept for test compatibility)
     error NoFeeReceiverChangePending();
@@ -416,7 +475,11 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // SECURITY FIX H-4: Voting delay gives community time to review proposals before voting starts.
         // Prevents flash-governance where proposer + allies vote immediately (GovernorBravo pattern).
         require(block.timestamp >= proposal.createdAt + VOTING_DELAY, "VOTING_NOT_STARTED");
-        if (block.timestamp > proposal.deadline) revert VotingEnded();
+        // AUDIT FIX FRESH-2026 BATCH-B F-69-1: extend voting deadline by
+        // SEQUENCER_OUTAGE_BUFFER on outage so honest voters who tried to
+        // participate during a sequencer-down window still have time to
+        // vote after resume. Aave V3 grace pattern.
+        if (block.timestamp > proposal.deadline + _sequencerBuffer()) revert VotingEnded();
         if (hasVotedOnProposal[_proposalId][msg.sender]) revert AlreadyVoted();
         // AUDIT FIX M-29: Prevent proposer from voting on their own proposal
         // SECURITY FIX: Check by staking position NFT, not just address — prevents
@@ -463,7 +526,14 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (power == 0) revert NoVotingPower();
 
         hasVotedOnProposal[_proposalId][msg.sender] = true;
-        proposalUniqueVoters[_proposalId]++; // SECURITY FIX H-6: Track voter diversity
+        // AUDIT FIX FRESH-2026 BATCH-B F-15-K-03: only count voters whose
+        // boosted voting power meets MIN_UNIQUE_VOTER_VP toward the
+        // diversity gate. Below-threshold voters still cast their vote
+        // (votesFor/votesAgainst still incremented), they just don't
+        // contribute to MIN_UNIQUE_VOTERS.
+        if (power >= MIN_UNIQUE_VOTER_VP) {
+            proposalUniqueVoters[_proposalId]++; // SECURITY FIX H-6: Track voter diversity
+        }
 
         if (_support) {
             proposal.votesFor += power;
@@ -482,7 +552,10 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         Proposal storage proposal = proposals[_proposalId];
 
         if (proposal.status != ProposalStatus.Active) revert ProposalNotActive();
-        if (block.timestamp <= proposal.deadline) revert VotingNotEnded();
+        // AUDIT FIX FRESH-2026 BATCH-B F-69-1: symmetric extension with
+        // voteOnProposal so finalize cannot fire until the sequencer-
+        // buffered voting window has truly closed.
+        if (block.timestamp <= proposal.deadline + _sequencerBuffer()) revert VotingNotEnded();
 
         // Check quorum: total votes must be >= 10% of total voting power (boosted stake)
         uint256 totalVotes = proposal.votesFor + proposal.votesAgainst;
@@ -567,12 +640,14 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
         if (proposal.status != ProposalStatus.Approved) revert NotApproved();
         // H-03: enforce execution deadline
-        if (block.timestamp > proposal.deadline + EXECUTION_DEADLINE) revert ExecutionDeadlineExpired();
+        // AUDIT FIX FRESH-2026 BATCH-B F-69-1: extend by SEQUENCER_OUTAGE_BUFFER on outage.
+        uint256 seqBuf = _sequencerBuffer();
+        if (block.timestamp > proposal.deadline + EXECUTION_DEADLINE + seqBuf) revert ExecutionDeadlineExpired();
         // SECURITY FIX H-5: Mandatory delay for ALL callers including owner (GovernorBravo timelock pattern).
         // Gives token holders at least EXECUTION_DELAY to react to any approved proposal.
-        require(block.timestamp >= proposal.deadline + EXECUTION_DELAY, "EXECUTION_DELAY");
+        require(block.timestamp >= proposal.deadline + EXECUTION_DELAY + seqBuf, "EXECUTION_DELAY");
         if (msg.sender != owner()) {
-            require(block.timestamp >= proposal.deadline + PERMISSIONLESS_EXECUTION_DELAY, "EXECUTION_DELAY_NOT_MET");
+            require(block.timestamp >= proposal.deadline + PERMISSIONLESS_EXECUTION_DELAY + seqBuf, "EXECUTION_DELAY_NOT_MET");
         }
         if (address(this).balance < proposal.amount) revert InsufficientFunds();
         // AUDIT FIX: DEEP-GOV-09 — verify against the absolute cap locked at proposal
@@ -637,14 +712,16 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
         if (proposal.status != ProposalStatus.FailedExecution) revert NotFailedExecution();
         // AUDIT FIX: Enforce execution deadline on retries too
-        if (block.timestamp > proposal.deadline + EXECUTION_DEADLINE) revert ExecutionDeadlineExpired();
+        // AUDIT FIX FRESH-2026 BATCH-B F-69-1: extend by SEQUENCER_OUTAGE_BUFFER on outage.
+        uint256 seqBuf = _sequencerBuffer();
+        if (block.timestamp > proposal.deadline + EXECUTION_DEADLINE + seqBuf) revert ExecutionDeadlineExpired();
         // AUDIT M-G02: Mirror executeProposal's two-tier delay model. Owner can act as
         // soon as the mandatory EXECUTION_DELAY elapses; everyone else must wait for
         // PERMISSIONLESS_EXECUTION_DELAY. Both windows are measured from the voting
         // deadline, identical to the primary execute path.
-        require(block.timestamp >= proposal.deadline + EXECUTION_DELAY, "EXECUTION_DELAY");
+        require(block.timestamp >= proposal.deadline + EXECUTION_DELAY + seqBuf, "EXECUTION_DELAY");
         if (msg.sender != owner()) {
-            require(block.timestamp >= proposal.deadline + PERMISSIONLESS_EXECUTION_DELAY, "EXECUTION_DELAY_NOT_MET");
+            require(block.timestamp >= proposal.deadline + PERMISSIONLESS_EXECUTION_DELAY + seqBuf, "EXECUTION_DELAY_NOT_MET");
         }
         if (address(this).balance < proposal.amount) revert InsufficientFunds();
         // AUDIT FIX: DEEP-GOV-09 — same absolute-cap check as executeProposal.
@@ -743,7 +820,7 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     }
 
     /// @notice AUDIT M-G01: Schedule cancellation of an Approved proposal. After
-    ///         CANCEL_APPROVED_TIMELOCK (24h), the owner — or anyone, since the
+    ///         CANCEL_APPROVED_TIMELOCK (7d), the owner — or anyone, since the
     ///         executor is permissionless to reduce censorship risk on the queue —
     ///         can call `executeCancelApproved` to finalize the cancel.
     /// @param  _proposalId The Approved proposal to schedule for cancellation.
@@ -758,9 +835,17 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     }
 
     /// @notice AUDIT M-G01: Execute a previously-scheduled cancellation of an
-    ///         Approved proposal once the 24h delay has elapsed.
+    ///         Approved proposal once the 7d delay has elapsed.
+    /// @dev    AUDIT FIX FRESH-2026 BATCH-B M-15 [F-15-K-01]: added
+    ///         whenNotPaused. Pre-fix, captured-owner could chain pause →
+    ///         proposeCancelApproved → 24h → permissionless
+    ///         executeCancelApproved → emergencyRecoverETH past BATCH-E H12
+    ///         defenses. H12 had pause-gated lapseProposal so the parallel
+    ///         30d path was frozen, but executeCancelApproved was pause-
+    ///         INDEPENDENT and permissionless. Now under pause, BOTH
+    ///         totalApprovedPending-decrementing paths are frozen.
     /// @param  _proposalId The proposal whose cancellation is being finalized.
-    function executeCancelApproved(uint256 _proposalId) external nonReentrant {
+    function executeCancelApproved(uint256 _proposalId) external nonReentrant whenNotPaused {
         if (_proposalId >= proposals.length) revert InvalidProposal();
         Proposal storage proposal = proposals[_proposalId];
 
@@ -841,7 +926,8 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (proposal.status != ProposalStatus.Approved && proposal.status != ProposalStatus.FailedExecution) {
             revert NotApproved();
         }
-        if (block.timestamp <= proposal.deadline + EXECUTION_DEADLINE) revert ExecutionDeadlineNotExpired();
+        // AUDIT FIX FRESH-2026 BATCH-B F-69-1: extend by sequencer-outage buffer.
+        if (block.timestamp <= proposal.deadline + EXECUTION_DEADLINE + _sequencerBuffer()) revert ExecutionDeadlineNotExpired();
 
         // AUDIT FIX H-02: Release approved pending amount
         totalApprovedPending -= proposal.amount;
@@ -887,7 +973,8 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (_proposalId >= proposals.length) revert InvalidProposal();
         Proposal storage proposal = proposals[_proposalId];
         if (proposal.status != ProposalStatus.Active) revert ProposalNotActive();
-        if (block.timestamp <= proposal.deadline + EXECUTION_DEADLINE) revert ExecutionDeadlineNotExpired();
+        // AUDIT FIX FRESH-2026 BATCH-B F-69-1: extend by sequencer-outage buffer.
+        if (block.timestamp <= proposal.deadline + EXECUTION_DEADLINE + _sequencerBuffer()) revert ExecutionDeadlineNotExpired();
         require(proposalUniqueVoters[_proposalId] < MIN_UNIQUE_VOTERS, "HAS_QUORUM_VOTERS");
         if (depositRefunded[_proposalId]) revert AlreadyRefunded();
 
@@ -964,15 +1051,22 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // dry-run. A compromised owner could otherwise call `sweepFees` first
         // (draining the buffer to spare == 0), then `executeFeeReceiverChange` would
         // skip validation and silently rotate to a blackhole/blacklisted receiver.
+        // AUDIT FIX FRESH-2026 BATCH-B F-15-K-04: dry-run amount raised
+        // 1 wei → 1e15 wei (0.001 ETH worth of TOWELI). 1 wei was a trivial
+        // floor; 1e15 pressures pathological receivers (compliance-gated
+        // tokens, fee-on-transfer wrappers, per-block transfer caps) near
+        // operational levels while still negligible relative to the spare
+        // TOWELI buffer (PROPOSAL_FEE = 42_069 ether ≫ 1e15).
         uint256 balance = toweli.balanceOf(address(this));
         uint256 spare = balance > totalRefundableDeposits ? balance - totalRefundableDeposits : 0;
-        if (spare == 0) revert NoSpareForDryRun();
+        uint256 dryRunAmount = 1e15;
+        if (spare < dryRunAmount) revert NoSpareForDryRun();
         {
             // Use a low-level call so a revert doesn't unwind state — we want to detect
             // the failure and auto-cancel rather than propagate. Standard ERC20.transfer
             // returns bool (or reverts). Both failure modes count as a failed dry-run.
             (bool ok, bytes memory ret) = address(toweli).call(
-                abi.encodeWithSelector(IERC20.transfer.selector, proposed, uint256(1))
+                abi.encodeWithSelector(IERC20.transfer.selector, proposed, dryRunAmount)
             );
             bool transferred = ok && (ret.length == 0 || abi.decode(ret, (bool)));
             if (!transferred) {
@@ -1026,6 +1120,24 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         emit RestakingContractSet(_restaking);
     }
 
+    /// @notice AUDIT FIX FRESH-2026 BATCH-B F-69-1: one-shot wire of the
+    ///         Chainlink L2 Sequencer Uptime feed. Pass address(0) for
+    ///         mainnet / non-L2 (no-op).
+    function setSequencerFeed(address _feed) external onlyOwner {
+        if (sequencerFeed != address(0)) revert SequencerFeedAlreadySet();
+        sequencerFeed = _feed;
+        emit SequencerFeedSet(_feed);
+    }
+
+    /// @notice AUDIT FIX FRESH-2026 BATCH-B F-69-1: returns
+    ///         SEQUENCER_OUTAGE_BUFFER when the L2 sequencer is currently
+    ///         down or has resumed within the buffer window. 0 otherwise —
+    ///         and 0 when sequencerFeed is unset (mainnet / non-L2).
+    /// @dev    Delegates to canonical SequencerCheck.getSequencerOutageBuffer.
+    function _sequencerBuffer() internal view returns (uint256) {
+        return SequencerCheck.getSequencerOutageBuffer(sequencerFeed, SEQUENCER_OUTAGE_BUFFER);
+    }
+
     // ─── Internal ─────────────────────────────────────────────────────
 
     /// @dev H-07 FIX: Prune expired entries from ring buffer and return current disbursed total.
@@ -1070,42 +1182,25 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
     /// @dev Transfer ETH with WETH fallback for contract recipients.
     ///      Returns false if both ETH and WETH transfer fail (for FailedExecution handling).
-    ///      AUDIT FIX H-04: If WETH transfer fails after wrapping, unwrap back to ETH to prevent
-    ///      WETH from being permanently stuck in the contract (no WETH sweep function).
-    /// @dev AUDIT L-G02 (2026-04-28): Safe / Argent / EIP-4337 contract-wallet
-    ///      recipients DELIBERATELY land in the WETH branch — their `receive()`
-    ///      typically exceeds the 10k-gas stipend, so the raw ETH push fails
-    ///      and the WETH wrap path takes over. From the recipient's POV they
-    ///      get a WETH credit instead of ETH; this is an INTENTIONAL part of
-    ///      the design, not a bug. If a Safe wants raw ETH, they need to
-    ///      pre-deploy a payment splitter that uses receive() with the 10k
-    ///      stipend. The protocol is not in the business of accommodating
-    ///      arbitrary recipient gas budgets — which is also a security feature
-    ///      (a recipient running heavy logic in receive() expands the
-    ///      cross-contract reentrancy surface).
+    /// @dev AUDIT FIX FRESH-2026 BATCH-B M-41 [F-55-5, F-80-04]: replaced the
+    ///      home-rolled deposit/transfer/withdraw round-trip with a thin wrapper
+    ///      around WETHFallbackLib.safeTransferETHOrWrapNoRevert. The lib's
+    ///      NoRevert variant has the exact "return success/failure for caller-
+    ///      side handling" semantics this code wants, with battle-tested
+    ///      defaults (30k stipend, distinguished mode bytes, ZeroRecipient
+    ///      guard). Pre-fix the local copy:
+    ///        - used a 10k stipend that under-served first-ingress receivers;
+    ///        - placed IWETH.transfer OUTSIDE try/catch, so USDT-style WETH
+    ///          variants that revert on blacklisted recipients escaped the
+    ///          catch and reverted the entire executeProposal/retry;
+    ///        - had its own audit history that diverged from the canonical lib;
+    ///        - reentered via IWETH.withdraw after failed transfer.
+    ///      Lib returns (success, mode): mode 0=ETH, 1=WETH-delivered,
+    ///      2=stranded-WETH-in-caller, 3=total-fail. Modes 2 and 3 yield
+    ///      success=false → caller transitions proposal to FailedExecution.
     function _transferETHOrWETH(address recipient, uint256 amount) internal returns (bool) {
-        // AUDIT FIX M-2 (battle-tested, 2026-04-20 audit): reduced from 100_000 back to
-        // 10_000 gas. 100k allowed the recipient contract to make a full external call during
-        // the payout, widening the cross-contract reentrancy surface (each sibling contract
-        // has its own nonReentrant guard, but cross-contract invariant violations are
-        // observable). 10k is the Solmate/Seaport stipend — enough for receive() + event emit
-        // but not for arbitrary external calls. Smart-account recipients (Safe, Argent,
-        // EIP-4337) fall into the WETH-wrap branch below and receive WETH instead of ETH —
-        // an acceptable degradation for a one-way payout.
-        (bool success,) = recipient.call{value: amount, gas: 10_000}("");
-        if (success) return true;
-        // ETH transfer failed — try WETH fallback
-        try IWETH(weth).deposit{value: amount}() {
-            bool sent = IWETH(weth).transfer(recipient, amount);
-            if (!sent) {
-                // AUDIT FIX H-04: WETH transfer failed — unwrap back to ETH so funds aren't stuck as WETH
-                IWETH(weth).withdraw(amount);
-                return false;
-            }
-            return true;
-        } catch {
-            return false;
-        }
+        (bool success,) = WETHFallbackLib.safeTransferETHOrWrapNoRevert(weth, recipient, amount);
+        return success;
     }
 
     /// @dev H-07 FIX: Record a disbursement in the ring buffer.
@@ -1195,6 +1290,8 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         uint256 len = proposals.length;
         if (end > len) end = len;
         if (start >= end) return new Proposal[](0);
+        // AUDIT FIX FRESH-2026 BATCH-B M-46 [F-72-1]: hard cap on page size.
+        if (end - start > MAX_VIEW_PAGE_SIZE) revert PageSizeExceeded();
         page = new Proposal[](end - start);
         for (uint256 i = start; i < end; ++i) {
             page[i - start] = proposals[i];
@@ -1219,6 +1316,8 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         uint256 startIdx,
         uint256 limit
     ) external view returns (uint256[] memory ids, Proposal[] memory matched, uint256 nextStartIdx) {
+        // AUDIT FIX FRESH-2026 BATCH-B M-46 [F-72-2]: bound the SLOAD scan.
+        if (limit > MAX_VIEW_PAGE_SIZE) limit = MAX_VIEW_PAGE_SIZE;
         uint256 len = proposals.length;
         if (startIdx >= len || limit == 0) {
             return (new uint256[](0), new Proposal[](0), len < startIdx ? len : startIdx);

@@ -156,8 +156,9 @@ contract AuditR014_MemeBountyTest is Test {
         token = new MockToweliR014();
         staking = new MockStakingR014();
         weth = new MockWETHR014();
-        // Constructor: voteToken, staking, weth, sequencerFeed (0 = mainnet).
-        board = new MemeBountyBoard(address(token), address(staking), address(weth), address(0), address(this));
+        // AUDIT FIX FRESH-2026: F-21-7 — restaking contract mandatory at construction.
+        // Constructor: voteToken, staking, weth, sequencerFeed (0 = mainnet), treasury, restaking.
+        board = new MemeBountyBoard(address(token), address(staking), address(weth), address(0), address(this), address(staking));
         // Warp into the future so SNAPSHOT_LOOKBACK doesn't underflow.
         vm.warp(30 days);
         vm.deal(creator, 100 ether);

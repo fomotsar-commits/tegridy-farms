@@ -37,6 +37,10 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     bytes32 public constant MIN_REWARD_CHANGE = keccak256("MIN_REWARD_CHANGE");
     /// @dev AUDIT M-B01: 48h-timelocked treasury rotation key.
     bytes32 public constant TREASURY_CHANGE = keccak256("BOUNTY_TREASURY_CHANGE");
+    /// @notice AUDIT FIX FRESH-2026: F-21-7 — timelock key for restaking-contract pointer rotation.
+    bytes32 public constant RESTAKING_CHANGE = keccak256("BOUNTY_RESTAKING_CHANGE");
+    /// @notice AUDIT FIX FRESH-2026: F-21-7 — 48h timelock for restaking rotation.
+    uint256 public constant RESTAKING_CHANGE_TIMELOCK = 48 hours;
 
     // ─── State ────────────────────────────────────────────────────────
 
@@ -53,8 +57,17 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     /// @dev    AUDIT FIX (pass-8): GOV-ECON-01 / C10 — without this, users who
     ///         restake their staking NFT have `stakingContract.votingPowerOf`
     ///         return 0 and silently fail MIN_SUBMIT_BALANCE / MIN_VOTE_BALANCE
-    ///         gates. One-shot setter (mirrors `setSequencerFeed` pattern).
+    ///         gates.
+    /// @dev    AUDIT FIX FRESH-2026: F-21-7 — converted from one-shot to a 48h
+    ///         timelocked rotation (`proposeRestakingContract` /
+    ///         `executeRestakingContract` / `cancelRestakingContract`). Mirrors
+    ///         GaugeController F-65-2. Constructor now mandates a non-zero
+    ///         `_restakingContract` so restakers are NEVER silently
+    ///         disenfranchised between deploy and a post-deploy rotation.
     address public restakingContract;
+    /// @notice AUDIT FIX FRESH-2026: F-21-7 — pending restaking contract awaiting
+    ///         48h-timelock execution. Cleared on execute or cancel.
+    address public pendingRestakingContract;
     address public immutable weth; // WETH for fallback payout to revert-on-receive winners
     /// @dev AUDIT L-B01 (2026-04-28): MIN_SUBMIT_BALANCE (500 TOWELI) and
     ///      MIN_VOTE_BALANCE (1000 TOWELI) are intentionally LOW-BAR thresholds.
@@ -66,8 +79,22 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///      (MIN_COMPLETION_VOTES, MIN_UNIQUE_VOTERS, snapshot-based voting
     ///      power). Do NOT raise these to "real money" levels — that breaks
     ///      the meme-board UX.
-    uint256 public constant MIN_VOTE_BALANCE = 1000 ether; // Must hold 1000 TOWELI to vote
-    uint256 public constant MIN_DEADLINE_DURATION = 1 days; // Minimum time between creation and deadline
+    /// @dev AUDIT FIX FRESH-2026: F-69-7 — clarification of MIN_VOTE_BALANCE.
+    ///      The "1000 TOWELI" floor is BOOSTED voting power, not raw token balance.
+    ///      Effective entry costs: 2500 raw TOWELI at 7d minimum lock (0.4x)
+    ///      OR 250 raw TOWELI at 4y maximum lock (4x). Documentation only.
+    uint256 public constant MIN_VOTE_BALANCE = 1000 ether; // Must hold 1000 TOWELI BOOSTED voting power to vote
+    /// @notice AUDIT FIX FRESH-2026: F-21-4 — minimum bounty duration raised
+    ///         from 1 day to 2 days. Pre-fix the V2-GOV-09 short-deadline
+    ///         `effectiveCancelDelay` collapse meant a 1-day bounty had its
+    ///         cancel window open at hour 23 — a 1-hour creator-front-run
+    ///         window against the FIRST `submitWork` tx. With a 2-day floor,
+    ///         `bountyDuration >= MIN_CANCEL_DELAY (24h) + 1h`, the unscaled
+    ///         24h MIN_CANCEL_DELAY always applies, and the cancel-eligible
+    ///         window is bounded to the FINAL 24h before deadline. First
+    ///         submitters thus enjoy a guaranteed 24h submission-protected
+    ///         window even on the shortest valid bounty.
+    uint256 public constant MIN_DEADLINE_DURATION = 2 days; // Minimum time between creation and deadline
     uint256 public constant MIN_COMPLETION_VOTES = 3000e18; // AUDIT FIX H-07: Minimum stake-weighted votes for quorum (3000 TOWELI equivalent)
     uint256 public constant MIN_UNIQUE_VOTERS = 3; // SECURITY FIX H3: Prevent whale single-handedly completing bounties (Nouns DAO pattern)
     mapping(uint256 => uint256) public uniqueVoterCount; // bountyId => number of unique voters
@@ -183,9 +210,20 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     event SubmissionAdded(uint256 indexed bountyId, uint256 submissionId, address indexed submitter, string contentURI);
     event SubmissionVoted(uint256 indexed bountyId, uint256 submissionId, address indexed voter);
     event BountyCompleted(uint256 indexed bountyId, address indexed winner, uint256 reward);
-    event BountyCancelled(uint256 indexed bountyId);
+    /// @notice AUDIT FIX FRESH-2026: F-21-9 — extended with `creator` and
+    ///         `refundedAmount` so off-chain indexers see the cancel breadcrumb
+    ///         AND the refund amount in a single event (no eth_call join
+    ///         against `bounties[bountyId].reward` required). Symmetric with
+    ///         the existing fail-path `RefundCredited(bountyId, creator, amount)`
+    ///         emitted on push-failure.
+    event BountyCancelled(uint256 indexed bountyId, address indexed creator, uint256 refundedAmount);
     event BountyEmergencyCancelled(uint256 indexed bountyId);
-    event BountyDisputed(uint256 indexed bountyId, address indexed disputer); // SECURITY FIX #15
+    // AUDIT FIX FRESH-2026: F-21-3 — removed dead `BountyDisputed` event. The
+    // contract has NO `dispute()` function; `DISPUTE_PERIOD` is a passive
+    // 2-day cooldown only, never an active dispute mechanism. Off-chain
+    // monitors that subscribed to this event would never have seen any.
+    // DISPUTE_PERIOD itself is retained because it IS used in completeBounty/
+    // refundStaleBounty as the post-deadline cooldown window.
     event PayoutCredited(uint256 indexed bountyId, address indexed winner, uint256 reward);
     event PayoutWithdrawn(address indexed winner, uint256 amount);
     event BountyForceCancelled(uint256 indexed bountyId);
@@ -196,7 +234,13 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     event TreasuryChangeProposed(address indexed current, address indexed proposed, uint256 readyAt);
     event TreasuryChanged(address indexed oldTreasury, address indexed newTreasury);
     event TreasuryChangeCancelled(address indexed cancelled);
-    event RestakingContractSet(address indexed restaking); // pass-8 GOV-ECON-01
+    // AUDIT FIX FRESH-2026: F-21-7 — `RestakingContractSet` (one-shot) replaced
+    // by the propose/execute/cancel triple below.
+    /// @notice AUDIT FIX FRESH-2026: F-21-7 — propose/execute/cancel events for
+    ///         the timelocked restaking-rotation ceremony.
+    event RestakingContractProposed(address indexed restaking, uint256 executeAfter);
+    event RestakingContractChanged(address indexed oldRestaking, address indexed newRestaking);
+    event RestakingContractProposalCancelled(address indexed pendingRestaking);
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -224,8 +268,9 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error ZeroAddress(); // L-02: constructor validation
     error MaxSubmissionsReached(); // L-05: submission cap
     error AlreadySubmitted(); // AUDIT FIX v3: custom error for duplicate submissions
-    /// @dev AUDIT FIX (pass-8): GOV-ECON-01 / C10 — restakingContract is one-shot.
-    error RestakingAlreadySet();
+    /// @dev AUDIT FIX FRESH-2026: F-21-7 — `RestakingAlreadySet` removed; the
+    ///      one-shot setter has been replaced with a 48h-timelocked rotation
+    ///      ceremony (proposeRestakingContract / executeRestakingContract).
     error WinnerExists(); // AUDIT FIX: valid winner exists, use completeBounty instead
     error DeadlineTooFar(); // AUDIT FIX: prevent indefinite ETH locking
     error CreatorCannotVote(); // SECURITY FIX M-11: prevent creator from influencing outcome
@@ -235,6 +280,15 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error ForceCancelTooEarly(); // FIX 2: force cancel grace period not yet passed
     error NoPendingPayout(); // FIX 1: no pending payout to withdraw
     error EmptyDescription(); // FIX 4: bounty description cannot be empty
+    /// @dev AUDIT FIX FRESH-2026: F-72-9 — typed OOB errors for view functions.
+    ///      Pre-fix `getBounty(invalidId)` and `getSubmission(invalidBountyId, _)`
+    ///      reverted with raw `Panic(0x32)` (array OOB) which UIs/wagmi loggers
+    ///      cannot distinguish from "deleted" / "race condition" / "contract bug."
+    error BountyNotFound();
+    error SubmissionNotFound();
+    /// @dev AUDIT FIX FRESH-2026: F-21-7 — restaking contract is invalid (not a
+    ///      deployed contract). Mirrors GaugeController F-17-3 + F-60-2 defense.
+    error NotAContract();
 
     // Legacy error aliases (kept for test compatibility)
     error NoPendingMinRewardChange();
@@ -262,7 +316,19 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///        sweeps. MUST be non-zero; deployers can pass owner() and rotate
     ///        later via `proposeTreasuryChange` if a separate treasury is not
     ///        yet provisioned.
-    constructor(address _voteToken, address _stakingContract, address _weth, address _sequencerFeed, address _treasury)
+    /// @param _restakingContract AUDIT FIX FRESH-2026 F-21-7 — live restaking
+    ///        contract. MUST be a deployed contract so restakers are NEVER
+    ///        silently disenfranchised between deploy and a post-deploy
+    ///        rotation. Future rotations go through the 48h timelocked
+    ///        propose/execute path. Mirrors GaugeController F-65-2.
+    constructor(
+        address _voteToken,
+        address _stakingContract,
+        address _weth,
+        address _sequencerFeed,
+        address _treasury,
+        address _restakingContract
+    )
         OwnableNoRenounce(msg.sender)
     {
         // L-02: Validate constructor arguments
@@ -273,6 +339,14 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // valid sink. The 48h timelock on treasury rotation prevents an
         // immediate post-deploy mistake from being weaponized.
         if (_treasury == address(0)) revert ZeroAddress();
+        // AUDIT FIX FRESH-2026: F-21-7 — restaking contract MUST be wired at
+        // deploy time so restakers aren't silently disenfranchised in any
+        // bootstrap window. Defensive code-length check (mirrors GaugeController
+        // F-17-3 + F-60-2): reject EOAs (codeLen == 0) and the EIP-7702
+        // sentinel delegated-EOA (codeLen == 23).
+        if (_restakingContract == address(0)) revert ZeroAddress();
+        uint256 codeLen = _restakingContract.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
         voteToken = IERC20(_voteToken);
         stakingContract = IStakingVote(_stakingContract);
         weth = _weth;
@@ -280,6 +354,8 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         sequencerFeed = _sequencerFeed;
         // M-B01: initial treasury anchor.
         treasury = _treasury;
+        // F-21-7: initial restaking anchor (timelock-rotatable).
+        restakingContract = _restakingContract;
     }
 
     // ─── AUDIT M-B01: Treasury Timelock ───────────────────────────────
@@ -346,16 +422,53 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         _unpause();
     }
 
-    /// @notice One-shot wire of the TegridyRestaking contract address.
-    /// @dev    AUDIT FIX (pass-8): GOV-ECON-01 / C10. Without this, users who
-    ///         restake their staking NFT have `stakingContract.votingPower*`
-    ///         return 0 and silently fail MIN_SUBMIT_BALANCE / MIN_VOTE_BALANCE
-    ///         gates. Mirrors `setSequencerFeed` one-shot pattern.
-    function setRestakingContract(address _restaking) external onlyOwner {
+    // ─── Restaking Contract (48h timelocked rotation, F-21-7) ──────────
+
+    /// @notice AUDIT FIX FRESH-2026: F-21-7 — propose a new restaking contract.
+    ///         48h timelocked rotation replaces the previous one-shot setter so
+    ///         a captured-owner cannot instantly re-point voting-power reads at
+    ///         a hostile restaking surface. Initial restakingContract is set at
+    ///         construction (mandatory).
+    /// @dev    Defensive code-length check rejects EOAs (codeLen == 0) and the
+    ///         EIP-7702 sentinel delegated-EOA (codeLen == 23).
+    function proposeRestakingContract(address _restaking) external onlyOwner {
         if (_restaking == address(0)) revert ZeroAddress();
-        if (restakingContract != address(0)) revert RestakingAlreadySet();
-        restakingContract = _restaking;
-        emit RestakingContractSet(_restaking);
+        uint256 codeLen = _restaking.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        pendingRestakingContract = _restaking;
+        _propose(RESTAKING_CHANGE, RESTAKING_CHANGE_TIMELOCK);
+        emit RestakingContractProposed(_restaking, _executeAfter[RESTAKING_CHANGE]);
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: F-21-7 — execute a previously proposed
+    ///         restaking-contract rotation.
+    /// @dev    Re-checks code length at execute time defensively, in case the
+    ///         pending pointer's code was altered between propose and execute
+    ///         (e.g., self-destructed contract).
+    function executeRestakingContract() external onlyOwner {
+        _execute(RESTAKING_CHANGE);
+        address oldR = restakingContract;
+        address newR = pendingRestakingContract;
+        pendingRestakingContract = address(0);
+        uint256 codeLen = newR.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        restakingContract = newR;
+        emit RestakingContractChanged(oldR, newR);
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: F-21-7 — cancel a pending restaking-contract
+    ///         rotation proposal.
+    function cancelRestakingContract() external onlyOwner {
+        address pending = pendingRestakingContract;
+        pendingRestakingContract = address(0);
+        _cancel(RESTAKING_CHANGE);
+        emit RestakingContractProposalCancelled(pending);
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: F-21-7 — view helper for the pending
+    ///         restaking-contract rotation's execute-after timestamp.
+    function restakingChangeReadyAt() external view returns (uint256) {
+        return _executeAfter[RESTAKING_CHANGE];
     }
 
     function proposeMinBountyReward(uint256 _minReward) external onlyOwner {
@@ -568,11 +681,20 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         Bounty storage bounty = bounties[_bountyId];
         if (bounty.status != BountyStatus.Open) revert BountyNotOpen();
         if (block.timestamp <= bounty.deadline) revert DeadlineNotPassed();
-        // SECURITY FIX #15: Enforce dispute period — cannot complete until dispute window closes
+        // SECURITY FIX #15: Enforce dispute period — cannot complete until dispute window closes.
+        // AUDIT FIX FRESH-2026: F-69-1 — DISPUTE_PERIOD does NOT widen with the
+        // sequencer buffer because the cooldown protects the WINNER's settlement
+        // path: extending the cooldown when the chain was offline would punish
+        // the winner for an outage they did not cause. Winners are unaffected by
+        // sequencer downtime; only late-comers get the buffer (below).
         if (block.timestamp < bounty.deadline + DISPUTE_PERIOD) revert DisputePeriodActive();
-        // SECURITY FIX: Creator-only within grace period; after grace period, anyone can complete
+        // SECURITY FIX: Creator-only within grace period; after grace period, anyone can complete.
+        // AUDIT FIX FRESH-2026: F-69-1 — extend GRACE_PERIOD by the sequencer
+        // outage buffer on the NON-CREATOR (permissionless) path. An honest
+        // creator who tried to settle during an outage shouldn't lose the window
+        // to a third-party caller jumping in the moment the chain resumes.
         if (msg.sender != bounty.creator) {
-            if (block.timestamp < bounty.deadline + DISPUTE_PERIOD + GRACE_PERIOD) revert GracePeriodNotExpired();
+            if (block.timestamp < bounty.deadline + DISPUTE_PERIOD + GRACE_PERIOD + _sequencerBuffer()) revert GracePeriodNotExpired();
         }
         if (bounty.submissionCount == 0) revert NoSubmissions();
 
@@ -592,16 +714,18 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         totalPaidOut += reward;
         bounty.status = BountyStatus.Completed;
 
-        // SECURITY FIX: Use WETHFallbackLib with gas stipend (Solmate/Seaport pattern)
-        // instead of full-gas .call{value} which enabled cross-contract reentrancy.
-        // AUDIT FIX D-MEME-M1: bumped 10k → 50k matching VoteIncentives.claimBribes
-        // (FIX 5.7). 10k was below what a Gnosis Safe (or any minimal smart-contract
-        // wallet that runs whenNotPaused/owner reads on receive) costs to credit ETH,
-        // so honest contract winners silently fell into the pendingPayouts fallback
-        // and had to discover-and-call withdrawPayout out-of-band. nonReentrant on
-        // completeBounty makes the larger stipend safe — no cross-contract reentry
-        // surface remains even at 50k.
-        (bool success,) = winner.call{value: reward, gas: 50000}("");
+        // SECURITY FIX: Use 30k gas stipend (Solmate/Seaport + WETHFallbackLib
+        // canonical pattern) instead of full-gas .call{value} which enabled
+        // cross-contract reentrancy.
+        // AUDIT FIX FRESH-2026: F-55-6 / F-55-14 — unified to 30k for parity
+        // with `WETHFallbackLib.ETH_TRANSFER_GAS_STIPEND`. Pre-fix the contract
+        // mixed 10k (cancel paths) and 50k (completeBounty / sweepExpiredPayout)
+        // creating asymmetric Safe-wallet UX (a Safe-protected creator's cancel
+        // refund fell into pendingRefund while a Safe-protected winner got paid
+        // directly). 30k still covers Safe receive() + cold-SSTORE under
+        // EIP-2929/2200 (~22.1k SSTORE + ~5k overhead) and stays well below any
+        // external CALL budget — reentrancy defense preserved.
+        (bool success,) = winner.call{value: reward, gas: 30000}("");
         if (success) {
             emit BountyCompleted(_bountyId, winner, reward);
         } else {
@@ -629,6 +753,16 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///         via TimelockAdmin). Mirrors M-09 sweepExpiredRefund pattern.
     ///         Closes the M18 finding where non-claiming winners' ETH was
     ///         locked forever (e.g., self-destructed contract winners).
+    /// @dev    AUDIT FIX FRESH-2026: M-42 [F-80-03 / F-55-6 / F-21-1] — routes
+    ///         through `WETHFallbackLib.safeTransferETHOrWrap` (30k stipend +
+    ///         WETH wrap fallback) instead of a raw 50k `.call`. Pre-fix, if
+    ///         the treasury was rotated to a contract whose `receive()` consumed
+    ///         more than 50k gas (Safe with custom hooks, vesting/treasury
+    ///         contract that re-records ETH on receive), every call to
+    ///         `sweepExpiredPayout` would revert with `ETHTransferFailed` until
+    ///         the owner re-rotated treasury (48h timelock = 48h DoS window).
+    ///         Mirrors `sweepExpiredRefund` (line 814) which already uses the
+    ///         lib — closes the inconsistent fallback-semantics asymmetry.
     function sweepExpiredPayout(address winner) external nonReentrant {
         uint256 amount = pendingPayouts[winner];
         if (amount == 0) revert NoExpiredPayout();
@@ -636,8 +770,7 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (creditedAt == 0 || block.timestamp <= creditedAt + PAYOUT_EXPIRY) revert PayoutNotExpired();
         pendingPayouts[winner] = 0;
         pendingPayoutTime[winner] = 0;
-        (bool ok,) = treasury.call{value: amount, gas: 50_000}("");
-        if (!ok) revert ETHTransferFailed();
+        WETHFallbackLib.safeTransferETHOrWrap(weth, treasury, amount);
         emit PayoutSweptExpired(winner, amount);
     }
 
@@ -687,17 +820,33 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (bounty.submissionCount > 0) revert CannotCancelWithSubmissions();
 
         bounty.status = BountyStatus.Cancelled;
+        // AUDIT FIX FRESH-2026: F-21-9 — capture refund amount BEFORE the
+        // external call so the success-leg event records the same value as
+        // the fail-leg `RefundCredited`.
+        uint256 refundAmount = bounty.reward;
 
-        // SECURITY FIX: Use 10k gas stipend (Solmate/Seaport pattern) instead of full-gas .call
-        (bool success,) = bounty.creator.call{value: bounty.reward, gas: 10000}("");
+        // SECURITY FIX: Use 30k gas stipend (Solmate/Seaport + WETHFallbackLib
+        // canonical pattern). AUDIT FIX FRESH-2026: F-55-6 / F-55-14 — bumped
+        // 10k -> 30k for parity with `WETHFallbackLib.ETH_TRANSFER_GAS_STIPEND`
+        // and the rest of the contract's egress paths. Reentrancy defense
+        // preserved (still far below any external CALL budget).
+        (bool success,) = bounty.creator.call{value: refundAmount, gas: 30000}("");
         if (!success) {
             // A3-H-03: Credit to pendingRefund instead of reverting
-            pendingRefund[bounty.creator] += bounty.reward;
-            refundTimestamp[bounty.creator] = block.timestamp; // M-09: Track refund time
-            emit RefundCredited(_bountyId, bounty.creator, bounty.reward);
+            pendingRefund[bounty.creator] += refundAmount;
+            // AUDIT FIX FRESH-2026: F-21-2 — first-credit-wins anchor (mirror
+            // of `pendingPayoutTime`). Pre-fix, every new credit overwrote the
+            // timestamp with `block.timestamp`, delaying the sweep timer for
+            // older credits. Now the OLDEST unclaimed credit drives the sweep
+            // window — symmetric with the M18 pendingPayoutTime pattern.
+            if (refundTimestamp[bounty.creator] == 0) refundTimestamp[bounty.creator] = block.timestamp;
+            emit RefundCredited(_bountyId, bounty.creator, refundAmount);
         }
 
-        emit BountyCancelled(_bountyId);
+        // AUDIT FIX FRESH-2026: F-21-9 — extended event signature includes
+        // creator + refundedAmount so off-chain indexers see the cancel
+        // breadcrumb AND the refund amount in a single event.
+        emit BountyCancelled(_bountyId, bounty.creator, refundAmount);
     }
 
     /// @notice A3-H-03: Withdraw pending refund (pull-pattern for creators whose address can't receive ETH)
@@ -727,16 +876,20 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
         // No submission met quorum — refund creator
         bounty.status = BountyStatus.Cancelled;
+        uint256 refundAmount = bounty.reward;
 
-        // SECURITY FIX: Use 10k gas stipend (Solmate/Seaport pattern) instead of full-gas .call
-        (bool success,) = bounty.creator.call{value: bounty.reward, gas: 10000}("");
+        // AUDIT FIX FRESH-2026: F-55-6 / F-55-14 — 30k stipend for parity with
+        // WETHFallbackLib.ETH_TRANSFER_GAS_STIPEND.
+        (bool success,) = bounty.creator.call{value: refundAmount, gas: 30000}("");
         if (!success) {
-            pendingRefund[bounty.creator] += bounty.reward;
-            refundTimestamp[bounty.creator] = block.timestamp;
-            emit RefundCredited(_bountyId, bounty.creator, bounty.reward);
+            pendingRefund[bounty.creator] += refundAmount;
+            // AUDIT FIX FRESH-2026: F-21-2 — first-credit-wins anchor.
+            if (refundTimestamp[bounty.creator] == 0) refundTimestamp[bounty.creator] = block.timestamp;
+            emit RefundCredited(_bountyId, bounty.creator, refundAmount);
         }
 
-        emit BountyCancelled(_bountyId);
+        // AUDIT FIX FRESH-2026: F-21-9 — extended event signature.
+        emit BountyCancelled(_bountyId, bounty.creator, refundAmount);
     }
 
     /// @notice Emergency cancel by owner — refunds the bounty creator (does NOT pay any submission).
@@ -748,13 +901,15 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (bounty.submissionCount > 0) revert CannotCancelWithSubmissions();
 
         bounty.status = BountyStatus.Cancelled;
+        uint256 refundAmount = bounty.reward;
 
-        // SECURITY FIX: Use 10k gas stipend (Solmate/Seaport pattern) instead of full-gas .call
-        (bool success,) = bounty.creator.call{value: bounty.reward, gas: 10000}("");
+        // AUDIT FIX FRESH-2026: F-55-6 / F-55-14 — 30k stipend for parity.
+        (bool success,) = bounty.creator.call{value: refundAmount, gas: 30000}("");
         if (!success) {
-            pendingRefund[bounty.creator] += bounty.reward;
-            refundTimestamp[bounty.creator] = block.timestamp;
-            emit RefundCredited(_bountyId, bounty.creator, bounty.reward);
+            pendingRefund[bounty.creator] += refundAmount;
+            // AUDIT FIX FRESH-2026: F-21-2 — first-credit-wins anchor.
+            if (refundTimestamp[bounty.creator] == 0) refundTimestamp[bounty.creator] = block.timestamp;
+            emit RefundCredited(_bountyId, bounty.creator, refundAmount);
         }
 
         emit BountyEmergencyCancelled(_bountyId);
@@ -780,13 +935,15 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (totalBountyVotes[_bountyId] >= MIN_COMPLETION_VOTES * 2 && uniqueVoterCount[_bountyId] >= MIN_UNIQUE_VOTERS) revert WinnerExists();
 
         bounty.status = BountyStatus.Cancelled;
+        uint256 refundAmount = bounty.reward;
 
-        // SECURITY FIX: Use 10k gas stipend (Solmate/Seaport pattern) instead of full-gas .call
-        (bool success,) = bounty.creator.call{value: bounty.reward, gas: 10000}("");
+        // AUDIT FIX FRESH-2026: F-55-6 / F-55-14 — 30k stipend for parity.
+        (bool success,) = bounty.creator.call{value: refundAmount, gas: 30000}("");
         if (!success) {
-            pendingRefund[bounty.creator] += bounty.reward;
-            refundTimestamp[bounty.creator] = block.timestamp;
-            emit RefundCredited(_bountyId, bounty.creator, bounty.reward);
+            pendingRefund[bounty.creator] += refundAmount;
+            // AUDIT FIX FRESH-2026: F-21-2 — first-credit-wins anchor.
+            if (refundTimestamp[bounty.creator] == 0) refundTimestamp[bounty.creator] = block.timestamp;
+            emit RefundCredited(_bountyId, bounty.creator, refundAmount);
         }
 
         emit BountyForceCancelled(_bountyId);
@@ -833,6 +990,11 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         address creator, string memory description, uint256 reward, uint256 deadline,
         address winner, uint256 submCount, BountyStatus status
     ) {
+        // AUDIT FIX FRESH-2026: F-72-9 — typed OOB error instead of raw
+        // `Panic(0x32)` so UIs/wagmi loggers can distinguish "deleted" /
+        // "race condition" / "contract bug." Mirrors TegridyLaunchpadV2's
+        // `getCollection`, TegridyLending's `getOffer`, etc.
+        if (_id >= bounties.length) revert BountyNotFound();
         Bounty memory b = bounties[_id];
         return (b.creator, b.description, b.reward, b.deadline, b.winner, b.submissionCount, b.status);
     }
@@ -846,6 +1008,10 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     function getSubmission(uint256 _bountyId, uint256 _submissionId) external view returns (
         address submitter, string memory contentURI, uint256 votes
     ) {
+        // AUDIT FIX FRESH-2026: F-72-9 — typed OOB errors; same rationale as
+        // `getBounty` above.
+        if (_bountyId >= bounties.length) revert BountyNotFound();
+        if (_submissionId >= submissions[_bountyId].length) revert SubmissionNotFound();
         Submission memory s = submissions[_bountyId][_submissionId];
         return (s.submitter, s.contentURI, s.votes);
     }

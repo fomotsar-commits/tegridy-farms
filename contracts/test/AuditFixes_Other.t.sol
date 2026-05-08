@@ -347,7 +347,8 @@ contract AuditFixes_MemeBountyBoardTest is Test {
         token = new MockTOWELI();
         staking = new MockStakingVote();
         weth = new MockWETHAudit();
-        board = new MemeBountyBoard(address(token), address(staking), address(weth), address(0), address(this));
+        // AUDIT FIX FRESH-2026: F-21-7 — restaking contract mandatory at construction.
+        board = new MemeBountyBoard(address(token), address(staking), address(weth), address(0), address(this), address(staking));
 
         vm.deal(creator, 10 ether);
 
