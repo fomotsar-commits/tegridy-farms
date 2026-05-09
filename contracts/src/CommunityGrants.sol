@@ -760,7 +760,10 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     /// @notice AUDIT M-G01: Execute a previously-scheduled cancellation of an
     ///         Approved proposal once the 24h delay has elapsed.
     /// @param  _proposalId The proposal whose cancellation is being finalized.
-    function executeCancelApproved(uint256 _proposalId) external nonReentrant {
+    // AUDIT FIX FRESH-2026 (minimal): M-15 / F-15-K-01 — match BATCH-E H12's `whenNotPaused`
+    // on `lapseProposal`. Closes the captured-owner pause→cancel→sweep chain identified
+    // in the meta-review. One-modifier change, no new state, mirrors sister patterns.
+    function executeCancelApproved(uint256 _proposalId) external nonReentrant whenNotPaused {
         if (_proposalId >= proposals.length) revert InvalidProposal();
         Proposal storage proposal = proposals[_proposalId];
 

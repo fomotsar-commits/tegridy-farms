@@ -839,8 +839,12 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         if (to != revenueDistributor) revert InvalidSweepRecipient();
         uint256 balance = address(this).balance;
         require(balance > 0, "NO_ETH"); // L-10: Prevent zero-value transfer
-        (bool success,) = payable(to).call{value: balance}("");
-        if (!success) revert SweepFailed();
+        // AUDIT FIX FRESH-2026 (minimal): M-40 / F-55-4 — swap raw call to canonical
+        // WETHFallbackLib pattern used elsewhere (MemeBountyBoard.withdrawPayout, lending,
+        // etc.). 30k stipend + WETH-on-fail means revenueDistributor's receive() always
+        // delivers value (post-H-11 prewarm) and a buggy receive() falls through to WETH
+        // rather than bricking the sweep.
+        WETHFallbackLib.safeTransferETHOrWrap(WETH, to, balance);
         emit ETHSwept(to, balance);
     }
 

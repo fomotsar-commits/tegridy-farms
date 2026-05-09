@@ -636,8 +636,11 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (creditedAt == 0 || block.timestamp <= creditedAt + PAYOUT_EXPIRY) revert PayoutNotExpired();
         pendingPayouts[winner] = 0;
         pendingPayoutTime[winner] = 0;
-        (bool ok,) = treasury.call{value: amount, gas: 50_000}("");
-        if (!ok) revert ETHTransferFailed();
+        // AUDIT FIX FRESH-2026 (minimal): M-42 / F-80-03 — swap raw 50k call to canonical
+        // WETHFallbackLib pattern (already used by withdrawPayout in this file). 30k stipend
+        // + WETH-on-fail means a paused/upgraded treasury contract no longer bricks the
+        // permissionless 1y-stale sweep.
+        WETHFallbackLib.safeTransferETHOrWrap(weth, treasury, amount);
         emit PayoutSweptExpired(winner, amount);
     }
 

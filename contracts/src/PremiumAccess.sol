@@ -622,9 +622,13 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
 
     function getSubscription(address user) external view returns (uint256 expiresAt, bool lifetime, bool active) {
         Subscription memory sub = subscriptions[user];
-        bool nftHolder = jbacNFT.balanceOf(user) > 0;
-        // lifetime is true only if user currently holds NFT (checked at query time)
-        return (sub.expiresAt, nftHolder, nftHolder || sub.expiresAt > block.timestamp);
+        // AUDIT FIX FRESH-2026 (minimal): M-19 / F-27-K-01 — mirror hasPremium's MIN_ACTIVATION_DELAY
+        // gate so this view is not flash-loan-spoofable. Without the delay check, an attacker can
+        // borrow JBAC, call this view, and act on a "lifetime/active=true" result in the same tx.
+        bool nftActive = jbacNFT.balanceOf(user) > 0
+            && nftActivationBlock[user] != 0
+            && block.timestamp > nftActivationBlock[user] + MIN_ACTIVATION_DELAY;
+        return (sub.expiresAt, nftActive, nftActive || sub.expiresAt > block.timestamp);
     }
 
     /// @notice AUDIT FIX: DEEP-DR-L-01 — read-only view onto the orphaned
