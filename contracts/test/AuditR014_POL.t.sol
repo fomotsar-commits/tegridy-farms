@@ -390,11 +390,108 @@ contract AuditR014_POLTest is Test {
     }
 
     // ─── M-7: backstopBps invariant guard ───────────────────────────────
-    //
-    // AUDIT FIX (Wave-B F-20-1): the entire `backstopBps` knob (with its
-    // MIN/MAX floors and timelocked propose/execute/cancel surface) was
-    // excised from POLAccumulator. The state never gated any live code
-    // path. All four M-7 tests deleted as they exercised dead state.
+
+    /// @notice The new private `_setBackstopBps` MUST reject any value below
+    ///         MIN_BACKSTOP_BPS. We exercise this through the timelocked propose
+    ///         + execute path because `_setBackstopBps` is private — but the
+    ///         design means a future setter that calls `_setBackstopBps` directly
+    ///         (and skips the proposer) is ALSO blocked. This is the M-7
+    ///         "future-proofing" property.
+    ///
+    ///         The proposer's existing pre-check (BACKSTOP_TOO_LOW) will catch
+    ///         the call first, so we test the executor path by injecting a
+    ///         below-floor value into pendingBackstopBps via storage manipulation.
+    function test_R014_executeBackstop_revertsBelowMin() public {
+        // Bypass the proposer's pre-check: write a below-floor value DIRECTLY into
+        // pendingBackstopBps storage, then arm the timelock via the proposer with a
+        // valid value (so _executeAfter is set), then overwrite pendingBackstopBps
+        // back to the below-floor value before calling executeBackstopChange.
+
+        // 1. Arm the timelock with a valid value.
+        uint256 validBps = 9500; // 95% — within [MIN, MAX]
+        pol.proposeBackstopChange(validBps);
+
+        // 2. Wait the full delay.
+        vm.warp(block.timestamp + pol.BACKSTOP_CHANGE_DELAY());
+
+        // 3. Locate pendingBackstopBps slot and overwrite with a below-MIN value.
+        //    Find the slot by scanning the first 64 storage slots for the current
+        //    pendingBackstopBps value (validBps). This is brittle but acceptable in
+        //    a test that needs to bypass the proposer.
+        uint256 belowMin = uint256(pol.MIN_BACKSTOP_BPS()) - 1;
+        uint256 slot = type(uint256).max;
+        for (uint256 i = 0; i < 64; i++) {
+            uint256 v = uint256(vm.load(address(pol), bytes32(i)));
+            if (v == validBps) {
+                slot = i;
+                break;
+            }
+        }
+        require(slot != type(uint256).max, "could not locate pendingBackstopBps slot");
+        vm.store(address(pol), bytes32(slot), bytes32(belowMin));
+        // Sanity: confirm the storage write took effect.
+        assertEq(pol.pendingBackstopBps(), belowMin, "storage write must succeed");
+
+        // 4. executeBackstopChange must now revert with BELOW_MIN_BACKSTOP from
+        //    inside _setBackstopBps — proving the executor itself enforces the floor.
+        vm.expectRevert(bytes("BELOW_MIN_BACKSTOP"));
+        pol.executeBackstopChange();
+    }
+
+    /// @notice Companion test for the M-7 ceiling: any value above MAX_BACKSTOP_BPS
+    ///         must also revert from inside `_setBackstopBps`. The proposer enforces
+    ///         this via BackstopTooHigh; the executor's defense-in-depth check uses
+    ///         a string require so the typed proposer error is preserved upstream.
+    function test_R014_executeBackstop_revertsAboveMax() public {
+        uint256 validBps = 9500;
+        pol.proposeBackstopChange(validBps);
+        vm.warp(block.timestamp + pol.BACKSTOP_CHANGE_DELAY());
+
+        // Locate slot, overwrite with above-MAX.
+        uint256 aboveMax = uint256(pol.MAX_BACKSTOP_BPS()) + 1;
+        uint256 slot = type(uint256).max;
+        for (uint256 i = 0; i < 64; i++) {
+            if (uint256(vm.load(address(pol), bytes32(i))) == validBps) { slot = i; break; }
+        }
+        require(slot != type(uint256).max, "could not locate slot");
+        vm.store(address(pol), bytes32(slot), bytes32(aboveMax));
+        assertEq(pol.pendingBackstopBps(), aboveMax);
+
+        vm.expectRevert(bytes("ABOVE_MAX_BACKSTOP"));
+        pol.executeBackstopChange();
+    }
+
+    /// @notice The existing propose → wait → execute happy path must continue to
+    ///         work after the M-7 refactor, AND the resulting backstopBps must be
+    ///         the proposed value (proving the refactor did not change semantics).
+    function test_R014_executeBackstop_happyPathRoutesThroughSetter() public {
+        uint256 startBps = pol.backstopBps();
+        uint256 newBps = 9500; // within [MIN, MAX]
+        assertTrue(newBps != startBps, "test must propose a different value");
+
+        pol.proposeBackstopChange(newBps);
+        vm.warp(block.timestamp + pol.BACKSTOP_CHANGE_DELAY());
+
+        // Execute and confirm:
+        // - the BackstopUpdated event is emitted by `_setBackstopBps` (so the path
+        //   IS routed through the new private setter — emission proves traversal).
+        // - the resulting backstopBps is exactly newBps.
+        vm.expectEmit(true, true, true, true);
+        emit POLAccumulator.BackstopUpdated(startBps, newBps);
+        pol.executeBackstopChange();
+
+        assertEq(pol.backstopBps(), newBps, "executor must set backstopBps to proposed value");
+        assertEq(pol.pendingBackstopBps(), 0, "pending must be cleared post-execute");
+    }
+
+    /// @notice The proposer's own MIN guard (BACKSTOP_TOO_LOW) is preserved — the
+    ///         M-7 fix adds a second line of defense at the executor; the first line
+    ///         must still fire to keep error semantics intact for callers / monitoring.
+    function test_R014_proposeBackstop_stillRejectsBelowMin() public {
+        uint256 belowMin = uint256(pol.MIN_BACKSTOP_BPS()) - 1;
+        vm.expectRevert(bytes("BACKSTOP_TOO_LOW"));
+        pol.proposeBackstopChange(belowMin);
+    }
 
     // ─── AUDIT M-P02: sweepTokens 48h timelock ─────────────────────────
 

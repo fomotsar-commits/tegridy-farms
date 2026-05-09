@@ -47,26 +47,6 @@ interface ITegridyFeeHookV2Router {
 ///
 ///         Hook flags needed: afterSwap (0x0040) | afterSwapReturnsDelta (0x0004)
 ///         => combined deploy-address bitmask 0x0044
-///
-/// @dev    AUDIT FIX FRESH-2026: F-23-9 — EOA-permitted owner design rationale.
-///         The contract inherits `OwnableNoRenounce` with `_ownerMustBeContract`
-///         defaulting to `false` — i.e., an EOA owner is PERMITTED. This is the
-///         protocol-wide pattern (every Tegriddy contract uses 2-step ownership
-///         without a code.length>0 gate on the owner). EOA owner risk is
-///         operational (lost / compromised key) and is mitigated by:
-///           1) `OwnableNoRenounce` Ownable2Step — `transferOwnership` sets
-///              pending; `acceptOwnership` finalizes (no instant rotation).
-///           2) Critical parameter changes are timelocked: 24h FEE_CHANGE,
-///              48h DISTRIBUTOR_CHANGE, 24h SYNC_CHANGE.
-///           3) Sweep destinations are immutable-by-storage: `sweepETH`
-///              accepts ONLY `revenueDistributor` (V3-AMM-H1) — a captured
-///              owner cannot redirect ETH to attacker-controlled addresses.
-///           4) `convertERC20FeesToETH` floor: 1e14 wei minETHOut (BATCH-L4-M6)
-///              caps captured-owner sandwich loss; immutable WETH + immutable
-///              destination route the value irrespective of router choice.
-///         Operators SHOULD use a multisig owner; the contract supports it
-///         transparently. The structural design assumes a "trusted but
-///         24h-pre-warned" owner threat model.
 contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard, TimelockAdmin {
     using SafeERC20 for IERC20;
 
@@ -74,29 +54,6 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     bytes32 public constant FEE_CHANGE = keccak256("FEE_CHANGE");
     bytes32 public constant DISTRIBUTOR_CHANGE = keccak256("DISTRIBUTOR_CHANGE");
     bytes32 public constant SYNC_CHANGE = keccak256("SYNC_CHANGE");
-
-    // ─── V4 Hook Permission Constants (FRESH-2026: F-76-C) ───────────
-    /// @notice AUDIT FIX FRESH-2026: F-76-C — named constants for the V4 hook
-    ///         permission flag bitmap. Pre-fix the constructor used magic
-    ///         numbers `0x3FFF` and `0x0044`; these constants make the flag
-    ///         space readable and let off-chain monitoring derive the exact
-    ///         expected flags from a single SLOAD.
-    /// @dev    `HOOK_PERMISSION_MASK == ALL_HOOK_MASK == (1 << 14) - 1`. This
-    ///         must be revised in tandem with v4-core's `Hooks.permissionsToFlags`
-    ///         if V4 ever adds bits 14+.
-    uint160 public constant HOOK_PERMISSION_MASK = 0x3FFF;
-    /// @notice AUDIT FIX FRESH-2026: F-76-C — `AFTER_SWAP_FLAG = 1 << 6 = 0x0040`.
-    ///         Indicates this hook implements `afterSwap`.
-    uint160 public constant HOOK_FLAG_AFTER_SWAP = 0x0040;
-    /// @notice AUDIT FIX FRESH-2026: F-76-C — `AFTER_SWAP_RETURNS_DELTA_FLAG = 1 << 2 = 0x0004`.
-    ///         Indicates `afterSwap` returns an int128 hookDeltaUnspecified that V4 applies
-    ///         to the swap.
-    uint160 public constant HOOK_FLAG_AFTER_SWAP_RETURNS_DELTA = 0x0004;
-    /// @notice AUDIT FIX FRESH-2026: F-76-C — exclusive-equality target for the
-    ///         constructor's address-bit check. `EXPECTED_HOOK_FLAGS == HOOK_FLAG_AFTER_SWAP
-    ///         | HOOK_FLAG_AFTER_SWAP_RETURNS_DELTA == 0x0044`. Any other flag bit
-    ///         being set is rejected at deployment.
-    uint160 public constant EXPECTED_HOOK_FLAGS = HOOK_FLAG_AFTER_SWAP | HOOK_FLAG_AFTER_SWAP_RETURNS_DELTA;
 
     IPoolManager public immutable poolManager;
     /// @notice AUDIT FIX (pass-8): TF-INT-02. Canonical WETH9 for the deployment chain.
@@ -206,23 +163,7 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     // AUDIT FIX: Timelock for syncAccruedFees to prevent instant fee destruction
     uint256 public constant SYNC_DELAY = 24 hours;
     uint256 public constant SYNC_COOLDOWN = 7 days;
-    /// @notice AUDIT FIX FRESH-2026: F-23-5 [F-75-5] — propose-after-state-change cooldown.
-    ///         Pre-fix a captured owner could perpetually DOS `claimFees` /
-    ///         `convertERC20FeesToETH` via the SYNC_PENDING gate by chaining
-    ///         `cancelSyncAccruedFees → proposeSyncAccruedFees` atomically in one
-    ///         block, leaving zero gap for keeper claims and resetting the 7-day
-    ///         validity window indefinitely. The 7-day re-arm cooldown forces
-    ///         a real keeper-claim window between proposals — same length as
-    ///         the existing post-execute cooldown, applied consistently to ANY
-    ///         state change (cancel, expire, or execute). Tracked alongside
-    ///         `lastSyncExecuted` rather than as a separate slot so the same
-    ///         storage SLOAD covers both gates.
-    uint256 public constant SYNC_RE_ARM_COOLDOWN = 7 days;
     mapping(address => uint256) public lastSyncExecuted;
-    /// @notice AUDIT FIX FRESH-2026: F-23-5 [F-75-5] — last propose-side state
-    ///         change (cancel / expire / execute) per currency. Used to gate
-    ///         re-proposing within SYNC_RE_ARM_COOLDOWN.
-    mapping(address => uint256) public lastSyncStateChange;
     mapping(address => uint256) public pendingSyncCredit;
 
     // AUDIT R014 (MEDIUM, upward-sync ceiling): cap each successful upward
@@ -241,26 +182,6 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     ///         was read at execute time, which let a permissionless `claimFees` race
     ///         drain the credit balance during the 24h timelock — the legitimate
     ///         drift-correction proposal would then revert AboveOnChainCredit.
-    /// @dev    AUDIT FIX FRESH-2026: F-22-K-01 — NatSpec ack of upward-sync
-    ///         unreachability under THIS hook's settlement pattern. The hook
-    ///         settles afterSwap fees via `poolManager.take(currency, this, fee)`
-    ///         — which physically transfers tokens but does NOT mint ERC6909
-    ///         claim balance to the hook. Therefore `poolManager.balanceOf(
-    ///         address(this), currencyId)` is ALWAYS 0 for any currency the
-    ///         hook touches via afterSwap, and the upward-sync gate
-    ///         `actualCredit > onChainCreditSnapshot` will revert
-    ///         AboveOnChainCredit on every bootstrap proposal where
-    ///         `accruedFees[currency] == 0`. This is INTENTIONALLY DEFENSIVE:
-    ///         it eliminates the captured-owner attack surface where a
-    ///         compromised key could inflate `accruedFees` to drain the hook's
-    ///         actual on-hand ERC20/ETH balance via `claimFees` /
-    ///         `convertERC20FeesToETH`. Downward syncs (legitimate drift
-    ///         correction in the over-counting direction) remain reachable.
-    ///         The MAX_SYNC_INCREASE_BPS ceiling and 7-day cooldown remain as
-    ///         defense-in-depth in case the settlement pattern ever moves
-    ///         from `take()` to `mint()` (Bunni v2 / ERC6909-claim style),
-    ///         at which point the upward-sync path becomes reachable and
-    ///         the per-step bound becomes load-bearing.
     mapping(address => uint256) public pendingSyncCreditSnapshot;
 
     // Legacy constant kept for test compatibility
@@ -299,10 +220,7 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         // with v4-core's `Hooks.permissionsToFlags` to keep this constructor
         // exclusive over the new flag space. Pattern: v4-periphery's
         // `Hooks.validateHookPermissions` in BaseHook.
-        // AUDIT FIX FRESH-2026: F-76-C — replaced magic numbers with named constants
-        // (HOOK_PERMISSION_MASK / EXPECTED_HOOK_FLAGS). Off-chain monitoring can read
-        // the constants directly to verify the deployed flag configuration.
-        require(uint160(address(this)) & HOOK_PERMISSION_MASK == EXPECTED_HOOK_FLAGS, "INVALID_HOOK_ADDRESS");
+        require(uint160(address(this)) & 0x3FFF == 0x0044, "INVALID_HOOK_ADDRESS");
 
         poolManager = _poolManager;
         revenueDistributor = _revenueDistributor;
@@ -338,15 +256,7 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     ///         pre-approved PoolKeys accrue.
     /// @dev    Single-step `onlyOwner` (no timelock — additive, creates a
     ///         fresh fee stream rather than re-routing existing value).
-    /// @dev    AUDIT FIX FRESH-2026: F-22-K-13 — require `key.hooks == address(this)`
-    ///         to prevent silent misconfiguration. Pre-fix an owner who approved a
-    ///         PoolKey whose `hooks` field pointed to a different hook address would
-    ///         get a silent no-op (the hash includes `key.hooks`, so V4's afterSwap
-    ///         dispatch on this contract would compute a different hash and never
-    ///         find an approved entry). Reverting on the misconfiguration gives
-    ///         immediate operator feedback rather than burning a tx for nothing.
     function approvePool(PoolKey calldata key) external onlyOwner {
-        require(address(key.hooks) == address(this), "WRONG_HOOK_ADDR"); // AUDIT FIX FRESH-2026: F-22-K-13 — silent-misconfig guard
         bytes32 h = _poolKeyHash(key);
         approvedPools[h] = true;
         emit PoolApproved(h, Currency.unwrap(key.currency0), Currency.unwrap(key.currency1));
@@ -366,52 +276,42 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
 
     // ─── Hook Implementations ─────────────────────────────────────────
 
-    // We only use afterSwap — all other hooks return the selector to indicate "no-op".
-    //
-    // AUDIT FIX FRESH-2026: F-76-A — dropped `pure` from the 8 no-op stubs to match
-    // the canonical IHooks declarations exactly (V4's IHooks methods are external,
-    // not pure/view). This preserves forward-compatibility against any future V4
-    // tooling that exact-matches state-mutability against the IHooks interface.
-    // Function selectors are unaffected (selectors derive from name + parameter
-    // types, not mutability). Behavior is unchanged — these hooks are still
-    // invoked-only-by-PoolManager (which never calls them because the address-bit
-    // pattern doesn't include their flag bits) and still return the canonical
-    // selector with no state mutation.
+    // We only use afterSwap — all other hooks return the selector to indicate "no-op"
 
-    function beforeInitialize(address, PoolKey calldata, uint160) external returns (bytes4) {
+    function beforeInitialize(address, PoolKey calldata, uint160) external pure returns (bytes4) {
         return IHooks.beforeInitialize.selector;
     }
 
-    function afterInitialize(address, PoolKey calldata, uint160, int24) external returns (bytes4) {
+    function afterInitialize(address, PoolKey calldata, uint160, int24) external pure returns (bytes4) {
         return IHooks.afterInitialize.selector;
     }
 
     function beforeAddLiquidity(address, PoolKey calldata, IPoolManager.ModifyLiquidityParams calldata, bytes calldata)
-        external returns (bytes4)
+        external pure returns (bytes4)
     {
         return IHooks.beforeAddLiquidity.selector;
     }
 
     function afterAddLiquidity(address, PoolKey calldata, IPoolManager.ModifyLiquidityParams calldata, BalanceDelta, BalanceDelta, bytes calldata)
-        external returns (bytes4, BalanceDelta)
+        external pure returns (bytes4, BalanceDelta)
     {
         return (IHooks.afterAddLiquidity.selector, BalanceDelta.wrap(0));
     }
 
     function beforeRemoveLiquidity(address, PoolKey calldata, IPoolManager.ModifyLiquidityParams calldata, bytes calldata)
-        external returns (bytes4)
+        external pure returns (bytes4)
     {
         return IHooks.beforeRemoveLiquidity.selector;
     }
 
     function afterRemoveLiquidity(address, PoolKey calldata, IPoolManager.ModifyLiquidityParams calldata, BalanceDelta, BalanceDelta, bytes calldata)
-        external returns (bytes4, BalanceDelta)
+        external pure returns (bytes4, BalanceDelta)
     {
         return (IHooks.afterRemoveLiquidity.selector, BalanceDelta.wrap(0));
     }
 
     function beforeSwap(address, PoolKey calldata, IPoolManager.SwapParams calldata, bytes calldata)
-        external returns (bytes4, BeforeSwapDelta, uint24)
+        external pure returns (bytes4, BeforeSwapDelta, uint24)
     {
         return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
@@ -479,39 +379,19 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         // Take absolute value of the unspecified-side delta so feeBps applies
         // correctly whether the unspecified side is positive (output, exact-input
         // case) or negative (input, exact-output case).
-        // AUDIT FIX FRESH-2026: F-42-1 / F-76-D — special-case `type(int128).min`
-        // to avoid checked-math self-revert on negation. -2^127 is mathematically
-        // unreachable on any real V4 pool (would require ~1.7e38 raw token units
-        // on one side), but the prior `swapAmount = -swapAmount` would Panic(0x11)
-        // on that exact value, bricking the swap. Clamping to `type(int128).max`
-        // is value-equivalent to within 1 wei (the int128 asymmetric-range gap)
-        // and matches the codebase's defensive pattern of degrading gracefully
-        // rather than reverting whole swaps.
-        if (swapAmount == type(int128).min) {
-            swapAmount = type(int128).max;
-        } else if (swapAmount < 0) {
-            swapAmount = -swapAmount;
-        }
+        if (swapAmount < 0) swapAmount = -swapAmount;
 
         if (swapAmount == 0) {
             return (IHooks.afterSwap.selector, int128(0));
         }
 
         uint256 absAmount = uint256(uint128(swapAmount));
-        // AUDIT FIX FRESH-2026: F-23-3 — runtime cap clamp on feeBps. Defense-in-depth
-        // against any future writer-path that bypasses the constructor / `proposeFeeChange`
-        // bound. Today there is no such path (only timelocked setters write `feeBps`),
-        // but a single comparison eliminates the entire forward-compat hazard class.
-        uint256 effectiveFeeBps = feeBps > MAX_FEE_BPS ? MAX_FEE_BPS : feeBps;
-        uint256 feeUint = (absAmount * effectiveFeeBps) / 10000;
+        uint256 feeUint = (absAmount * feeBps) / 10000;
 
         // Minimum fee of 1 unit when feeBps > 0 and the swap amount is large
         // enough that integer-division-down rounded the fee to zero. The
         // absRelevant > 1 guard avoids charging a fee on a 1-wei dust swap.
-        // AUDIT FIX FRESH-2026: F-23-3 — gate against `effectiveFeeBps` (the clamped
-        // value) rather than the raw storage `feeBps` so the floor is consistent with
-        // the multiplied path above.
-        if (feeUint == 0 && effectiveFeeBps > 0 && absAmount > 1) {
+        if (feeUint == 0 && feeBps > 0 && absAmount > 1) {
             feeUint = 1;
         }
 
@@ -547,21 +427,6 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         // ManagerLocked outside an unlock context) — the fees are already in
         // this contract's ERC20 balance, so claimFees becomes a plain
         // IERC20.safeTransfer to revenueDistributor.
-        //
-        // AUDIT FIX FRESH-2026: F-76-B — native-ETH `take()` forwards FULL GAS to
-        // `receive()` during the V4 unlock context. PoolManager's `Currency.transfer`
-        // for `currency == address(0)` is `to.call{value: amount}` with all
-        // available gas (no stipend). The hook's `receive()` is intentionally an
-        // empty no-op (see `receive()` NatSpec) — any logic added there runs
-        // INSIDE the unlock window with full gas, which would create a
-        // reentrancy surface that bypasses `nonReentrant` on the value-routing
-        // paths (`afterSwap` itself is NOT under ReentrancyGuard; only
-        // `claimFees` / `convertERC20FeesToETH` / `sweepETH` are). Keeping
-        // receive() empty preserves the V4 unlock invariant. If a future
-        // refactor needs receive-side logic, it MUST be gated on
-        // `msg.sender == address(poolManager)` AND the absence of an open
-        // unlock context (poolManager has no public unlock-status getter — a
-        // poolManager.balanceOf check is the closest available probe).
         poolManager.take(feeCurrency, address(this), feeUint);
 
         // Returned to PoolManager as hookDeltaUnspecified — applied as
@@ -572,15 +437,14 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         return (IHooks.afterSwap.selector, feeAmount);
     }
 
-    // AUDIT FIX FRESH-2026: F-76-A — pure dropped on the 2 donate stubs (continued).
     function beforeDonate(address, PoolKey calldata, uint256, uint256, bytes calldata)
-        external returns (bytes4)
+        external pure returns (bytes4)
     {
         return IHooks.beforeDonate.selector;
     }
 
     function afterDonate(address, PoolKey calldata, uint256, uint256, bytes calldata)
-        external returns (bytes4)
+        external pure returns (bytes4)
     {
         return IHooks.afterDonate.selector;
     }
@@ -651,21 +515,9 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
                 // Native ETH path — already on hand, forward directly.
                 WETHFallbackLib.safeTransferETHOrWrap(WETH, revenueDistributor, amount);
             } else if (currency == WETH) {
-                // AUDIT FIX FRESH-2026: M-43 [F-80-05] — push WETH directly instead
-                // of the unwrap → re-wrap roundtrip. Pre-fix the path was:
-                //   1) `IWETH.withdraw(amount)` (WETH→ETH on-hand)
-                //   2) `safeTransferETHOrWrap` 30k-gas push to revenueDistributor
-                //   3) On the (likely) ETH-leg failure, lib calls `IWETH.deposit{value}`
-                //      then `IWETH.transfer(revenueDistributor, amount)` —
-                //      net: deposit + withdraw + deposit + transfer + 4 LOG events,
-                //      ~3× the gas of a single `IERC20.safeTransfer` and identical
-                //      end-state. RevenueDistributor's existing `proposeTokenSweep`
-                //      path can land WETH back into stakers via a treasury route, so
-                //      direct WETH delivery is value-equivalent without the round-trip
-                //      tax. The unwrap-rewrap pattern was inherited from a Bunni v2
-                //      port where the recipient could only accept native ETH; here
-                //      the recipient is a contract that holds WETH ERC20 fine.
-                IERC20(WETH).safeTransfer(revenueDistributor, amount);
+                // Canonical WETH path — unwrap to native, then forward.
+                IWETH(WETH).withdraw(amount);
+                WETHFallbackLib.safeTransferETHOrWrap(WETH, revenueDistributor, amount);
             } else {
                 revert MustConvertERC20First();
             }
@@ -752,20 +604,9 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
             address(this),
             deadline
         );
-        // AUDIT FIX FRESH-2026: F-23-11 — revoke router allowance BEFORE the
-        // post-swap slippage gate so a downstream revert cannot leave residual
-        // allowance behind. Pre-fix the `forceApprove(router, 0)` ran AFTER
-        // the `if (ethReceived < minETHOut) revert InsufficientETHOut();`
-        // check; if that gate fired, the entire tx atomically rolled back AND
-        // the allowance was reset to zero by the rollback — but if a future
-        // refactor introduces a non-reverting failure path or a try/catch
-        // around the swap leg, residual allowance could persist for the
-        // owner-supplied `router`. Revoking first is value-equivalent (router
-        // already consumed `amount` via `transferFrom` during the swap) and
-        // closes the entire allowance-leak class.
-        IERC20(currency).forceApprove(router, 0);
         uint256 ethReceived = address(this).balance - ethBefore;
         if (ethReceived < minETHOut) revert InsufficientETHOut();
+        IERC20(currency).forceApprove(router, 0);
 
         // Forward to revenueDistributor with WETH fallback (reuses the 10k-gas-stipend
         // anti-reentrancy pattern; ETH-leg failure → WETH wrap, both legs failure →
@@ -787,21 +628,6 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     ///      between propose and execute.
     function proposeSyncAccruedFees(address currency, uint256 actualCredit) external onlyOwner {
         require(actualCredit != accruedFees[currency], "SAME_VALUE");
-        // AUDIT FIX FRESH-2026: F-23-5 [F-75-5] — re-arm cooldown gate.
-        // Pre-fix a captured owner could chain `cancel → propose` atomically
-        // in a single block, leaving zero gap for keeper claims and resetting
-        // the SYNC_PENDING window forever, perpetually DOS-ing `claimFees` /
-        // `convertERC20FeesToETH` for the targeted currency. Now any
-        // state change (cancel / expire / execute) writes
-        // `lastSyncStateChange[currency]`, and the next propose must wait
-        // SYNC_RE_ARM_COOLDOWN (7 days) — same length as the post-execute
-        // SYNC_COOLDOWN — before re-engaging the SYNC_PENDING gate. This
-        // forces a 7-day claim window between proposals, bounding the
-        // captured-owner DoS to one cycle per 7 days.
-        require(
-            block.timestamp >= lastSyncStateChange[currency] + SYNC_RE_ARM_COOLDOWN,
-            "SYNC_RE_ARM_COOLDOWN"
-        );
         bytes32 key = keccak256(abi.encodePacked(SYNC_CHANGE, currency));
         pendingSyncCredit[currency] = actualCredit;
         // AUDIT FIX D-AMM-M4: snapshot on-chain credit at propose time.
@@ -860,26 +686,17 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         // AUDIT FIX D-AMM-M4: clear snapshot for fresh capture on next propose.
         pendingSyncCreditSnapshot[currency] = 0;
         lastSyncExecuted[currency] = block.timestamp;
-        // AUDIT FIX FRESH-2026: F-23-5 [F-75-5] — record last state change so the
-        // next propose cooldown gate trips correctly.
-        lastSyncStateChange[currency] = block.timestamp;
         emit SyncExecuted(currency, old, accruedFees[currency]);
     }
 
     /// @notice Cancel a pending sync proposal.
     /// @dev AUDIT FIX D-AMM-M4: clear `pendingSyncCreditSnapshot` so the next
     ///      propose freshly captures the on-chain credit balance.
-    /// @dev AUDIT FIX FRESH-2026: F-23-5 [F-75-5] — write `lastSyncStateChange`
-    ///      so the SYNC_RE_ARM_COOLDOWN gate on the next propose enforces a
-    ///      mandatory keeper-claim window. Without this stamp, a captured
-    ///      owner could `cancel → propose` atomically and reset the
-    ///      SYNC_PENDING window forever.
     function cancelSyncAccruedFees(address currency) external onlyOwner {
         bytes32 key = keccak256(abi.encodePacked(SYNC_CHANGE, currency));
         _cancel(key);
         pendingSyncCredit[currency] = 0;
         pendingSyncCreditSnapshot[currency] = 0;
-        lastSyncStateChange[currency] = block.timestamp;
         emit SyncCancelled(currency);
     }
 
@@ -902,15 +719,6 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         _cancel(key);
         pendingSyncCredit[currency] = 0;
         pendingSyncCreditSnapshot[currency] = 0;
-        // AUDIT FIX FRESH-2026: F-23-5 [F-75-5] — write `lastSyncStateChange`
-        // here too. Permissionless expiry is a state change; the SYNC_RE_ARM_COOLDOWN
-        // gate must fire on the next propose regardless of who triggered the
-        // cleanup. Note: this means an external griefer can extend the
-        // captured-owner DoS by calling `expire` immediately after the
-        // proposal validity window — but the captured owner's grief was
-        // already bounded by SYNC_PENDING expiring at +7d, so the extra
-        // delay net-helps the keeper-claim window vs. status quo.
-        lastSyncStateChange[currency] = block.timestamp;
         emit SyncCancelled(currency);
     }
 
@@ -1025,49 +833,17 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     ///         intent.
     /// @param  to Recipient of the swept ETH. Must be `revenueDistributor`;
     ///            reverts `InvalidSweepRecipient` otherwise.
-    /// @dev    AUDIT FIX FRESH-2026: M-40 [F-55-4] — replaced unbounded raw `.call`
-    ///         with `WETHFallbackLib.safeTransferETHOrWrap`. Pre-fix the raw
-    ///         `payable(to).call{value: balance}("")` forwarded ALL gas (no
-    ///         stipend) to `revenueDistributor.receive()`; if the distributor's
-    ///         receive ever consumed more than the call frame allowed, or its
-    ///         receive reverted (post-upgrade selector mismatch / paused state),
-    ///         the entire balance became unsweepable until the 48h
-    ///         distributor-rotation timelock could redirect to a recoverable
-    ///         destination. The lib path uses a 30k stipend with WETH wrap
-    ///         fallback — guaranteed delivery even if `receive()` cannot accept
-    ///         raw ETH.
-    /// @dev    AUDIT FIX FRESH-2026: F-22-K-02 — added `nonReentrant`. Pre-fix
-    ///         a re-entrant receive callback could chain into `claimFees`
-    ///         during the sweep frame; the existing `nonReentrant` on
-    ///         `claimFees` already caught the re-entry, but defense-in-depth
-    ///         here closes the entire vector at the source.
-    function sweepETH(address to) external onlyOwner nonReentrant {
+    function sweepETH(address to) external onlyOwner {
         // AUDIT FIX V3-AMM-H1: only `revenueDistributor` is a valid sweep
         // target. Owner-as-sink defeats the M-32 threat model.
         if (to != revenueDistributor) revert InvalidSweepRecipient();
         uint256 balance = address(this).balance;
         require(balance > 0, "NO_ETH"); // L-10: Prevent zero-value transfer
-        // AUDIT FIX FRESH-2026: M-40 [F-55-4] — WETH-fallback delivery path.
-        WETHFallbackLib.safeTransferETHOrWrap(WETH, to, balance);
+        (bool success,) = payable(to).call{value: balance}("");
+        if (!success) revert SweepFailed();
         emit ETHSwept(to, balance);
     }
 
-    /// @notice Accept ETH from the PoolManager `take()` path during V4 unlock,
-    ///         from WETH9 unwrap callbacks, or from miscellaneous donations.
-    /// @dev    AUDIT FIX FRESH-2026: F-22-K-03 / F-76-B — explicit no-op `receive()`
-    ///         documentation. THIS FUNCTION RUNS INSIDE THE V4 UNLOCK CONTEXT
-    ///         when `afterSwap` calls `poolManager.take(ADDRESS_ZERO, ...)` for
-    ///         a native-ETH pool. PoolManager's `Currency.transfer` for
-    ///         address(0) forwards ALL available gas (no stipend). ANY logic
-    ///         added here runs with full gas BEFORE `afterSwap` returns and
-    ///         the hookDelta accounting closes — adding state mutation, logging,
-    ///         or external calls would create a reentrancy surface that
-    ///         bypasses the `nonReentrant` modifier on `claimFees` /
-    ///         `convertERC20FeesToETH` / `sweepETH` (afterSwap itself is NOT
-    ///         under ReentrancyGuard — it's onlyPoolManager). KEEP THIS BODY
-    ///         EMPTY. If future hardening requires receive-side logic (e.g.,
-    ///         a totalETHReceived counter, per F-55-9), gate it behind a
-    ///         `if (msg.sender == address(poolManager) && _isUnlocked) revert`
-    ///         pattern and re-audit the unlock-context implications.
+    // Accept ETH
     receive() external payable {}
 }

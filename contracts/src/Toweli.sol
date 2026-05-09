@@ -12,25 +12,10 @@ import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/Signa
 //   ethers / viem branches on these typed errors.
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-/// @title Toweli — Tegridy Farms utility & reward-accrual token (TOWELI)
+/// @title Toweli — Tegridy Farms governance & revenue-accrual token
 /// @notice Fixed-supply ERC-20 token for Tegridy Farms protocol. Immutable supply,
 ///         no mint function, no burn entrypoint, no pause, no blocklist, no owner.
 ///         EIP-2612 permit() support included for gasless approvals.
-///
-///         AUDIT FIX FRESH-2026: M-29 / F-36-01 — NatSpec correction. The
-///         pre-fresh-look NatSpec described TOWELI as a "governance &
-///         revenue-accrual" token, but TOWELI itself implements neither
-///         `ERC20Votes` nor any snapshot / delegation / `getPastVotes` surface.
-///         Voting power is NOT a property of holding TOWELI — it is exclusively
-///         derived from active staked positions in `TegridyStaking`, where the
-///         `boostedAmount` (with lock + JBAC multipliers) is the canonical
-///         vote-weight unit consumed by the governor / vote-incentives /
-///         gauge-weighting pipeline. Holding plain TOWELI confers zero voting
-///         power. Integrators that need vote-weight MUST query the staking
-///         contract, not this token. TOWELI itself is a transferable utility
-///         and reward-accrual unit only; downstream consumers calling
-///         `getPastVotes` / `delegate` directly on this token will revert
-///         (the methods don't exist on the inheritance chain).
 ///
 /// @dev Canonical deployment is `0x420698CFdEDdEa6bc78D59bC17798113ad278F9D` on
 ///      Ethereum Mainnet. The vanity address prefix (`0x420698`) was produced via
@@ -96,14 +81,6 @@ contract Toweli is ERC20, ERC20Permit {
     bytes32 private constant PERMIT_TYPEHASH_LOCAL =
         keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)");
 
-    // AUDIT FIX FRESH-2026: F-36-05 — replace the two pre-condition string
-    // requires (constructor zero-recipient + post-deploy mint guard) with
-    // typed custom errors so frontends, indexers, and bot-protected deploy
-    // tooling can branch on the selector instead of pattern-matching a
-    // revert string. Pure stylistic / interop improvement; no behavior change.
-    error ZeroRecipient();
-    error MintDisabled();
-
     /// @param recipient Address that receives the entire 1B TOWELI supply at deploy.
     ///                  Expected to be a multisig treasury that then distributes to
     ///                  LP seed, staking rewards, team, and community per the
@@ -112,8 +89,7 @@ contract Toweli is ERC20, ERC20Permit {
         ERC20("Toweli", "TOWELI")
         ERC20Permit("Toweli")
     {
-        // AUDIT FIX FRESH-2026: F-36-05 — typed custom error.
-        if (recipient == address(0)) revert ZeroRecipient();
+        require(recipient != address(0), "Toweli: zero recipient");
         // DEFERRED: DEEP-LIB-M4 — `recipient.code.length > 0` enforcement.
         //   Adding the contract-only requirement here would break:
         //     - contracts/test/Toweli.t.sol (uses `treasury = makeAddr("treasury")` → EOA)
@@ -140,8 +116,7 @@ contract Toweli is ERC20, ERC20Permit {
     function _update(address from, address to, uint256 value) internal override {
         if (from == address(0)) {
             // Mint path. Allowed exactly once, before _initialMintDone is set.
-            // AUDIT FIX FRESH-2026: F-36-05 — typed custom error.
-            if (_initialMintDone) revert MintDisabled();
+            require(!_initialMintDone, "MINT_DISABLED");
         }
         super._update(from, to, value);
     }

@@ -107,7 +107,6 @@ contract AuditR014_VoteIncentivesTest is Test {
             address(weth),
             address(factory),
             address(toweli),
-            address(0),        // AUDIT F-69-1: sequencerFeed (mainnet posture)
             FEE_BPS
         );
 

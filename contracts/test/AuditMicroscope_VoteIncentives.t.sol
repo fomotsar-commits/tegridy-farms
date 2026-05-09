@@ -49,7 +49,7 @@ contract AuditMicroscope_VoteIncentivesTest is VoteIncentivesTest {
         vi.commitVote(epochId, h2, 4000e18);
         vm.stopPrank();
 
-        assertEq(vi.committedPowerOf(alice, epochId), 4000e18, "first commit landed");
+        assertEq(vi.committedPower(alice, epochId), 4000e18, "first commit landed");
     }
 
     /// @notice C2: legitimate split across two pairs WITHIN the cap still works.
@@ -67,7 +67,7 @@ contract AuditMicroscope_VoteIncentivesTest is VoteIncentivesTest {
         vi.commitVote(epochId, h2, 4000e18); // total = 7000e18 = userPower
         vm.stopPrank();
 
-        assertEq(vi.committedPowerOf(alice, epochId), 7000e18);
+        assertEq(vi.committedPower(alice, epochId), 7000e18);
     }
 
     /// @notice C2: zero-power commit rejected (defensive against edge-case integer flow).

@@ -73,32 +73,7 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     // AUDIT FIX M-36: Changed from block.number to block.timestamp for L2 compatibility
     // (block.number on Arbitrum returns L1 block number, making block-based checks unreliable)
     mapping(address => uint256) public nftActivationBlock; // kept name for storage compat, stores timestamp now
-    // AUDIT FIX FRESH-2026: F-67-2 — bumped 15s → 60s. The previous 15-second
-    // gate matched the worst-case Ethereum L1 validator skew (one slot ~12s),
-    // making the boundary crossable in a single hostile-proposer block. 60s
-    // gives ~5x slot margin while remaining well below normal user UX
-    // expectations.
-    uint256 public constant MIN_ACTIVATION_DELAY = 60 seconds;
-    // AUDIT FIX FRESH-2026: F-27-K-02 — make the 10-minute marketplace grace
-    // window an explicit constant and honor it inside `_nftPremiumActive`. The
-    // PA-L-02 NatSpec promised marketplace-flow smoothing but the live
-    // `balanceOf > 0` check in `hasPremium` defeated it. The grace now
-    // resolves against `lastBalanceTimestamp` — the most recent observed
-    // moment the user held the NFT — so a transient marketplace-escrow drop
-    // does not yank premium UX.
-    uint256 public constant MARKETPLACE_GRACE = 10 minutes;
-    // AUDIT FIX FRESH-2026: F-27-K-02 — most recent timestamp at which the
-    // user was last observed holding a JBAC. Updated opportunistically on
-    // `_nftPremiumActive` reads when balance is non-zero, and authoritatively
-    // on `activateNFTPremium`. Drives the `MARKETPLACE_GRACE` branch.
-    mapping(address => uint256) public lastBalanceTimestamp;
-    // AUDIT FIX FRESH-2026: F-27-K-07 — track the most recent
-    // `deactivateNFTPremium` invocation per user. Used to enforce a
-    // 1h re-activation cooldown to bound the grief loop where a third party
-    // races a marketplace de-list with `deactivateNFTPremium(alice)` and
-    // forces Alice to immediately re-pay activation gas.
-    mapping(address => uint256) public lastDeactivationTime;
-    uint256 public constant DEACTIVATION_REACTIVATION_COOLDOWN = 1 hours;
+    uint256 public constant MIN_ACTIVATION_DELAY = 15 seconds;
 
     /// @notice AUDIT FIX: DEEP-DR-M-05 — track refund shortfalls when contractBalance
     ///         caps the cancelSubscription refund. Without this, the user's userEscrow
@@ -136,17 +111,6 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     event TreasuryChangeCancelled(address cancelledTreasury);
     event FeeChangeProposed(uint256 currentFee, uint256 newFee, uint256 executeAfter);
     event FeeChangeCancelled(uint256 cancelledFee);
-    /// @notice AUDIT FIX FRESH-2026: F-27-K-05 — emitted when `withdrawToTreasury`
-    ///         attempts but fails to deliver TOWELI to the treasury (e.g. paused
-    ///         token, blacklisted treasury contract, custom transfer hook revert).
-    ///         The funds remain in the contract for a future call after the
-    ///         treasury is rotated through the 48h timelock.
-    event TreasuryDeliveryFailed(address indexed treasury, uint256 amount, bytes reason);
-    /// @notice AUDIT FIX FRESH-2026: F-27-K-07 — emitted when a third party
-    ///         deactivates a user's NFT premium activation via the
-    ///         self-call branch (msg.sender == user) is intentionally NOT
-    ///         emitted here; only the legacy "user lost the NFT" cleanup path
-    ///         is retained. Held for completeness of the audit trail.
 
     error ZeroAddress();
     error ZeroMonths();
@@ -157,20 +121,6 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     error ZeroFee(); // AUDIT FIX H-06
     error MinHoldingNotMet(); // AUDIT R014: cancel before MIN_HOLDING_PERIOD
     error NothingToClaim(); // AUDIT FIX: DEEP-DR-M-05 — claimShortfall called with no balance available
-    /// @notice AUDIT FIX FRESH-2026: F-27-K-08 — distinct from `NothingToClaim`.
-    ///         Fires when the user is owed a non-zero shortfall but the
-    ///         contract is currently insolvent for any of it. Allows
-    ///         off-chain monitoring to differentiate "no claim" from
-    ///         "retry later".
-    error ShortfallContractEmpty();
-    /// @notice AUDIT FIX FRESH-2026: F-27-K-07 — `deactivateNFTPremium` may
-    ///         only be called by the holder themselves (msg.sender == user),
-    ///         closing the third-party grief vector.
-    error NotHolder();
-    /// @notice AUDIT FIX FRESH-2026: F-27-K-07 — `activateNFTPremium` enforces
-    ///         a 1h cooldown after a self-deactivation to prevent
-    ///         deactivate-reactivate spam.
-    error ReactivationCooldown();
 
     // Legacy error aliases (kept for test compatibility)
     // Note: ProposalExpired() removed — use TimelockAdmin.ProposalExpired(bytes32) instead
@@ -222,51 +172,15 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     // WARNING TO INTEGRATORS: Do NOT use hasPremium() for on-chain gating of valuable actions.
     // Use hasPremiumSecure() instead to prevent flash-loan NFT borrow attacks.
     function hasPremium(address user) external view returns (bool) {
-        // AUDIT FIX FRESH-2026: F-27-K-01 — route through `_nftPremiumActive`
-        // so `getSubscription` and `hasPremium` share IDENTICAL semantics
-        // (MIN_ACTIVATION_DELAY + balanceOf + MARKETPLACE_GRACE).
-        if (_nftPremiumActive(user)) {
+        // A4-C-02: JBAC NFT holders must have activated in a PRIOR block to prevent flash-loan attacks.
+        // Activation persists — only needs to be done once while holding the NFT.
+        // AUDIT FIX M-36: Use timestamp comparison for L2 compatibility
+        if (jbacNFT.balanceOf(user) > 0 && nftActivationBlock[user] != 0 && block.timestamp > nftActivationBlock[user] + MIN_ACTIVATION_DELAY) {
             return true;
         }
         // Check time-based subscription
         Subscription memory sub = subscriptions[user];
         return sub.expiresAt > block.timestamp;
-    }
-
-    /// @dev AUDIT FIX FRESH-2026: F-27-K-01 / F-27-K-02 — single source of truth
-    ///      for NFT-based premium gating. Used by both `hasPremium` (legacy
-    ///      flash-spoofable view) and `getSubscription` (integrator view) so
-    ///      the two views can never drift again.
-    ///
-    ///      Returns true when EITHER:
-    ///        (a) user currently holds a JBAC NFT, has called
-    ///            `activateNFTPremium` at least `MIN_ACTIVATION_DELAY` (60s)
-    ///            ago, AND `nftActivationBlock` is non-zero; OR
-    ///        (b) user does NOT currently hold a JBAC NFT BUT
-    ///            `lastBalanceTimestamp` is within `MARKETPLACE_GRACE`
-    ///            (10 minutes) and the activation gate is satisfied —
-    ///            this is the marketplace-escrow grace window
-    ///            previously promised by PA-L-02 NatSpec but never honored.
-    ///
-    ///      View-only and pure of side effects to be safe in `view` callers.
-    ///      The `lastBalanceTimestamp` mapping is updated authoritatively in
-    ///      `activateNFTPremium` (which any UI/integrator can trigger before
-    ///      the user lists their NFT).
-    function _nftPremiumActive(address user) internal view returns (bool) {
-        uint256 activatedAt = nftActivationBlock[user];
-        if (activatedAt == 0) return false;
-        if (block.timestamp <= activatedAt + MIN_ACTIVATION_DELAY) return false;
-
-        if (jbacNFT.balanceOf(user) > 0) return true;
-
-        // Marketplace grace branch (F-27-K-02): the user momentarily lacks
-        // balance (in escrow at a marketplace, listed for sale, etc.) but
-        // was recently observed holding the NFT.
-        uint256 seenAt = lastBalanceTimestamp[user];
-        if (seenAt != 0 && block.timestamp <= seenAt + MARKETPLACE_GRACE) {
-            return true;
-        }
-        return false;
     }
 
     /// @notice Flash-loan-resistant premium check for subscription-based access.
@@ -293,17 +207,8 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     ///         AUDIT FIX M-37: Can also be called automatically by frontend on wallet connect.
     function activateNFTPremium() external {
         require(jbacNFT.balanceOf(msg.sender) > 0, "NO_JBAC_NFT");
-        // AUDIT FIX FRESH-2026: F-27-K-07 — enforce 1h cooldown after a
-        // self-deactivation to bound the deactivate→reactivate flap loop.
-        uint256 lastDeact = lastDeactivationTime[msg.sender];
-        if (lastDeact != 0 && block.timestamp < lastDeact + DEACTIVATION_REACTIVATION_COOLDOWN) {
-            revert ReactivationCooldown();
-        }
         // AUDIT FIX M-36: Store timestamp instead of block.number for L2 compatibility
         nftActivationBlock[msg.sender] = block.timestamp;
-        // AUDIT FIX FRESH-2026: F-27-K-02 — record balance-observed timestamp
-        // to power the MARKETPLACE_GRACE branch in `_nftPremiumActive`.
-        lastBalanceTimestamp[msg.sender] = block.timestamp;
         emit NFTAccessGranted(msg.sender);
     }
 
@@ -324,20 +229,10 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     ///         transaction).
     /// @param user The address to deactivate
     function deactivateNFTPremium(address user) external {
-        // AUDIT FIX FRESH-2026: F-27-K-07 — close the third-party grief vector.
-        // Previously this was permissionless (anyone could call for any user
-        // who had lost their NFT for 10+ minutes), enabling Bob to front-run
-        // Alice's marketplace de-list and force Alice to re-pay activation
-        // gas. Now only the holder themselves may clear their slot. Combined
-        // with the 1h `DEACTIVATION_REACTIVATION_COOLDOWN` enforced in
-        // `activateNFTPremium`, the function loses its grief surface.
-        if (msg.sender != user) revert NotHolder();
         uint256 activationBlock = nftActivationBlock[user];
         // AUDIT FIX M-36: Use timestamp comparison (10 minutes grace period instead of 10 blocks)
-        if (activationBlock != 0 && jbacNFT.balanceOf(user) == 0 && block.timestamp > activationBlock + MARKETPLACE_GRACE) {
+        if (activationBlock != 0 && jbacNFT.balanceOf(user) == 0 && block.timestamp > activationBlock + 10 minutes) {
             nftActivationBlock[user] = 0;
-            // AUDIT FIX FRESH-2026: F-27-K-07 — track for reactivation cooldown.
-            lastDeactivationTime[user] = block.timestamp;
             emit NFTAccessRevoked(user);
         }
     }
@@ -359,23 +254,8 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         uint256 cost = monthlyFeeToweli * months;
         // AUDIT FIX M-11: Protect against fee front-running
         require(cost <= maxCost, "COST_EXCEEDS_MAX");
-        // SECURITY FIX #17: Hold funds in contract for potential refund.
-        // AUDIT FIX FRESH-2026: F-27-K-06 — measure balance delta to defend
-        // against fee-on-transfer behaviour on `toweli`. If TOWELI is or
-        // becomes a fee-on-transfer ERC-20, `safeTransferFrom(cost)` only
-        // delivers `cost - feeOnTransfer` while `userEscrow = cost` would
-        // over-credit the user's refundable amount and silently route every
-        // cancellation through the shortfall queue. By using the delivered
-        // delta as the canonical `cost` we keep `userEscrow`,
-        // `totalRefundEscrow`, and `totalRevenue` consistent with the actual
-        // contract balance. Reverts with `InsufficientPayment` if zero
-        // tokens were delivered.
-        uint256 balanceBefore = toweli.balanceOf(address(this));
+        // SECURITY FIX #17: Hold funds in contract for potential refund
         toweli.safeTransferFrom(msg.sender, address(this), cost);
-        uint256 balanceAfter = toweli.balanceOf(address(this));
-        uint256 delivered = balanceAfter - balanceBefore;
-        if (delivered == 0) revert InsufficientPayment();
-        cost = delivered;
 
         Subscription storage sub = subscriptions[msg.sender];
         bool isNewSub = sub.expiresAt <= block.timestamp;
@@ -505,15 +385,8 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
 
         // CRITICAL FIX: Proportional refund based on actual escrowed amount and remaining time
         uint256 escrowed = userEscrow[msg.sender];
-        // AUDIT FIX FRESH-2026: F-27-K-04 — `totalDuration == 0` is unreachable.
-        // `cancelSubscription` requires `block.timestamp >= sub.startedAt + MIN_HOLDING_PERIOD (= 1 day)`
-        // (line above) AND `sub.expiresAt > block.timestamp`, so on entry
-        // `totalDuration = sub.expiresAt - sub.startedAt >= remainingTime + MIN_HOLDING_PERIOD > 0`.
-        // The previous AUDIT FIX v3 ternary handled "cancelled in same block as subscription" — a
-        // path that `SAME_BLOCK_CANCEL` and `MinHoldingNotMet` both reject. Dropping the dead
-        // branch removes a misleading comment and would make any future relaxation of the
-        // holding-period gate fail loud (division-by-zero) instead of silent (full refund).
-        uint256 refundAmount = (escrowed * remainingTime) / totalDuration;
+        // AUDIT FIX v3: If cancelled in same block as subscription, refund full escrow (totalDuration == 0)
+        uint256 refundAmount = totalDuration == 0 ? escrowed : (escrowed * remainingTime) / totalDuration;
 
         // Cap refund at userEscrow (can't refund more than deposited)
         if (refundAmount > escrowed) {
@@ -565,10 +438,9 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
             // amount from the original formula. Cap the decrement at
             // `totalRevenue` to avoid underflow on edge cases (e.g. revenue
             // already drawn down by a prior withdrawToTreasury sequence).
-            // AUDIT FIX FRESH-2026: F-27-K-04 — `totalDuration` is provably > 0
-            // here (same guard reasoning as the refund computation above), so
-            // the previous `totalDuration == 0` short-circuit is dead.
-            uint256 fullRefundable = (escrowed * remainingTime) / totalDuration;
+            uint256 fullRefundable = totalDuration == 0
+                ? escrowed
+                : (escrowed * remainingTime) / totalDuration;
             if (fullRefundable > escrowed) fullRefundable = escrowed;
             if (fullRefundable <= totalRevenue) {
                 totalRevenue -= fullRefundable;
@@ -635,35 +507,8 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         uint256 reserved = totalRefundEscrow + totalShortfallOwed;
         uint256 withdrawable = balance > reserved ? balance - reserved : 0;
         if (withdrawable > 0) {
-            // AUDIT FIX FRESH-2026: F-27-K-05 — wrap in try/catch so a treasury
-            // contract that reverts on token receipt (paused, blacklisted,
-            // custom transfer hook) does not strand owner-side liveness for
-            // 48 hours. Funds remain in the contract; an event is emitted for
-            // off-chain monitoring; the owner can rotate `treasury` via the
-            // 48h timelock (`proposeTreasuryChange` → `executeTreasuryChange`)
-            // and retry. No fund loss in any case — escrow accounting is
-            // unchanged because withdrawable was carved out from
-            // `balance - reserved` and we only emitted on the reverted leg.
-            try this._withdrawToTreasuryAttempt(treasury, withdrawable) {
-                // success — funds delivered.
-            } catch (bytes memory reason) {
-                emit TreasuryDeliveryFailed(treasury, withdrawable, reason);
-            }
+            toweli.safeTransfer(treasury, withdrawable);
         }
-    }
-
-    /// @notice AUDIT FIX FRESH-2026: F-27-K-05 — internal wrapper for the
-    ///         treasury safeTransfer so the outer `withdrawToTreasury` can
-    ///         catch reverts from a misbehaving treasury contract via
-    ///         `try this._withdrawToTreasuryAttempt(...)`. Solidity does not
-    ///         allow `try` on a direct internal call; the external-self-call
-    ///         pattern is the standard workaround. The call is gated to the
-    ///         contract itself.
-    /// @dev    External so it is callable through `this`, but reverts on any
-    ///         caller other than the contract address.
-    function _withdrawToTreasuryAttempt(address _treasury, uint256 _amount) external {
-        if (msg.sender != address(this)) revert ZeroAddress();
-        toweli.safeTransfer(_treasury, _amount);
     }
 
     /// @notice AUDIT FIX: DEEP-DR-M-05 — claim a previously-shorted refund once
@@ -677,11 +522,7 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         // Reserve other obligations so this claim cannot starve them.
         uint256 reserved = totalRefundEscrow + totalShortfallOwed - owed;
         uint256 available = balance > reserved ? balance - reserved : 0;
-        // AUDIT FIX FRESH-2026: F-27-K-08 — distinct revert for "owed but
-        // contract empty" vs "nothing owed". Off-chain monitoring can now
-        // surface "retry later — contract balance below reserved" cleanly
-        // instead of conflating with the no-claim case.
-        if (available == 0) revert ShortfallContractEmpty();
+        if (available == 0) revert NothingToClaim();
         uint256 payout = owed > available ? available : owed;
         shortfallOwed[msg.sender] = owed - payout;
         totalShortfallOwed -= payout;
@@ -779,50 +620,19 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
 
     // ─── View ─────────────────────────────────────────────────────────
 
-    /// @notice AUDIT FIX FRESH-2026: F-27-K-01 (M-19) — `getSubscription` and
-    ///         `hasPremium` now share IDENTICAL semantics via the internal
-    ///         `_nftPremiumActive` helper. Previously this view returned
-    ///         `nftHolder = balanceOf(user) > 0` directly, which omitted both
-    ///         the activation timestamp gate AND `MIN_ACTIVATION_DELAY`,
-    ///         making it strictly weaker than `hasPremium` and exposing
-    ///         external integrators to a flash-loan spoofing path that
-    ///         `hasPremium` already guarded against.
-    /// @notice AUDIT FIX FRESH-2026: F-27-K-03 INFO — JBAY Gold
-    ///         (0x6Aa03F42c5366E2664c887eb2e90844CA00B92F3), referenced in the
-    ///         protocol scope as a free-access NFT, is NOT honored by this
-    ///         contract. Only the JBAC NFT registry is consulted. Holders of
-    ///         JBAY Gold are subject to the standard TOWELI subscription fee.
-    ///         If JBAY Gold should be honored in the future, deploy a fresh
-    ///         instance with a multi-NFT registry; this contract's storage
-    ///         layout is fixed and cannot be extended in place.
-    /// @return expiresAt The subscription expiry timestamp (0 if no subscription).
-    /// @return lifetime DEPRECATED-NAMED FIELD — true if the user has an
-    ///         NFT-based premium activation that satisfies the
-    ///         `_nftPremiumActive` gate. Despite the field's legacy name,
-    ///         this is NOT permanent — see `_nftPremiumActive` for semantics.
-    /// @return active True if EITHER (a) NFT-premium gate is active OR (b)
-    ///         the time-based subscription has not yet expired.
     function getSubscription(address user) external view returns (uint256 expiresAt, bool lifetime, bool active) {
         Subscription memory sub = subscriptions[user];
-        // AUDIT FIX FRESH-2026: F-27-K-01 — single source of truth.
-        bool nftActive = _nftPremiumActive(user);
-        return (sub.expiresAt, nftActive, nftActive || sub.expiresAt > block.timestamp);
+        bool nftHolder = jbacNFT.balanceOf(user) > 0;
+        // lifetime is true only if user currently holds NFT (checked at query time)
+        return (sub.expiresAt, nftHolder, nftHolder || sub.expiresAt > block.timestamp);
     }
 
     /// @notice AUDIT FIX: DEEP-DR-L-01 — read-only view onto the orphaned
     ///         `_deprecated_paidFeeRate_slot` (PA-M-02 made the mapping private but
     ///         left existing on-chain state inaccessible). Off-chain analytics can
     ///         use this to recover historical fee-rate data for legacy subscribers.
-    /// @notice AUDIT FIX FRESH-2026: F-27-K-09 INFO — this view is meaningful
-    ///         ONLY on instances upgraded from a pre-PA-M-02 deployment.
-    ///         FRESH deployments (and the relaunch deployment per the
-    ///         project_relaunch.md decision) will return ZERO for ALL
-    ///         addresses because no code path ever writes to this slot in the
-    ///         current contract. Off-chain dashboards wired to this view
-    ///         should not expect it to populate over time on the relaunch
-    ///         instance.
     /// @param user The address whose deprecated paidFeeRate slot to read
-    /// @return The deprecated paidFeeRate value (zero on fresh deployments)
+    /// @return The deprecated paidFeeRate value (zero for fresh deployments / new users)
     function getDeprecatedPaidFeeRate(address user) external view returns (uint256) {
         return _deprecated_paidFeeRate_slot[user];
     }

@@ -241,7 +241,7 @@ contract AuditR016_AMMGovTest is Test {
         viFactory.setPair(address(0xAAAA), address(0xBBBB), address(viPair));
         vi = new VoteIncentives(
             address(ve), treasury, address(weth), address(viFactory),
-            address(viToweli), address(0), 300
+            address(viToweli), 300
         );
         // AUDIT FIX (pass-8): EIP170-03 split â€” wire admin sister.
         viAdmin = new VoteIncentivesAdmin(address(vi));

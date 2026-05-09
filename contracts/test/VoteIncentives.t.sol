@@ -147,7 +147,7 @@ contract VoteIncentivesTest is Test {
         pair = address(mockPair);
         factory.registerPair(t0, t1, pair);
 
-        vi = new VoteIncentives(address(ve), treasury, address(weth), address(factory), address(bribeToken), address(0), 300); // 3% fee, bond in bribeToken for tests; AUDIT F-69-1: sequencerFeed (mainnet posture)
+        vi = new VoteIncentives(address(ve), treasury, address(weth), address(factory), address(bribeToken), 300); // 3% fee, bond in bribeToken for tests
 
         // AUDIT FIX (pass-8): EIP170-03 split — wire VoteIncentivesAdmin so timelocked
         // propose/execute/cancel ops can be driven by the test fixture.
@@ -198,12 +198,12 @@ contract VoteIncentivesTest is Test {
 
     function test_constructor_reverts_zero_address() public {
         vm.expectRevert(VoteIncentives.ZeroAddress.selector);
-        new VoteIncentives(address(0), treasury, address(weth), address(factory), address(bribeToken), address(0), 300);
+        new VoteIncentives(address(0), treasury, address(weth), address(factory), address(bribeToken), 300);
     }
 
     function test_constructor_reverts_fee_too_high() public {
         vm.expectRevert(VoteIncentives.FeeTooHigh.selector);
-        new VoteIncentives(address(ve), treasury, address(weth), address(factory), address(bribeToken), address(0), 600);
+        new VoteIncentives(address(ve), treasury, address(weth), address(factory), address(bribeToken), 600);
     }
 
     // ─── Epoch Management ────────────────────────────────────────────
@@ -228,7 +228,7 @@ contract VoteIncentivesTest is Test {
 
     function test_advanceEpoch_reverts_no_stakers() public {
         MockVE emptyVE = new MockVE();
-        VoteIncentives vi2 = new VoteIncentives(address(emptyVE), treasury, address(weth), address(factory), address(bribeToken), address(0), 300);
+        VoteIncentives vi2 = new VoteIncentives(address(emptyVE), treasury, address(weth), address(factory), address(bribeToken), 300);
         // AUDIT NEW-G8: fresh contract's lastEpochTime=0 would trip EpochTooSoon before
         // NoStakers. Warp past MIN_EPOCH_INTERVAL so the NoStakers path actually runs.
         vm.warp(block.timestamp + 7 days + 1);
@@ -918,11 +918,19 @@ contract VoteIncentivesTest is Test {
         vi.refundOrphanedBribe(epoch, pair, address(0));
     }
 
-    // AUDIT FIX (Wave-B): the legacy `rescueOrphanedBribes` deprecation revert
-    // was removed entirely from VoteIncentives.sol. The accompanying test
-    // (test_NEWG2_oldRescueSignatureReverts) is deleted because it exercised
-    // dead state — there is no longer a function with that name to assert the
-    // revert against. Refund flow lives at `refundOrphanedBribe` only.
+    /// @notice AUDIT NEW-G2: the old owner-only rescueOrphanedBribes signature
+    ///         now reverts, preventing stale tooling from silently draining
+    ///         user funds to treasury.
+    function test_NEWG2_oldRescueSignatureReverts() public {
+        uint256 epoch = vi.currentEpoch();
+        vm.deal(alice, 1 ether);
+        vm.prank(alice);
+        vi.depositBribeETH{value: 1 ether}(pair);
+        vm.warp(block.timestamp + 30 days + 1);
+
+        vm.expectRevert(bytes("USE_REFUND_ORPHANED_BRIBE"));
+        vi.rescueOrphanedBribes(epoch, pair, address(0));
+    }
 
     /// @notice AUDIT NEW-G2 + BATCH-N2 M12: depositor who didn't fund THIS specific
     ///         bucket can't refund it. Prevents griefers from claiming others' funds.
@@ -943,11 +951,14 @@ contract VoteIncentivesTest is Test {
 
     // ─── AUDIT NEW-G5: propose/execute commit-reveal timelock ──────────────
 
-    // AUDIT FIX (Wave-B / FRESH-2026 size-opt): the legacy instant
-    // `enableCommitReveal()` deprecation revert and its `UseProposeEnableCommitReveal`
-    // error were removed entirely from VoteIncentives (relaunch — no compat shims).
-    // The accompanying test (test_NEWG5_oldEnableRevertsWithDirection) is deleted
-    // because it exercised dead state.
+    /// @notice AUDIT NEW-G5: old instant `enableCommitReveal()` now reverts
+    ///         with the typed `UseProposeEnableCommitReveal()` error.
+    /// @dev    AUDIT L-2 (2026-04-28): expectation migrated from string-revert
+    ///         to typed-error to match the contract's error convention.
+    function test_NEWG5_oldEnableRevertsWithDirection() public {
+        vm.expectRevert(VoteIncentives.UseProposeEnableCommitReveal.selector);
+        vi.enableCommitReveal();
+    }
 
     /// @dev BATCH-F H14: commitRevealEnabled is true at deploy. To exercise the
     ///      propose/execute admin-recovery path we have to simulate the disabled

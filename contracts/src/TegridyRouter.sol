@@ -17,39 +17,6 @@ interface ITegridyFactoryRouter {
 ///         Supports ETH wrapping/unwrapping, multi-hop paths, and liquidity operations.
 ///
 ///         All swaps go through Tegridy's own pools — protocol keeps all fees.
-///
-/// // AUDIT FIX FRESH-2026: F-29-1 — addLiquidity / addLiquidityETH / removeLiquidity /
-///         removeLiquidityETH resolve the pair via the raw factory `getPair()` call rather than
-///         through `_pairFor()` (which adds a `disabledPairs(pair)` revert). This is INTENTIONAL:
-///
-///         REMOVE-LIQUIDITY PATHS: a disabled pair MUST remain exitable so LPs can withdraw.
-///         `TegridyPair.burn()` is intentionally ungated by `disabledPairs` for the same reason
-///         (only `swap`/`mint`/`skim`/`sync`/`harvest` are gated). Routing `removeLiquidity*`
-///         through `_pairFor()` would brick LP exits the moment governance disables a pair —
-///         the exact opposite of the safety property a kill-switch should provide.
-///
-///         ADD-LIQUIDITY PATHS: the disabled-pair check is delegated downstream to
-///         `TegridyPair.mint()` (`require(!ITegridyFactory(factory).disabledPairs(address(this)), "PAIR_DISABLED")`).
-///         End-state behaviour is correct — a disabled pair will revert addLiquidity inside the
-///         pair's `mint`, with the user's `safeTransferFrom`/`WETH.deposit` rolling back in the
-///         same tx. The only caller-visible difference is the revert SURFACE (string
-///         `"PAIR_DISABLED"` from the pair vs custom error `PairDisabled()` from the router).
-///         No funds are at risk; this is a UX/consistency observation only.
-///
-/// // AUDIT FIX FRESH-2026: F-29-3 — TegridyRouter has `nonReentrant` and ZERO admin functions
-///         by design. Any tokens (or ETH that bypasses `receive()`'s `require(msg.sender == WETH)`
-///         gate — none can in practice) sent DIRECTLY to the router address become permanently
-///         inaccessible. This matches the canonical Uniswap V2 router pattern and is DELIBERATE:
-///
-///           - The FoT-supporting variants compute `amountOut = balance(after) - balance(before)`,
-///             so a malicious actor pre-funding WETH to the router does NOT pollute the user's
-///             output calculation. The pre-funded amount simply sits stuck.
-///           - Adding an admin sweep would create a privileged surface (single-key drain risk,
-///             timelock complexity, audit burden) that the Uniswap V2 reference deliberately
-///             avoids. Users / aggregators should never transfer tokens directly to a router —
-///             funds always flow `caller -> pair` via `safeTransferFrom`, never `caller -> router`.
-///           - A future version with admin-sweep would alter the trust model and require fresh
-///             review. For this relaunch the no-sweep posture is the bulletproof default.
 contract TegridyRouter is ReentrancyGuard {
     // ─── Custom Errors (gas-optimized vs string reverts) ─────────────
     error InvalidPath();
@@ -231,24 +198,6 @@ contract TegridyRouter is ReentrancyGuard {
     }
 
     // ─── Exact-Input Swaps ─────────────────────────────────────────────
-    //
-    // // AUDIT FIX FRESH-2026: F-29-2 — Recipient guard scope.
-    // Every swap entry-point below blocks `to == _pairFor(path[hops-1], path[hops])` (the FINAL
-    // pair). It does NOT enumerate INTERMEDIATE pairs. If a caller specifies
-    // `to == _pairFor(path[k], path[k+1])` for some `k < hops-1`, the FINAL hop's output is
-    // delivered to that intermediate pair as a donation — its reserves do not update and any
-    // arbitrageur can `skim()` the surplus, costing the user their entire output amount.
-    //
-    // SCOPE: this is a USER-ERROR FOOTGUN, not a third-party exploit. No external actor can
-    // force the user to specify a bad `to`. Frontends MUST default `to = msg.sender` and only
-    // accept an arbitrary user-supplied recipient with explicit confirmation.
-    //
-    // WHY NOT ENUMERATE ALL HOPS: enumerating every intermediate pair would add an extra
-    // `_pairFor` STATICCALL per hop (~5k gas × hops). The protocol has accepted similar
-    // single-pair-only check patterns elsewhere; the canonical V2-style "block only the final
-    // pair as the lethal donation target" matches Uniswap / SushiSwap behaviour and protects
-    // the most common UI mistake (passing the pair address as `to` instead of the user EOA).
-    // Recording for completeness — frontend defaults are the load-bearing mitigation.
 
     function swapExactTokensForTokens(
         uint256 amountIn, uint256 amountOutMin,

@@ -10,11 +10,6 @@ import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 // admin surface moved to VoteIncentivesAdmin sister contract during Phase 0.3.
 import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
 import {VotePowerOracle} from "./lib/VotePowerOracle.sol";
-// AUDIT FIX FRESH-2026: F-69-1 — sequencer-buffer extension on vote-end and
-// reveal-deadline windows so an L2 outage doesn't cause honest committers to
-// lose bond + vote application to a window that elapsed entirely while the
-// chain was offline. Mirrors the MemeBountyBoard R062 pattern.
-import {SequencerCheck} from "./lib/SequencerCheck.sol";
 
 /// @dev Interface for TegridyStaking (voting escrow) — Curve-style checkpoint queries.
 ///      Same interface as RevenueDistributor uses.
@@ -23,9 +18,6 @@ interface IVotingEscrow {
     function votingPowerAtTimestamp(address user, uint256 ts) external view returns (uint256);
     function totalLocked() external view returns (uint256);
     function totalBoostedStake() external view returns (uint256);
-    /// @dev AUDIT FIX FRESH-2026: F-65-3 — historical denominator pin for `advanceEpoch`,
-    ///      mirrors the RevenueDistributor pattern (RevenueDistributor.sol:472).
-    function totalBoostedStakeAtTimestamp(uint256 ts) external view returns (uint256);
     function userTokenId(address user) external view returns (uint256);
     // H-01 FIX: Aligned to actual TegridyStaking.Position struct ABI order
     // AUDIT H-1 (2026-04-20): Position struct extended with jbacTokenId + jbacDeposited.
@@ -128,7 +120,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     function setGaugeController(address _gaugeController) external onlyOwner {
         if (_gaugeController == address(0)) revert ZeroAddress();
         if (gaugeController != address(0)) revert GaugeControllerAlreadySet();
-        if (_gaugeController.code.length == 0) revert MustBeContract();
+        require(_gaugeController.code.length > 0, "GC_MUST_BE_CONTRACT");
         gaugeController = _gaugeController;
         emit GaugeControllerSet(_gaugeController);
     }
@@ -153,7 +145,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     function setVoteIncentivesAdmin(address _admin) external onlyOwner {
         if (_admin == address(0)) revert ZeroAddress();
         if (voteIncentivesAdmin != address(0)) revert VoteIncentivesAdminAlreadySet();
-        if (_admin.code.length == 0) revert MustBeContract();
+        require(_admin.code.length > 0, "ADMIN_MUST_BE_CONTRACT");
         voteIncentivesAdmin = _admin;
         emit VoteIncentivesAdminSet(_admin);
     }
@@ -212,66 +204,10 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         their own VP unlocks).
     uint256 public constant MIN_BRIBE_CLAIM_QUORUM = 100e18;
 
-    /// @notice AUDIT FIX FRESH-2026: F-77-5 + F-69-3 + F-93-3 — minimum number
-    ///         of distinct briber addresses required for a (epoch, pair)
-    ///         bribe pool to be claimable by voters. Forces sybil bribers to
-    ///         coordinate at least one independent counterparty before they
-    ///         can self-bribe-and-vote-claim, raising the practical cost of
-    ///         the wallet-rotation arb.
-    /// @dev    Tracked via `bribeDepositorCount[epoch][pair]` (incremented on
-    ///         the first deposit for each new (depositor, epoch, pair)).
-    ///         Voters' claim path reverts `BribePoolNeedsMoreBribers` until
-    ///         the count clears the floor. Bond is still recoverable via the
-    ///         existing refund paths.
-    uint256 public constant MIN_BRIBE_CLAIM_QUORUM_PER_BRIBER = 2;
-
-    /// @notice AUDIT FIX FRESH-2026: F-77-3 — cooldown between
-    ///         `lastBribeDepositTime` and a permissionless `advanceEpoch`
-    ///         call. Forces a 1-hour gap between the latest bribe deposit
-    ///         landing in the live bucket and the snapshot, blocking
-    ///         atomic same-block deposit→advance sequences that route the
-    ///         briber's payload directly into the just-frozen bucket.
-    ///         Combined with F-77-1's `epoch + 1` indexing, this closes the
-    ///         briber-front-runs-advanceEpoch arbitrage entirely.
-    uint256 public constant ADVANCE_EPOCH_DEPOSIT_COOLDOWN = 1 hours;
-
-    /// @notice AUDIT FIX FRESH-2026: F-69-1 — Aave V3-style 1h grace window
-    ///         applied to the reveal-deadline / vote-end gates so an L2
-    ///         sequencer outage doesn't cost an honest committer their
-    ///         bond + vote application to a window that elapsed entirely
-    ///         while the chain was offline.
-    uint256 public constant SEQUENCER_OUTAGE_BUFFER = 1 hours;
-
-    /// @notice AUDIT FIX FRESH-2026: F-61-4 — admin-only "sweepEpochDust"
-    ///         lockout window. After this delay past the epoch's vote-end,
-    ///         the (deposited - claimed) dust on a (epoch, pair, token)
-    ///         triple is sweepable to treasury. Set conservatively to 1
-    ///         year so all reasonable claim paths have closed and all
-    ///         trustless refund grace windows have long elapsed (the
-    ///         max grace is 14d; the orphan-rescue 30d; this window is ~12x
-    ///         the worst case to leave generous slack for stuck claims).
-    uint256 public constant EPOCH_DUST_SWEEP_DELAY = 365 days;
-
-    /// @notice AUDIT FIX FRESH-2026: F-10-K-04 + M-11 — keeper bounty paid
-    ///         in TOWELI on each successful `advanceEpoch` so an honest
-    ///         keeper has a non-zero incentive to call the function on
-    ///         schedule. 10 BPS of `MIN_DISTRIBUTE_STAKE` (= 1 TOWELI) is
-    ///         the smallest amount that is meaningfully above gas-cost on
-    ///         L2 without becoming a meaningful drain on the protocol.
-    ///         Funded from the contract's accumulated TOWELI balance
-    ///         (commit-bond residual / sweep tokens) — `sweepToken(toweli)`
-    ///         continues to reserve the live `totalCommitBonds` so the
-    ///         bounty cannot drain pending-reveal bonds.
-    uint256 public constant ADVANCE_EPOCH_BOUNTY = 1e18;
-
     // ─── Immutables ──────────────────────────────────────────────────
     IVotingEscrow public immutable votingEscrow;
     IWETH public immutable weth;
     ITegridyFactory public immutable factory;
-
-    /// @notice AUDIT FIX FRESH-2026: F-69-1 — Chainlink L2 Sequencer Uptime
-    ///         feed. `address(0)` on mainnet / non-L2 (no-op).
-    address public immutable sequencerFeed;
 
     /// @notice Optional restaking contract; voting power from restaked positions
     ///         is added to staking-side power for vote/commit/reveal eligibility.
@@ -351,34 +287,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         power at commit time. Closes the multi-commit options-arbitrage primitive
     ///         where a voter could commit hashes for every candidate pair (10-TOWELI bond
     ///         per commit) and reveal only the most lucrative subset.
-    /// @dev    AUDIT FIX FRESH-2026: F-77-2 — visibility lowered to `internal`. The
-    ///         public auto-getter previously leaked aggregate-VP-by-address signal
-    ///         during the 2.8d commit window; bribers could read declared power
-    ///         per-whale and time their deposits to lean on the most-engaged
-    ///         pairs. The committedPower slot is also CLEARED on reveal /
-    ///         forfeit / sweep so post-window forensics on `committedPower`
-    ///         no longer leak vote-direction telemetry. Off-chain dashboards
-    ///         that need a per-user remaining-budget figure should derive it
-    ///         from `userTotalVotes` (which is already publicly observable
-    ///         post-reveal — that's the on-chain vote, not the signal).
-    mapping(address => mapping(uint256 => uint256)) internal committedPower;
-    /// @notice AUDIT FIX FRESH-2026: F-77-2 — explicit getter that returns 0
-    ///         until the reveal window opens, so the leak window narrows to
-    ///         the legitimately-public reveal phase. View-side defense in
-    ///         depth on top of the storage-cleared-on-reveal pattern.
-    function committedPowerOf(address user, uint256 epoch) external view returns (uint256) {
-        if (epoch >= epochs.length) return 0;
-        EpochInfo memory _ep = epochs[epoch];
-        // Pre-reveal window: hide the per-user committed signal. The
-        // contract STILL enforces the cap in `commitVote` reading the
-        // internal slot directly; only off-chain observers are gated.
-        if (block.timestamp <= commitDeadline(epoch)) return 0;
-        // Suppress unused-variable warning for `_ep` (kept for future
-        // per-epoch gating logic — e.g., delaying the reveal-time leak
-        // by an additional buffer).
-        _ep;
-        return committedPower[user][epoch];
-    }
+    mapping(address => mapping(uint256 => uint256)) public committedPower;
 
     // epochBribes[epoch][pair][token] = total bribe amount (after fee)
     //
@@ -431,11 +340,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     mapping(address => uint256) public totalUnclaimedBribes;  // token => total unclaimed amount
     uint256 public totalUnclaimedETHBribes;
 
-    // AUDIT FIX FRESH-2026: F-10-K-11 — `epochBribeFirstDeposit` mapping
-    // removed (was: per-epoch first-deposit timestamp; replaced pre-launch
-    // by per-depositor `lastBribeDepositPerUser` for the orphan-rescue
-    // clock under NEW-G2). Removing the dead storage saves one cold SSTORE
-    // (~22k gas) on the FIRST deposit per epoch.
+    // C-02 FIX: Track first deposit timestamp per epoch for orphaned bribe rescue
+    mapping(uint256 => uint256) public epochBribeFirstDeposit; // epoch => first deposit timestamp
     uint256 public constant BRIBE_RESCUE_DELAY = 30 days;
 
     // AUDIT NEW-G2 (CRITICAL): per-depositor bookkeeping so orphaned bribes refund to
@@ -489,80 +395,6 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     mapping(uint256 => mapping(address => uint256)) public totalGaugeVotes;
     // userTotalVotes[user][epoch] = total power user has allocated across all pairs (capped at votingPower)
     mapping(address => mapping(uint256 => uint256)) public userTotalVotes;
-
-    /// @notice AUDIT FIX FRESH-2026: H-4 + F-11-1 + F-10-K-02 — captured at
-    ///         epoch advance (= epoch finalize). Reads `factory.disabledPairs`
-    ///         only at this snapshot moment so a pair-disable event landing
-    ///         AFTER the snapshot does NOT retroactively brick claim/refund
-    ///         on already-deposited bribes. Voter-facing read paths consult
-    ///         THIS frozen state, not the live factory flag.
-    /// @dev    Defaults to false (= "live at snapshot" for any pair the
-    ///         factory considers active). Pair-disabled-at-snapshot is set
-    ///         lazily on first read since iterating ALL pairs at advance is
-    ///         a gas bomb; we infer it via `factory.disabledPairs(pair)` on
-    ///         deposit (already gated upstream) and capture the snapshot
-    ///         per-pair on first claim/refund touch (read-then-cache).
-    mapping(uint256 => mapping(address => bool)) public epochSnapshotPairLive;
-    /// @notice AUDIT FIX FRESH-2026: H-4 + F-11-1 — sentinel that distinguishes
-    ///         "never read" from "read and pair was live". Without this, the
-    ///         lazy-cache pattern can't differentiate the default-false from
-    ///         a confirmed-live snapshot.
-    mapping(uint256 => mapping(address => bool)) public epochSnapshotPairChecked;
-
-    /// @notice AUDIT FIX FRESH-2026: M-10 / F-10-K-03 — frozen
-    ///         `totalGaugeVotes[epoch][pair]` at vote-end. Pre-fix the
-    ///         refund paths read live `totalGaugeVotes` post-vote-end; if
-    ///         a future change ever made vote-deadline mutable, the
-    ///         claim-time and refund-time denominators could drift.
-    ///         Lazily filled on first claim/refund touch past `voteEnd`.
-    mapping(uint256 => mapping(address => uint256)) public epochVoteCountFinal;
-    mapping(uint256 => mapping(address => bool)) public epochVoteCountFinalSet;
-
-    /// @notice AUDIT FIX FRESH-2026: F-77-5 + F-69-3 + F-93-3 — distinct briber
-    ///         counter per (epoch, pair). Incremented on the first deposit by
-    ///         each new (depositor, epoch, pair). Voters' claim path requires
-    ///         `bribeDepositorCount[epoch][pair] >= MIN_BRIBE_CLAIM_QUORUM_PER_BRIBER`.
-    mapping(uint256 => mapping(address => uint256)) public bribeDepositorCount;
-
-    /// @notice AUDIT FIX FRESH-2026: F-10-K-05 — replacement of the bool
-    ///         `depositedOnPair` flag with a counter so refund paths can
-    ///         decrement on full-refund and the lockout is released only
-    ///         when the depositor has no remaining live deposits on the
-    ///         (epoch, pair). The legacy `depositedOnPair` mapping above is
-    ///         kept as a derived view (`depositCountOnPair > 0`) for
-    ///         backward-compatible read access from off-chain dashboards.
-    mapping(address => mapping(uint256 => mapping(address => uint256))) public depositCountOnPair;
-
-    /// @notice AUDIT FIX FRESH-2026: F-77-3 — timestamp of the latest bribe
-    ///         deposit landing in the LIVE bucket. Read by `advanceEpoch`
-    ///         to enforce the post-deposit cooldown.
-    uint256 public lastBribeDepositTime;
-
-    /// @notice AUDIT FIX FRESH-2026: F-77-3 — timestamp of the latest
-    ///         `advanceEpoch` call. Read by `advanceEpoch` to enforce the
-    ///         1h cooldown between consecutive permissionless triggers
-    ///         (separate from MIN_EPOCH_INTERVAL which gates the cadence).
-    uint256 public lastEpochAdvanceTime;
-
-    /// @notice AUDIT FIX FRESH-2026: F-77-1 — bribe deposits route to the
-    ///         next epoch (= `epochs.length + 1` as captured at deposit
-    ///         time). Aerodrome `BribeVotingReward.notifyRewardAmount`
-    ///         pattern: voters in epoch `n` see ONLY bribes deposited
-    ///         during epoch `n - 1`'s window, eliminating the "deposit
-    ///         AFTER seeing commits" arb. Voters reading
-    ///         `epochBribes[e][p][t]` for the current `e` see the FROZEN
-    ///         pool deposited during `e - 1`'s deposit window — never the
-    ///         in-flight live bucket.
-    /// @dev    In-flight live bucket is `epochs.length` (= the next epoch
-    ///         index that will be pushed by `advanceEpoch`). Bribes
-    ///         depositing now target `epochs.length + 1`. After
-    ///         `advanceEpoch` pushes the new epoch, the old live bucket
-    ///         (`epochs.length` pre-push) becomes the freshly-finalized
-    ///         epoch index. No bribe is ever in the same bucket as voters
-    ///         who could see the deposit before committing.
-    /// @dev    Documentation marker — the actual deposit-target derivation
-    ///         is computed inline in `depositBribe` / `depositBribeETH`.
-    bool private constant _BRIBE_LAGS_ONE_EPOCH = true;
 
     // AUDIT FIX (pass-8): EIP170-03 — pendingFeeBps / pendingTreasury /
     // pendingWhitelistToken / pendingWhitelistAction moved to VoteIncentivesAdmin.
@@ -655,46 +487,14 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         voters can no longer route swaps through it — so all read/write paths
     ///         that name a pair refuse it up-front.
     error PairDisabled();
-    // AUDIT FIX FRESH-2026 (size optimization): `UseProposeEnableCommitReveal`
-    // error removed (relaunch — no compat shims; legacy selector removed).
+    /// @notice AUDIT L-2 (2026-04-28): legacy `enableCommitReveal()` selector reverts
+    ///         with this typed error so any tooling on the old signature fails loudly
+    ///         and clearly redirects callers to the propose/execute flow.
+    error UseProposeEnableCommitReveal();
     /// @notice AUDIT FIX: V2-GOV-01 — `forfeitCommitOnDisabledPair` was called against
     ///         a pair that is currently NOT disabled. Refusing here forces voters to
     ///         honour live commits via the normal reveal path.
     error PairNotDisabled();
-    /// @notice AUDIT FIX FRESH-2026: F-77-3 — `advanceEpoch` called inside the
-    ///         post-deposit cooldown window. Forces a 1h gap between the
-    ///         latest bribe deposit and the snapshot, blocking same-block
-    ///         deposit→advance arbitrage.
-    error AdvanceEpochCooldown();
-    /// @notice AUDIT FIX FRESH-2026: F-77-5 + F-69-3 + F-93-3 — bribe pool
-    ///         needs at least `MIN_BRIBE_CLAIM_QUORUM_PER_BRIBER` distinct
-    ///         briber addresses before voters can claim. Bond is recoverable
-    ///         via the existing refund paths.
-    error BribePoolNeedsMoreBribers();
-    /// @notice AUDIT FIX FRESH-2026: F-61-4 — `sweepEpochDust` called before
-    ///         the EPOCH_DUST_SWEEP_DELAY (1 year past the epoch's vote-end)
-    ///         elapsed. The trustless refund/claim grace windows must close
-    ///         entirely before residual dust becomes sweepable to treasury.
-    error DustSweepTooEarly();
-    /// @notice AUDIT FIX FRESH-2026: F-11-1 + F-10-K-02 + H-4 — pair was live
-    ///         at epoch snapshot but has since been disabled by the factory.
-    error PairDisabledAfterSnapshot();
-    // AUDIT FIX FRESH-2026 (size opt): typed-error replacements for string require()s.
-    error MustBeContract();
-    error ExceedsPower();
-    error BribeTooSmall();
-    error TooManyIterations();
-    error FeeIsZero();
-    error NoFees();
-    error EpochAlreadySnapshotted();
-    error NoBribesInEpoch();
-    error RescueTooEarly();
-    error PairHasVotes();
-    error GraceNotElapsed();
-    error NotSubQuorum();
-    error OnlySelf();
-    error NothingToRefund();
-    error EpochAlreadyFinalized();
 
     // AUDIT FIX (pass-8): EIP170-03 — view-helpers (`feeChangeTime`,
     // `treasuryChangeTime`, `whitelistChangeTime`, `minBribeChangeTime`,
@@ -703,19 +503,12 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
     // ─── Constructor ─────────────────────────────────────────────────
 
-    /// @param _sequencerFeed AUDIT FIX FRESH-2026: F-69-1 — Chainlink L2
-    ///        Sequencer Uptime feed. Pass `address(0)` for mainnet / non-L2
-    ///        (no-op). The `SequencerCheck` lib will revert
-    ///        `SequencerFeedNotConfigured` on any non-mainnet chain that
-    ///        ships with `address(0)`, so deploys can't accidentally turn
-    ///        the protection off.
     constructor(
         address _votingEscrow,
         address _treasury,
         address _weth,
         address _factory,
         address _toweli,
-        address _sequencerFeed,
         uint256 _bribeFeeBps
     ) OwnableNoRenounce(msg.sender) {
         if (_votingEscrow == address(0) || _treasury == address(0) || _weth == address(0) || _factory == address(0) || _toweli == address(0)) revert ZeroAddress();
@@ -726,34 +519,18 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         toweli = IERC20(_toweli);
         treasury = _treasury;
         bribeFeeBps = _bribeFeeBps;
-        // AUDIT FIX FRESH-2026: F-69-1 — sequencer feed pinned at deploy.
-        // Zero permitted here; the lib enforces the non-zero invariant on
-        // any non-mainnet chainid at first call.
-        sequencerFeed = _sequencerFeed;
     }
 
     // ─── Epoch Management ────────────────────────────────────────────
 
     /// @notice Advance to a new epoch. Permissionless — anyone can call.
     ///         Snapshots totalBoostedStake at block.timestamp - 1 (same as RevenueDistributor).
-    /// @dev    AUDIT FIX FRESH-2026: F-77-3 + F-65-3 + F-10-K-04 + M-11 —
-    ///         (1) post-deposit cooldown blocks atomic deposit→advance,
-    ///         (2) historical denominator pin (`totalBoostedStakeAtTimestamp`)
-    ///             matches RevenueDistributor numerator/denominator timestamp,
-    ///         (3) keeper bounty paid in TOWELI on success so honest keepers
-    ///             have a non-zero incentive to call on schedule (closing
-    ///             the briber-collusion-stalls-keeper griefing vector).
-    function advanceEpoch() external nonReentrant whenNotPaused {
+    function advanceEpoch() external whenNotPaused {
         if (block.timestamp < lastEpochTime + MIN_EPOCH_INTERVAL) revert EpochTooSoon();
-        // AUDIT FIX FRESH-2026: F-77-3 — refuse advance until the post-deposit
-        // cooldown elapses. Forces a 1h gap between the latest bribe deposit
-        // landing in the live bucket and the snapshot, so a briber who
-        // front-runs `advanceEpoch` with a giant deposit cannot atomically
-        // capture the just-finalized bucket. Combined with F-77-1's epoch+1
-        // deposit indexing this is belt-and-suspenders.
-        if (lastBribeDepositTime != 0 && block.timestamp < lastBribeDepositTime + ADVANCE_EPOCH_DEPOSIT_COOLDOWN) {
-            revert AdvanceEpochCooldown();
-        }
+
+        uint256 totalPower = votingEscrow.totalBoostedStake();
+        if (totalPower == 0) revert NoStakers();
+        if (totalPower < MIN_DISTRIBUTE_STAKE) revert NoStakers();
 
         // AUDIT NEW-G4 (HIGH): snap the epoch timestamp back by SNAPSHOT_LOOKBACK so
         // same-block / near-block flash-stakes cannot influence THIS epoch's voting
@@ -764,26 +541,6 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 snapshotTime = block.timestamp > SNAPSHOT_LOOKBACK
             ? block.timestamp - SNAPSHOT_LOOKBACK
             : (block.timestamp > 0 ? block.timestamp - 1 : 0);
-
-        // AUDIT FIX FRESH-2026: F-65-3 — historical denominator pin. Pre-fix
-        // `totalPower = votingEscrow.totalBoostedStake()` (LIVE) while
-        // numerator was read at `snapshotTime`, an asymmetry that diluted
-        // honest voters by any whale who staked in the last hour. Mirror
-        // RevenueDistributor's pattern: try historical, fall back to live
-        // on legacy ABI / staking-side rebuild.
-        uint256 totalPower;
-        try votingEscrow.totalBoostedStakeAtTimestamp(snapshotTime) returns (uint256 hist) {
-            totalPower = hist;
-        } catch {
-            totalPower = 0;
-        }
-        if (totalPower == 0) {
-            // Live fallback for genesis-window edge cases where the
-            // staking-side checkpoint hasn't crossed `snapshotTime` yet.
-            totalPower = votingEscrow.totalBoostedStake();
-        }
-        if (totalPower == 0) revert NoStakers();
-        if (totalPower < MIN_DISTRIBUTE_STAKE) revert NoStakers();
 
         // AUDIT R014 H-4 (HIGH): the index that was the LIVE bucket up to this
         // call is the one being finalized. Capture it BEFORE pushing so the
@@ -808,20 +565,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         epochBribesFinalized[newEpoch] = true;
 
         lastEpochTime = block.timestamp;
-        // AUDIT FIX FRESH-2026: F-77-3 — track advance time for off-chain
-        // monitoring + symmetric cooldown if the keeper bounty path ever
-        // gets per-call rate-limited.
-        lastEpochAdvanceTime = block.timestamp;
 
         emit EpochAdvanced(newEpoch, totalPower, snapshotTime);
-
-        // AUDIT FIX FRESH-2026: F-10-K-04 + M-11 — keeper bounty. Pay
-        // ADVANCE_EPOCH_BOUNTY in TOWELI to msg.sender if free balance
-        // (net of `totalCommitBonds`) covers it. CEI: state already mutated.
-        uint256 toweliBal = toweli.balanceOf(address(this));
-        if (toweliBal >= totalCommitBonds + ADVANCE_EPOCH_BOUNTY) {
-            try this._safeTransferExternal(address(toweli), msg.sender, ADVANCE_EPOCH_BOUNTY) {} catch {}
-        }
     }
 
     /// @notice Get the current epoch index (next epoch that bribes deposit into).
@@ -874,15 +619,15 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // AUDIT FIX (pass-8): GOV-ECON-01 / C10 — additive read across staking +
         // restaking. Without this, every restaker's vote() would silently revert
         // NothingToClaim (their staking-side power is forced to 0 on restake).
-        // AUDIT FIX FRESH-2026: F-77-4 — consumer-side monotonicity clamp via
-        // `_clampedUserPower(user, ts)` helper. Defends against a buggy/unsafe
-        // restaking historical lookup that could return more than the live
-        // power. The min(historical, current) clamp is now centralized so all
-        // call sites (vote, commitVote) use one source of truth.
-        uint256 userPower = _clampedUserPower(msg.sender, ep.timestamp);
+        uint256 historicalPower = VotePowerOracle.powerAt(
+            msg.sender, ep.timestamp, address(votingEscrow), restakingContract
+        );
+        uint256 currentPower = VotePowerOracle.powerOf(msg.sender, address(votingEscrow), restakingContract);
+        uint256 userPower = historicalPower < currentPower ? historicalPower : currentPower;
         if (userPower == 0) revert NothingToClaim();
 
-        if (userTotalVotes[msg.sender][epoch] + power > userPower) revert ExceedsPower();
+        // Cap total allocated power at user's voting power for this epoch
+        require(userTotalVotes[msg.sender][epoch] + power <= userPower, "EXCEEDS_POWER");
 
         gaugeVotes[msg.sender][epoch][pair] += power;
         totalGaugeVotes[epoch][pair] += power;
@@ -904,27 +649,64 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (amount == 0) revert ZeroAmount();
         if (!whitelistedTokens[token]) revert TokenNotWhitelisted();
         _validatePair(pair);
-        _requireGaugedPair(pair);
+        _requireGaugedPair(pair); // AUDIT FIX (pass-8): GOV-INT-01 / C8
 
+        // Balance-diff for FoT tokens (same pattern as SwapFeeRouter)
         uint256 balBefore = IERC20(token).balanceOf(address(this));
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         uint256 actualReceived = IERC20(token).balanceOf(address(this)) - balBefore;
         if (actualReceived == 0) revert ZeroAmount();
-        // SECURITY FIX H-7 + R020 H-3: per-token minimum with 18-dec default.
+        // SECURITY FIX H-7 + R020 H-3: per-token minimum bribe with a sensible
+        // 18-decimal default. Owners must configure per-token mins for non-18-
+        // decimal tokens (USDC, USDT) via proposeMinBribeAmount.
         uint256 tokenMin = minBribeAmounts[token];
         uint256 effectiveMin = tokenMin > 0 ? tokenMin : DEFAULT_MIN_TOKEN_BRIBE;
-        if (actualReceived < effectiveMin) revert BribeTooSmall();
+        require(actualReceived >= effectiveMin, "BRIBE_TOO_SMALL");
 
+        // Take bribe fee
         uint256 fee = (actualReceived * bribeFeeBps) / BPS;
         uint256 netBribe = actualReceived - fee;
+
+        // Send fee to treasury
         if (fee > 0) {
             IERC20(token).safeTransfer(treasury, fee);
         }
 
-        // AUDIT FIX FRESH-2026: F-77-1 — n+1 epoch indexing. Voters in
-        // epoch `n` see bribes from `n-1`'s deposit window only.
-        uint256 epoch = epochs.length + 1;
-        _bookDeposit(epoch, pair, token, netBribe);
+        // Current epoch = epochs.length (the next epoch to be snapshotted)
+        uint256 epoch = epochs.length;
+        // AUDIT R014 H-4 (HIGH): defense in depth. By construction
+        // `epochs.length` is always the LIVE (un-finalized) bucket because
+        // `epochBribesFinalized[N]` is set inside `advanceEpoch()` for the
+        // index that EQUALS `epochs.length` BEFORE the push, and `epochs.length`
+        // increments atomically inside the same call. So this require can only
+        // trigger if a future refactor changes the deposit-target derivation;
+        // surfacing the invariant explicitly prevents that class of bug.
+        require(!epochBribesFinalized[epoch], "EPOCH_FINALIZED");
+
+        // Check token cap for this pair in this epoch
+        address[] storage tokenList = epochBribeTokens[epoch][pair];
+        if (epochBribes[epoch][pair][token] == 0) {
+            // New token for this pair/epoch — check cap
+            if (tokenList.length >= MAX_BRIBE_TOKENS) revert TooManyBribeTokens();
+            tokenList.push(token);
+        }
+
+        epochBribes[epoch][pair][token] += netBribe;
+        totalUnclaimedBribes[token] += netBribe;
+
+        // C-02 FIX: Track first deposit timestamp for orphaned bribe rescue
+        if (epochBribeFirstDeposit[epoch] == 0) {
+            epochBribeFirstDeposit[epoch] = block.timestamp;
+        }
+        // AUDIT NEW-G2: track per-depositor amount + latest deposit timestamp so orphan
+        // refunds go back to the original depositor, keyed off the freshest activity.
+        bribeDeposits[epoch][pair][token][msg.sender] += netBribe;
+        epochBribeLastDeposit[epoch] = block.timestamp;
+        lastBribeDepositPerUser[epoch][pair][token][msg.sender] = block.timestamp; // BATCH-N2 M12
+        // AUDIT FIX (pass-8) Phase 1.6 — flag depositor so the same address cannot
+        // claim ANY token on this (epoch, pair). See `SelfBribeClaimForbidden` natspec.
+        depositedOnPair[msg.sender][epoch][pair] = true;
+
         emit BribeDeposited(epoch, pair, token, msg.sender, netBribe, fee);
     }
 
@@ -933,18 +715,46 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     function depositBribeETH(address pair) external payable nonReentrant whenNotPaused {
         if (pair == address(0)) revert InvalidPair();
         if (msg.value == 0) revert ZeroAmount();
-        if (msg.value < MIN_BRIBE_AMOUNT) revert BribeTooSmall();
+        // SECURITY FIX: Enforce minimum bribe to prevent dust spam DoS (Velodrome pattern)
+        require(msg.value >= MIN_BRIBE_AMOUNT, "BRIBE_TOO_SMALL");
         _validatePair(pair);
-        _requireGaugedPair(pair);
+        _requireGaugedPair(pair); // AUDIT FIX (pass-8): GOV-INT-01 / C8
 
+        // Take bribe fee
         uint256 fee = (msg.value * bribeFeeBps) / BPS;
         uint256 netBribe = msg.value - fee;
+
+        // H-03 FIX: Accumulate treasury fees (pull pattern) to prevent DoS if treasury rejects ETH
         if (fee > 0) {
             accumulatedTreasuryETH += fee;
         }
-        // AUDIT FIX FRESH-2026: F-77-1 — n+1 epoch indexing.
-        uint256 epoch = epochs.length + 1;
-        _bookDeposit(epoch, pair, address(0), netBribe);
+
+        // Current epoch = epochs.length
+        uint256 epoch = epochs.length;
+        // AUDIT R014 H-4 (HIGH): same defense-in-depth guard as depositBribe.
+        require(!epochBribesFinalized[epoch], "EPOCH_FINALIZED");
+
+        // Use address(0) as the "token" for ETH bribes
+        address[] storage tokenList = epochBribeTokens[epoch][pair];
+        if (epochBribes[epoch][pair][address(0)] == 0) {
+            if (tokenList.length >= MAX_BRIBE_TOKENS) revert TooManyBribeTokens();
+            tokenList.push(address(0));
+        }
+
+        epochBribes[epoch][pair][address(0)] += netBribe;
+        totalUnclaimedETHBribes += netBribe;
+
+        // C-02 FIX: Track first deposit timestamp for orphaned bribe rescue
+        if (epochBribeFirstDeposit[epoch] == 0) {
+            epochBribeFirstDeposit[epoch] = block.timestamp;
+        }
+        // AUDIT NEW-G2: track per-depositor amount + latest deposit timestamp.
+        bribeDeposits[epoch][pair][address(0)][msg.sender] += netBribe;
+        epochBribeLastDeposit[epoch] = block.timestamp;
+        lastBribeDepositPerUser[epoch][pair][address(0)][msg.sender] = block.timestamp; // BATCH-N2 M12
+        // AUDIT FIX (pass-8) Phase 1.6 — flag depositor for self-bribe lockout.
+        depositedOnPair[msg.sender][epoch][pair] = true;
+
         emit BribeDepositedETH(epoch, pair, msg.sender, netBribe, fee);
     }
 
@@ -958,35 +768,121 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     function claimBribes(uint256 epoch, address pair) external nonReentrant whenNotPaused {
         if (_isStakingPaused()) revert StakingPaused();
         if (epoch >= epochs.length) revert InvalidEpoch();
+        // AUDIT R014 H-4 (HIGH): refuse to surface the bribe pool until the
+        // epoch is finalized. Equivalent to `epoch < epochs.length` today
+        // (advance flips both atomically); explicit guard defends future code.
         if (!epochBribesFinalized[epoch]) revert EpochNotFinalized();
         if (pair == address(0)) revert InvalidPair();
-        // AUDIT FIX FRESH-2026: H-4 — read-side validator (registration only).
-        _validatePairForRead(pair);
-        // AUDIT FIX FRESH-2026: F-69-1 — sequencer-buffer-aware claim window gate.
-        EpochInfo memory _ep = epochs[epoch];
-        uint256 _voteEnd = _ep.usesCommitReveal ? revealDeadline(epoch) : _ep.timestamp + VOTE_DEADLINE;
-        if (block.timestamp <= _voteEnd + _sequencerBuffer()) revert ClaimWindowNotOpen();
-        // AUDIT FIX FRESH-2026: H-4 — pair-disabled-at-snapshot rejection.
-        if (!_snapshotPairLive(epoch, pair)) revert PairDisabled();
+        // AUDIT FIX: DEEP-GOV-08 — refuse claims for disabled pairs.
+        _validatePair(pair);
 
+        // AUDIT FIX (BATCH-H M14): gate claim on post-VOTE_DEADLINE so early
+        // claimers cannot over-share against an in-flight `totalGaugeVotes`
+        // denominator that grows as more voters cast through the vote window.
+        // Pre-fix, an early claimer's share was computed against a smaller
+        // totalVotesForPair, then late voters' arrivals reduced their effective
+        // share — late claimers saw under-pay or insolvency-fallback.
+        // Pattern: Aerodrome gates claim on `nextEpochStart` to ensure the
+        // denominator is fully crystallized before any payout flows.
+        EpochInfo memory _ep = epochs[epoch];
+        uint256 _voteEnd = _ep.usesCommitReveal
+            ? revealDeadline(epoch)
+            : _ep.timestamp + VOTE_DEADLINE;
+        if (block.timestamp <= _voteEnd) revert ClaimWindowNotOpen();
+
+        // V2: Use gauge votes instead of raw voting power
         uint256 userVoteForPair = gaugeVotes[msg.sender][epoch][pair];
         if (userVoteForPair == 0) revert NothingToClaim();
-        // AUDIT FIX FRESH-2026: M-10 — frozen totalVotes.
-        uint256 totalVotesForPair = _freezeOrReadVoteCount(epoch, pair);
+
+        uint256 totalVotesForPair = totalGaugeVotes[epoch][pair];
         if (totalVotesForPair == 0) revert NothingToClaim();
+        // AUDIT FIX (pass-8) Phase 1.6 — minimum aggregate VP gate. Bribers cannot
+        // claim their own bond back via a sub-quorum self-vote-and-claim cycle.
         if (totalVotesForPair < MIN_BRIBE_CLAIM_QUORUM) revert BribePoolBelowQuorum();
-        // AUDIT FIX FRESH-2026: F-77-5 + F-69-3 + F-93-3 — distinct-briber floor.
-        if (bribeDepositorCount[epoch][pair] < MIN_BRIBE_CLAIM_QUORUM_PER_BRIBER) revert BribePoolNeedsMoreBribers();
-        // AUDIT FIX FRESH-2026: F-10-K-05 — counter form (refunded depositors release).
-        if (depositCountOnPair[msg.sender][epoch][pair] > 0) revert SelfBribeClaimForbidden();
+        // AUDIT FIX (pass-8) Phase 1.6 — depositor-side lockout. Anyone who
+        // deposited a bribe on this (epoch, pair) is barred from claiming any
+        // token on it; the bond is recoverable via the orphan-rescue path.
+        if (depositedOnPair[msg.sender][epoch][pair]) revert SelfBribeClaimForbidden();
 
         address[] memory tokens = epochBribeTokens[epoch][pair];
         bool anyClaimed = false;
+
         for (uint256 i = 0; i < tokens.length; i++) {
-            if (_processClaimToken(epoch, pair, tokens[i], userVoteForPair, totalVotesForPair)) {
+            address token = tokens[i];
+            if (claimed[msg.sender][epoch][pair][token]) continue;
+
+            uint256 bribeAmount = epochBribes[epoch][pair][token];
+            if (bribeAmount == 0) continue;
+
+            // V2: Share proportional to gauge votes, not raw voting power
+            uint256 share = (bribeAmount * userVoteForPair) / totalVotesForPair;
+            if (share == 0) {
+                // AUDIT FIX: DEEP-GOV-02 — mark claimed AND set anyClaimed even when
+                // share rounds to zero, so the writes persist even if EVERY token's
+                // share rounds to zero. Pre-fix, the all-zeros case hit the
+                // `if (!anyClaimed) revert NothingToClaim();` guard, the EVM rolled
+                // back ALL claimed=true writes, and the small voter was forced to
+                // re-iterate every epoch — pure gas griefing. Pattern: Aerodrome
+                // dustOf forward-carry.
+                claimed[msg.sender][epoch][pair][token] = true;
                 anyClaimed = true;
+                continue;
             }
+
+            claimed[msg.sender][epoch][pair][token] = true;
+            anyClaimed = true;
+
+            // NOTE: epochBribes is NOT decremented. Each user gets their proportional share
+            // of the ORIGINAL deposit: (bribeAmount * userVoteForPair) / totalVotesForPair.
+            // Solvency is guaranteed because sum(gaugeVotes) == totalGaugeVotes,
+            // so sum(shares) <= bribeAmount. The `claimed` mapping prevents
+            // double-claims. Rounding dust stays in the contract — see AUDIT NEW-G3
+            // below for the explicit tracker that prevents sweep from touching it.
+
+            // AUDIT NEW-G3 (defensive): track cumulative claimed-per-(epoch,pair,token)
+            // so dust = bribeAmount - sum(shares) is always recoverable as a precise
+            // number. `sweepExcessETH`/`sweepToken` now reserves total dust across all
+            // bribed (epoch,pair,token) triples, so even if the unclaimed-running-total
+            // accounting drifts (e.g., via a future refactor bug), sweep cannot touch
+            // bribe dust. Users who roll up to share == 0 never consume the dust
+            // budget — it belongs to no one and is permanently locked in the contract.
+            totalClaimedBribes[epoch][pair][token] += share;
+
+            // C-01 FIX: Safe subtraction to prevent underflow from rounding dust
+            if (token == address(0)) {
+                totalUnclaimedETHBribes = totalUnclaimedETHBribes > share ? totalUnclaimedETHBribes - share : 0;
+            } else {
+                totalUnclaimedBribes[token] = totalUnclaimedBribes[token] > share ? totalUnclaimedBribes[token] - share : 0;
+            }
+
+            if (token == address(0)) {
+                // ETH bribe — try direct transfer, fallback to pending.
+                // AUDIT FIX (critique 5.7 / battle-tested): raised from 10000 to 50000 to
+                // handle Safe, Argent, and EIP-4337 smart accounts in the direct path.
+                // Pending fallback retained as belt-and-suspenders for non-standard receivers.
+                (bool ok,) = msg.sender.call{value: share, gas: 50000}("");
+                if (!ok) {
+                    pendingETHWithdrawals[msg.sender] += share;
+                    totalPendingETH += share;
+                    emit PendingETHCredited(msg.sender, share);
+                }
+            } else {
+                // AUDIT FIX H-03: Use safeTransfer inside try/catch for USDT compatibility.
+                // USDT's transfer() returns void, so try/returns(bool) always reverts into catch.
+                // safeTransfer handles non-standard ERC20s (no return value) correctly.
+                // Wrapped in try/catch so blacklisted/paused tokens fall back to pending.
+                try this._safeTransferExternal(token, msg.sender, share) {
+                    // Transfer succeeded
+                } catch {
+                    pendingTokenWithdrawals[msg.sender][token] += share;
+                    totalPendingTokens[token] += share;
+                    emit PendingTokenCredited(msg.sender, token, share);
+                }
+            }
+
+            emit BribeClaimed(msg.sender, epoch, pair, token, share);
         }
+
         if (!anyClaimed) revert NothingToClaim();
     }
 
@@ -998,11 +894,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     function claimBribesBatch(uint256 epochStart, uint256 epochEnd, address pair) external nonReentrant whenNotPaused {
         if (_isStakingPaused()) revert StakingPaused();
         if (pair == address(0)) revert InvalidPair();
-        // AUDIT FIX FRESH-2026: H-4 + F-11-1 + F-10-K-02 — read-side validator
-        // (registration-only). Per-epoch disable-at-snapshot check is done
-        // inside the loop via `_snapshotPairLive` so a single disabled epoch
-        // doesn't unwind the whole batch.
-        _validatePairForRead(pair);
+        // AUDIT FIX: DEEP-GOV-08 — refuse batch claims for disabled pairs.
+        _validatePair(pair);
         if (epochEnd > epochs.length) epochEnd = epochs.length;
         if (epochStart >= epochEnd) revert NothingToClaim();
         if (epochEnd - epochStart > MAX_CLAIM_EPOCHS) revert TooManyUnclaimedEpochs();
@@ -1015,61 +908,86 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
             // `e < epochEnd <= epochs.length` already guarantees finalization,
             // but mirroring the single-epoch guard makes the invariant local).
             if (!epochBribesFinalized[e]) continue;
-            // AUDIT FIX FRESH-2026: M-9 / H-4 + F-11-1 + F-10-K-02 — skip
-            // epochs whose pair was disabled at snapshot. Post-snapshot
-            // disable cases (pair was live AT snapshot, disabled later) are
-            // caught here too: `_snapshotPairLive` returns the FROZEN
-            // snapshot (or freshly captures it on first read past vote-end
-            // for honest claimers), so a post-snapshot disable that lands
-            // BEFORE any claim/refund touch results in `live = false` and
-            // skips. To preserve the post-snapshot-claim-still-works
-            // invariant the cache is populated in the first claim that
-            // happens BEFORE the disable; subsequent claims read true.
-            if (!_snapshotPairLive(e, pair)) continue;
 
             // V2: Use gauge votes instead of raw voting power
             uint256 userVoteForPair = gaugeVotes[msg.sender][e][pair];
             if (userVoteForPair == 0) continue;
 
-            // AUDIT FIX FRESH-2026: M-10 / F-10-K-03 — frozen totalVotes
-            // (lazy snapshot at first claim/refund touch past vote-end).
-            uint256 totalVotesForPair = _freezeOrReadVoteCount(e, pair);
+            uint256 totalVotesForPair = totalGaugeVotes[e][pair];
             if (totalVotesForPair == 0) continue;
             // AUDIT FIX (pass-8) Phase 1.6 — same gates as `claimBribes`. We `continue`
             // (skip the epoch) instead of revert because batch claim spans multiple
             // epochs; a sub-quorum or self-bribe match on one epoch shouldn't unwind
             // the entire batch when other epochs have legitimate claims.
             if (totalVotesForPair < MIN_BRIBE_CLAIM_QUORUM) continue;
-            // AUDIT FIX FRESH-2026: F-77-5 + F-69-3 + F-93-3 — distinct-briber floor.
-            if (bribeDepositorCount[e][pair] < MIN_BRIBE_CLAIM_QUORUM_PER_BRIBER) continue;
-            // AUDIT FIX FRESH-2026: F-10-K-01 — when self-bribe-lockout
-            // skips the (epoch, pair), STILL flip `claimed=true` for each
-            // token so off-chain indexers see the row closed. Pre-fix the
-            // batch silently `continue`d without writing the flag, leaving
-            // ghost rows that monitors flagged forever.
-            // AUDIT FIX FRESH-2026: F-10-K-05 — read counter form so
-            // refunded depositors are no longer locked out.
-            if (depositCountOnPair[msg.sender][e][pair] > 0) {
-                address[] memory _tks = epochBribeTokens[e][pair];
-                for (uint256 _i = 0; _i < _tks.length; _i++) {
-                    if (!claimed[msg.sender][e][pair][_tks[_i]]) {
-                        claimed[msg.sender][e][pair][_tks[_i]] = true;
-                    }
-                }
-                continue;
-            }
+            if (depositedOnPair[msg.sender][e][pair]) continue;
 
             address[] memory tokens = epochBribeTokens[e][pair];
+
             for (uint256 i = 0; i < tokens.length; i++) {
-                bool consumed = _processClaimToken(e, pair, tokens[i], userVoteForPair, totalVotesForPair);
-                if (consumed) {
+                address token = tokens[i];
+                if (claimed[msg.sender][e][pair][token]) continue;
+
+                uint256 bribeAmount = epochBribes[e][pair][token];
+                if (bribeAmount == 0) continue;
+
+                // V2: Share proportional to gauge votes
+                uint256 share = (bribeAmount * userVoteForPair) / totalVotesForPair;
+                if (share == 0) {
+                    // AUDIT FIX: DEEP-GOV-02 — mirror M-G5 in batch path so small voters
+                    // aren't gas-griefed. Mark claimed and set anyClaimed when share
+                    // rounds to zero so the writes persist.
+                    claimed[msg.sender][e][pair][token] = true;
                     anyClaimed = true;
-                    // SECURITY FIX H-8: cap iterations across the batch.
-                    totalIterations++;
-                    if (totalIterations > MAX_BATCH_ITERATIONS) revert TooManyIterations();
+                    continue;
                 }
+
+                claimed[msg.sender][e][pair][token] = true;
+                anyClaimed = true;
+
+                // NOTE: epochBribes NOT decremented — proportional share from original deposit.
+                // Solvency guaranteed by sum(gaugeVotes) == totalGaugeVotes.
+
+                // AUDIT NEW-G3 (defensive): mirror the claimBribes dust-tracking
+                // invariant so single-epoch and batch flows stay in sync.
+                totalClaimedBribes[e][pair][token] += share;
+
+                // C-01 FIX: Safe subtraction to prevent underflow from rounding dust
+                if (token == address(0)) {
+                    totalUnclaimedETHBribes = totalUnclaimedETHBribes > share ? totalUnclaimedETHBribes - share : 0;
+                } else {
+                    totalUnclaimedBribes[token] = totalUnclaimedBribes[token] > share ? totalUnclaimedBribes[token] - share : 0;
+                }
+
+                // SECURITY FIX H-8: Track total iterations to prevent block gas limit DoS
+                totalIterations++;
+                require(totalIterations <= MAX_BATCH_ITERATIONS, "TOO_MANY_ITERATIONS");
+
+                if (token == address(0)) {
+                    // AUDIT FIX (critique 5.7 / battle-tested): raised from 10000 to 50000 to
+                    // handle Safe, Argent, and EIP-4337 smart accounts in the direct path.
+                    // Pending fallback retained as belt-and-suspenders for non-standard receivers.
+                    (bool ok,) = msg.sender.call{value: share, gas: 50000}("");
+                    if (!ok) {
+                        pendingETHWithdrawals[msg.sender] += share;
+                        totalPendingETH += share;
+                        emit PendingETHCredited(msg.sender, share);
+                    }
+                } else {
+                    // AUDIT FIX H-03: Use safeTransfer for USDT compatibility (same as claimBribes)
+                    try this._safeTransferExternal(token, msg.sender, share) {
+                        // Transfer succeeded
+                    } catch {
+                        pendingTokenWithdrawals[msg.sender][token] += share;
+                        totalPendingTokens[token] += share;
+                        emit PendingTokenCredited(msg.sender, token, share);
+                    }
+                }
+
+                emit BribeClaimed(msg.sender, e, pair, token, share);
             }
         }
+
         if (!anyClaimed) revert NothingToClaim();
     }
 
@@ -1167,7 +1085,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
     function applyFeeChange(uint256 newFee) external onlyAdmin {
         if (newFee > MAX_FEE_BPS) revert FeeTooHigh();
-        if (newFee == 0) revert FeeIsZero(); // M-08 FIX preserved
+        require(newFee > 0, "FEE_CANNOT_BE_ZERO"); // M-08 FIX preserved
         uint256 old = bribeFeeBps;
         bribeFeeBps = newFee;
         emit FeeUpdated(old, newFee);
@@ -1228,7 +1146,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     /// Previously permissionless with full-gas .call — inconsistent with codebase security posture.
     function withdrawTreasuryFees() external onlyOwner nonReentrant {
         uint256 amount = accumulatedTreasuryETH;
-        if (amount == 0) revert NoFees();
+        require(amount > 0, "NO_FEES");
         accumulatedTreasuryETH = 0;
         WETHFallbackLib.safeTransferETHOrWrap(address(weth), treasury, amount);
     }
@@ -1260,18 +1178,41 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///
     ///         Battle-tested against Curve FeeDistributor's refund-to-origin pattern.
     function refundOrphanedBribe(uint256 epoch, address pair, address token) external nonReentrant {
-        if (epoch < epochs.length) revert EpochAlreadySnapshotted();
-        // AUDIT FIX (BATCH-N2 M12) + AUDIT FIX FRESH-2026 M-11 / F-10-K-04 —
-        // per-depositor rescue clock keyed on absolute time-since-MY-deposit.
+        require(epoch >= epochs.length, "EPOCH_ALREADY_SNAPSHOTTED");
+        // AUDIT FIX (BATCH-N2 M12): per-depositor rescue clock. Pre-fix used
+        // shared `epochBribeLastDeposit[epoch]` which let an attacker dust-deposit
+        // to extend the rescue clock for ALL depositors in the epoch. Now MY
+        // rescue window opens 30d after MY last deposit only.
         uint256 lastDeposit = lastBribeDepositPerUser[epoch][pair][token][msg.sender];
-        if (lastDeposit == 0) revert NoBribesInEpoch();
-        if (block.timestamp < lastDeposit + BRIBE_RESCUE_DELAY) revert RescueTooEarly();
-        uint256 amount = _processRefund(epoch, pair, token);
+        require(lastDeposit != 0, "NO_BRIBES_IN_EPOCH");
+        require(block.timestamp >= lastDeposit + BRIBE_RESCUE_DELAY, "RESCUE_TOO_EARLY");
+
+        uint256 amount = bribeDeposits[epoch][pair][token][msg.sender];
+        require(amount > 0, "NOTHING_TO_REFUND");
+
+        bribeDeposits[epoch][pair][token][msg.sender] = 0;
+        lastBribeDepositPerUser[epoch][pair][token][msg.sender] = 0; // BATCH-N2 M12 cleanup
+        uint256 remaining = epochBribes[epoch][pair][token];
+        epochBribes[epoch][pair][token] = remaining > amount ? remaining - amount : 0;
+
+        if (token == address(0)) {
+            totalUnclaimedETHBribes = totalUnclaimedETHBribes > amount ? totalUnclaimedETHBribes - amount : 0;
+            WETHFallbackLib.safeTransferETHOrWrap(address(weth), msg.sender, amount);
+        } else {
+            totalUnclaimedBribes[token] = totalUnclaimedBribes[token] > amount ? totalUnclaimedBribes[token] - amount : 0;
+            IERC20(token).safeTransfer(msg.sender, amount);
+        }
+
         emit OrphanedBribeRefunded(epoch, pair, token, msg.sender, amount);
     }
 
-    // AUDIT FIX FRESH-2026 (size optimization, relaunch — no compat shims):
-    // legacy `rescueOrphanedBribes` deprecation revert removed.
+    /// @notice DEPRECATED: the owner drain path has been replaced by the permissionless
+    ///         per-depositor `refundOrphanedBribe`. Reverts by design so any tooling
+    ///         still calling the old signature surfaces a clear error instead of
+    ///         sending user funds to treasury.
+    function rescueOrphanedBribes(uint256, address, address) external pure {
+        revert("USE_REFUND_ORPHANED_BRIBE");
+    }
 
     /// @notice AUDIT R020 H-1 (CRIT): refund a bribe that was deposited for a
     ///         pair which received zero votes after the epoch was snapshotted.
@@ -1285,11 +1226,40 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
     function refundUnvotedBribe(uint256 epoch, address pair, address token) external nonReentrant {
         if (epoch >= epochs.length) revert InvalidEpoch();
+        // AUDIT R014 H-4: refunds operate on confirmed (post-snapshot) bribe
+        // pools; refuse if the epoch was somehow not finalized.
         if (!epochBribesFinalized[epoch]) revert EpochNotFinalized();
-        // AUDIT FIX FRESH-2026: M-10 / F-10-K-03 — frozen totalGaugeVotes.
-        if (_freezeOrReadVoteCount(epoch, pair) != 0) revert PairHasVotes();
-        if (block.timestamp < _refundGateTime(epoch)) revert GraceNotElapsed();
-        uint256 amount = _processRefund(epoch, pair, token);
+        require(totalGaugeVotes[epoch][pair] == 0, "PAIR_HAS_VOTES");
+        // AUDIT R014 M-6: deadline branches on the epoch's voting model. Legacy
+        // (plain `vote()`) epochs gate on `epoch.timestamp + VOTE_DEADLINE`;
+        // commit-reveal epochs gate on `revealDeadline(epoch)`. Today both
+        // expressions equal `timestamp + VOTE_DEADLINE` so the explicit branch
+        // is a no-op — but keeping `revealDeadline` and `VOTE_DEADLINE` decoupled
+        // means a future change that lengthens the reveal window (e.g., to
+        // accommodate hardware-wallet reveal cadence) won't accidentally let
+        // depositors yank legacy-epoch bribes early.
+        EpochInfo memory ep = epochs[epoch];
+        uint256 voteEnd = ep.usesCommitReveal
+            ? revealDeadline(epoch)
+            : ep.timestamp + VOTE_DEADLINE;
+        require(block.timestamp >= voteEnd + UNVOTED_REFUND_GRACE, "GRACE_NOT_ELAPSED");
+
+        uint256 amount = bribeDeposits[epoch][pair][token][msg.sender];
+        require(amount > 0, "NOTHING_TO_REFUND");
+
+        bribeDeposits[epoch][pair][token][msg.sender] = 0;
+        lastBribeDepositPerUser[epoch][pair][token][msg.sender] = 0; // BATCH-N2 M12 cleanup
+        uint256 remaining = epochBribes[epoch][pair][token];
+        epochBribes[epoch][pair][token] = remaining > amount ? remaining - amount : 0;
+
+        if (token == address(0)) {
+            totalUnclaimedETHBribes = totalUnclaimedETHBribes > amount ? totalUnclaimedETHBribes - amount : 0;
+            WETHFallbackLib.safeTransferETHOrWrap(address(weth), msg.sender, amount);
+        } else {
+            totalUnclaimedBribes[token] = totalUnclaimedBribes[token] > amount ? totalUnclaimedBribes[token] - amount : 0;
+            IERC20(token).safeTransfer(msg.sender, amount);
+        }
+
         emit UnvotedBribeRefunded(epoch, pair, token, msg.sender, amount);
     }
 
@@ -1327,34 +1297,37 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     function refundSubQuorumBribe(uint256 epoch, address pair, address token) external nonReentrant {
         if (epoch >= epochs.length) revert InvalidEpoch();
         if (!epochBribesFinalized[epoch]) revert EpochNotFinalized();
-        // AUDIT FIX FRESH-2026: M-10 / F-10-K-03 — frozen totalGaugeVotes.
-        uint256 totalVotes = _freezeOrReadVoteCount(epoch, pair);
-        if (!(totalVotes > 0 && totalVotes < MIN_BRIBE_CLAIM_QUORUM)) revert NotSubQuorum();
-        if (block.timestamp < _refundGateTime(epoch)) revert GraceNotElapsed();
-        uint256 amount = _processRefund(epoch, pair, token);
+        // STRICTLY SUB-QUORUM: 0 < votes < MIN_BRIBE_CLAIM_QUORUM. The == 0 case is
+        // owned by refundUnvotedBribe (semantic separation preserved); the >= quorum
+        // case is owned by claimBribes. This branch is the third leg that closes
+        // the 100-agent-audited C1 trap.
+        uint256 totalVotes = totalGaugeVotes[epoch][pair];
+        require(totalVotes > 0 && totalVotes < MIN_BRIBE_CLAIM_QUORUM, "NOT_SUB_QUORUM");
+
+        EpochInfo memory ep = epochs[epoch];
+        uint256 voteEnd = ep.usesCommitReveal
+            ? revealDeadline(epoch)
+            : ep.timestamp + VOTE_DEADLINE;
+        require(block.timestamp >= voteEnd + UNVOTED_REFUND_GRACE, "GRACE_NOT_ELAPSED");
+
+        uint256 amount = bribeDeposits[epoch][pair][token][msg.sender];
+        require(amount > 0, "NOTHING_TO_REFUND");
+
+        // CEI: clear depositor record + total ledger BEFORE outbound transfer.
+        bribeDeposits[epoch][pair][token][msg.sender] = 0;
+        lastBribeDepositPerUser[epoch][pair][token][msg.sender] = 0; // BATCH-N2 M12 cleanup
+        uint256 remaining = epochBribes[epoch][pair][token];
+        epochBribes[epoch][pair][token] = remaining > amount ? remaining - amount : 0;
+
+        if (token == address(0)) {
+            totalUnclaimedETHBribes = totalUnclaimedETHBribes > amount ? totalUnclaimedETHBribes - amount : 0;
+            WETHFallbackLib.safeTransferETHOrWrap(address(weth), msg.sender, amount);
+        } else {
+            totalUnclaimedBribes[token] = totalUnclaimedBribes[token] > amount ? totalUnclaimedBribes[token] - amount : 0;
+            IERC20(token).safeTransfer(msg.sender, amount);
+        }
+
         emit SubQuorumBribeRefunded(epoch, pair, token, msg.sender, amount);
-    }
-
-    // ─── AUDIT FIX FRESH-2026: H-4 + F-11-1 + F-10-K-02 ───────────────
-    // Fourth refund leg: pair was LIVE at snapshot but factory disabled it
-    // post-snapshot. Without this leg, in-flight bribes on a mid-window
-    // disable would be permanently locked: claim reverts on the snapshot
-    // disable check, refundUnvoted reverts because votes != 0,
-    // refundSubQuorum reverts because votes >= quorum, and orphan-rescue
-    // reverts because epoch IS finalized. Symmetric to refundUnvotedBribe
-    // and refundSubQuorumBribe in cleanup semantics.
-    event DisabledPairBribeRefunded(uint256 indexed epoch, address indexed pair, address indexed token, address depositor, uint256 amount);
-
-    function refundDisabledPairBribe(uint256 epoch, address pair, address token) external nonReentrant {
-        if (epoch >= epochs.length) revert InvalidEpoch();
-        if (!epochBribesFinalized[epoch]) revert EpochNotFinalized();
-        // AUDIT FIX FRESH-2026: H-4 + F-11-1 — gate: pair was live at
-        // snapshot (anchored on first deposit) AND is currently disabled.
-        if (!_snapshotPairLive(epoch, pair)) revert PairDisabled();
-        if (!factory.disabledPairs(pair)) revert PairNotDisabled();
-        if (block.timestamp < _refundGateTime(epoch)) revert GraceNotElapsed();
-        uint256 amount = _processRefund(epoch, pair, token);
-        emit DisabledPairBribeRefunded(epoch, pair, token, msg.sender, amount);
     }
 
     // ─── AUDIT R020 H-3: per-token min-bribe configuration (timelocked) ───
@@ -1371,62 +1344,10 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
     function applyMinBribeAmountChange(address token, uint256 amount) external onlyAdmin {
         if (token == address(0)) revert ZeroAddress();
-        // AUDIT FIX FRESH-2026: F-10-K-08 + F-84-3 — reject amount==0 so a
-        // careless admin cannot silently restore the 18-dec
-        // `DEFAULT_MIN_TOKEN_BRIBE` floor on a previously-configured token
-        // (which on a 6-dec stablecoin would mean a 1000-USDC minimum,
-        // 1e9× the operator's intended floor). The propose-side already
-        // enforces this, but the apply-side check is belt-and-suspenders
-        // for any future direct-admin-call path.
-        if (amount == 0) revert ZeroAmount();
         if (amount > MAX_MIN_BRIBE_AMOUNT) revert ZeroAmount(); // BATCH-H M13: reuse existing error
         uint256 oldAmount = minBribeAmounts[token];
         minBribeAmounts[token] = amount;
         emit MinBribeAmountChangeExecuted(token, oldAmount, amount);
-    }
-
-    /// @notice AUDIT FIX FRESH-2026: F-61-4 — sweep permanent dust from a
-    ///         (epoch, pair, token) triple AFTER the EPOCH_DUST_SWEEP_DELAY
-    ///         (1 year past vote-end) has elapsed. Dust is the rounding
-    ///         residual `epochBribes - totalClaimedBribes` that no voter
-    ///         can claim (their share rounded to zero). Pre-fix, this
-    ///         dust was permanently locked in the contract — accumulating
-    ///         across many (epoch, pair, token) triples — but unsweepable
-    ///         because `totalUnclaimedBribes` reservation included the
-    ///         dust budget. After the sweep window, dust is recoverable
-    ///         to treasury, mirroring Aerodrome's
-    ///         `BribeVotingReward.notifyRewardAmountForToken` reset.
-    /// @dev    Owner-only. The 1-year delay is a structural floor
-    ///         (UNVOTED_REFUND_GRACE = 14d, BRIBE_RESCUE_DELAY = 30d, claim
-    ///         retention = MAX_CLAIM_EPOCHS×7d ≤ 9.5y but practical claims
-    ///         clear within months). The dust recovery is the LAST resort.
-    function sweepEpochDust(uint256 epoch, address pair, address token) external onlyOwner nonReentrant {
-        if (epoch >= epochs.length) revert InvalidEpoch();
-        if (!epochBribesFinalized[epoch]) revert EpochNotFinalized();
-        EpochInfo memory ep = epochs[epoch];
-        uint256 voteEnd = ep.usesCommitReveal
-            ? revealDeadline(epoch)
-            : ep.timestamp + VOTE_DEADLINE;
-        if (block.timestamp < voteEnd + EPOCH_DUST_SWEEP_DELAY) revert DustSweepTooEarly();
-
-        uint256 deposited = epochBribes[epoch][pair][token];
-        uint256 paidOut = totalClaimedBribes[epoch][pair][token];
-        uint256 dust = deposited > paidOut ? deposited - paidOut : 0;
-        if (dust == 0) revert ZeroAmount();
-
-        // CEI: clear the per-bucket residual BEFORE the outbound transfer.
-        // Set `epochBribes` down to `paidOut` so any future claim attempt
-        // (which would be rounding-noise after this point) sees a zero
-        // bribe pool rather than dust still hanging on.
-        epochBribes[epoch][pair][token] = paidOut;
-
-        if (token == address(0)) {
-            totalUnclaimedETHBribes = totalUnclaimedETHBribes > dust ? totalUnclaimedETHBribes - dust : 0;
-            WETHFallbackLib.safeTransferETHOrWrap(address(weth), treasury, dust);
-        } else {
-            totalUnclaimedBribes[token] = totalUnclaimedBribes[token] > dust ? totalUnclaimedBribes[token] - dust : 0;
-            IERC20(token).safeTransfer(treasury, dust);
-        }
     }
 
     /// @notice AUDIT NEW-G3: permanently-locked rounding dust for a given
@@ -1484,7 +1405,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     /// @dev External wrapper around SafeERC20.safeTransfer so it can be used with try/catch.
     ///      Solidity's try only works on external calls. Only callable by this contract itself.
     function _safeTransferExternal(address token, address to, uint256 amount) external {
-        if (msg.sender != address(this)) revert OnlySelf();
+        require(msg.sender == address(this), "ONLY_SELF");
         IERC20(token).safeTransfer(to, amount);
     }
 
@@ -1501,19 +1422,10 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///      voting weight that would otherwise have gone to a live pair. Mirrors the
     ///      same disabled-pair gate already in TegridyPair.swap() (line 201) and
     ///      TegridyRouter._pairFor (line 455).
-    /// @dev AUDIT FIX FRESH-2026: H-4 + F-11-1 + F-10-K-02 — this remains the
-    ///      DEPOSIT-time gate. The factory's `disabledPairs(pair)` flag is
-    ///      checked LIVE here so a briber can't deposit on a dead pair.
-    ///      Read paths (claim/refund/reveal) use `_validatePairForRead`
-    ///      below which consults the snapshot-time `epochSnapshotPairLive`
-    ///      cache instead — that closes the post-snapshot disable trap.
-    /// @dev AUDIT FIX FRESH-2026: H-4 + F-11-1 + F-10-K-02 — split into
-    ///      registration-only (`checkDisabled = false`) and full
-    ///      (`checkDisabled = true`) variants. Deposit/vote paths pass true;
-    ///      claim/refund/reveal paths pass false (post-snapshot disable
-    ///      handled via `_snapshotPairLive` cache).
-    function _validatePairCommon(address pair, bool checkDisabled) internal view {
+    function _validatePair(address pair) internal view {
         if (pair.code.length == 0) revert InvalidPair();
+        // H-04 FIX: Verify pair is a registered factory pair by reading its tokens
+        // and checking against factory.getPair()
         try ITegridyPair(pair).token0() returns (address t0) {
             try ITegridyPair(pair).token1() returns (address t1) {
                 if (factory.getPair(t0, t1) != pair) revert InvalidPair();
@@ -1523,209 +1435,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         } catch {
             revert InvalidPair();
         }
-        if (checkDisabled && factory.disabledPairs(pair)) revert PairDisabled();
-    }
-    function _validatePair(address pair) internal view { _validatePairCommon(pair, true); }
-    function _validatePairForRead(address pair) internal view { _validatePairCommon(pair, false); }
-
-    /// @dev AUDIT FIX FRESH-2026: H-4 + F-11-1 + F-10-K-02 — read the cached
-    ///      snapshot. The "pair was live at snapshot" flag is set on deposit
-    ///      (since deposit-time `_validatePair` enforces pair-is-live, the
-    ///      first deposit on (epoch, pair) is the authoritative anchor).
-    ///      Subsequent claim/refund/reveal calls read this cached value, so
-    ///      a post-snapshot factory.disabledPairs() flip cannot retroactively
-    ///      brick claim/refund flow.
-    /// @dev If `epochSnapshotPairChecked[epoch][pair]` is false, the
-    ///      (epoch, pair) tuple has no recorded deposit AND no recorded vote
-    ///      AND no recorded claim attempt — fall back to the live factory
-    ///      flag. This handles edge cases (e.g., a vote on a pair that
-    ///      received zero bribes — the pair's snapshot wasn't anchored at
-    ///      deposit, but a vote for it shouldn't auto-revert).
-    function _snapshotPairLive(uint256 epoch, address pair) internal returns (bool isLive) {
-        if (epochSnapshotPairChecked[epoch][pair]) {
-            return epochSnapshotPairLive[epoch][pair];
-        }
-        // Fall-through: no deposit anchored this (epoch, pair). Read live
-        // factory state and freeze for symmetry with the deposit-anchored
-        // path. Once frozen, the answer is stable across the lifecycle.
-        isLive = !factory.disabledPairs(pair);
-        epochSnapshotPairLive[epoch][pair] = isLive;
-        epochSnapshotPairChecked[epoch][pair] = true;
-    }
-
-    /// @dev Read-only sister of `_snapshotPairLive` for view paths. Returns
-    ///      the cached snapshot if available; otherwise falls through to the
-    ///      live `factory.disabledPairs(pair)` flag. View paths that hit the
-    ///      live flag during the disable-window will see the disable; this
-    ///      is acceptable for preview / claimable views (a stale view is
-    ///      never a fund-loss). Mutating paths (claim/refund/reveal) MUST
-    ///      use `_snapshotPairLive` to lock in the snapshot.
-    function _snapshotPairLiveView(uint256 epoch, address pair) internal view returns (bool) {
-        if (epochSnapshotPairChecked[epoch][pair]) {
-            return epochSnapshotPairLive[epoch][pair];
-        }
-        return !factory.disabledPairs(pair);
-    }
-
-    /// @dev AUDIT FIX FRESH-2026: H-4 + F-11-1 + F-10-K-02 — anchor the
-    ///      pair-live snapshot on FIRST deposit. Deposit-time
-    ///      `_validatePair` enforces that the pair is live, so we capture
-    ///      `true` here. Subsequent factory disable events do NOT flip the
-    ///      cache — that's the point of the snapshot.
-    function _anchorPairLiveSnapshot(uint256 epoch, address pair) internal {
-        if (!epochSnapshotPairChecked[epoch][pair]) {
-            epochSnapshotPairLive[epoch][pair] = true;
-            epochSnapshotPairChecked[epoch][pair] = true;
-        }
-    }
-
-    /// @dev AUDIT FIX FRESH-2026: F-69-1 — sequencer-buffer extender. Returns
-    ///      `SEQUENCER_OUTAGE_BUFFER` if the L2 sequencer is down or has
-    ///      resumed within the buffer window; 0 otherwise (or on mainnet).
-    ///      Mirrors the MemeBountyBoard `_sequencerBuffer` helper.
-    function _sequencerBuffer() internal view returns (uint256) {
-        return SequencerCheck.getSequencerOutageBuffer(sequencerFeed, SEQUENCER_OUTAGE_BUFFER);
-    }
-
-    /// @dev AUDIT FIX FRESH-2026: M-10 / F-10-K-03 — freezing helper for
-    ///      `totalGaugeVotes[epoch][pair]` at the first read past vote-end.
-    ///      Subsequent reads from claim/refund paths use the frozen value
-    ///      so a future change to `totalGaugeVotes` mutability cannot drift
-    ///      claim/refund accounting.
-    function _freezeOrReadVoteCount(uint256 epoch, address pair) internal returns (uint256 frozen) {
-        if (epochVoteCountFinalSet[epoch][pair]) {
-            return epochVoteCountFinal[epoch][pair];
-        }
-        frozen = totalGaugeVotes[epoch][pair];
-        epochVoteCountFinal[epoch][pair] = frozen;
-        epochVoteCountFinalSet[epoch][pair] = true;
-    }
-
-    /// @dev AUDIT FIX FRESH-2026: F-77-4 — VotePowerOracle monotonicity clamp.
-    ///      The library's additive sum across staking + restaking can return
-    ///      a value > the user's current power if the restaking contract's
-    ///      historical lookup is buggy / unsafe. This consumer-side clamp is
-    ///      a defense-in-depth: the user-applied power can never exceed
-    ///      `min(historical, current)` no matter what the oracle says.
-    ///      Already used inline in vote/commit/reveal — surfaced as a
-    ///      helper so future call sites pick up the same gate.
-    function _clampedUserPower(address user, uint256 ts) internal view returns (uint256) {
-        uint256 historical = VotePowerOracle.powerAt(user, ts, address(votingEscrow), restakingContract);
-        uint256 current = VotePowerOracle.powerOf(user, address(votingEscrow), restakingContract);
-        return historical < current ? historical : current;
-    }
-
-    /// @dev AUDIT FIX FRESH-2026 (size optimization) — shared CEI tail for the
-    ///      four refund paths (orphan / unvoted / sub-quorum / disabled-pair).
-    ///      Reads + clears `bribeDeposits[epoch][pair][token][user]`,
-    ///      decrements the deposit counter (releasing self-bribe lockout on
-    ///      full refund), decrements `epochBribes`, and pulls funds out via
-    ///      ETH-safe / ERC20 transfer. CEI: state cleared before transfer.
-    function _processRefund(uint256 epoch, address pair, address token) internal returns (uint256 amount) {
-        amount = bribeDeposits[epoch][pair][token][msg.sender];
-        if (amount == 0) revert NothingToRefund();
-
-        bribeDeposits[epoch][pair][token][msg.sender] = 0;
-        lastBribeDepositPerUser[epoch][pair][token][msg.sender] = 0;
-        if (depositCountOnPair[msg.sender][epoch][pair] > 0) {
-            depositCountOnPair[msg.sender][epoch][pair] -= 1;
-            if (depositCountOnPair[msg.sender][epoch][pair] == 0) {
-                depositedOnPair[msg.sender][epoch][pair] = false;
-            }
-        }
-        uint256 remaining = epochBribes[epoch][pair][token];
-        epochBribes[epoch][pair][token] = remaining > amount ? remaining - amount : 0;
-
-        if (token == address(0)) {
-            totalUnclaimedETHBribes = totalUnclaimedETHBribes > amount ? totalUnclaimedETHBribes - amount : 0;
-            WETHFallbackLib.safeTransferETHOrWrap(address(weth), msg.sender, amount);
-        } else {
-            totalUnclaimedBribes[token] = totalUnclaimedBribes[token] > amount ? totalUnclaimedBribes[token] - amount : 0;
-            IERC20(token).safeTransfer(msg.sender, amount);
-        }
-    }
-
-    /// @dev AUDIT FIX FRESH-2026 (size optimization) — common voteEnd
-    ///      computation. Returns `voteEnd + UNVOTED_REFUND_GRACE +
-    ///      _sequencerBuffer()` (the gate that all sub-quorum / unvoted /
-    ///      disabled-pair refund paths share).
-    function _refundGateTime(uint256 epoch) internal view returns (uint256) {
-        EpochInfo memory ep = epochs[epoch];
-        uint256 voteEnd = ep.usesCommitReveal
-            ? revealDeadline(epoch)
-            : ep.timestamp + VOTE_DEADLINE;
-        return voteEnd + UNVOTED_REFUND_GRACE + _sequencerBuffer();
-    }
-
-    /// @dev AUDIT FIX FRESH-2026 (size optimization) — shared accounting tail
-    ///      for deposit paths. Used by both `depositBribe` (ERC20) and
-    ///      `depositBribeETH`. Updates per-depositor and per-(epoch, pair)
-    ///      counters, anchors the pair-live snapshot, and bumps the global
-    ///      `lastBribeDepositTime` for the advance-cooldown gate.
-    /// @dev    F-77-1 epoch+1 indexing is computed at the call site.
-    function _bookDeposit(uint256 epoch, address pair, address token, uint256 netBribe) internal {
-        if (epochBribesFinalized[epoch]) revert EpochAlreadyFinalized();
-        address[] storage tokenList = epochBribeTokens[epoch][pair];
-        if (epochBribes[epoch][pair][token] == 0) {
-            if (tokenList.length >= MAX_BRIBE_TOKENS) revert TooManyBribeTokens();
-            tokenList.push(token);
-        }
-        epochBribes[epoch][pair][token] += netBribe;
-        if (token == address(0)) {
-            totalUnclaimedETHBribes += netBribe;
-        } else {
-            totalUnclaimedBribes[token] += netBribe;
-        }
-        if (bribeDeposits[epoch][pair][token][msg.sender] == 0 && depositCountOnPair[msg.sender][epoch][pair] == 0) {
-            bribeDepositorCount[epoch][pair] += 1;
-        }
-        bribeDeposits[epoch][pair][token][msg.sender] += netBribe;
-        epochBribeLastDeposit[epoch] = block.timestamp;
-        lastBribeDepositPerUser[epoch][pair][token][msg.sender] = block.timestamp;
-        depositedOnPair[msg.sender][epoch][pair] = true;
-        depositCountOnPair[msg.sender][epoch][pair] += 1;
-        lastBribeDepositTime = block.timestamp;
-        _anchorPairLiveSnapshot(epoch, pair);
-    }
-
-    /// @dev AUDIT FIX FRESH-2026 (size optimization) — shared per-token
-    ///      claim accounting. Computes share, marks claimed, decrements
-    ///      reservations, transfers funds, emits events. Returns true if a
-    ///      transfer (or zero-share-skip) actually happened on this token.
-    function _processClaimToken(
-        uint256 epoch,
-        address pair,
-        address token,
-        uint256 userVote,
-        uint256 totalVote
-    ) internal returns (bool consumed) {
-        if (claimed[msg.sender][epoch][pair][token]) return false;
-        uint256 bribeAmount = epochBribes[epoch][pair][token];
-        if (bribeAmount == 0) return false;
-        uint256 share = (bribeAmount * userVote) / totalVote;
-        claimed[msg.sender][epoch][pair][token] = true;
-        if (share == 0) return true; // dust-only iteration counts as consumed for `anyClaimed`.
-
-        totalClaimedBribes[epoch][pair][token] += share;
-        if (token == address(0)) {
-            totalUnclaimedETHBribes = totalUnclaimedETHBribes > share ? totalUnclaimedETHBribes - share : 0;
-            (bool ok,) = msg.sender.call{value: share, gas: 50000}("");
-            if (!ok) {
-                pendingETHWithdrawals[msg.sender] += share;
-                totalPendingETH += share;
-                emit PendingETHCredited(msg.sender, share);
-            }
-        } else {
-            totalUnclaimedBribes[token] = totalUnclaimedBribes[token] > share ? totalUnclaimedBribes[token] - share : 0;
-            try this._safeTransferExternal(token, msg.sender, share) {
-            } catch {
-                pendingTokenWithdrawals[msg.sender][token] += share;
-                totalPendingTokens[token] += share;
-                emit PendingTokenCredited(msg.sender, token, share);
-            }
-        }
-        emit BribeClaimed(msg.sender, epoch, pair, token, share);
-        return true;
+        // AUDIT R016 M-1: refuse disabled pairs.
+        if (factory.disabledPairs(pair)) revert PairDisabled();
     }
 
     /// @dev Check if the staking contract is paused (same pattern as RevenueDistributor).
@@ -1808,8 +1519,11 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // DEEP-GOV-01 min-clamp by anchoring the comparison against the smaller of
         // the two voting-power figures.
         // AUDIT FIX (pass-8): GOV-ECON-01 / C10 — additive read across staking + restaking.
-        // AUDIT FIX FRESH-2026: F-77-4 — centralized monotonicity-clamp helper.
-        uint256 userPower = _clampedUserPower(msg.sender, ep.timestamp);
+        uint256 historical = VotePowerOracle.powerAt(
+            msg.sender, ep.timestamp, address(votingEscrow), restakingContract
+        );
+        uint256 current = VotePowerOracle.powerOf(msg.sender, address(votingEscrow), restakingContract);
+        uint256 userPower = historical < current ? historical : current;
         if (userPower == 0) revert NothingToClaim();
         require(committedPower[msg.sender][epoch] + power <= userPower, "EXCEEDS_POWER");
         committedPower[msg.sender][epoch] += power;
@@ -1855,15 +1569,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         uint256 cd = commitDeadline(epoch);
         uint256 rd = revealDeadline(epoch);
-        // AUDIT FIX FRESH-2026: F-69-1 — extend reveal-deadline by
-        // SEQUENCER_OUTAGE_BUFFER on L2 outage. An honest voter who tried
-        // to reveal during a sequencer outage shouldn't lose their bond +
-        // vote application to a window that elapsed entirely while the
-        // chain was offline. commit-deadline is left as-is (commits before
-        // the outage are already locked in; the failure mode that matters
-        // is "I missed my reveal because the chain was down").
         if (block.timestamp <= cd) revert RevealWindowNotOpen();
-        if (block.timestamp > rd + _sequencerBuffer()) revert RevealWindowClosed();
+        if (block.timestamp > rd) revert RevealWindowClosed();
 
         CommitInfo[] storage commits = voterCommits[msg.sender][epoch];
         if (commitIndex >= commits.length) revert CommitNotFound();
@@ -1875,19 +1582,11 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         if (pair == address(0)) revert InvalidPair();
         if (power == 0) revert ZeroAmount();
-        // AUDIT FIX FRESH-2026: H-4 + F-11-1 + F-10-K-02 — read-side validator
-        // (registration-only). Voters who committed against a pair that the
-        // factory disabled mid-window can still reveal so their vote
-        // applies (and bribes settle via the snapshotted disable check on
-        // the claim path). Pre-fix, the live `_validatePair` here turned a
-        // mid-window factory disable into an unrecoverable bond + vote
-        // loss for honest voters.
-        _validatePairForRead(pair);
-        // Voters whose pair was disabled AT EPOCH SNAPSHOT shouldn't apply
-        // a vote — there's no claim flow downstream. They unwind via
-        // `forfeitCommitOnDisabledPair` (refunds bond + clears
-        // committedPower for fresh commits).
-        if (!_snapshotPairLive(epoch, pair)) revert PairDisabled();
+        // AUDIT FIX: DEEP-GOV-08 — refuse reveals for disabled pairs. Voters who
+        // committed pre-disable can simply abandon the commit (forfeiting bond) —
+        // applying votes to a dead pair would lock out their `userTotalVotes`
+        // allocation on a pair they cannot route swaps through.
+        _validatePair(pair);
 
         // AUDIT FIX: V2-GOV-10 — at reveal time, cap against `committedPower`
         // (the sum of declared commit-time powers, already capped at
@@ -1963,8 +1662,17 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 power,
         bytes32 salt
     ) external nonReentrant whenNotPaused {
-        // AUDIT FIX G-01: restrict to commit owner OR contract owner.
+        // AUDIT FIX G-01 (Governance Medium): restrict to the commit owner OR
+        // the contract owner. Pre-fix any caller could destroy a victim's
+        // commit during a transient pair disable: attacker iterates VoteCommitted
+        // events for the disabled pair, force-forfeits each, then the factory
+        // re-enables — victims' commits are permanently revealed/zeroed even
+        // though the pair is live again. The bond was refunded but the VOTE
+        // is destroyed (slot marked revealed with no impact). The owner branch
+        // is preserved as an admin escape for users who can't transact (e.g.
+        // SCW signer key lost) but want their bond + commit clawed out.
         if (msg.sender != user && msg.sender != owner()) revert Unauthorized();
+
         if (epoch >= epochs.length) revert InvalidEpoch();
         EpochInfo memory ep = epochs[epoch];
         if (!ep.usesCommitReveal) revert NotCommitRevealEpoch();
@@ -1974,25 +1682,43 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         CommitInfo storage c = commits[commitIndex];
         if (c.revealed) revert AlreadyRevealed();
 
+        // Validate the (pair, power, salt) match the committed hash. This is the
+        // proof that the caller is unwinding THIS commit and not a different one.
         if (pair == address(0)) revert InvalidPair();
         if (power == 0) revert ZeroAmount();
-        if (computeCommitHash(user, epoch, pair, power, salt) != c.commitHash) revert CommitHashMismatch();
+        bytes32 expected = computeCommitHash(user, epoch, pair, power, salt);
+        if (expected != c.commitHash) revert CommitHashMismatch();
+
+        // Refuse the escape path if the pair is still live. Voters can't bail out
+        // of a live commit just because they've changed their minds — the normal
+        // reveal/sweep windows govern that case.
         if (!factory.disabledPairs(pair)) revert PairNotDisabled();
 
-        // CEI: state first, transfer last.
+        // CEI: state first, transfer last. Mark revealed (no double-claim) AND zero
+        // the bond before the external transfer.
         c.revealed = true;
         uint96 bond = c.bond;
         c.bond = 0;
+
+        // Decrement committedPower so the voter is no longer locked out of further
+        // commits this epoch (the central point of the fix).
         if (committedPower[user][epoch] >= power) {
             committedPower[user][epoch] -= power;
         } else {
+            // Defensive: if accounting somehow drifted, clear to zero rather than
+            // underflow. Cannot happen under current logic — committedPower only
+            // ever increases by `power` at commit time.
             committedPower[user][epoch] = 0;
         }
 
         emit CommitForfeitedOnDisabledPair(user, epoch, commitIndex, pair, power, bond);
 
         if (bond > 0) {
-            if (totalCommitBonds >= bond) totalCommitBonds -= bond;
+            if (totalCommitBonds >= bond) {
+                totalCommitBonds -= bond;
+            }
+            // Refund (not forfeit) — voter is being kicked off through no fault of
+            // their own, so they get the bond back.
             toweli.safeTransfer(user, bond);
             emit BondRefunded(user, epoch, commitIndex, bond);
         }
@@ -2043,12 +1769,21 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     // events for commit-reveal enable moved to VoteIncentivesAdmin.
 
     function applyEnableCommitReveal() external onlyAdmin {
-        if (commitRevealEnabled) return; // idempotent
+        if (commitRevealEnabled) return; // idempotent (mirrors pre-split semantic)
         commitRevealEnabled = true;
         emit CommitRevealEnabled(true);
     }
-    // AUDIT FIX FRESH-2026 (size optimization, relaunch — no compat shims):
-    // legacy `enableCommitReveal()` deprecation revert removed. The
-    // propose/execute flow in `VoteIncentivesAdmin` is the only path; tooling
-    // calling the old selector now reverts with `function not found`.
+
+    /// @notice DEPRECATED: use the propose/execute flow above. Retained as a
+    ///         descriptive revert so any tooling calling the old signature fails
+    ///         loudly instead of silently no-op'ing.
+    /// @dev    AUDIT L-2 (2026-04-28): mutability changed from `view` to plain
+    ///         non-payable (a `view` `onlyOwner` function is unusual style — the
+    ///         owner-check itself is a state-affecting concept), and the string
+    ///         revert is replaced with a typed `UseProposeEnableCommitReveal`
+    ///         error matching the rest of this contract's error convention.
+    ///         Selector is preserved for ABI compatibility.
+    function enableCommitReveal() external onlyOwner {
+        revert UseProposeEnableCommitReveal();
+    }
 }

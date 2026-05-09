@@ -8,7 +8,6 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
 
 /// @dev AUDIT FIX (pass-8 batch-17): minimal ERC-2981 interface for royalty
@@ -111,23 +110,6 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     // 0.8.26 checked arithmetic and bricking every withdrawal/swap path.
     uint256 public constant MAX_SPOT_PRICE = 1_000_000 ether;
     uint256 public constant PARAMETER_TIMELOCK = 24 hours;
-    // AUDIT FIX (Wave-B re-run, F-63-1): cap caller-supplied deadline to bound
-    // mempool-warehousing exposure. Mirrors TegridyRouter / SwapFeeRouter
-    // MAX_DEADLINE = 2 hours. A wallet that signs `deadline = type(uint256).max`
-    // ("set and forget") would otherwise be exposed to indefinite warehousing
-    // until on-pool flow drifted spotPrice toward maxTotalCost / minOutput.
-    uint256 public constant MAX_DEADLINE = 2 hours;
-
-    // AUDIT FIX (Wave-B re-run, F-19-2 / F-55-7 / M-18): per-receiver pull-
-    // pattern credits for stranded royalty WETH. Populated when
-    // `_settleRoyalty` falls into mode==2 (deposit succeeded, transfer to
-    // receiver failed — caller now holds stranded WETH). Receivers self-claim
-    // via `claimStrandedRoyaltyWETH` instead of waiting for owner discretion.
-    // The aggregate `totalPendingStrandedWETH` is a reserved-balance counter
-    // that `rescueStrandedRoyalty` subtracts so the owner can never touch the
-    // receiver-owed portion.
-    mapping(address => uint256) public pendingStrandedWETH;
-    uint256 public totalPendingStrandedWETH;
 
     // ─── Errors ─────────────────────────────────────────────────────────
     using SafeERC20 for IERC20; // AUDIT FIX (BATCH-B H3): for rescueStrandedRoyalty WETH transfer
@@ -175,14 +157,6 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     error EmergencyPaused();
     /// AUDIT FIX L-4
     error WaitForNFTWithdrawCooldown();
-    /// AUDIT FIX (Wave-B re-run, F-63-1): caller-supplied `deadline` exceeds
-    /// `block.timestamp + MAX_DEADLINE` — bound mempool warehousing.
-    error DeadlineTooFar();
-    /// AUDIT FIX (Wave-B re-run, F-19-2 / F-55-7 / M-18): receiver has no
-    /// pull-credit to claim from stranded WETH.
-    error NoStrandedCredit();
-    /// AUDIT FIX (Wave-B re-run, F-54-2): explicit reverting ERC1155 receiver.
-    error ERC1155NotSupported();
 
     // ─── Events ─────────────────────────────────────────────────────────
     event PoolInitialized(
@@ -210,11 +184,9 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     event NFTsWithdrawn(address indexed to, uint256[] tokenIds);
     event ProtocolFeePaid(address indexed factory, uint256 amount);
     /// @notice AUDIT FIX (pass-8 batch-17): emitted when ERC-2981 royalty is paid
-    ///         to the collection's royalty receiver during a swap.
-    /// @dev    AUDIT FIX (Wave-B re-run, F-19-1 / M-18): the indexed `tokenId`
-    ///         is the SPECIFIC tokenId whose royalty rate was settled (one
-    ///         event per token in a batch). Pre-fix this was always
-    ///         `tokenIds[0]`; per-token iteration emits one event per ID.
+    ///         to the collection's royalty receiver during a swap. `tokenId` is
+    ///         the first NFT in the batch (used as the royalty-rate anchor —
+    ///         most ERC-2981 implementations use a single rate per collection).
     event RoyaltyPaid(address indexed receiver, uint256 amount, uint256 indexed tokenId);
     event RoyaltyFallbackToWETH(address indexed receiver, uint256 amount, uint256 indexed tokenId);
     /// AUDIT FIX (BATCH-B H3): emitted when both ETH leg AND WETH leg of royalty
@@ -224,12 +196,6 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     /// AUDIT FIX (BATCH-B H3): emitted when owner sweeps stranded WETH that
     /// accumulated from one or more `RoyaltyOrphaned` events.
     event RoyaltyRescued(address indexed to, uint256 amount);
-    /// AUDIT FIX (Wave-B re-run, F-19-2 / F-55-7 / M-18): emitted when a
-    /// receiver self-claims their pending stranded-royalty WETH credit.
-    event StrandedRoyaltyClaimed(address indexed receiver, uint256 amount);
-    /// AUDIT FIX (Wave-B re-run, F-19-2 / F-55-7 / M-18): emitted when the
-    /// receiver-owed pull-credit is recorded on a mode==2 royalty failure.
-    event StrandedRoyaltyCredited(address indexed receiver, uint256 amount, uint256 indexed tokenId);
     /// AUDIT FIX: DEEP-NFTPOOL-03
     event OwnerChangeProposed(address indexed oldOwner, address indexed newOwner, uint256 executeAfter);
     event OwnerChanged(address indexed oldOwner, address indexed newOwner);
@@ -266,13 +232,6 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         require(_factory != address(0), "ZERO_FACTORY");
         require(_weth != address(0), "ZERO_WETH");
         require(_spotPrice > 0, "ZERO_PRICE");
-        // AUDIT FIX (Wave-B re-run, F-62-1): mirror MAX_SPOT_PRICE check at
-        // init. Pre-fix `proposeSpotPrice` enforced `<= MAX_SPOT_PRICE` but
-        // `initialize` only required `> 0`, so a creator could ship a pool
-        // with `spotPrice ≈ uint256.max / 50` that bricks every withdraw/swap
-        // path on its first call (`_minLiquidityBuffer` overflows the
-        // `100 * spotPrice` multiplication under Solidity 0.8.26 checked math).
-        if (_spotPrice > MAX_SPOT_PRICE) revert SpotPriceTooHigh();
         if (_delta > MAX_DELTA) revert DeltaTooHigh();
         if (_protocolFeeBps > MAX_PROTOCOL_FEE_BPS) revert InvalidFee();
 
@@ -295,32 +254,12 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         emit PoolInitialized(_nftCollection, _poolType, _spotPrice, _delta, _feeBps, _owner);
     }
 
-    /// @notice Buy NFTs from the pool by paying ETH along the bonding curve.
-    /// @dev    AUDIT FIX (Wave-B re-run, F-19-3): NatSpec note — the buyer
-    ///         specifies the EXACT tokenIds they want; `inputAmount` is purely
-    ///         a function of `numItems`, NOT per-token rarity. Sudoswap-style
-    ///         pools assume LPs deposit fungible-rarity inventory; LPs that
-    ///         mix a rare 1/1 with floor commons risk losing the 1/1 to a
-    ///         single-item buy at floor price (multi-rarity cherry-pick).
-    ///         Frontends should warn LPs creating pools with mixed-rarity
-    ///         inventory.
-    /// @dev    AUDIT FIX (Wave-B re-run, F-67-3): NatSpec note — the
-    ///         `lastWithdrawBlock == block.timestamp` guard fires only within
-    ///         the SAME block on Ethereum L1 (block intervals are 12s and
-    ///         strictly monotonic), and within the same SECOND on L2 chains
-    ///         (Optimism/Base/Arbitrum block timestamps strictly increase by
-    ///         >=1s). Effectively still same-tx in practice.
     function swapETHForNFTs(
         uint256[] calldata tokenIds,
         uint256 maxTotalCost,
         uint256 deadline
     ) external payable nonReentrant whenNotPaused {
         if (block.timestamp > deadline) revert Expired();
-        // AUDIT FIX (Wave-B re-run, F-63-1): bound the user-supplied deadline
-        // upper limit to MAX_DEADLINE (2h) so a "set and forget"
-        // `deadline = type(uint256).max` cannot be warehoused indefinitely
-        // by a searcher. Mirrors TegridyRouter / SwapFeeRouter policy.
-        if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
         // AUDIT FIX: DEEP-NFTPOOL-01: forward-direction same-block guard.
         if (block.timestamp == lastWithdrawBlock) revert WithdrawalLandedThisBlock();
         // AUDIT FIX: DEEP-NFTPOOL-12: factory emergency-pause cascade.
@@ -369,13 +308,8 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         // paid out of the pool's revenue, NOT out of the buyer's payment —
         // the buyer pays `inputAmount` regardless of royalty rate. Pool's
         // captured revenue = inputAmount − protocolFee − lpFee − royalty.
-        // AUDIT FIX (Wave-B re-run, F-19-1 / M-18): per-token royalty
-        // iteration so per-tokenId-rate collections (Manifold registry,
-        // Foundation curated, Async Art) are not bypassed via tokenIds[0]
-        // anchoring. Each token contributes its own royalty rate against its
-        // pro-rata share of the sale.
         uint256 spotRevenue = inputAmount - protocolFee - lpFee;
-        _settleRoyaltyBatch(spotRevenue, tokenIds);
+        _settleRoyalty(spotRevenue, tokenIds[0]);
 
         uint256 excess = msg.value - inputAmount;
         if (excess > 0) {
@@ -389,17 +323,12 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         emit SwapETHForNFTs(msg.sender, tokenIds, inputAmount);
     }
 
-    /// @notice Sell NFTs to the pool, receiving ETH along the bonding curve.
-    /// @dev    AUDIT FIX (Wave-B re-run, F-67-3): NatSpec — same-tx-in-practice
-    ///         guard semantics as `swapETHForNFTs`.
     function swapNFTsForETH(
         uint256[] calldata tokenIds,
         uint256 minOutput,
         uint256 deadline
     ) external nonReentrant whenNotPaused {
         if (block.timestamp > deadline) revert Expired();
-        // AUDIT FIX (Wave-B re-run, F-63-1): cap deadline at MAX_DEADLINE.
-        if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
         // AUDIT FIX: DEEP-NFTPOOL-01
         if (block.timestamp == lastWithdrawBlock) revert WithdrawalLandedThisBlock();
         // AUDIT FIX: DEEP-NFTPOOL-12
@@ -439,9 +368,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         // before royalty deduction) and forwarded to the receiver; seller
         // gets `outputAmount − royalty`. Failed receiver = silent skip
         // (royalty receiver cannot brick the sale; mirror Sudoswap V2 / OS).
-        // AUDIT FIX (Wave-B re-run, F-19-1 / M-18): per-token iteration —
-        // see swapETHForNFTs comment.
-        uint256 royalty = _settleRoyaltyBatch(outputAmount, tokenIds);
+        uint256 royalty = _settleRoyalty(outputAmount, tokenIds[0]);
 
         _sendETH(msg.sender, outputAmount - royalty);
 
@@ -878,37 +805,6 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         if (msg.sender != factory) revert OnlyFactoryReceive();
     }
 
-    // ─── AUDIT FIX (Wave-B re-run, F-54-2): explicit ERC1155 receiver reverts.
-    // The pool is ERC721-only; an inbound `safeTransferFrom`/`safeBatchTransferFrom`
-    // from any ERC1155 collection (or a hostile hybrid 721+1155 collection
-    // attempting to inject phantom tokenIds) MUST revert loudly so off-chain
-    // monitors classify it correctly. Without these, a well-behaved ERC1155
-    // sender's `safeTransferFrom` would revert with an unhelpful "no receiver"
-    // error from the sender side; explicit reverts here surface the intent
-    // and harden the standard-conflation surface.
-
-    /// @notice Always reverts — the pool does not support ERC1155 deposits.
-    function onERC1155Received(
-        address,
-        address,
-        uint256,
-        uint256,
-        bytes calldata
-    ) external pure returns (bytes4) {
-        revert ERC1155NotSupported();
-    }
-
-    /// @notice Always reverts — the pool does not support ERC1155 batch deposits.
-    function onERC1155BatchReceived(
-        address,
-        address,
-        uint256[] calldata,
-        uint256[] calldata,
-        bytes calldata
-    ) external pure returns (bytes4) {
-        revert ERC1155NotSupported();
-    }
-
     // ─── Internal: Bonding Curve Pricing ────────────────────────────────
 
     function _getBuyPrice(uint256 numItems)
@@ -930,16 +826,11 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
         if (spotPrice == 0) revert PriceUnderflow();
 
-        // AUDIT FIX (Wave-B re-run, F-61-2): round fees UP via mulDiv-Ceil so
-        // the rounding bias is in the protocol's favor (and away from the
-        // user's free-shave on small splits). On L2s with sub-cent gas, a
-        // user could otherwise split a single trade into many 1-wei-savings
-        // micro-trades.
         if (poolType == PoolType.TRADE && feeBps > 0) {
-            lpFee = Math.mulDiv(baseCost, feeBps, BPS, Math.Rounding.Ceil);
+            lpFee = baseCost * feeBps / BPS;
         }
 
-        protocolFee = Math.mulDiv(baseCost, protocolFeeBps, BPS, Math.Rounding.Ceil);
+        protocolFee = baseCost * protocolFeeBps / BPS;
         inputAmount = baseCost + lpFee + protocolFee;
     }
 
@@ -965,14 +856,11 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
         uint256 basePayout = numItems * spotPrice - delta * numItems * (numItems + 1) / 2;
 
-        // AUDIT FIX (Wave-B re-run, F-61-2): round fees UP. On the sell path
-        // this REDUCES `outputAmount` by 1 wei in the worst case, biasing the
-        // rounding into the protocol's favor (mirror of the buy-path fix).
         if (poolType == PoolType.TRADE && feeBps > 0) {
-            lpFee = Math.mulDiv(basePayout, feeBps, BPS, Math.Rounding.Ceil);
+            lpFee = basePayout * feeBps / BPS;
         }
 
-        protocolFee = Math.mulDiv(basePayout, protocolFeeBps, BPS, Math.Rounding.Ceil);
+        protocolFee = basePayout * protocolFeeBps / BPS;
         outputAmount = basePayout - lpFee - protocolFee;
 
         // AUDIT FIX: DEEP-NFTPOOL-05/07: subtract LP-fee accumulator from solvency.
@@ -1059,133 +947,90 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
     // ─── AUDIT FIX (pass-8 batch-17): ERC-2981 royalty enforcement ──────
 
-    /// @dev AUDIT FIX (Wave-B re-run, F-19-1 / F-19-2 / F-55-7 / M-18):
-    ///      Per-token-iterating royalty settler. Pre-fix the settler queried
-    ///      `royaltyInfo(tokenIds[0], totalSale)` once and applied that single
-    ///      rate to the entire batch — bypassed by collections that ship
-    ///      per-tokenId royalty rates (Manifold registry, Foundation curated,
-    ///      Async Art). The new path computes a per-token sale share
-    ///      (`totalSale / n`) and queries `royaltyInfo(tokenId, perTokenSale)`
-    ///      per tokenId, summing the routed royalties.
-    /// @dev Per-token royalty cap (25% of per-token sale) defends against a
-    ///      pathological/registry-compromised collection — same Sudoswap V2
-    ///      pattern as the prior single-anchor implementation.
-    /// @dev Failure modes per tokenId:
-    ///      mode==0 -> ETH delivered, RoyaltyPaid emitted
-    ///      mode==1 -> WETH-fallback delivered, RoyaltyFallbackToWETH emitted
-    ///      mode==2 -> stranded WETH in pool — credit
-    ///                 `pendingStrandedWETH[receiver]` and emit
-    ///                 RoyaltyOrphaned + StrandedRoyaltyCredited; receiver
-    ///                 self-claims via `claimStrandedRoyaltyWETH`.
-    ///      mode==3 -> total failure (deposit failed, ETH untouched);
-    ///                 silently skip — RoyaltyOrphaned emitted with the
-    ///                 same shape as legacy for monitor parity.
+    /// @dev Settle ERC-2981 royalties on a swap. Queries the collection's
+    ///      `royaltyInfo(firstTokenId, totalSale)`; if the collection
+    ///      implements ERC-2981 (try-call succeeds), forwards the royalty
+    ///      amount to the receiver via WETHFallbackLib (10k-gas-stipend
+    ///      ETH leg, falls back to WETH wrap on receiver-revert). Returns
+    ///      the amount actually paid out so the caller can deduct it from
+    ///      their swap proceeds.
+    /// @dev    Most ERC-2981 implementations use a single rate per
+    ///         collection (BPS of sale price), so anchoring on the first
+    ///         tokenId is faithful. Bounded sanity checks on the returned
+    ///         tuple defend against pathological royalty curves
+    ///         (`amount >= totalSale` would zero out the seller — refuse).
     /// @param  totalSale Aggregate sale value in ETH for the batch.
-    /// @param  tokenIds Tokens in the batch — each contributes a pro-rata
-    ///                  share to the per-token royalty calculation.
-    /// @return royaltyPaid Total amount (ETH or WETH-delivered, plus
-    ///                     mode==2 stranded credits which are accounted as
-    ///                     paid since they have left the pool's ETH balance)
-    ///                     summed across all tokens.
-    function _settleRoyaltyBatch(uint256 totalSale, uint256[] calldata tokenIds)
+    /// @param  firstTokenId First token in the batch — used as the royalty
+    ///         rate anchor.
+    /// @return royaltyPaid Amount of ETH (or WETH-fallback) sent to the
+    ///         royalty receiver. Zero if collection doesn't implement
+    ///         ERC-2981, or if the response is invalid (zero receiver,
+    ///         zero amount, or amount ≥ totalSale).
+    function _settleRoyalty(uint256 totalSale, uint256 firstTokenId)
         internal
         returns (uint256 royaltyPaid)
     {
-        uint256 n = tokenIds.length;
-        if (totalSale == 0 || n == 0) return 0;
-        // Per-token sale share. Floor division: dust (totalSale mod n) stays
-        // in the pool and is captured by spot revenue / outputAmount math.
-        uint256 perTokenSale = totalSale / n;
-        if (perTokenSale == 0) return 0;
-        for (uint256 i = 0; i < n; i++) {
-            royaltyPaid += _settleSingleTokenRoyalty(perTokenSale, tokenIds[i]);
-        }
-    }
-
-    /// @dev AUDIT FIX (Wave-B re-run, F-19-1 / F-19-2 / F-55-7 / M-18):
-    ///      single-token royalty settlement extracted for clarity.
-    function _settleSingleTokenRoyalty(uint256 perTokenSale, uint256 tokenId)
-        internal
-        returns (uint256 paid)
-    {
-        if (perTokenSale == 0) return 0;
-        try IERC2981(address(nftCollection)).royaltyInfo(tokenId, perTokenSale)
+        if (totalSale == 0) return 0;
+        try IERC2981(address(nftCollection)).royaltyInfo(firstTokenId, totalSale)
             returns (address receiver, uint256 amount)
         {
             if (receiver == address(0) || amount == 0) return 0;
-            // AUDIT FIX (BATCH-B H1, Sudoswap V2 LSSVMPair pattern): cap at
-            // 25% of per-token sale.
-            if (amount > perTokenSale >> 2) return 0;
-            if (amount >= perTokenSale) return 0;
+            // AUDIT FIX (BATCH-B H1, Sudoswap V2 LSSVMPair pattern):
+            // Cap royalty at 25% of sale. Without a cap, a malicious or
+            // collection-author-compromised ERC-2981 implementation could
+            // return amount = totalSale - 1 (≈99.999% royalty), draining
+            // sellers down to 1 wei. Sudoswap V2 enforces exactly this with
+            // the bit-shift `saleAmount >> 2` for gas efficiency; we mirror
+            // it. The pre-existing `amount >= totalSale` revert remains as
+            // a redundant outer guard. Refs: sudoswap/lssvm2 LSSVMPair.sol
+            // `_calculateRoyaltiesLogic` — "defends against a rogue Manifold
+            // registry that charges extremely high royalties".
+            if (amount > totalSale >> 2) return 0;
+            // (defensive — the cap above already implies this, but keeps the
+            // explicit invariant readable for downstream auditors)
+            if (amount >= totalSale) return 0;
             (bool success, uint8 mode) =
                 WETHFallbackLib.safeTransferETHOrWrapNoRevert(weth, receiver, amount);
             if (success) {
-                paid = amount;
+                royaltyPaid = amount;
                 if (mode == 1) {
-                    emit RoyaltyFallbackToWETH(receiver, amount, tokenId);
+                    emit RoyaltyFallbackToWETH(receiver, amount, firstTokenId);
                 } else {
-                    emit RoyaltyPaid(receiver, amount, tokenId);
+                    emit RoyaltyPaid(receiver, amount, firstTokenId);
                 }
-            } else if (mode == 2) {
-                // AUDIT FIX (Wave-B re-run, F-19-2 / F-55-7 / M-18):
-                // mode==2 — deposit succeeded but WETH transfer failed; the
-                // pool now holds stranded WETH. Credit the receiver's pull
-                // slot so they (and only they) can self-claim. Aggregate
-                // counter `totalPendingStrandedWETH` reserves the balance
-                // so the owner-only `rescueStrandedRoyalty` cannot touch
-                // receiver-owed funds. The pool's accounting still treats
-                // this as "royalty paid" (the funds left the pool's ETH
-                // bucket) so the seller's net is unchanged.
-                pendingStrandedWETH[receiver] += amount;
-                totalPendingStrandedWETH += amount;
-                paid = amount;
-                emit RoyaltyOrphaned(receiver, amount, tokenId);
-                emit StrandedRoyaltyCredited(receiver, amount, tokenId);
             } else {
-                // mode==3: deposit itself failed — ETH is untouched in the
-                // pool. Silently skip the royalty for this token (mirror
-                // legacy "silent skip" behavior for non-paying collections).
-                emit RoyaltyOrphaned(receiver, amount, tokenId);
+                // AUDIT FIX (BATCH-B H3): mode == 2 means BOTH the ETH leg AND
+                // the WETH-deposit leg failed (or the WETH-transfer leg failed
+                // AFTER deposit succeeded — leaving WETH stranded in this pool).
+                // Pre-fix this was silently skipped. Now we emit an event so
+                // off-chain monitoring can flag the orphaned receiver and
+                // governance can use `rescueStrandedRoyalty` (below) to push
+                // the funds to the right place after manual investigation.
+                emit RoyaltyOrphaned(receiver, amount, firstTokenId);
             }
         } catch {
             // Collection doesn't implement ERC-2981 (or reverted). Pay zero.
         }
     }
 
-    /// @notice AUDIT FIX (Wave-B re-run, F-19-2 / F-55-7 / M-18): receiver
-    ///         self-claim path for WETH that got stranded by mode==2 royalty
-    ///         delivery failures. Bypasses the owner — receivers own their
-    ///         credit and pull at will.
-    /// @dev    Routes through SafeERC20.safeTransfer so non-standard WETHs
-    ///         that return false (rather than revert) are handled correctly.
-    function claimStrandedRoyaltyWETH() external nonReentrant {
-        uint256 amount = pendingStrandedWETH[msg.sender];
-        if (amount == 0) revert NoStrandedCredit();
-        pendingStrandedWETH[msg.sender] = 0;
-        totalPendingStrandedWETH -= amount;
-        IERC20(weth).safeTransfer(msg.sender, amount);
-        emit StrandedRoyaltyClaimed(msg.sender, amount);
-    }
-
     /// @notice AUDIT FIX (BATCH-B H3, Sudoswap V2 withdrawERC20 + Aave V3 rescueTokens pattern):
-    ///         Recover stranded WETH that piled up from royalty receiver dual-revert.
-    /// @dev    AUDIT FIX (Wave-B re-run, F-19-2 / F-55-7 / M-18): owner can
-    ///         only sweep the portion of WETH NOT owed to specific receivers
-    ///         (mode==2 events credit `pendingStrandedWETH[receiver]`). The
-    ///         owner-rescuable amount is `wethBalance − totalPendingStrandedWETH`.
-    ///         Pre-fix the owner could sweep the entire WETH balance,
-    ///         silently appropriating receiver-owed credits. Receivers must
-    ///         use `claimStrandedRoyaltyWETH` for their own pull credits.
-    /// @dev    Recipient is the pool owner (same trust boundary that already
-    ///         controls withdrawNFTs / withdrawETH / claimLPFees). No
-    ///         timelock — these funds were never supposed to be in the pool.
+    ///         Recover stranded WETH that piled up from royalty receiver dual-revert
+    ///         (mode == 2) — the only path by which non-trivial WETH can sit in this
+    ///         contract without being attributable to LP/protocol fees (which are
+    ///         tracked in `accumulatedLPFees` / `accumulatedProtocolFees` ETH).
+    /// @dev    Reservation: forwards ONLY the WETH balance — pool ETH balance and
+    ///         accumulated fee accounting are not touched. Recipient is the pool
+    ///         owner (same trust boundary that already controls withdrawNFTs /
+    ///         withdrawETH / claimLPFees). No timelock — these funds were never
+    ///         supposed to be in the pool, and routing them out same-day matches
+    ///         Sudoswap V2's owner-can-withdraw-anytime model.
+    /// @dev    Emits `RoyaltyRescued` for indexer observability so anyone tracking
+    ///         the orphaned RoyaltyOrphaned event chain can confirm settlement.
     function rescueStrandedRoyalty() external onlyOwner nonReentrant {
         IERC20 wethToken = IERC20(weth);
-        uint256 totalWeth = wethToken.balanceOf(address(this));
-        uint256 reserved = totalPendingStrandedWETH;
-        if (totalWeth <= reserved) revert NoStrandedRoyalty();
-        uint256 sweepable = totalWeth - reserved;
-        wethToken.safeTransfer(msg.sender, sweepable);
-        emit RoyaltyRescued(msg.sender, sweepable);
+        uint256 stranded = wethToken.balanceOf(address(this));
+        if (stranded == 0) revert NoStrandedRoyalty();
+        wethToken.safeTransfer(msg.sender, stranded);
+        emit RoyaltyRescued(msg.sender, stranded);
     }
 }

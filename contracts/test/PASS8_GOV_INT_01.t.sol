@@ -138,7 +138,7 @@ contract PASS8_GOV_INT_01 is Test {
 
         // Stand up VoteIncentives + admin sister.
         vi = new VoteIncentives(
-            address(ve), treasury, address(weth), address(factory), address(toweli), address(0), 300
+            address(ve), treasury, address(weth), address(factory), address(toweli), 300
         );
         viAdmin = new VoteIncentivesAdmin(address(vi));
         vi.setVoteIncentivesAdmin(address(viAdmin));

@@ -97,9 +97,7 @@ contract MemeBountyBoardTest is Test {
         token = new MockToweliBoard();
         staking = new MockStakingVoteBoard();
         weth = new MockWETHBoard();
-        // AUDIT FIX FRESH-2026: F-21-7 — restaking contract is now mandatory at construction.
-        // Reuse `staking` as a deployed-contract placeholder (it has code).
-        board = new MemeBountyBoard(address(token), address(staking), address(weth), address(0), address(this), address(staking));
+        board = new MemeBountyBoard(address(token), address(staking), address(weth), address(0), address(this));
         vm.deal(creator, 10 ether);
         vm.deal(address(this), 10 ether);
 

@@ -224,8 +224,7 @@ contract FinalAuditRevenue is Test {
 
         distributor = new RevenueDistributor(address(ve), treasury, address(weth));
         grants = new CommunityGrants(address(veGrants), address(token), feeReceiver, address(weth));
-        // AUDIT FIX FRESH-2026: F-21-7 — restaking contract mandatory at construction.
-        bountyBoard = new MemeBountyBoard(address(token), address(staking), address(weth), address(0), treasury, address(restaking));
+        bountyBoard = new MemeBountyBoard(address(token), address(staking), address(weth), address(0), treasury);
         splitter = new ReferralSplitter(1000, address(staking), treasury, address(weth));
 
         splitter.setApprovedCaller(address(this), true);

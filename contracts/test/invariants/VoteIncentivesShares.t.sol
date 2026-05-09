@@ -245,7 +245,6 @@ contract VoteIncentivesSharesTest is Test {
             address(weth),
             address(factory),
             address(toweli),
-            address(0),        // AUDIT F-69-1: sequencerFeed (mainnet posture)
             300 // 3% bribe fee
         );
         // AUDIT FIX (pass-8): EIP170-03 split — wire admin sister.

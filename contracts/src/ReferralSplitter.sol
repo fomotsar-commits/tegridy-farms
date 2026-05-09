@@ -103,22 +103,6 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     uint256 public totalCallerCredit; // SECURITY FIX S2-H-01: Track total callerCredit to protect from sweepUnclaimable
     mapping(address => uint256) public lastBelowStakeTime; // Timestamp when referrer was marked below MIN_REFERRAL_STAKE_POWER
     uint256 public constant BELOW_STAKE_GRACE_PERIOD = 7 days; // Grace period before forfeiture allowed
-    // AUDIT FIX FRESH-2026: F-25-K-01 — cap the age of a `markBelowStake` mark.
-    // Pre-fix, an ancient mark from years ago satisfied the 7-day-below-stake gate
-    // even after the referrer had been continuously above threshold for the entire
-    // intervening period. With this cap, a stale mark is rejected and must be
-    // re-anchored via `markBelowStakeIfQualifies` (which overwrites the timestamp
-    // when current power is still below threshold) before forfeiture can fire.
-    uint256 public constant MAX_MARK_AGE = 14 days;
-
-    // AUDIT FIX FRESH-2026: F-55-13 — donation/ingress telemetry parity with
-    // sister contracts (RevenueDistributor, POLAccumulator, SwapFeeRouter). Off-chain
-    // monitoring can diff `totalETHReceived` against `address(this).balance` and the
-    // legitimate accumulators (`totalPendingETH + accumulatedTreasuryETH +
-    // totalCallerCredit`) to detect selfdestruct/coinbase donations that bypass
-    // `recordFee`. Note that `recordFee` is also payable; legitimate fee-recording
-    // ingress flows through that path, not `receive()`.
-    uint256 public totalETHReceived;
 
     mapping(address => uint256) public referrerRegisteredAt; // When a referrer first gained a referral
     uint256 public constant MIN_REFERRAL_AGE = 7 days; // Referrer must wait 7 days before claiming
@@ -177,14 +161,6 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     event BanReferrerCancelled(address indexed referrer);                      // DEEP-DR-L-04
     event ReferrerUnbanned(address indexed referrer);                          // DEEP-DR-L-04
     event RestakingContractSet(address indexed restaking);                     // pass-8 GOV-ECON-01
-    // AUDIT FIX FRESH-2026: F-55-13 — bare receive() ingress event for off-chain reconciliation.
-    event ETHReceived(address indexed sender, uint256 amount);
-    // AUDIT FIX FRESH-2026: F-25-K-01 — emitted when a stale below-stake mark is
-    // re-anchored to the current block.timestamp by the permissionless helper.
-    event BelowStakeReanchored(address indexed referrer, uint256 oldTimestamp, uint256 newTimestamp);
-    // AUDIT FIX FRESH-2026: F-25-K-05 — emitted when a banned referrer's pendingETH
-    // is force-forfeited into accumulatedTreasuryETH at ban execution time.
-    event BannedReferrerPendingForfeited(address indexed referrer, uint256 amount);
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -218,13 +194,6 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     error AlreadyBanned();
     /// @dev AUDIT FIX (pass-8): GOV-ECON-01 / C10 — restakingContract is one-shot.
     error RestakingAlreadySet();
-    /// @dev AUDIT FIX FRESH-2026: F-25-K-01 — `lastBelowStakeTime` mark is older
-    ///      than `MAX_MARK_AGE`; re-anchor via `markBelowStakeIfQualifies` first.
-    error MarkTooStale();
-    /// @dev AUDIT FIX FRESH-2026: F-25-K-01 — `markBelowStakeIfQualifies` was
-    ///      called for a referrer who is currently above the staking threshold,
-    ///      so no anchor refresh is needed (resets the timer instead).
-    error ReferrerAboveThreshold();
 
     // Legacy error aliases (kept for test compatibility)
     // Note: ProposalExpired() removed — use TimelockAdmin.ProposalExpired(bytes32) instead
@@ -255,27 +224,7 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         weth = _weth;
     }
 
-    /// @notice Receive ETH from any sender (e.g., WETH unwraps, donations).
-    /// @dev    AUDIT FIX FRESH-2026: F-55-13 — emit an ingress event and bump
-    ///         a monotonic counter so off-chain monitoring can reconcile balance
-    ///         against the legitimate accumulators (`totalPendingETH +
-    ///         accumulatedTreasuryETH + totalCallerCredit`). Legitimate fee
-    ///         flows enter via `recordFee` (a payable function), not here.
-    /// @dev    AUDIT FIX FRESH-2026 (N-45-1 reference): the live
-    ///         `votingPowerOf(referrer)` reads in `recordFee`, `markBelowStake`,
-    ///         `markBelowStakeIfQualifies`, and `forfeitUnclaimedRewards` are NOT
-    ///         flash-amplifiable: every path to acquire TegridyStaking voting
-    ///         power requires a TOWELI lock for ≥ MIN_DURATION (7+ days), which
-    ///         a same-tx flash loan cannot satisfy. NFT-transfer paths impose
-    ///         TRANSFER_COOLDOWN (24h) + TRANSFER_RATE_LIMIT (1h). Live reads are
-    ///         therefore structurally safe; switching to
-    ///         `votingPowerAtTimestamp(_, block.timestamp - 1)` would only add
-    ///         redundant defense without closing any in-scope vector.
-    receive() external payable {
-        // AUDIT FIX FRESH-2026: F-55-13 — bump ingress counter + emit event.
-        unchecked { totalETHReceived += msg.value; }
-        emit ETHReceived(msg.sender, msg.value);
-    }
+    receive() external payable {}
 
     // ─── Modifiers ───────────────────────────────────────────────────
 
@@ -288,18 +237,6 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
 
     /// @notice Register your referrer (one-time, permanent)
     /// @param _referrer The address of your referrer (cannot be yourself or zero address)
-    /// @dev    AUDIT FIX FRESH-2026: F-25-K-03 — referral attribution is keyed on
-    ///         the IMMEDIATE caller of SwapFeeRouter (the `_user` it forwards to
-    ///         `recordFee`), NOT `tx.origin` and NOT any pass-through EOA behind
-    ///         a smart-wallet wrapper or aggregator. If you swap THROUGH a wrapper
-    ///         contract (1inch-style aggregator, batched DEX router, intent solver,
-    ///         paymaster relayer, EIP-4337/EIP-7702 smart account), the wrapper —
-    ///         not you — is the address whose `referrerOf[]` mapping is consulted.
-    ///         To make a wrapper credit YOUR referrer, the wrapper must call
-    ///         SwapFeeRouter directly with `msg.sender == YOU` (i.e., the wrapper
-    ///         is essentially a thin proxy for a single user). Front-ends and
-    ///         aggregator integrators MUST surface this caveat to end users
-    ///         binding a referrer.
     function setReferrer(address _referrer) external {
         if (_referrer == msg.sender) revert SelfReferral();
         if (_referrer == address(0)) revert ZeroAddress();
@@ -351,14 +288,6 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         totalReferred[_newReferrer] += 1;
         if (referrerRegisteredAt[_newReferrer] == 0) {
             referrerRegisteredAt[_newReferrer] = block.timestamp;
-            // AUDIT FIX FRESH-2026: F-25-K-04 — mirror the FRESH-EYES M-5 seed
-            // from `setReferrer`. Without this, an `updateReferrer`-created fresh
-            // new-referrer has `lastClaimTime = 0`, so the forfeit predicate
-            // `block.timestamp < 0 + FORFEITURE_PERIOD` is trivially false past
-            // 90 days post-genesis — the same starve-out window that M-5 closed
-            // for the `setReferrer` path. Symmetry argument: both registration
-            // paths must seed the inactivity clock to registration time.
-            lastClaimTime[_newReferrer] = block.timestamp;
         }
 
         emit ReferrerUpdated(msg.sender, oldReferrer, _newReferrer);
@@ -421,20 +350,6 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     ///         instead of pushed back via .call to prevent reentrancy via callback.
     ///         A3-M-02 FIX: votingPowerOf wrapped in try/catch to prevent staking DoS.
     /// @param _user The user whose swap fee is being recorded
-    /// @dev    AUDIT FIX FRESH-2026: F-25-K-03 — `_user` is the IMMEDIATE caller
-    ///         of the SwapFeeRouter (the address SwapFeeRouter forwards to this
-    ///         function), NOT `tx.origin`. Smart-wallet wrappers / aggregators
-    ///         that call SwapFeeRouter on behalf of their users will see referral
-    ///         attribution flow to `referrerOf[wrapper]` and NOT to the
-    ///         `referrerOf[end_user]`. See setReferrer NatSpec for the full caveat.
-    /// @dev    AUDIT FIX FRESH-2026: F-25-K-02 — `lastClaimTime` semantically
-    ///         tracks "last activity" (claim OR fee credit). It is bumped on every
-    ///         credit so that an actively-earning referrer does not silently fall
-    ///         into the 90-day inactivity window between batched claims. This
-    ///         restores the "90 days since last activity" reading of the
-    ///         `FORFEITURE_PERIOD` constant; pre-fix it meant "90 days since last
-    ///         CLAIM", which any non-claiming-but-earning referrer trivially
-    ///         satisfied.
     function recordFee(address _user) external payable onlyApproved nonReentrant {
         // AUDIT FIX: DEEP-DR-M-07 — enforce the L-R02 NatSpec contract: until
         // `completeSetup()` has been called, the contract is operationally inert.
@@ -507,13 +422,10 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         totalEarned[referrer] += referrerShare;
         totalReferralsPaid += referrerShare;
 
-        // AUDIT FIX FRESH-2026: F-25-K-02 — `lastClaimTime` is the "last activity
-        // time" for the forfeiture inactivity gate. Bump it on EVERY fee credit
-        // (not only the first) so an actively-earning referrer is never inside
-        // the 90-day inactivity window. Pre-fix, only the first credit anchored
-        // the clock and the predicate `block.timestamp < lastClaimTime + 90 days`
-        // was trivially satisfied for any referrer who batches their claims.
-        lastClaimTime[referrer] = block.timestamp;
+        // Initialize lastClaimTime on first fee credit so forfeiture clock starts
+        if (lastClaimTime[referrer] == 0) {
+            lastClaimTime[referrer] = block.timestamp;
+        }
 
         emit FeeRecorded(_user, referrer, msg.value, referrerShare);
     }
@@ -757,48 +669,6 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         }
     }
 
-    /// @notice AUDIT FIX FRESH-2026: F-25-K-01 — permissionless helper to refresh
-    ///         a stale `lastBelowStakeTime` mark when the referrer is currently
-    ///         below threshold. Without this, an ancient mark from years ago
-    ///         satisfies the 7-day grace gate even after the referrer has been
-    ///         continuously above threshold for the entire intervening period.
-    ///         Any caller can re-anchor the mark to `block.timestamp` once the
-    ///         existing mark exceeds `MAX_MARK_AGE`. If the referrer is currently
-    ///         above threshold, this resets the timer to 0 (same as
-    ///         `markBelowStake`); otherwise it overwrites the timestamp,
-    ///         restarting the 7-day grace clock from now.
-    /// @param  _referrer  The referrer whose stale mark should be re-anchored.
-    function markBelowStakeIfQualifies(address _referrer) external {
-        // AUDIT FIX FRESH-2026: F-25-K-01 — same setup-gate as markBelowStake.
-        require(setupComplete, "SETUP_NOT_COMPLETE");
-        uint256 power;
-        try stakingContract.votingPowerOf(_referrer) returns (uint256 p) {
-            power = p;
-        } catch {
-            power = 0;
-        }
-        if (restakingContract != address(0)) {
-            try IRestakingForReferral(restakingContract).votingPowerOf(_referrer) returns (uint256 r) {
-                power += r;
-            } catch {}
-        }
-        if (power >= MIN_REFERRAL_STAKE_POWER) {
-            // Referrer recovered — reset the timer to mirror markBelowStake.
-            lastBelowStakeTime[_referrer] = 0;
-            revert ReferrerAboveThreshold();
-        }
-        uint256 oldMark = lastBelowStakeTime[_referrer];
-        // Always (re)anchor when below threshold. If the prior mark is fresh,
-        // overwriting with a later timestamp simply extends the 7-day grace
-        // clock — the caller pays gas to push out forfeiture, which is
-        // self-defeating. The forfeit predicate uses `block.timestamp >= mark
-        // + 7 days`, so a same-block re-anchor would still allow forfeiture
-        // exactly 7 days from now. This makes ancient marks fixable without
-        // letting anyone DoS active enforcement.
-        lastBelowStakeTime[_referrer] = block.timestamp;
-        emit BelowStakeReanchored(_referrer, oldMark, block.timestamp);
-    }
-
     /// @notice Forfeit unclaimed rewards for a referrer who has been below stake threshold
     ///         for at least 7 days and hasn't claimed in 90 days. Sends their pending ETH to treasury.
     /// @param _referrer The referrer whose rewards should be forfeited
@@ -831,16 +701,6 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
             block.timestamp < lastBelowStakeTime[_referrer] + BELOW_STAKE_GRACE_PERIOD ||
             block.timestamp < lastClaimTime[_referrer] + FORFEITURE_PERIOD
         ) revert ForfeitureConditionsNotMet();
-        // AUDIT FIX FRESH-2026: F-25-K-01 — reject ancient `lastBelowStakeTime`
-        // marks. Pre-fix, a one-time mark from years ago paired with a one-block
-        // power dip at the moment of the forfeit call satisfied the 7-day grace
-        // gate, regressing the documented "below threshold for 7 days continuously"
-        // semantic into "below threshold right now AND was marked at any point in
-        // the past." Owner must invoke `markBelowStakeIfQualifies(_referrer)` to
-        // re-anchor a stale mark to a fresh observation, then wait the 7-day
-        // grace period before forfeit. This pins the grace clock to a current
-        // observation rather than an ancient one.
-        if (block.timestamp > lastBelowStakeTime[_referrer] + MAX_MARK_AGE) revert MarkTooStale();
 
         pendingETH[_referrer] = 0;
         totalPendingETH -= amount;
@@ -884,32 +744,11 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     }
 
     /// @notice Execute a previously-proposed referrer ban after the 24h timelock.
-    /// @dev    AUDIT FIX FRESH-2026: F-25-K-05 — force-forfeit any pending balance
-    ///         at ban time. Pre-fix, a banned referrer who kept their stake locked
-    ///         (above MIN_REFERRAL_STAKE_POWER) had their `pendingETH` balance
-    ///         permanently stuck — `claimReferralRewards` reverts (banned), and
-    ///         `forfeitUnclaimedRewards` cannot fire because the
-    ///         `referrerPower >= threshold` predicate vetoes forfeit. Only an
-    ///         `unbanReferrer` could release the balance, which defeats the ban.
-    ///         At ban execution we force-sweep any pendingETH directly into
-    ///         `accumulatedTreasuryETH`. The 24h timelock and propose/cancel
-    ///         ceremony already provide the governance signal for "this referrer
-    ///         is being lifecycle-ended"; no additional grace gate is required.
     function executeBanReferrer() external onlyOwner {
         _execute(BAN_REFERRER);
         address banned = pendingBanReferrer;
         pendingBanReferrer = address(0);
         bannedReferrers[banned] = true;
-        // AUDIT FIX FRESH-2026: F-25-K-05 — sweep pre-ban pendingETH into the
-        // treasury accumulator at ban execution. Without this, a banned referrer
-        // with an active stake-lock has their pendingETH permanently stuck.
-        uint256 stuck = pendingETH[banned];
-        if (stuck > 0) {
-            pendingETH[banned] = 0;
-            totalPendingETH -= stuck;
-            accumulatedTreasuryETH += stuck;
-            emit BannedReferrerPendingForfeited(banned, stuck);
-        }
         emit ReferrerBanned(banned);
     }
 

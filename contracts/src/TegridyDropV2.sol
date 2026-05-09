@@ -327,15 +327,6 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///         on a mint they could not have submitted during the outage.
     uint256 public constant SEQUENCER_GRACE_PERIOD = 1 hours;
 
-    /// @notice AUDIT FIX FRESH-2026: F-67-4 — minimum dutch-auction duration floor.
-    ///         The only prior floor on `dutchDuration` was `> 0`, so an owner could
-    ///         deploy a 30-second curve where ±15s validator skew is 50% of the
-    ///         decay window. A 1-hour floor reduces validator-timestamp drift to
-    ///         < 0.5% of the decay surface — well within mint-MEV noise. Pattern
-    ///         of record: Sudoswap LSSVMPair has analogous floors on `delta`
-    ///         granularity for the same hostile-proposer sandwich class.
-    uint256 internal constant MIN_DUTCH_DURATION = 1 hours;
-
     /// @notice AUDIT M8: cap platform fee at 10% to match LaunchpadV2.MAX_PROTOCOL_FEE_BPS.
     ///         The prior 100% cap allowed direct-clone deployments to siphon all creator share.
     uint16 public constant MAX_PLATFORM_FEE_BPS = 1000;
@@ -382,36 +373,6 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         uint256 duration;
     }
     PendingDutchConfig public pendingDutchConfig;
-
-    // ─── AUDIT FIX FRESH-2026: F-48-C — `__gap` rationale ────────────────
-    // No `__gap` storage reservation is declared by design.
-    //
-    // This contract is deployed exclusively as an EIP-1167 minimal-proxy
-    // clone via `TegridyLaunchpadV2.createCollection` (using
-    // `Clones.cloneDeterministic`). Each clone's implementation address is
-    // baked into the 45-byte clone bytecode and is STRUCTURALLY un-upgradable
-    // — there is no UUPS/Beacon/Transparent proxy infrastructure anywhere in
-    // the protocol (verified by Agent 48 grep across `contracts/src/`).
-    // A NEW factory deployed with NEW TegridyDropV2 bytecode produces clones
-    // pointing to the new IMPL; old clones still point to the old IMPL.
-    // There is NO path to "upgrade" an existing clone in-place, so storage
-    // layout drift across factory versions cannot corrupt any deployed clone.
-    //
-    // The base-contract storage allocation is also stable across OZ minor
-    // versions: ReentrancyGuard and Initializable use ERC-7201 namespaced
-    // storage (zero sequential slots); Pausable contributes 1 slot;
-    // TimelockAdmin contributes 1 slot (`_executeAfter` mapping head). All
-    // sequenced consistently per Agent 48's slot map (F-48-I).
-    //
-    // Off-chain indexers reading by slot via `eth_getStorageAt(clone, N)`
-    // across a factory rev would observe drift; that is an indexer-side
-    // concern documented in this NatSpec rather than an on-chain attack
-    // surface. Adding an unused `uint256[50] __gap` would not change the
-    // upgrade story (no upgrade path exists) and would consume 50 slots of
-    // future state-var headroom on every deployed clone for no on-chain
-    // benefit. Pattern of record: Sudoswap V2 LSSVMPair (clone, no gap),
-    // Manifold ERC721LazyPayableClaim (clone, no gap), 0xSplits SplitMain
-    // (clone, no gap).
 
     function initialize(InitParams calldata p) external initializer {
         if (p.creator == address(0)) revert ZeroAddress();
@@ -462,8 +423,6 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         if (dutchConfigured) {
             if (p.dutchStartPrice <= p.dutchEndPrice) revert InvalidDutchAuctionConfig();
             if (p.dutchDuration == 0) revert InvalidDutchAuctionConfig();
-            // AUDIT FIX FRESH-2026: F-67-4 — enforce 1h minimum duration.
-            if (p.dutchDuration < MIN_DUTCH_DURATION) revert InvalidDutchAuctionConfig();
             if (p.dutchStartTime == 0) revert InvalidDutchAuctionConfig();
             if (p.dutchStartPrice - p.dutchEndPrice < p.dutchDuration) revert InvalidDutchAuctionConfig();
             dutchStartPrice = p.dutchStartPrice;
@@ -573,19 +532,11 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
             // baking the per-claimer cap into the commitment, owner could `setMaxPerWallet`
             // any time and the same proof becomes good for `N` more mints. Off-chain tree
             // construction must apply:
-            //   leaf = keccak256( bytes.concat( keccak256( abi.encode(chainid, drop, minter, amount) ) ) )
+            //   leaf = keccak256( bytes.concat( keccak256( abi.encode(drop, minter, amount) ) ) )
             // AUDIT NEW-L5 (preserved): double-hashed leaf per OZ MerkleTree to defeat the
             //   second-preimage attack. Both invariants compose.
-            // AUDIT FIX FRESH-2026: F-47-2 — bind `block.chainid` into the leaf preimage so
-            //   a tree generated for chain A cannot be replayed against the same clone
-            //   address on chain B. The launchpad's `cloneDeterministic` salt already
-            //   includes chainid, so today every clone has a chain-bound `address(this)` —
-            //   this hardens the leaf itself against any future non-launchpad deploy
-            //   (custom script, v3 launchpad without chainid in salt) where the leaf would
-            //   otherwise become cross-chain replayable. Zero-cost change at relaunch
-            //   (per `project_relaunch.md`) since no live tree exists to invalidate.
             bytes32 leaf = keccak256(
-                bytes.concat(keccak256(abi.encode(block.chainid, address(this), msg.sender, allowedAmount)))
+                bytes.concat(keccak256(abi.encode(address(this), msg.sender, allowedAmount)))
             );
             if (!MerkleProof.verify(proof, merkleRoot, leaf)) revert InvalidProof();
             // AUDIT MICROSCOPE_2026_04_30 C1: enforce per-claimer cap against the leaf-bound
@@ -687,30 +638,9 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///         used by `mint()`) or `tryCheckSequencerUp` (sentinel path, used by
     ///         `currentPrice()`). Splitting the math out lets `currentPrice()` skip the
     ///         self-call STATICCALL while keeping the mint-time enforcement strict.
-    /// @dev    AUDIT FIX FRESH-2026: M-47 [F-74-3] — credit the L2 sequencer outage
-    ///         buffer toward the auction clock so an outage that overlaps the auction
-    ///         window does NOT permanently consume the decay surface. Pre-fix, an
-    ///         outage of duration D + 1h grace would advance `block.timestamp -
-    ///         dutchStartTime` by `D + 1h` of wall-clock time the chain was offline,
-    ///         compressing the real bidding window in proportion. Honest buyers locked
-    ///         out during the outage had no path; patient capital and chain-status-
-    ///         monitoring snipers captured the entire decayed surface the moment grace
-    ///         lifted. Mirror pattern: `TegridyLending.repayLoan` and
-    ///         `TegridyNFTLending.repayLoan` both extend the borrower deadline by the
-    ///         same `getSequencerOutageBuffer` helper. `getSequencerOutageBuffer`
-    ///         returns 0 on `feed == address(0)` (mainnet no-op) and on steady-state
-    ///         normal operation; it returns the 1-hour `buffer` when an outage is
-    ///         detected or within the post-resume grace window. By subtracting this
-    ///         from `elapsed`, the auction effectively pauses during outage / grace.
     function _dutchAuctionPriceWithoutSequencerCheck() internal view returns (uint256) {
         if (block.timestamp < dutchStartTime) return dutchStartPrice;
-        uint256 rawElapsed = block.timestamp - dutchStartTime;
-        // AUDIT FIX FRESH-2026: M-47 — credit outage buffer toward auction clock.
-        uint256 outageBuffer = SequencerCheck.getSequencerOutageBuffer(
-            sequencerFeed,
-            SEQUENCER_GRACE_PERIOD
-        );
-        uint256 elapsed = rawElapsed > outageBuffer ? rawElapsed - outageBuffer : 0;
+        uint256 elapsed = block.timestamp - dutchStartTime;
         if (elapsed >= dutchDuration) return dutchEndPrice;
         uint256 priceDrop = dutchStartPrice - dutchEndPrice;
         uint256 decay = (priceDrop * elapsed) / dutchDuration;
@@ -747,19 +677,6 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         if (_executeAfter[DUTCH_CONFIG_CHANGE] != 0) revert MerkleRotationPending();
         if (phase == MintPhase.DUTCH_AUCTION && dutchDuration == 0) {
             revert DutchAuctionNotActive();
-        }
-        // AUDIT FIX FRESH-2026: F-16-K-1 — sibling-miss vs initialize() V2-DROP-04 and
-        // executeDutchAuction V3-DROP-01. Without this guard, an owner who toggles back
-        // into DUTCH_AUCTION on a fully-elapsed curve silently launches at the floor
-        // (`dutchEndPrice`) — `_dutchAuctionPriceWithoutSequencerCheck` returns
-        // `dutchEndPrice` whenever `elapsed >= dutchDuration`. Mirror the initialize /
-        // execute invariant here so the elapsed-curve footgun is closed at every entry
-        // point. Pattern of record: Sudoswap LSSVMPair rejects expired auctions at
-        // every entry.
-        if (phase == MintPhase.DUTCH_AUCTION) {
-            if (dutchStartTime + dutchDuration <= block.timestamp) {
-                revert DutchAuctionAlreadyEnded();
-            }
         }
         // AUDIT FIX: DEEP-DROP-03: mirror the initialize-time guard so an owner cannot
         // flip into ALLOWLIST with a zero merkleRoot — every claim would silently
@@ -964,8 +881,6 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         if (mintPhase != MintPhase.CLOSED) revert DutchConfigPhaseLocked();
         if (startPrice <= endPrice) revert InvalidDutchAuctionConfig();
         if (duration == 0) revert InvalidDutchAuctionConfig();
-        // AUDIT FIX FRESH-2026: F-67-4 — enforce 1h minimum duration (mirror initialize guard).
-        if (duration < MIN_DUTCH_DURATION) revert InvalidDutchAuctionConfig();
         if (startTime == 0) revert InvalidDutchAuctionConfig();
         if (startPrice - endPrice < duration) revert InvalidDutchAuctionConfig();
 
@@ -1175,13 +1090,6 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     }
 
     function acceptOwnership() external {
-        // AUDIT FIX FRESH-2026: F-48-A — explicit zero-sender check for parity with
-        // TegridyNFTPool's sibling acceptOwnership. Inert in current EVM semantics
-        // (`msg.sender` is never 0 in any executable transaction) but mirrors the
-        // belt-and-suspenders posture of the other clone implementation, removing
-        // a future-proofing asymmetry between the two clones if any future EIP
-        // ever relaxes the zero-sender invariant.
-        if (msg.sender == address(0)) revert NotOwner();
         if (msg.sender != pendingOwner) revert NotOwner();
         owner = msg.sender;
         pendingOwner = address(0);
@@ -1220,13 +1128,7 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         }
     }
 
-    // AUDIT FIX FRESH-2026: F-48-B — removed dead `renounceOwnership()`. This
-    // contract does NOT inherit OZ Ownable/Ownable2Step (it has its own
-    // `owner`/`pendingOwner` storage and 2-step custom flow), so the prior
-    // `renounceOwnership()` was a STANDALONE revert-only function that
-    // misleadingly suggested an inheritance pattern that does not exist.
-    // External callers attempting to renounce now get a function-selector
-    // mismatch revert, which is the correct semantic for "this contract has
-    // no concept of renouncement". Test suite alignment is part of the same
-    // batch wave (test entry verifies the selector is gone).
+    function renounceOwnership() external view onlyOwner {
+        revert("RENOUNCE_DISABLED");
+    }
 }

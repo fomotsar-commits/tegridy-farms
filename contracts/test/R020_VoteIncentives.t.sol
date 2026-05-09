@@ -106,7 +106,6 @@ contract R020_VoteIncentivesTest is Test {
             address(weth),
             address(factory),
             address(toweli),
-            address(0),        // AUDIT F-69-1: sequencerFeed (mainnet posture)
             FEE_BPS
         );
 
@@ -196,10 +195,10 @@ contract R020_VoteIncentivesTest is Test {
         assertFalse(ucr, "first epoch is legacy");
 
         // Operator must use the timelock to flip — instant flip removed.
-        // AUDIT FIX (Wave-B / FRESH-2026 size-opt): the legacy `enableCommitReveal()`
-        // deprecation reverter and its typed error were removed entirely from
-        // VoteIncentives (relaunch — no compat shims). Only the propose/execute
-        // path exists now, exercised below.
+        // AUDIT L-2 (2026-04-28): expectation updated from string-revert to typed
+        // `UseProposeEnableCommitReveal()` to match the new error convention.
+        vm.expectRevert(VoteIncentives.UseProposeEnableCommitReveal.selector);
+        bribes.enableCommitReveal();
 
         // Propose + warp + execute → flag flips to true; subsequent epochs gain commit-reveal.
         bribesAdmin.proposeEnableCommitReveal();

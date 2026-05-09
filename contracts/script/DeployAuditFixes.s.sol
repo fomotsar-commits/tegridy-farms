@@ -96,8 +96,7 @@ contract DeployAuditFixesScript is Script {
         // AUDIT R062: pass per-chain Chainlink L2 Sequencer Uptime feed via SEQUENCER_FEED env;
         //             address(0) on mainnet / non-L2 (no-op).
         address SEQUENCER_FEED = vm.envOr("SEQUENCER_FEED", address(0));
-        // AUDIT FIX FRESH-2026: F-21-7 — restaking contract mandatory at construction.
-        MemeBountyBoard bountyBoard = new MemeBountyBoard(TOWELI, address(staking), WETH, SEQUENCER_FEED, TREASURY, address(restaking));
+        MemeBountyBoard bountyBoard = new MemeBountyBoard(TOWELI, address(staking), WETH, SEQUENCER_FEED, TREASURY);
         console.log("7. MemeBountyBoard:", address(bountyBoard));
 
         // 8. PremiumAccess (cancelSubscription with pro-rata refund)

@@ -289,13 +289,22 @@ contract Audit195POL is Test {
     }
 
     // ─── 6. BACKSTOP PERCENTAGE ─────────────────────────────────────
-    //
-    // AUDIT FIX (Wave-B F-20-1): `backstopBps` and `maxSlippageBps` knobs
-    // were excised entirely (they had governance surface but never gated
-    // any live code path). The original tests asserting their default
-    // values + presence in `accumulate` are deleted as they exercised
-    // dead state. Slippage is now enforced via TWAP+EMA — see the
-    // dedicated TWAP-deviation tests instead.
+
+    function test_backstopBps_defaultIs9000() public view {
+        assertEq(pol.backstopBps(), 9000);
+    }
+
+    function test_backstop_enforcedInAccumulate() public {
+        vm.deal(address(pol), 2 ether);
+        _accumulateDefault();
+        assertEq(pol.totalAccumulations(), 1);
+    }
+
+    // ─── 7. SLIPPAGE PROTECTION ─────────────────────────────────────
+
+    function test_accumulate_slippageProtection_maxBps() public view {
+        assertEq(pol.maxSlippageBps(), 500);
+    }
 
     // ─── 8. SWEEP ETH (48h timelock + treasury-only) ────────────────
 
@@ -458,11 +467,171 @@ contract Audit195POL is Test {
     }
 
     // ─── 10. PROPOSE / EXECUTE / CANCEL: maxSlippage ────────────────
-    //
-    // AUDIT FIX (Wave-B F-20-1): the timelocked propose/execute/cancel
-    // surface for `maxSlippageBps` was excised because the underlying
-    // state never gated any code path (TWAP+EMA enforce slippage instead).
-    // All sections 10 + 11 (backstop) deleted as they tested dead state.
+
+    function test_maxSlippage_proposeExecuteCancel_fullCycle() public {
+        pol.proposeMaxSlippage(200);
+        assertEq(pol.pendingMaxSlippage(), 200);
+
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, pol.SLIPPAGE_CHANGE()));
+        pol.executeMaxSlippage();
+
+        vm.warp(block.timestamp + 24 hours + 1);
+        pol.executeMaxSlippage();
+        assertEq(pol.maxSlippageBps(), 200);
+        assertEq(pol.pendingMaxSlippage(), 0);
+        assertEq(pol.maxSlippageProposedAt(), 0);
+    }
+
+    function test_maxSlippage_cancel() public {
+        pol.proposeMaxSlippage(300);
+        pol.cancelMaxSlippageChange();
+        assertEq(pol.pendingMaxSlippage(), 0);
+        assertEq(pol.maxSlippageProposedAt(), 0);
+        assertEq(pol.maxSlippageBps(), 500);
+    }
+
+    function test_maxSlippage_revertOutOfRange_low() public {
+        vm.expectRevert(POLAccumulator.SlippageBpsOutOfRange.selector);
+        pol.proposeMaxSlippage(99);
+    }
+
+    function test_maxSlippage_revertOutOfRange_high() public {
+        vm.expectRevert(POLAccumulator.SlippageBpsOutOfRange.selector);
+        pol.proposeMaxSlippage(1001);
+    }
+
+    function test_maxSlippage_boundsAccepted() public {
+        pol.proposeMaxSlippage(100);
+        pol.cancelMaxSlippageChange();
+        pol.proposeMaxSlippage(1000);
+        assertEq(pol.pendingMaxSlippage(), 1000);
+    }
+
+    function test_maxSlippage_revertExistingPending() public {
+        pol.proposeMaxSlippage(300);
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, pol.SLIPPAGE_CHANGE()));
+        pol.proposeMaxSlippage(400);
+    }
+
+    function test_maxSlippage_revertExpired() public {
+        pol.proposeMaxSlippage(300);
+        vm.warp(block.timestamp + 24 hours + 7 days + 1);
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, pol.SLIPPAGE_CHANGE()));
+        pol.executeMaxSlippage();
+    }
+
+    function test_maxSlippage_executeAtExactBoundary() public {
+        pol.proposeMaxSlippage(300);
+        uint256 readyAt = pol.maxSlippageProposedAt();
+        vm.warp(readyAt);
+        pol.executeMaxSlippage();
+        assertEq(pol.maxSlippageBps(), 300);
+    }
+
+    function test_maxSlippage_executeLastSecondBeforeExpiry() public {
+        pol.proposeMaxSlippage(300);
+        uint256 readyAt = pol.maxSlippageProposedAt();
+        vm.warp(readyAt + 7 days);
+        pol.executeMaxSlippage();
+        assertEq(pol.maxSlippageBps(), 300);
+    }
+
+    function test_maxSlippage_onlyOwner() public {
+        vm.prank(alice);
+        vm.expectRevert();
+        pol.proposeMaxSlippage(300);
+
+        pol.proposeMaxSlippage(300);
+        vm.prank(alice);
+        vm.expectRevert();
+        pol.executeMaxSlippage();
+
+        vm.prank(alice);
+        vm.expectRevert();
+        pol.cancelMaxSlippageChange();
+    }
+
+    // ─── 11. PROPOSE / EXECUTE / CANCEL: backstop ────────────────────
+    // M-7 audit: MIN_BACKSTOP_BPS = 9000; MAX = 9900.
+
+    function test_backstop_proposeExecuteCancel_fullCycle() public {
+        pol.proposeBackstopChange(9500);
+        assertEq(pol.pendingBackstopBps(), 9500);
+        vm.warp(block.timestamp + 24 hours + 1);
+        pol.executeBackstopChange();
+        assertEq(pol.backstopBps(), 9500);
+        assertEq(pol.pendingBackstopBps(), 0);
+        assertEq(pol.backstopChangeTime(), 0);
+    }
+
+    function test_backstop_cancel() public {
+        pol.proposeBackstopChange(9500);
+        pol.cancelBackstopChange();
+        assertEq(pol.backstopBps(), 9000);
+        assertEq(pol.pendingBackstopBps(), 0);
+        assertEq(pol.backstopChangeTime(), 0);
+    }
+
+    function test_backstop_revertTooHigh() public {
+        vm.expectRevert(POLAccumulator.BackstopTooHigh.selector);
+        pol.proposeBackstopChange(9901);
+    }
+
+    function test_backstop_maxAccepted() public {
+        pol.proposeBackstopChange(9900);
+        assertEq(pol.pendingBackstopBps(), 9900);
+    }
+
+    function test_backstop_zeroRejected() public {
+        vm.expectRevert("BACKSTOP_TOO_LOW");
+        pol.proposeBackstopChange(0);
+    }
+
+    function test_backstop_belowMinRejected() public {
+        vm.expectRevert("BACKSTOP_TOO_LOW");
+        pol.proposeBackstopChange(8999);
+    }
+
+    function test_backstop_revertExistingPending() public {
+        pol.proposeBackstopChange(9500);
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, pol.BACKSTOP_CHANGE()));
+        pol.proposeBackstopChange(9600);
+    }
+
+    function test_backstop_revertBeforeTimelock() public {
+        pol.proposeBackstopChange(9500);
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, pol.BACKSTOP_CHANGE()));
+        pol.executeBackstopChange();
+    }
+
+    function test_backstop_revertExpired() public {
+        pol.proposeBackstopChange(9500);
+        vm.warp(block.timestamp + 24 hours + 7 days + 1);
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, pol.BACKSTOP_CHANGE()));
+        pol.executeBackstopChange();
+    }
+
+    function test_backstop_revertNoPending() public {
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, pol.BACKSTOP_CHANGE()));
+        pol.executeBackstopChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, pol.BACKSTOP_CHANGE()));
+        pol.cancelBackstopChange();
+    }
+
+    function test_backstop_onlyOwner() public {
+        vm.prank(alice);
+        vm.expectRevert();
+        pol.proposeBackstopChange(9500);
+
+        pol.proposeBackstopChange(9500);
+        vm.prank(alice);
+        vm.expectRevert();
+        pol.executeBackstopChange();
+
+        vm.prank(alice);
+        vm.expectRevert();
+        pol.cancelBackstopChange();
+    }
 
     // ─── 12. PROPOSE / EXECUTE / CANCEL: maxAccumulateAmount ────────
 
@@ -546,9 +715,13 @@ contract Audit195POL is Test {
     // ─── 14. ACCESS CONTROL ─────────────────────────────────────────
 
     function test_onlyOwner_allAdminFunctions() public {
-        // AUDIT FIX (Wave-B F-20-1): proposeMaxSlippage / proposeBackstop
-        // surface excised — only the live admin entry points are checked.
         vm.startPrank(alice);
+        vm.expectRevert(); pol.proposeMaxSlippage(300);
+        vm.expectRevert(); pol.executeMaxSlippage();
+        vm.expectRevert(); pol.cancelMaxSlippageChange();
+        vm.expectRevert(); pol.proposeBackstopChange(9500);
+        vm.expectRevert(); pol.executeBackstopChange();
+        vm.expectRevert(); pol.cancelBackstopChange();
         vm.expectRevert(); pol.proposeMaxAccumulateAmount(5 ether);
         vm.expectRevert(); pol.executeMaxAccumulateAmount();
         vm.expectRevert(); pol.cancelMaxAccumulateAmountChange();

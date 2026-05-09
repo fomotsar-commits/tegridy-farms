@@ -100,7 +100,7 @@ contract DeepGov01_VoteIncentivesTest is Test {
         pair = address(mp);
         factory.registerPair(t0, t1, pair);
 
-        vi = new VoteIncentives(address(ve), treasury, address(weth), address(factory), address(bribeToken), address(0), 300);
+        vi = new VoteIncentives(address(ve), treasury, address(weth), address(factory), address(bribeToken), 300);
 
         // AUDIT FIX (pass-8): EIP170-03 split — wire admin sister.
         viAdmin = new VoteIncentivesAdmin(address(vi));

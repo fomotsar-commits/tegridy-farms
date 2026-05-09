@@ -173,8 +173,7 @@ contract DeploySepoliaScript is Script {
         // AUDIT M-B01: deployer doubles as treasury for sweep destination on
         // Sepolia (matches existing PremiumAccess wiring above).
         address SEQUENCER_FEED2 = vm.envOr("SEQUENCER_FEED", address(0));
-        // AUDIT FIX FRESH-2026: F-21-7 — restaking contract mandatory at construction.
-        MemeBountyBoard bounty = new MemeBountyBoard(d.toweli, d.staking, d.weth, SEQUENCER_FEED2, deployer, d.restaking);
+        MemeBountyBoard bounty = new MemeBountyBoard(d.toweli, d.staking, d.weth, SEQUENCER_FEED2, deployer);
         d.memeBountyBoard = address(bounty);
         console.log("15. MemeBountyBoard:", d.memeBountyBoard);
 
