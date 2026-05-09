@@ -24,8 +24,6 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
     error MaxSupplyTooLarge();
     error EmptyName();
     error EmptySymbol();
-    /// @notice AUDIT FIX FRESH-2026 (post-fix scan H-18): registry exhaustion guard.
-    error MaxCollectionsReached();
     /// @notice AUDIT FIX: DEEP-LP-04: caller's expected fee value did not match
     ///         the currently-pending value. Mirrors the value-binding pattern
     ///         from `TegridyDropV2.executeMerkleRoot(bytes32 expectedRoot)`.
@@ -95,13 +93,15 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
     ///         threshold, every off-chain consumer that depends on it breaks.
     uint256 public constant MAX_PAGINATED_LIMIT = 1000;
 
-    /// @notice AUDIT FIX FRESH-2026 (post-fix scan H-18): hard cap on the total
-    ///         registry size. Prevents `allCollections[]` from being inflated to
-    ///         the point where on-chain consumers OOG and off-chain indexers
-    ///         time out. Operators rate-limit at the front-end / RPC layer if a
-    ///         per-creator throttle is desired (skipped here per minimal-surface
-    ///         mandate — adding a per-creator mapping would expand attack surface).
-    uint256 public constant MAX_COLLECTIONS = 10_000;
+    /// @notice AUDIT NOTE FRESH-2026 (post-fix scan H-18): registry exhaustion is
+    ///         ACCEPT-AS-DESIGN under the minimal-surface mandate (memory:
+    ///         feedback_minimal_surface.md). Sibling factory `TegridyNFTPoolFactory`
+    ///         uses the canonical Sudoswap V2 LSSVMPair-factory posture
+    ///         (`MAX_POOLS_PER_COLLECTION = 200` cap, no global cap, OR-seeding).
+    ///         This factory mirrors that posture for collections: no on-chain cap
+    ///         on `allCollections.length`. Operators monitor growth and
+    ///         RPC-rate-limit `getCollectionsPaginated` upstream if needed. See
+    ///         RELAUNCH_RUNBOOK.md §7.
 
     /// @notice Canonical TegridyDropV2 implementation. New constructor call in the
     ///         factory deploys it; v1's `dropTemplate` is a separate address on the
@@ -199,8 +199,6 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
     {
         if (bytes(cfg.name).length == 0) revert EmptyName();
         if (bytes(cfg.symbol).length == 0) revert EmptySymbol();
-        // AUDIT FIX FRESH-2026 (post-fix scan H-18): registry exhaustion guard.
-        if (allCollections.length >= MAX_COLLECTIONS) revert MaxCollectionsReached();
         if (cfg.maxSupply == 0) revert InvalidMaxSupply();
         if (cfg.maxSupply > 100_000) revert MaxSupplyTooLarge();
         if (cfg.mintPrice > 100 ether) revert MintPriceTooHigh();
