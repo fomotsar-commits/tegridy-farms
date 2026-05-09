@@ -72,6 +72,15 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     // AUDIT FIX: DEEP-NFTPOOL-05: explicit LP-fee accounting.
     uint256 public accumulatedLPFees;
     mapping(address => uint256) public priorOwnerOwed;
+    /// @notice AUDIT FIX FRESH-2026 (post-fix scan5 INV-1): aggregate of all
+    ///         outstanding `priorOwnerOwed[]` claims. Reserved against the
+    ///         pool's ETH balance so `_lpAvailableETH` correctly excludes
+    ///         these obligations. Sibling-canonical of `totalCommitBonds`
+    ///         (VoteIncentives) and `totalPendingETH` (ReferralSplitter).
+    ///         Without this, the new owner's `withdrawETH` / `removeLiquidity`
+    ///         / sell paths could drain ETH that the prior owner is still
+    ///         entitled to claim.
+    uint256 public totalPriorOwnerOwed;
 
     // AUDIT FIX: DEEP-NFTPOOL-03: 48-hour timelock for owner change.
     address public pendingOwner;
@@ -575,6 +584,9 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         uint256 snapshot = accumulatedLPFees;
         if (snapshot > 0 && pendingOwner != oldOwner) {
             priorOwnerOwed[oldOwner] += snapshot;
+            // AUDIT FIX FRESH-2026 (post-fix scan5 INV-1): track aggregate
+            //         so `_lpAvailableETH` reserves the prior-owner claim.
+            totalPriorOwnerOwed += snapshot;
             accumulatedLPFees = 0;
             emit PriorOwnerLPFeesSnapshotted(oldOwner, snapshot);
         }
@@ -630,6 +642,10 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         uint256 amount = priorOwnerOwed[msg.sender];
         if (amount == 0) revert NoPriorOwnerCredit();
         priorOwnerOwed[msg.sender] = 0;
+        // AUDIT FIX FRESH-2026 (post-fix scan5 INV-1): decrement aggregate
+        //         alongside the per-recipient slot to keep `_lpAvailableETH`
+        //         reservation in sync.
+        totalPriorOwnerOwed -= amount;
         _sendETH(msg.sender, amount);
         emit PriorOwnerLPFeesClaimed(msg.sender, amount);
     }
@@ -883,7 +899,12 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
     function _lpAvailableETH() internal view returns (uint256) {
         uint256 bal = address(this).balance;
-        uint256 reserved = accumulatedProtocolFees + accumulatedLPFees;
+        // AUDIT FIX FRESH-2026 (post-fix scan5 INV-1): include outstanding
+        //         prior-owner claims in the reservation. Pre-fix the new
+        //         owner's withdrawal paths could drain ETH the prior owner
+        //         is still owed; sibling-canonical of `totalCommitBonds` /
+        //         `totalPendingETH` reservation patterns elsewhere.
+        uint256 reserved = accumulatedProtocolFees + accumulatedLPFees + totalPriorOwnerOwed;
         if (bal <= reserved) return 0;
         return bal - reserved;
     }
