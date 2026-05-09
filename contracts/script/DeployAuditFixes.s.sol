@@ -96,6 +96,8 @@ contract DeployAuditFixesScript is Script {
         // AUDIT R062: pass per-chain Chainlink L2 Sequencer Uptime feed via SEQUENCER_FEED env;
         //             address(0) on mainnet / non-L2 (no-op).
         address SEQUENCER_FEED = vm.envOr("SEQUENCER_FEED", address(0));
+        // AUDIT FIX FRESH-2026: H-9 follow-on — fail loud at deploy on L2 if feed unset.
+        require(block.chainid == 1 || SEQUENCER_FEED != address(0), "DEPLOY: L2 needs SEQUENCER_FEED env");
         MemeBountyBoard bountyBoard = new MemeBountyBoard(TOWELI, address(staking), WETH, SEQUENCER_FEED, TREASURY);
         console.log("7. MemeBountyBoard:", address(bountyBoard));
 

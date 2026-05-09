@@ -138,6 +138,11 @@ contract DeployFinalScript is Script {
         address TWAP = vm.envAddress("TWAP");
         require(TWAP != address(0), "TWAP env var required");
         address SEQUENCER_FEED = vm.envOr("SEQUENCER_FEED", address(0));
+        // AUDIT FIX FRESH-2026: H-9 follow-on — fail at deploy time, not first runtime call,
+        //         when an L2 deploy forgets to set SEQUENCER_FEED. lib/SequencerCheck reverts
+        //         SequencerFeedNotConfigured() at runtime on chainid != 1 with feed == 0; this
+        //         require surfaces that loud at deploy. Mainnet (chainid 1) skip is intentional.
+        require(block.chainid == 1 || SEQUENCER_FEED != address(0), "DEPLOY: L2 needs SEQUENCER_FEED env");
         POLAccumulator pol = new POLAccumulator(TOWELI, d.router, d.pair, TREASURY, TWAP, SEQUENCER_FEED);
         d.polAccumulator = address(pol);
         console.log(" 9. POLAccumulator:", d.polAccumulator);

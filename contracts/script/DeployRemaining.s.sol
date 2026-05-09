@@ -47,6 +47,8 @@ contract DeployRemainingScript is Script {
         address TWAP = vm.envAddress("TWAP");
         require(TWAP != address(0), "TWAP env var required");
         address SEQUENCER_FEED = vm.envOr("SEQUENCER_FEED", address(0));
+        // AUDIT FIX FRESH-2026: H-9 follow-on — fail loud at deploy on L2 if feed unset.
+        require(block.chainid == 1 || SEQUENCER_FEED != address(0), "DEPLOY: L2 needs SEQUENCER_FEED env");
         POLAccumulator pol = new POLAccumulator(TOWELI, UNISWAP_V2_ROUTER, LP_TOKEN, TREASURY, TWAP, SEQUENCER_FEED);
         console.log("1. POLAccumulator:", address(pol));
 

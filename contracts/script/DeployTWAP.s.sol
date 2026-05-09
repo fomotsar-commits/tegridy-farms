@@ -27,6 +27,8 @@ contract DeployTWAPScript is Script {
         address FACTORY = vm.envAddress("FACTORY");
         require(FACTORY != address(0), "FACTORY must be set");
         address SEQUENCER_FEED = vm.envOr("SEQUENCER_FEED", address(0));
+        // AUDIT FIX FRESH-2026: H-9 follow-on — fail loud at deploy on L2 if feed unset.
+        require(block.chainid == 1 || SEQUENCER_FEED != address(0), "DEPLOY: L2 needs SEQUENCER_FEED env");
         TegridyTWAP twap = new TegridyTWAP(FACTORY, SEQUENCER_FEED);
         console.log("1. TegridyTWAP deployed:", address(twap));
         console.log("   bound to TegridyFactory:", FACTORY);
