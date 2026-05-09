@@ -182,6 +182,8 @@ contract Audit_SFR_H01 is Test {
     uint112 constant BASELINE_WETH   = 100 ether;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
         weth = new MockToken_SFR("WETH", "WETH");
         toweli = new MockToken_SFR("Toweli", "TOWELI");
 
@@ -211,11 +213,10 @@ contract Audit_SFR_H01 is Test {
         // Park 100 TOWELI of accumulated fees in the router via vm.store + a direct
         // ERC20 transfer. The vm.store writes `accumulatedTokenFees[address(toweli)]`.
         toweli.transfer(address(sfr), 100 ether);
-        // Slot 8 is `accumulatedTokenFees` (mirrored from the in-tree FOT test setup —
-        // see SwapFeeRouter.t.sol's test_withdrawTokenFees_FOT_noAccountingDrift for the
-        // same offset). If storage layout shifts in a future refactor, this should
-        // realign too — but the assertion below double-checks the write took effect.
-        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(8)));
+        // FRESH-2026 TEST REALIGN: storage layout shifted (ownershipTransferExpiresAt
+        // added at slot 2, swapFeeRouterAdmin packed with _paused). `accumulatedTokenFees`
+        // is now slot 9 (was slot 8). Verified via `forge inspect SwapFeeRouter storage-layout`.
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(9)));
         vm.store(address(sfr), slot, bytes32(uint256(100 ether)));
         assertEq(sfr.accumulatedTokenFees(address(toweli)), 100 ether, "fee balance seed failed");
     }
@@ -303,7 +304,8 @@ contract Audit_SFR_H01 is Test {
         skip(2 hours);
         // Re-establish accumulated balance so the next convert has work to do.
         toweli.mint(address(sfr), 100 ether);
-        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(8)));
+        // FRESH-2026 TEST REALIGN: accumulatedTokenFees moved from slot 8 to slot 9.
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(9)));
         vm.store(address(sfr), slot, bytes32(uint256(100 ether)));
 
         // 2) The 2h skip moved block.timestamp forward, so we need to seed the
@@ -346,7 +348,8 @@ contract Audit_SFR_H01 is Test {
         else          pair.setReserves(BASELINE_WETH, BASELINE_TOWELI);
         vm.warp(block.timestamp + 2 hours);
         toweli.mint(address(sfr), 100 ether);
-        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(8)));
+        // FRESH-2026 TEST REALIGN: accumulatedTokenFees moved from slot 8 to slot 9.
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(9)));
         vm.store(address(sfr), slot, bytes32(uint256(100 ether)));
         pair.pokeCumulative(uint32(2 hours));
 
@@ -381,7 +384,8 @@ contract Audit_SFR_H01 is Test {
         else          pair.setReserves(BASELINE_WETH, BASELINE_TOWELI);
         vm.warp(block.timestamp + 2 hours);
         toweli.mint(address(sfr), 100 ether);
-        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(8)));
+        // FRESH-2026 TEST REALIGN: accumulatedTokenFees moved from slot 8 to slot 9.
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(9)));
         vm.store(address(sfr), slot, bytes32(uint256(100 ether)));
         pair.pokeCumulative(uint32(2 hours));
         // No front-run; pair stays at baseline.

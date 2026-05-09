@@ -806,14 +806,15 @@ contract RedTeamCrossContract is Test {
 
         // But proposal has MAX_PROPOSAL_VALIDITY (7 days) expiry
         // If not executed in time, it expires
-        stakingAdmin.proposeRewardRate(50 ether);
+        // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened from 100e18 to 1e18.
+        stakingAdmin.proposeRewardRate(0.5 ether);
         vm.warp(block.timestamp + 48 hours + 7 days + 1);
         vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, stakingAdmin.REWARD_RATE_CHANGE()));
         stakingAdmin.executeRewardRateChange();
 
         emit log_string("[ATTACK #16] Reward Rate Manipulation: DEFENDED");
         emit log_string("  - 48h timelock gives users time to notice and exit");
-        emit log_string("  - MAX_REWARD_RATE (100 TOWELI/s) caps maximum inflation");
+        emit log_string("  - MAX_REWARD_RATE (1 TOWELI/s) caps maximum inflation");
         emit log_string("  - 7-day proposal expiry prevents stale proposals");
     }
 

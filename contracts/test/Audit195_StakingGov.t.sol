@@ -52,6 +52,14 @@ contract Audit195StakingGov is Test {
     uint256 constant LOCK_1Y = 365 days;
     uint256 constant LOCK_MIN = 7 days;
 
+    /// @dev FRESH-2026 TEST REALIGN: TegridyStakingAdmin.proposeRestakingContract now
+    ///      requires the address to have non-zero, non-23-byte code (rejects EOAs / EIP-7702).
+    ///      Tests that originally used `makeAddr("restaking")` (an EOA) need an etch.
+    function _restakingMock(string memory label) internal returns (address a) {
+        a = makeAddr(label);
+        if (a.code.length == 0) vm.etch(a, hex"60006000fd");
+    }
+
     function setUp() public {
         token = new MockToken195();
         nft = new MockNFT195();
@@ -274,12 +282,13 @@ contract Audit195StakingGov is Test {
     function test_proposeRewardRate_onlyOwner() public {
         vm.prank(attacker);
         vm.expectRevert();
-        admin.proposeRewardRate(5 ether);
+        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
     }
 
     function test_proposeRewardRate_rateTooHigh() public {
+        // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE was tightened from 100e18 to 1e18.
         vm.expectRevert(TegridyStaking.RateTooHigh.selector);
-        admin.proposeRewardRate(101 ether); // MAX_REWARD_RATE is 100e18
+        admin.proposeRewardRate(1.5 ether); // MAX_REWARD_RATE = 1 ether
     }
 
     function test_proposeRewardRate_canProposeZero() public {
@@ -290,7 +299,7 @@ contract Audit195StakingGov is Test {
     }
 
     function test_executeRewardRate_beforeTimelock() public {
-        admin.proposeRewardRate(5 ether);
+        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
 
         // Try to execute immediately - should fail
         vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, admin.REWARD_RATE_CHANGE()));
@@ -303,16 +312,16 @@ contract Audit195StakingGov is Test {
     }
 
     function test_executeRewardRate_atExactTimelock() public {
-        admin.proposeRewardRate(5 ether);
+        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
         uint256 executeAt = admin.rewardRateChangeTime();
 
         vm.warp(executeAt);
         admin.executeRewardRateChange();
-        assertEq(staking.rewardRate(), 5 ether);
+        assertEq(staking.rewardRate(), 0.5 ether);
     }
 
     function test_executeRewardRate_afterExpiry() public {
-        admin.proposeRewardRate(5 ether);
+        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
         uint256 executeAt = admin.rewardRateChangeTime();
 
         // Warp past MAX_PROPOSAL_VALIDITY (7 days after executeAt)
@@ -322,26 +331,26 @@ contract Audit195StakingGov is Test {
     }
 
     function test_executeRewardRate_atExactExpiry() public {
-        admin.proposeRewardRate(5 ether);
+        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
         uint256 executeAt = admin.rewardRateChangeTime();
 
         // At exact expiry boundary
         vm.warp(executeAt + 7 days);
         // This should still work (> not >=)
         admin.executeRewardRateChange();
-        assertEq(staking.rewardRate(), 5 ether);
+        assertEq(staking.rewardRate(), 0.5 ether);
     }
 
     function test_proposeRewardRate_cannotDoublePropose() public {
-        admin.proposeRewardRate(5 ether);
+        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
 
         // Second proposal without canceling first should revert
         vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, admin.REWARD_RATE_CHANGE()));
-        admin.proposeRewardRate(10 ether);
+        admin.proposeRewardRate(0.8 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
     }
 
     function test_executeRewardRate_clearsState() public {
-        admin.proposeRewardRate(5 ether);
+        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
         vm.warp(block.timestamp + 48 hours);
         admin.executeRewardRateChange();
 
@@ -413,7 +422,7 @@ contract Audit195StakingGov is Test {
     function test_proposeRestaking_onlyOwner() public {
         vm.prank(attacker);
         vm.expectRevert();
-        admin.proposeRestakingContract(makeAddr("restaking"));
+        admin.proposeRestakingContract(_restakingMock("restaking"));
     }
 
     function test_proposeRestaking_zeroAddress() public {
@@ -422,13 +431,13 @@ contract Audit195StakingGov is Test {
     }
 
     function test_executeRestaking_beforeTimelock() public {
-        admin.proposeRestakingContract(makeAddr("restaking"));
+        admin.proposeRestakingContract(_restakingMock("restaking"));
         vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, admin.RESTAKING_CHANGE()));
         admin.executeRestakingContract();
     }
 
     function test_executeRestaking_afterTimelock() public {
-        address newRestaking = makeAddr("restaking");
+        address newRestaking = _restakingMock("restaking");
         admin.proposeRestakingContract(newRestaking);
         vm.warp(block.timestamp + 48 hours);
         admin.executeRestakingContract();
@@ -436,7 +445,7 @@ contract Audit195StakingGov is Test {
     }
 
     function test_executeRestaking_expired() public {
-        admin.proposeRestakingContract(makeAddr("restaking"));
+        admin.proposeRestakingContract(_restakingMock("restaking"));
         uint256 executeAt = admin.restakingChangeReadyAt();
         vm.warp(executeAt + 7 days + 1);
         vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, admin.RESTAKING_CHANGE()));
@@ -444,7 +453,7 @@ contract Audit195StakingGov is Test {
     }
 
     function test_executeRestaking_clearsState() public {
-        admin.proposeRestakingContract(makeAddr("restaking"));
+        admin.proposeRestakingContract(_restakingMock("restaking"));
         vm.warp(block.timestamp + 48 hours);
         admin.executeRestakingContract();
         assertEq(admin.pendingRestakingContract(), address(0));
@@ -452,9 +461,9 @@ contract Audit195StakingGov is Test {
     }
 
     function test_proposeRestaking_cannotDoublePropose() public {
-        admin.proposeRestakingContract(makeAddr("a"));
+        admin.proposeRestakingContract(_restakingMock("a"));
         vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, admin.RESTAKING_CHANGE()));
-        admin.proposeRestakingContract(makeAddr("b"));
+        admin.proposeRestakingContract(_restakingMock("b"));
     }
 
     // ============================================================
@@ -462,7 +471,7 @@ contract Audit195StakingGov is Test {
     // ============================================================
 
     function test_cancelRewardRate_clearsState() public {
-        admin.proposeRewardRate(5 ether);
+        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
         assertGt(admin.rewardRateChangeTime(), 0);
 
         admin.cancelRewardRateProposal();
@@ -476,19 +485,19 @@ contract Audit195StakingGov is Test {
     }
 
     function test_cancelRewardRate_onlyOwner() public {
-        admin.proposeRewardRate(5 ether);
+        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
         vm.prank(attacker);
         vm.expectRevert();
         admin.cancelRewardRateProposal();
     }
 
     function test_cancelRewardRate_thenReproposeWorks() public {
-        admin.proposeRewardRate(5 ether);
+        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
         admin.cancelRewardRateProposal();
 
         // Can now propose a new rate
-        admin.proposeRewardRate(10 ether);
-        assertEq(admin.pendingRewardRate(), 10 ether);
+        admin.proposeRewardRate(0.8 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
+        assertEq(admin.pendingRewardRate(), 0.8 ether);
     }
 
     function test_cancelTreasury_clearsState() public {
@@ -511,7 +520,7 @@ contract Audit195StakingGov is Test {
     }
 
     function test_cancelRestaking_clearsState() public {
-        admin.proposeRestakingContract(makeAddr("r"));
+        admin.proposeRestakingContract(_restakingMock("r"));
         admin.cancelRestakingContract();
         assertEq(admin.pendingRestakingContract(), address(0));
         assertEq(admin.restakingChangeReadyAt(), 0);
@@ -523,7 +532,7 @@ contract Audit195StakingGov is Test {
     }
 
     function test_cancelRestaking_onlyOwner() public {
-        admin.proposeRestakingContract(makeAddr("r"));
+        admin.proposeRestakingContract(_restakingMock("r"));
         vm.prank(attacker);
         vm.expectRevert();
         admin.cancelRestakingContract();
@@ -893,17 +902,17 @@ contract Audit195StakingGov is Test {
     function test_rewardRate_fullLifecycle_proposeExecute() public {
         uint256 oldRate = staking.rewardRate();
 
-        // Propose
-        admin.proposeRewardRate(50 ether);
-        assertEq(admin.pendingRewardRate(), 50 ether);
+        // Propose — FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether.
+        admin.proposeRewardRate(0.5 ether);
+        assertEq(admin.pendingRewardRate(), 0.5 ether);
 
         // Wait timelock
         vm.warp(block.timestamp + 48 hours);
 
         // Execute
         admin.executeRewardRateChange();
-        assertEq(staking.rewardRate(), 50 ether);
-        assertTrue(staking.rewardRate() != oldRate || oldRate == 50 ether);
+        assertEq(staking.rewardRate(), 0.5 ether);
+        assertTrue(staking.rewardRate() != oldRate || oldRate == 0.5 ether);
 
         // State cleared
         assertEq(admin.pendingRewardRate(), 0);
@@ -913,17 +922,18 @@ contract Audit195StakingGov is Test {
     function test_rewardRate_fullLifecycle_proposeCancel() public {
         uint256 oldRate = staking.rewardRate();
 
-        admin.proposeRewardRate(50 ether);
+        // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether.
+        admin.proposeRewardRate(0.5 ether);
         admin.cancelRewardRateProposal();
 
         // Rate unchanged
         assertEq(staking.rewardRate(), oldRate);
 
         // Can propose again
-        admin.proposeRewardRate(25 ether);
+        admin.proposeRewardRate(0.25 ether);
         vm.warp(block.timestamp + 48 hours);
         admin.executeRewardRateChange();
-        assertEq(staking.rewardRate(), 25 ether);
+        assertEq(staking.rewardRate(), 0.25 ether);
     }
 
     function test_treasury_fullLifecycle_proposeExecute() public {
@@ -946,7 +956,7 @@ contract Audit195StakingGov is Test {
     }
 
     function test_restaking_fullLifecycle() public {
-        address r = makeAddr("restaking");
+        address r = _restakingMock("restaking");
         admin.proposeRestakingContract(r);
         vm.warp(block.timestamp + 48 hours);
         admin.executeRestakingContract();
@@ -1029,7 +1039,8 @@ contract Audit195StakingGov is Test {
     // ============================================================
 
     function test_cancelRewardRate_afterTimelockStillWorks() public {
-        admin.proposeRewardRate(50 ether);
+        // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether.
+        admin.proposeRewardRate(0.5 ether);
         vm.warp(block.timestamp + 48 hours + 1 days);
 
         // Cancel even after timelock has passed
@@ -1051,7 +1062,7 @@ contract Audit195StakingGov is Test {
     }
 
     function test_cancelRestaking_afterTimelockStillWorks() public {
-        admin.proposeRestakingContract(makeAddr("r"));
+        admin.proposeRestakingContract(_restakingMock("r"));
         vm.warp(block.timestamp + 48 hours + 1 days);
 
         admin.cancelRestakingContract();
@@ -1277,7 +1288,7 @@ contract Audit195StakingGov is Test {
 
     function test_VotingPowerOf_RestakingReturnsZero() public {
         // Install a restaking-contract address via the full timelock flow.
-        address restaking = makeAddr("restaking");
+        address restaking = _restakingMock("restaking");
         admin.proposeRestakingContract(restaking);
         vm.warp(block.timestamp + 48 hours);
         admin.executeRestakingContract();

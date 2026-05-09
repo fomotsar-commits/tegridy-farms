@@ -107,8 +107,9 @@ contract PASS8_PHASE_1_6 is Test {
         viAdmin.executeWhitelistChange();
 
         // BATCH-F H14: commitRevealEnabled = true at deploy. Force-disable so
-        // legacy `vote()` path under test stays exerciseable. Slot 10 = the flag.
-        vm.store(address(vi), bytes32(uint256(10)), bytes32(uint256(0)));
+        // legacy `vote()` path under test stays exerciseable.
+        // FRESH-2026 TEST REALIGN: storage layout shifted, commitRevealEnabled at slot 11.
+        vm.store(address(vi), bytes32(uint256(11)), bytes32(uint256(0)));
 
         // Funding
         bribeToken.transfer(briber, 1_000_000 ether);

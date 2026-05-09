@@ -133,6 +133,8 @@ contract PASS7_LENDING_04_DoubleClaimReproTest is Test {
     uint256 aliceTokenId;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
         toweli = new P7_LD04_Toweli();
         jbac = new P7_LD04_JBAC();
         weth = new P7_LD04_WETH();

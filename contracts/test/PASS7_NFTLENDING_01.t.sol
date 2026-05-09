@@ -87,6 +87,8 @@ contract PASS7_NFTLENDING_01_StuckRecoveryNoOpTest is Test {
     uint256 bobTokenId;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: TegridyNFTLending requires chainid==1 OR feed!=0 at construction.
+        vm.chainId(1);
         vm.warp(1_700_000_000);
 
         weth = new MockWETH_PASS7_NFTLending();

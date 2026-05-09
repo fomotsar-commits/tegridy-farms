@@ -238,16 +238,19 @@ contract TegridyNFTPool_ReentrancyTest is Test {
 
         // Send extra ETH to trigger refund path
         uint256 overpayment = 5 ether;
+        uint256 balBefore = address(attacker).balance + weth.balanceOf(address(attacker));
         vm.prank(address(attacker));
         p.swapETHForNFTs{value: cost + overpayment}(buyIds, type(uint256).max, block.timestamp + 1 hours);
 
         // Attacker got the NFT they paid for
         assertEq(nft.ownerOf(1), address(attacker));
 
-        // The refund was converted to WETH (because the receive() tried to re-enter,
-        // which consumed too much gas for the 10k stipend, so WETH fallback kicked in)
-        uint256 wethBalance = weth.balanceOf(address(attacker));
-        assertEq(wethBalance, overpayment, "Refund should be wrapped as WETH");
+        // FRESH-2026 TEST REALIGN: M-36 [F-40-WFL-1] — gas stipend bumped from 10k to 30k.
+        // The reentrancy attempt now fits within budget but is rejected by `nonReentrant`,
+        // so the inner `target.call` returns false. Refund delivered as raw ETH (or WETH
+        // fallback in some paths). Verify the net delta = overpayment - cost.
+        uint256 balAfter = address(attacker).balance + weth.balanceOf(address(attacker));
+        assertEq(balBefore - balAfter, cost, "Net debit should equal cost; overpayment refunded");
 
         // Pool still has the remaining NFTs
         assertEq(p.getHeldCount(), 2);
@@ -293,9 +296,12 @@ contract TegridyNFTPool_ReentrancyTest is Test {
         vm.prank(address(attacker));
         p.swapNFTsForETH(sellIds, 0, block.timestamp + 1 hours);
 
-        // The payout was sent as WETH (re-entry blocked by gas stipend)
-        uint256 wethBalance = weth.balanceOf(address(attacker));
-        assertTrue(wethBalance > 0, "Payout should be wrapped as WETH due to re-entry attempt");
+        // FRESH-2026 TEST REALIGN: M-36 [F-40-WFL-1] — gas stipend bumped from 10k to 30k.
+        // The reentrancy attempt fits the budget but `nonReentrant` rejects it; the
+        // attacker's `receive()` completes normally and the payout lands as raw ETH.
+        // Reentrancy is still defended — by the guard rather than the stipend.
+        uint256 ethBalance = address(attacker).balance;
+        assertTrue(ethBalance > 0, "Payout should arrive as raw ETH (nonReentrant blocks the inner call)");
 
         // Pool received the NFT
         assertTrue(p.isTokenHeld(sellerNftId));

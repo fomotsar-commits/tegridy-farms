@@ -146,6 +146,17 @@ contract AuditFixes_PairTest is Test {
         uint256 feeToLPBefore = pair.balanceOf(feeTo);
         assertEq(feeToLPBefore, 0, "feeTo should start with 0 LP");
 
+        // FRESH-2026 TEST REALIGN: F-31-A / H-7 — kLast is no longer bootstrapped by
+        // mint() (closes K-anchor manipulation). Only `harvest()` (feeToSetter-gated)
+        // seeds the first kLast. Bootstrap here so subsequent swaps materialise a fee.
+        skip(pair.HARVEST_INTERVAL() + 1);
+        vm.prank(alice);
+        router.swapExactTokensForTokens(
+            1 ether, 0, _path(address(tokenA), address(tokenB)),
+            alice, block.timestamp + 1
+        );
+        pair.harvest();
+
         // Do several swaps to accumulate fees (fee growth changes K)
         for (uint256 i = 0; i < 10; i++) {
             vm.prank(alice);

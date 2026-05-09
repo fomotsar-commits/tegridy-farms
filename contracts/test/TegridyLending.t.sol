@@ -97,6 +97,9 @@ contract TegridyLendingTest is Test {
     uint256 public aliceTokenId; // alice's staking position NFT
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: feed=address(0) only no-ops on chainid==1 now;
+        // explicit mainnet so sequencer-check no-op path engages for tests passing address(0).
+        vm.chainId(1);
         // 1. Deploy mock tokens
         toweli = new MockToweli();
         jbac = new MockJBAC();

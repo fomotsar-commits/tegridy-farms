@@ -326,6 +326,8 @@ contract PASS6_INV_H_RestakingCrossProto is Test {
     uint256[] internal tokenIds;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
         toweli = new InvH_Toweli();
         jbac = new InvH_JBAC();
         weth = new InvH_WETH();

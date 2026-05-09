@@ -133,6 +133,8 @@ contract PASS7_TWAP_01_FirstObsFallbackBypass is Test {
     MockToken weth;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
         // Real-clock timestamp so block.timestamp >> 0 — avoids edge cases at
         // year-2106 uint32 wrap inside TegridyTWAP.
         vm.warp(1_700_000_000);
@@ -148,6 +150,16 @@ contract PASS7_TWAP_01_FirstObsFallbackBypass is Test {
         factory.tagPair(address(pair));
 
         twap = new TegridyTWAP(address(factory), address(0));
+        // FRESH-2026 TEST REALIGN: TegridyTWAP.update() now enforces MIN_UPDATE_FEE (1e14)
+        // by default; disable so legacy update() calls without {value:} still work.
+        twap.setUpdateFee(0);
+        // FRESH-2026 TEST REALIGN: F-31-C / M-24 — DEFAULT_MIN_RESERVE_FLOOR_WEI = 10 ether
+        // now applies by default. Test pair uses tiny WETH-side reserves (0.01 ether)
+        // by design (manipulation-poisoned anchor). Set the floor override to 1 wei so
+        // those reserves bypass the floor gate without disturbing the bypass-anchor
+        // semantics under test.
+        twap.setMinReserveFloor(address(pair), 1);
+        twap.setMinReserveFloor1(address(pair), 1);
     }
 
     /// @notice POST-FIX REGRESSION: the PASS7-TWAP-01 fix dropped the

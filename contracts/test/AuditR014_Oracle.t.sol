@@ -30,6 +30,8 @@ contract AuditR014OracleTest is Test {
     address public feeTo = makeAddr("feeTo");
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
         factory = new TegridyFactory(address(this), address(this), address(this)); // F-30-9 initial guardian
         // Promote feeTo through the timelock so the pair fee logic engages later if needed.
         factory.proposeFeeToChange(feeTo);
@@ -52,6 +54,9 @@ contract AuditR014OracleTest is Test {
         pair.mint(address(this));
 
         twap = new TegridyTWAP(address(factory), address(0));
+        // FRESH-2026 TEST REALIGN: TegridyTWAP.update() now enforces MIN_UPDATE_FEE (1e14)
+        // by default; disable so legacy update() calls without {value:} still work.
+        twap.setUpdateFee(0);
 
         // Fund alice so swap helpers can move reserves around.
         tokenA.transfer(alice, 10_000 ether);
@@ -241,32 +246,34 @@ contract AuditR014OracleTest is Test {
     ///         2^31). The plain-comparison version of the search would silently
     ///         degrade once `targetTimestamp` wrapped past zero.
     function test_R014_twap_consultWrapAwareAcrossYear2106() public {
-        // BATCH-M3 H7: obs 1, 2, 3 are now self-bootstrap-bypassed. Need â‰¥6 obs
+        // FRESH-2026 TEST REALIGN: F-24-1 — `update()` now flags `bypassed = true`
+        // when `elapsedSinceLastPairTouch > MAX_BRIDGING_GAP` (2h). Without periodic
+        // pair touches the test's spaced updates were all marked bypassed, tripping
+        // the `OracleRebootstrapping` revert in consult. Touch the pair (`sync()`)
+        // before each update so the bridging-gap path does NOT fire — keeping the
+        // wrap-aware lookup invariant under test.
+        // BATCH-M3 H7: obs 1, 2, 3 are now self-bootstrap-bypassed. Need >=6 obs
         // so the 30-min consult anchor can land on a non-bypass slot.
-        // Park ourselves further before the uint32 rollover so all 6 spaced-out
-        // observations straddle the wrap. Each step is 16 min (MIN_PERIOD = 15).
         uint256 max32 = uint256(type(uint32).max);
         uint256 wrapAt = max32 - 200 minutes;
         vm.warp(wrapAt);
 
-        twap.update(address(pair));                                 // #1 bypass at wrapAt
+        pair.sync(); twap.update(address(pair));                    // #1 bypass (count==0)
         vm.warp(wrapAt + 16 minutes);
-        twap.update(address(pair));                                 // #2 bypass
+        pair.sync(); twap.update(address(pair));                    // #2 bypass (count<=2)
         vm.warp(wrapAt + 32 minutes);
-        twap.update(address(pair));                                 // #3 bypass
+        pair.sync(); twap.update(address(pair));                    // #3 bypass (count<=2)
 
-        // Cross the rollover with later, post-wrap observations.
-        vm.warp(max32 + 16 minutes);                                // ~16 sec past wrap
-        twap.update(address(pair));                                 // #4 non-bypass
+        // Cross the rollover with later, post-wrap observations. Sync each time
+        // so `elapsedSinceLastPairTouch` stays <= 2 hours (MAX_BRIDGING_GAP).
+        vm.warp(max32 + 16 minutes);
+        pair.sync(); twap.update(address(pair));                    // #4 non-bypass
         vm.warp(max32 + 32 minutes);
-        twap.update(address(pair));                                 // #5 non-bypass
+        pair.sync(); twap.update(address(pair));                    // #5 non-bypass
         vm.warp(max32 + 48 minutes);
-        twap.update(address(pair));                                 // #6 non-bypass (latest)
+        pair.sync(); twap.update(address(pair));                    // #6 non-bypass (latest)
 
-        // Confirm consult resolves to a legitimate (non-zero) TWAP across the wrap
-        // â€” the canonical regression here is that the pre-wrap observations would
-        // appear "after" the post-wrap target under the old non-wrap-aware test
-        // and the lookup would fall back to the oldest entry, mis-sizing the window.
+        // Confirm consult resolves to a legitimate (non-zero) TWAP across the wrap.
         uint256 amountOut = twap.consult(address(pair), address(tokenA), 1 ether, 30 minutes);
         assertGt(amountOut, 0, "consult succeeds over a wrap-spanning window");
     }

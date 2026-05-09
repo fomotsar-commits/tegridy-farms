@@ -135,6 +135,8 @@ contract Deep_R_H01_MultiHop is Test {
     uint112 constant MID_RES = 100 ether;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
         weth = new _Token("WETH", "WETH");
         alt  = new _Token("Alt",  "ALT");
         mid  = new _Token("Mid",  "MID");
@@ -157,7 +159,8 @@ contract Deep_R_H01_MultiHop is Test {
 
     function _seedFees(uint256 amount) internal {
         alt.transfer(address(sfr), amount);
-        bytes32 slot = keccak256(abi.encode(address(alt), uint256(8)));
+        // FRESH-2026 TEST REALIGN: accumulatedTokenFees moved from slot 8 to slot 9.
+        bytes32 slot = keccak256(abi.encode(address(alt), uint256(9)));
         vm.store(address(sfr), slot, bytes32(amount));
     }
 
@@ -487,6 +490,8 @@ contract Deep_R_M06_SnapshotReset is Test {
     _MockUniPair public pair;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
         weth = new _Token("WETH", "WETH");
         alt  = new _Token("Alt", "ALT");
         factoryC = new _MockUniFactory();
@@ -508,7 +513,8 @@ contract Deep_R_M06_SnapshotReset is Test {
     function test_resetTWAPSnapshot_clearsBootstrap() public {
         // Seed and bootstrap.
         alt.transfer(address(sfr), 100 ether);
-        bytes32 slot = keccak256(abi.encode(address(alt), uint256(8)));
+        // FRESH-2026 TEST REALIGN: accumulatedTokenFees moved from slot 8 to slot 9.
+        bytes32 slot = keccak256(abi.encode(address(alt), uint256(9)));
         vm.store(address(sfr), slot, bytes32(uint256(100 ether)));
         pair.pokeCumulative(uint32(60 minutes));
         skip(60 minutes);

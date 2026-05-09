@@ -87,6 +87,10 @@ contract TegridyNFTLendingTest is Test {
     uint256 public bobTokenId; // bob's NFT token
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: TegridyNFTLending now requires chainid==1 OR
+        // a non-zero sequencer feed at construction (L2_SEQUENCER_FEED_REQUIRED).
+        // Set mainnet for the address(0) feed path used by the test fixture.
+        vm.chainId(1);
         // Start at a realistic timestamp to avoid edge cases
         vm.warp(1_700_000_000);
 

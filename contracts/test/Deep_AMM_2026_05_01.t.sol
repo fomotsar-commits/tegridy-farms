@@ -50,6 +50,8 @@ contract DeepAMMTest is Test {
     address public distributor = makeAddr("distributor");
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
         factory = new TegridyFactory(address(this), address(this), address(this)); // F-30-9 initial guardian
         factory.proposeFeeToChange(feeTo);
         vm.warp(block.timestamp + 48 hours);
@@ -67,6 +69,9 @@ contract DeepAMMTest is Test {
         pair.mint(address(this));
 
         twap = new TegridyTWAP(address(factory), address(0));
+        // FRESH-2026 TEST REALIGN: TegridyTWAP.update() now enforces MIN_UPDATE_FEE (1e14)
+        // by default. Disable so legacy update() calls without {value:} still work.
+        twap.setUpdateFee(0);
 
         poolManager = new DeepAMM_MockPoolManager();
         address hookAddr = address(uint160(0x0044));
@@ -165,8 +170,15 @@ contract DeepAMMTest is Test {
     // â”€â”€â”€ D-AMM-M2: harvest reverts on no-op â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_DAmmM2_harvest_revertsOnNoFeeMaterialised() public {
-        // Without any swaps, harvest() should revert NO_FEE_TO_MATERIALIZE.
+        // FRESH-2026 TEST REALIGN: V2-AMM-M2 — bootstrap path was added to harvest():
+        // when feeOn && kLast == 0, the FIRST harvest (feeToSetter-gated) seeds kLast
+        // and is no longer NO_FEE_TO_MATERIALIZE. The no-fee-revert assertion only
+        // applies to a SECOND harvest where rootK <= rootKLast or the rounding wedge fires.
+        // Bootstrap once (succeeds), then re-arm the test on the second-call no-op path.
         vm.warp(block.timestamp + 5 minutes);
+        pair.harvest(); // bootstraps kLast (feeOn==true, kLast==0)
+        // Second harvest with no swaps in between: K hasn't grown, so NO_FEE_TO_MATERIALIZE.
+        vm.warp(block.timestamp + pair.HARVEST_INTERVAL() + 1);
         vm.expectRevert(bytes("NO_FEE_TO_MATERIALIZE"));
         pair.harvest();
     }

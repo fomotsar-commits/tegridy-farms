@@ -311,6 +311,8 @@ contract PASS6_INV_E_LendingSolvency is Test {
     uint256[] internal tokenIds;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
         toweli = new InvE_Toweli();
         jbac = new InvE_JBAC();
         weth = new InvE_WETH();

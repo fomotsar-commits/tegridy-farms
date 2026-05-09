@@ -748,8 +748,9 @@ contract Audit195PremiumHookTest is Test {
     // ═══════════════════════════════════════════════════════════════
 
     function _setAccruedFees(address tok, uint256 amount) internal {
-        // accruedFees is mapping(address => uint256) at slot 7 (shifted after base contract refactor)
-        bytes32 slot = keccak256(abi.encode(tok, uint256(7)));
+        // FRESH-2026 TEST REALIGN: storage layout shifted, accruedFees moved from slot 7 to slot 9.
+        // Verified via `forge inspect TegridyFeeHook storage-layout`.
+        bytes32 slot = keccak256(abi.encode(tok, uint256(9)));
         vm.store(address(hook), slot, bytes32(amount));
     }
 

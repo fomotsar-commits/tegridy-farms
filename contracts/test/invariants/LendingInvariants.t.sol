@@ -171,6 +171,8 @@ contract LendingInvariantsTest is Test {
     uint256 public borrowerTokenId;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
         toweli = new LendingR061Toweli();
         jbac = new LendingR061JBAC();
         weth = new LendingR061WETH();

@@ -73,6 +73,21 @@ contract MockTegridyPairETHFloor {
         return (reserve0, reserve1, blockTimestampLast);
     }
 
+    /// @dev FRESH-2026 TEST REALIGN: pair touch helper so TegridyTWAP's F-24-1
+    ///      bridging-gap (2h) defense doesn't fire on idle pairs in test setUps.
+    function sync() external {
+        uint32 nowTs = uint32(block.timestamp);
+        uint32 elapsed;
+        unchecked { elapsed = nowTs - blockTimestampLast; }
+        if (elapsed > 0 && reserve0 != 0 && reserve1 != 0) {
+            unchecked {
+                price0CumulativeLast += (uint256(reserve1) * Q112 / reserve0) * uint256(elapsed);
+                price1CumulativeLast += (uint256(reserve0) * Q112 / reserve1) * uint256(elapsed);
+            }
+        }
+        blockTimestampLast = nowTs;
+    }
+
     function setReserves(uint112 _r0, uint112 _r1) external {
         // Integrate the pre-update reserves over the elapsed window — same
         // canonical V2 pattern as TegridyPair._update().
@@ -136,6 +151,8 @@ contract TegridyLending_ETHFloorTest is Test {
     uint112 public constant INITIAL_WETH_RESERVE = 1_000 ether;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
         toweli = new MockToweliETHFloor();
         jbac = new MockJBACETHFloor();
         weth = new MockWETHETHFloor();
@@ -168,6 +185,9 @@ contract TegridyLending_ETHFloorTest is Test {
         MockFactoryForTWAP fac = new MockFactoryForTWAP();
         fac.tagPair(address(pair));
         twap = new TegridyTWAP(address(fac), address(0));
+        // FRESH-2026 TEST REALIGN: TegridyTWAP.update() now enforces MIN_UPDATE_FEE (1e14)
+        // by default. Disable so legacy update() calls without {value:} still work.
+        twap.setUpdateFee(0);
         twap.update(address(pair));
         skip(16 minutes);
         twap.update(address(pair));
@@ -186,14 +206,16 @@ contract TegridyLending_ETHFloorTest is Test {
         // sub-DEVIATION_BYPASS_AFTER (1 day) windows and refresh the TWAP between
         // each so `lastBypassUsed` stays zero — the new TWAP-bypass cooldown gate in
         // `_positionETHValue` (TWAP_PERIOD * 2) would otherwise fire.
+        // FRESH-2026 TEST REALIGN: F-24-1 — `update()` now flags `bypassed = true`
+        // when `elapsedSinceLastPairTouch > MAX_BRIDGING_GAP` (2h). We pair `sync()`
+        // each TWAP update with a fresh pair touch so the bridging-gap path stays
+        // dormant; otherwise every post-22h update would stamp `lastBypassUsed` and
+        // the TWAP_PERIOD*2 cooldown in lending._positionETHValue would fire.
         lendingAdmin.proposeAcceptedCollateral(address(staking), true);
         // Span 48h + 1s in two ~22h hops so neither hop trips the dormancy bypass.
-        skip(22 hours);
-        twap.update(address(pair));
-        skip(22 hours);
-        twap.update(address(pair));
-        skip(4 hours + 1);
-        twap.update(address(pair));
+        skip(22 hours); pair.sync(); twap.update(address(pair));
+        skip(22 hours); pair.sync(); twap.update(address(pair));
+        skip(4 hours + 1); pair.sync(); twap.update(address(pair));
         lendingAdmin.executeAcceptedCollateral();
 
         // Fund alice and have her stake for a collateral position.
@@ -205,12 +227,14 @@ contract TegridyLending_ETHFloorTest is Test {
         vm.stopPrank();
 
         // Skip past the staking NFT transfer cooldown. Chunk again so bypass stays unset.
-        skip(22 hours);
-        twap.update(address(pair));
-        skip(3 hours);
-        twap.update(address(pair));
-        skip(16 minutes);
-        twap.update(address(pair));
+        skip(22 hours); pair.sync(); twap.update(address(pair));
+        skip(3 hours); pair.sync(); twap.update(address(pair));
+        skip(16 minutes); pair.sync(); twap.update(address(pair));
+
+        // FRESH-2026 TEST REALIGN: skip past TWAP_PERIOD*2 (60 min) so the
+        // self-bootstrap-grace lastBypassUsed stamp from the first 3 obs has elapsed.
+        // Then refresh once more (with sync so bridging-gap doesn't re-stamp).
+        skip(61 minutes); pair.sync(); twap.update(address(pair));
 
         vm.prank(alice);
         staking.approve(address(lending), aliceTokenId);
@@ -407,11 +431,14 @@ contract TegridyLending_ETHFloorTest is Test {
         MockFactoryForTWAP inverseFac = new MockFactoryForTWAP();
         inverseFac.tagPair(address(inversePair));
         TegridyTWAP inverseTwap = new TegridyTWAP(address(inverseFac), address(0));
-        inverseTwap.update(address(inversePair));
+        // FRESH-2026 TEST REALIGN: TegridyTWAP.update() now enforces MIN_UPDATE_FEE (1e14)
+        // by default; disable so legacy update() calls without {value:} still work.
+        inverseTwap.setUpdateFee(0);
+        inversePair.sync(); inverseTwap.update(address(inversePair));
         skip(16 minutes);
-        inverseTwap.update(address(inversePair));
+        inversePair.sync(); inverseTwap.update(address(inversePair));
         skip(30 minutes);
-        inverseTwap.update(address(inversePair));
+        inversePair.sync(); inverseTwap.update(address(inversePair));
 
         TegridyLending inverseLending = new TegridyLending(
             treasury,
@@ -429,12 +456,13 @@ contract TegridyLending_ETHFloorTest is Test {
         // refresh the inverse-pair TWAP through the 48h timelock so neither the
         // dormancy-bypass cooldown nor the staleness gate trip in `_positionETHValue`.
         inverseLendingAdmin.proposeAcceptedCollateral(address(staking), true);
-        skip(22 hours);
-        inverseTwap.update(address(inversePair));
-        skip(22 hours);
-        inverseTwap.update(address(inversePair));
-        skip(4 hours + 1);
-        inverseTwap.update(address(inversePair));
+        // FRESH-2026 TEST REALIGN: F-24-1 — sync() so MAX_BRIDGING_GAP doesn't trip.
+        skip(22 hours); inversePair.sync(); inverseTwap.update(address(inversePair));
+        skip(22 hours); inversePair.sync(); inverseTwap.update(address(inversePair));
+        skip(4 hours + 1); inversePair.sync(); inverseTwap.update(address(inversePair));
+        // Skip past TWAP_PERIOD*2 (60 min) so any earlier self-bootstrap-grace
+        // lastBypassUsed stamps have elapsed before the test runs.
+        skip(61 minutes); inversePair.sync(); inverseTwap.update(address(inversePair));
         inverseLendingAdmin.executeAcceptedCollateral();
 
         // Re-approve alice's NFT onto the new lending contract.

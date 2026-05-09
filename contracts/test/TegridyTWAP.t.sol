@@ -28,6 +28,8 @@ contract TegridyTWAPTest is Test {
     address public alice = makeAddr("alice");
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
         // Deploy factory
         factory = new TegridyFactory(address(this), address(this), address(this)); // F-30-9 initial guardian
         factory.proposeFeeToChange(feeTo);
@@ -56,6 +58,9 @@ contract TegridyTWAPTest is Test {
         // AUDIT R014: TegridyTWAP constructor now takes (factory, sequencerFeed). The
         // factory binding lets `update()` reject forged-pair addresses via factory.isPair.
         twap = new TegridyTWAP(address(factory), address(0));
+        // FRESH-2026 TEST REALIGN: TegridyTWAP.update() now enforces MIN_UPDATE_FEE (1e14)
+        // by default. Disable so legacy update() calls without {value:} still work.
+        twap.setUpdateFee(0);
 
         // Give alice tokens for swaps
         tokenA.transfer(alice, 10_000 ether);
@@ -76,6 +81,12 @@ contract TegridyTWAPTest is Test {
 
     function _seedObservations(uint256 count, uint256 interval) internal {
         for (uint256 i = 0; i < count; i++) {
+            // FRESH-2026 TEST REALIGN: F-24-1 — pair.sync() each iteration so the
+            // bridging-gap (2h) defense doesn't auto-flag every observation as
+            // bypassed when intervals span >2h. Without this, max-period tests
+            // (48 obs * 15min = 12h) auto-bypass every slot and consult reverts
+            // OracleRebootstrapping.
+            pair.sync();
             twap.update(address(pair));
             if (i < count - 1) {
                 vm.warp(block.timestamp + interval);

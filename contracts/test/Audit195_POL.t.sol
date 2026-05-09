@@ -131,6 +131,9 @@ contract Audit195POL is Test {
     address public bob = makeAddr("bob");
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerFeedNotConfigured guard now reverts
+        // when feed=address(0) on chainid != 1. Set mainnet chainid for no-op path.
+        vm.chainId(1);
         vm.warp(30 days);
         owner = address(this);
         toweli = new MockToweli195();

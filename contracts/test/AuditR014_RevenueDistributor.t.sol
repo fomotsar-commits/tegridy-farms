@@ -177,8 +177,12 @@ contract AuditR014_RevenueDistributorTest is Test {
     }
 
     function test_autoReconcileDust_routesDustForwardAfterGrace() public {
+        // FRESH-2026 TEST REALIGN: F-12-K-3 — dust no longer flows into the
+        // destination epoch's `totalETH`; it now lands in `protocolDustPool` and
+        // becomes sweepable via the 48h-timelocked owner sweep path. The fairness
+        // fix prevents racing-claimer advantages on the latest epoch.
         // Distribute 2 ETH at t=t0, wait > DUST_RECLAIM_GRACE, distribute another 2 ETH.
-        // DEEP-DR-M-01: DUST_RECLAIM_GRACE was bumped from 7d → 14d.
+        // DEEP-DR-M-01: DUST_RECLAIM_GRACE was bumped from 7d to 14d.
         _distribute(2 ether); // epoch 0: 2 ETH
         vm.warp(block.timestamp + dist.DUST_RECLAIM_GRACE() + 1);
         _distribute(2 ether); // epoch 1: 2 ETH (destination)
@@ -186,15 +190,18 @@ contract AuditR014_RevenueDistributorTest is Test {
         // Snapshot the destination epoch's totalETH BEFORE reconcile.
         (uint256 destETHBefore, , ) = dist.getEpoch(1);
         assertEq(destETHBefore, 2 ether);
+        uint256 dustPoolBefore = dist.protocolDustPool();
 
         // No claims happened on epoch 0 → entire 2 ETH is "dust" (above MIN_DUST_RECONCILE = 0.01).
         (uint256 reclaimed, uint256 processed) = dist.autoReconcileDust();
         assertEq(reclaimed, 2 ether, "all of epoch 0 reclaimed");
         assertEq(processed, 1, "one epoch processed");
 
-        // Destination epoch totalETH inflated by reclaimed amount.
+        // Destination epoch totalETH unchanged (dust no longer routed forward).
         (uint256 destETHAfter, , ) = dist.getEpoch(1);
-        assertEq(destETHAfter, destETHBefore + 2 ether, "dust routed forward");
+        assertEq(destETHAfter, destETHBefore, "dest epoch totalETH unchanged");
+        // Dust accumulates into the protocol dust pool instead.
+        assertEq(dist.protocolDustPool(), dustPoolBefore + 2 ether, "dust routed to protocolDustPool");
 
         // epochClaimed[0] now equals epoch 0's totalETH → no further claims possible there.
         assertEq(dist.epochClaimed(0), 2 ether);

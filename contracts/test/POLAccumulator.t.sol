@@ -119,6 +119,10 @@ contract POLAccumulatorTest is Test {
     address public treasuryAddr = makeAddr("treasury");
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: contracts now revert SequencerFeedNotConfigured()
+        // when feed=address(0) AND chainid != 1. Set chainid to mainnet (1) so the
+        // mainnet no-op path engages — these tests don't exercise the L2 sequencer feed.
+        vm.chainId(1);
         // Warp to a comfortable baseline so SNAPSHOT/lookback math doesn't underflow
         // and the TWAP observation timestamp can be set "now" cleanly.
         vm.warp(30 days);

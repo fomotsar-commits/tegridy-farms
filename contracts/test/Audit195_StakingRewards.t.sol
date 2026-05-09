@@ -583,24 +583,28 @@ contract Audit195StakingRewards is Test {
 
     /// @notice updateRewards caps reward to available balance minus reserved
     function test_updateRewards_capsToBalance() public {
-        // MAX_REWARD_RATE is 100e18, use that as a high rate
-        TegridyStaking s2 = new TegridyStaking(address(token), address(nft), treasury, 100 ether);
+        // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened from 100e18 to 1e18.
+        // notifyRewardAmount enforces MIN_NOTIFY_AMOUNT = 1000 ether (audit #61).
+        // Use 1 ether/sec rate; pool sized at 1100 ether (above MIN_NOTIFY_AMOUNT)
+        // — accrual at 1/s × 100s × 1.x boost still vastly outstrips the pool, so
+        // the cap-to-balance path remains exercised.
+        TegridyStaking s2 = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
         token.approve(address(s2), type(uint256).max);
-        s2.notifyRewardAmount(2000 ether); // very small fund with high rate
+        s2.notifyRewardAmount(1100 ether);
 
         vm.prank(bob); token.approve(address(s2), type(uint256).max);
         vm.prank(bob); s2.stake(1000 ether, MIN_LOCK);
 
         uint256 tokenId = s2.userTokenId(bob);
 
-        // 100 seconds at 100/s = 10000 needed, only 1000 in pool
-        vm.warp(block.timestamp + 100);
+        // 5000 seconds at 1/s = 5000 ether needed; pool funded only 1100 ether.
+        vm.warp(block.timestamp + 5000);
 
         vm.prank(bob);
         uint256 claimed = s2.getReward(tokenId);
 
         // Claimed should not exceed what was available in reward pool
-        uint256 maxPossible = 2000 ether;
+        uint256 maxPossible = 1100 ether;
         assertLe(claimed, maxPossible, "Claimed must not exceed pool");
     }
 

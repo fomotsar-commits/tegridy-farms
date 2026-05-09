@@ -133,6 +133,9 @@ contract FinalAuditPOLPremium is Test {
     address public attacker = makeAddr("attacker");
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: feed=address(0) only no-ops on chainid==1 now;
+        // mainnet for sequencer no-op path.
+        vm.chainId(1);
         // Stable baseline well past 0 so SNAPSHOT_LOOKBACK / cooldown math works.
         // Use absolute target timestamps to avoid via_ir's aggressive caching of
         // block.timestamp across vm.warp boundaries within a single function.

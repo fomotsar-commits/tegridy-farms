@@ -304,6 +304,8 @@ contract PASS7_INV_A_LendingExtSolvency is Test {
     uint256[] internal tokenIds;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
         toweli = new InvP7A_Toweli();
         jbac = new InvP7A_JBAC();
         weth = new InvP7A_WETH();

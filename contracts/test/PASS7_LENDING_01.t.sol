@@ -173,6 +173,8 @@ contract PASS7_LENDING_01_AcceptOfferNoOpTest is Test {
     uint256 bobTokenId;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
         vm.warp(1_700_000_000);
 
         toweli = new PASS7_LENDING_01_MockToweli();

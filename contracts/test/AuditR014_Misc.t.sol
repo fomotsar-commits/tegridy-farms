@@ -271,8 +271,8 @@ contract AuditR014_FeeHookTest is Test {
     }
 
     function _setAccrued(address t, uint256 amt) internal {
-        // accruedFees mapping at slot 7 (matches existing tests in TegridyFeeHook.t.sol).
-        bytes32 s = keccak256(abi.encode(t, uint256(7)));
+        // FRESH-2026 TEST REALIGN: accruedFees moved from slot 7 to slot 9 (storage layout shift).
+        bytes32 s = keccak256(abi.encode(t, uint256(9)));
         vm.store(address(hook), s, bytes32(amt));
     }
 

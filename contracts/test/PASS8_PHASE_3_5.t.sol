@@ -95,6 +95,8 @@ contract PASS8_PHASE_3_5 is Test {
     uint256 aliceTokenId;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
         vm.warp(1_700_000_000);
 
         toweli = new P35_Toweli();
@@ -112,6 +114,9 @@ contract PASS8_PHASE_3_5 is Test {
         P35_FactoryForTWAP fac = new P35_FactoryForTWAP();
         fac.tagPair(address(pair));
         twap = new TegridyTWAP(address(fac), address(0));
+        // FRESH-2026 TEST REALIGN: TegridyTWAP.update() now enforces MIN_UPDATE_FEE (1e14)
+        // by default; disable so legacy update() calls without {value:} still work.
+        twap.setUpdateFee(0);
         twap.update(address(pair));
         skip(16 minutes);
         twap.update(address(pair));

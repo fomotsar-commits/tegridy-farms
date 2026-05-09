@@ -115,10 +115,11 @@ contract AuditR014_VoteIncentivesTest is Test {
         bribes.setVoteIncentivesAdmin(address(bribesAdmin));
 
         // BATCH-F H14: commitRevealEnabled defaults to true. The legacy-epoch
-        // tests need the flag OFF at deploy. Slot 10 = the flag (forge inspect).
+        // tests need the flag OFF at deploy.
+        // FRESH-2026 TEST REALIGN: storage layout shifted, commitRevealEnabled at slot 11 not 10.
         // Tests that need the commit-reveal branch flip it back on via the
         // timelock path mid-test.
-        vm.store(address(bribes), bytes32(uint256(10)), bytes32(uint256(0)));
+        vm.store(address(bribes), bytes32(uint256(11)), bytes32(uint256(0)));
 
         // Whitelist bribeToken via the timelock flow.
         bribesAdmin.proposeWhitelistChange(address(bribeToken), true);

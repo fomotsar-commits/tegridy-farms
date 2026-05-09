@@ -173,8 +173,9 @@ contract VoteIncentivesTest is Test {
         // exercise the older `vote()` path which reverts `LegacyVoteOnCommitRevealEpoch`
         // on commit-reveal epochs. Force-disable for those tests; the `_enableCommitReveal`
         // helper re-enables for the dedicated commit-reveal tests.
-        // Slot 10 is `commitRevealEnabled` (verified via forge inspect storageLayout).
-        vm.store(address(vi), bytes32(uint256(10)), bytes32(uint256(0)));
+        // FRESH-2026 TEST REALIGN: storage layout shifted (ownershipTransferExpiresAt added),
+        // commitRevealEnabled now at slot 11 not 10. Verified via forge inspect storage-layout.
+        vm.store(address(vi), bytes32(uint256(11)), bytes32(uint256(0)));
 
         // Fund alice and bob
         bribeToken.transfer(alice, 100_000e18);
@@ -659,7 +660,8 @@ contract VoteIncentivesTest is Test {
         // force-disables for legacy-vote test compatibility; we flip it back on
         // here via the same direct storage write so the new epoch is commit-reveal.
         // (Pre-fix this called proposeEnableCommitReveal → wait 24h → execute.)
-        vm.store(address(vi), bytes32(uint256(10)), bytes32(uint256(1)));
+        // FRESH-2026 TEST REALIGN: slot 10 → 11 (storage layout shifted).
+        vm.store(address(vi), bytes32(uint256(11)), bytes32(uint256(1)));
         vi.advanceEpoch();
         epochId = vi.epochCount() - 1;
         // epochs[epochId].timestamp = block.timestamp - 1 (set in advanceEpoch).
@@ -962,10 +964,11 @@ contract VoteIncentivesTest is Test {
 
     /// @dev BATCH-F H14: commitRevealEnabled is true at deploy. To exercise the
     ///      propose/execute admin-recovery path we have to simulate the disabled
-    ///      state via a direct storage write. Slot 10 is `commitRevealEnabled`
-    ///      (verified via `forge inspect VoteIncentives storageLayout`).
+    ///      state via a direct storage write.
+    /// @dev FRESH-2026 TEST REALIGN: storage layout shifted (ownershipTransferExpiresAt
+    ///      added by audit fix), commitRevealEnabled now at slot 11.
     function _forceDisableCommitReveal() internal {
-        vm.store(address(vi), bytes32(uint256(10)), bytes32(uint256(0)));
+        vm.store(address(vi), bytes32(uint256(11)), bytes32(uint256(0)));
         require(!vi.commitRevealEnabled(), "force-disable failed");
     }
 

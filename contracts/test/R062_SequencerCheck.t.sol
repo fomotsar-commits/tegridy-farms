@@ -106,32 +106,46 @@ contract R062SequencerCheckTest is Test {
         seq = new MockSequencerFeed(0, block.timestamp - 7 days);
         // AUDIT R014: TegridyTWAP constructor now takes (factory, sequencerFeed).
         twap = new TegridyTWAP(address(factory), address(seq));
+        // FRESH-2026 TEST REALIGN: TegridyTWAP.update() enforces MIN_UPDATE_FEE (1e14)
+        // by default; disable so the bootstrap loop's update() calls work without {value:}.
+        twap.setUpdateFee(0);
 
         // No-feed twap to confirm address(0) â†’ no-op (mainnet posture).
         twapNoFeed = new TegridyTWAP(address(factory), address(0));
+        twapNoFeed.setUpdateFee(0);
 
         // Bootstrap 2 observations on each TWAP so consult() is callable.
         _bootstrap(twap);
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on
+        // chainid != 1. Set mainnet specifically while bootstrapping the no-feed TWAP
+        // (the actual sequencer-down tests below run on the live `twap` with mock feed).
+        uint256 priorChainId = block.chainid;
+        vm.chainId(1);
         _bootstrap(twapNoFeed);
+        vm.chainId(priorChainId);
 
         tokenA.transfer(alice, 1_000 ether);
         tokenB.transfer(alice, 1_000 ether);
     }
 
     function _bootstrap(TegridyTWAP _twap) internal {
-        // BATCH-M3 H7: obs 1, 2, 3 are now self-bootstrap-bypassed. Seed â‰¥5 obs
+        // BATCH-M3 H7: obs 1, 2, 3 are now self-bootstrap-bypassed. Seed >=5 obs
         // so the 15-min consult anchor can land on a non-bypass slot. Pre-fix
         // only obs#1 was bypassed; H7 now bypasses #2 and #3 as well to give the
         // oracle a 3-slot self-correction window before deviation enforcement.
-        _twap.update(address(pair));               // #1 bypassed bootstrap
+        // FRESH-2026 TEST REALIGN: F-24-1 — pair.sync() before each TWAP update so
+        // `elapsedSinceLastPairTouch` stays under MAX_BRIDGING_GAP (2h); otherwise
+        // observations get auto-flagged `bypassed = true` after the second bootstrap
+        // pass and the latest-bypass guard reverts every consult.
+        pair.sync(); _twap.update(address(pair));               // #1 bypassed bootstrap
         skip(16 minutes);
-        _twap.update(address(pair));               // #2 bypassed (self-bootstrap grace)
+        pair.sync(); _twap.update(address(pair));               // #2 bypassed (self-bootstrap grace)
         skip(16 minutes);
-        _twap.update(address(pair));               // #3 bypassed (self-bootstrap grace)
+        pair.sync(); _twap.update(address(pair));               // #3 bypassed (self-bootstrap grace)
         skip(16 minutes);
-        _twap.update(address(pair));               // #4 non-bypass
+        pair.sync(); _twap.update(address(pair));               // #4 non-bypass
         skip(16 minutes);
-        _twap.update(address(pair));               // #5 non-bypass (latest)
+        pair.sync(); _twap.update(address(pair));               // #5 non-bypass (latest)
     }
 
     // â”€â”€â”€ Mainnet posture (no-op) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -140,7 +154,10 @@ contract R062SequencerCheckTest is Test {
     ///         non-L2), `consult()` MUST behave identically to the pre-R062
     ///         baseline: returns the standard TWAP value, never reverts on
     ///         sequencer state because no feed is even read.
-    function test_R062_mainnetNoFeed_consultPasses() public view {
+    function test_R062_mainnetNoFeed_consultPasses() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on
+        // chainid != 1. Pin to mainnet for the no-feed mainnet posture under test.
+        vm.chainId(1);
         uint256 amountOut = twapNoFeed.consult(
             address(pair), address(tokenA), 1 ether, 15 minutes
         );
@@ -202,10 +219,12 @@ contract R062SequencerCheckTest is Test {
         // Simulate outage that resumed exactly GRACE seconds ago, then re-seed so
         // the anchor observation lands AFTER `resumeAt + GRACE`.
         seq.setStatus(0, block.timestamp - GRACE);
-        skip(16 minutes);
-        twap.update(address(pair));
-        skip(16 minutes);
-        twap.update(address(pair));
+        // FRESH-2026 TEST REALIGN: F-24-1 — pair.sync() before each TWAP update so
+        // `elapsedSinceLastPairTouch` stays under MAX_BRIDGING_GAP (2h); otherwise
+        // observations get auto-flagged `bypassed = true` and consult reverts
+        // OracleRebootstrapping when the latest is bypassed.
+        skip(16 minutes); pair.sync(); twap.update(address(pair));
+        skip(16 minutes); pair.sync(); twap.update(address(pair));
 
         uint256 amountOut = twap.consult(
             address(pair), address(tokenA), 1 ether, 15 minutes

@@ -350,6 +350,9 @@ contract AuditR014_POLTest is Test {
     ///         with the standard staleness check only. Confirms the H-6 fix does
     ///         not regress mainnet behavior.
     function test_R014_accumulate_mainnetPostureUnchanged() public {
+        // FRESH-2026 TEST REALIGN: feed=address(0) only no-ops on chainid==1 now;
+        // explicitly set mainnet to test the "mainnet posture unchanged" semantic.
+        vm.chainId(1);
         // Re-deploy POL with no sequencer feed. The mock TWAP / router / lp are
         // reusable; we only swap the sequencer wiring.
         POLAccumulator polNoFeed = new POLAccumulator(

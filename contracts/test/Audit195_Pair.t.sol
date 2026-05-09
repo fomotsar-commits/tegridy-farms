@@ -280,15 +280,13 @@ contract Audit195Pair is Test {
     // AUDIT NEW-I4: Pair now uses distinct revert strings so indexers can tell the
     // two `INVALID_TO` branches apart â€” `INVALID_TO_ZERO_OR_SELF` for address(0)
     // and address(this), `INVALID_TO_IS_TOKEN` for token0/token1.
-    function test_F7_swap_toToken0Reverts() public {
-        _addLiquidity(alice, 100_000 ether, 100_000 ether);
-
-        vm.startPrank(bob);
-        token0.transfer(address(pair), 1_000 ether);
-        vm.expectRevert(bytes("INVALID_TO_IS_TOKEN"));
-        pair.swap(0, 900 ether, address(token0), "");
-        vm.stopPrank();
-    }
+    // FRESH-2026 TEST REALIGN: F-31-D — the `to != token0/token1` check is now
+    // narrowed to the OUTPUT side only (input-side address-collision was a false-
+    // positive that blocked legitimate integrations). The test below was deleted:
+    // the previous behavior (blocking `to == input token` when receiving the OTHER
+    // token) is no longer the contract's invariant. The companion test
+    // `test_F7_swap_toToken1Reverts` (output-side check) is preserved and still
+    // validates the security-relevant invariant.
 
     function test_F7_swap_toToken1Reverts() public {
         _addLiquidity(alice, 100_000 ether, 100_000 ether);
@@ -644,8 +642,18 @@ contract Audit195Pair is Test {
     function test_F19_mintFee_protocolGets1Sixth() public {
         _addLiquidity(alice, 100_000 ether, 100_000 ether);
 
+        // FRESH-2026 TEST REALIGN: F-31-A / H-7 — kLast is no longer bootstrapped by
+        // mint() (closes the K-anchor manipulation vector). Only `harvest()`
+        // (feeToSetter-gated) seeds the first kLast. Bootstrap here so subsequent
+        // swaps + mint() can materialise a protocol fee against a non-zero baseline.
+        skip(pair.HARVEST_INTERVAL() + 1);
+        // Cleanup-path harvest reverts NO_FEE_TO_MATERIALIZE on a bootstrap call when
+        // no swaps yet exist; we run a small swap first so K grows above the implicit
+        // baseline before bootstrapping kLast.
+        _swapExact0For1(bob, 1 ether);
+        pair.harvest();
         uint256 kBefore = pair.kLast();
-        assertGt(kBefore, 0, "kLast set after first mint with feeTo");
+        assertGt(kBefore, 0, "kLast set after harvest bootstrap");
 
         // Do several swaps to accumulate fees
         for (uint256 i = 0; i < 20; i++) {

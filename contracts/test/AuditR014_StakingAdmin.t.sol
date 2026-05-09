@@ -49,6 +49,11 @@ contract AuditR014_StakingAdminTest is Test {
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
 
+        // FRESH-2026 TEST REALIGN: proposeRestakingContract now requires the address
+        // to have non-zero, non-23-byte code (rejects EOAs / EIP-7702). Etch the
+        // restaker EOA with non-empty bytecode so the contract-only check passes.
+        if (restaker.code.length == 0) vm.etch(restaker, hex"60006000fd");
+
         token.transfer(alice, 1_000_000 ether);
         token.transfer(bob, 1_000_000 ether);
 
@@ -160,14 +165,16 @@ contract AuditR014_StakingAdminTest is Test {
         staking.executeAdminReplacement();
 
         // ── New admin contract: end-to-end timelocked rewardRate change works.
-        replacement.proposeRewardRate(2 ether);
+        // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened from 100e18 to 1e18.
+        replacement.proposeRewardRate(0.6 ether);
         vm.warp(block.timestamp + replacement.REWARD_RATE_TIMELOCK());
         replacement.executeRewardRateChange();
-        assertEq(staking.rewardRate(), 2 ether, "new admin path applies");
+        assertEq(staking.rewardRate(), 0.6 ether, "new admin path applies");
 
         // ── Old admin contract is no longer wired: its execute*Change cannot
         //    apply because TegridyStaking's onlyAdmin gate now rejects it.
-        oldAdmin.proposeRewardRate(3 ether);
+        // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether.
+        oldAdmin.proposeRewardRate(0.7 ether);
         vm.warp(block.timestamp + oldAdmin.REWARD_RATE_TIMELOCK());
         vm.expectRevert(TegridyStaking.Unauthorized.selector);
         oldAdmin.executeRewardRateChange();

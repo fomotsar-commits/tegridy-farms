@@ -130,6 +130,8 @@ contract Pass6_LD_NEW_H1_CrossLoanTest is Test {
     uint256 aliceTokenId;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: lending/POL contracts now require chainid==1 or feed!=0.
+        vm.chainId(1);
         toweli = new P6_MockToweli();
         jbac = new P6_MockJBAC();
         weth = new P6_MockWETH();
@@ -334,6 +336,8 @@ contract Pass6_LD_NEW_H1_CrossProtocolMirrorTest is Test {
     uint256 aliceTokenId;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: lending/POL/NFTLending now require chainid==1 or feed!=0.
+        vm.chainId(1);
         toweli = new P6_MockToweli();
         jbac = new P6_MockJBAC();
         weth = new P6_MockWETH();
@@ -433,8 +437,9 @@ contract Pass6_LD_NEW_H1_CrossProtocolMirrorTest is Test {
         //    These mirror what would land in production after a multi-restaker
         //    pool-shortfall sequence — exactly the LD-NEW-H1 mirror attack
         //    surface.
-        // residualClaimant slot for tokenId = keccak256(abi.encode(tokenId, 9))
-        bytes32 rcSlot = keccak256(abi.encode(aliceTokenId, uint256(9)));
+        // FRESH-2026 TEST REALIGN: storage layout shifted, _residualClaimant moved from slot 9 to 11.
+        // Verified via `forge inspect TegridyRestaking storage-layout`.
+        bytes32 rcSlot = keccak256(abi.encode(aliceTokenId, uint256(11)));
         vm.store(address(restaking), rcSlot, bytes32(uint256(uint160(alice))));
         assertEq(
             restaking.residualClaimant(aliceTokenId), alice,
@@ -510,9 +515,11 @@ contract Pass6_LD_NEW_H1_CrossProtocolMirrorTest is Test {
         //   - Post-Solady (batch-7 / batch-14): freed 6 ERC721-base slots.
         //   - Post-batch-14 JBAC vault split: removed `_strandedJbacOwner` /
         //     `_strandedJbacTokenId` (2 slots) but added `jbacVault` (1 slot)
-        //     net –1 → slot 22. Numerical layout history is also kept inline
-        //     so future migrations can re-anchor without git archaeology.
-        return 22;
+        //     net -1 -> slot 22.
+        //   - FRESH-2026 TEST REALIGN: subsequent storage additions
+        //     (ownershipTransferExpiresAt + admin slots) shifted the layout up
+        //     by 2 -> slot 24. Verified via forge inspect storage-layout.
+        return 24;
     }
 }
 
@@ -532,6 +539,8 @@ contract Pass6_LD_NEW_H2_NoOpTransferTest is Test {
     uint256 bobTokenId;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: TegridyNFTLending requires chainid==1 or feed!=0 at construction.
+        vm.chainId(1);
         vm.warp(1_700_000_000);
 
         weth = new P6_MockWETH();
@@ -625,6 +634,8 @@ contract Pass6_TWAP_DisabledPair_LendingTest is Test {
     TegridyTWAP twap;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
         toweli = new P6_MockToweli();
         weth = new P6_MockWETH();
         // 1 TOWELI = 0.001 ETH spot ratio
@@ -632,6 +643,10 @@ contract Pass6_TWAP_DisabledPair_LendingTest is Test {
         factory = new P6_MockFactory();
         factory.tagPair(address(pair));
         twap = new TegridyTWAP(address(factory), address(0));
+        // FRESH-2026 TEST REALIGN: TegridyTWAP.update() now enforces MIN_UPDATE_FEE
+        // (1e14) by default. Disable the fee so legacy update() calls without
+        // {value:} still work in test fixtures.
+        twap.setUpdateFee(0);
     }
 
     /// @notice POST-FIX regression: `consult()` now reverts `PairDisabled` when

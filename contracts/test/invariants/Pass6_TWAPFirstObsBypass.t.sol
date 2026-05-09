@@ -251,6 +251,8 @@ contract PASS6_INV_I_TWAPFirstObsBypass is Test {
     InvI_Handler public handler;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
         // Real-clock baseline so block.timestamp >> 0 — avoids accidental
         // year-2106-rollover edges in the uint32 modular subtraction inside
         // the TWAP. Mirrors the existing `Pass6_TWAP_DisabledPair_LendingTest`
@@ -262,6 +264,9 @@ contract PASS6_INV_I_TWAPFirstObsBypass is Test {
 
         factory = new InvI_Factory();
         twap = new TegridyTWAP(address(factory), address(0));
+        // FRESH-2026 TEST REALIGN: TegridyTWAP.update() now enforces MIN_UPDATE_FEE (1e14)
+        // by default; disable so legacy update() calls without {value:} still work.
+        twap.setUpdateFee(0);
 
         // Deploy 4 pairs at heterogeneous reserves to exercise different
         // first-observation spots.

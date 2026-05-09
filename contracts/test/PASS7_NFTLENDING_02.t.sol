@@ -77,6 +77,8 @@ contract PASS7_NFTLENDING_02_RemovalRetryDosTest is Test {
     address treasury = makeAddr("treasury");
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: TegridyNFTLending requires chainid==1 OR feed!=0 at construction.
+        vm.chainId(1);
         vm.warp(1_700_000_000);
         weth = new MockWETH_PASS7_NFTL_02();
         nft = new MockERC721_PASS7_NFTL_02();

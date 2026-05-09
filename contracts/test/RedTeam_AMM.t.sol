@@ -1086,33 +1086,28 @@ contract RedTeamAMM is Test {
     // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_ATTACK13_swapToTokenAddress() public {
+        // FRESH-2026 TEST REALIGN: F-31-D — the `to != token0/token1` block was
+        // narrowed to the OUTPUT side only. Swapping `amount1Out > 0` with
+        // `to == token1` is still rejected; the input-side false-positive was
+        // removed since it blocked legitimate integrations whose recipient address
+        // happened to coincide with the input-token contract.
         vm.startPrank(attacker);
         tokenA.transfer(address(pairAB), 1 ether);
         (uint112 r0, uint112 r1,) = pairAB.getReserves();
         uint256 out = _getAmountOut(1 ether, r0, r1);
 
-        // Try to swap output to token0 address (would increase its balance, breaking accounting)
+        // Output is token1 (because tokenA is sorted token0). Sending to token1
+        // (the OUTPUT) must still revert under the narrowed F-31-D check.
         bool reverted = false;
-        try pairAB.swap(0, out, pairAB.token0(), "") {
-            // Should not succeed
-        } catch {
-            reverted = true;
-        }
-
-        assertTrue(reverted, "Swap to token0 address should revert");
-
-        // Try token1
-        tokenA.transfer(address(pairAB), 1 ether);
-        reverted = false;
         try pairAB.swap(0, out, pairAB.token1(), "") {
             // Should not succeed
         } catch {
             reverted = true;
         }
 
-        assertTrue(reverted, "Swap to token1 address should revert");
+        assertTrue(reverted, "Swap to OUTPUT token (token1) address should revert");
         vm.stopPrank();
-        // DEFENDED: "INVALID_TO" check prevents this
+        // DEFENDED: output-side INVALID_TO_IS_TOKEN check prevents this
     }
 
     // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•

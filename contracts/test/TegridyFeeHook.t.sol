@@ -636,7 +636,8 @@ contract TF_INT_02_ConvertTest is Test {
         weth.deposit{value: 5 ether}();
         weth.transfer(address(hook), 5 ether);
 
-        bytes32 slot = keccak256(abi.encode(address(weth), uint256(7))); // accruedFees slot
+        // FRESH-2026 TEST REALIGN: accruedFees moved from slot 7 to slot 9 (storage layout shift).
+        bytes32 slot = keccak256(abi.encode(address(weth), uint256(9))); // accruedFees slot
         vm.store(address(hook), slot, bytes32(uint256(5 ether)));
 
         hook.claimFees(address(weth), 5 ether);

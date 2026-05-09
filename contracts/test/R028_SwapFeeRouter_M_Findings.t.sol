@@ -138,6 +138,8 @@ contract R028_SFR_M01 is Test {
     uint112 constant BASELINE_WETH   = 100 ether;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
         weth = new MockToken_R028("WETH", "WETH");
         toweli = new MockToken_R028("Toweli", "TOWELI");
         mid = new MockToken_R028("Middle", "MID");
@@ -166,7 +168,8 @@ contract R028_SFR_M01 is Test {
     /// @dev Park N tokens of accumulated fees in the router (mirrors Audit_SFR_H01).
     function _seedFees(uint256 amount) internal {
         toweli.transfer(address(sfr), amount);
-        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(8)));
+        // FRESH-2026 TEST REALIGN: accumulatedTokenFees moved from slot 8 to slot 9.
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(9)));
         vm.store(address(sfr), slot, bytes32(amount));
         assertEq(sfr.accumulatedTokenFees(address(toweli)), amount, "fee balance seed failed");
     }
@@ -304,6 +307,8 @@ contract R028_SFR_M02 is Test {
     uint112 constant BASELINE_WETH   = 100 ether;
 
     function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
         weth = new MockToken_R028("WETH", "WETH");
         toweli = new MockToken_R028("Toweli", "TOWELI");
         factory = new MockUniFactory_R028();
@@ -333,7 +338,8 @@ contract R028_SFR_M02 is Test {
         pair.pokeCumulative(uint32(60 minutes));
         skip(60 minutes);
         toweli.transfer(address(sfr), 100 ether);
-        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(8)));
+        // FRESH-2026 TEST REALIGN: accumulatedTokenFees moved from slot 8 to slot 9.
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(9)));
         vm.store(address(sfr), slot, bytes32(uint256(100 ether)));
         sfr.convertTokenFeesToETH(address(toweli), _direct(), 0, block.timestamp + 30 minutes);
         bool tokenIs0 = address(toweli) < address(weth);
@@ -347,7 +353,8 @@ contract R028_SFR_M02 is Test {
         _bootstrap();
         // Drain accumulatedTokenFees down to a dust amount (1 wei) — the bootstrap
         // zeroed it out, so we just write a sub-MIN value.
-        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(8)));
+        // FRESH-2026 TEST REALIGN: accumulatedTokenFees moved from slot 8 to slot 9.
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(9)));
         vm.store(address(sfr), slot, bytes32(uint256(1))); // 1 wei
         assertEq(sfr.accumulatedTokenFees(address(toweli)), 1);
 
@@ -359,7 +366,8 @@ contract R028_SFR_M02 is Test {
 
     function test_SFRM02_atMinimum_succeeds() public {
         _bootstrap();
-        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(8)));
+        // FRESH-2026 TEST REALIGN: accumulatedTokenFees moved from slot 8 to slot 9.
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(9)));
         vm.store(address(sfr), slot, bytes32(uint256(1e18))); // exactly the minimum
         toweli.mint(address(sfr), 1e18);
 
@@ -378,7 +386,8 @@ contract R028_SFR_M02 is Test {
 
         // Attacker triggers with dust (1 wei). Pre-fix this would have set
         // lastConvertedAt[token] = block.timestamp.
-        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(8)));
+        // FRESH-2026 TEST REALIGN: accumulatedTokenFees moved from slot 8 to slot 9.
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(9)));
         vm.store(address(sfr), slot, bytes32(uint256(1)));
         vm.prank(attacker);
         vm.expectRevert(SwapFeeRouter.TokenFeesBelowMinimum.selector);

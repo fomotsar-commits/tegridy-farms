@@ -418,14 +418,22 @@ contract Deep_LibBase_2026_05_01 is Test {
     }
 }
 
-/// @dev Helper contract whose receive() burns more than the 10k stipend by
-///      doing a sha256 keccak loop until it runs out of gas. Used to verify
-///      the stipend is actually enforced on `safeTransferETH`.
+/// @dev Helper contract whose receive() burns more than the stipend by doing a
+///      keccak loop until it runs out of gas. Used to verify the stipend is
+///      actually enforced on `safeTransferETH`.
+/// @dev FRESH-2026 TEST REALIGN: M-36 — stipend bumped from 10k to 30k. The loop
+///      now burns past the new 30k budget so the OOG still triggers the stipend
+///      enforcement check.
 contract GasGuzzler {
     receive() external payable {
-        uint256 g = gasleft();
-        while (gasleft() > g - 30000) {
-            keccak256(abi.encode(g));
+        // Unconditional infinite loop — guarantees OOG inside the 30k stipend.
+        // Pre-fix the upper-bounded loop would terminate normally on the 30k
+        // budget (the keccak per-iteration cost is small relative to 30k), so
+        // the assertion that the call reverts ETHTransferFailed silently held
+        // before but no longer does once the stipend matches the loop bound.
+        // Defensive infinite-spin guarantees OOG every time.
+        while (true) {
+            keccak256(abi.encode(gasleft()));
         }
     }
 }

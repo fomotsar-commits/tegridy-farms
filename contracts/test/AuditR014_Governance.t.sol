@@ -313,7 +313,9 @@ contract AuditR014_GovernanceTest is Test {
     function test_R014H_AbandonedCommitRotationBlocked() public {
         _warpToCommitWindow();
 
-        (address[] memory gauges, uint256[] memory weights) = _ballot(g1, 6000, g2, 4000);
+        // FRESH-2026 TEST REALIGN: BATCH-J4 C4 — per-vote per-gauge cap is 5000 BPS.
+        // Original 6000/4000 split breaks the cap; flip to 5000/5000.
+        (address[] memory gauges, uint256[] memory weights) = _ballot(g1, 5000, g2, 5000);
         uint256 epoch = gauge.currentEpoch();
         bytes32 saltA = keccak256("A");
         bytes32 hashA = gauge.computeCommitment(multiHolder, TOKEN_A, gauges, weights, saltA, epoch);
