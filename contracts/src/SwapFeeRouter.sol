@@ -80,6 +80,17 @@ interface IPremiumAccess {
     function hasPremiumSecure(address user) external view returns (bool);
 }
 
+/// @notice AUDIT FIX FRESH-2026: M-5 [F-06-A] — minimal WETH `withdraw` surface
+///         used by `unwrapAndDistributeWETHFees` to fold WETH-as-input/output
+///         fee accruals into the staker/POL/treasury split path. Mirrors the
+///         WETHFallbackLib `IWETH` shape but only exposes the single function
+///         we need here, so the SwapFeeRouter does not import the full lib
+///         interface for a one-shot call.
+interface ISwapFeeRouterWETH {
+    function withdraw(uint256 amount) external;
+    function balanceOf(address account) external view returns (uint256);
+}
+
 /// @title SwapFeeRouter
 /// @notice Wraps Uniswap V2 swaps with a protocol fee.
 ///         Users swap through this contract instead of directly on Uniswap.
@@ -327,13 +338,21 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         realistic distribution interval).
     uint256 public lastCallerCreditAt;
     /// @notice AUDIT FIX: DEEP-R-L03 — minimum gap between successive
-    ///         `recoverCallerCredit()` calls. 30 seconds matches the typical block
-    ///         window for L1; small enough not to interfere with legitimate keeper
-    ///         bots, large enough to make tight grief loops meaningfully more
-    ///         expensive than the per-call SLOAD floor.
-    /// @dev    AUDIT FIX: DEEP-R2-M03 — semantics changed from per-caller to global;
-    ///         constant value unchanged.
-    uint256 public constant RECOVER_CALLER_CREDIT_COOLDOWN = 30;
+    ///         `recoverCallerCredit()` calls.
+    /// @dev    AUDIT FIX: DEEP-R2-M03 — semantics changed from per-caller to global.
+    /// @dev    AUDIT FIX FRESH-2026: F-67-1 [LOW] — raised from 30 seconds to
+    ///         5 minutes. The original 30s constant was the same magnitude as the
+    ///         worst-case Ethereum L1 validator-skew window (~12s per slot),
+    ///         which technically allowed a hostile proposer to bypass the
+    ///         cooldown after as little as ~16-18s of real time. Bumping to
+    ///         300s puts the cooldown an order of magnitude above every
+    ///         realistic skew envelope while still leaving honest keepers
+    ///         comfortably below typical distribution intervals (hours).
+    ///         No funds at risk pre-fix — the recovered ETH always lands in
+    ///         `accumulatedETHFees` regardless of caller — but tightening
+    ///         removes the lone "validator-skew touches a value-flow gate"
+    ///         observation from the timestamp lens.
+    uint256 public constant RECOVER_CALLER_CREDIT_COOLDOWN = 5 minutes;
 
     // ─── AUDIT FIX: DEEP-R-M06 — TWAP snapshot reset (timelocked) ────────
     /// @notice Token whose `lastConversionSnapshot` will be deleted on execute.
@@ -521,25 +540,131 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     }
 
     /// @notice PASS7-SFR-05 FIX: one-shot owner setter for the L2 sequencer-
-    ///         uptime feed. Reverts after the feed is set so a captured-key
-    ///         attacker cannot swap a benign feed for a controlled one. On
-    ///         mainnet this is never called (feed stays address(0), all
-    ///         SequencerCheck helpers no-op). On an L2 deploy, the owner
-    ///         calls this ONCE in the deployment script.
-    /// @dev    Pattern of record: Aave V3 L2-deploy ACLManager grant pattern —
-    ///         a one-shot post-deploy setter is the standard alternative to a
-    ///         constructor arg when constructor-signature stability is desired.
+    ///         uptime feed. On mainnet this is never called (feed stays
+    ///         address(0), all SequencerCheck helpers no-op). On an L2 deploy,
+    ///         the owner calls this ONCE in the deployment script.
+    /// @dev    AUDIT FIX FRESH-2026: F-46-4 + F-74-1 + F-79-1 + F-60-2 —
+    ///         genuine-contract enforcement (`code.length > 0 && != 23`). The
+    ///         non-zero check accepts EOAs and 7702-delegated EOAs whose 23-byte
+    ///         delegation pointer wraps an arbitrary delegate; a typo or
+    ///         phished call to `setSequencerFeed(0x<wrong>)` would otherwise
+    ///         brick every conversion path forever. Pattern matches
+    ///         `OwnableNoRenounce._transferOwnership`.
+    /// @dev    AUDIT FIX FRESH-2026: F-06-F — the one-shot semantics survive
+    ///         here, but the sister `proposeSequencerFeedRotation` /
+    ///         `executeSequencerFeedRotation` triplet below now provides a
+    ///         7-day timelocked rotation path. Pre-fix, an L2 deploy script
+    ///         that wired the wrong feed (Optimism feed on a Base deploy,
+    ///         deprecated address, mocked feed left in production) was
+    ///         permanently bricked: the conversion pipeline either reverted
+    ///         on every call (good feed paused on the wrong chain → DoS) or
+    ///         silently lost outage protection. The 7-day timelock matches
+    ///         `ADMIN_REPLACEMENT_TIMELOCK` and is parameter-meaningful: any
+    ///         malicious key swap is observable for a week before it can land.
     function setSequencerFeed(address _feed) external onlyOwner {
-        if (sequencerFeed != address(0)) revert ZeroAddress(); // already set, can't change
+        if (sequencerFeed != address(0)) revert ZeroAddress(); // already set, use rotation flow
         if (_feed == address(0)) revert ZeroAddress();
+        // AUDIT FIX FRESH-2026: F-46-4 + F-74-1 + F-79-1 + F-60-2 — reject
+        // EOAs and EIP-7702-delegated EOAs (code.length == 23 is the canonical
+        // 0xef0100‖addr delegation pointer). Defends against deploy-script
+        // typo + 7702 social-engineering aliasing of an EOA as "Contract" on
+        // block explorers.
+        uint256 codeLen = _feed.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
         sequencerFeed = _feed;
         emit SequencerFeedSet(_feed);
     }
 
     /// @notice Emitted once when the owner sets the L2 sequencer-uptime feed
-    ///         post-deploy. After this fires, `setSequencerFeed` cannot be
-    ///         called again.
+    ///         post-deploy.
     event SequencerFeedSet(address indexed feed);
+
+    // ─── AUDIT FIX FRESH-2026: F-06-F — Timelocked sequencer feed rotation ──
+    /// @notice Timelock key for the sequencer-feed rotation flow.
+    bytes32 public constant SEQUENCER_FEED_ROTATION = keccak256("SFR_SEQUENCER_FEED_ROTATION");
+    /// @notice 7-day delay between propose and execute for a sequencer feed swap.
+    ///         Parity with `ADMIN_REPLACEMENT_TIMELOCK` so any feed swap is
+    ///         observable for a week before it can land — the same defence
+    ///         the legacy "one-shot" comment claimed but did not actually deliver.
+    uint256 public constant SEQUENCER_FEED_ROTATION_TIMELOCK = 7 days;
+
+    /// @notice Pending replacement sequencer feed address. Zero when no
+    ///         proposal is pending.
+    address public pendingSequencerFeed;
+    /// @notice block.timestamp after which `executeSequencerFeedRotation` is
+    ///         callable. Zero when no proposal is pending.
+    uint256 public sequencerFeedRotationReadyAt;
+
+    /// @notice AUDIT FIX FRESH-2026: F-06-F — sequencer feed rotation lifecycle
+    ///         events. Off-chain monitors should alert on
+    ///         `SequencerFeedRotationProposed` so a one-week observation window
+    ///         is preserved before any swap can land.
+    event SequencerFeedRotationProposed(address indexed newFeed, uint256 executeAfter);
+    event SequencerFeedRotationExecuted(address indexed oldFeed, address indexed newFeed);
+    event SequencerFeedRotationCancelled(address indexed proposed);
+
+    /// @notice AUDIT FIX FRESH-2026: F-06-F — `proposeSequencerFeedRotation`
+    ///         called when no proposal is pending OR while one is pending.
+    error SequencerFeedRotationUnavailable();
+
+    /// @notice AUDIT FIX FRESH-2026: F-46-4 + F-74-1 + F-79-1 + F-60-2 — feed
+    ///         must be a genuine contract. Mirrors `setSequencerFeed`'s
+    ///         constructor-time check on the rotation path.
+    error NotAContract();
+
+    /// @notice Propose a replacement sequencer-uptime feed. Reverts if no
+    ///         feed is set yet — the first-time installation path is
+    ///         `setSequencerFeed`. The 7-day timelock matches
+    ///         `ADMIN_REPLACEMENT_TIMELOCK` so a captured-key attacker cannot
+    ///         silently swap a benign feed for a controlled one.
+    /// @dev    AUDIT FIX FRESH-2026: F-06-F — pattern of record:
+    ///         `proposeAdminReplacement` / `executeAdminReplacement` on this
+    ///         contract.
+    function proposeSequencerFeedRotation(address _newFeed) external onlyOwner {
+        if (_newFeed == address(0)) revert ZeroAddress();
+        if (sequencerFeed == address(0)) revert SequencerFeedRotationUnavailable(); // use setSequencerFeed first
+        if (sequencerFeedRotationReadyAt != 0) revert SequencerFeedRotationUnavailable(); // existing proposal pending
+        // AUDIT FIX FRESH-2026: F-46-4 + F-60-2 — same code.length filter as
+        // setSequencerFeed; reject EOAs and 7702-delegated EOAs.
+        uint256 codeLen = _newFeed.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        pendingSequencerFeed = _newFeed;
+        sequencerFeedRotationReadyAt = block.timestamp + SEQUENCER_FEED_ROTATION_TIMELOCK;
+        emit SequencerFeedRotationProposed(_newFeed, sequencerFeedRotationReadyAt);
+    }
+
+    /// @notice Execute a previously proposed sequencer feed rotation after the
+    ///         7-day delay. Mirrors the validity-window pattern from
+    ///         `executeAdminReplacement` so stale proposals expire after 7 days.
+    function executeSequencerFeedRotation() external onlyOwner {
+        uint256 readyAt = sequencerFeedRotationReadyAt;
+        if (readyAt == 0) revert SequencerFeedRotationUnavailable();
+        if (block.timestamp < readyAt) revert SequencerFeedRotationUnavailable();
+        if (block.timestamp > readyAt + 7 days) revert SequencerFeedRotationUnavailable();
+        address newFeed = pendingSequencerFeed;
+        if (newFeed == address(0)) revert ZeroAddress(); // defensive
+        // AUDIT FIX FRESH-2026: F-46-4 + F-60-2 — re-check at execute time in
+        // case the proposed address was self-destructed during the timelock
+        // window (genuine-contract → empty code post-SELFDESTRUCT pre-Cancun;
+        // post-Cancun SELFDESTRUCT keeps the code so this is mostly belt-and-
+        // suspenders for older chains).
+        uint256 codeLen = newFeed.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        address oldFeed = sequencerFeed;
+        sequencerFeed = newFeed;
+        pendingSequencerFeed = address(0);
+        sequencerFeedRotationReadyAt = 0;
+        emit SequencerFeedRotationExecuted(oldFeed, newFeed);
+    }
+
+    /// @notice Cancel a pending sequencer feed rotation proposal.
+    function cancelSequencerFeedRotation() external onlyOwner {
+        if (sequencerFeedRotationReadyAt == 0) revert SequencerFeedRotationUnavailable();
+        address proposed = pendingSequencerFeed;
+        pendingSequencerFeed = address(0);
+        sequencerFeedRotationReadyAt = 0;
+        emit SequencerFeedRotationCancelled(proposed);
+    }
 
     // ─── Internal Helpers ────────────────────────────────────────────
 
@@ -580,6 +705,24 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///      is at least distinguishable on-chain from a normal revert. Behaviour remains
     ///      fail-open (per the documented intent) — we still redirect to treasury — but
     ///      the explicit branches keep the door open for a future "alarm on Panic" hook.
+    /// @dev AUDIT FIX FRESH-2026: F-25-K-03 [LOW] — `_user` is the IMMEDIATE
+    ///      caller of this contract (`msg.sender` at the swap entry-point), NOT
+    ///      `tx.origin` and NOT any pass-through end-user identifier. Smart-wallet
+    ///      / aggregator / 4337 paymaster / EIP-7702 wrappers that bundle their
+    ///      users' swaps will see the WRAPPER's bound referrer credited (or
+    ///      address(0) → treasury fallback) — the end-users' organic referral
+    ///      bindings on `referrerOf[end_user]` are silently bypassed because the
+    ///      router has no way to distinguish "wrapper acting on behalf of user A"
+    ///      from "wrapper transacting for itself". This is by-design and consistent
+    ///      with msg.sender-keyed attribution across every EVM referral system
+    ///      (Curve, Aave, Aerodrome). Front-ends and aggregator integrators MUST
+    ///      surface this to users — going through a wrapper aggregator forfeits
+    ///      organic referrals to the wrapper's bound referrer (or to treasury if
+    ///      the wrapper has no binding). A `recordFeeFor(origUser, user)` overload
+    ///      with an approved-caller list is a future-work item; the ReferralSplitter
+    ///      already exposes an approved-caller surface (`setApprovedCaller`) for
+    ///      the routing side, so wrappers that want to honour their users' organic
+    ///      bindings have a documented path.
     function _recordReferralFee(address _user, uint256 _feeAmount) internal returns (bool) {
         if (address(referralSplitter) == address(0) || _feeAmount == 0) return false;
         // AUDIT FIX: DEEP-R3-H01 — gas cap raised 200_000 → 700_000 to cover whale referrers
@@ -1370,10 +1513,21 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
     /// @notice Apply a new staker/POL split. Caller must be the wired admin contract.
     ///         Bounds re-checked here as defence-in-depth (admin enforces at propose-time).
+    /// @dev    AUDIT FIX FRESH-2026: F-05-1 [LOW] — reciprocal guard for the
+    ///         DEEP-R-M04 invariant on `applyPolAccumulator`. Reject any split
+    ///         that sets `_polShareBps > 0` while `polAccumulator == address(0)`.
+    ///         Without this, governance executing the fee-split timelock BEFORE
+    ///         the accumulator timelock would silently route the POL slice into
+    ///         the treasury fallback at `distributeFeesToStakers` (line ~1356),
+    ///         breaking the timelocked fee-split invariant from the OTHER
+    ///         direction. Operators must set the accumulator first, then the
+    ///         split — same-shape invariant on both setters.
     function applyFeeSplit(uint256 _stakerShareBps, uint256 _polShareBps) external onlyAdmin {
         if (_stakerShareBps < MIN_STAKER_SHARE_BPS) revert StakerShareTooLow();
         if (_polShareBps > MAX_POL_SHARE_BPS) revert PolShareTooHigh();
         if (_stakerShareBps + _polShareBps > BPS) revert SplitInvalid();
+        // AUDIT FIX FRESH-2026: F-05-1 — reciprocal of applyPolAccumulator's check.
+        if (_polShareBps > 0 && polAccumulator == address(0)) revert PolShareNonZero();
         stakerShareBps = _stakerShareBps;
         polShareBps = _polShareBps;
         emit FeeSplitUpdated(_stakerShareBps, _polShareBps, BPS - _stakerShareBps - _polShareBps);
@@ -1437,15 +1591,46 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         that defeat both convertTokenFeesToETH variants, etc). For routine token
     ///         fees, the keeper should call convertTokenFeesToETH so the value flows through
     ///         the timelocked staker/POL/treasury split.
+    /// @dev    AUDIT FIX FRESH-2026: M-6 [F-06-B] — gate this owner-only escape hatch on
+    ///         tokens that lack a Uniswap V2 WETH pair. Tokens WITH a direct WETH pair
+    ///         must route through `convertTokenFeesToETH` so the staker/POL slices fire
+    ///         under the timelocked split. Without the gate, an honest owner could
+    ///         (deliberately or by mempool race against a permissionless converter)
+    ///         zero out the booked balance before the keeper bot's conversion lands,
+    ///         silently bypassing the `MIN_STAKER_SHARE_BPS = 5000` floor for that
+    ///         tranche. Multi-hop-only tokens (no direct WETH pair) remain on this
+    ///         path because they cannot reach `convertTokenFeesToETH(token,
+    ///         [token, WETH], ...)` (NoPairForToken) — owner sweep is the only exit.
+    /// @dev    AUDIT FIX FRESH-2026: F-06-E [LOW] — clamp transfer to
+    ///         `min(booked, balance)` so a smaller-than-booked balance (e.g.,
+    ///         introduced by a hypothetical FoT haircut on accumulation, or any
+    ///         operational drift) drains cleanly to treasury and zeroes the booked
+    ///         entry, instead of reverting the whole call and leaving the booked
+    ///         balance unrecoverable.
     function withdrawTokenFees(address token) external onlyOwner nonReentrant {
         if (token == address(0)) revert ZeroAddress();
+        // AUDIT FIX FRESH-2026: M-6 [F-06-B] — refuse if a direct token/WETH pair
+        // exists. Force the keeper-side `convertTokenFeesToETH` path so the staker
+        // share is paid. Tokens without a direct pair fall through to the owner
+        // sweep below.
+        // AUDIT FIX FRESH-2026: M-5 [F-06-A] — also reject `token == WETH` so the
+        // owner cannot front-run the permissionless `unwrapAndDistributeWETHFees`
+        // helper. WETH-as-token fees MUST flow through the unwrap-and-split path.
+        if (token == WETH) revert NoPairForToken();
+        if (uniFactory.getPair(token, WETH) != address(0)) revert NoPairForToken();
         uint256 amount = accumulatedTokenFees[token];
         if (amount == 0) revert ZeroAmount();
         // AUDIT FIX M-04: Zero before transfer (CEI pattern). If token has transfer fee,
         // treasury receives less, but accounting is clean — no phantom dust remains.
+        // AUDIT FIX FRESH-2026: F-06-E — clamp to min(booked, balance) so a smaller
+        // on-hand balance still drains cleanly instead of reverting the whole call.
         accumulatedTokenFees[token] = 0;
-        IERC20(token).safeTransfer(treasury, amount);
-        emit FeesWithdrawn(treasury, amount);
+        uint256 onHand = IERC20(token).balanceOf(address(this));
+        uint256 transferAmount = amount > onHand ? onHand : amount;
+        if (transferAmount > 0) {
+            IERC20(token).safeTransfer(treasury, transferAmount);
+        }
+        emit FeesWithdrawn(treasury, transferAmount);
     }
 
     /// @notice AUDIT C1 (CRITICAL silent-killer fix): convert accumulated token fees to ETH
@@ -1718,7 +1903,62 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         emit TokenFeesConverted(token, swapAmount, ethReceived);
     }
 
+    /// @notice AUDIT FIX FRESH-2026: M-5 [F-06-A] — permissionless helper that
+    ///         unwraps any `accumulatedTokenFees[WETH]` balance back to ETH and
+    ///         folds it into `accumulatedETHFees` so the WETH tranche flows
+    ///         through the timelocked staker/POL/treasury split.
+    ///
+    ///         Pre-fix, every `swapExactTokensForTokens` call with `path[0] == WETH`
+    ///         (and the FoT mirror with `outToken == WETH`) booked the protocol
+    ///         fee into `accumulatedTokenFees[WETH]`. The only exit was
+    ///         `withdrawTokenFees(WETH)` which routed 100% to treasury, silently
+    ///         bypassing the `MIN_STAKER_SHARE_BPS = 5000` floor. The two
+    ///         `convertTokenFeesToETH` variants explicitly reject `token == WETH`
+    ///         (lines ~1567 and ~1696) so they could not be used to recover
+    ///         either. This helper closes the gap with a 1:1 unwrap (no swap,
+    ///         no price exposure, no TWAP).
+    /// @dev    Permissionless and `nonReentrant`. The unwrap is a single
+    ///         `IWETH.withdraw` call against the canonical WETH immutable; the
+    ///         resulting ETH lands in this contract's balance and is folded
+    ///         into `accumulatedETHFees` for the next `distributeFeesToStakers`.
+    ///         Clamped to `min(booked, on-hand WETH balance)` for parity with
+    ///         the F-06-E hardening on `withdrawTokenFees`.
+    function unwrapAndDistributeWETHFees() external nonReentrant whenNotPaused {
+        uint256 booked = accumulatedTokenFees[WETH];
+        if (booked == 0) revert ZeroAmount();
+        // AUDIT FIX FRESH-2026: M-5 — clamp to actual on-hand balance so a
+        // smaller WETH balance (operational drift) drains cleanly instead of
+        // reverting the whole call inside `withdraw`.
+        uint256 onHand = ISwapFeeRouterWETH(WETH).balanceOf(address(this));
+        uint256 amount = booked > onHand ? onHand : booked;
+        if (amount == 0) revert ZeroAmount();
+        // CEI: zero accounting BEFORE the external call. The unwrap is the
+        // canonical WETH `withdraw(amount)` which calls back via `receive()`
+        // (which has `nonReentrant` via the modifier on this function and is
+        // additionally a pure storage write to `totalETHReceived`).
+        accumulatedTokenFees[WETH] = 0;
+        uint256 ethBefore = address(this).balance;
+        ISwapFeeRouterWETH(WETH).withdraw(amount);
+        uint256 ethReceived = address(this).balance - ethBefore;
+        // 1:1 unwrap; defensive equality check guards against a non-canonical
+        // WETH that haircuts withdraw (an exploit primitive WETHFallbackLib
+        // M-37 [F-40-WFL-4] flagged for the lib but is also a structural risk
+        // here if the immutable was set wrong at deploy).
+        if (ethReceived == 0) revert ZeroAmount();
+        accumulatedETHFees += ethReceived;
+        emit TokenFeesConverted(WETH, amount, ethReceived);
+    }
+
     /// @notice Sweep any stuck ERC20 tokens to treasury (non-fee dust)
+    /// @dev    AUDIT FIX FRESH-2026: F-06-D [LOW] — emit `TokensSwept` so off-chain
+    ///         indexers see token outflows from this path. Pre-fix, `sweepTokens`
+    ///         was the only treasury-side ERC20 outflow that did not emit (every
+    ///         sibling — `withdrawTokenFees`, `sweepETH`, `withdrawPendingDistribution`,
+    ///         distribution paths — emits `FeesWithdrawn` or `PendingDistributionWithdrawn`).
+    ///         Reconciliation dashboards diffing "treasury inflow vs router outflow"
+    ///         would show unexplained mismatches; an attacker (compromised owner) could
+    ///         drain accidentally-deposited valuable tokens here without leaving an
+    ///         indexer breadcrumb.
     function sweepTokens(address token) external onlyOwner nonReentrant {
         if (token == address(0)) revert ZeroAddress();
         uint256 balance = IERC20(token).balanceOf(address(this));
@@ -1726,7 +1966,12 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 sweepable = balance > reserved ? balance - reserved : 0;
         if (sweepable == 0) revert ZeroAmount();
         IERC20(token).safeTransfer(treasury, sweepable);
+        // AUDIT FIX FRESH-2026: F-06-D — observability for token sweeps.
+        emit TokensSwept(token, treasury, sweepable);
     }
+
+    /// @notice AUDIT FIX FRESH-2026: F-06-D [LOW] — observability event for `sweepTokens`.
+    event TokensSwept(address indexed token, address indexed to, uint256 amount);
 
     /// @notice AUDIT C4: Pull deferred distribution slice. Permissionless — anyone can
     ///         drain a recipient's queue back to that recipient, so a buggy receiver can't
@@ -1844,8 +2089,21 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     // ─── Internal ────────────────────────────────────────────────────
 
     /// @dev Validate that a swap path contains no duplicate tokens (cycles)
+    /// @dev AUDIT FIX FRESH-2026: F-06-G [LOW] — also reject zero-address tokens at
+    ///      ANY hop. Without this guard, a path like `[WETH, address(0), USDC]`
+    ///      passes the duplicate / endpoint checks and reaches the inner Uniswap
+    ///      router, which computes `pairFor(WETH, address(0))` against a
+    ///      deterministic empty CREATE2 address. Today that resolves to a dead
+    ///      address and the swap reverts inside the router. But if a future
+    ///      attacker deploys a malicious "pair" at the deterministic CREATE2
+    ///      address for the (X, 0x0) salt — or if a fork uses different
+    ///      `pairFor` math — the router would happily route through the rogue
+    ///      pair. Defence-in-depth at one comparison per path element. Mirrors
+    ///      the zero-hop rejection already present in `_validateConversionPath`.
     function _validateNoDuplicates(address[] calldata path) internal pure {
         for (uint256 i = 0; i < path.length; i++) {
+            // AUDIT FIX FRESH-2026: F-06-G — reject zero-address tokens at any position.
+            if (path[i] == address(0)) revert InvalidPath();
             for (uint256 j = i + 1; j < path.length; j++) {
                 if (path[i] == path[j]) revert DuplicateTokenInPath();
             }
@@ -2041,20 +2299,31 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///      bump here). The TRUST BOUND is that the legitimate ingress paths
     ///      —`distribute()` callers, the WETH unwrap inside conversion, the
     ///      Uniswap V2 router refund — already account for what they push into
-    ///      `accumulatedETHFees` themselves. Anything else that lands here
-    ///      (donations, accidental sends, mistransferred refunds) becomes
-    ///      "unaccounted" balance that gets distributed proportionally on the
-    ///      next `distribute()` along with the legitimate fee balance. The
-    ///      forward-distribute flow itself is `nonReentrant` and only callable
-    ///      after a 24-hour cooldown, which is the actual safety bound.
+    ///      `accumulatedETHFees` themselves.
+    /// @dev AUDIT FIX FRESH-2026: F-05-2 [INFO] — corrected stale routing
+    ///      comment. Donations / accidental sends / mistransferred refunds
+    ///      that land here are "unaccounted" balance and are retrievable
+    ///      ONLY via `sweepETH` (owner-only → treasury). They do NOT enter
+    ///      the staker/POL/treasury split (which operates on
+    ///      `accumulatedETHFees` only — see `distributeFeesToStakers` line
+    ///      ~1325). The pre-fix comment incorrectly said donations were
+    ///      "distributed proportionally" on next `distribute()`, contradicted
+    ///      by the actual code path. Donors who want to tip stakers must
+    ///      route via the SwapFeeRouter swap entry-points (legitimate fee
+    ///      flow) or via RevenueDistributor's permissionless `distribute()`.
     /// @dev AUDIT FIX (pass-8 batch-18): track cumulative ETH ingress so
     ///      off-chain monitoring can reconcile `address(this).balance`
     ///      against `accumulatedETHFees`. Any drift between
     ///      `totalETHReceived` and the sum of accounted fee categories is
-    ///      "donated" / accidental ETH that the next `distribute()` will
-    ///      sweep proportionally. Counter is monotonic and never decremented
-    ///      — distribution outflows are tracked separately on the receiving
+    ///      "donated" / accidental ETH that `sweepETH` (owner-only) routes
+    ///      to treasury. Counter is monotonic and never decremented —
+    ///      distribution outflows are tracked separately on the receiving
     ///      contracts (RevenueDistributor / ReferralSplitter / POLAccumulator).
+    /// @dev AUDIT FIX FRESH-2026: F-05-2 [INFO] — superseding the previous
+    ///      "next distribute() will sweep proportionally" claim, which was
+    ///      inconsistent with the actual `distributeFeesToStakers` code path
+    ///      (it operates on `accumulatedETHFees` only — donations go to
+    ///      treasury via `sweepETH`).
     uint256 public totalETHReceived;
     event ETHReceived(address indexed sender, uint256 amount);
     receive() external payable {

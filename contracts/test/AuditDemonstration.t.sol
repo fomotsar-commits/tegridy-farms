@@ -126,6 +126,7 @@ contract AuditDemonstrationTest is Test {
             address(weth),
             address(bribeFactory),
             address(toweli),
+            address(0),        // AUDIT F-69-1: sequencerFeed (mainnet posture)
             FEE_BPS
         );
 

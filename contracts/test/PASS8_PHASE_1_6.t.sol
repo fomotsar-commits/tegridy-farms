@@ -97,7 +97,7 @@ contract PASS8_PHASE_1_6 is Test {
         factory.registerPair(t0, t1, address(pair));
 
         vi = new VoteIncentives(
-            address(ve), treasury, address(weth), address(factory), address(bribeToken), 300
+            address(ve), treasury, address(weth), address(factory), address(bribeToken), address(0), 300
         );
         viAdmin = new VoteIncentivesAdmin(address(vi));
         vi.setVoteIncentivesAdmin(address(viAdmin));

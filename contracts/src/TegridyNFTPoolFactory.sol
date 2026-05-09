@@ -9,6 +9,7 @@ import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {TegridyNFTPool} from "./TegridyNFTPool.sol";
 import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 /// @title TegridyNFTPoolFactory — Deploys and indexes TegridyNFTPool clones
 /// @notice Factory for creating sudoswap-style NFT AMM pools using minimal proxy clones.
@@ -61,6 +62,35 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     ///         layer. Combined with MAX_POOLS_PER_COLLECTION the spam vector is
     ///         doubly closed.
     uint256 public constant MIN_DEPOSIT = 0.05 ether;
+
+    /// @notice AUDIT FIX (Wave-B re-run, F-26-9 / F-95-K-3): floor on the
+    ///         spam-deterrent value EVEN when the caller deposits initial
+    ///         tokenIds. Closes the OR-bypass where an attacker spawned
+    ///         dust-collection pools with `msg.value = 0` and a single 0-floor
+    ///         NFT, side-stepping MIN_DEPOSIT entirely. The threshold is
+    ///         expressed in ETH-equivalent: the caller's seeded inventory
+    ///         value (`_spotPrice * initialTokenIds.length`) must clear this
+    ///         floor when `msg.value < MIN_DEPOSIT`. Tied to MIN_DEPOSIT so
+    ///         the economic deterrent is symmetric across both seeding
+    ///         modes.
+    uint256 public constant MIN_DEPOSIT_VALUE = 0.05 ether;
+
+    /// @notice AUDIT FIX (Wave-B re-run, F-26-9 / F-95-K-3): hard ceiling on
+    ///         the global pool count. Closes the spam-via-many-collections
+    ///         vector where an attacker spawns N dust collections (each with
+    ///         their own 200-pool slot) to bloat `_allPools` and brick
+    ///         `getAllPools()` enumeration. 1000 pools × the MIN_DEPOSIT
+    ///         (0.05 ETH) = 50 ETH ceiling on the spam cost; well within
+    ///         reach to detect at operator layer but far above the 200-cap-
+    ///         per-collection alone.
+    uint256 public constant MAX_TOTAL_POOLS_GLOBAL = 1000;
+
+    /// @notice AUDIT FIX (Wave-B re-run, F-26-2 / F-54-1): ERC-721 interface
+    ///         identifier per ERC-165 for `supportsInterface`.
+    bytes4 internal constant ERC721_INTERFACE_ID = 0x80ac58cd;
+    /// @notice AUDIT FIX (Wave-B re-run, F-26-2 / F-54-1): ERC-1155 interface
+    ///         identifier — explicitly REJECTED on createPool.
+    bytes4 internal constant ERC1155_INTERFACE_ID = 0xd9b67a26;
 
     // ─── State ──────────────────────────────────────────────────────────
     /// @notice Implementation contract used as the clone template
@@ -151,6 +181,24 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     error DailyCapExceeded();
     /// @notice AUDIT FIX: DEEP-NFTPOOL-10: zero-amount withdrawal request.
     error ZeroAmount();
+    /// @notice AUDIT FIX (Wave-B re-run, F-26-2 / F-54-1): nftCollection does
+    ///         not advertise ERC-721 via ERC-165 supportsInterface.
+    error NotERC721();
+    /// @notice AUDIT FIX (Wave-B re-run, F-26-2 / F-54-1): nftCollection
+    ///         advertises the ERC-1155 interface — hybrid 721+1155 collections
+    ///         are rejected at createPool.
+    error HybridERC1155Rejected();
+    /// @notice AUDIT FIX (Wave-B re-run, F-26-9 / F-95-K-3): seeded inventory
+    ///         value is too low to satisfy the MIN_DEPOSIT_VALUE floor when
+    ///         msg.value alone is below MIN_DEPOSIT.
+    error InsufficientSeedValue();
+    /// @notice AUDIT FIX (Wave-B re-run, F-26-9 / F-95-K-3): global pool
+    ///         count cap reached.
+    error MaxGlobalPoolsReached();
+    /// @notice AUDIT FIX (Wave-B re-run, F-60-2): nftCollection has the
+    ///         EIP-7702 delegation pointer code length (23 bytes) — reject
+    ///         delegated EOAs masquerading as ERC721 contracts.
+    error CodeLength7702();
 
     // ─── Constructor ────────────────────────────────────────────────────
 
@@ -204,12 +252,54 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
         // bypass MAX_POOLS_PER_COLLECTION (the cap is read at re-entry before
         // outer push) and deploy multiple pools in one tx. Defense-in-depth.
         if (nftCollection == address(0)) revert ZeroAddress();
-        require(nftCollection.code.length > 0, "NOT_CONTRACT");
+        // AUDIT FIX (Wave-B re-run, F-60-2): reject EIP-7702-delegated EOAs
+        // (code.length == 23, the canonical delegation-pointer payload). A
+        // 7702 EOA passes the `code.length > 0` check but is fundamentally
+        // an EOA; downstream interface checks would not catch it on every
+        // delegate (a hostile delegate could implement supportsInterface to
+        // pass). Also reject empty/non-contract addresses.
+        uint256 codeLen = nftCollection.code.length;
+        if (codeLen == 0) revert ZeroAddress();
+        if (codeLen == 23) revert CodeLength7702();
+        // AUDIT FIX (Wave-B re-run, F-26-2 / F-54-1): require the collection
+        // to advertise ERC-721 (0x80ac58cd) via ERC-165. Pre-ERC165
+        // collections (legacy chains) fall through the try/catch — preserving
+        // backwards compatibility with the small set of ancient ERC721s that
+        // ship without ERC-165. Hybrid contracts that ALSO advertise ERC-1155
+        // (0xd9b67a26) are explicitly rejected — a hybrid lets a hostile
+        // implementation inject phantom tokenIds via the ERC-1155 leg while
+        // the pool's bookkeeping assumes single-leg ERC-721 ownership.
+        try IERC165(nftCollection).supportsInterface(ERC721_INTERFACE_ID) returns (bool ok) {
+            if (!ok) revert NotERC721();
+            // Only check 1155 if the contract advertised 165 above — pre-ERC165
+            // collections cannot be hybrid by definition.
+            try IERC165(nftCollection).supportsInterface(ERC1155_INTERFACE_ID) returns (bool is1155) {
+                if (is1155) revert HybridERC1155Rejected();
+            } catch {
+                // The 1155 query reverted. Allowed — collection is ERC721-only
+                // per the first query, but its ERC-165 implementation may
+                // dispatch only on the ERC-721 selector.
+            }
+        } catch {
+            // Pre-ERC165 collection. Allowed — the downstream
+            // `safeTransferFrom` calls will revert if it isn't really ERC721.
+        }
         // AUDIT FIX (pass-8): C5 / LOOP-01 — MIN_DEPOSIT raised to 0.05 ETH
         // and per-collection pool count capped at MAX_POOLS_PER_COLLECTION
         // to defeat storage-bloat DoS on router discovery.
-        require(msg.value >= MIN_DEPOSIT || initialTokenIds.length > 0, "MIN_DEPOSIT");
+        // AUDIT FIX (Wave-B re-run, F-26-9 / F-95-K-3): close the OR-bypass
+        // where `initialTokenIds.length > 0` admitted `msg.value = 0`. Now
+        // either the ETH-side (msg.value >= MIN_DEPOSIT) OR the inventory
+        // side (`_spotPrice * initialTokenIds.length` >= MIN_DEPOSIT_VALUE)
+        // must clear the spam-deterrent floor. Both paths cost a comparable
+        // amount in ETH-equivalent terms.
+        if (msg.value < MIN_DEPOSIT) {
+            uint256 seedValue = _spotPrice * initialTokenIds.length;
+            if (seedValue < MIN_DEPOSIT_VALUE) revert InsufficientSeedValue();
+        }
         require(_poolsByCollection[nftCollection].length < MAX_POOLS_PER_COLLECTION, "MAX_POOLS_PER_COLLECTION");
+        // AUDIT FIX (Wave-B re-run, F-26-9 / F-95-K-3): hard global cap.
+        if (_allPools.length >= MAX_TOTAL_POOLS_GLOBAL) revert MaxGlobalPoolsReached();
 
         // AUDIT H-08: deploy via CREATE2 with a deterministic salt that includes the
         // caller, the pool counter, and the target collection. The prior Clones.clone()
@@ -457,7 +547,13 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
 
     /// @notice Propose a protocol fee change (48h timelock)
     /// @param newFeeBps New protocol fee in basis points
+    /// @dev    AUDIT FIX (Wave-B re-run, F-26-1): symmetric with the
+    ///         constructor's `_protocolFeeBps == 0` rejection. Pre-fix the
+    ///         constructor enforced "no zero-fee deployments" but the
+    ///         governance path admitted `newFeeBps == 0`, defeating the
+    ///         constructor invariant via post-deploy timelock proposal.
     function proposeProtocolFeeChange(uint256 newFeeBps) external onlyOwner {
+        if (newFeeBps == 0) revert InvalidFee();
         if (newFeeBps > MAX_PROTOCOL_FEE_BPS) revert InvalidFee();
         pendingProtocolFeeBps = newFeeBps;
         _propose(PROTOCOL_FEE_CHANGE, PROTOCOL_FEE_DELAY);

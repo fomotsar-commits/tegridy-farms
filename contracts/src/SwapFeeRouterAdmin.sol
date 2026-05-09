@@ -35,6 +35,13 @@ interface ISwapFeeRouterApply {
     function polShareBps() external view returns (uint256);
     function polAccumulator() external view returns (address);
     function revenueDistributor() external view returns (address);
+    /// @dev AUDIT FIX FRESH-2026: F-06-I [LOW] — read by `executeRevenueDistributor`
+    ///      and `executePolAccumulator` to refuse rotation while stale
+    ///      pull-pattern queue entries remain on the OUTGOING destination.
+    ///      Without this gate, a rotation strands the queued WETH/ETH at the
+    ///      old (potentially decommissioned / paused) address with no
+    ///      protocol-level reminder for operators to drain first.
+    function pendingDistribution(address recipient) external view returns (uint256);
 }
 
 /// @title SwapFeeRouterAdmin — Sister contract holding timelocked admin flow
@@ -44,6 +51,33 @@ interface ISwapFeeRouterApply {
 /// @dev    Created during the Wave-1 size-reduction sprint (2026-04-26) to bring
 ///         SwapFeeRouter under the 24,576-byte EIP-170 limit. Functional
 ///         semantics (delays, ceilings, validity windows) are unchanged.
+/// @dev    AUDIT FIX FRESH-2026: F-32-2 [LOW] — OPERATIONAL WARNING.
+///         Ownerships of `SwapFeeRouter` and `SwapFeeRouterAdmin` MUST be
+///         held by the SAME multisig. Divergent ownership permits a 48 h
+///         treasury-rotation drain BEFORE the 7 d admin-replacement window
+///         on the router can close. Specifically: an attacker controlling
+///         the admin's owner can `proposeTreasuryChange(attacker)` →
+///         `executeTreasuryChange()` after 48 h → permissionless
+///         `distributeFeesToStakers()` flushes the staker/POL/treasury split
+///         with the new attacker treasury. The router's owner has no
+///         cancel-side authority over admin proposals — `cancelTreasuryChange()`
+///         is `onlyOwner` on the admin contract — and `proposeAdminReplacement`
+///         on the router is a 7 d timelock that loses the race. The standard
+///         `DeploySwapFeeRouterV2.s.sol` script transfers BOTH ownerships to
+///         the multisig (lines 54-58) so the divergence does not arise on a
+///         clean deploy; this comment is a structural reminder for future
+///         operators contemplating "guardian / parameter committee" splits.
+/// @dev    AUDIT FIX FRESH-2026: F-32-3 [INFO] — OPERATIONAL NOTE on stale
+///         pending-slot recovery. When a proposal expires (i.e., is not
+///         executed within `PROPOSAL_VALIDITY = 7 days` after `readyAt`),
+///         `_executeAfter[key]` and the corresponding `pendingXxx` slot
+///         remain populated. This BLOCKS re-propose until an explicit
+///         `cancelXxx` runs (which works because `_cancel` only checks
+///         `_executeAfter[key] != 0`, not expiration). During incident
+///         response: if `proposeXxx` reverts with `ExistingProposalPending`,
+///         call `cancelXxx` first to clear the stale state, then re-propose.
+///         The stale `pendingXxx` slot itself is benign — never read except
+///         by `executeXxx`, which short-circuits on expiration.
 contract SwapFeeRouterAdmin is OwnableNoRenounce, TimelockAdmin {
     // ─── Errors ───────────────────────────────────────────────────────
     error ZeroAddress();
@@ -57,6 +91,14 @@ contract SwapFeeRouterAdmin is OwnableNoRenounce, TimelockAdmin {
     ///         the canonical `proposeInputTokenFeeChange` / `executeInputTokenFeeChange`
     ///         / `cancelInputTokenFeeChange` flow. Selectors preserved on the ABI.
     error DeprecatedUseInputTokenFee();
+    /// @notice AUDIT FIX FRESH-2026: F-06-I [LOW] — `executeRevenueDistributor`
+    ///         / `executePolAccumulator` was called while the OUTGOING
+    ///         destination still has a non-zero `pendingDistribution[oldAddr]`.
+    ///         Operators must drain the queue (permissionless
+    ///         `withdrawPendingDistribution(oldAddr)` on the router) BEFORE
+    ///         rotating, otherwise the queued ETH/WETH lands at the now-
+    ///         decommissioned old address.
+    error PendingQueueNotDrained();
 
     // ─── Timelock keys ────────────────────────────────────────────────
     bytes32 public constant FEE_CHANGE = keccak256("FEE_CHANGE");
@@ -188,8 +230,22 @@ contract SwapFeeRouterAdmin is OwnableNoRenounce, TimelockAdmin {
     }
 
     // ─── Referral splitter ────────────────────────────────────────────
+    /// @notice Propose a referral splitter change (timelocked).
+    /// @dev    AUDIT FIX FRESH-2026: F-32-1 [LOW] — corrected stale comment on
+    ///         the zero-address allowance. The router-side
+    ///         `applyReferralSplitter(0)` (DEEP-R3-M02) REJECTS the zero
+    ///         address whenever the LIVE splitter's `referralFeeBps() > 0`.
+    ///         To unset the splitter you MUST first execute the splitter's
+    ///         own `proposeReferralFeeChange(0)` → `executeReferralFeeChange()`
+    ///         flow to zero its `referralFeeBps` BEFORE proposing
+    ///         `address(0)` here. Otherwise this propose succeeds but
+    ///         `executeReferralSplitterChange()` reverts with
+    ///         `ReferralFeeNonZero` and the timelock cycle is wasted.
     function proposeReferralSplitterChange(address _newSplitter) external onlyOwner {
-        // address(0) allowed to disable
+        // AUDIT FIX FRESH-2026: F-32-1 — zero address allowed at PROPOSE time.
+        // Execute will revert if the current splitter still has a non-zero
+        // referralFeeBps; operators must zero it via the splitter's own
+        // timelock first. See dev-doc above.
         pendingReferralSplitter = _newSplitter;
         _propose(REFERRAL_CHANGE, REFERRAL_CHANGE_DELAY);
         emit ReferralSplitterChangeProposed(_newSplitter, _executeAfter[REFERRAL_CHANGE]);
@@ -351,8 +407,22 @@ contract SwapFeeRouterAdmin is OwnableNoRenounce, TimelockAdmin {
         emit RevenueDistributorChangeProposed(_newDistributor, _executeAfter[REV_DIST_CHANGE]);
     }
 
+    /// @notice Execute a previously-proposed RevenueDistributor change.
+    /// @dev    AUDIT FIX FRESH-2026: F-06-I [LOW] — refuse rotation while the
+    ///         OUTGOING distributor still has a non-zero `pendingDistribution`
+    ///         entry on the router. Pre-fix, rotating with a residual queue
+    ///         left the queued ETH/WETH stranded at the old address (paused,
+    ///         decommissioned, or selfdestructed). Operators must call
+    ///         `router.withdrawPendingDistribution(currentDistributor)`
+    ///         (permissionless) BEFORE this execute. Mirrors the pattern at
+    ///         `executePolAccumulator` below.
     function executeRevenueDistributor() external onlyOwner {
         _execute(REV_DIST_CHANGE);
+        // AUDIT FIX FRESH-2026: F-06-I — drain check on the outgoing destination.
+        address current = router.revenueDistributor();
+        if (current != address(0) && router.pendingDistribution(current) > 0) {
+            revert PendingQueueNotDrained();
+        }
         address v = pendingRevenueDistributor;
         pendingRevenueDistributor = address(0);
         router.applyRevenueDistributor(v);
@@ -404,15 +474,39 @@ contract SwapFeeRouterAdmin is OwnableNoRenounce, TimelockAdmin {
     }
 
     // ─── POL accumulator ──────────────────────────────────────────────
+    /// @notice Propose a POL accumulator change (timelocked).
+    /// @dev    AUDIT FIX FRESH-2026: F-32-1 [LOW] — corrected stale comment on
+    ///         the zero-address allowance. The router-side
+    ///         `applyPolAccumulator(0)` (DEEP-R-M04) REJECTS the zero address
+    ///         whenever the LIVE `polShareBps > 0`. To unset the accumulator
+    ///         you MUST first execute `proposeFeeSplit(stakerShareBps, 0)` →
+    ///         `executeFeeSplit()` to zero the POL share BEFORE proposing
+    ///         `address(0)` here. Otherwise this propose succeeds but
+    ///         `executePolAccumulator()` reverts with `PolShareNonZero` and
+    ///         the timelock cycle is wasted. The reciprocal direction is
+    ///         also guarded since FRESH-2026 F-05-1: `applyFeeSplit(_, _polShareBps>0)`
+    ///         rejects when `polAccumulator == address(0)`.
     function proposePolAccumulator(address _newAccumulator) external onlyOwner {
-        // Zero address allowed — re-routes POL slice to treasury without changing BPS
+        // AUDIT FIX FRESH-2026: F-32-1 — zero address allowed at PROPOSE time.
+        // Execute will revert if polShareBps > 0; operators must zero the
+        // POL share via proposeFeeSplit(staker, 0) first. See dev-doc above.
         pendingPolAccumulator = _newAccumulator;
         _propose(POL_ACCUMULATOR_CHANGE, POL_ACCUMULATOR_CHANGE_DELAY);
         emit PolAccumulatorChangeProposed(_newAccumulator, _executeAfter[POL_ACCUMULATOR_CHANGE]);
     }
 
+    /// @notice Execute a previously-proposed POL accumulator change.
+    /// @dev    AUDIT FIX FRESH-2026: F-06-I [LOW] — drain-check the OUTGOING
+    ///         accumulator's `pendingDistribution` entry on the router. See
+    ///         `executeRevenueDistributor` above for the same-shape mitigation.
     function executePolAccumulator() external onlyOwner {
         _execute(POL_ACCUMULATOR_CHANGE);
+        // AUDIT FIX FRESH-2026: F-06-I — drain check on the outgoing destination.
+        // Skipped when current is address(0) (POL feature was disabled).
+        address current = router.polAccumulator();
+        if (current != address(0) && router.pendingDistribution(current) > 0) {
+            revert PendingQueueNotDrained();
+        }
         address v = pendingPolAccumulator;
         pendingPolAccumulator = address(0);
         router.applyPolAccumulator(v);

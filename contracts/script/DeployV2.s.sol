@@ -62,12 +62,17 @@ contract DeployV2Script is Script {
         // ═══════════════════════════════════════════════════════════════
         // 2. VoteIncentives V2 (gauge voting)
         // ═══════════════════════════════════════════════════════════════
+        // AUDIT FIX FRESH-2026: F-69-1 — sequencer-buffer extension on
+        // vote-end / reveal-deadline windows. SEQUENCER_FEED env is optional;
+        // address(0) on mainnet (chainid==1) since L2 sequencer feeds don't apply.
+        address SEQUENCER_FEED_VI = vm.envOr("SEQUENCER_FEED", address(0));
         VoteIncentives voteIncentives = new VoteIncentives(
             address(staking),
             TREASURY,
             WETH,
             TEGRIDY_FACTORY,
             TOWELI,            // AUDIT H-2: commit-reveal bond token
+            SEQUENCER_FEED_VI, // AUDIT F-69-1: sequencer feed (0 on mainnet)
             BRIBE_FEE_BPS
         );
         console.log("2. VoteIncentives V2:", address(voteIncentives));

@@ -448,10 +448,16 @@ contract TegridyDropV2Test is Test {
     }
 
     function test_renounceOwnership_disabled() public {
+        // AUDIT FIX FRESH-2026: F-48-B — `renounceOwnership()` was removed
+        // entirely (TegridyDropV2 does not inherit OZ Ownable). External
+        // callers attempting to renounce now hit a function-selector
+        // mismatch, which is the correct semantic for "no renouncement
+        // concept exists". We assert via low-level call that the selector
+        // is absent (no fallback responds).
         _init(_defaults());
-        vm.prank(creator);
-        vm.expectRevert(bytes("RENOUNCE_DISABLED"));
-        drop.renounceOwnership();
+        // Selector for `renounceOwnership()` = 0x715018a6.
+        (bool ok, ) = address(drop).call(abi.encodeWithSelector(0x715018a6));
+        assertFalse(ok, "renounceOwnership() must not exist on the contract");
     }
 
     // ── Init guards ────────────────────────────────────────────────────

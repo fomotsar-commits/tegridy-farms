@@ -338,28 +338,10 @@ contract FinalAuditPOLPremium is Test {
     // ═══════════════════════════════════════════════════════════════════
     // FINDING 8: POL backstop=0 / below-MIN rejected (M-7).
     // ═══════════════════════════════════════════════════════════════════
-
-    function test_finding8_backstopZeroAndBelowMinRejected() public {
-        // M-7: MIN_BACKSTOP_BPS = 9000.
-        vm.expectRevert("BACKSTOP_TOO_LOW");
-        pol.proposeBackstopChange(0);
-
-        vm.expectRevert("BACKSTOP_TOO_LOW");
-        pol.proposeBackstopChange(8999);
-
-        // Minimum allowed at exactly 9000.
-        pol.proposeBackstopChange(9000);
-        vm.warp(block.timestamp + 24 hours);
-        pol.executeBackstopChange();
-        assertEq(pol.backstopBps(), 9000);
-
-        vm.deal(address(pol), 2 ether);
-        vm.warp(block.timestamp + 1 hours);
-        twap.setLatestTimestamp(uint32(block.timestamp));
-        vm.prank(owner);
-        pol.accumulate(1, 0, 0, block.timestamp + 30 seconds);
-        assertEq(pol.totalAccumulations(), 1);
-    }
+    //
+    // AUDIT FIX (Wave-B F-20-1): the entire `backstopBps` knob (with its
+    // MIN/MAX floors and timelocked propose/execute/cancel surface) was
+    // excised. Test deleted as it exercised dead state.
 
     // ═══════════════════════════════════════════════════════════════════
     // FINDING 9: deploy script ownership transfer race condition —

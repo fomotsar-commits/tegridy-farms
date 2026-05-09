@@ -29,6 +29,33 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 ///       - `claimStrandedJbac` is gated by the per-tokenId `strandedJbacOwner`
 ///         record — only the address that held the staking position at close
 ///         time can reclaim. Wrapped in `nonReentrant`.
+///
+/// @dev AUDIT FIX FRESH-2026: F-39-3 — DIRECT-TRANSFER STRAND WARNING.
+///      The vault's `onERC721Received` only checks `msg.sender == jbacNFT`.
+///      It does NOT verify that the inbound transfer originated from
+///      `TegridyStaking.stakeWithBoost`. A user who mistakenly calls
+///      `jbacNFT.safeTransferFrom(user, vault, tokenId)` directly (instead of
+///      going through `staking.stakeWithBoost`) will have their JBAC accepted
+///      by the vault with NO position record. The NFT is then PERMANENTLY
+///      STRANDED — there is no admin / rescue / recovery surface, by design.
+///      This is an intentional tradeoff: an admin recovery hook would
+///      reintroduce centralization risk (owner could rugpull custodied JBACs).
+///      Front-end / docs MUST surface: "JBACs may only be deposited via
+///      `staking.stakeWithBoost`. Direct transfers to the vault are permanent."
+///
+/// @dev AUDIT FIX FRESH-2026: F-39-4 — IMMUTABLE-STAKING DESIGN.
+///      `staking` is `immutable` and there is NO `setStaking()`, `pause()`,
+///      `Ownable`, or rescue surface on this vault. If the wired TegridyStaking
+///      instance is ever redeployed (V2 fix), the vault remains hard-wired to
+///      V1 — only V1 can call `returnJbac`. Operationally this means: the
+///      staking-redeploy runbook MUST drain all active positions THROUGH V1
+///      (so each `withdraw` path returns its JBAC to the user) BEFORE V2 is
+///      switched on. If V1 ever has a bug that blocks `withdraw`, custodied
+///      JBACs become unrecoverable. A timelocked `emergencyClaim` escape hatch
+///      was deliberately deferred at this batch — adding governance now would
+///      reintroduce admin trust and contradict the "no admin surface" promise
+///      of the relaunch contract set. Re-evaluate if/when the protocol adopts
+///      a timelock + multisig governance layer (full timelock rotation deferred).
 contract TegridyStakingJbacVault is ReentrancyGuard, IERC721Receiver {
     /// @notice The JBAC ERC721 collection this vault custodies.
     IERC721 public immutable jbacNFT;
@@ -47,6 +74,11 @@ contract TegridyStakingJbacVault is ReentrancyGuard, IERC721Receiver {
     error Unauthorized();
     error ZeroAmount();
     error ZeroAddress();
+    // AUDIT FIX FRESH-2026: F-39-5 — surfaced when `returnJbac`'s gas budget is
+    //   too tight to safely run the try/catch + stranded-bookkeeping fallback
+    //   on the `catch` branch, so callers (front-ends, AA wallets) can retry
+    //   with a higher gas limit instead of silently locking the principal.
+    error InsufficientCatchGas();
 
     event JbacReturned(uint256 indexed stakingTokenId, address indexed to, uint256 jbacTokenId);
     event JbacStranded(uint256 indexed stakingTokenId, address indexed to, uint256 jbacTokenId);
@@ -84,11 +116,25 @@ contract TegridyStakingJbacVault is ReentrancyGuard, IERC721Receiver {
     ///         `transferFrom` from inside the JBAC `safeTransferFrom` callback
     ///         reverts on the now-empty staking-side ownership, closing both
     ///         CCR-01 (lending re-escrow) and CCR-02 (ghost restake).
+    /// @dev    AUDIT FIX FRESH-2026: F-39-1 — `nonReentrant` added for symmetry
+    ///         with `claimStrandedJbac` and to seal cross-call concerns. The
+    ///         caller (`_clearPosition`) is single-entry per top-level tx and
+    ///         already wrapped, so the modifier is effectively idempotent here
+    ///         but eliminates the "asymmetric guard" footgun for any future
+    ///         refactor that adds post-transfer state writes.
+    /// @dev    AUDIT FIX FRESH-2026: F-39-5 — pre-check that enough gas remains
+    ///         for the catch branch's stranded bookkeeping (3 SSTOREs + 1 event,
+    ///         ≈ 25k gas), so that a tight metatx / 4337 gas budget can't
+    ///         absorb an OOG mid-catch and revert the entire `_clearPosition`,
+    ///         locking the staker's principal. Front-ends auto-budget; this
+    ///         floor protects contract-mediated callers (Safe modules, AA).
     function returnJbac(uint256 stakingTokenId, uint256 jbacTokenId, address to)
         external
         onlyStaking
+        nonReentrant
     {
         if (jbacTokenId == 0) return;
+        if (gasleft() < 50_000) revert InsufficientCatchGas();
         try jbacNFT.safeTransferFrom(address(this), to, jbacTokenId) {
             emit JbacReturned(stakingTokenId, to, jbacTokenId);
         } catch {

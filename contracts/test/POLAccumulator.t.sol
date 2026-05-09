@@ -239,72 +239,12 @@ contract POLAccumulatorTest is Test {
     }
 
     // ─── MaxSlippage timelock tests ──────────────────────────────────
-
-    function test_proposeMaxSlippage_setsState() public {
-        accumulator.proposeMaxSlippage(300);
-        assertEq(accumulator.pendingMaxSlippage(), 300);
-        assertGt(accumulator.maxSlippageProposedAt(), 0);
-    }
-
-    function test_executeMaxSlippage_afterDelay() public {
-        accumulator.proposeMaxSlippage(300);
-        vm.warp(block.timestamp + 24 hours + 1);
-        accumulator.executeMaxSlippage();
-        assertEq(accumulator.maxSlippageBps(), 300);
-        assertEq(accumulator.pendingMaxSlippage(), 0);
-        assertEq(accumulator.maxSlippageProposedAt(), 0);
-    }
-
-    function test_revert_executeMaxSlippage_beforeDelay() public {
-        accumulator.proposeMaxSlippage(300);
-        vm.warp(block.timestamp + 12 hours);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, accumulator.SLIPPAGE_CHANGE()));
-        accumulator.executeMaxSlippage();
-    }
-
-    function test_revert_executeMaxSlippage_noPending() public {
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, accumulator.SLIPPAGE_CHANGE()));
-        accumulator.executeMaxSlippage();
-    }
-
-    function test_revert_executeMaxSlippage_expired() public {
-        accumulator.proposeMaxSlippage(300);
-        vm.warp(block.timestamp + 24 hours + 7 days + 1);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, accumulator.SLIPPAGE_CHANGE()));
-        accumulator.executeMaxSlippage();
-    }
-
-    function test_cancelMaxSlippageChange() public {
-        accumulator.proposeMaxSlippage(300);
-        accumulator.cancelMaxSlippageChange();
-        assertEq(accumulator.pendingMaxSlippage(), 0);
-        assertEq(accumulator.maxSlippageProposedAt(), 0);
-        assertEq(accumulator.maxSlippageBps(), 500); // unchanged
-    }
-
-    function test_revert_cancelMaxSlippage_noPending() public {
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, accumulator.SLIPPAGE_CHANGE()));
-        accumulator.cancelMaxSlippageChange();
-    }
-
-    function test_revert_proposeMaxSlippage_existingPending() public {
-        accumulator.proposeMaxSlippage(300);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, accumulator.SLIPPAGE_CHANGE()));
-        accumulator.proposeMaxSlippage(200);
-    }
-
-    function test_revert_proposeMaxSlippage_outOfRange() public {
-        vm.expectRevert(POLAccumulator.SlippageBpsOutOfRange.selector);
-        accumulator.proposeMaxSlippage(50); // below 100
-        vm.expectRevert(POLAccumulator.SlippageBpsOutOfRange.selector);
-        accumulator.proposeMaxSlippage(1500); // above 1000
-    }
-
-    function test_revert_proposeMaxSlippage_notOwner() public {
-        vm.prank(alice);
-        vm.expectRevert();
-        accumulator.proposeMaxSlippage(300);
-    }
+    //
+    // AUDIT FIX (Wave-B F-20-1): the timelocked propose/execute/cancel
+    // surface for `maxSlippageBps` (and the SLIPPAGE_CHANGE timelock key,
+    // pendingMaxSlippage / maxSlippageProposedAt state, SlippageBpsOutOfRange
+    // error) was excised entirely. All MaxSlippage tests deleted as they
+    // exercised dead state. Slippage is now enforced via TWAP+EMA.
 
     // ─── M-15: maxAccumulateAmount cap tests ─────────────────────────
 

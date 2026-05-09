@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 /// @notice Minimal interface to VoteIncentives used by the admin's apply hooks
 ///         and validation reads. Each `apply*` setter on VoteIncentives is
@@ -17,6 +18,7 @@ interface IVoteIncentivesApply {
 
     // ─── view-side reads required for validation ──────────────────────
     function MAX_FEE_BPS() external view returns (uint256);
+    function MAX_MIN_BRIBE_AMOUNT() external view returns (uint256);
     function bribeFeeBps() external view returns (uint256);
     function commitRevealEnabled() external view returns (bool);
 }
@@ -35,6 +37,21 @@ contract VoteIncentivesAdmin is OwnableNoRenounce, TimelockAdmin {
     error ZeroAddress();
     error FeeTooHigh();
     error FeeCannotBeZero();
+    /// @notice AUDIT FIX FRESH-2026: F-38-3 — `proposeEnableCommitReveal` previously
+    ///         silently no-op'd when the flag was already on, suppressing
+    ///         off-chain audit signal. Now reverts so a captured-owner probe
+    ///         is observable.
+    error CommitRevealAlreadyEnabled();
+    /// @notice AUDIT FIX FRESH-2026: F-38-7 + F-84-2 — fail-fast on out-of-range
+    ///         min-bribe at propose time (was: only enforced at execute time
+    ///         after a 24h timelock had elapsed, costing a wasted cycle).
+    error MinBribeTooLarge();
+    /// @notice AUDIT FIX FRESH-2026: F-10-K-08 + F-84-3 — `amount == 0` would
+    ///         silently restore `DEFAULT_MIN_TOKEN_BRIBE` (a 1e15 18-dec
+    ///         literal that maps to 1000 USDC on a 6-dec token) for tokens
+    ///         that previously had a per-token min configured. Fail at
+    ///         propose time instead.
+    error MinBribeAmountZero();
 
     // ─── Timelock keys (mirror what VoteIncentives previously held) ────
     bytes32 public constant FEE_CHANGE = keccak256("BRIBE_FEE_CHANGE");
@@ -45,7 +62,14 @@ contract VoteIncentivesAdmin is OwnableNoRenounce, TimelockAdmin {
 
     // ─── Delays (mirror what VoteIncentives previously enforced) ───────
     uint256 public constant FEE_CHANGE_DELAY = 24 hours;
-    uint256 public constant TREASURY_CHANGE_DELAY = 48 hours;
+    /// @notice AUDIT FIX FRESH-2026: F-38-8 — bumped from 48h to 7 days. A
+    ///         48h window let a captured owner siphon 48-72h of bribe fees +
+    ///         drain `accumulatedTreasuryETH` retroactively after the
+    ///         on-chain `TreasuryChangeProposed` event landed. Aerodrome,
+    ///         Velodrome, Compound `Comp`, and Aave `Treasury` all use a
+    ///         7d delay for treasury rotation specifically because of this
+    ///         class of attack.
+    uint256 public constant TREASURY_CHANGE_DELAY = 7 days;
     uint256 public constant WHITELIST_CHANGE_DELAY = 24 hours;
     uint256 public constant MIN_BRIBE_CHANGE_DELAY = 24 hours;
     uint256 public constant COMMIT_REVEAL_ENABLE_DELAY = 24 hours;
@@ -153,8 +177,33 @@ contract VoteIncentivesAdmin is OwnableNoRenounce, TimelockAdmin {
     }
 
     // ─── Min bribe amount ─────────────────────────────────────────────
+    /// @dev AUDIT FIX FRESH-2026: F-38-7 + F-10-K-08 + F-84-2 + F-84-3 —
+    ///      validate amount at propose time so a wasted timelock cycle is
+    ///      avoided AND zero amounts (which silently fall back to
+    ///      `DEFAULT_MIN_TOKEN_BRIBE`'s 18-dec literal — wildly wrong for
+    ///      6-dec stablecoins) are rejected loudly. Cap is also scaled by
+    ///      the token's `decimals()` so the "1M tokens" comment on
+    ///      `MAX_MIN_BRIBE_AMOUNT` actually means 1M of the token's
+    ///      whole-units, not "1M only if the token happens to be 18-dec".
+    ///      Mirrors the POLAccumulator / TegridyRestaking decimal-scaling
+    ///      patterns (F-84-1 reference impl).
     function proposeMinBribeAmount(address token, uint256 amount) external onlyOwner {
         if (token == address(0)) revert ZeroAddress();
+        if (amount == 0) revert MinBribeAmountZero();
+        // AUDIT FIX FRESH-2026: F-38-7 + F-84-2 — scale cap by decimals().
+        // Falls back to 18-dec on legacy/non-standard tokens (matches the
+        // TegridyRestaking F-84-1 fallback shape).
+        uint256 unit;
+        try IERC20Metadata(token).decimals() returns (uint8 d) {
+            unit = d <= 36 ? 10 ** uint256(d) : 1e18;
+        } catch {
+            unit = 1e18;
+        }
+        // Scaled max = 1_000_000 * 10**decimals(). For 18-dec tokens that's
+        // 1e24 (matches the legacy `MAX_MIN_BRIBE_AMOUNT` constant on the
+        // VoteIncentives side); for 6-dec stablecoins it's 1e12 (= 1M USDC).
+        uint256 scaledMax = 1_000_000 * unit;
+        if (amount > scaledMax) revert MinBribeTooLarge();
         pendingMinBribeToken = token;
         pendingMinBribeAmount = amount;
         _propose(MIN_BRIBE_CHANGE, MIN_BRIBE_CHANGE_DELAY);
@@ -184,8 +233,14 @@ contract VoteIncentivesAdmin is OwnableNoRenounce, TimelockAdmin {
     /// @notice One-way switch: once enabled there is no path to disable.
     ///         Forward-only by design — flipping back would let an attacker
     ///         race the toggle.
+    /// @dev    AUDIT FIX FRESH-2026: F-38-3 — revert (was: silent no-op) when
+    ///         the flag is already on. Pre-fix, a captured-owner probe
+    ///         produced no event, no revert, no `_executeAfter` write, so
+    ///         off-chain monitors had no signal that owner credentials were
+    ///         being exercised. Loud revert turns the probe into observable
+    ///         intel.
     function proposeEnableCommitReveal() external onlyOwner {
-        if (voteIncentives.commitRevealEnabled()) return; // idempotent
+        if (voteIncentives.commitRevealEnabled()) revert CommitRevealAlreadyEnabled();
         _propose(COMMIT_REVEAL_ENABLE, COMMIT_REVEAL_ENABLE_DELAY);
         emit EnableCommitRevealProposed(_executeAfter[COMMIT_REVEAL_ENABLE]);
     }
@@ -193,12 +248,16 @@ contract VoteIncentivesAdmin is OwnableNoRenounce, TimelockAdmin {
         _cancel(COMMIT_REVEAL_ENABLE);
         emit EnableCommitRevealCancelled();
     }
-    /// @notice Permissionless execute (NOT onlyOwner) — preserves the original
-    ///         contract's behavior where any party could fire the timelocked
-    ///         enable once the delay had elapsed. The target is itself onlyAdmin
-    ///         on the VoteIncentives side, so flow remains gated end-to-end:
-    ///         only this admin contract (immutable wired post-deploy) can toggle.
-    function executeEnableCommitReveal() external {
+    /// @notice AUDIT FIX FRESH-2026: F-75-6 — restricted to `onlyOwner`. The
+    ///         legacy permissionless execute let a mempool watcher front-run
+    ///         the owner's `cancelEnableCommitReveal` after the delay
+    ///         elapsed, locking the one-way flag forever even if the owner
+    ///         had pending second thoughts. `cancel` was always
+    ///         `onlyOwner`, so the asymmetric race only existed because
+    ///         `execute` was open. Closing it preserves owner cancel-window
+    ///         semantics. Apply-side is still idempotent (re-execution is a
+    ///         no-op) so a delayed honest call is safe.
+    function executeEnableCommitReveal() external onlyOwner {
         _execute(COMMIT_REVEAL_ENABLE);
         voteIncentives.applyEnableCommitReveal();
     }
