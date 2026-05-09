@@ -407,11 +407,6 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     ///      not the recorded recipient (or no entry).
     error NotStrandedRecipient();
     error NoStrandedNFT();
-    /// @dev AUDIT FIX FRESH-2026: F-14-2 — `proposeWhitelistCollection`
-    ///      target reverts on `supportsInterface(0x80ac58cd)` or returns
-    ///      false. Replaces the silent try/catch fall-through.
-    error CollectionNotERC721();
-
     // ─── Legacy View Helpers (for test compatibility) ────────────────
     function protocolFeeChangeReadyAt() external view returns (uint256) {
         return _executeAfter[PROTOCOL_FEE_CHANGE];
@@ -683,11 +678,15 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
             revert CollectionPendingRemoval();
         }
 
-        try IERC721(collateralContract).ownerOf(_tokenId) returns (address currentOwner) {
-            if (currentOwner != msg.sender) revert NotNFTOwner();
-        } catch {
-            revert CollateralBurnedSinceOffer();
-        }
+        // AUDIT FIX FRESH-2026 (post-fix scan4 DOS-01): use SafeERC721Call's
+        //         bounded ownerOf (returndata-cap via inline assembly) to defeat
+        //         the returndata-bomb DoS where a hostile collateral contract
+        //         returns 16MB+ from ownerOf and OOGs the borrower's accept path.
+        //         Sister paths (line 1049) already use this; the borrower-side
+        //         here was the missing twin.
+        (bool ownerOk, address currentOwner) = SafeERC721Call.safeOwnerOfBounded(collateralContract, _tokenId);
+        if (!ownerOk) revert CollateralBurnedSinceOffer();
+        if (currentOwner != msg.sender) revert NotNFTOwner();
 
         // CEI: state changes before external calls
         offer.active = false;

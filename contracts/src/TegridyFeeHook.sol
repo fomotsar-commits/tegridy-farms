@@ -94,18 +94,7 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     error OnlyPoolManager();
     error FeeTooHigh();
     error ZeroAddress();
-    // Legacy error declarations (kept for test compat — TimelockAdmin errors are thrown instead)
-    error NoPendingFeeChange();
-    error FeeChangeNotReady();
-    error NoPendingDistributorChange();
-    error DistributorChangeNotReady();
-    // ProposalExpired() removed — use TimelockAdmin.ProposalExpired(bytes32)
     error ExceedsAccrued();
-    error FeeOverflow();
-    error SweepFailed();
-    error NoPendingSync();
-    error SyncNotReady();
-    error SyncReductionTooLarge();
     error AboveOnChainCredit();
     error SyncIncreaseTooLarge(); // AUDIT R014: per-step upward sync ceiling exceeded
     /// @notice AUDIT FIX V2-AMM-M3: typed error for the restored M-32 recipient
@@ -122,19 +111,6 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     /// @notice AUDIT FIX (pass-8): TF-INT-02. ERC20 → ETH conversion swap returned less
     ///         ETH than the caller-supplied minETHOut floor.
     error InsufficientETHOut();
-    /// @notice AUDIT FIX (pass-8 batch-16): PoolKey allowlist guard. Pre-fix,
-    ///         `afterSwap` accepted ANY PoolKey — an attacker could deploy a
-    ///         pool with attacker-controlled token0/token1 implementing
-    ///         `transferFrom` as a no-op, attach this hook (allowed by
-    ///         the V4 PoolManager since the hook only enforces address-bit
-    ///         pattern), trigger a swap, and watch this contract credit
-    ///         `accruedFees[<malicious token>]` against itself. The
-    ///         attacker would then drain via the existing
-    ///         `convertERC20FeesToETH` path. Now the hook silently returns
-    ///         a zero fee for unapproved pools (does NOT revert — that
-    ///         would brick all swaps on the unapproved pool); only owner-
-    ///         approved (via `approvePool`) PoolKeys actually accrue fees.
-    error PoolNotApproved();
     /// @notice AUDIT FIX (pass-8): TF-INT-02. The owner-supplied conversion path is malformed:
     ///         must be at least 2 hops, must start at `currency`, and must end at WETH.
     error InvalidConversionPath();

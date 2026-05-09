@@ -769,10 +769,6 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///      monitoring can now select on the 4-byte selector and decode the
     ///      collateral + count without ABI string handling.
     error ActiveLoansPresent(address collateral, uint256 count);
-    /// @dev AUDIT FIX (F-08-K-01): typed bounds-check revert for the public
-    ///      `calculateInterest` pure helper. Off-chain integrators get a
-    ///      deterministic 4-byte selector instead of an opaque Panic(0x11).
-    error ParamOutOfBounds();
     /// @dev AUDIT FIX (F-95-K-2 MED): MAX_TOTAL_OFFERS / MAX_OFFERS_PER_LENDER
     ///      caps tripped by lender attempting to mint more offers than the
     ///      protocol-wide or per-lender ceiling permits.

@@ -191,10 +191,6 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     // ─── Errors ───────────────────────────────────────────────────────
 
     error InsufficientETH();
-    error SwapFailed();
-    error SlippageTooHigh();
-    error NoContracts();
-    error CannotSweepLP(); // SECURITY FIX: Prevent sweeping LP tokens
     error DeadlineTooFar(); // SECURITY FIX: Deadline exceeds MAX_DEADLINE
     error OracleStale(); // R015: TWAP latest observation older than TWAP_MAX_STALENESS
     error LPMismatch(); // R015: lpToken != factory.getPair(toweli, weth)
@@ -211,24 +207,9 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         staleness gap where an attacker watching the outage queue
     ///         could extract value the moment the gate opened.
     error OracleObservationPredatesResume();
-    // Legacy error declarations (kept for test compat — TimelockAdmin errors are thrown instead)
     error BackstopTooHigh();
-    error NoPendingBackstop();
-    error BackstopTimelockNotElapsed();
-    error BackstopProposalExpired();
-    error CancelExistingBackstopFirst();
     error SlippageBpsOutOfRange();
-    error NoPendingSlippage();
-    error SlippageTimelockNotElapsed();
-    error SlippageProposalExpired();
-    error CancelExistingSlippageFirst();
     error AccumulateCapTooLow();
-    error NoPendingAccumulateCap();
-    error AccumulateCapTimelockNotElapsed();
-    error AccumulateCapProposalExpired();
-    error CancelExistingAccumulateCapFirst();
-    error SweepAmountExceedsProposed();
-    error SweepRecipientNotTreasury();
 
     event BackstopUpdated(uint256 oldBps, uint256 newBps);
     event BackstopChangeProposed(uint256 newBps, uint256 executeAfter);

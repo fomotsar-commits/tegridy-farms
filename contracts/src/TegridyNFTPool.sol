@@ -122,9 +122,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     error NotFactory();
     error TimelockNotElapsed();
     error NoPendingChange();
-    error WaitOneBlock();
     error NotOwner();
-    error InvalidPoolType();
     error InvalidFee();
     error InvalidPrice();
     error SpotPriceTooHigh(); // AUDIT FIX V3-NFTPOOL-05

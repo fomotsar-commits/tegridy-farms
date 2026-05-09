@@ -363,11 +363,6 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     /// @dev DEPRECATED — emitted alongside `InputTokenFeeApplied` for ABI compatibility.
     ///      The `pair` field name is misleading; the value is the input-token address.
     event PairFeeUpdated(address indexed pair, uint256 feeBps, bool removed);
-    /// @notice AUDIT R-014 M-1: emitted whenever the legacy `applyPairFee` alias was
-    ///         invoked. Retained on the ABI for indexer compatibility but no longer
-    ///         emitted — the alias now reverts with `DeprecatedUseInputTokenFee`
-    ///         (SFR-M-03, 2026-04-28).
-    event ApplyPairFeeDeprecated();
     event PremiumDiscountUpdated(uint256 oldDiscount, uint256 newDiscount);
     event PremiumAccessUpdated(address indexed oldAccess, address indexed newAccess);
     event FeesDistributed(address indexed distributor, uint256 amount);
@@ -425,11 +420,6 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     error StakerShareTooLow();
     error PolShareTooHigh();
     error Unauthorized();
-    /// @notice AUDIT SFR-H-01: caller's `minETHOut` is below the contract's TWAP-derived
-    ///         floor. Bumping the slippage tolerance higher (i.e. tightening the floor) is
-    ///         allowed; loosening it below the TWAP floor is the MEV-sandwich foothold this
-    ///         finding patches and is rejected here.
-    error TWAPFloorViolated();
     /// @notice AUDIT SFR-H-01: no prior conversion snapshot exists for this token. The first
     ///         conversion bootstraps the snapshot and is restricted to the contract owner so
     ///         the slippage floor can be checked off-chain by a trusted operator before any

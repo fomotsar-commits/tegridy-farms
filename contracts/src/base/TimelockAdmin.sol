@@ -138,11 +138,6 @@ abstract contract TimelockAdmin {
     ///         `_proposalReadyAt(KEY)` for reads to keep the surface
     ///         consistent. A future major version may demote this slot to
     ///         `private` once all callsites have migrated.
-    /// @dev    AUDIT FIX: v3-LIB-I1 — `_proposalReadyAt` is canonical (used
-    ///         by all 5 in-tree callers across CommunityGrants, TegridyFeeHook,
-    ///         and TegridyTWAP); `_executeAfterOf` is the deprecated alias
-    ///         retained only for backward-compat. See the function-level
-    ///         NatSpec on each accessor below.
     mapping(bytes32 => uint256) internal _executeAfter;
 
     // ─── Internal API ────────────────────────────────────────────────
@@ -252,33 +247,15 @@ abstract contract TimelockAdmin {
         return _executeAfter[key];
     }
 
-    /// @notice AUDIT FIX: DEEP-LIB-H4 / DEEP-LIB-M5 — canonical read accessor
-    ///         for child contracts. Returns the timestamp after which the
-    ///         pending proposal for `key` becomes executable, or 0 if no
-    ///         proposal is pending. Kept under the "force-cancel + getter"
-    ///         pair so future migrations to `private _executeAfter` can be
-    ///         performed by demoting the storage slot without breaking
-    ///         downstream `_proposalReadyAt` callers.
-    /// @dev    AUDIT FIX: v3-LIB-I1 — declared CANONICAL (over the deprecated
-    ///         `_executeAfterOf` alias below). All 5 in-tree callers
-    ///         (CommunityGrants:658,711, TegridyFeeHook:331, TegridyTWAP:546,575)
-    ///         use this name. New child contracts MUST use `_proposalReadyAt`.
+    /// @notice Canonical read accessor for child contracts. Returns the
+    ///         timestamp after which the pending proposal for `key` becomes
+    ///         executable, or 0 if no proposal is pending.
     function _proposalReadyAt(bytes32 key) internal view returns (uint256) {
         return _executeAfter[key];
     }
 
     /// @notice DEPRECATED — use `_proposalReadyAt` instead.
-    /// @dev    AUDIT FIX: v3-LIB-I1 — kept as a back-compat alias only;
-    ///         `_proposalReadyAt` is the canonical accessor (5 in-tree callers
-    ///         vs 0 for this name). New code MUST NOT call `_executeAfterOf`.
-    ///         A future major-version bump can drop this alias once all
-    ///         downstream consumers (none in-tree today) have migrated.
-    /// @dev    PASS6-SLITHER (2026-05-03): the dead-code detector correctly
-    ///         observes 0 in-tree callers. Suppressed because this is exactly
-    ///         the "ABI-compatibility back-compat alias" carve-out documented
-    ///         in `contracts/src/.slither.deadcode-suppress.md`. The canonical
-    ///         `_proposalReadyAt` is the path forward; this stays until a
-    ///         major-version bump.
+    /// @dev    Kept for back-compat with test harnesses that call this name.
     // slither-disable-next-line dead-code
     function _executeAfterOf(bytes32 key) internal view returns (uint256) {
         return _executeAfter[key];

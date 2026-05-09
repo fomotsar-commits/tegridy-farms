@@ -26,8 +26,6 @@ contract TegridyRouter is ReentrancyGuard {
     error CyclicPath();
     error InsufficientOutputAmount();
     error ExcessiveInputAmount();
-    error InsufficientAAmount();
-    error InsufficientBAmount();
     error InvalidRecipient();
 
     using SafeERC20 for IERC20;

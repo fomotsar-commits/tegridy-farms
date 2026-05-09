@@ -185,7 +185,6 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     event BountyCompleted(uint256 indexed bountyId, address indexed winner, uint256 reward);
     event BountyCancelled(uint256 indexed bountyId);
     event BountyEmergencyCancelled(uint256 indexed bountyId);
-    event BountyDisputed(uint256 indexed bountyId, address indexed disputer); // SECURITY FIX #15
     event PayoutCredited(uint256 indexed bountyId, address indexed winner, uint256 reward);
     event PayoutWithdrawn(address indexed winner, uint256 amount);
     event BountyForceCancelled(uint256 indexed bountyId);
@@ -208,7 +207,6 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error InvalidBounty();
     error InvalidSubmission();
     error NoSubmissions();
-    error NotCreator();
     error NotCreatorOrOwner();
     error ETHTransferFailed();
     error InsufficientVoteBalance();
@@ -235,10 +233,6 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error ForceCancelTooEarly(); // FIX 2: force cancel grace period not yet passed
     error NoPendingPayout(); // FIX 1: no pending payout to withdraw
     error EmptyDescription(); // FIX 4: bounty description cannot be empty
-
-    // Legacy error aliases (kept for test compatibility)
-    error NoPendingMinRewardChange();
-    error MinRewardTimelockNotElapsed();
 
     // ─── Legacy View Helpers (for test compatibility) ──────────────
     function minBountyRewardChangeTime() external view returns (uint256) { return _executeAfter[MIN_REWARD_CHANGE]; }

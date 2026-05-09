@@ -370,7 +370,6 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     // monitors can distinguish a kick-time forfeit from the user-initiated `_getReward`
     // path. Holder remains entitled to the corresponding `unsettledRewards` slice that
     // was actually credited; the shortfall amounts here are the irrecoverable portions.
-    event RewardsForfeitedDuringKick(address indexed holder, uint256 forfeited);
     event KickRewardPoolShortfall(address indexed holder, uint256 expected, uint256 available);
     // AUDIT FIX DS3-01: parallel event for the _settleRewardsOnTransfer path so
     // off-chain monitors see the under-funded-pool slice on both kick() and

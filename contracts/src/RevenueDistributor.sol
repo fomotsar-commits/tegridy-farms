@@ -229,7 +229,6 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     event TreasuryChangeExecuted(address oldTreasury, address newTreasury);
     event PendingWithdrawalCredited(address indexed user, uint256 amount);
     event PendingWithdrawn(address indexed user, uint256 amount);
-    event PendingWithdrawnWETH(address indexed user, uint256 amount);
     event DustSwept(address indexed treasury, uint256 amount);
     event TokenSwept(address indexed token, address indexed to, uint256 amount);
     event RestakingContractUpdated(address indexed newRestaking);
@@ -261,21 +260,12 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     error ETHTransferFailed();
     error StillHasLockedTokens();
     error NoETHToWithdraw();
-    error TooManyEpochs();
-    error NoPendingTreasuryChange();
-    error TreasuryChangeNotReady();
     error UseProposeTreasuryChange();
     error NoPendingWithdrawal();
     error NoDustToSweep();
-    error NoPendingRestakingChange();
-    error RestakingChangeNotReady();
     error TooManyUnclaimedEpochs();
     error DistributeTooSoon();
-    error EmergencyWithdrawNotProposed();
-    error EmergencyWithdrawNotReady();
-    error EmergencyWithdrawExpired();
     error StakingPaused(); // AUDIT FIX M-10: Block claims when staking is paused
-    error EpochExhausted(); // AUDIT FIX C-03: Epoch funds fully claimed
     // AUDIT R014 H-5: Recovery-path errors
     error InvalidEpoch();
     error PowerExceedsTotalLocked();

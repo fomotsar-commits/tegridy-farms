@@ -125,7 +125,6 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     event ProtocolFeeChangeProposed(uint256 oldFee, uint256 newFee, uint256 executeAfter);
     event ProtocolFeeChangeExecuted(uint256 oldFee, uint256 newFee);
     event ProtocolFeeChangeCancelled(uint256 cancelledFee);
-    event ProtocolFeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
     event ProtocolFeeRecipientChangeProposed(address indexed oldRecipient, address indexed newRecipient, uint256 executeAfter);
     event ProtocolFeeRecipientChangeExecuted(address indexed oldRecipient, address indexed newRecipient);
     event ProtocolFeeRecipientChangeCancelled(address indexed cancelledRecipient);
@@ -140,8 +139,6 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     // ─── Errors ─────────────────────────────────────────────────────────
     error InvalidFee();
     error ZeroAddress();
-    error NoPoolsFound();
-    error InsufficientLiquidity();
     /// @notice R064 (MEDIUM): caller passed an address to `claimPoolFeesBatch`
     ///         that was not deployed by this factory.
     error NotAPool(address pool);

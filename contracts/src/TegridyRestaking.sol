@@ -237,10 +237,6 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         sites share `maxBonusRewardRate()` evaluating to
     ///         `10 * bonusRewardTokenUnit`.
     uint256 public constant MAX_BONUS_REWARD_RATE_MULTIPLIER = 10;
-    /// @dev Legacy ABI shim — pre-fix value was 100e18. Off-chain readers
-    ///      should migrate to `maxBonusRewardRate()` for the live decimal-
-    ///      aware cap; this constant is no longer load-bearing.
-    uint256 public constant MAX_BONUS_REWARD_RATE = 100e18;
     uint256 public pendingBonusRate;
 
     // SECURITY FIX: Timelock for attributeStuckBaseRewards
@@ -278,7 +274,6 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     event BonusClaimed(address indexed user, uint256 bonusAmount);
     event BaseClaimed(address indexed user, uint256 baseAmount);
     event BonusFunded(uint256 amount);
-    event BonusRateUpdated(uint256 newRate);
     event EmergencyWithdraw(address indexed user, uint256 indexed tokenId); // SECURITY FIX #12
     event BonusRateProposed(uint256 newRate, uint256 executeAfter); // SECURITY FIX #13
     event BonusRateExecuted(uint256 newRate); // SECURITY FIX #13
@@ -322,19 +317,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         for `tokenId` (i.e. they are not the prior restaker who unrestaked
     ///         while the staking pool was under-funded).
     error NotResidualClaimant();
-    error InvalidNFT();
     error ZeroAmount();
-    // Legacy error aliases (kept for test compatibility — TimelockAdmin errors are thrown instead)
-    // Note: ProposalExpired() removed — use TimelockAdmin.ProposalExpired(bytes32) instead
-    error TimelockNotElapsed(); // SECURITY FIX #13
     error RateTooHigh(); // SECURITY FIX #13
-    error NoPendingRateChange(); // SECURITY FIX #13
     error CannotSweepBonusToken(); // SECURITY FIX: Prevent sweeping bonus reward pool
     error CannotSweepRewardToken(); // SECURITY FIX: Prevent sweeping base reward token
-    error NoPendingAttribution();
-    error AttributionTimelockNotElapsed();
-    error AttributionExpired();
-    error ExistingAttributionPending();
     error RewardTokenMatchesBonusToken(); // SECURITY FIX: Constructor validation
     error ZeroAddress(); // L-01: Zero-address validation
     error OnlyStakingNFT(); // L-03: Custom error for onERC721Received

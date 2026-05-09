@@ -116,18 +116,10 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     error ZeroMonths();
     error InsufficientPayment();
     error NoActiveSubscription(); // SECURITY FIX #17
-    error RefundFailed(); // SECURITY FIX #17
     error UseProposeTreasuryChange(); // AUDIT FIX #68
     error ZeroFee(); // AUDIT FIX H-06
     error MinHoldingNotMet(); // AUDIT R014: cancel before MIN_HOLDING_PERIOD
     error NothingToClaim(); // AUDIT FIX: DEEP-DR-M-05 — claimShortfall called with no balance available
-
-    // Legacy error aliases (kept for test compatibility)
-    // Note: ProposalExpired() removed — use TimelockAdmin.ProposalExpired(bytes32) instead
-    error NoPendingTreasuryChange();
-    error TreasuryChangeNotReady();
-    error NoPendingFeeChange();
-    error FeeChangeNotReady();
 
     // ─── Legacy View Helpers (for test compatibility) ──────────────
     function feeChangeTime() external view returns (uint256) { return _executeAfter[FEE_CHANGE]; }

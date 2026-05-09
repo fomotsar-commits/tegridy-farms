@@ -170,7 +170,6 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     error ETHTransferFailed();
     error FeeTooHigh();
     error ZeroAddress();
-    error ReferrerNotStaked(); // SECURITY FIX #16
     error NotApprovedCaller();
     error CooldownNotElapsed();
     error NoReferrerSet();
@@ -194,11 +193,6 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     error AlreadyBanned();
     /// @dev AUDIT FIX (pass-8): GOV-ECON-01 / C10 — restakingContract is one-shot.
     error RestakingAlreadySet();
-
-    // Legacy error aliases (kept for test compatibility)
-    // Note: ProposalExpired() removed — use TimelockAdmin.ProposalExpired(bytes32) instead
-    error NoPendingChange();
-    error TimelockNotReady();
 
     // ─── Legacy View Helpers (for test compatibility) ──────────────
     function referralFeeChangeTime() external view returns (uint256) { return _executeAfter[REFERRAL_FEE_CHANGE]; }

@@ -234,7 +234,6 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error ExecutionDeadlineExpired(); // H-03
     error AmountTooLarge(); // H-04
     error ExecutionDeadlineNotExpired(); // H-03: for lapseProposal
-    error FeeReceiverProposalExpired();
     error RollingDisbursementExceeded();
 
     error AlreadyRefunded(); // AUDIT FIX H-01: Deposit already consumed or refunded
@@ -249,27 +248,12 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///         TOWELI; reject rotation if no spare is available so the dry-run can
     ///         never be silently skipped via a pre-call to sweepFees.
     error NoSpareForDryRun();
-    /// @notice AUDIT FIX: DEEP-GOV-13 — finalize-time max-balance check failed.
-    ///         Total approved-pending ETH would exceed contract balance if approved;
-    ///         proposal is rejected and deposit refunded.
-    error InsufficientFundsForApproval();
-    /// @notice AUDIT R014-MEDIUM: dry-run TOWELI transfer to the proposed fee receiver
-    ///         failed (the receiver cannot accept ERC20 transfers, e.g. blacklisted by the
-    ///         token, or no balance available for the test transfer). The pending change
-    ///         is auto-cancelled — owner must `proposeFeeReceiver` again with a different
-    ///         address.
-    error FeeReceiverDryRunFailed();
     /// @notice AUDIT FIX: V2-GOV-11 — `holdsToken` reverted (e.g. staking contract
     ///         mid-upgrade). Fail closed instead of falling back to the legacy
     ///         single-pointer check, which is the very M13 bypass `holdsToken`
     ///         was designed to close. Voters must wait for the staking contract
     ///         upgrade to complete before voting on this proposal.
     error HoldsTokenCheckFailed();
-
-    // Legacy error aliases (kept for test compatibility)
-    error NoFeeReceiverChangePending();
-    error FeeReceiverTimelockNotElapsed();
-    error FeeReceiverChangePending();
 
     // ─── Legacy View Helpers (for test compatibility) ──────────────
     function feeReceiverChangeReadyAt() external view returns (uint256) { return _executeAfter[FEE_RECEIVER_CHANGE]; }

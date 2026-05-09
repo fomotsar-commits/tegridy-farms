@@ -69,9 +69,6 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     error MerkleRotationPending();
     /// @notice AUDIT MICROSCOPE_2026_04_30 C1: allowlist allocation fully consumed.
     error AllowlistAllocationExceeded();
-    /// @notice AUDIT MICROSCOPE_2026_04_30 H18: cancelSale() is blocked once the sale
-    ///         has reached `maxSupply` — secondary-market buyers must not be rugged.
-    error SaleNotCancellable();
     /// @notice AUDIT MICROSCOPE_2026_04_30 H19: zero-price changes are gated to the
     ///         pre-mint window. Once any tokens have been minted, mintPrice is
     ///         monotonically non-zero to block the toggle-to-free attack.

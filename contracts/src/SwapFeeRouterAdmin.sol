@@ -114,11 +114,6 @@ contract SwapFeeRouterAdmin is OwnableNoRenounce, TimelockAdmin {
     event InputTokenFeeChangeCancelled(address indexed inputToken);
     /// @dev DEPRECATED — emitted alongside `InputTokenFeeChangeCancelled`.
     event PairFeeChangeCancelled(address indexed pair);
-    /// @notice AUDIT R-014 M-1: emitted whenever the legacy `proposePairFeeChange`
-    ///         alias was invoked. Retained on the ABI for indexer compatibility but
-    ///         no longer emitted — the alias now reverts with
-    ///         `DeprecatedUseInputTokenFee` (SFR-M-03, 2026-04-28).
-    event ProposePairFeeChangeDeprecated();
     event PremiumDiscountChangeProposed(uint256 newDiscount, uint256 executeAfter);
     event PremiumDiscountChangeCancelled(uint256 cancelledDiscount);
     event PremiumAccessChangeProposed(address indexed newAccess, uint256 executeAfter);
