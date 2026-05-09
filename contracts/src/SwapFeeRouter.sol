@@ -532,6 +532,12 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     function setSequencerFeed(address _feed) external onlyOwner {
         if (sequencerFeed != address(0)) revert ZeroAddress(); // already set, can't change
         if (_feed == address(0)) revert ZeroAddress();
+        // AUDIT FIX FRESH-2026 (post-fix scan2 S-5): EOA / EIP-7702 reject. Mirrors
+        //         the canonical OwnableNoRenounce code-length pattern + Pectra
+        //         length-23 carve-out. Closes the silent-disable hazard where a
+        //         typo'd feed address compiles fine but fails at first runtime call.
+        uint256 codeLen = _feed.code.length;
+        if (codeLen == 0 || codeLen == 23) revert ZeroAddress();
         sequencerFeed = _feed;
         emit SequencerFeedSet(_feed);
     }

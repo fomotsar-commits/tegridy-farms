@@ -587,6 +587,16 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         neither side is penalised by an admin pause.
     uint256 public totalPausedDuration;
 
+    // ─── AUDIT FIX FRESH-2026 (post-fix scan2 S-6): cumulative pause history ──
+    /// @notice Append-only log of completed pause windows used by
+    ///         `_cumulativePausedInWindow` to compute the rolling 30-day
+    ///         cumulative pause budget. Sibling-port from TegridyNFTLending.
+    struct PauseEpisode {
+        uint128 startedAt;
+        uint128 endedAt;
+    }
+    PauseEpisode[] public pauseHistory;
+
     // ─── Events ──────────────────────────────────────────────────────
 
     event LoanOfferCreated(
@@ -701,6 +711,13 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     error InvalidSweepRecipient();
     /// AUDIT FIX (BATCH-J3 H10): pause-asymmetry bound on lender liquidation.
     uint256 public constant MAX_PAUSE_BLOCK_LIQUIDATION = 7 days;
+    /// @notice AUDIT FIX FRESH-2026 (post-fix scan2 S-6): cumulative pause window.
+    ///         Sibling-port from TegridyNFTLending.F-71-9. Pre-port the cap was
+    ///         measured from `pauseStartTime` (resets on every pause), so a
+    ///         captured owner could cycle pause/unpause indefinitely below the
+    ///         7-day single-window threshold and never trip the bound. Now we
+    ///         sum pause durations within a rolling 30-day window.
+    uint256 public constant CUMULATIVE_PAUSE_WINDOW = 30 days;
     error NotNFTOwner();
     error LoanAlreadyRepaid();
     error LoanTooRecent();
@@ -807,13 +824,19 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (_pair == address(0)) revert ZeroAddress();
         if (_twap == address(0)) revert ZeroAddress();
         if (_protocolFeeBps > MAX_PROTOCOL_FEE_BPS) revert FeeTooHigh();
+        // AUDIT FIX FRESH-2026 (post-fix scan2 S-4): mirror TegridyNFTLending.F-14-1
+        //         deploy-time enforcement. lib/SequencerCheck reverts at runtime if
+        //         feed == address(0) on chainid != 1; this require surfaces that
+        //         loud at deploy time so an L2 deploy that forgets the env var
+        //         cannot ship silently disabled. Mainnet (chainid 1) skip is
+        //         intentional — Ethereum L1 has no sequencer concept.
+        require(block.chainid == 1 || _sequencerFeed != address(0), "L2 needs sequencerFeed");
 
         treasury = _treasury;
         protocolFeeBps = _protocolFeeBps;
         weth = _weth;
         pair = _pair;
         twap = ITegridyTWAP(_twap);
-        // R062: zero permitted (mainnet / non-L2 = gating disabled).
         sequencerFeed = _sequencerFeed;
 
         // Snapshot the TOWELI side of the pair at construction so we don't depend
@@ -1213,9 +1236,15 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // NOT eat the borrower's repay window. Mirrors LD2-H1 on NFTLending.
         // checkSequencerUp on the lender path keeps the lender blocked during
         // grace; this extension restores symmetric outage handling.
+        // AUDIT FIX FRESH-2026 (post-fix scan2 S-3): pass 4h staleness to match
+        //         claimDefaultedCollateral's symmetric posture. Without this, repay
+        //         path uses the lib's 24h default while claim path uses 4h —
+        //         creating an asymmetric grace window if Chainlink ever lags
+        //         between 4h and 24h on the L2 sequencer feed.
         uint256 outageBuffer = SequencerCheck.getSequencerOutageBuffer(
             sequencerFeed,
-            SEQUENCER_GRACE_PERIOD
+            SEQUENCER_GRACE_PERIOD,
+            4 hours
         );
         if (block.timestamp > effectiveDeadline(_loanId) + GRACE_PERIOD + outageBuffer) {
             revert DeadlineExpired();
@@ -1394,9 +1423,14 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         design.
     /// @param _loanId The ID of the defaulted loan
     function claimDefaultedCollateral(uint256 _loanId) external nonReentrant {
+        // AUDIT FIX FRESH-2026 (post-fix scan2 S-6): cumulative pause cap.
+        //         Sibling-port from TegridyNFTLending.F-71-9. Pre-port a captured
+        //         owner could pause/unpause within the 7-day single-window
+        //         threshold indefinitely; now the threshold is summed across a
+        //         rolling 30-day window so cycle-pause cannot evade the bound.
         if (paused()) {
             require(
-                pauseStartTime != 0 && block.timestamp > pauseStartTime + MAX_PAUSE_BLOCK_LIQUIDATION,
+                _cumulativePausedInWindow() > MAX_PAUSE_BLOCK_LIQUIDATION,
                 "PausedShortOfBound"
             );
         }
@@ -1926,9 +1960,40 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 start = pauseStartTime;
         if (start != 0 && block.timestamp > start) {
             totalPausedDuration += block.timestamp - start;
+            // AUDIT FIX FRESH-2026 (post-fix scan2 S-6): append the completed
+            //         pause window so `_cumulativePausedInWindow` can sum
+            //         across a rolling 30-day window. Closes the cycle-pause
+            //         bypass identified in TegridyNFTLending F-71-9 and
+            //         carried forward as a sibling-miss to this contract.
+            pauseHistory.push(PauseEpisode({
+                startedAt: uint128(start),
+                endedAt: uint128(block.timestamp)
+            }));
         }
         pauseStartTime = 0;
         super._unpause();
+    }
+
+    /// @notice Sum of pause durations intersecting the rolling 30-day window.
+    ///         Includes the in-flight pause if currently paused. Sibling-port
+    ///         from TegridyNFTLending.F-71-9.
+    function _cumulativePausedInWindow() internal view returns (uint256 total) {
+        uint256 windowStart = block.timestamp > CUMULATIVE_PAUSE_WINDOW
+            ? block.timestamp - CUMULATIVE_PAUSE_WINDOW
+            : 0;
+        uint256 len = pauseHistory.length;
+        for (uint256 i = 0; i < len; i++) {
+            PauseEpisode storage ep = pauseHistory[i];
+            uint256 epEnd = uint256(ep.endedAt);
+            if (epEnd <= windowStart) continue;
+            uint256 epStart = uint256(ep.startedAt);
+            uint256 lo = epStart > windowStart ? epStart : windowStart;
+            if (epEnd > lo) total += (epEnd - lo);
+        }
+        if (paused() && pauseStartTime != 0 && block.timestamp > pauseStartTime) {
+            uint256 lo = pauseStartTime > windowStart ? pauseStartTime : windowStart;
+            total += (block.timestamp - lo);
+        }
     }
 
     /// @notice Pause-extended deadline for a loan.
