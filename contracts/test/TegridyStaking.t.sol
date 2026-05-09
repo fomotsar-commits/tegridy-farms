@@ -709,22 +709,23 @@ contract TegridyStakingTest is Test {
     // ===== PROPOSE REWARD RATE TIMELOCK (SECURITY FIX #13) =====
 
     function test_proposeRewardRate() public {
-        admin.proposeRewardRate(5 ether);
-        assertEq(admin.pendingRewardRate(), 5 ether);
+        // FRESH-2026 (Wave A F-35-2): MAX_REWARD_RATE tightened 100e18 → 1e18 (~31%/yr cap).
+        admin.proposeRewardRate(0.5 ether);
+        assertEq(admin.pendingRewardRate(), 0.5 ether);
         assertGt(admin.rewardRateChangeTime(), block.timestamp);
     }
 
     function test_executeRewardRateChange_afterTimelock() public {
-        admin.proposeRewardRate(5 ether);
+        admin.proposeRewardRate(0.5 ether);
         vm.warp(block.timestamp + 48 hours + 1);
         admin.executeRewardRateChange();
-        assertEq(staking.rewardRate(), 5 ether);
+        assertEq(staking.rewardRate(), 0.5 ether);
         assertEq(admin.pendingRewardRate(), 0);
         assertEq(admin.rewardRateChangeTime(), 0);
     }
 
     function test_revert_executeRewardRate_beforeTimelock() public {
-        admin.proposeRewardRate(5 ether);
+        admin.proposeRewardRate(0.5 ether);
         vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, admin.REWARD_RATE_CHANGE()));
         admin.executeRewardRateChange();
     }

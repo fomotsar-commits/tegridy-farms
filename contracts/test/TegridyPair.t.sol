@@ -231,6 +231,10 @@ contract TegridyPairTest is Test {
 
     function test_mintFee_protocolShare() public {
         _addLiquidity(alice, 100_000 ether, 100_000 ether);
+        // FRESH-2026 (Wave A H-7): kLast bootstrap is feeToSetter-only via harvest().
+        // mint()/burn() now skip kLast = reserve0 * reserve1 when kLast == 0, so without
+        // a one-time bootstrap the pair never starts accruing protocol fees.
+        pair.harvest(); // address(this) is feeToSetter; mints initial 1/5 share + sets kLast
 
         for (uint256 i = 0; i < 10; i++) {
             _swapAForB(bob, 1_000 ether);
@@ -374,19 +378,22 @@ contract TegridyPairTest is Test {
     ///         harvest, feeTo holds a non-zero LP balance.
     function test_NEWA7_harvestMintsFeeShareToFeeTo() public {
         _addLiquidity(alice, 10_000 ether, 10_000 ether);
+        // FRESH-2026 (Wave A H-7): bootstrap kLast via feeToSetter — permissionless
+        // harvest is gated until kLast != 0 to close the flash-loan kLast-skew vector.
+        pair.harvest(); // address(this) is feeToSetter
         uint256 feeToLPBefore = pair.balanceOf(feeTo);
-        assertEq(feeToLPBefore, 0, "feeTo starts empty");
 
         // Generate swap volume to grow K (fees accrue as K growth).
         _swapAForB(bob, 1_000 ether);
         _swapAForB(bob, 1_000 ether);
 
-        // Harvest is permissionless.
+        // Wait out the harvest rate-limit window then harvest permissionlessly.
+        vm.warp(block.timestamp + pair.HARVEST_INTERVAL() + 1);
         vm.prank(bob);
         pair.harvest();
 
         uint256 feeToLPAfter = pair.balanceOf(feeTo);
-        assertGt(feeToLPAfter, 0, "NEW-A7: harvest mints fee LP share to feeTo");
+        assertGt(feeToLPAfter, feeToLPBefore, "NEW-A7: harvest mints fee LP share to feeTo");
     }
 
     /// @notice AUDIT NEW-A7: harvest on a pair with no K-growth is a no-op
@@ -397,15 +404,16 @@ contract TegridyPairTest is Test {
     ///         test (test_R016M1_harvestRateLimitWindow).
     function test_NEWA7_harvestIdempotentWithoutVolume() public {
         _addLiquidity(alice, 10_000 ether, 10_000 ether);
-        // AUDIT FIX: DEEP-D-AMM-M2 â€” harvest now reverts NO_FEE_TO_MATERIALIZE
-        // when there is no growth in K to mint against. Pre-fix the no-op
-        // call silently bumped lastHarvestAt, opening a 5-min cadence
-        // griefing surface. Post-fix every no-op reverts and `lastHarvestAt`
-        // only advances when an actual fee was minted.
+        // FRESH-2026 (Wave A H-7): bootstrap kLast first; harvest() with no K-growth
+        // post-bootstrap reverts NO_FEE_TO_MATERIALIZE (DEEP-D-AMM-M2 unchanged).
+        pair.harvest(); // bootstrap by feeToSetter
+        uint256 feeToLPAfter1 = pair.balanceOf(feeTo);
+
+        // Subsequent no-volume harvest reverts NO_FEE_TO_MATERIALIZE.
+        vm.warp(block.timestamp + pair.HARVEST_INTERVAL() + 1);
         vm.expectRevert(bytes("NO_FEE_TO_MATERIALIZE"));
         pair.harvest();
-        uint256 feeToLPAfter1 = pair.balanceOf(feeTo);
-        vm.warp(block.timestamp + pair.HARVEST_INTERVAL());
+        vm.warp(block.timestamp + pair.HARVEST_INTERVAL() + 1);
         vm.expectRevert(bytes("NO_FEE_TO_MATERIALIZE"));
         pair.harvest();
         uint256 feeToLPAfter2 = pair.balanceOf(feeTo);
