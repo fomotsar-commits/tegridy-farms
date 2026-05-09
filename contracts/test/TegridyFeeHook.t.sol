@@ -273,9 +273,11 @@ contract TegridyFeeHookTest is Test {
         // as long as 24h timelock and 7-day cooldown are respected.
         address token = makeAddr("token");
         // Simulate accrued fees by writing to storage directly
-        bytes32 slot = keccak256(abi.encode(token, uint256(7))); // accruedFees mapping slot
+        bytes32 slot = keccak256(abi.encode(token, uint256(9))); // accruedFees mapping slot (post-Wave-A storage layout)
         vm.store(address(hook), slot, bytes32(uint256(1000)));
         assertEq(hook.accruedFees(token), 1000);
+        // FRESH-2026: Wave A bound any sync to on-chain PoolManager credit. Seed credit ≥ target.
+        poolManager.setCredit(address(hook), uint256(uint160(token)), 1000);
 
         // Propose syncing down to 400 (60% reduction — now allowed after H-01 fix)
         hook.proposeSyncAccruedFees(token, 400);
@@ -287,8 +289,10 @@ contract TegridyFeeHookTest is Test {
 
     function test_syncAccruedFees_allowsReductionAtExactly50Percent() public {
         address token = makeAddr("token");
-        bytes32 slot = keccak256(abi.encode(token, uint256(7)));
+        bytes32 slot = keccak256(abi.encode(token, uint256(9))); // accruedFees mapping slot (post-Wave-A storage layout)
         vm.store(address(hook), slot, bytes32(uint256(1000)));
+        // FRESH-2026: Wave A bound any sync to on-chain PoolManager credit. Seed credit ≥ target.
+        poolManager.setCredit(address(hook), uint256(uint160(token)), 1000);
 
         // Propose syncing down to 500 (exactly 50% reduction — should succeed)
         hook.proposeSyncAccruedFees(token, 500);
@@ -303,7 +307,7 @@ contract TegridyFeeHookTest is Test {
         // on-chain PoolManager credit. With on-chain credit = 0, any
         // upward sync (1500 > 1000) reverts with AboveOnChainCredit.
         address token = makeAddr("token");
-        bytes32 slot = keccak256(abi.encode(token, uint256(7)));
+        bytes32 slot = keccak256(abi.encode(token, uint256(9))); // accruedFees mapping slot (post-Wave-A storage layout)
         vm.store(address(hook), slot, bytes32(uint256(1000)));
 
         hook.proposeSyncAccruedFees(token, 1500);
@@ -320,7 +324,7 @@ contract TegridyFeeHookTest is Test {
         // single-step increase is +100 → 1100. Each subsequent step needs
         // another 24h timelock + 7d cooldown (verified in AuditR014_Misc).
         address token = makeAddr("token");
-        bytes32 slot = keccak256(abi.encode(token, uint256(7)));
+        bytes32 slot = keccak256(abi.encode(token, uint256(9))); // accruedFees mapping slot (post-Wave-A storage layout)
         vm.store(address(hook), slot, bytes32(uint256(1000)));
         // Stub the PoolManager credit comfortably above the per-step ceiling
         poolManager.setCredit(address(hook), uint256(uint160(token)), 5000);
@@ -333,8 +337,10 @@ contract TegridyFeeHookTest is Test {
 
     function test_syncAccruedFees_allowsSmallReduction() public {
         address token = makeAddr("token");
-        bytes32 slot = keccak256(abi.encode(token, uint256(7)));
+        bytes32 slot = keccak256(abi.encode(token, uint256(9))); // accruedFees mapping slot (post-Wave-A storage layout)
         vm.store(address(hook), slot, bytes32(uint256(1000)));
+        // FRESH-2026: Wave A bound any sync to on-chain PoolManager credit. Seed credit ≥ target.
+        poolManager.setCredit(address(hook), uint256(uint160(token)), 1000);
 
         // Propose syncing down to 900 (10% reduction — should succeed)
         hook.proposeSyncAccruedFees(token, 900);
