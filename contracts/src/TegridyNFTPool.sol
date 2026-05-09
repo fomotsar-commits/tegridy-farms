@@ -232,6 +232,12 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         require(_factory != address(0), "ZERO_FACTORY");
         require(_weth != address(0), "ZERO_WETH");
         require(_spotPrice > 0, "ZERO_PRICE");
+        // AUDIT FIX FRESH-2026 (post-fix scan F-62-1): mirror the proposeSpotPrice cap
+        //         at init so a hostile creator cannot ship a pool with `_spotPrice ≈
+        //         uint256.max / 50` that overflows `_minLiquidityBuffer`'s
+        //         `100 * spotPrice` math. Cap is the same MAX_SPOT_PRICE = 1M ether
+        //         enforced by the post-deploy `proposeSpotPrice` path.
+        if (_spotPrice > MAX_SPOT_PRICE) revert SpotPriceTooHigh();
         if (_delta > MAX_DELTA) revert DeltaTooHigh();
         if (_protocolFeeBps > MAX_PROTOCOL_FEE_BPS) revert InvalidFee();
 

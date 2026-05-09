@@ -218,7 +218,8 @@ avoid the corresponding finding's exploit shape.
 
 | Action | Pre-condition |
 |---|---|
-| Disable a TegridyFactory pair (`emergencyDisablePair` or timelocked `proposePairDisabled`) | **First drain outstanding bribes** on that pair via `VoteIncentives.refundOrphanedBribe` / `claimBribesBatch`. (H-4 mitigation.) |
+| Disable a TegridyFactory pair (`emergencyDisablePair` or timelocked `proposePairDisabled`) | **First drain outstanding bribes** on that pair via `VoteIncentives.refundOrphanedBribe` / `claimBribesBatch`. (H-4 mitigation.) **Additionally:** if the disable lands MID-EPOCH (after votes are committed but before `voteEnd`), already-voted bribes will strand — the claim window is closed and refund paths reject disabled pairs. Use `emergencyDisablePair` only for true emergencies; for non-urgent disables, use the timelocked `proposePairDisabled` and announce the disable BEFORE the next epoch begins so voters can rotate their commitments. |
+| Spam-deploy NFT pools for a single collection | Sudoswap-V2 `LSSVMPair` factory uses identical OR-seeding semantics (`msg.value >= MIN_DEPOSIT \|\| initialTokenIds.length > 0`) — accept-as-design under the mandate (battle-tested canonical). Spam is bounded by `MAX_POOLS_PER_COLLECTION = 200`. Front-end can RPC-rate-limit if needed. |
 | Rotate treasury (`proposeTreasuryChange`) | Use multisig only. 48h timelock applies. POLAccumulator's harvest will respect the new treasury automatically. |
 | Set `feeToSetter` (Factory) | Use `proposeFeeToSetterChange` + 24h timelock. The 48h FEE_TO_CHANGE delay is intentionally longer so a captured setter can't outrun a legitimate rotation (Wave A M-22 fix). |
 | Add a JBAC NFT collection / approve a new collateral collection | `proposeWhitelistCollection` → 24h → `executeWhitelistCollection`. Wave A F-14-2 requires the collection to pass `supportsInterface(0x80ac58cd)` (ERC721). |

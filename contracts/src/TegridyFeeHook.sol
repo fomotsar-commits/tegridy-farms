@@ -277,41 +277,46 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     // ─── Hook Implementations ─────────────────────────────────────────
 
     // We only use afterSwap — all other hooks return the selector to indicate "no-op"
+    // AUDIT FIX FRESH-2026 (post-fix scan F-76-A): `pure` removed from these IHooks
+    //         no-op stubs. Canonical IHooks.sol declares them `external` (no purity).
+    //         DELETE-before-ADD: removing `pure` aligns with the canonical interface
+    //         and forward-compats any V4 evolution that requires non-pure lifecycle
+    //         hooks (e.g. transient-storage flag coordination).
 
-    function beforeInitialize(address, PoolKey calldata, uint160) external pure returns (bytes4) {
+    function beforeInitialize(address, PoolKey calldata, uint160) external returns (bytes4) {
         return IHooks.beforeInitialize.selector;
     }
 
-    function afterInitialize(address, PoolKey calldata, uint160, int24) external pure returns (bytes4) {
+    function afterInitialize(address, PoolKey calldata, uint160, int24) external returns (bytes4) {
         return IHooks.afterInitialize.selector;
     }
 
     function beforeAddLiquidity(address, PoolKey calldata, IPoolManager.ModifyLiquidityParams calldata, bytes calldata)
-        external pure returns (bytes4)
+        external returns (bytes4)
     {
         return IHooks.beforeAddLiquidity.selector;
     }
 
     function afterAddLiquidity(address, PoolKey calldata, IPoolManager.ModifyLiquidityParams calldata, BalanceDelta, BalanceDelta, bytes calldata)
-        external pure returns (bytes4, BalanceDelta)
+        external returns (bytes4, BalanceDelta)
     {
         return (IHooks.afterAddLiquidity.selector, BalanceDelta.wrap(0));
     }
 
     function beforeRemoveLiquidity(address, PoolKey calldata, IPoolManager.ModifyLiquidityParams calldata, bytes calldata)
-        external pure returns (bytes4)
+        external returns (bytes4)
     {
         return IHooks.beforeRemoveLiquidity.selector;
     }
 
     function afterRemoveLiquidity(address, PoolKey calldata, IPoolManager.ModifyLiquidityParams calldata, BalanceDelta, BalanceDelta, bytes calldata)
-        external pure returns (bytes4, BalanceDelta)
+        external returns (bytes4, BalanceDelta)
     {
         return (IHooks.afterRemoveLiquidity.selector, BalanceDelta.wrap(0));
     }
 
     function beforeSwap(address, PoolKey calldata, IPoolManager.SwapParams calldata, bytes calldata)
-        external pure returns (bytes4, BeforeSwapDelta, uint24)
+        external returns (bytes4, BeforeSwapDelta, uint24)
     {
         return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
@@ -438,13 +443,13 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     }
 
     function beforeDonate(address, PoolKey calldata, uint256, uint256, bytes calldata)
-        external pure returns (bytes4)
+        external returns (bytes4)
     {
         return IHooks.beforeDonate.selector;
     }
 
     function afterDonate(address, PoolKey calldata, uint256, uint256, bytes calldata)
-        external pure returns (bytes4)
+        external returns (bytes4)
     {
         return IHooks.afterDonate.selector;
     }
