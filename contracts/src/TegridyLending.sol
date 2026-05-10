@@ -827,6 +827,17 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         //         cannot ship silently disabled. Mainnet (chainid 1) skip is
         //         intentional — Ethereum L1 has no sequencer concept.
         require(block.chainid == 1 || _sequencerFeed != address(0), "L2 needs sequencerFeed");
+        // AUDIT FIX FRESH-2026: F-S4-INCOMPLETE — sibling-canonical EOA / 7702
+        //         reject from TegridyNFTLending.sol:468-470. Pre-fix the S-4
+        //         require accepted any non-zero address — including a typo'd
+        //         EOA or 7702-delegated EOA — and the contract bricked at
+        //         first runtime call (no setter exists for `sequencerFeed`).
+        //         Surfaces the failure at deploy time, mirrors NFTLending's
+        //         `feedLen == 0 || feedLen == 23 → revert` shape verbatim.
+        if (_sequencerFeed != address(0)) {
+            uint256 feedLen = _sequencerFeed.code.length;
+            if (feedLen == 0 || feedLen == 23) revert NotAContract();
+        }
 
         treasury = _treasury;
         protocolFeeBps = _protocolFeeBps;

@@ -101,6 +101,14 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     ///         allowlist on `sweepETH`. Reverts when the owner-supplied recipient
     ///         is neither `revenueDistributor` nor `owner()`.
     error InvalidSweepRecipient();
+    /// @notice AUDIT FIX FRESH-2026: F-FEEHOOK-INT128MIN — typed revert for the
+    ///         `swapAmount == type(int128).min` edge case in `afterSwap`. Negating
+    ///         `int128.min` overflows checked-math (`Panic(0x11)`) since
+    ///         `-int128.min` exceeds `int128.max` by 1. Reachable only on synthetic
+    ///         extreme-reserve tokens whose unspecified-side delta hits exactly
+    ///         `-2^127`, but the typed-revert promise of the hook's other paths
+    ///         is preserved by surfacing this with a stable selector instead.
+    error DeltaTooLarge();
     /// @notice AUDIT FIX (pass-8): TF-INT-02. `claimFees` only handles WETH (which it
     ///         unwraps to native ETH); non-WETH ERC20 currencies must flow through
     ///         `convertERC20FeesToETH` so the value actually reaches RevenueDistributor.
@@ -360,6 +368,11 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         // Take absolute value of the unspecified-side delta so feeBps applies
         // correctly whether the unspecified side is positive (output, exact-input
         // case) or negative (input, exact-output case).
+        // AUDIT FIX FRESH-2026: F-FEEHOOK-INT128MIN — guard before negation;
+        //         `int128.min == -2^127` cannot be safely negated (would overflow
+        //         to a value `int128.max + 1` does not represent). Surface the
+        //         edge case with a typed selector instead of `Panic(0x11)`.
+        if (swapAmount == type(int128).min) revert DeltaTooLarge();
         if (swapAmount < 0) swapAmount = -swapAmount;
 
         if (swapAmount == 0) {

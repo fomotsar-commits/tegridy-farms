@@ -811,12 +811,18 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     ) internal returns (uint256 totalOwed, uint256 actualEndEpoch) {
         actualEndEpoch = endEpoch;
 
-        // AUDIT FIX: DEEP-DR-L-03 — cache the user's restaker status outside the
-        // loop. Previously every iteration where `userPower == 0` fell through to
-        // `_restakedPowerAt` which performed a try-CALL into the restaking contract,
-        // so a non-restaker user with N zero-power epochs incurred N redundant CALLs.
-        // Caching the bool once collapses the worst case to a single CALL.
-        bool isRestaker = _isRestaked(user);
+        // AUDIT FIX FRESH-2026: F-REV-EXRESTAKER — DEEP-DR-L-03's `isRestaker`
+        //         cache short-circuited `_restakedPowerAt` based on CURRENT
+        //         restaker status. Ex-restakers (unrestaked at claim time) were
+        //         silently skipped for ALL their past restaked-period epochs
+        //         (staking-side checkpoint was 0 during restake, so userPower
+        //         stayed 0 unless restaking-side fallback fired). Combined with
+        //         the unconditional `claimedAtEpoch[user][i] = true` seal below,
+        //         this permanently locked them out of `proposeClaimRecovery`
+        //         too. Drop the cache: `_restakedPowerAt` already has a
+        //         try/catch wrapper, returns 0 cheaply for users who never
+        //         restaked (Trace208 length 0 path), and is the canonical Curve
+        //         FeeDistributor pattern (always read both sources per epoch).
 
         for (uint256 i = startEpoch; i < endEpoch; i++) {
             Epoch memory epoch = epochs[i];
@@ -837,37 +843,28 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
                 continue;
             }
 
-            // Mark every iterated epoch claimed-normally for this user,
-            // regardless of share size or whether the epoch had any locked
-            // tokens. The cursor advances past i unconditionally, so without
-            // this per-epoch flag a user with zero historical power for
-            // epoch i has no on-chain trace that they ran the normal claim
-            // loop — and `proposeClaimRecovery` would be silently permitted
-            // to refund them on the same (user, epoch).
-            claimedAtEpoch[user][i] = true;
-
             if (epoch.totalLocked > 0) {
                 uint256 userPower = votingEscrow.votingPowerAtTimestamp(user, epoch.timestamp);
-                // AUDIT NEW-S1 (CRITICAL): if staking checkpoint reads 0, fall through
-                // to the restaking contract's historical boostedAmount. Restakers' NFTs
-                // are held by the restaking contract, so their staking checkpoint is
-                // zeroed on transfer-in — without this fallback they silently earn $0.
-                // AUDIT FIX: DEEP-DR-L-03 — only consult restaking contract if the user
-                // has an active restaker position. Saves N try-CALLs for non-restakers.
-                //
-                // AUDIT FIX (pass-8): REV-RESTAKE-01 — was OR-fallback `if (userPower == 0 && isRestaker)`.
-                // Multi-source holders (direct NFT-A staked + NFT-B restaked) had the
-                // restaked share silently dropped because userPower > 0 short-circuited
-                // the fallback. Now ADDITIVE: a user's epoch share is the SUM of their
-                // staking-side power AND their restaking-side power, never one or the
-                // other. Mirrors the lib/VotePowerOracle.powerAt() pattern shipped in
-                // batch 1; not switching the call to the library here because
-                // _restakedPowerAt already has a try/catch defensive wrapper that's
-                // worth preserving.
-                if (isRestaker) {
-                    userPower += _restakedPowerAt(user, epoch.timestamp);
-                }
+                // AUDIT NEW-S1 (CRITICAL) + REV-RESTAKE-01 (pass-8): ADDITIVE sum
+                // of staking-side and restaking-side historical power. Restakers'
+                // NFTs are held by the restaking contract, so their staking
+                // checkpoint is zeroed on transfer-in; without the restaking-side
+                // add, they silently earn $0 on every restaked-period epoch.
+                // AUDIT FIX FRESH-2026: F-REV-EXRESTAKER — call unconditionally
+                //         (was gated on `isRestaker` cache pre-fix). The cache
+                //         returned false for users who unrestaked, sealing
+                //         their past restaked-period epochs at zero permanently.
+                //         `_restakedPowerAt` is cheap for never-restakers
+                //         (returns 0 via try/catch + Trace208 length-0 path).
+                userPower += _restakedPowerAt(user, epoch.timestamp);
                 if (userPower > 0) {
+                    // AUDIT FIX FRESH-2026: F-REV-EXRESTAKER — only seal the
+                    //         per-epoch claim flag when the user actually had
+                    //         non-zero historical power. Zero-power epochs stay
+                    //         eligible for `proposeClaimRecovery` (which
+                    //         requires owner-attested non-zero `power` anyway,
+                    //         so this cannot enable double-credit).
+                    claimedAtEpoch[user][i] = true;
                     // Cap userPower to epoch.totalLocked to prevent over-payment
                     uint256 effectivePower = userPower > epoch.totalLocked ? epoch.totalLocked : userPower;
                     uint256 share = (epoch.totalETH * effectivePower) / epoch.totalLocked;
@@ -1673,21 +1670,17 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
             if (claimedAtEpoch[user][i]) continue;
             if (epoch.totalLocked > 0) {
                 uint256 userPower = votingEscrow.votingPowerAtTimestamp(user, epoch.timestamp);
-                // AUDIT FIX M-13 [F-12-K-2, F-13-1] (MEDIUM): mirror the
-                // REV-RESTAKE-01 ADDITIVE math from `_calculateClaim` (line ~767).
-                // The previous OR-fallback shape (`if (userPower == 0 && isRestaked)`)
-                // silently dropped the restaking-side share for multi-source holders
-                // (direct NFT-A staked + NFT-B restaked) — view reported the staking
-                // share only, while `claim()` actually paid the SUM. View/write
-                // divergence broke frontends, indexers, and keeper bots that read this
-                // view to size claims. Now ADDITIVE: a user's epoch share is the SUM
-                // of their staking-side power AND their restaking-side power.
-                //
-                // AUDIT FIX: DEEP-DR-L-03 — only consult restaking contract if user has
-                // an active restaker position (cached in `isRestaked` above the loop).
-                if (isRestaked) {
-                    userPower += _restakedPowerAt(user, epoch.timestamp);
-                }
+                // AUDIT FIX M-13 [F-12-K-2, F-13-1] (MEDIUM) + REV-RESTAKE-01:
+                // ADDITIVE sum of staking-side and restaking-side historical power.
+                // Multi-source holders (direct NFT-A staked + NFT-B restaked)
+                // correctly accumulate both sides; view stays in lockstep with
+                // write path so frontends / indexers / keeper bots see the same
+                // amount `claim()` will pay.
+                // AUDIT FIX FRESH-2026: F-REV-EXRESTAKER — call unconditionally
+                //         to mirror the write-path drop of the `isRestaker`
+                //         short-circuit. Ex-restakers' historical power is now
+                //         visible in `pendingETH(user)` instead of silently 0.
+                userPower += _restakedPowerAt(user, epoch.timestamp);
                 if (userPower > 0) {
                     uint256 effectivePower = userPower > epoch.totalLocked ? epoch.totalLocked : userPower;
                     uint256 share = (epoch.totalETH * effectivePower) / epoch.totalLocked;

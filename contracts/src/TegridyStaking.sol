@@ -956,6 +956,20 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // Update amounts
         totalStaked += _additionalAmount;
         p.amount += _additionalAmount;
+        // AUDIT FIX FRESH-2026: STAKING-INC-AML-DOWNGRADE — extend lockEnd FIRST
+        //         for autoMaxLock users so the F-02-K-04 boost clamp computes
+        //         `remaining` against the post-extend horizon. Pre-fix the order
+        //         was inverted: `effectiveBoost = min(calculateBoost(pre-extend
+        //         remaining), cachedBoost)` then lockEnd extended to MAX. An
+        //         autoMaxLock user who topped up after their last `getReward` had
+        //         decayed `remaining` silently downgraded to (e.g.) 2.2× even
+        //         though the lockEnd was just refreshed to MAX. Mirrors the
+        //         `extendLock` order (line 927: lockEnd updated before boost
+        //         computation at line 929).
+        if (p.autoMaxLock) {
+            p.lockEnd = uint64(block.timestamp + MAX_LOCK_DURATION);
+            p.lockDuration = uint32(MAX_LOCK_DURATION);
+        }
         // AUDIT FIX FRESH-2026: F-02-K-04 [LOW] — clamp boost on combined principal
         // to whatever the REMAINING lock time would justify. Previously the
         // original `boostBps` was retro-applied to the new principal, fee-free,
@@ -971,11 +985,6 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (p.hasJbacBoost) remainingBoost += JBAC_BONUS_BPS;
         uint256 effectiveBoost = remainingBoost < cachedBoost ? remainingBoost : cachedBoost;
         _applyNewBoost(p, effectiveBoost);
-
-        // Auto-extend lock if autoMaxLock is enabled (consistency with getReward behavior)
-        if (p.autoMaxLock) {
-            p.lockEnd = uint64(block.timestamp + MAX_LOCK_DURATION);
-        }
 
         // Transfer tokens
         rewardToken.safeTransferFrom(msg.sender, address(this), _additionalAmount);
@@ -1074,9 +1083,27 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
                 // lock decays and autoMaxLock fires. `revalidateBoost`'s LockExpired
                 // guard is one-way (DS2-07) so it cannot strip this on a position
                 // whose lockEnd was just rewritten to `now + MAX_LOCK_DURATION`.
+                // AUDIT FIX FRESH-2026: STAKING-AML-RESTAKE-JBAC — sibling-port
+                //         from `revalidateBoost` lines 1303-1309. When the
+                //         restaking contract calls `getReward(tokenId)`, msg.sender
+                //         is the restaking contract — which never holds JBAC NFTs.
+                //         Pre-fix, every legacy `hasJbacBoost && !jbacDeposited`
+                //         restaked position silently lost its JBAC bonus on the
+                //         first decay-restore even though the original depositor
+                //         still held the JBAC NFT. Resolve to the actual depositor
+                //         when the caller is the restaking contract.
+                address jbacHolder = msg.sender;
+                if (msg.sender == restakingContract && restakingContract != address(0)) {
+                    try ITegridyRestakingView(restakingContract).tokenIdToRestaker(tokenId) returns (address depositor) {
+                        if (depositor != address(0)) jbacHolder = depositor;
+                    } catch {
+                        // Restaking lookup failed; fall through with msg.sender
+                        // (preserves DOWNGRADE bias — strips bonus iff cannot prove holding).
+                    }
+                }
                 bool jbacStillValid =
                     p.jbacDeposited ||
-                    (p.hasJbacBoost && jbacNFT.balanceOf(msg.sender) > 0);
+                    (p.hasJbacBoost && jbacNFT.balanceOf(jbacHolder) > 0);
                 uint256 newBoost = MAX_BOOST_BPS;
                 if (jbacStillValid) {
                     newBoost += JBAC_BONUS_BPS;
