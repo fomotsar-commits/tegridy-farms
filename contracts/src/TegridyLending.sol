@@ -1075,10 +1075,12 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 originationFee = offer.originationFee;
         // AUDIT FIX: LD3-H3 — use the snapshotted treasury for fee routing so a
         // treasury change between create and accept cannot redirect the fee.
-        // Migration safety: pre-LD3-H3 offers default to address(0); fall back
-        // to the live treasury so legacy offers remain payable.
+        // AUDIT FIX FRESH-2026 (post-fix scan7 DC-3): drop pre-LD3-H3
+        // `treasuryAtCreate == 0` fallback. Constructor + setter enforce
+        // `treasury != address(0)` and `createLoanOfferWithExpiry` always writes
+        // `treasuryAtCreate: treasury`, so post-relaunch every offer has a
+        // non-zero snapshot.
         address feeRecipient = offer.treasuryAtCreate;
-        if (feeRecipient == address(0)) feeRecipient = treasury;
         // AUDIT FIX D-LD-M1: honor an originationFee CUT between create and
         // accept (mirrors the LD3-M4 fix on TegridyNFTLending.acceptOffer).
         // Pre-fix, lenders paid yesterday's bps after a fee-rate cut, harming
@@ -1294,6 +1296,11 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // pre-fix `snapBps == 0` heuristic could not distinguish from
         // legacy/unset. Freshly minted offers always write `int16(uint16(bps))`
         // which is non-negative.
+        // AUDIT NOTE FRESH-2026 (scan7 DC-4 deferred): the fallback is dead
+        // code post-relaunch (`createLoanOfferWithExpiry` always writes
+        // non-negative). Tried to delete it but the resulting `uint16(int16)`
+        // cast chain trips Yul stack-too-deep in `repayLoan` under via_ir.
+        // Kept as-is per mandate "defer if delete breaks build."
         int16 snapBps = offers[offerId].protocolFeeBpsAtCreate;
         uint256 effectiveFeeBps = snapBps < 0
             ? protocolFeeBps
