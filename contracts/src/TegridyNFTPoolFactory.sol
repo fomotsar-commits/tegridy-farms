@@ -201,7 +201,9 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
         // bypass MAX_POOLS_PER_COLLECTION (the cap is read at re-entry before
         // outer push) and deploy multiple pools in one tx. Defense-in-depth.
         if (nftCollection == address(0)) revert ZeroAddress();
-        require(nftCollection.code.length > 0, "NOT_CONTRACT");
+        // AUDIT FIX FRESH-2026 (post-fix scan3 EIP-7702 retrofit): length-23 carve-out.
+        uint256 _ncLen = nftCollection.code.length;
+        require(_ncLen > 0 && _ncLen != 23, "NOT_CONTRACT");
         // AUDIT FIX (pass-8): C5 / LOOP-01 — MIN_DEPOSIT raised to 0.05 ETH
         // and per-collection pool count capped at MAX_POOLS_PER_COLLECTION
         // to defeat storage-bloat DoS on router discovery.

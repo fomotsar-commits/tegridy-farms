@@ -52,7 +52,7 @@ contract DeploySwapFeeRouterV2Script is Script {
         console.log("5. Premium discount proposed on admin:", PREMIUM_DISCOUNT_BPS, "bps (24h timelock)");
 
         // 6. Transfer ownership of router AND admin to multisig
-        address multisig = vm.envOr("MULTISIG", address(0));
+        address multisig = vm.envAddress("MULTISIG"); // FRESH-2026 (post-fix scan3 F-DI-31): require non-empty MULTISIG env so deployer EOA never silently retains ownership
         if (multisig != address(0)) {
             sfr.transferOwnership(multisig);
             sfrAdmin.transferOwnership(multisig);

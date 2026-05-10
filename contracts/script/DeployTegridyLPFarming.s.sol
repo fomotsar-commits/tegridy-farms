@@ -50,7 +50,7 @@ contract DeployTegridyLPFarmingScript is Script {
         console.log("1. TegridyLPFarming deployed:", address(farm));
 
         // Transfer ownership to multisig (initiates 2-step handover)
-        address multisig = vm.envOr("MULTISIG", address(0));
+        address multisig = vm.envAddress("MULTISIG"); // FRESH-2026 (post-fix scan3 F-DI-31): require non-empty MULTISIG env so deployer EOA never silently retains ownership
         if (multisig != address(0)) {
             farm.transferOwnership(multisig);
             console.log("2. Ownership transfer initiated to:", multisig);

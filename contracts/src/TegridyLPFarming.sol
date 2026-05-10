@@ -57,7 +57,11 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     using SafeERC20 for IERC20;
 
     // ─── Constants ──────────────────────────────────────────────────
-    uint256 public constant MAX_REWARD_RATE = 100e18;       // Cap: 100 TOWELI/sec
+    // AUDIT FIX FRESH-2026 (post-fix scan3 C-1): tightened from 100e18 to 1e18
+    //         to align with TegridyStaking's matching cap (Wave A F-35-2). Pre-fix
+    //         the 100e18 ceiling was ~315%/yr — emergency-only, not sustainable.
+    //         1e18 ≈ 31%/yr matches the sister contract; sibling-canonical port.
+    uint256 public constant MAX_REWARD_RATE = 1e18;       // Cap: 1 TOWELI/sec (~31%/yr)
     uint256 public constant MAX_REWARDS_DURATION = 90 days;
     uint256 public constant MIN_REWARDS_DURATION = 1 days;
     uint256 public constant MIN_NOTIFY_AMOUNT = 1000e18;

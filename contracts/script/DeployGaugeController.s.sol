@@ -15,7 +15,7 @@ contract DeployGaugeControllerScript is Script {
         GaugeController gauge = new GaugeController(TEGRIDY_STAKING, EMISSION_BUDGET);
         console.log("GaugeController deployed:", address(gauge));
         // Transfer ownership
-        address multisig = vm.envOr("MULTISIG", address(0));
+        address multisig = vm.envAddress("MULTISIG"); // FRESH-2026 (post-fix scan3 F-DI-31): require non-empty MULTISIG env so deployer EOA never silently retains ownership
         if (multisig != address(0)) {
             gauge.transferOwnership(multisig);
             console.log("Ownership transfer initiated to:", multisig);

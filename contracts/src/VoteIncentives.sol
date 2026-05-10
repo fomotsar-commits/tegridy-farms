@@ -120,7 +120,11 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     function setGaugeController(address _gaugeController) external onlyOwner {
         if (_gaugeController == address(0)) revert ZeroAddress();
         if (gaugeController != address(0)) revert GaugeControllerAlreadySet();
-        require(_gaugeController.code.length > 0, "GC_MUST_BE_CONTRACT");
+        // AUDIT FIX FRESH-2026 (post-fix scan3 EIP-7702 retrofit): mirror the
+        //         OwnableNoRenounce length-23 carve-out so a typo'd 7702-EOA
+        //         doesn't compile-pass and brick this one-shot setter.
+        uint256 codeLen = _gaugeController.code.length;
+        require(codeLen > 0 && codeLen != 23, "GC_MUST_BE_CONTRACT");
         gaugeController = _gaugeController;
         emit GaugeControllerSet(_gaugeController);
     }
@@ -145,7 +149,9 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     function setVoteIncentivesAdmin(address _admin) external onlyOwner {
         if (_admin == address(0)) revert ZeroAddress();
         if (voteIncentivesAdmin != address(0)) revert VoteIncentivesAdminAlreadySet();
-        require(_admin.code.length > 0, "ADMIN_MUST_BE_CONTRACT");
+        // AUDIT FIX FRESH-2026 (post-fix scan3 EIP-7702 retrofit): length-23 carve-out.
+        uint256 codeLen = _admin.code.length;
+        require(codeLen > 0 && codeLen != 23, "ADMIN_MUST_BE_CONTRACT");
         voteIncentivesAdmin = _admin;
         emit VoteIncentivesAdminSet(_admin);
     }

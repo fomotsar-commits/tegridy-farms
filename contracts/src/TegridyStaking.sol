@@ -472,7 +472,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     function setJbacVault(address _vault) external onlyOwner {
         if (_vault == address(0)) revert ZeroAddress();
         if (jbacVault != address(0)) revert JbacVaultAlreadySet();
-        if (_vault.code.length == 0) revert NotAContract();
+        // AUDIT FIX FRESH-2026 (post-fix scan3 EIP-7702 retrofit): length-23 carve-out.
+        uint256 codeLen = _vault.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
         jbacVault = _vault;
         emit JbacVaultSet(_vault);
     }
