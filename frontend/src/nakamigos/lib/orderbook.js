@@ -278,6 +278,27 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
     const signData = { ...orderParameters, counter: counter.toString() };
     const seaportSignature = await signer.signTypedData(SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, signData);
 
+    // AUDIT F10: derive Seaport's canonical orderHash (the value emitted in
+    // OrderFulfilled events on-chain) so the orderbook can verify fills.
+    // The hash is `hashStruct(OrderComponents)` — same OrderComponents +
+    // counter the wallet just signed. We have all inputs inline, so no
+    // extra RPC call beyond the getCounter we already did.
+    //
+    // ethers.TypedDataEncoder.from(types).hash(data) returns
+    //   keccak256( typehash(OrderComponents) || encodedFields )
+    // i.e. the EIP-712 struct-hash WITHOUT the \x19\x01 + domainSeparator
+    // prefix. That's exactly what Seaport's `_deriveOrderHash` emits in
+    // the OrderFulfilled event (verified byte-for-byte against viem's
+    // `hashStruct` in the regression test).
+    //
+    // ethers.TypedDataEncoder.hash(domain, types, data) is the FULL digest
+    // (with \x19\x01 prefix) — that's what gets signed but NOT what Seaport
+    // emits. Don't confuse the two.
+    const seaportOrderHash = ethers.TypedDataEncoder
+      .from(SEAPORT_ORDER_TYPES)
+      .hash(signData)
+      .toLowerCase();
+
     // Sign auth message to prove wallet ownership to the orderbook API.
     // MUST match the server-side verification message in api/orderbook.js exactly.
     // NOTE: The server extracts priceWei from consideration[0].startAmount, which
@@ -302,6 +323,11 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
               signature: authSignature,
               seaportSignature,
               protocol_address: SEAPORT_ADDRESS,
+              // AUDIT F10: canonical Seaport orderHash + counter for fill
+              // verification. Server re-derives from these and rejects on
+              // mismatch — the client claim is just a fast path.
+              seaportOrderHash,
+              seaportCounter: counter.toString(),
             },
           }),
         });

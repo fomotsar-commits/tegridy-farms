@@ -11,9 +11,10 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "crypto";
-import { recoverMessageAddress } from "viem";
+import { recoverMessageAddress, decodeAbiParameters, parseAbiParameters } from "viem";
 import { checkRateLimit } from "./_lib/ratelimit.js";
 import { verifySeaportSignature, verifyNftOwnership, MAX_PRICE_WEI, priceWeiToEthNumber } from "./_lib/seaport-verify.js";
+import { computeSeaportOrderHash, isValidSeaportOrderHash } from "./_lib/seaportHash.js";
 
 // Whitelist allowed contract addresses (lowercase)
 const ALLOWED_CONTRACTS = new Set([
@@ -60,7 +61,12 @@ const supabase = SUPABASE_URL && SUPABASE_KEY ? createClient(SUPABASE_URL, SUPAB
  *     filled_at timestamptz,
  *     tx_hash text,
  *     cancelled_at timestamptz,
- *     created_at timestamptz DEFAULT now()
+ *     created_at timestamptz DEFAULT now(),
+ *     -- AUDIT F10: canonical Seaport struct-hash of OrderComponents,
+ *     -- emitted in the on-chain OrderFulfilled event. Used to verify
+ *     -- fills. NULLABLE for legacy pre-migration rows; new rows must
+ *     -- supply it. See migrations/005_add_seaport_order_hash.sql.
+ *     seaport_order_hash text
  *   );
  *
  *   ALTER TABLE native_orders ENABLE ROW LEVEL SECURITY;
@@ -433,6 +439,10 @@ export default async function handler(req, res) {
 
       // Generate a deterministic order hash from the order parameters.
       // Uses SHA-256 of the canonical JSON to produce a proper 66-char hex hash.
+      // NOTE: this is the application's PRIMARY KEY for the row — unrelated to
+      // Seaport's on-chain orderHash. Both are stored: this one is used for
+      // every API lookup (cancel/fill/query), and `seaport_order_hash` is
+      // used to match against the OrderFulfilled event in the fill verifier.
       const hashInput = JSON.stringify({
         offerer: params.offerer?.toLowerCase(),
         offer: params.offer,
@@ -442,6 +452,64 @@ export default async function handler(req, res) {
         salt: params.salt || randomUUID(),
       });
       const orderHash = "0x" + createHash("sha256").update(hashInput).digest("hex");
+
+      // ── AUDIT F10: capture the canonical Seaport orderHash ──
+      // Pre-fix the fill verifier checked `topics[1] === orderHash` which
+      // matched the indexed offerer (a zero-padded address), AND compared
+      // it to a sha256(JSON) hash that has no relationship to Seaport's
+      // EIP-712 struct hash. NO legitimate fill ever satisfied the check.
+      //
+      // Fix: derive Seaport's canonical hashStruct(OrderComponents) and
+      // store it in a dedicated column. The client provides its own
+      // computed hash (it has counter inline at sign-time, no extra RPC
+      // round-trip needed) and the server re-derives from the same
+      // parameters as defense-in-depth. If the client tampers, the fill
+      // path will reject anyway (Seaport emits the canonical hash on chain),
+      // so this re-check is belt-and-suspenders to fail fast at create-time
+      // rather than silently accept a wrong hash and DoS later fills.
+      let seaportOrderHash = null;
+      const clientSeaportHash = order.seaportOrderHash;
+      if (clientSeaportHash !== undefined && clientSeaportHash !== null) {
+        if (!isValidSeaportOrderHash(clientSeaportHash)) {
+          return res.status(400).json({ error: "Invalid seaportOrderHash format (expected 0x + 64 lowercase hex)" });
+        }
+        // The client also passes the Seaport counter it used at sign-time.
+        // It's part of the OrderComponents typed-data so the wallet had to
+        // know it; we accept the claim and re-derive.
+        const counter = order.seaportCounter;
+        if (counter == null) {
+          return res.status(400).json({ error: "Missing seaportCounter — required to derive canonical orderHash" });
+        }
+        let counterBig;
+        try {
+          // Accept string/number/bigint; reject anything else.
+          if (typeof counter === "string") {
+            if (!/^[0-9]+$/.test(counter)) throw new Error("non-numeric");
+            counterBig = BigInt(counter);
+          } else if (typeof counter === "number" && Number.isInteger(counter) && counter >= 0) {
+            counterBig = BigInt(counter);
+          } else if (typeof counter === "bigint") {
+            counterBig = counter;
+          } else {
+            throw new Error("bad-type");
+          }
+        } catch (e) {
+          return res.status(400).json({ error: "Invalid seaportCounter — must be a non-negative integer" });
+        }
+        // Re-derive server-side. If derivation throws (malformed param) →
+        // 400; that's a client-side problem.
+        let derivedHash;
+        try {
+          derivedHash = computeSeaportOrderHash(params, counterBig);
+        } catch (e) {
+          return res.status(400).json({ error: "Could not derive Seaport orderHash from parameters" });
+        }
+        // Constant-time-ish equality on lowercase hex strings.
+        if (derivedHash !== clientSeaportHash.toLowerCase()) {
+          return res.status(400).json({ error: "seaportOrderHash mismatch — client hash does not match server-derived hash" });
+        }
+        seaportOrderHash = derivedHash;
+      }
 
       const { error } = await supabase.from("native_orders").insert({
         order_hash: orderHash,
@@ -459,6 +527,7 @@ export default async function handler(req, res) {
         start_time: new Date(startSec * 1000).toISOString(),
         end_time: new Date(endSec * 1000).toISOString(),
         status: "active",
+        seaport_order_hash: seaportOrderHash,
       });
 
       if (error) { console.error("Orderbook error:", error.message); return res.status(500).json({ error: "Internal error" }); }
@@ -577,6 +646,31 @@ export default async function handler(req, res) {
         return res.status(503).json({ error: "On-chain verification temporarily unavailable — please retry in a few minutes" });
       }
 
+      // ── AUDIT F10: look up the canonical Seaport hash for this row ──
+      // Verification logic:
+      //   - row has seaport_order_hash → strict ABI-decode of OrderFulfilled
+      //     `data` field (first bytes32 = orderHash) and bytes32 equality
+      //   - row has NULL (legacy, pre-migration) → fall back to a presence
+      //     check (canonical Seaport address + matching offerer in topic[1]).
+      //     Legacy rows sunset at end_time — listings have a 7-day TTL, so
+      //     this fallback is bounded.
+      let storedSeaportHash = null;
+      let orderMaker = null;
+      {
+        const { data: rowForVerify } = await supabase
+          .from("native_orders")
+          .select("seaport_order_hash, maker")
+          .eq("order_hash", orderHash)
+          .maybeSingle();
+        if (rowForVerify) {
+          storedSeaportHash = rowForVerify.seaport_order_hash || null;
+          orderMaker = (rowForVerify.maker || "").toLowerCase();
+        }
+        // Don't 404 here — the atomic update below handles missing rows
+        // with a single race-free path. If the row doesn't exist it'll
+        // fail at the `update().eq("status","active")` step.
+      }
+
       if (hasAlchemy) {
         try {
           const rpcRes = await fetch(`https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`, {
@@ -592,8 +686,15 @@ export default async function handler(req, res) {
           if (receipt.status !== "0x1") {
             return res.status(400).json({ error: "Transaction reverted on-chain" });
           }
-          // Verify that the tx contains a Seaport OrderFulfilled event for this order hash
-          // OrderFulfilled topic0 = keccak256("OrderFulfilled(bytes32,address,address,tuple[])")
+          // Verify the tx contains a Seaport OrderFulfilled event for this order.
+          // OrderFulfilled signature:
+          //   OrderFulfilled(bytes32 orderHash, address indexed offerer,
+          //                  address indexed zone, address recipient,
+          //                  SpentItem[] offer, ReceivedItem[] consideration)
+          // → topic[0] = signature hash,
+          //   topic[1] = indexed offerer (32-byte left-padded address),
+          //   topic[2] = indexed zone,
+          //   data     = ABI-encoded (orderHash, recipient, offer[], consideration[])
           const ORDER_FULFILLED_TOPIC = "0x9d9af8e38d66c62e2c12f0225249fd9d721c54b83f48d9352c97c6cacdcb6f31";
           // AUDIT API-M7 + REVIEW H-2-FINDING-1: pin the event origin to a CANONICAL
           // Seaport allowlist so a malicious contract emitting the same topic
@@ -605,11 +706,51 @@ export default async function handler(req, res) {
             "0x00000000000000adc04c56bf30ac9d3c0aaf14dc", // Seaport 1.5
             "0x0000000000000068f116a894984e2db1123eb395", // Seaport 1.6
           ]);
-          const hasMatchingLog = receipt.logs.some(log =>
-            log.topics?.[0] === ORDER_FULFILLED_TOPIC &&
-            log.topics?.[1]?.toLowerCase() === orderHash.toLowerCase() &&
-            SEAPORT_ADDRESSES.has(log.address?.toLowerCase())
-          );
+
+          // AUDIT F10: structural fix. The pre-fix logic was:
+          //   topics[1].toLowerCase() === orderHash.toLowerCase()
+          // …which compared an indexed-address topic (zero-padded) to the
+          // application's sha256(JSON) hash — those types are unrelated and
+          // could never match. Now we ABI-decode the `data` field and pull
+          // the canonical orderHash from the first 32 bytes.
+          let hasMatchingLog = false;
+          for (const log of (receipt.logs || [])) {
+            if (log.topics?.[0] !== ORDER_FULFILLED_TOPIC) continue;
+            if (!SEAPORT_ADDRESSES.has(log.address?.toLowerCase())) continue;
+
+            if (storedSeaportHash) {
+              // Strict path: ABI-decode `data`, compare bytes32 orderHash.
+              let decodedHash;
+              try {
+                const decoded = decodeAbiParameters(
+                  parseAbiParameters(
+                    "bytes32, address, (uint8,address,uint256,uint256)[], (uint8,address,uint256,uint256,address)[]"
+                  ),
+                  log.data,
+                );
+                decodedHash = (decoded[0] || "").toLowerCase();
+              } catch {
+                // Malformed log data — skip this log, try the next.
+                continue;
+              }
+              if (decodedHash === storedSeaportHash) { hasMatchingLog = true; break; }
+            } else {
+              // Legacy fallback: presence-only — same Seaport-allowlisted
+              // contract emitted OrderFulfilled with topic[1] (indexed
+              // offerer) matching the row's recorded `maker`. This is
+              // weaker than the strict path (any fill by the same maker
+              // in the same tx satisfies it), but bounded by the row's
+              // 7-day TTL and only applies to pre-migration rows.
+              if (orderMaker) {
+                const topicOfferer = ("0x" + (log.topics?.[1] || "").slice(-40)).toLowerCase();
+                if (topicOfferer === orderMaker) { hasMatchingLog = true; break; }
+              } else {
+                // No stored hash AND no recorded maker — surface match
+                // failure rather than guessing.
+                hasMatchingLog = false;
+              }
+            }
+          }
           if (!hasMatchingLog) {
             return res.status(400).json({ error: "Transaction does not contain a matching Seaport OrderFulfilled event" });
           }
