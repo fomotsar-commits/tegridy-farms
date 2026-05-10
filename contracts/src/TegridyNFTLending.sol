@@ -1233,7 +1233,13 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         // legitimate ERC721s (e.g. CryptoPunks v1, Sandbox v1) predate ERC165
         // — if the call reverts we conservatively fall through and let the
         // 24h timelock + execute-side check block obvious mistakes.
-        require(_collection.code.length > 0, "NOT_CONTRACT");
+        // AUDIT FIX FRESH-2026 (post-fix scan3 EIP-7702 retrofit): length-23
+        //         carve-out — sibling-canonical of TegridyNFTPoolFactory.createPool.
+        //         A 7702-delegated EOA (canonical `0xef0100‖addr` pointer, code.length
+        //         == 23) whose delegate REVERTS on `supportsInterface` would fall
+        //         through the catch below and pass the gate as a "pre-ERC165 ERC721".
+        uint256 codeLen = _collection.code.length;
+        require(codeLen > 0 && codeLen != 23, "NOT_CONTRACT");
         try IERC165(_collection).supportsInterface(0x80ac58cd) returns (bool ok) {
             require(ok, "NOT_ERC721");
         } catch {
