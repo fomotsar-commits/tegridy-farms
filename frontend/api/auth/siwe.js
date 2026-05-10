@@ -118,7 +118,13 @@ function buildAuthCookie(token, maxAgeSeconds) {
 }
 
 function buildClearAuthCookie() {
-  const isLocalDev = process.env.DISABLE_SECURE_COOKIE === "true";
+  // AUDIT FIX FRESH-2026: F12 — mirror buildAuthCookie's NODE_ENV guard so
+  //         setting DISABLE_SECURE_COOKIE=true in production cannot silently
+  //         drop the Secure flag on the clear cookie. Browser cookie delete
+  //         tuple is (name, domain, path) so practical impact is mostly
+  //         cosmetic, but the flag asymmetry vs issuance was a drift the
+  //         rest of the auth surface didn't anticipate.
+  const isLocalDev = process.env.NODE_ENV !== "production" && process.env.DISABLE_SECURE_COOKIE === "true";
   const parts = [
     `siwe_jwt=`,
     `HttpOnly`,

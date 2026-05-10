@@ -179,9 +179,18 @@ export default async function handler(req, res) {
       if (revoked) {
         return res.status(401).json({ error: "Token revoked" });
       }
+    } else if (process.env.NODE_ENV === "production") {
+      // AUDIT FIX FRESH-2026: F9 — fail closed in prod if SUPABASE_SERVICE_KEY
+      //         is missing. Pre-fix the revocation check was silently skipped
+      //         on a misconfigured prod deploy: any stolen/cached JWT could
+      //         keep writing for the full 24h JWT lifetime even after logout.
+      //         Mirror siwe.js's hard-503 posture so the missing env var fails
+      //         loud instead of silently leaving writes inert.
+      return res.status(503).json({ error: "Auth service not configured" });
     }
-    // If service client isn't configured (e.g., dev without SUPABASE_SERVICE_KEY),
-    // the check is skipped — same behaviour as the JWT_SECRET-not-set branch above.
+    // If service client isn't configured in non-prod (e.g., dev without
+    // SUPABASE_SERVICE_KEY), the check is skipped — matches the JWT_SECRET-
+    // not-set branch above.
   }
 
   // AUDIT R051 M: stage-2 write bucket — keyed on verified wallet so a NAT

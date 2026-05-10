@@ -2106,18 +2106,51 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         } catch {
             // ownerOf reverted — token doesn't exist (burned). Treat as "not held".
         }
-        if (!nftHeldHere) {
-            try staking.claimUnsettledForTokenId(loan.tokenId, recipient) returns (uint256 _p) {
-                directPaid = _p;
-            } catch (bytes memory reason) {
-                emit EscrowRewardsClaimDeferred(_loanId, reason);
-            }
-        }
 
         // Legacy path: any pre-fix escrowRewardsOwed entry (set by the prior
         // snapshot/delta + claimUnsettled flow) gets paid out via the existing
         // pro-rata math. New loans typically arrive here with owed == 0.
         uint256 owed = escrowRewardsOwed[_loanId];
+
+        // AUDIT FIX FRESH-2026: F-LD-CROSS-LOAN — pull-then-cap pattern.
+        //         Pre-fix `claimUnsettledForTokenId(tokenId, recipient)` drained
+        //         the FULL per-tokenId bucket directly to `recipient`. The
+        //         staking-side bucket has NO per-loan attribution — it
+        //         accumulates kicks for whichever loan was active when the
+        //         kick fired. When sequential loans on the same tokenId both
+        //         deferred (paused staking at each settlement), the first
+        //         recipient to call `pullEscrowRewards` walked away with
+        //         BOTH loans' slices (X + Y) while the second was permanently
+        //         robbed (lending TOWELI balance was 0, so the legacy
+        //         pro-rata fallback returned 0). Pattern of record: Aave V3
+        //         pull-then-cap (recipient is the consumer, not the source).
+        //
+        //         Fix: pull to `address(this)` (lending) instead of `recipient`,
+        //         then transfer `min(received, owed[_loanId])` to recipient.
+        //         Excess (received - owed) stays in lending TOWELI balance,
+        //         feeding the legacy pro-rata path for sibling loan claims —
+        //         which is exactly the conservation law the legacy path was
+        //         designed to enforce. `escrowRewardsOwed[_loanId]` is the
+        //         correct cap because it's set at deferral time (repayLoan /
+        //         claimDefaultedCollateral lines 1348+ / 1505+) to the
+        //         per-loan delta `current_at_settlement - loanRewardsSnapshot
+        //         [_loanId]` — already loan-specific.
+        if (!nftHeldHere) {
+            uint256 lendingBefore = IERC20(toweli).balanceOf(address(this));
+            try staking.claimUnsettledForTokenId(loan.tokenId, address(this)) returns (uint256) {
+                uint256 received = IERC20(toweli).balanceOf(address(this)) - lendingBefore;
+                uint256 toRecipient = received > owed ? owed : received;
+                if (toRecipient > 0) {
+                    IERC20(toweli).safeTransfer(recipient, toRecipient);
+                }
+                directPaid = toRecipient;
+                // Excess `received - toRecipient` stays in lending TOWELI
+                // balance and is consumed by the legacy pro-rata path on
+                // sibling loans' subsequent `pullEscrowRewards` calls.
+            } catch (bytes memory reason) {
+                emit EscrowRewardsClaimDeferred(_loanId, reason);
+            }
+        }
 
         // AUDIT FIX PASS7-LENDING-04: reconcile the legacy ledger against the
         // `directPaid` path. PASS7-LENDING-03's deferral-tracker (in

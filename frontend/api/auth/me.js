@@ -15,9 +15,16 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 // the check is skipped and we fall back to JWT-signature-only auth —
 // matches pre-logout-revocation behavior and keeps /me responsive when
 // the DB is the thing that's degraded.
+// AUDIT FIX FRESH-2026: F9 — fail closed in production when SUPABASE_SERVICE_KEY
+//         is missing. Pre-fix the revocation check was silently skipped on a
+//         misconfigured prod deploy (or a partial-rollback that dropped the
+//         env var) — a stolen token that the user logged out hours ago stayed
+//         valid until 24h `exp`. Mirror siwe.js:150-152's hard-503 posture so
+//         the misconfiguration is loud at startup, not silent at auth time.
 const supabase = SUPABASE_URL && SUPABASE_SERVICE_KEY
   ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
   : null;
+const REVOCATION_REQUIRED = process.env.NODE_ENV === "production";
 
 // AUDIT R050 MED + R052 077: env-driven allowlist; no hardcoded
 // `nakamigos.gallery` fallback. Production hosts + dev localhost form the
@@ -77,6 +84,12 @@ export default async function handler(req, res) {
   if (!rlOk) return;
 
   if (!JWT_SECRET) {
+    return res.status(503).json({ error: "Auth service not configured" });
+  }
+  // AUDIT FIX FRESH-2026: F9 — refuse to authenticate in prod when the
+  //         revocation lookup cannot run. Closes the silent fail-open where
+  //         a missing SUPABASE_SERVICE_KEY left logout-revocation inert.
+  if (REVOCATION_REQUIRED && supabase === null) {
     return res.status(503).json({ error: "Auth service not configured" });
   }
 
