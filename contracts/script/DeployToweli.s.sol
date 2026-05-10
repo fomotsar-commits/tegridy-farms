@@ -15,6 +15,11 @@ import {Toweli} from "../src/Toweli.sol";
 ///      TOKEN_TREASURY — recipient for the full 1B supply at deploy time
 contract DeployToweli is Script {
     function run() external returns (Toweli token) {
+        // AUDIT FIX FRESH-2026 (post-fix scan8 SE-1): refuse mainnet broadcast.
+        // This deployer produces a non-vanity TOWELI; mainnet must use the
+        // CREATE2 vanity flow (docs/TOKEN_DEPLOY.md). Sibling-canonical to
+        // every other deploy script's chain-id guard, just inverted.
+        require(block.chainid != 1, "USE_VANITY_DEPLOY_FOR_MAINNET");
         // FRESH-EYES M-13: keystore migration completion. Forge selects sender from --account/--private-key/--ledger CLI flags; reading PRIVATE_KEY from env defeats the keystore path.
         address treasury = vm.envAddress("TOKEN_TREASURY");
         require(treasury != address(0), "TOKEN_TREASURY not set");
