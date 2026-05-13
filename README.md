@@ -62,7 +62,7 @@ Tegridy Farms is six DeFi primitives that share one token and one revenue stream
 
 ## How it all fits together
 
-Tegridy Farms isn't 30 independent contracts — it's **one flywheel**. Every revenue surface feeds the same staker reward stream; every governance lever points to TOWELI stakers; every NFT-collateral primitive uses the same staking position. The diagrams below show the actual on-chain flow.
+Tegridy Farms's `contracts/src/` directory holds **30 root `.sol` files** (25 user-facing primitives + 5 EIP-170 admin/vault sisters) plus **6 utility files** in `src/base/` and `src/lib/`. None of them are redundant — every revenue surface feeds the same staker reward stream; every governance lever points to TOWELI stakers; every NFT-collateral primitive uses the same staking position. It's **one flywheel** spread across many files. The diagrams below show the actual on-chain flow.
 
 ### 1. The revenue flywheel (where ETH actually comes from)
 
@@ -197,19 +197,24 @@ Every contract earns its place in the protocol because it either *generates reve
 
 ### Contract count — what's in `contracts/src/` and what isn't
 
-The directory holds **30 `.sol` files** at HEAD, broken down as:
+The directory holds **30 root `.sol` files** at HEAD, broken down as:
 
-- **21 user-facing primitives** — the contracts in the table above
-- **5 admin / vault sister contracts** — not duplicates; intentional EIP-170 splits so each main contract fits under the 24,576-byte mainnet bytecode limit:
-  - `TegridyLending` ← `TegridyLendingAdmin` (parameter timelocks)
-  - `TegridyStaking` ← `TegridyStakingAdmin` + `TegridyStakingJbacVault` (parameter timelocks + JBAC custody isolation for CCR-01 reentrancy defense)
-  - `SwapFeeRouter` ← `SwapFeeRouterAdmin`
-  - `VoteIncentives` ← `VoteIncentivesAdmin`
-- **4 utility libraries / base contracts** in `contracts/src/base/` + `contracts/src/lib/` — `OwnableNoRenounce`, `TimelockAdmin`, `SafeERC721Call`, `SequencerCheck`, `VotePowerOracle`, `WETHFallbackLib`
+- **25 user-facing primitives** — covered by the table above (some rows group multiple cooperating contracts: "Native DEX" is `TegridyFactory` + `TegridyRouter` + `TegridyPair`; "TegridyNFTPool / Factory" is `TegridyNFTPool` + `TegridyNFTPoolFactory`; "TegridyStaking" pairs with `TegridyTokenURIReader` for SVG/JSON rendering)
+- **5 admin / vault sister contracts** — *not duplicates*; intentional EIP-170 splits so each main contract fits under the 24,576-byte mainnet bytecode limit:
+  - `TegridyLending` ↔ `TegridyLendingAdmin` (parameter timelocks)
+  - `TegridyStaking` ↔ `TegridyStakingAdmin` + `TegridyStakingJbacVault` (parameter timelocks + JBAC custody isolation for the CCR-01 reentrancy defense)
+  - `SwapFeeRouter` ↔ `SwapFeeRouterAdmin`
+  - `VoteIncentives` ↔ `VoteIncentivesAdmin`
 
-**No V1 duplicates remain.** `TegridyDrop.sol` (V1) and `TegridyLaunchpad.sol` (V1) source files were **deleted 2026-04-19** per the scope decision in [`memory/project_scope_decision.md`](https://github.com/) — only the V2 contracts ship. The deployed V1 clones still live on-chain at their original addresses, but the source is gone and no new V1 deploys are possible. See the "Governance & launchpad" section in [Deployed contracts](#deployed-contracts-ethereum-mainnet) for which V1 address is the legacy reference.
+Plus **6 utility files** outside `src/` root:
+- `contracts/src/base/` (2 files) — `OwnableNoRenounce`, `TimelockAdmin`
+- `contracts/src/lib/` (4 files) — `SafeERC721Call`, `SequencerCheck`, `VotePowerOracle`, `WETHFallbackLib`
 
-If you're a reviewer auditing the surface: the user-facing ABI is **21 contracts**. Each admin sister is a thin staging layer for `propose/execute/cancel` flows; the user never calls them directly.
+Math: **25 primitives + 5 sisters = 30 root files**, + 6 utility files = **36 `.sol` files total** under `contracts/src/**`.
+
+**No V1 duplicates remain.** `TegridyDrop.sol` (V1) and `TegridyLaunchpad.sol` (V1) source files were **deleted 2026-04-19** per the scope decision in `memory/project_scope_decision.md` — only the V2 contracts ship. The deployed V1 clones still live on-chain at their original addresses, but the source is gone and no new V1 deploys are possible. See the "Governance & launchpad" section in [Deployed contracts](#deployed-contracts-ethereum-mainnet) for the legacy address reference.
+
+If you're a reviewer auditing the surface: the user-facing ABI is **25 contracts** (compressed to ~20 logical clusters in the table for readability). Each admin/vault sister is a thin staging layer for `propose/execute/cancel` flows or asset custody isolation; users never call them directly.
 
 ---
 
@@ -355,7 +360,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). TL;DR: branch off `main`, keep changes f
 ```
 tegriddy-farms/
 ├── contracts/           Foundry project — Solidity 0.8.26
-│   ├── src/             21 user-facing primitives + 5 EIP-170 admin/vault sisters (V1 launchpad/drop deleted 2026-04-19)
+│   ├── src/             25 user-facing primitives + 5 EIP-170 admin/vault sisters = 30 root .sol files
+│   │                    plus 2 base/ + 4 lib/ utility files = 36 total. V1 launchpad/drop deleted 2026-04-19.
 │   ├── script/          Deploy + wiring scripts (incl. DeployLaunchpadV2, DeployTegridyFeeHook)
 │   └── test/            67 test suites, 1,933 tests incl. audit regression + launchpad V2 fuzz
 ├── frontend/            Vite + React 19 + TypeScript
