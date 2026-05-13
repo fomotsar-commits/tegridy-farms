@@ -13,20 +13,40 @@
 
 > **A DeFi yield protocol on Ethereum where every dollar of swap fees flows to stakers, every vote is weighted by how long you've locked, and the whole thing runs on fixed-supply TOWELI. Real yield. No inflation tricks. Farm with tegridy.**
 
-Tegridy Farms lets you stake a fixed-supply ERC-20 (TOWELI) and earn **100% of protocol revenue** as real ETH yield — no emissions subsidies, no rebase games. On top of staking, the protocol ships a native DEX, LP farming with vote-escrow boosts, ERC-20 and NFT lending, and a Curve-style gauge-voted emissions system that lets TOWELI holders direct where rewards go.
+> ⚠️ **Status: pre-relaunch.** Wave 0 contracts shipped on mainnet in April 2026 are being **sunset** — a fresh deploy from a new wallet is the current operating plan ([`RELAUNCH_RUNBOOK.md`](RELAUNCH_RUNBOOK.md)). Contracts have shipped 14 internal AI-agent audits + Spartan external review, but **no OpenZeppelin / Trail of Bits / Spearbit-grade firm review yet**. Size deposits accordingly.
 
-The name and voice are a satirical nod to South Park's "Tegridy Farms" — weed-farm integrity, Randy Marsh energy, kids' college fund. The protocol itself is standard Synthetix/Curve DeFi primitives wrapped in a brand with a point of view.
+### Real numbers, not vibes
+
+- **2,593 / 2,593** Solidity tests passing across **149 suites** (forge, non-invariant) — plus 53 invariant tests, plus 191/191 frontend vitest
+- **30 contracts** in `contracts/src/` — 25 user-facing + 5 EIP-170 admin/vault sisters; zero V1 duplicates ([source deletion 2026-04-19](#contract-count--whats-in-contractssrc-and-what-isnt))
+- **2 external audits** (Spartan + pre-release third-party) · **14 internal AI-agent sweeps** including the May-9 Monster Audit — every artifact in [`AUDITS.md`](AUDITS.md)
+- **Bug bounty live** — see [`SECURITY.md`](SECURITY.md). We pay.
+- **Blockers tracked openly** in [`FIX_STATUS.md`](FIX_STATUS.md); nothing is buried.
+
+### The 30-second version
+
+1. TOWELI is fixed supply (1B, no mint function, no rebase).
+2. The protocol runs a DEX, lending markets, NFT-fi, a launchpad, and a premium tier.
+3. Every fee from every surface goes to TOWELI stakers, in ETH.
+4. Stakers vote weekly on where LP rewards flow. Bribers pay stakers to vote.
+5. The longer you lock (up to 4y), the more ETH you earn and the louder you vote.
+
+That's it. The rest of this README is *how*.
+
+Yes, the name is from Randy Marsh's South Park weed farm. The bit ends there — the contracts are standard Synthetix / Curve / Aave / Gondi primitives.
 
 - **Website:** [tegridyfarms.xyz](https://tegridyfarms.xyz)
-- **Token:** [`TOWELI`](https://etherscan.io/token/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D) · 1,000,000,000 fixed supply · Ethereum Mainnet
+- **Token (pre-relaunch):** [`TOWELI`](https://etherscan.io/token/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D) · 1,000,000,000 fixed supply · Ethereum Mainnet
 - **Chart:** [GeckoTerminal](https://www.geckoterminal.com/eth/pools/0x6682Ac593513cc0A6c25D0F3588e8fA4FF81104D)
 
 ---
 
 ## Contents
 
-- [What it is](#what-it-is)
-- [How it all fits together](#how-it-all-fits-together)
+- [Real numbers, not vibes](#real-numbers-not-vibes) — trust signals
+- [The 30-second version](#the-30-second-version) — the protocol in 5 bullets
+- [What it is](#what-it-is) — feature surface
+- [How it all fits together](#how-it-all-fits-together) — flywheel diagrams
 - [How to use it (for users)](#how-to-use-it-for-users)
 - [Tokenomics in one minute](#tokenomics-in-one-minute)
 - [For developers](#for-developers)
@@ -193,7 +213,7 @@ Every contract earns its place in the protocol because it either *generates reve
 | **ReferralSplitter** | Stake-gated referral rewards | Aligns acquisition incentives with the staker base — only stakers (≥1000 TOWELI power) can earn referral fees. |
 | **CommunityGrants** | TOWELI-staker-voted grant proposals + payouts | Decentralizes community spend. Stakers vote on who gets ecosystem grants. |
 | **MemeBountyBoard** | ETH bounties for community-submitted memes/content, staker-voted | Channels marketing spend through the same governance lens. |
-| **Toweli (ERC-20)** | The TOWELI token — fixed 1B supply, EIP-2612 permit, ERC-1271 SCW-compatible | The asset that ties everything together. No mint function. Audited 9 times. |
+| **Toweli (ERC-20)** | The TOWELI token — fixed 1B supply, EIP-2612 permit, ERC-1271 SCW-compatible | The asset that ties everything together. No mint function. Audited 16 times across the full lineage. |
 
 ### Contract count — what's in `contracts/src/` and what isn't
 
@@ -344,9 +364,9 @@ pnpm dev   # starts Ponder against the RPC in .env
 
 ### Running tests
 
-- **Solidity:** `cd contracts && forge test` — **149 test suites, 2,593 tests passing** (non-invariant), audit-regression coverage included
+- **Solidity:** `cd contracts && forge test` — **149 test suites, 2,593 tests passing** (non-invariant) + 53 invariant tests; audit-regression coverage included
 - **Frontend typecheck:** `cd frontend && pnpm exec tsc --noEmit`
-- **Frontend unit tests:** `cd frontend && pnpm exec vitest run` — **70+ Vitest cases** (CSV parser, metadata builders, wizard reducer)
+- **Frontend unit tests:** `cd frontend && pnpm exec vitest run` — **191/191 Vitest cases** across 14 test files (wagmi hooks, formatting, CSV parser, metadata builders, wizard reducer, F10 orderbook)
 - **Frontend build:** `cd frontend && pnpm build`
 
 ### Contributing
@@ -363,7 +383,8 @@ tegriddy-farms/
 │   ├── src/             25 user-facing primitives + 5 EIP-170 admin/vault sisters = 30 root .sol files
 │   │                    plus 2 base/ + 4 lib/ utility files = 36 total. V1 launchpad/drop deleted 2026-04-19.
 │   ├── script/          Deploy + wiring scripts (incl. DeployLaunchpadV2, DeployTegridyFeeHook)
-│   └── test/            67 test suites, 1,933 tests incl. audit regression + launchpad V2 fuzz
+│   └── test/            118 test files, 149 suites, 2,593 tests (non-invariant) + 53 invariant tests
+│                        — 70+ are audit-derived regressions (Audit*/PASS7_*/PASS8_*/FRESH2026_*)
 ├── frontend/            Vite + React 19 + TypeScript
 │   ├── src/pages/       Routed pages (tabbed LearnPage / ActivityPage hosts)
 │   ├── src/components/  UI components
@@ -397,6 +418,7 @@ tegriddy-farms/
 
 | Doc | For |
 |---|---|
+| [RELAUNCH_RUNBOOK.md](RELAUNCH_RUNBOOK.md) | **Canonical** post-Wave-A deploy sequence (supersedes `DEPLOY_RUNBOOK.md`) |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the 25 contracts fit together |
 | [DEVELOPING.md](docs/DEVELOPING.md) | Local-dev setup for contracts, frontend, indexer |
 | [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Mainnet deploy runbook + rollback |
@@ -413,7 +435,17 @@ tegriddy-farms/
 
 ## Security & audits
 
-Tegridy Farms has undergone **2 external reviews** (Spartan + a pre-release third-party review) plus **9+ internal AI-agent sweeps** (100→200→300→40-agent passes, microscope, DEEP, pass-5 through pass-8, scan2–scan8, and the May-9 *Monster Audit* lineage closing 16 additional findings with 4 new Foundry PoC tests). Every artifact is tracked in this repo under [`AUDITS.md`](AUDITS.md); historical reviews have been archived under [`docs/audits/archive/`](docs/audits/archive/). Nothing is buried. The protocol is running on-chain with real TVL; treat it seriously.
+Tegridy Farms has undergone **2 external reviews** (Spartan + a pre-release third-party review) plus **14 internal AI-agent sweeps**. The lineage:
+
+- 100-agent → 200-agent → 300-agent → 40-agent parallel sweeps (Mar 2026)
+- 101-agent canonical pass with R001–R076 remediation (Apr 25, 2026)
+- Microscope (Apr 30) + DEEP v1/v2/v3 (May 1)
+- PASS5 → PASS6 → PASS7 → PASS8 (May 2 → May 6) — 418 + ~275 = ~693 findings closed across the four passes
+- scan2 → scan6 sibling-canonical sweeps reaching "asymptotic floor" (May 8–9)
+- scan7 EIP-7702 retrofit + scan8 deploy-script hardening (May 9)
+- **Monster Audit (May 9–10)** — 7-cluster fresh-eyes audit closing 13 new findings + 3 post-fix-sweep follow-ons; 4 new Foundry PoC tests landed under `contracts/test/FRESH2026_*.t.sol`
+
+Every artifact is tracked in this repo under [`AUDITS.md`](AUDITS.md); historical reviews have been archived under [`docs/audits/archive/`](docs/audits/archive/). Nothing is buried. The protocol is pre-relaunch ([`RELAUNCH_RUNBOOK.md`](RELAUNCH_RUNBOOK.md)); treat it seriously.
 
 - **Complete audit index:** [AUDITS.md](AUDITS.md) — every file, every methodology, every chronological pass, plus a cross-reference table showing which blockers have patches and which need on-chain redeploys.
 - **Current fix status:** [FIX_STATUS.md](FIX_STATUS.md) — rolling tracker of what's landed on `main` and what's deferred. **Read this before depositing significant capital.** Items are open; we don't hide them.
@@ -425,91 +457,77 @@ Methodology is labelled honestly. **Internal AI agents** are parallel Claude/GPT
 
 | Audit | Date | Type | Headline severity | Role |
 |---|---|---|---|---|
-| [.audit_101/POST_REMEDIATION_LEDGER.md](.audit_101/POST_REMEDIATION_LEDGER.md) | 2026-04-26 | Internal AI + multi-pass verification, 27 commits landed | 3 Crit + 7 High + 5 Med fixed; 2 EIP-170 splits; 31 false positives cleared | **🟢 Post-fix source of truth** |
+| [FIX_STATUS.md § Monster Audit](FIX_STATUS.md#-monster-audit-2026-05-09--2026-05-10) | 2026-05-09 → 05-10 | Internal AI, 7-cluster fresh-eyes + post-fix sweep | 13 NEW findings + 3 fresh regressions; 16/16 closed; 4 new Foundry PoCs | **🟢 Latest cumulative ledger** |
+| [.audit_101/PASS8_2026_05_04.md](.audit_101/PASS8_2026_05_04.md) | 2026-05-04 → 05-06 | Internal AI, 100-agent fresh-eye | ~275 unique findings; 18-batch remediation | 🟢 Closed |
+| [.audit_101/PASS7_2026_05_03.md](.audit_101/PASS7_2026_05_03.md) | 2026-05-03 → 05-04 | Internal AI, adversarial multi-agent | 1 C + 6 H + 4 M + 2 L | 🟢 Closed |
+| [.audit_101/PASS6_2026_05_03.md](.audit_101/PASS6_2026_05_03.md) + [PASS5](.audit_101/PASS5_2026_05_02.md) | 2026-05-02 → 05-03 | Internal AI, fresh-eyes meta + cross-contract | 5 H + 5 M (PASS6) + 1 H + 1 L + 4 invariants (PASS5) | 🟢 Closed |
+| [.audit_101/POST_REMEDIATION_LEDGER.md](.audit_101/POST_REMEDIATION_LEDGER.md) | 2026-04-26 | Internal AI + multi-pass verification, 27 commits landed | 3 Crit + 7 High + 5 Med fixed; 2 EIP-170 splits; 31 false positives cleared | 🟢 Post-fix source of truth |
 | [SECURITY_AUDIT_300_AGENT.md](SECURITY_AUDIT_300_AGENT.md) | 2026-04-16 | Internal AI, 300 agents + Spartan ingest | 5 C / 12 H / many M+L | Canonical severity (pre-Apr-26) |
 | [AUDIT_FINDINGS.md](AUDIT_FINDINGS.md) | 2026-04-17 | Internal AI, 35 detectives vs `main` | 4 ship-blockers (B1–B4) + H/M/L | Pre-Apr-26 working-tree state |
 | [SPARTAN_AUDIT.txt](SPARTAN_AUDIT.txt) | 2026-04-16 | **External** (Spartan) | 1 C / 1 H / 7 M / 9 L | Ingested into 300-agent |
 | [API_INDEXER_AUDIT.md](API_INDEXER_AUDIT.md) | 2026-04-17 | Internal AI, domain-specific | H + M triage | `frontend/api/**` + `indexer/` |
-| *9 earlier reviews, Mar 25 – Apr 4* | — | Archived | — | See [docs/audits/archive/](docs/audits/archive/) |
+| *6 earlier reviews, Mar 25 – Apr 4* | — | Archived | — | See [docs/audits/archive/](docs/audits/archive/) |
 
 A paid human audit by a recognised firm (OpenZeppelin / Trail of Bits / Spearbit / Cyfrin / Code4rena) is on the roadmap and **not yet scheduled**. Size deposits accordingly.
 
-Plus **40+ audit-derived Foundry test files** under [`contracts/test/`](contracts/test/) — every finding that could be expressed as a regression test has one (including 4 new `FRESH2026_*` PoC files locking in the monster-audit closures). Current pass rate: **2,593 / 2,593**.
+Plus **70+ audit-derived Foundry test files** under [`contracts/test/`](contracts/test/) — every finding that could be expressed as a regression test has one (including 4 new `FRESH2026_*` PoC files locking in the monster-audit closures, plus 22 vitest cases for the F10 orderbook Seaport-hash fix). Current forge pass rate: **2,593 / 2,593** non-invariant + 53 / 53 invariant.
 
 ### What's true as of the latest commit on `main`
 
-- **Wave 0 audit-fix redeploys are live on mainnet** (2026-04-18): TegridyLPFarming C-01 fix, TegridyNFTLending C-02 grace period, GaugeController H-2 commit-reveal, TokenURIReader pointing at v2 staking, TegridyTWAP oracle, TegridyFeeHook at `…0044`. See [docs/MIGRATION_HISTORY.md](docs/MIGRATION_HISTORY.md) for the deprecated→canonical pairs.
-- **Still pending broadcast**: VoteIncentives redeploy; TegridyLending + NFTPool template + NFTPoolFactory redeploy; TegridyFeeHook redeploy with patched `_owner` constructor (source ready, first deploy's ownership was stranded on the Arachnid CREATE2 proxy); TegridyLaunchpadV2 (click-deploy factory, tests passing). V1 TegridyLaunchpad + TegridyDrop source was deleted 2026-04-19 — V1 clones on mainnet remain live. See [FIX_STATUS.md](FIX_STATUS.md) + [AUDITS.md § blocker table](AUDITS.md#cross-reference-known-blockers-on-main).
-- The contracts use `OpenZeppelin` primitives (SafeERC20, ReentrancyGuard, Pausable), a custom `TimelockAdmin` (24–48 hour delays on parameter changes), and `OwnableNoRenounce` (prevents accidental brick).
-- The frontend has **403+ passing unit tests** (wagmi hooks, formatting, CSV parsing, wizard reducer) + **20+ Playwright E2E specs** covering trust surfaces, wallet integration, and the major flows.
+- **Wave 0 is being sunset.** The April 2026 mainnet deployment is treated as the *baseline* — a full relaunch from a new deployer wallet is the current path forward. See [`RELAUNCH_RUNBOOK.md`](RELAUNCH_RUNBOOK.md) for the deploy sequence.
+- **All 16 monster-audit findings closed** across 5 batch commits (May 9–10, 2026): F1 ex-restaker revenue loss (HIGH), F-LD cross-loan drain (HIGH), F10 orderbook Seaport hash (MED), plus 13 others. Per-finding ledger in [`FIX_STATUS.md` § Monster Audit](FIX_STATUS.md).
+- **Test posture frozen at 2,593 / 2,593** non-invariant Foundry tests + 53 invariant + 191 / 191 frontend vitest. Three independent forge sweeps post-batch-4 confirmed identical results.
+- The contracts use OZ primitives (SafeERC20, ReentrancyGuard, Pausable), a custom `TimelockAdmin` (24–48h delays on parameter changes), and `OwnableNoRenounce` (prevents accidental brick). Custom code traces to canonical billion-dollar patterns: Synthetix / Curve / Aave V3 / Gondi / Uniswap V2+V4 / OZ / Solady.
 
 ### What to still be careful about
 
-- Smart contract risk exists. No software is bug-free.
-- Market risk — TOWELI is a thin-liquidity token; IL in the LP is real.
-- Admin keys are timelocked but not (yet) multisig. See [ROADMAP.md](ROADMAP.md) + [docs/GOVERNANCE.md](docs/GOVERNANCE.md) for the multisig migration plan and honest threat model.
+- **Smart contract risk exists.** No software is bug-free. The protocol has had 14 internal AI audits + 1 external (Spartan) but **no audit by a paid human firm yet**. Size deposits accordingly.
+- **Multisig migration pending.** Admin keys are timelocked but a single key still holds owner role. See [`ROADMAP.md`](ROADMAP.md) + [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md) for the multisig plan — this is the **biggest unresolved attack vector**, bigger than any specific code finding.
+- **Market risk.** TOWELI is a thin-liquidity token; IL in the LP is real.
 
 ---
 
 ## Deployed contracts (Ethereum Mainnet)
 
-All contracts are verified on Etherscan; click any address to view source.
+> ⚠️ **Pre-relaunch — canonical addresses pending.** The Wave 0 contracts that shipped April 2026 are being **sunset**. A fresh deploy from a new wallet is the current operating plan; canonical post-relaunch addresses will land here after broadcast. See [`RELAUNCH_RUNBOOK.md`](RELAUNCH_RUNBOOK.md) for the deploy sequence and [`docs/MIGRATION_HISTORY.md`](docs/MIGRATION_HISTORY.md) for the full address history.
 
-> **2026-04-26 architectural note:** TegridyStaking and SwapFeeRouter were each split into a user-facing contract + a sister `*Admin` contract to fit under the EIP-170 24,576-byte mainnet limit (see [CHANGELOG](CHANGELOG.md#2026-04-26--post-remediation-audit-campaign-3-crit--7-high--5-med--2-eip-170-splits) and [POST_REMEDIATION_LEDGER](.audit_101/POST_REMEDIATION_LEDGER.md)). The currently-deployed addresses below run the pre-split bytecode and continue to function. Once the new admin sister contracts deploy, they'll be added to this table; until then `propose/execute/cancel` admin calls go to the existing addresses.
+In the meantime, here are the Wave 0 addresses for **historical / context-only** reference. **Do not interact with them assuming they'll continue to be canonical.**
 
 <details>
-<summary><b>Core token & staking</b></summary>
+<summary><b>Wave 0 historical addresses (collapse for relaunch readiness)</b></summary>
 
+#### Core token & staking
 | Contract | Address |
 |---|---|
-| TOWELI Token | [`0x42069…78F9D`](https://etherscan.io/address/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D#code) |
+| TOWELI Token (vanity prefix `0x42069`) | [`0x42069…78F9D`](https://etherscan.io/address/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D#code) |
 | TegridyStaking | [`0x62664…C4819`](https://etherscan.io/address/0x626644523d34B84818df602c991B4a06789C4819#code) |
 | TegridyRestaking | [`0xfba4D…CaEe4`](https://etherscan.io/address/0xfba4D340759Ae4c36DfFC6C773D171bf7BDCaEe4#code) |
-| TegridyStakingAdmin (post-split sister) | _to be deployed — see [CHANGELOG](CHANGELOG.md)_ |
 
-</details>
-
-<details>
-<summary><b>Native DEX</b></summary>
-
+#### Native DEX
 | Contract | Address |
 |---|---|
 | TegridyFactory | [`0x8B786…bdCB6`](https://etherscan.io/address/0x8B786163aA3beb97822d480a0c306DfD6dEbdCB6#code) |
 | TegridyRouter | [`0xCBCF6…9863F`](https://etherscan.io/address/0xCBCF6AcC4697cA3a7D7658Cd2051606a09c9863F#code) |
 | TegridyLP (TOWELI/WETH) | [`0xeD01d…f26f6`](https://etherscan.io/address/0xeD01d5f52EBE97360133bdeF77305ee24d5f26f6#code) |
 
-</details>
-
-<details>
-<summary><b>Revenue, fees & farming</b></summary>
-
+#### Revenue, fees & farming
 | Contract | Address |
 |---|---|
 | RevenueDistributor | [`0x332aa…264D8`](https://etherscan.io/address/0x332aaE555b1164eA45c2291fD7eDfa97aAA264D8#code) |
 | SwapFeeRouter | [`0xea13C…937A0`](https://etherscan.io/address/0xea13Cd47a37cC5B59675bfd52BFc8ff8691937A0#code) |
-| SwapFeeRouterAdmin (post-split sister) | _to be deployed — see [CHANGELOG](CHANGELOG.md)_ |
 | POLAccumulator | [`0x17215…B7Ca`](https://etherscan.io/address/0x17215f0dfA5E97c33c025E0560eeddffaD87B7Ca#code) |
-| TegridyLPFarming (C-01 fixed) | [`0xa7EF7…9ec1`](https://etherscan.io/address/0xa7EF711Be3662B9557634502032F98944eC69ec1#code) |
-| TegridyFeeHook (V4 hook, ends `0x0044`) | [`0xB6cfe…0044`](https://etherscan.io/address/0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044#code) |
+| TegridyLPFarming | [`0xa7EF7…9ec1`](https://etherscan.io/address/0xa7EF711Be3662B9557634502032F98944eC69ec1#code) |
+| TegridyFeeHook (V4, ends `0x0044`) | [`0xB6cfe…0044`](https://etherscan.io/address/0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044#code) |
 
-</details>
-
-<details>
-<summary><b>Governance & launchpad</b></summary>
-
+#### Governance & launchpad
 | Contract | Address |
 |---|---|
 | GaugeController (H-2 commit-reveal) | [`0xb9326…0Fdb`](https://etherscan.io/address/0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb#code) |
 | VoteIncentives | [`0x417F4…Cf1A`](https://etherscan.io/address/0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A#code) |
-| TegridyLaunchpad (v1, deprecated 2026-04-19) | [`0x5d597…FF3C2`](https://etherscan.io/address/0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2#code) |
-| TegridyLaunchpadV2 (click-deploy w/ ERC-7572 contractURI) | _pending broadcast — placeholder `0x0…0` until deploy_ |
+| TegridyLaunchpad (V1, source deleted 2026-04-19) | [`0x5d597…FF3C2`](https://etherscan.io/address/0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2#code) |
 | TegridyNFTPoolFactory | [`0x1C0e1…04f0`](https://etherscan.io/address/0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0#code) |
 
-</details>
-
-<details>
-<summary><b>Lending</b></summary>
-
+#### Lending
 | Contract | Address |
 |---|---|
 | TegridyLending | [`0xd471e…3367f`](https://etherscan.io/address/0xd471e5675EaDbD8C192A5dA2fF44372D5713367f#code) |
@@ -517,11 +535,7 @@ All contracts are verified on Etherscan; click any address to view source.
 | TegridyTokenURIReader | [`0xfec9a…1eb2`](https://etherscan.io/address/0xfec9aea42ea966c9382eeb03f63a784579841eb2#code) |
 | TegridyTWAP | [`0xddbe4…4995`](https://etherscan.io/address/0xddbe4cd58faf4b0b93e4e03a2493327ee3bb4995#code) |
 
-</details>
-
-<details>
-<summary><b>Community & premium</b></summary>
-
+#### Community & premium
 | Contract | Address |
 |---|---|
 | CommunityGrants | [`0x8f1Ba…3032`](https://etherscan.io/address/0x8f1Ba1eC97a932EE1332BA0f366BC6aDf60B3032#code) |
@@ -530,11 +544,7 @@ All contracts are verified on Etherscan; click any address to view source.
 | PremiumAccess | [`0xaA16d…22Ad`](https://etherscan.io/address/0xaA16dF3dC66c7A6aD7db153711329955519422Ad#code) |
 | Treasury | [`0xE9B7a…f53e`](https://etherscan.io/address/0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e#code) |
 
-</details>
-
-<details>
-<summary><b>NFT collections</b></summary>
-
+#### NFT collections (third-party, unchanged across relaunch)
 | Contract | Address |
 |---|---|
 | JBAC (Jungle Bay Apes) | [`0xd3726…fDdA9`](https://etherscan.io/address/0xd37264c71e9af940e49795F0d3a8336afAaFDdA9#code) |
@@ -542,24 +552,26 @@ All contracts are verified on Etherscan; click any address to view source.
 
 </details>
 
-For a full browsable directory inside the app, see [tegridyfarms.xyz/contracts](https://tegridyfarms.xyz/contracts).
+For a full live directory after relaunch, see [tegridyfarms.xyz/contracts](https://tegridyfarms.xyz/contracts).
 
 ---
 
 ## Roadmap & status
 
-See [ROADMAP.md](ROADMAP.md) for the full roadmap and [CHANGELOG.md](CHANGELOG.md) for what shipped.
+Full roadmap in [`ROADMAP.md`](ROADMAP.md). Shipping cadence in [`CHANGELOG.md`](CHANGELOG.md). Audit closures in [`FIX_STATUS.md`](FIX_STATUS.md).
 
-Near-term priorities (abridged):
+**Near-term (the gates before mainnet relaunch):**
 
-- ~~Redeploy three patched contracts (LP farming `exit()`, NFT lending grace period, Drop refund/cancel)~~ — ✅ **LPFarming + NFTLending live on mainnet 2026-04-18**. The V1 Drop H-10 refund surface is now carried by `TegridyDropV2` (V1 source deleted 2026-04-19).
-- ~~Commit-reveal gauge voting at the contract layer~~ — ✅ **live on mainnet** at `0xb93264aB…0Fdb`.
-- Broadcast `TegridyLaunchpadV2` + redeploy `TegridyFeeHook` with patched `_owner` constructor
-- Broadcast `VoteIncentives` + redeploy `TegridyLending` / `TegridyNFTPool template` / `TegridyNFTPoolFactory` (per-contract scripts; V1 V3Features bundle retired 2026-04-19)
-- Multisig `acceptOwnership()` on all transferred Wave 0 contracts; fund LPFarming reward epoch
+1. **Multisig setup.** Spec the Safe policy (threshold, per-contract role mapping), deploy the Safe, set up signing key custody. **The single biggest unresolved attack vector.** Must precede relaunch.
+2. **Paid human audit.** Schedule with OpenZeppelin / Trail of Bits / Spearbit / Cyfrin / Code4rena. ~$60–150k, ~4–6 week timeline. In-house adversarial budget has reached saturation across 14 internal passes.
+3. **Relaunch broadcast** per [`RELAUNCH_RUNBOOK.md`](RELAUNCH_RUNBOOK.md). Fresh deployer wallet → all 30 contracts → multisig `acceptOwnership` on each → fund LP farming reward epoch.
+
+**Medium-term:**
+
 - Keeper infrastructure for DCA / limit orders (today these require the user's tab to stay open)
-- Wire Leaderboard & History pages to the indexer instead of Etherscan proxy
-- Multisig + guardian role for admin keys
+- Wire Leaderboard & History pages to the Ponder indexer instead of the Etherscan proxy
+- Public Discord / Twitter presence
+- V4 hook fee aggregation polish + protocol-owned liquidity (POL) growth via SwapFeeRouter
 
 ---
 
