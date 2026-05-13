@@ -26,6 +26,7 @@ The name and voice are a satirical nod to South Park's "Tegridy Farms" — weed-
 ## Contents
 
 - [What it is](#what-it-is)
+- [How it all fits together](#how-it-all-fits-together)
 - [How to use it (for users)](#how-to-use-it-for-users)
 - [Tokenomics in one minute](#tokenomics-in-one-minute)
 - [For developers](#for-developers)
@@ -56,6 +57,143 @@ Tegridy Farms is six DeFi primitives that share one token and one revenue stream
 - Fixed-supply token. No emissions dilution. What you earn is *revenue*, not inflation.
 - Every fee mechanism routes to stakers by default — treasury only takes a parameterized cut on select pools (see [REVENUE_ANALYSIS.md](REVENUE_ANALYSIS.md) for honest breakdowns).
 - Self-contained economic loop: stake → vote → direct LP emissions → earn LP → bribes flow back to stakers. All on-chain, all audit-trailed.
+
+---
+
+## How it all fits together
+
+Tegridy Farms isn't 30 independent contracts — it's **one flywheel**. Every revenue surface feeds the same staker reward stream; every governance lever points to TOWELI stakers; every NFT-collateral primitive uses the same staking position. The diagrams below show the actual on-chain flow.
+
+### 1. The revenue flywheel (where ETH actually comes from)
+
+Every user action on every surface routes ETH through `SwapFeeRouter` or directly into `RevenueDistributor`. From there it streams to stakers proportionally to their boosted balance and historical lock duration. **No revenue surface keeps its fees — they all flow back through one address.**
+
+```mermaid
+flowchart LR
+    subgraph users[" "]
+        direction TB
+        U1[Trader]
+        U2[NFT Borrower]
+        U3[NFT Trader]
+        U4[NFT Minter]
+        U5[Premium Subscriber]
+    end
+
+    subgraph features["Revenue surfaces (charge ETH fees)"]
+        direction TB
+        DEX["Native DEX<br/>(swap fee 0.3 percent)"]
+        LEND["Lending<br/>(origination + interest)"]
+        NFTPOOL["NFT AMM Pools<br/>(curve trade fee)"]
+        DROP["Launchpad / Drop<br/>(platform fee on mint)"]
+        PREMIUM["Premium Access<br/>(subscription fee)"]
+    end
+
+    U1 --> DEX
+    U2 --> LEND
+    U3 --> NFTPOOL
+    U4 --> DROP
+    U5 --> PREMIUM
+
+    DEX -->|fee in WETH| SFR[SwapFeeRouter]
+    LEND -->|protocol fee| RD
+    NFTPOOL -->|protocol fee| RD
+    DROP -->|platform fee| RD
+    PREMIUM -->|subscription fee| RD
+
+    SFR -->|converts ERC20 to ETH<br/>via TegridyRouter| RD[RevenueDistributor]
+    RD -->|continuous ETH stream<br/>weighted by lock + boost| STAKERS((TOWELI Stakers))
+
+    classDef revenue fill:#ffe1c4,stroke:#cc7a00
+    classDef sink fill:#d4f1d4,stroke:#2d8a2d
+    class DEX,LEND,NFTPOOL,DROP,PREMIUM revenue
+    class STAKERS sink
+```
+
+### 2. The staking position as universal collateral
+
+Your TegridyStaking lock is an **ERC-721 NFT**. That NFT is the input to every other primitive in the protocol — boosting LP farming, voting on gauges, qualifying for referral rewards, serving as collateral in ERC-20 lending, restaking for additional yield. **You stake once; everything else compounds on top.**
+
+```mermaid
+flowchart TB
+    USER([You]) -->|lock TOWELI 7d-4y| STAKE[TegridyStaking<br/>position NFT]
+
+    STAKE -->|boost factor<br/>0.4x to 4.5x| LP[TegridyLPFarming<br/>boosted LP rewards]
+    STAKE -->|voting power<br/>amount * boost| GOV[GaugeController<br/>vote on emissions]
+    STAKE -->|qualification gate<br/>1000 TOWELI floor| REF[ReferralSplitter<br/>earn from refs]
+    STAKE -->|collateral| LENDING[TegridyLending<br/>borrow ETH against TOWELI]
+    STAKE -->|restake for bonus| RESTAKE[TegridyRestaking<br/>bonus reward stream]
+    STAKE -->|claim share| RD[RevenueDistributor<br/>ETH yield]
+
+    GOV -->|directs emissions to| LP
+    GOV -->|bribers pay stakers via| VI[VoteIncentives<br/>Cartman's Market]
+    VI -.flows to.-> STAKE
+
+    classDef position fill:#cce5ff,stroke:#0066cc
+    classDef use fill:#fff2cc,stroke:#cc9900
+    class STAKE position
+    class LP,GOV,REF,LENDING,RESTAKE,RD,VI use
+```
+
+### 3. The governance cycle (where Curve's playbook lives)
+
+TOWELI emissions for LP farming don't flow on a fixed schedule — TOWELI stakers vote epoch-by-epoch on which pools get them. Bribers ("Cartman's Market") pay stakers in any token to direct that voting power to their pool. **The emissions schedule is governed; the bribe market is permissionless.**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Briber as Briber (any project)
+    participant VI as VoteIncentives
+    participant Staker as TOWELI Staker
+    participant GC as GaugeController
+    participant LP as TegridyLPFarming
+    participant LPer as LP Provider
+
+    Note over Briber,LPer: Each epoch (weekly)
+
+    Briber->>VI: depositBribe(gauge, token, amount)
+    Note right of Briber: Pay stakers to vote for my pool
+
+    Staker->>GC: commitVote(epoch, hash)
+    Note right of Staker: Commit-reveal (H-2 fix)<br/>blinds front-runners
+
+    Staker->>GC: revealVote(epoch, gauge, weight)
+    GC->>GC: compute gauge weights<br/>at epoch boundary
+    GC->>LP: applyEmissions(gauge_share)
+
+    LPer->>LP: provide LP + stake position NFT
+    LP-->>LPer: TOWELI rewards<br/>boosted by stake
+
+    VI-->>Staker: claim bribe(s) in any token
+    Note over VI,Staker: Stakers earn TWICE:<br/>(a) ETH revenue stream<br/>(b) Bribes from voted pools
+```
+
+### Why each surface exists
+
+Every contract earns its place in the protocol because it either *generates revenue* for stakers or *uses the staking position* as a primitive. Nothing is decorative.
+
+| Surface | What it does | Why it exists |
+|---|---|---|
+| **TegridyStaking** | Lock TOWELI for 7d–4y, get a boosted position NFT | The center of the flywheel. Holding the NFT is what entitles you to ETH revenue + LP boost + voting power. |
+| **TegridyRestaking** | Stake the position NFT for bonus token rewards | Lets stakers earn a 2nd reward stream without giving up voting power. Pattern: EigenLayer operator delegation. |
+| **TegridyLPFarming** | Provide TOWELI/WETH liquidity, earn boosted TOWELI emissions | Funds LP depth so the DEX has tight spreads → swap volume → ETH revenue to stakers. The boost links LP yield to staking, so LPs have skin in governance too. |
+| **Native DEX** (Factory + Router + Pair) | Uniswap V2-style AMM for TOWELI/WETH | Without a native DEX, swap fees would leak to Uniswap. By routing trades through `tegridyfarms.xyz/swap`, every basis point flows to stakers, not third parties. |
+| **TegridyFeeHook** (V4) | Uniswap V4 hook routing V4-pool fees to RevenueDistributor | Catches the next wave of liquidity (V4 pools) into the same revenue stream. Future-proofs the flywheel against the V2→V4 migration. |
+| **TegridyTWAP** | Time-weighted average price oracle | Provides manipulation-resistant pricing for lending collateral valuation. Pattern: Uniswap V2 cumulative-price + V3-style observations. |
+| **SwapFeeRouter** | Converts non-ETH fee revenue to ETH, distributes to RevenueDistributor + treasury + caller credit | The funnel that aggregates fees from every surface and converts them into a single ETH stream. Caller-credit incentivizes anyone to call `distribute()`. |
+| **RevenueDistributor** | Streams ETH to stakers proportional to historical voting power | The single source of truth for "what you earned." Uses epoch snapshots so a flash-staker can never amplify their share. |
+| **POLAccumulator** | Captures protocol-owned liquidity (POL) from a portion of swap fees | Ensures the protocol holds its own LP, so liquidity isn't 100% mercenary. Long-term insurance against LP migration. |
+| **GaugeController** | Curve-style gauge weight voting via commit-reveal | Decentralizes emissions: stakers, not the team, decide which LP pools get TOWELI rewards each epoch. Commit-reveal blinds front-runners. |
+| **VoteIncentives** ("Cartman's Market") | Permissionless bribe market — pay stakers to vote for your gauge | Lets external projects rent voting power instead of begging the team. Turns governance into a yield surface for stakers. Pattern: Aerodrome / Velodrome BribeVotingReward. |
+| **TegridyLending** | ERC-20 lending against TOWELI staking positions as collateral | Lets stakers borrow liquidity without unstaking. Origination + interest fees flow to stakers. Pattern: Gondi P2P offer-creation. |
+| **TegridyNFTLending** | Peer-to-peer NFT lending against whitelisted ERC-721s (JBAC / Nakamigos / GNSS) | Brings NFT-fi volume + fees into the flywheel. Lender-only liquidation, no public keepers, 1h sequencer-aware grace. Pattern: Gondi. |
+| **TegridyNFTPool / Factory** | Sudoswap-style bonding-curve NFT AMM | Provides instant NFT liquidity; trade fees flow to LPs + RevenueDistributor. |
+| **TegridyDropV2** | Click-deploy ERC-721 collection contract (Manifold/Zora pattern) | Lets artists deploy a mint on Tegridy without writing Solidity. Platform fee on each mint flows to stakers. |
+| **TegridyLaunchpadV2** | Factory for TegridyDropV2 clones via CREATE2 | The deploy surface for the launchpad wizard. Bundles allowlist + Dutch auction + reveal + royalties + contractURI in one tx. |
+| **PremiumAccess** | Subscription-based premium tier (escrow + shortfall queue) | Monetizes power-user features (advanced charts, alerts, priority indexer). Subscription fees flow to stakers. |
+| **ReferralSplitter** | Stake-gated referral rewards | Aligns acquisition incentives with the staker base — only stakers (≥1000 TOWELI power) can earn referral fees. |
+| **CommunityGrants** | TOWELI-staker-voted grant proposals + payouts | Decentralizes community spend. Stakers vote on who gets ecosystem grants. |
+| **MemeBountyBoard** | ETH bounties for community-submitted memes/content, staker-voted | Channels marketing spend through the same governance lens. |
+| **Toweli (ERC-20)** | The TOWELI token — fixed 1B supply, EIP-2612 permit, ERC-1271 SCW-compatible | The asset that ties everything together. No mint function. Audited 9 times. |
 
 ---
 
@@ -185,7 +323,7 @@ pnpm dev   # starts Ponder against the RPC in .env
 
 ### Running tests
 
-- **Solidity:** `cd contracts && forge test` — **67 test suites, 1,933 tests passing**, audit-regression coverage included
+- **Solidity:** `cd contracts && forge test` — **149 test suites, 2,593 tests passing** (non-invariant), audit-regression coverage included
 - **Frontend typecheck:** `cd frontend && pnpm exec tsc --noEmit`
 - **Frontend unit tests:** `cd frontend && pnpm exec vitest run` — **70+ Vitest cases** (CSV parser, metadata builders, wizard reducer)
 - **Frontend build:** `cd frontend && pnpm build`
@@ -253,7 +391,7 @@ tegriddy-farms/
 
 ## Security & audits
 
-Tegridy Farms has undergone **2 external reviews** (Spartan + a pre-release third-party review) plus **7 internal AI-agent sweeps**. Every artifact is tracked in this repo under [`AUDITS.md`](AUDITS.md); historical reviews have been archived under [`docs/audits/archive/`](docs/audits/archive/). Nothing is buried. The protocol is running on-chain with real TVL; treat it seriously.
+Tegridy Farms has undergone **2 external reviews** (Spartan + a pre-release third-party review) plus **9+ internal AI-agent sweeps** (100→200→300→40-agent passes, microscope, DEEP, pass-5 through pass-8, scan2–scan8, and the May-9 *Monster Audit* lineage closing 16 additional findings with 4 new Foundry PoC tests). Every artifact is tracked in this repo under [`AUDITS.md`](AUDITS.md); historical reviews have been archived under [`docs/audits/archive/`](docs/audits/archive/). Nothing is buried. The protocol is running on-chain with real TVL; treat it seriously.
 
 - **Complete audit index:** [AUDITS.md](AUDITS.md) — every file, every methodology, every chronological pass, plus a cross-reference table showing which blockers have patches and which need on-chain redeploys.
 - **Current fix status:** [FIX_STATUS.md](FIX_STATUS.md) — rolling tracker of what's landed on `main` and what's deferred. **Read this before depositing significant capital.** Items are open; we don't hide them.
@@ -274,7 +412,7 @@ Methodology is labelled honestly. **Internal AI agents** are parallel Claude/GPT
 
 A paid human audit by a recognised firm (OpenZeppelin / Trail of Bits / Spearbit / Cyfrin / Code4rena) is on the roadmap and **not yet scheduled**. Size deposits accordingly.
 
-Plus **27+ audit-derived Foundry test files** under [`contracts/test/`](contracts/test/) — every finding that could be expressed as a regression test has one. Current pass rate: **1,933 / 1,933**.
+Plus **40+ audit-derived Foundry test files** under [`contracts/test/`](contracts/test/) — every finding that could be expressed as a regression test has one (including 4 new `FRESH2026_*` PoC files locking in the monster-audit closures). Current pass rate: **2,593 / 2,593**.
 
 ### What's true as of the latest commit on `main`
 
