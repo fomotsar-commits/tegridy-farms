@@ -938,8 +938,7 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         return address(this).balance;
     }
 
-    // Legacy constants kept for test compatibility
-    uint256 public constant BACKSTOP_PROPOSAL_VALIDITY = 7 days;
-    uint256 public constant SLIPPAGE_PROPOSAL_VALIDITY = 7 days;
-    uint256 public constant ACCUMULATE_CAP_PROPOSAL_VALIDITY = 7 days;
+    // AUDIT FIX FRESH-2026 (post-fix scan7 DC-5): three legacy *_PROPOSAL_VALIDITY
+    // constants deleted — comment claimed "test compatibility" but no test
+    // referenced them; they were dead surface inflation.
 }

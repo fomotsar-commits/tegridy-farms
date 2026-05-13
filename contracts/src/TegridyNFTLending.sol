@@ -628,9 +628,11 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         if (!offer.active) revert OfferNotActive();
         // AUDIT FIX (BATCH-I M10): reject expired offers. Mirrors TegridyLending
         // Phase 3.5 / batch-15 fix that closed the same stale-quote vector.
-        // Legacy offers (pre-M10 deployments) have expiry == 0 → treat as
-        // backward-compatible "never expires" since lender can always cancelOffer.
-        if (offer.expiry != 0 && block.timestamp > offer.expiry) revert OfferExpired();
+        // AUDIT FIX FRESH-2026 (post-fix scan7 DC-1): drop pre-M10 `expiry == 0`
+        // backward-compat shim. `createOffer` enforces `_expiry >= block.timestamp
+        // + MIN_OFFER_VALIDITY (1h)`, so post-relaunch every offer has expiry > 0.
+        // Sibling-canonical with TegridyLending.acceptOffer (no shim there).
+        if (block.timestamp > offer.expiry) revert OfferExpired();
 
         uint256 principal = offer.principal;
         uint256 aprBps = offer.aprBps;
@@ -641,10 +643,12 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         uint256 originationFee = offer.originationFee;
         // AUDIT FIX: DEEP-LD2-M3 — use the snapshotted treasury for fee routing
         // so a treasury change between create and accept cannot redirect the fee.
-        // Migration safety: pre-LD2-M3 offers default to address(0); fall back to
-        // the live treasury so legacy offers remain payable.
+        // AUDIT FIX FRESH-2026 (post-fix scan7 DC-2): drop pre-LD2-M3
+        // `treasuryAtCreate == 0` fallback. Constructor + setter enforce
+        // `treasury != address(0)` and `createOffer` always writes
+        // `treasuryAtCreate: treasury`, so post-relaunch every offer has a
+        // non-zero snapshot.
         address feeRecipient = offer.treasuryAtCreate;
-        if (feeRecipient == address(0)) feeRecipient = treasury;
         // AUDIT FIX: LD3-M4 (LD2-L1) — apply live rate when it has DROPPED
         // since offer creation. Pre-fix: lenders paid yesterday's rate after
         // a fee cut, harming UX fairness. Now: re-compute fee from the offer's
