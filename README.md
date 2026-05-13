@@ -195,6 +195,22 @@ Every contract earns its place in the protocol because it either *generates reve
 | **MemeBountyBoard** | ETH bounties for community-submitted memes/content, staker-voted | Channels marketing spend through the same governance lens. |
 | **Toweli (ERC-20)** | The TOWELI token — fixed 1B supply, EIP-2612 permit, ERC-1271 SCW-compatible | The asset that ties everything together. No mint function. Audited 9 times. |
 
+### Contract count — what's in `contracts/src/` and what isn't
+
+The directory holds **30 `.sol` files** at HEAD, broken down as:
+
+- **21 user-facing primitives** — the contracts in the table above
+- **5 admin / vault sister contracts** — not duplicates; intentional EIP-170 splits so each main contract fits under the 24,576-byte mainnet bytecode limit:
+  - `TegridyLending` ← `TegridyLendingAdmin` (parameter timelocks)
+  - `TegridyStaking` ← `TegridyStakingAdmin` + `TegridyStakingJbacVault` (parameter timelocks + JBAC custody isolation for CCR-01 reentrancy defense)
+  - `SwapFeeRouter` ← `SwapFeeRouterAdmin`
+  - `VoteIncentives` ← `VoteIncentivesAdmin`
+- **4 utility libraries / base contracts** in `contracts/src/base/` + `contracts/src/lib/` — `OwnableNoRenounce`, `TimelockAdmin`, `SafeERC721Call`, `SequencerCheck`, `VotePowerOracle`, `WETHFallbackLib`
+
+**No V1 duplicates remain.** `TegridyDrop.sol` (V1) and `TegridyLaunchpad.sol` (V1) source files were **deleted 2026-04-19** per the scope decision in [`memory/project_scope_decision.md`](https://github.com/) — only the V2 contracts ship. The deployed V1 clones still live on-chain at their original addresses, but the source is gone and no new V1 deploys are possible. See the "Governance & launchpad" section in [Deployed contracts](#deployed-contracts-ethereum-mainnet) for which V1 address is the legacy reference.
+
+If you're a reviewer auditing the surface: the user-facing ABI is **21 contracts**. Each admin sister is a thin staging layer for `propose/execute/cancel` flows; the user never calls them directly.
+
 ---
 
 ## How to use it (for users)
@@ -339,7 +355,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). TL;DR: branch off `main`, keep changes f
 ```
 tegriddy-farms/
 ├── contracts/           Foundry project — Solidity 0.8.26
-│   ├── src/             27 production contracts (staking, DEX, lending, gov, launchpad v1+v2)
+│   ├── src/             21 user-facing primitives + 5 EIP-170 admin/vault sisters (V1 launchpad/drop deleted 2026-04-19)
 │   ├── script/          Deploy + wiring scripts (incl. DeployLaunchpadV2, DeployTegridyFeeHook)
 │   └── test/            67 test suites, 1,933 tests incl. audit regression + launchpad V2 fuzz
 ├── frontend/            Vite + React 19 + TypeScript
