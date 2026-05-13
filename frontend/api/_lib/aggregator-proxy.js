@@ -57,16 +57,19 @@ function buildAllowedOrigins() {
 // AUDIT FE-CRIT-01: fail-closed origin gate. In production, an empty Origin
 // (which can happen on direct curl) is treated as a non-allowed origin and
 // rejected with 403 — the proxies are only meant for browser-originated
-// fetches from our app. On Vercel preview deployments we additionally allow
-// any *.vercel.app origin so PR previews keep working.
+// fetches from our app.
+// AUDIT FIX FRESH-2026: F-FRESH-5 — DELETE the `*.vercel.app` preview-regex
+//         branch. Pre-fix any vercel.app origin (e.g. `attacker.vercel.app`
+//         deployed by anyone) passed the gate in preview-env, letting any
+//         tenant abuse the aggregator quota. Pattern of record: Vercel's
+//         own next-cors / AWS API Gateway CORS / Cloudflare CORS all use
+//         explicit allowlists, NOT regex wildcards. Preview deploys must
+//         add their origin via the `ALLOWED_ORIGINS` env var (already
+//         supported by `buildAllowedOrigins`).
 function isOriginAllowed(origin) {
   const allowed = buildAllowedOrigins();
   if (process.env.NODE_ENV !== "production") return true;
-  if (allowed.has(origin)) return true;
-  if (process.env.VERCEL_ENV === "preview" && /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin)) {
-    return true;
-  }
-  return false;
+  return allowed.has(origin);
 }
 
 function setCors(req, res) {

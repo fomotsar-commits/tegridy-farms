@@ -5,6 +5,8 @@
 import { jwtVerify } from "jose";
 import { createClient } from "@supabase/supabase-js";
 import { checkRateLimit } from "../_lib/ratelimit.js";
+// AUDIT FIX FRESH-2026: F-FRESH-4 — shared cookie builder (DRY mirror of siwe.js).
+import { buildClearAuthCookie } from "../_lib/authCookie.js";
 
 const JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -140,12 +142,9 @@ export default async function handler(req, res) {
       } else if (revoked) {
         // Token was explicitly revoked. Treat as unauthenticated and clear
         // the cookie so the browser stops sending it.
-        const isProduction = process.env.NODE_ENV === "production";
-        const clearParts = [
-          `siwe_jwt=`, `HttpOnly`, `Path=/`, `Max-Age=0`, `SameSite=Strict`,
-        ];
-        if (isProduction) clearParts.push("Secure");
-        res.setHeader("Set-Cookie", clearParts.join("; "));
+        // AUDIT FIX FRESH-2026: F-FRESH-4 — use shared cookie builder so
+        //         Secure-flag semantics match siwe.js issuance exactly.
+        res.setHeader("Set-Cookie", buildClearAuthCookie());
         return res.json({ authenticated: false });
       }
     }
@@ -156,17 +155,10 @@ export default async function handler(req, res) {
       expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
     });
   } catch {
-    // Token invalid or expired — clear the stale cookie
-    const isProduction = process.env.NODE_ENV === "production";
-    const clearParts = [
-      `siwe_jwt=`,
-      `HttpOnly`,
-      `Path=/`,
-      `Max-Age=0`,
-      `SameSite=Strict`, // AUDIT API-M8: match siwe.js tightening
-    ];
-    if (isProduction) clearParts.push("Secure");
-    res.setHeader("Set-Cookie", clearParts.join("; "));
+    // Token invalid or expired — clear the stale cookie.
+    // AUDIT FIX FRESH-2026: F-FRESH-4 — use shared cookie builder so
+    //         Secure-flag semantics match siwe.js issuance exactly.
+    res.setHeader("Set-Cookie", buildClearAuthCookie());
 
     return res.json({ authenticated: false });
   }
