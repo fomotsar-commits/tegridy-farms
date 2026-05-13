@@ -127,12 +127,18 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     // Per-(user,epoch) idempotency for recovery executions (separate from lastClaimedEpoch
     // because recovery is for users who can't traverse the normal claim loop).
     mapping(address => mapping(uint256 => bool)) public recoveryClaimed;
-    // AUDIT FIX: DEEP-DR-M-04 — per-(user,epoch) flag set by every normal-claim
-    // iteration (regardless of share size). Replaces the `lastClaimedEpoch[user] > epoch`
-    // proxy in `proposeClaimRecovery` so users with zero historical power who already
-    // ran `claim()` (advancing the cursor past epoch i without setting any per-epoch
-    // marker) cannot be silently locked out of a future legitimate recovery for that
-    // same epoch.
+    // AUDIT FIX: DEEP-DR-M-04 — per-(user,epoch) flag set by normal-claim
+    // iterations that produced non-zero `userPower`. Used by
+    // `proposeClaimRecovery` (and the view path) to skip epochs already
+    // settled normally, regardless of the cursor position.
+    // AUDIT FIX FRESH-2026: F1 / F-REV-EXRESTAKER — gate the seal on
+    //         `userPower > 0`. Pre-fix the seal fired unconditionally (in
+    //         the `if (epoch.totalLocked > 0)` branch), permanently locking
+    //         ex-restakers out of `proposeClaimRecovery` for epochs where
+    //         their staking-side checkpoint had been zeroed by restake. Now
+    //         zero-power epochs stay eligible for owner-attested recovery,
+    //         and `recoveryClaimed[user][epoch]` continues to prevent
+    //         double-recovery on legitimately-paid epochs.
     mapping(address => mapping(uint256 => bool)) public claimedAtEpoch;
 
     // AUDIT REV-H-02 (HIGH): per-epoch in-flight pending recovery count. Bumped on

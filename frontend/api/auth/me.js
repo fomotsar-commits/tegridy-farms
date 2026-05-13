@@ -24,7 +24,19 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const supabase = SUPABASE_URL && SUPABASE_SERVICE_KEY
   ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
   : null;
-const REVOCATION_REQUIRED = process.env.NODE_ENV === "production";
+
+// AUDIT FIX FRESH-2026: F-FRESH-1 + F-FRESH-2 — read NODE_ENV / VERCEL_ENV
+//         per-request (not at module load) so a config change takes effect
+//         without a cold-start, and so Vercel preview deploys that inherit
+//         prod env vars but have NODE_ENV unset still fail closed. Mirrors
+//         supabase-proxy.js:182's per-request shape.
+function isRevocationRequired() {
+  return (
+    process.env.NODE_ENV === "production" ||
+    process.env.VERCEL_ENV === "preview" ||
+    process.env.VERCEL_ENV === "production"
+  );
+}
 
 // AUDIT R050 MED + R052 077: env-driven allowlist; no hardcoded
 // `nakamigos.gallery` fallback. Production hosts + dev localhost form the
@@ -86,10 +98,10 @@ export default async function handler(req, res) {
   if (!JWT_SECRET) {
     return res.status(503).json({ error: "Auth service not configured" });
   }
-  // AUDIT FIX FRESH-2026: F9 — refuse to authenticate in prod when the
-  //         revocation lookup cannot run. Closes the silent fail-open where
+  // AUDIT FIX FRESH-2026: F9 — refuse to authenticate in prod / preview when
+  //         the revocation lookup cannot run. Closes the silent fail-open where
   //         a missing SUPABASE_SERVICE_KEY left logout-revocation inert.
-  if (REVOCATION_REQUIRED && supabase === null) {
+  if (isRevocationRequired() && supabase === null) {
     return res.status(503).json({ error: "Auth service not configured" });
   }
 

@@ -179,13 +179,18 @@ export default async function handler(req, res) {
       if (revoked) {
         return res.status(401).json({ error: "Token revoked" });
       }
-    } else if (process.env.NODE_ENV === "production") {
-      // AUDIT FIX FRESH-2026: F9 — fail closed in prod if SUPABASE_SERVICE_KEY
-      //         is missing. Pre-fix the revocation check was silently skipped
-      //         on a misconfigured prod deploy: any stolen/cached JWT could
-      //         keep writing for the full 24h JWT lifetime even after logout.
-      //         Mirror siwe.js's hard-503 posture so the missing env var fails
-      //         loud instead of silently leaving writes inert.
+    } else if (
+      process.env.NODE_ENV === "production" ||
+      process.env.VERCEL_ENV === "preview" ||
+      process.env.VERCEL_ENV === "production"
+    ) {
+      // AUDIT FIX FRESH-2026: F9 + F-FRESH-2 — fail closed in prod / preview
+      //         when SUPABASE_SERVICE_KEY is missing. Pre-fix the revocation
+      //         check was silently skipped on a misconfigured prod deploy:
+      //         any stolen/cached JWT could keep writing for the full 24h
+      //         JWT lifetime even after logout. F-FRESH-2 extends the gate
+      //         to Vercel preview deploys that inherit prod env vars but
+      //         may have NODE_ENV != "production".
       return res.status(503).json({ error: "Auth service not configured" });
     }
     // If service client isn't configured in non-prod (e.g., dev without

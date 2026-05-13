@@ -1093,22 +1093,33 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
                 //         still held the JBAC NFT. Resolve to the actual depositor
                 //         when the caller is the restaking contract.
                 address jbacHolder = msg.sender;
+                bool lookupOk = true;
                 if (msg.sender == restakingContract && restakingContract != address(0)) {
                     try ITegridyRestakingView(restakingContract).tokenIdToRestaker(tokenId) returns (address depositor) {
                         if (depositor != address(0)) jbacHolder = depositor;
                     } catch {
-                        // Restaking lookup failed; fall through with msg.sender
-                        // (preserves DOWNGRADE bias — strips bonus iff cannot prove holding).
+                        // AUDIT FIX FRESH-2026: F3-PERMA-STRIP — preserve cached
+                        //         `hasJbacBoost` on transient lookup failure
+                        //         (restaking upgrade, paused view, etc.).
+                        //         Pre-fix the catch fell through to msg.sender
+                        //         (= restaking contract, no JBAC) → jbacStillValid
+                        //         = false → `p.hasJbacBoost = false` permanently
+                        //         (no recovery path; revalidateBoost is one-way
+                        //         downgrade). Now: skip the strip-on-fail branch
+                        //         when we cannot prove holding/non-holding.
+                        lookupOk = false;
                     }
                 }
                 bool jbacStillValid =
                     p.jbacDeposited ||
-                    (p.hasJbacBoost && jbacNFT.balanceOf(jbacHolder) > 0);
+                    (p.hasJbacBoost && lookupOk && jbacNFT.balanceOf(jbacHolder) > 0);
                 uint256 newBoost = MAX_BOOST_BPS;
                 if (jbacStillValid) {
                     newBoost += JBAC_BONUS_BPS;
-                } else if (p.hasJbacBoost) {
+                } else if (p.hasJbacBoost && lookupOk) {
                     // Clear stale flag so future cycles agree with reality.
+                    // Only clear when we successfully proved non-holding —
+                    // otherwise leave the cached flag intact for next cycle.
                     p.hasJbacBoost = false;
                 }
                 _applyNewBoost(p, newBoost);
