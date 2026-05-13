@@ -10,6 +10,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Ongoing investor-polish and audit-closure work. Lands on `main` as it ships;
 a tagged release will cut from here once Wave 0 redeploys are complete.
 
+### Security — Monster Audit + adversarial sweep (2026-05-09 → 2026-05-10)
+
+7-cluster fresh-eyes adversarial audit on the post-scan6 codebase plus a
+post-fix adversarial sweep on the just-shipped batches. Surfaced **13 NEW
+findings** atop the ~693 cumulative prior-pass closures (3 HIGH + 5 MEDIUM
++ 3 LOW + 1 INFO on-chain; 3 HIGH + 2 MEDIUM off-chain) **plus 3 fresh
+regressions** caught by the post-fix sweep in batches 1+2. Total **16/16
+findings closed** across 5 batch commits on `claude/festive-hofstadter-92bccd`.
+
+Per the minimal-surface mandate: every fix is sibling-canonical or
+deletion-only. Custom code additions across the entire batch lineage:
+~6 LoC (typed errors + helper flags). Everything else is a verbatim port.
+
+Full per-finding ledger:
+[`FIX_STATUS.md` § Monster Audit](FIX_STATUS.md#-monster-audit-2026-05-09--2026-05-10).
+
+Highlights:
+- **F1** (HIGH) RevenueDistributor ex-restaker silent loss — dropped the
+  `_isRestaker` short-circuit, gated `claimedAtEpoch` seal on
+  `userPower > 0`. Pattern: Curve `FeeDistributor.claim`.
+- **F-LD** (HIGH) TegridyLending pullEscrowRewards cross-loan drain —
+  pull-then-cap pattern (Aave V3): pull to lending, transfer
+  `min(received, escrowRewardsOwed[loanId])` to recipient, excess feeds
+  the legacy pro-rata path.
+- **F10** (MED) Orderbook Seaport fill verification structurally
+  broken — pre-fix `topics[1]` matched the indexed offerer (not the
+  orderHash). Added migration `005_add_seaport_order_hash.sql` storing
+  Seaport's canonical EIP-712 OrderComponents hash; ABI-decode of
+  OrderFulfilled's `data` field for verification.
+- **Frontend hardening** — JWT revocation fail-closed in prod/preview
+  (Auth0 / Okta pattern); CORS allowlist consolidation across 8 endpoints
+  (Vercel next-cors / AWS API Gateway pattern); shared cookie builder
+  module (Express `res.clearCookie()` flag-mirror).
+
+Post-fix adversarial sweep run on the new code (5 parallel agents): clean
+verdict across all attack surfaces. F-FRESH-1 / F-FRESH-2 (frontend
+NODE_ENV/VERCEL_ENV gates) + F3-PERMA-STRIP (`lookupOk` flag preserves
+cached `hasJbacBoost` on transient restaking-lookup failure) all surfaced
+and closed in the same lineage.
+
+Test posture:
+- **Foundry: 2593 / 2593 passing** across 149 suites (3 independent
+  sweeps, identical results)
+- **Frontend vitest: 191 / 191 passing** across 14 files
+- 4 new Foundry PoC regression tests under
+  [`contracts/test/FRESH2026_*.t.sol`](contracts/test/)
+- 22-test vitest regression suite at
+  [`frontend/api/__tests__/orderbook.fill.test.js`](frontend/api/__tests__/orderbook.fill.test.js)
+
+Battle-tested anchors per category:
+| Class | Canonical reference |
+|---|---|
+| Reward distribution | Curve `FeeDistributor` |
+| Pull-then-cap | Aave V3 pull-pattern |
+| EIP-712 struct hashing | Seaport SDK `getOrderHash` / viem `hashStruct` |
+| JWT prod-token requirements | Auth0 / Okta `jti` mandatory |
+| CORS allowlist | Vercel next-cors / AWS API Gateway / Cloudflare |
+| Cookie clear/issue symmetry | Express `res.clearCookie()` |
+| L2 sequencer staleness | Aave V3 `PriceOracleSentinel` |
+| ERC721-bounded callbacks | Nomad ExcessivelySafeCall |
+| EIP-7702 detection | `code.length == 23` carve-out (post-Pectra) |
+
+Per `AUDITS.md` honest TL;DR, the in-house adversarial budget has reached
+saturation across 8 prior passes + scan2-scan8 + this monster-audit
+lineage. The documented next escalation is a paid human audit firm
+(OpenZeppelin / Trail of Bits / Spearbit / Cyfrin / Code4rena).
+
+
 ### Security — pass-8 adversarial 100-agent audit + remediation (2026-05-04 → ongoing)
 
 100-agent fresh-eye adversarial pass run end-to-end against the full source
