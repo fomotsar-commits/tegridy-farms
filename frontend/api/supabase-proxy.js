@@ -159,8 +159,22 @@ export default async function handler(req, res) {
   // consulting the revocation list. Result: a stolen/cached JWT could continue
   // to UPDATE/INSERT/DELETE rows for the full 24h JWT lifetime even after the
   // user clicked "logout". Mirrors the check in `api/auth/me.js:103-126`.
-  // Tokens issued before the 003_revoked_jwts.sql migration carry no jti and
-  // skip this check (they age out at their 24h exp).
+  // AUDIT FIX FRESH-2026: F-FRESH-3 — require `jti` for write paths in
+  //         prod / preview. Pre-fix, tokens issued before the
+  //         `003_revoked_jwts.sql` migration carried no jti and silently
+  //         skipped revocation entirely — even on a misconfigured prod
+  //         deploy with no SUPABASE_SERVICE_KEY. The 24h JWT TTL × the
+  //         migration date means legacy tokens have aged out; force re-auth
+  //         on missing jti rather than admit an unrevokable token. Pattern
+  //         of record: Auth0 / Okta require jti for prod tokens.
+  if (
+    !jti &&
+    (process.env.NODE_ENV === "production" ||
+      process.env.VERCEL_ENV === "preview" ||
+      process.env.VERCEL_ENV === "production")
+  ) {
+    return res.status(401).json({ error: "Token version expired — please re-authenticate" });
+  }
   if (jti) {
     const svc = getServiceClient();
     if (svc) {
@@ -179,9 +193,23 @@ export default async function handler(req, res) {
       if (revoked) {
         return res.status(401).json({ error: "Token revoked" });
       }
+    } else if (
+      process.env.NODE_ENV === "production" ||
+      process.env.VERCEL_ENV === "preview" ||
+      process.env.VERCEL_ENV === "production"
+    ) {
+      // AUDIT FIX FRESH-2026: F9 + F-FRESH-2 — fail closed in prod / preview
+      //         when SUPABASE_SERVICE_KEY is missing. Pre-fix the revocation
+      //         check was silently skipped on a misconfigured prod deploy:
+      //         any stolen/cached JWT could keep writing for the full 24h
+      //         JWT lifetime even after logout. F-FRESH-2 extends the gate
+      //         to Vercel preview deploys that inherit prod env vars but
+      //         may have NODE_ENV != "production".
+      return res.status(503).json({ error: "Auth service not configured" });
     }
-    // If service client isn't configured (e.g., dev without SUPABASE_SERVICE_KEY),
-    // the check is skipped — same behaviour as the JWT_SECRET-not-set branch above.
+    // If service client isn't configured in non-prod (e.g., dev without
+    // SUPABASE_SERVICE_KEY), the check is skipped — matches the JWT_SECRET-
+    // not-set branch above.
   }
 
   // AUDIT R051 M: stage-2 write bucket — keyed on verified wallet so a NAT

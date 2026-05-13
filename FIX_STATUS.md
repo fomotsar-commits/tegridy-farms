@@ -41,6 +41,175 @@ expiry pattern, Synthetix checkpoint-at-interaction, Uniswap V4 hook
 reference. For a richer Keep-a-Changelog view see
 [CHANGELOG.md](CHANGELOG.md).
 
+## ✅ Monster Audit (2026-05-09 → 2026-05-10)
+
+7-cluster adversarial sweep on the post-scan6 codebase (Lending, DEX/AMM,
+Staking, Revenue+Governance, NFT/Misc+base/lib, Cross-cutting, Frontend+
+Indexer). Surfaced **13 NEW findings** atop the ~693 cumulative-pass closures
+(3 HIGH + 5 MEDIUM + 3 LOW + 1 INFO on-chain; 3 HIGH + 2 MEDIUM off-chain).
+Plus a follow-on post-fix adversarial sweep (5 parallel agents on the new
+code) which caught **3 fresh regressions in the just-shipped fixes** (1 MED
+contract + 2 MED frontend). Total **16/16 findings closed** across 5 batch
+commits on `claude/festive-hofstadter-92bccd`.
+
+Per the minimal-surface mandate: every fix is sibling-canonical or
+deletion-only. Custom additions: ~6 LoC (DeltaTooLarge typed error,
+isRevocationRequired helper, lookupOk flag). All other fixes are
+straight ports from canonical patterns.
+
+### Batch 1 — sibling-canonical fixes (`ad0042e`)
+
+- **F1** (HIGH) — RevenueDistributor silent past-epoch loss for ex-restakers,
+  sealed by `claimedAtEpoch`. DROPPED the `_isRestaker` short-circuit (was
+  cache + skip-on-current-state, broke ex-restakers' historical claims);
+  GATED the seal on `userPower > 0` so zero-power epochs stay eligible for
+  `proposeClaimRecovery`. Pattern of record: Curve `FeeDistributor.claim`.
+  Same fix applied symmetrically in the `_pendingETH` view path.
+  [RevenueDistributor.sol:813-826, 846-883, 1671-1683](contracts/src/RevenueDistributor.sol#L813).
+- **F2** (MED) — TegridyLending constructor F-S4-INCOMPLETE: scan2 S-4
+  added a `chainid` require but missed the EOA / EIP-7702 reject.
+  Sibling-port the `feedLen == 0 || feedLen == 23 → revert` from
+  TegridyNFTLending.sol:468-470 verbatim.
+  [TegridyLending.sol:836-846](contracts/src/TegridyLending.sol#L836).
+- **F3** (MED) — TegridyStaking.getReward autoMaxLock JBAC restaker-aware
+  lookup. When TegridyRestaking calls `getReward(tokenId)`, msg.sender is
+  the restaking contract (which never holds JBAC). Sibling-port the
+  `tokenIdToRestaker(tokenId)` resolution from `revalidateBoost` lines
+  1303-1309.
+  [TegridyStaking.sol:1077-1099](contracts/src/TegridyStaking.sol#L1077).
+- **F4** (MED) — TegridyStaking.increaseAmount autoMaxLock ordering.
+  F-02-K-04's `effectiveBoost` clamp computed `remaining` BEFORE the lockEnd
+  extension to MAX, silently downgrading autoMaxLock users. Mirror
+  `extendLock`'s order (lockEnd FIRST, then boost).
+  [TegridyStaking.sol:961-986](contracts/src/TegridyStaking.sol#L961).
+- **F6** (LOW) — TegridyFeeHook int128.min negation overflow. Typed
+  `DeltaTooLarge()` guard before negation preserves typed-revert symmetry.
+  [TegridyFeeHook.sol:103-111, 369-374](contracts/src/TegridyFeeHook.sol#L103).
+- **F7** (INFO) — TegridyTWAP `consult()` Panic(0x11) on stale sequencer
+  sentinel. Short-circuit on `type(uint256).max` before adding
+  `SEQUENCER_GRACE_PERIOD`. Aave V3 `PriceOracleSentinel` pattern.
+  [TegridyTWAP.sol:1066-1075](contracts/src/TegridyTWAP.sol#L1066).
+
+### Batch 2 — F-LD + frontend HIGH/MED/LOW (`2deb259`)
+
+- **F-LD** (HIGH) — TegridyLending.pullEscrowRewards cross-loan drain.
+  Sequential A→B loans on the same tokenId both pause-deferred saw the
+  first claimant walk away with both slices. Aave V3 pull-then-cap pattern:
+  pull to lending, transfer `min(received, escrowRewardsOwed[loanId])` to
+  recipient, excess feeds the legacy pro-rata path for sibling claims.
+  [TegridyLending.sol:2102-2153](contracts/src/TegridyLending.sol#L2102).
+- **F8** (HIGH) — `frontend/api/etherscan.js` stale `tegridyfarms.com`
+  CORS allowlist — removed. Every other API proxy uses `tegridyfarms.xyz`.
+- **F9** (HIGH) — JWT revocation fail-open if `SUPABASE_SERVICE_KEY` unset
+  in production. Both `me.js` and `supabase-proxy.js` now return 503 in
+  prod/preview when the service client is null.
+- **F11** (MED) — `etherscan.js` missing `nakamigos.gallery` — added.
+- **F12** (LOW) — `siwe.js` cookie-clear `Secure` flag asymmetric vs
+  issuance — fixed.
+
+### F10 — orderbook Seaport fill verification (`29d7095`)
+
+- **F10** (MED) — `topic[1] === orderHash` matched the indexed offerer
+  address (not the orderHash); the application's stored `order_hash`
+  was sha256(JSON(params)) (unrelated to Seaport's EIP-712). NO legitimate
+  Seaport fill ever satisfied verification. Added migration
+  `005_add_seaport_order_hash.sql` storing the canonical EIP-712
+  order-hash; replaced the topic check with ABI-decode of OrderFulfilled's
+  `data` field (first bytes32 = orderHash). Helper:
+  [`frontend/api/_lib/seaportHash.js`](frontend/api/_lib/seaportHash.js).
+  22-test regression suite at
+  [`frontend/api/__tests__/orderbook.fill.test.js`](frontend/api/__tests__/orderbook.fill.test.js).
+
+### Batch 3 — sweep follow-ons + 4 PoC tests (`dd1a1e6`)
+
+Adversarial post-fix sweep on batches 1+2 (5 parallel agents) caught 3
+fresh issues in the just-shipped code, plus 4 Foundry regression PoCs
+locking in F1 / F-LD / F3 / F4 closures.
+
+- **F3-PERMA-STRIP** (MED) — batch-1's F3 try/catch fell through to
+  msg.sender on lookup failure. Combined with the subsequent
+  `else if (p.hasJbacBoost) { p.hasJbacBoost = false; }` strip, a transient
+  lookup revert (restaking upgrade, paused view) PERMANENTLY zeroed the
+  cached flag. Fix: `lookupOk` flag guards the strip-on-fail branch.
+  [TegridyStaking.sol:1095-1117](contracts/src/TegridyStaking.sol#L1095).
+- **F-FRESH-1** (LOW) — `me.js` module-load capture vs supabase-proxy.js
+  per-request read asymmetry — unified per-request reads.
+- **F-FRESH-2** (MED) — F9's production-only gate missed Vercel preview
+  deploys (NODE_ENV may != "production" while VERCEL_ENV is "preview").
+  OR-gated `VERCEL_ENV === "preview" || VERCEL_ENV === "production"`.
+
+PoCs at:
+- [`FRESH2026_F1_RevDistExRestakerRecovery.t.sol`](contracts/test/FRESH2026_F1_RevDistExRestakerRecovery.t.sol)
+- [`FRESH2026_F_LD_CrossLoanPullThenCap.t.sol`](contracts/test/FRESH2026_F_LD_CrossLoanPullThenCap.t.sol)
+- [`FRESH2026_F3_StakingJbacRestakerLookup.t.sol`](contracts/test/FRESH2026_F3_StakingJbacRestakerLookup.t.sol)
+- [`FRESH2026_F4_StakingIncreaseAutoMaxLockOrder.t.sol`](contracts/test/FRESH2026_F4_StakingIncreaseAutoMaxLockOrder.t.sol)
+
+### Batch 4 — minimal-surface frontend hardening (`808abc8`)
+
+The post-fix sweep flagged 3 pre-existing items the agent put out-of-batch
+scope. Closed all 3 with battle-tested patterns:
+
+- **F-FRESH-5** (MED) — `_lib/aggregator-proxy.js` `*.vercel.app` wildcard
+  regex admitted any tenant's preview. **DELETED the regex branch**;
+  preview deploys use explicit `ALLOWED_ORIGINS` env. Pattern of record:
+  Vercel next-cors, AWS API Gateway, Cloudflare CORS — all explicit
+  allowlists. Net surface reduction: −5 LoC.
+- **F-FRESH-3** (MED) — `supabase-proxy.js` legacy no-jti tokens silently
+  skipped revocation. Force re-auth on missing jti in prod/preview.
+  Pattern: Auth0 / Okta require jti for prod tokens.
+- **F-FRESH-4** (LOW) — `siwe.js` + `me.js` inlined separate cookie
+  builders with divergent flag gates. Extracted shared
+  [`frontend/api/_lib/authCookie.js`](frontend/api/_lib/authCookie.js)
+  source-of-truth. Pattern: Express `res.clearCookie()` mirrors issuance
+  flags exactly. Net: ~30 LoC inline → 1 shared module + 2 imports.
+
+### F5 — already closed elsewhere
+
+- **F5** (LOW) — TegridyNFTLending:1236 EIP-7702 sibling-miss in
+  `proposeWhitelistCollection` — already independently identified and
+  fixed on sister branch `claude/naughty-rhodes-b0017b` (commit `b4cfd2f`,
+  scan7). Merge that branch forward to land on `main`.
+
+### Tests landed in monster-audit lineage
+
+- 4 new Foundry PoC tests (6 test functions, all passing)
+- 22-test vitest regression suite for F10 orderbook
+- Total contracts test posture: **2593 / 2593 passing** across 149 suites
+  (3 independent sweeps, all identical)
+- Frontend vitest posture: **191 / 191 passing** across 14 files
+
+### Sign-off (monster audit)
+
+5 commits on `claude/festive-hofstadter-92bccd`:
+
+| SHA | Title |
+|---|---|
+| `ad0042e` | batch 1 — 6 sibling-canonical fixes |
+| `2deb259` | batch 2 — F-LD pull-then-cap + 4 frontend |
+| `29d7095` | F10 — orderbook Seaport hash + ABI-decode |
+| `dd1a1e6` | batch 3 — sweep follow-ons + 4 PoCs |
+| `808abc8` | batch 4 — minimal-surface frontend hardening |
+
+**Post-fix adversarial sweep verdict: 2 clean (Lending + DEX + FeeHook+TWAP
++ RevDist + NFT/Misc); 1 MED + 2 MED surfaced + closed; final state clean
+across all 9 attack surfaces (frontend) + 8 surfaces (Staking F3).**
+
+Custom code traces entirely to canonical billion-dollar patterns: OZ
+(Ownable2Step, Pausable, ReentrancyGuard, Math.mulDiv, SignatureChecker),
+Uniswap V2 (pair / router / factory), Uniswap V4 (IHooks, FeeTakingHook),
+Synthetix (StakingRewards), Aave V3 (PriceOracleSentinel, pull-then-cap),
+Curve (veCRV, FeeDistributor, GaugeController), Gondi (MultiSourceLoan),
+Solady (ERC721, SafeCastLib), Auth0 / Okta (jti for prod tokens), Vercel
+next-cors / AWS API Gateway / Cloudflare CORS (explicit allowlists),
+Express `res.clearCookie()` (flag-mirror).
+
+Per `AUDITS.md` honest TL;DR, the next genuine security ROI is a paid
+human audit firm (OpenZeppelin / Trail of Bits / Spearbit / Cyfrin /
+Code4rena) — in-house adversarial budget has reached saturation across
+8 prior passes + scan2-scan8 + this monster-audit lineage.
+
+---
+
 ## ✅ Pass-8 (2026-05-04 → 2026-05-06)
 
 100-agent fresh-eye adversarial pass (5 waves: 30 per-contract deep +

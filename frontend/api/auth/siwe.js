@@ -23,6 +23,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { SiweMessage } from "siwe";
 import { SignJWT, jwtVerify } from "jose";
+// AUDIT FIX FRESH-2026: F-FRESH-4 — shared source-of-truth for cookie builders.
+import { buildAuthCookie, buildClearAuthCookie } from "../_lib/authCookie.js";
 import { randomUUID } from "crypto";
 import { checkRateLimit } from "../_lib/ratelimit.js";
 
@@ -90,49 +92,10 @@ function setCors(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
-/**
- * Build a Set-Cookie header value for the SIWE JWT.
- * httpOnly + Secure + SameSite=Lax prevents XSS token theft while allowing
- * same-site navigations to send the cookie automatically.
- */
-function buildAuthCookie(token, maxAgeSeconds) {
-  // SECURITY FIX: Default to Secure=true, only disable for localhost development.
-  // Use NODE_ENV check as primary guard; DISABLE_SECURE_COOKIE as explicit override.
-  const isLocalDev = process.env.NODE_ENV !== "production" && process.env.DISABLE_SECURE_COOKIE === "true";
-  if (process.env.NODE_ENV === "production" && process.env.DISABLE_SECURE_COOKIE === "true") {
-    console.error("SECURITY WARNING: DISABLE_SECURE_COOKIE=true in production — ignoring. Cookie will use Secure flag.");
-  }
-  const parts = [
-    `siwe_jwt=${token}`,
-    `HttpOnly`,
-    `Path=/`,
-    `Max-Age=${maxAgeSeconds}`,
-    // AUDIT API-M8: SameSite=Strict (was Lax) to eliminate top-level
-    // cross-site navigation cookie leakage. Users following a deep-link
-    // from an external origin will need to re-authenticate on first nav
-    // — acceptable for an app-level auth cookie.
-    `SameSite=Strict`,
-  ];
-  if (!isLocalDev) parts.push("Secure");
-  return parts.join("; ");
-}
-
-function buildClearAuthCookie() {
-  const isLocalDev = process.env.DISABLE_SECURE_COOKIE === "true";
-  const parts = [
-    `siwe_jwt=`,
-    `HttpOnly`,
-    `Path=/`,
-    `Max-Age=0`,
-    // AUDIT API-M8: SameSite=Strict (was Lax) to eliminate top-level
-    // cross-site navigation cookie leakage. Users following a deep-link
-    // from an external origin will need to re-authenticate on first nav
-    // — acceptable for an app-level auth cookie.
-    `SameSite=Strict`,
-  ];
-  if (!isLocalDev) parts.push("Secure");
-  return parts.join("; ");
-}
+// AUDIT FIX FRESH-2026: F-FRESH-4 — `buildAuthCookie` + `buildClearAuthCookie`
+//         moved to _lib/authCookie.js so siwe.js and me.js share one source
+//         of truth for Secure-flag semantics (battle-tested DRY pattern,
+//         mirrors Express `res.clearCookie()`). Imports above.
 
 /**
  * Parse the siwe_jwt cookie from the Cookie header.

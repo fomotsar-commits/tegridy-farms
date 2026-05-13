@@ -1064,6 +1064,14 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         // anchor end of the window. address(0) sequencerFeed (mainnet) is a no-op.
         if (sequencerFeed != address(0)) {
             uint256 resumeAt = SequencerCheck.getResumeTimestamp(sequencerFeed);
+            // AUDIT FIX FRESH-2026: F-TWAP-SENTINEL — short-circuit on
+            //         `type(uint256).max` (the M-34 fail-closed sentinel for stale
+            //         feed paths) before adding `SEQUENCER_GRACE_PERIOD`, otherwise
+            //         the addition overflows checked-math and surfaces `Panic(0x11)`
+            //         instead of the typed `OracleRebootstrapping` selector that
+            //         off-chain decoders branch on. Aave V3 PriceOracleSentinel
+            //         uses the same short-circuit pattern.
+            if (resumeAt == type(uint256).max) revert OracleRebootstrapping();
             if (resumeAt != 0 && uint256(best.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
                 revert OracleRebootstrapping();
             }

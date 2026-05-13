@@ -5,6 +5,8 @@
 import { jwtVerify } from "jose";
 import { createClient } from "@supabase/supabase-js";
 import { checkRateLimit } from "../_lib/ratelimit.js";
+// AUDIT FIX FRESH-2026: F-FRESH-4 — shared cookie builder (DRY mirror of siwe.js).
+import { buildClearAuthCookie } from "../_lib/authCookie.js";
 
 const JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -15,9 +17,28 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 // the check is skipped and we fall back to JWT-signature-only auth —
 // matches pre-logout-revocation behavior and keeps /me responsive when
 // the DB is the thing that's degraded.
+// AUDIT FIX FRESH-2026: F9 — fail closed in production when SUPABASE_SERVICE_KEY
+//         is missing. Pre-fix the revocation check was silently skipped on a
+//         misconfigured prod deploy (or a partial-rollback that dropped the
+//         env var) — a stolen token that the user logged out hours ago stayed
+//         valid until 24h `exp`. Mirror siwe.js:150-152's hard-503 posture so
+//         the misconfiguration is loud at startup, not silent at auth time.
 const supabase = SUPABASE_URL && SUPABASE_SERVICE_KEY
   ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
   : null;
+
+// AUDIT FIX FRESH-2026: F-FRESH-1 + F-FRESH-2 — read NODE_ENV / VERCEL_ENV
+//         per-request (not at module load) so a config change takes effect
+//         without a cold-start, and so Vercel preview deploys that inherit
+//         prod env vars but have NODE_ENV unset still fail closed. Mirrors
+//         supabase-proxy.js:182's per-request shape.
+function isRevocationRequired() {
+  return (
+    process.env.NODE_ENV === "production" ||
+    process.env.VERCEL_ENV === "preview" ||
+    process.env.VERCEL_ENV === "production"
+  );
+}
 
 // AUDIT R050 MED + R052 077: env-driven allowlist; no hardcoded
 // `nakamigos.gallery` fallback. Production hosts + dev localhost form the
@@ -79,6 +100,12 @@ export default async function handler(req, res) {
   if (!JWT_SECRET) {
     return res.status(503).json({ error: "Auth service not configured" });
   }
+  // AUDIT FIX FRESH-2026: F9 — refuse to authenticate in prod / preview when
+  //         the revocation lookup cannot run. Closes the silent fail-open where
+  //         a missing SUPABASE_SERVICE_KEY left logout-revocation inert.
+  if (isRevocationRequired() && supabase === null) {
+    return res.status(503).json({ error: "Auth service not configured" });
+  }
 
   const token = parseSiweJwt(req);
   if (!token) {
@@ -115,12 +142,9 @@ export default async function handler(req, res) {
       } else if (revoked) {
         // Token was explicitly revoked. Treat as unauthenticated and clear
         // the cookie so the browser stops sending it.
-        const isProduction = process.env.NODE_ENV === "production";
-        const clearParts = [
-          `siwe_jwt=`, `HttpOnly`, `Path=/`, `Max-Age=0`, `SameSite=Strict`,
-        ];
-        if (isProduction) clearParts.push("Secure");
-        res.setHeader("Set-Cookie", clearParts.join("; "));
+        // AUDIT FIX FRESH-2026: F-FRESH-4 — use shared cookie builder so
+        //         Secure-flag semantics match siwe.js issuance exactly.
+        res.setHeader("Set-Cookie", buildClearAuthCookie());
         return res.json({ authenticated: false });
       }
     }
@@ -131,17 +155,10 @@ export default async function handler(req, res) {
       expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
     });
   } catch {
-    // Token invalid or expired — clear the stale cookie
-    const isProduction = process.env.NODE_ENV === "production";
-    const clearParts = [
-      `siwe_jwt=`,
-      `HttpOnly`,
-      `Path=/`,
-      `Max-Age=0`,
-      `SameSite=Strict`, // AUDIT API-M8: match siwe.js tightening
-    ];
-    if (isProduction) clearParts.push("Secure");
-    res.setHeader("Set-Cookie", clearParts.join("; "));
+    // Token invalid or expired — clear the stale cookie.
+    // AUDIT FIX FRESH-2026: F-FRESH-4 — use shared cookie builder so
+    //         Secure-flag semantics match siwe.js issuance exactly.
+    res.setHeader("Set-Cookie", buildClearAuthCookie());
 
     return res.json({ authenticated: false });
   }
