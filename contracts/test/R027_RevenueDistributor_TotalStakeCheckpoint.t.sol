@@ -148,6 +148,17 @@ contract MockWETH_REVM01 {
     receive() external payable {}
 }
 
+/// @dev AUDIT FIX 2026-05-13 — H-REV-3 — minimal restaking mock for the new
+///      immutable `_restaking` constructor arg. Returns zero/empty for every
+///      view so the staking-priority path remains the active source in these
+///      tests (no test in this file exercises the restaker fallback).
+contract MockRestaking_REVM01 {
+    function restakers(address) external pure returns (
+        uint256, uint256, uint256, int256, uint256
+    ) { return (0, 0, 0, int256(0), 0); }
+    function boostedAmountAt(address, uint256) external pure returns (uint256) { return 0; }
+}
+
 /// @title AUDIT REV-M-01 — RevenueDistributor _distribute denominator pinning
 /// @notice Verifies that _distribute reads the historical totalBoostedStake from
 ///         the staking contract's Trace208 checkpoint at `block.timestamp - 1`,
@@ -156,6 +167,7 @@ contract R027_RevenueDistributor_TotalStakeCheckpoint is Test {
     MockVE_REVM01 public ve;
     MockVE_REVM01_Legacy public veLegacy;
     MockWETH_REVM01 public weth;
+    MockRestaking_REVM01 public restaking;
     RevenueDistributor public dist;
 
     address public alice = makeAddr("alice");
@@ -167,7 +179,8 @@ contract R027_RevenueDistributor_TotalStakeCheckpoint is Test {
         vm.warp(4 hours + 1);
         ve = new MockVE_REVM01();
         weth = new MockWETH_REVM01();
-        dist = new RevenueDistributor(address(ve), treasury, address(weth));
+        restaking = new MockRestaking_REVM01();
+        dist = new RevenueDistributor(address(ve), treasury, address(weth), address(restaking));
 
         ve.setLock(alice, 100_000 ether, block.timestamp + 365 days);
         ve.setLock(bob,   100_000 ether, block.timestamp + 365 days);
@@ -240,7 +253,7 @@ contract R027_RevenueDistributor_TotalStakeCheckpoint is Test {
         veLegacy = new MockVE_REVM01_Legacy();
         veLegacy.setLock(alice, 100_000 ether, block.timestamp + 365 days);
         veLegacy.setLock(bob,   100_000 ether, block.timestamp + 365 days);
-        RevenueDistributor d = new RevenueDistributor(address(veLegacy), treasury, address(weth));
+        RevenueDistributor d = new RevenueDistributor(address(veLegacy), treasury, address(weth), address(restaking));
 
         vm.warp(block.timestamp + 1 hours);
         vm.deal(address(this), 10 ether);

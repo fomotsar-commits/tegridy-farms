@@ -179,7 +179,9 @@ contract Audit195Revenue is Test {
         ve = new MockVE195();
         weth = new MockWETH195();
         restaking = new MockRestaking195();
-        dist = new RevenueDistributor(address(ve), treasury, address(weth));
+        dist = new RevenueDistributor(address(ve), treasury, address(weth), address(restaking));
+        // AUDIT FIX 2026-05-13 — H-REV-3 — restakingContract is now immutable;
+        // propose/execute rotation pattern removed. Wired at construction.
 
         ve.setLock(alice, LOCK, block.timestamp + YEAR);
         ve.setLock(bob, LOCK, block.timestamp + YEAR);
@@ -404,10 +406,8 @@ contract Audit195Revenue is Test {
     // ═══════════════════════════════════════════════════════════════════════
 
     function test_restaked_user_can_claim() public {
-        // Setup restaking
-        dist.proposeRestakingChange(address(restaking));
-        vm.warp(block.timestamp + 49 hours);
-        dist.executeRestakingChange();
+        // AUDIT FIX 2026-05-13 — H-REV-3 — restakingContract is wired at
+        // construction (immutable); old propose/execute pattern removed.
 
         // Restake alice (NFT transferred, locks returns 0)
         // But checkpointed voting power persists from before restaking
@@ -555,28 +555,19 @@ contract Audit195Revenue is Test {
     //  12. Restaking change timelock
     // ═══════════════════════════════════════════════════════════════════════
 
+    // SKIPPED-AUDIT-2026-05-13: restakingContract is now immutable, rotation removed
     function test_restaking_change_timelock() public {
-        dist.proposeRestakingChange(address(restaking));
-
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, dist.RESTAKING_CHANGE()));
-        dist.executeRestakingChange();
-
-        vm.warp(block.timestamp + 49 hours);
-        dist.executeRestakingChange();
-        assertEq(address(dist.restakingContract()), address(restaking));
+        vm.skip(true);
     }
 
+    // SKIPPED-AUDIT-2026-05-13: restakingContract is now immutable, rotation removed
     function test_restaking_change_zero_rejected() public {
-        vm.expectRevert(); // "ZERO_ADDRESS"
-        dist.proposeRestakingChange(address(0));
+        vm.skip(true);
     }
 
+    // SKIPPED-AUDIT-2026-05-13: restakingContract is now immutable, rotation removed
     function test_restaking_cancel() public {
-        dist.proposeRestakingChange(address(restaking));
-        dist.cancelRestakingChange();
-
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, dist.RESTAKING_CHANGE()));
-        dist.executeRestakingChange();
+        vm.skip(true);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -710,10 +701,8 @@ contract Audit195Revenue is Test {
     function test_claim_uses_snapshot_when_ve_reverts() public {
         _distributeN(3, 1 ether);
 
-        // Setup restaking so alice is considered active even when locks() reverts
-        dist.proposeRestakingChange(address(restaking));
-        vm.warp(block.timestamp + 49 hours);
-        dist.executeRestakingChange();
+        // AUDIT FIX 2026-05-13 — H-REV-3 — restakingContract is wired at
+        // construction (immutable); old propose/execute pattern removed.
         restaking.setRestaker(alice, 1, LOCK);
 
         // VE starts reverting (simulating pause)

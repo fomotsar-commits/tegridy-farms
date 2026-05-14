@@ -173,12 +173,9 @@ contract FRESH2026_F1_RevDistExRestakerRecoveryTest is Test {
         ve = new MockVE_F1();
         restaking = new MockRestaking_F1();
         weth = new MockWETH_F1();
-        dist = new RevenueDistributor(address(ve), treasury, address(weth));
-
-        // Wire restaking contract on the distributor (48h timelock).
-        dist.proposeRestakingChange(address(restaking));
-        vm.warp(block.timestamp + 49 hours);
-        dist.executeRestakingChange();
+        // AUDIT FIX 2026-05-13 — H-REV-3 — restakingContract is now immutable
+        // and set in the constructor (no more propose/execute rotation).
+        dist = new RevenueDistributor(address(ve), treasury, address(weth), address(restaking));
 
         // Bob is a permanent normal staker so distribute() always has a
         // healthy totalLocked and a well-defined denominator.
@@ -308,8 +305,9 @@ contract FRESH2026_F1_RevDistExRestakerRecoveryTest is Test {
         //    propose would revert.
         //
         // Use a small attestation (1k of 50k totalLocked = 2%, well under
-        // the 25% per-proposal cap and the 50% aggregate cap) so the
-        // owner's `proposeClaimRecovery` is well-formed.
+        // the 5% per-proposal cap and 15% aggregate cap as tightened by
+        // H-REV-4 on 2026-05-13) so the owner's `proposeClaimRecovery` is
+        // well-formed.
         dist.proposeClaimRecovery(carol, 0, 1_000 ether);
 
         // Sanity: a pending recovery now exists.

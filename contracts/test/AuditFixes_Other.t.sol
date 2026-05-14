@@ -242,10 +242,20 @@ contract MockWETHRevDist {
     receive() external payable {}
 }
 
+/// @dev AUDIT FIX 2026-05-13 — H-REV-3 — minimal restaking mock for the new
+///      immutable `_restaking` constructor arg.
+contract MockRestakingRevDist {
+    function restakers(address) external pure returns (
+        uint256, uint256, uint256, int256, uint256
+    ) { return (0, 0, 0, int256(0), 0); }
+    function boostedAmountAt(address, uint256) external pure returns (uint256) { return 0; }
+}
+
 contract AuditFixes_RevenueDistributorTest is Test {
     RevenueDistributor public distributor;
     MockVotingEscrow public escrow;
     MockWETHRevDist public weth;
+    MockRestakingRevDist public restaking;
     address public treasury = makeAddr("treasury");
     address public alice = makeAddr("alice");
     address public bob = makeAddr("bob");
@@ -254,7 +264,8 @@ contract AuditFixes_RevenueDistributorTest is Test {
         vm.warp(5 hours);
         escrow = new MockVotingEscrow();
         weth = new MockWETHRevDist();
-        distributor = new RevenueDistributor(address(escrow), treasury, address(weth));
+        restaking = new MockRestakingRevDist();
+        distributor = new RevenueDistributor(address(escrow), treasury, address(weth), address(restaking));
 
         // Alice has a lock of 1000 TOWELI
         escrow.setLock(alice, 1000 ether, block.timestamp + 365 days);

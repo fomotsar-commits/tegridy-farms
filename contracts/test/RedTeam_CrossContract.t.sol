@@ -185,7 +185,8 @@ contract RedTeamCrossContract is Test {
         revDistributor = new RevenueDistributor(
             address(staking),
             treasury,
-            address(weth)
+            address(weth),
+            address(restaking)
         );
 
         referralSplitter = new ReferralSplitter(

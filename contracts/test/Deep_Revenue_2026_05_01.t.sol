@@ -56,6 +56,15 @@ contract MockWETH_Deep {
     receive() external payable {}
 }
 
+/// @dev AUDIT FIX 2026-05-13 — H-REV-3 — minimal restaking mock for the new
+///      immutable `_restaking` constructor arg.
+contract MockRestaking_Deep {
+    function restakers(address) external pure returns (
+        uint256, uint256, uint256, int256, uint256
+    ) { return (0, 0, 0, int256(0), 0); }
+    function boostedAmountAt(address, uint256) external pure returns (uint256) { return 0; }
+}
+
 /// @title DEEP Audit 2026-05-01 — Revenue / POL / Premium / Referral fixes
 /// @notice Regression tests for DEEP audit fixes:
 ///         - DR-H-01: executeClaimRecovery gated by pause + staking-paused
@@ -65,6 +74,7 @@ contract MockWETH_Deep {
 contract Deep_Revenue_2026_05_01_Test is Test {
     MockVE_Deep public ve;
     MockWETH_Deep public weth;
+    MockRestaking_Deep public restaking;
     RevenueDistributor public dist;
 
     address public alice = makeAddr("alice");
@@ -76,7 +86,8 @@ contract Deep_Revenue_2026_05_01_Test is Test {
         vm.warp(4 hours + 1);
         ve = new MockVE_Deep();
         weth = new MockWETH_Deep();
-        dist = new RevenueDistributor(address(ve), treasury, address(weth));
+        restaking = new MockRestaking_Deep();
+        dist = new RevenueDistributor(address(ve), treasury, address(weth), address(restaking));
 
         ve.setLock(alice, 100_000 ether, block.timestamp + 365 days);
         ve.setLock(bob,   100_000 ether, block.timestamp + 365 days);
@@ -98,7 +109,9 @@ contract Deep_Revenue_2026_05_01_Test is Test {
     function test_executeClaimRecovery_revertsWhenPaused() public {
         _distribute(9 ether);
         // Owner proposes a recovery for carol.
-        dist.proposeClaimRecovery(carol, 0, 50_000 ether);
+        // AUDIT FIX 2026-05-13 — H-REV-4 — per-proposal cap tightened 25% → 5%
+        // (300_000 totalLocked * 5% = 15_000 max).
+        dist.proposeClaimRecovery(carol, 0, 15_000 ether);
         vm.warp(block.timestamp + 48 hours + 1);
 
         // Owner pauses the contract (response to a discovered exploit).
@@ -119,7 +132,9 @@ contract Deep_Revenue_2026_05_01_Test is Test {
     ///         is paused, mirroring claim() / claimUpTo() behavior under M-10.
     function test_executeClaimRecovery_revertsWhenStakingPaused() public {
         _distribute(9 ether);
-        dist.proposeClaimRecovery(carol, 0, 50_000 ether);
+        // AUDIT FIX 2026-05-13 — H-REV-4 — per-proposal cap tightened 25% → 5%
+        // (300_000 totalLocked * 5% = 15_000 max).
+        dist.proposeClaimRecovery(carol, 0, 15_000 ether);
         vm.warp(block.timestamp + 48 hours + 1);
 
         // Staking is paused — recovery must be blocked even though dist itself isn't paused.

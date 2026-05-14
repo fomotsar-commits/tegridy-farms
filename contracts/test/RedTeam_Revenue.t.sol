@@ -318,7 +318,7 @@ contract RedTeamRevenue is Test {
         weth = new MockWETHRT();
 
         // Deploy contracts
-        distributor = new RevenueDistributor(address(ve), treasury, address(weth));
+        distributor = new RevenueDistributor(address(ve), treasury, address(weth), address(restaking));
         grants = new CommunityGrants(address(veGrants), address(token), feeReceiver, address(weth));
         bountyBoard = new MemeBountyBoard(address(token), address(staking), address(weth), address(0), treasury);
         splitter = new ReferralSplitter(1000, address(staking), treasury, address(weth));

@@ -48,6 +48,15 @@ contract L2MockFactory {
     function getPair(address, address) external pure returns (address) { return address(0); }
 }
 
+/// @dev AUDIT FIX 2026-05-13 — H-REV-3 — minimal restaking mock for the new
+///      immutable `_restaking` constructor arg.
+contract L2MockRestaking {
+    function restakers(address) external pure returns (
+        uint256, uint256, uint256, int256, uint256
+    ) { return (0, 0, 0, int256(0), 0); }
+    function boostedAmountAt(address, uint256) external pure returns (uint256) { return 0; }
+}
+
 /// @title L2CompatibilityTest
 /// @notice Validates protocol behaviour under L2 timestamp semantics (Arbitrum, Optimism).
 ///         L2 chains may have irregular block times, uint64 timestamps, and large time jumps.
@@ -59,6 +68,7 @@ contract L2CompatibilityTest is Test {
     L2MockNFT public nft;
     L2MockWETH public weth;
     L2MockFactory public factory;
+    L2MockRestaking public restaking;
 
     address public treasury = makeAddr("treasury");
     address public alice = makeAddr("alice");
@@ -69,9 +79,10 @@ contract L2CompatibilityTest is Test {
         nft = new L2MockNFT();
         weth = new L2MockWETH();
         factory = new L2MockFactory();
+        restaking = new L2MockRestaking();
 
         staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
-        revDist = new RevenueDistributor(address(staking), treasury, address(weth));
+        revDist = new RevenueDistributor(address(staking), treasury, address(weth), address(restaking));
         premium = new PremiumAccess(address(token), address(nft), treasury, 1000 ether);
 
         nft.mint(alice);

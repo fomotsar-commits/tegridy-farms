@@ -63,12 +63,23 @@ contract MockWETH_R014 {
     receive() external payable {}
 }
 
+/// @dev AUDIT FIX 2026-05-13 — H-REV-3 — minimal restaking mock for the new
+///      immutable `_restaking` constructor arg. No test in this file exercises
+///      the restaker fallback; mock returns zero for every view.
+contract MockRestaking_R014 {
+    function restakers(address) external pure returns (
+        uint256, uint256, uint256, int256, uint256
+    ) { return (0, 0, 0, int256(0), 0); }
+    function boostedAmountAt(address, uint256) external pure returns (uint256) { return 0; }
+}
+
 /// @title AUDIT R014 — RevenueDistributor remediation tests
 /// @notice Covers H-5 (claim recovery for corrupted positions) and M-8 (auto dust
 ///         reconcile after grace period) as per the audit ticket.
 contract AuditR014_RevenueDistributorTest is Test {
     MockVE_R014 public ve;
     MockWETH_R014 public weth;
+    MockRestaking_R014 public restaking;
     RevenueDistributor public dist;
 
     address public alice = makeAddr("alice");
@@ -81,7 +92,8 @@ contract AuditR014_RevenueDistributorTest is Test {
         vm.warp(4 hours + 1);
         ve = new MockVE_R014();
         weth = new MockWETH_R014();
-        dist = new RevenueDistributor(address(ve), treasury, address(weth));
+        restaking = new MockRestaking_R014();
+        dist = new RevenueDistributor(address(ve), treasury, address(weth), address(restaking));
 
         ve.setLock(alice, 100_000 ether, block.timestamp + 365 days);
         ve.setLock(bob,   100_000 ether, block.timestamp + 365 days);

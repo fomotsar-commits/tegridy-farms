@@ -502,10 +502,20 @@ contract MockWETHFuzz {
     receive() external payable {}
 }
 
+/// @dev AUDIT FIX 2026-05-13 — H-REV-3 — minimal restaking mock for the new
+///      immutable `_restaking` constructor arg.
+contract MockRestakingFuzz {
+    function restakers(address) external pure returns (
+        uint256, uint256, uint256, int256, uint256
+    ) { return (0, 0, 0, int256(0), 0); }
+    function boostedAmountAt(address, uint256) external pure returns (uint256) { return 0; }
+}
+
 contract RevenueDistributorFuzzTest is Test {
     RevenueDistributor public distributor;
     MockVotingEscrow public votingEscrow;
     MockWETHFuzz public weth;
+    MockRestakingFuzz public restaking;
     address public treasury = makeAddr("treasury");
     address public alice = makeAddr("alice");
 
@@ -513,7 +523,8 @@ contract RevenueDistributorFuzzTest is Test {
         vm.warp(5 hours);
         votingEscrow = new MockVotingEscrow();
         weth = new MockWETHFuzz();
-        distributor = new RevenueDistributor(address(votingEscrow), treasury, address(weth));
+        restaking = new MockRestakingFuzz();
+        distributor = new RevenueDistributor(address(votingEscrow), treasury, address(weth), address(restaking));
     }
 
     // â”€â”€â”€ Fuzz: distribute + claim accounting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

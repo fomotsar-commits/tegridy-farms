@@ -108,11 +108,10 @@ contract R026_RevenueDistributor is Test {
         weth = new MockGoodWETH9R026();
         staking = new MockStakingR026();
         restaking = new MockRestakingR026();
-        rd = new RevenueDistributor(address(staking), treasury, address(weth));
+        rd = new RevenueDistributor(address(staking), treasury, address(weth), address(restaking));
 
-        rd.proposeRestakingChange(address(restaking));
-        vm.warp(block.timestamp + 48 hours + 1);
-        rd.executeRestakingChange();
+        // AUDIT FIX 2026-05-13 — H-REV-3 — restakingContract is now immutable;
+        // propose/execute rotation pattern removed. Wired at construction.
 
         // Move past MIN_DISTRIBUTE_INTERVAL and a healthy stake floor.
         vm.warp(block.timestamp + 5 hours);

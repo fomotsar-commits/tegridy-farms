@@ -74,6 +74,15 @@ contract RevenueR061WETH {
     receive() external payable {}
 }
 
+/// @dev AUDIT FIX 2026-05-13 — H-REV-3 — minimal restaking mock for the new
+///      immutable `_restaking` constructor arg.
+contract RevenueR061Restaking {
+    function restakers(address) external pure returns (
+        uint256, uint256, uint256, int256, uint256
+    ) { return (0, 0, 0, int256(0), 0); }
+    function boostedAmountAt(address, uint256) external pure returns (uint256) { return 0; }
+}
+
 /// @notice Narrow handler — fund + distribute + claim. notifyReward / treasury
 ///         changes are kept out so the invariants can rely on the static
 ///         RevenueDistributor.totalDistributed field as the upper bound.
@@ -111,6 +120,7 @@ contract RevenueInvariantsTest is Test {
     RevenueDistributor public dist;
     RevenueR061Escrow public ve;
     RevenueR061WETH public weth;
+    RevenueR061Restaking public restaking;
     RevenueR061Handler public handler;
 
     address public treasury = makeAddr("r061_rev_treasury");
@@ -121,7 +131,8 @@ contract RevenueInvariantsTest is Test {
         vm.warp(5 hours);
         ve = new RevenueR061Escrow();
         weth = new RevenueR061WETH();
-        dist = new RevenueDistributor(address(ve), treasury, address(weth));
+        restaking = new RevenueR061Restaking();
+        dist = new RevenueDistributor(address(ve), treasury, address(weth), address(restaking));
 
         // Single-actor lock so claim() has a well-defined denominator.
         ve.setLock(alice, 100_000 ether, block.timestamp + 365 days);

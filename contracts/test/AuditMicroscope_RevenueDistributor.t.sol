@@ -56,14 +56,25 @@ contract MockWETH_Microscope {
     receive() external payable {}
 }
 
+/// @dev AUDIT FIX 2026-05-13 — H-REV-3 — minimal restaking mock for the new
+///      immutable `_restaking` constructor arg.
+contract MockRestaking_Microscope {
+    function restakers(address) external pure returns (
+        uint256, uint256, uint256, int256, uint256
+    ) { return (0, 0, 0, int256(0), 0); }
+    function boostedAmountAt(address, uint256) external pure returns (uint256) { return 0; }
+}
+
 /// @title AUDIT MICROSCOPE_2026_04_30 — RevenueDistributor remediation tests
 /// @notice Covers the C5 (claim+recovery double-pay) and M-R6 (per-recovery share cap)
 ///         fixes. C5 closure adds the unified `claimedAtEpoch[user][epoch]` slot that
 ///         both the normal claim and the recovery paths consult; M-R6 closure caps
-///         each recovery at MAX_RECOVERY_POWER_BPS (25%) of `epoch.totalLocked`.
+///         each recovery at MAX_RECOVERY_POWER_BPS (5% post-2026-05-13 H-REV-4) of
+///         `epoch.totalLocked`.
 contract AuditMicroscope_RevenueDistributorTest is Test {
     MockVE_Microscope public ve;
     MockWETH_Microscope public weth;
+    MockRestaking_Microscope public restaking;
     RevenueDistributor public dist;
 
     address public alice = makeAddr("alice");
@@ -75,7 +86,8 @@ contract AuditMicroscope_RevenueDistributorTest is Test {
         vm.warp(4 hours + 1);
         ve = new MockVE_Microscope();
         weth = new MockWETH_Microscope();
-        dist = new RevenueDistributor(address(ve), treasury, address(weth));
+        restaking = new MockRestaking_Microscope();
+        dist = new RevenueDistributor(address(ve), treasury, address(weth), address(restaking));
 
         // Three stakers, equal weights so each owns 1/3 of every epoch.
         ve.setLock(alice, 100_000 ether, block.timestamp + 365 days);
@@ -116,8 +128,9 @@ contract AuditMicroscope_RevenueDistributorTest is Test {
         _distribute(9 ether);
 
         // Owner proposes recovery for alice on epoch 0 with cap-bound power.
-        // (Cap = 25_000 ether on a 300_000 ether totalLocked.)
-        dist.proposeClaimRecovery(alice, 0, 25_000 ether);
+        // (Cap = 15_000 ether on a 300_000 ether totalLocked at 5% per-proposal.)
+        // AUDIT FIX 2026-05-13 — H-REV-4 — cap tightened 25% → 5%.
+        dist.proposeClaimRecovery(alice, 0, 15_000 ether);
 
         // Alice claims normally during the timelock window.
         vm.prank(alice);
@@ -143,9 +156,10 @@ contract AuditMicroscope_RevenueDistributorTest is Test {
         // Move carol into "corrupted" state (mirrors AuditR014 setup).
         ve.corrupt(carol);
 
-        // Owner attests cap-bound power and recovers (25% of 200_000 = 50_000).
-        // Note: total post-corrupt is 200_000 ether (alice + bob), so cap is 50_000 ether.
-        dist.proposeClaimRecovery(carol, 0, 50_000 ether);
+        // Owner attests cap-bound power and recovers (5% of 200_000 = 10_000).
+        // Note: total post-corrupt is 200_000 ether (alice + bob), so cap is 10_000 ether.
+        // AUDIT FIX 2026-05-13 — H-REV-4 — cap tightened 25% → 5%.
+        dist.proposeClaimRecovery(carol, 0, 10_000 ether);
         vm.warp(block.timestamp + 48 hours + 1);
 
         uint256 carolBefore = carol.balance;
@@ -174,27 +188,27 @@ contract AuditMicroscope_RevenueDistributorTest is Test {
     // ─── M-R6 — Per-recovery cap ───────────────────────────────────────
 
     /// @notice Owner cannot propose a recovery with attested power exceeding
-    ///         `(epoch.totalLocked * 25%) / 10000`. Caps the blast radius of
-    ///         a single recovery (or owner-key compromise) to one-quarter of
-    ///         the epoch pool.
+    ///         `(epoch.totalLocked * 5%) / 10000` (post-2026-05-13 H-REV-4).
+    ///         Caps the blast radius of a single recovery (or owner-key
+    ///         compromise) to 1/20th of the epoch pool.
     function test_MR6_recoveryPowerCapEnforced_atProposeTime() public {
-        _distribute(9 ether); // totalLocked 300_000 ether → cap = 75_000 ether
+        _distribute(9 ether); // totalLocked 300_000 ether → cap = 15_000 ether (5%)
 
         // Just over the cap must revert.
         vm.expectRevert(RevenueDistributor.RecoveryPowerExceedsCap.selector);
-        dist.proposeClaimRecovery(carol, 0, 75_001 ether);
+        dist.proposeClaimRecovery(carol, 0, 15_001 ether);
 
         // Exactly the cap must pass.
-        dist.proposeClaimRecovery(carol, 0, 75_000 ether);
+        dist.proposeClaimRecovery(carol, 0, 15_000 ether);
     }
 
     /// @notice Even if a future code path bypasses the propose-time cap, the
     ///         execute-time path also re-applies the cap defensively.
     function test_MR6_recoveryPowerCapAlsoEnforced_atExecuteTime() public {
-        _distribute(12 ether); // totalLocked 300_000 → cap = 75_000
+        _distribute(12 ether); // totalLocked 300_000 → cap = 15_000 (5%)
 
         // Propose at the exact cap.
-        dist.proposeClaimRecovery(carol, 0, 75_000 ether);
+        dist.proposeClaimRecovery(carol, 0, 15_000 ether);
         vm.warp(block.timestamp + 48 hours + 1);
 
         // Corrupt carol so the share is paid via recovery (not normal claim).
@@ -204,8 +218,9 @@ contract AuditMicroscope_RevenueDistributorTest is Test {
         dist.executeClaimRecovery(carol, 0);
         uint256 paid = carol.balance - carolBefore;
 
-        // 75_000 / 300_000 * 12 = 3 ETH — one quarter of the epoch pool.
+        // 15_000 / 300_000 * 12 = 0.6 ETH — 5% of the epoch pool.
         // This is the bound — never more, regardless of attested power.
-        assertEq(paid, 3 ether, "recovery payout matches 25% cap");
+        // AUDIT FIX 2026-05-13 — H-REV-4 — cap tightened 25% → 5%.
+        assertEq(paid, 0.6 ether, "recovery payout matches 5% cap");
     }
 }

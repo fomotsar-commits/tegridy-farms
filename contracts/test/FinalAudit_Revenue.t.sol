@@ -222,7 +222,7 @@ contract FinalAuditRevenue is Test {
         restaking = new FA_MockRestaking();
         weth = new FA_MockWETH();
 
-        distributor = new RevenueDistributor(address(ve), treasury, address(weth));
+        distributor = new RevenueDistributor(address(ve), treasury, address(weth), address(restaking));
         grants = new CommunityGrants(address(veGrants), address(token), feeReceiver, address(weth));
         bountyBoard = new MemeBountyBoard(address(token), address(staking), address(weth), address(0), treasury);
         splitter = new ReferralSplitter(1000, address(staking), treasury, address(weth));

@@ -226,7 +226,9 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
 
     // ─── Legacy View Helpers (for test compatibility) ──────────────
     function treasuryChangeTime() external view returns (uint256) { return _executeAfter[TREASURY_CHANGE]; }
-    function restakingChangeTime() external view returns (uint256) { return _executeAfter[RESTAKING_CHANGE]; }
+    // AUDIT FIX 2026-05-13 — H-REV-3 — `restakingChangeTime()` helper removed
+    // along with `RESTAKING_CHANGE` key. `restakingContract` is now immutable;
+    // there is no rotation timelock to observe.
     function emergencyWithdrawProposedAt() external view returns (uint256) { return _executeAfter[EMERGENCY_WITHDRAW_EXCESS]; }
     function tokenSweepReadyAt() external view returns (uint256) { return _executeAfter[TOKEN_SWEEP]; }
 

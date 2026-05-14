@@ -117,6 +117,7 @@ contract MockWETHDistTest {
 contract RevenueDistributorTest is Test {
     MockVotingEscrow public ve;
     MockWETHDistTest public weth;
+    MockRestaking public restaking;
     RevenueDistributor public dist;
     address public alice = makeAddr("alice");
     address public bob = makeAddr("bob");
@@ -126,7 +127,8 @@ contract RevenueDistributorTest is Test {
         vm.warp(4 hours + 1); // Ensure first distribute() doesn't hit cooldown (MIN_DISTRIBUTE_INTERVAL = 4 hours)
         ve = new MockVotingEscrow();
         weth = new MockWETHDistTest();
-        dist = new RevenueDistributor(address(ve), treasury, address(weth));
+        restaking = new MockRestaking();
+        dist = new RevenueDistributor(address(ve), treasury, address(weth), address(restaking));
 
         ve.setLock(alice, 100_000 ether, block.timestamp + 365 days);
         ve.setLock(bob, 100_000 ether, block.timestamp + 365 days);

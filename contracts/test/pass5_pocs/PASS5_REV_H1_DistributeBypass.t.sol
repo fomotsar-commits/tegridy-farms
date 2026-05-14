@@ -91,9 +91,19 @@ contract MockWETH_H1 {
     receive() external payable {}
 }
 
+/// @dev AUDIT FIX 2026-05-13 — H-REV-3 — minimal restaking mock for the new
+///      immutable `_restaking` constructor arg.
+contract MockRestaking_H1 {
+    function restakers(address) external pure returns (
+        uint256, uint256, uint256, int256, uint256
+    ) { return (0, 0, 0, int256(0), 0); }
+    function boostedAmountAt(address, uint256) external pure returns (uint256) { return 0; }
+}
+
 contract PASS5_REV_H1_Test is Test {
     MockVotingEscrowH1 ve;
     MockWETH_H1 weth;
+    MockRestaking_H1 restaking;
     RevenueDistributor dist;
 
     // The legitimate whale (90% of stake) and a sibling honest staker (10%).
@@ -107,7 +117,8 @@ contract PASS5_REV_H1_Test is Test {
         vm.warp(4 hours + 1);
         ve = new MockVotingEscrowH1();
         weth = new MockWETH_H1();
-        dist = new RevenueDistributor(address(ve), TREASURY, address(weth));
+        restaking = new MockRestaking_H1();
+        dist = new RevenueDistributor(address(ve), TREASURY, address(weth), address(restaking));
 
         // Initial honest distribution of stake -whale dominates, attacker is a small fish.
         // Whale: 900,000 ether (90% of total)
