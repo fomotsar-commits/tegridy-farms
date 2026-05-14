@@ -803,6 +803,9 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // R014 H-6: post-resume observation freshness. See dev-note above for the
         // attack model. resumeAt == 0 → mainnet no-op (skip the comparison).
         uint256 resumeAt = SequencerCheck.getResumeTimestamp(sequencerFeed);
+        // AUDIT FIX 2026-05-13 — M-LIB-2 — short-circuit on M-34 fail-closed
+        // sentinel before the addition. Mirrors TegridyTWAP.sol:1074.
+        if (resumeAt == type(uint256).max) revert OracleObservationPredatesResume();
         if (resumeAt != 0 && uint256(latest.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
             revert OracleObservationPredatesResume();
         }
@@ -843,6 +846,9 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (block.timestamp - latest.timestamp > TWAP_MAX_STALENESS) revert OracleStale();
         // R014 H-6: same post-resume freshness gate as `_twapMinOut`.
         uint256 resumeAt = SequencerCheck.getResumeTimestamp(sequencerFeed);
+        // AUDIT FIX 2026-05-13 — M-LIB-2 — short-circuit on M-34 fail-closed
+        // sentinel before the addition. Mirrors TegridyTWAP.sol:1074.
+        if (resumeAt == type(uint256).max) revert OracleObservationPredatesResume();
         if (resumeAt != 0 && uint256(latest.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
             revert OracleObservationPredatesResume();
         }

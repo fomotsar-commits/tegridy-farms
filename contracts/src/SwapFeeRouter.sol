@@ -1977,6 +1977,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // (mainnet, address(0) feed) short-circuits this comparison.
         if (sequencerFeed != address(0)) {
             uint256 resumeAt = SequencerCheck.getResumeTimestamp(sequencerFeed);
+            // AUDIT FIX 2026-05-13 — M-LIB-2 — short-circuit on the M-34
+            // fail-closed sentinel (type(uint256).max) BEFORE the addition,
+            // otherwise `resumeAt + SEQUENCER_GRACE_PERIOD` overflows checked
+            // math and surfaces `Panic(0x11)` instead of the typed selector.
+            // Mirrors TegridyTWAP.sol:1074 (F-TWAP-SENTINEL) which is itself
+            // the Aave V3 PriceOracleSentinel pattern.
+            if (resumeAt == type(uint256).max) revert TWAPBootstrapRequired();
             if (resumeAt != 0 && prev.timestamp != 0 && uint256(prev.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
                 revert TWAPBootstrapRequired();
             }

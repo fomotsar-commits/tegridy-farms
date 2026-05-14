@@ -34,6 +34,19 @@ library SafeERC721Call {
     /// @notice ERC721 ownerOf selector: `ownerOf(uint256)`.
     bytes4 internal constant OWNER_OF_SELECTOR = 0x6352211e;
 
+    /// @notice AUDIT FIX 2026-05-13 — M-LIB-1 — default gas budget for
+    ///         `safeTransferFromBounded`. Symmetric defense to the gas cap
+    ///         on `safeOwnerOfBounded`. 200k is generous against honest
+    ///         ERC721s (OZ baseline ~50k; +ERC2981 royalty ~5k; +ERC721A
+    ///         ~50k; +CreatorTokenStandards royalty-enforce ~30-50k; +deep
+    ///         TransparentUpgradeableProxy chains ~2.5k/hop; +on-transfer
+    ///         hooks with stake updates ~30-100k — total ≤150k for honest
+    ///         worst-case) while bounding malicious gas-bomb griefing of
+    ///         lender-side `claimDefault` / `repayAndReclaim`.
+    /// @dev    Matches Aave V3's user-callback gas cap pattern for hostile-
+    ///         callee defense; tighter than Maker MCD's 300k vault cap.
+    uint256 internal constant DEFAULT_TRANSFER_FROM_GAS_BUDGET = 200_000;
+
     /// @notice AUDIT FIX FRESH-2026: F-40-S721-1 — default gas budget for
     ///         `safeOwnerOfBounded`. Bumped from 30_000 → 50_000.
     /// @dev    The 30k floor was sufficient for OZ's monolithic ERC721 (~3k
@@ -69,13 +82,37 @@ library SafeERC721Call {
         address to,
         uint256 id
     ) internal returns (bool ok) {
-        // ABI-encode `transferFrom(from, to, id)` — 4-byte selector + 3 × 32-byte args.
-        // Allocate calldata in memory, build it in-place.
+        return safeTransferFromBounded(coll, from, to, id, DEFAULT_TRANSFER_FROM_GAS_BUDGET);
+    }
+
+    /// @notice AUDIT FIX 2026-05-13 — M-LIB-1 — overload accepting a per-call
+    ///         `gasBudget`. Consumer contracts that have a `(collection =>
+    ///         uint256 gasOverride)` mapping (settable by owner under timelock)
+    ///         can pass the override here when non-zero, falling back to
+    ///         `DEFAULT_TRANSFER_FROM_GAS_BUDGET` otherwise. Mirrors the
+    ///         `safeOwnerOfBounded(coll, id, gasBudget)` pattern.
+    /// @param  coll       The ERC721 contract.
+    /// @param  from       The current owner address.
+    /// @param  to         The recipient address.
+    /// @param  id         The token id to transfer.
+    /// @param  gasBudget  Per-call gas budget; pass 0 to use the default.
+    /// @return ok         True iff the call did not revert.
+    /// @dev    Bounds gasBudget to a sane floor (50_000) — below that, no
+    ///         honest ERC721 transfer can complete (SSTORE + Transfer event ≈ 30k floor).
+    function safeTransferFromBounded(
+        address coll,
+        address from,
+        address to,
+        uint256 id,
+        uint256 gasBudget
+    ) internal returns (bool ok) {
+        if (gasBudget == 0) gasBudget = DEFAULT_TRANSFER_FROM_GAS_BUDGET;
+        if (gasBudget < 50_000) gasBudget = 50_000;
         bytes memory data = abi.encodeWithSelector(TRANSFER_FROM_SELECTOR, from, to, id);
         assembly {
             // call(g, addr, value, in, insize, out, outsize)
-            // Forward all remaining gas, no value, zero outsize → no returndata copy.
-            ok := call(gas(), coll, 0, add(data, 0x20), mload(data), 0, 0)
+            // Bounded gas, no value, zero outsize → no returndata copy.
+            ok := call(gasBudget, coll, 0, add(data, 0x20), mload(data), 0, 0)
         }
     }
 

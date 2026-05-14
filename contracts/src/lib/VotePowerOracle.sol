@@ -56,7 +56,31 @@ interface IVoteSource {
 ///      in one tx). The lib retains `powerOf` as a deprecated compile-
 ///      compatible alias for `powerOfLiveUnsafe`. The `LiveUnsafe` suffix
 ///      surfaces the footgun at every call site.
+///
+/// @dev AUDIT FIX 2026-05-13 — H-LIB-1 [VPO-DoS] — both reads now:
+///        1. Cap inner gas at `RESTAKING_CALL_GAS_BUDGET` (50_000 — matches
+///           the in-tree precedent at `RevenueDistributor._restakedPowerAt`).
+///           Prevents a malicious or buggy restaking contract from burning
+///           the caller's full gas budget (loop-revert grief).
+///        2. Use saturating addition. Solidity 0.8 checked arithmetic causes
+///           `power + r` to revert with `Panic(0x11)` if `r` is large enough
+///           to overflow — and the revert PROPAGATES out of the `try` block
+///           (it does NOT fall to `catch`). Saturating to `type(uint256).max`
+///           preserves the fail-closed semantics: a hostile return value
+///           silently saturates rather than DoS'ing every governance read.
+///
+///        Without these guards, a captured-admin path could install a
+///        malicious restaking contract that bricks `GaugeController.vote`,
+///        `VoteIncentives.commitVote/revealVote`, `MemeBountyBoard.*`, and
+///        `CommunityGrants.castVote` system-wide.
 library VotePowerOracle {
+    /// @notice Gas budget for the restaking-side call. Mirrors the in-tree
+    ///         `RevenueDistributor._restakedPowerAt` precedent (50k). Sized
+    ///         for a single SLOAD + checkpoint lookup + ABI return — generous
+    ///         enough for an upgradeable restaking contract with deep proxy
+    ///         hops, tight enough that a malicious callee burning gas in a
+    ///         loop reverts via OOG without consuming the caller's full budget.
+    uint256 internal constant RESTAKING_CALL_GAS_BUDGET = 50_000;
     /// @notice DEPRECATED — compile-compatible alias for `powerOfLiveUnsafe`.
     /// @param user      Address whose voting power to read.
     /// @param staking   TegridyStaking contract address.
@@ -89,8 +113,15 @@ library VotePowerOracle {
         if (restaking != address(0)) {
             // try/catch to remain robust if restaking is mid-upgrade or
             // intentionally absent on a particular deployment chain.
-            try IVoteSource(restaking).votingPowerOf(user) returns (uint256 r) {
-                power += r;
+            // `{gas: RESTAKING_CALL_GAS_BUDGET}` bounds inner gas (H-LIB-1).
+            try IVoteSource(restaking).votingPowerOf{gas: RESTAKING_CALL_GAS_BUDGET}(user) returns (uint256 r) {
+                // Saturating add: a hostile `r` near type(uint256).max would
+                // otherwise revert the checked addition and propagate out of
+                // the try block, bricking every governance read.
+                unchecked {
+                    uint256 sum = power + r;
+                    power = sum < power ? type(uint256).max : sum;
+                }
             } catch {
                 // Fail closed: if restaking misbehaves, the staking-side value
                 // is still a valid lower bound for governance.
@@ -113,8 +144,13 @@ library VotePowerOracle {
     ) internal view returns (uint256 power) {
         power = IVoteSource(staking).votingPowerAtTimestamp(user, ts);
         if (restaking != address(0)) {
-            try IVoteSource(restaking).votingPowerAtTimestamp(user, ts) returns (uint256 r) {
-                power += r;
+            // AUDIT FIX 2026-05-13 — H-LIB-1 — gas-capped + saturating add.
+            // Same defense as `powerOfLiveUnsafe`.
+            try IVoteSource(restaking).votingPowerAtTimestamp{gas: RESTAKING_CALL_GAS_BUDGET}(user, ts) returns (uint256 r) {
+                unchecked {
+                    uint256 sum = power + r;
+                    power = sum < power ? type(uint256).max : sum;
+                }
             } catch {
                 // Fail closed: silent degradation.
             }
