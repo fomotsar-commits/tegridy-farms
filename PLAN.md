@@ -1,0 +1,97 @@
+# 30-Day Frontend UX Push — Plan
+
+Branch: `frontend/30-day-ux-push`. Each P-item gets a 3-bullet plan **before**
+building. After it ships, a 1-paragraph summary lands in
+`FRONTEND_CHANGELOG.md`. Anything blocked on contracts goes to
+`FRONTEND_BLOCKERS.md`.
+
+---
+
+## P0-1 — Launchpad-first landing page
+
+**Goal:** new visitors land on a gallery of drops (Live / Upcoming / Sold
+Out), one CTA per card (Mint / View). Existing home content is demoted,
+not deleted. The page works gracefully on day 0 when no V2 collections
+exist yet.
+
+**Constraints picked up from the codebase:**
+- `TEGRIDY_LAUNCHPAD_V2_ADDRESS` is `0x000…` — V2 factory is **not
+  deployed yet**. The wave-0 redeploy plan in `CONTRACTS.md` describes
+  it as "Compiled + tests pass; broadcast pending." This is a real
+  pre-condition for a live gallery but is out-of-scope per the
+  no-contracts rule.
+- V1 launchpad source was deleted 2026-04-19; V1 clones remain on
+  Etherscan, readable via the V2 ABI (strict superset).
+- Indexer (`indexer/`) tracks no Launchpad or Drop events today. P0-2
+  will fix that — P0-1 must work **without** the indexer.
+- Existing `LaunchpadSection` (used inside `LendingPage`) already lists
+  V2 collections via factory reads — its discovery logic is reusable.
+- Home page has rich art and 7 content sections (hero, core loop,
+  protocol overview, how-it-works, trust badges, ecosystem, gallery,
+  referral). Memory rule: never delete sections — demote, don't delete.
+
+### The 3-bullet plan
+
+- **Build the new launchpad gallery as a new `LaunchpadHomePage`
+  component** (in `frontend/src/pages/`) routed at `/`. Sections: Live
+  Drops (phase 1/2/3 with supply remaining), Upcoming (phase 0, future
+  start), Recently Sold Out (last 30 days, `isSoldOut === true`). Each
+  card renders art preview (from `contractURI` → Arweave), creator
+  with ENS resolution, current price, supply remaining, countdown to
+  next phase change, and a single CTA — "Mint" for live, "View" for
+  upcoming/sold-out. Empty/zero-collections state is a first-class
+  design ("First drop launching soon — be the creator who lights it
+  up"). Reuses `useNFTDropV2` for per-drop reads and a new
+  `useLaunchpadList` hook that wraps the V2 factory enumeration (plus a
+  small bootstrap list of known V1 clone addresses, sourced from
+  `frontend/api/etherscan.js` for now — swapped to indexer in P0-2).
+
+- **Preserve all existing home content unmodified by renaming
+  `HomePage.tsx` → `ClassicHomePage.tsx` and routing it at `/classic`**
+  (also linked from the footer + "More" nav under "About"). No art is
+  removed, no sections deleted, no copy rewritten. Add a small "Looking
+  for the classic Tegridy intro? →" footer link on the new home so
+  returning users can find the old page in one click.
+
+- **Update routing + nav additively** in `App.tsx` and `lib/navConfig.ts`
+  — `/` now renders `LaunchpadHomePage`, `/classic` renders
+  `ClassicHomePage`, `/launchpad` (currently a redirect to
+  `/nft-finance`) becomes an alias to `/`. The existing PRIMARY_NAV
+  (Dashboard / Farm / Trade / NFT Finance) stays as is; this isn't a
+  nav reshuffle, it's a swap of what `/` serves. ENS resolution uses
+  `wagmi/useEnsName` with a 24-hour `staleTime` so we don't hammer
+  RPC. Mobile breakpoint: iPhone 14+ portrait (390px) and iPad
+  portrait (768px) both render the gallery as a clean grid — verified
+  with the dev server before commit. No new dependencies; the page
+  uses existing `framer-motion`, `react-router-dom`, `wagmi`, `viem`,
+  and `ArtImg` primitives already in the bundle.
+
+### Out of scope for P0-1 (logged for later)
+
+- V2 factory deployment itself (contract / deploy script change) →
+  `FRONTEND_BLOCKERS.md` if it actually blocks the gallery from
+  populating at launch.
+- ENS reverse-resolution caching beyond wagmi's defaults — revisit if
+  RPC reads spike.
+- Live mint count refresh via WebSockets — that's P0-3.
+- Indexer-backed drop discovery — that's P0-2.
+
+### Files I expect to touch
+
+```
+NEW   frontend/src/pages/LaunchpadHomePage.tsx
+NEW   frontend/src/components/launchpad/DropCard.tsx
+NEW   frontend/src/hooks/useLaunchpadList.ts
+MOVE  frontend/src/pages/HomePage.tsx → frontend/src/pages/ClassicHomePage.tsx
+EDIT  frontend/src/App.tsx              (route swap + /classic + /launchpad alias)
+EDIT  frontend/src/lib/navConfig.ts     (footer/more entry for /classic)
+NEW   PLAN.md                          (this file)
+NEW   FRONTEND_CHANGELOG.md            (P0-1 entry, post-ship)
+NEW   FRONTEND_BLOCKERS.md             (if V2 deploy is actually a blocker)
+```
+
+No `contracts/**` changes. No new dependencies.
+
+---
+
+(P0-2 … P2-10 plans will be added here ahead of each item.)

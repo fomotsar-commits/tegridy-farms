@@ -13,7 +13,11 @@ import { safeSetItem } from './lib/storage';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { usePageTitle } from './hooks/usePageTitle';
 
-const HomePage = lazy(() => import('./pages/HomePage'));
+// P0-1: launchpad-first landing. The original marketing-style home is
+// preserved verbatim at `/classic` (file renamed `HomePage.tsx` →
+// `ClassicHomePage.tsx`); the new `LaunchpadHomePage` is what `/` serves.
+const LaunchpadHomePage = lazy(() => import('./pages/LaunchpadHomePage'));
+const ClassicHomePage = lazy(() => import('./pages/ClassicHomePage'));
 const FarmPage = lazy(() => import('./pages/FarmPage'));
 const TradePage = lazy(() => import('./pages/TradePage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -132,7 +136,8 @@ function AnimatedRoutes() {
         }
       />
       <Route element={<AppLayout />}>
-        <Route index element={<Suspense fallback={<PageSkeleton />}><HomePage /></Suspense>} />
+        <Route index element={<Suspense fallback={<PageSkeleton />}><LaunchpadHomePage /></Suspense>} />
+        <Route path="classic" element={<Suspense fallback={<PageSkeleton />}><ClassicHomePage /></Suspense>} />
         <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><FarmPage /></Suspense>} />
         <Route path="swap" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
         <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
@@ -152,7 +157,9 @@ function AnimatedRoutes() {
         <Route path="admin" element={<Suspense fallback={<PageSkeleton />}><AdminPage /></Suspense>} />
         <Route path="nft-finance" element={<Suspense fallback={<PageSkeleton />}><LendingPage /></Suspense>} />
         <Route path="lending" element={<Navigate to="/nft-finance" replace />} />
-        <Route path="launchpad" element={<Navigate to="/nft-finance" replace />} />
+        {/* P0-1: /launchpad now aliases the launchpad-first home so people
+            typing the URL land on the gallery, not the create-wizard tab. */}
+        <Route path="launchpad" element={<Navigate to="/" replace />} />
         <Route path="nft-amm" element={<Navigate to="/nft-finance" replace />} />
         <Route path="governance" element={<Navigate to="/community" replace />} />
         <Route path="security" element={<Suspense fallback={<PageSkeleton />}><LearnPage /></Suspense>} />

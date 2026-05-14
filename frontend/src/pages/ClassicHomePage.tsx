@@ -47,8 +47,8 @@ const HOW_IT_WORKS_STEPS = [
   },
 ];
 
-export default function HomePage() {
-  usePageTitle('Home', 'Earn ETH yields on Ethereum. Stake TOWELI & earn 100% of protocol revenue.');
+export default function ClassicHomePage() {
+  usePageTitle('Classic Home', 'Earn ETH yields on Ethereum. Stake TOWELI & earn 100% of protocol revenue.');
   const { address } = useAccount();
   const stats = useFarmStats();
   const pool = usePoolData();

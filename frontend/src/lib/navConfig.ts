@@ -50,6 +50,15 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       { to: '/treasury',   label: 'Treasury' },
     ],
   },
+  {
+    // P0-1: the original marketing-style home is preserved verbatim at
+    // `/classic` after the launchpad-first swap. Linked here so returning
+    // visitors can find every section of the old hero in one click.
+    heading: 'About',
+    items: [
+      { to: '/classic', label: 'Classic home' },
+    ],
+  },
 ];
 
 /** Flat list of every "More" item — used by the mobile drawer. */
