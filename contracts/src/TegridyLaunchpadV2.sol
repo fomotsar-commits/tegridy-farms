@@ -24,6 +24,15 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
     error MaxSupplyTooLarge();
     error EmptyName();
     error EmptySymbol();
+    /// @notice AUDIT FIX 2026-05-14 — regression-scan follow-up — drop's
+    ///         `freezeContractURI()` requires a non-empty `_contractURI` (per
+    ///         M-DROP-1 fat-finger guard, mirroring `freezeBaseURI`). If a
+    ///         creator deploys with an empty `cfg.contractURI`, the freeze
+    ///         path becomes permanently unreachable until they call
+    ///         `setContractURI(real-uri)` post-deploy. Enforce non-empty at
+    ///         create-time so the M-DROP-1 freeze invariant holds for every
+    ///         drop on day 1.
+    error EmptyContractURI();
     /// @notice AUDIT FIX: DEEP-LP-04: caller's expected fee value did not match
     ///         the currently-pending value. Mirrors the value-binding pattern
     ///         from `TegridyDropV2.executeMerkleRoot(bytes32 expectedRoot)`.
@@ -199,6 +208,11 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
     {
         if (bytes(cfg.name).length == 0) revert EmptyName();
         if (bytes(cfg.symbol).length == 0) revert EmptySymbol();
+        // AUDIT FIX 2026-05-14 — regression-scan follow-up — enforce non-empty
+        // contractURI so the M-DROP-1 `freezeContractURI` path is reachable for
+        // every drop. Without this, creators could deploy with empty contractURI
+        // and the freeze becomes permanently unreachable.
+        if (bytes(cfg.contractURI).length == 0) revert EmptyContractURI();
         if (cfg.maxSupply == 0) revert InvalidMaxSupply();
         if (cfg.maxSupply > 100_000) revert MaxSupplyTooLarge();
         if (cfg.mintPrice > 100 ether) revert MintPriceTooHigh();
