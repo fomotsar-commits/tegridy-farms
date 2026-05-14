@@ -2275,6 +2275,16 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
     function applyAcceptedCollateralChange(address collateral, bool add) external onlyAdmin {
         if (collateral == address(0)) revert ZeroAddress();
+        // AUDIT FIX 2026-05-13 — M-LEND-4 — defense-in-depth EIP-7702 reject.
+        // The admin contract's propose path also gates this, but a future
+        // admin-replacement that drops the check should not silently unlock
+        // the 7702-delegated-collateral attack. Only on add — admin must be
+        // able to delist a mistake. Sibling-canonical: TegridyNFTLending's
+        // `proposeWhitelistCollection` (line 1272-1273).
+        if (add) {
+            uint256 codeLen = collateral.code.length;
+            require(codeLen > 0 && codeLen != 23, "NOT_CONTRACT");
+        }
         // AUDIT FIX preserved: DEEP-LD-M1 / LD3-M5 — refuse removal while loans
         // in flight, mirrored on the admin side as a pre-_execute gate. Re-checked
         // here as defense in depth; should never trip if admin path runs first.

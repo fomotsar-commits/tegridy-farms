@@ -155,6 +155,20 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         ///      MIN_OFFER_VALIDITY and MAX_OFFER_VALIDITY at create-time, and
         ///      acceptOffer reverts OfferExpired once block.timestamp > expiry.
         uint64 expiry;
+        /// @dev AUDIT FIX 2026-05-13 — H-LEND-1 — mirrors TegridyLending BATCH-D H9
+        ///      / M-8 / F-07-01: snapshot of `protocolFeeBps` at offer creation,
+        ///      used at repay-time instead of live `protocolFeeBps`. Without this,
+        ///      a captured admin can ramp the fee to MAX (1000 bps = 10%) via the
+        ///      48h timelock and siphon up to 10% of every in-flight lender's
+        ///      interest on next repay.
+        ///
+        ///      Stored as `int16` (range -32768..32767, fee range 0..1000 bps).
+        ///      A NEGATIVE value is the explicit "unset sentinel" — at repay we
+        ///      fall back to live `protocolFeeBps`. Solidity zero-init of `int16`
+        ///      is `0` (not negative), so post-relaunch every offer carries the
+        ///      true at-create snapshot; the sentinel branch is dead code on a
+        ///      fresh deploy but kept for upgrade-shape parity with TegridyLending.
+        int16 protocolFeeBpsAtCreate;
     }
     uint256 public constant MIN_OFFER_VALIDITY = 1 hours;
     uint256 public constant MAX_OFFER_VALIDITY = 90 days;
@@ -546,10 +560,7 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         if (_duration > MAX_DURATION) revert DurationTooLong();
         if (_collateralContract == address(0)) revert ZeroAddress();
         if (!whitelistedCollections[_collateralContract]) revert CollectionNotWhitelisted();
-        if (
-            pendingWhitelistRemove == _collateralContract
-            && _executeAfter[WHITELIST_REMOVE] != 0
-        ) {
+        if (_isWhitelistRemovalPending(_collateralContract)) {
             revert CollectionPendingRemoval();
         }
         // AUDIT FIX FRESH-2026: F-95-K-2 — global + per-lender offer caps.
@@ -576,7 +587,11 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
             originationFee: originationFee,
             // AUDIT FIX: DEEP-LD2-M3 — snapshot the live treasury at offer creation.
             treasuryAtCreate: treasury,
-            expiry: _expiry // BATCH-I M10
+            expiry: _expiry, // BATCH-I M10
+            // AUDIT FIX 2026-05-13 — H-LEND-1 — snapshot live protocolFeeBps so
+            // a post-creation fee bump cannot retroactively tax this lender.
+            // Mirrors TegridyLending BATCH-D H9 / M-8 / F-07-01.
+            protocolFeeBpsAtCreate: int16(uint16(protocolFeeBps))
         }));
         // AUDIT FIX FRESH-2026: F-95-K-2 — increment per-lender open count.
         openOffersOfLender[msg.sender] += 1;
@@ -675,10 +690,7 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         // accept a pre-existing legitimate-looking offer using a freshly-rugged
         // token to drain the lender's principal. Mirrors the createOffer guard
         // at line 311-316.
-        if (
-            pendingWhitelistRemove == collateralContract
-            && _executeAfter[WHITELIST_REMOVE] != 0
-        ) {
+        if (_isWhitelistRemovalPending(collateralContract)) {
             revert CollectionPendingRemoval();
         }
 
@@ -848,7 +860,16 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
             activeLoansOfCollection[collateralContract] -= 1;
         }
 
-        uint256 fee = (interest * protocolFeeBps) / BPS;
+        // AUDIT FIX 2026-05-13 — H-LEND-1 — use the protocolFeeBps snapshot
+        // from offer creation, not live `protocolFeeBps`. Mirrors TegridyLending
+        // BATCH-D H9 / M-8 / F-07-01. Sentinel: negative = unset (legacy/upgrade),
+        // fall back to live rate. On fresh deploy every offer has a valid 0..1000
+        // snapshot so the negative branch is dead code.
+        int16 snapBps = offers[loan.offerId].protocolFeeBpsAtCreate;
+        uint256 effectiveFeeBps = snapBps < 0
+            ? protocolFeeBps
+            : uint256(uint16(snapBps));
+        uint256 fee = (interest * effectiveFeeBps) / BPS;
         uint256 lenderAmount = principal + interest - fee;
 
         // AUDIT FIX L-2: wrap the NFT return in try/catch. A hostile or buggy
@@ -875,7 +896,13 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         WETHFallbackLib.safeTransferETHOrWrap(weth, lender, lenderAmount);
 
         if (fee > 0) {
-            WETHFallbackLib.safeTransferETHOrWrap(weth, treasury, fee);
+            // AUDIT FIX 2026-05-13 — M-LEND-3 — route protocol fee to the
+            // `treasuryAtCreate` snapshot from offer creation, not live
+            // `treasury`. Symmetric with the origination-fee leg (DEEP-LD2-M3)
+            // and mirrors TegridyLending LD3-H3. Without this, a captured admin
+            // rotating treasury via the 48h timelock can redirect every
+            // subsequent in-flight protocol-fee payment.
+            WETHFallbackLib.safeTransferETHOrWrap(weth, offers[loan.offerId].treasuryAtCreate, fee);
         }
 
         uint256 overpayment = msg.value - totalRepayment;
@@ -1273,6 +1300,30 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         pendingWhitelistAdd = address(0);
 
         emit CollectionWhitelistCancelled(cancelled);
+    }
+
+    /// @notice AUDIT FIX 2026-05-13 — H-LEND-2 — validity-aware "is this
+    ///         collection's removal proposal still live?" view. Mirrors
+    ///         `TegridyLendingAdmin.acceptedCollateralRemovalPending` (M-27 /
+    ///         F-33-3). Pre-fix, `createOffer` and `acceptOffer` checked only
+    ///         `pendingWhitelistRemove == X && _executeAfter[KEY] != 0`,
+    ///         which auto-clears never. Once a proposal expired past
+    ///         `readyAt + _proposalValidity()` the timelock library refused
+    ///         to execute AND the cancel rate-limit (3/collection) eventually
+    ///         exhausted, leaving the collection PERMA-BRICKED from new
+    ///         offers and acceptance even after legitimate-good behavior. The
+    ///         expiry-aware read auto-clears once the proposal expires,
+    ///         bounding the captured-admin DoS to the documented validity
+    ///         window.
+    /// @param  _collection Collateral collection address.
+    /// @return             True iff a non-expired removal proposal exists for
+    ///                     this collection.
+    function _isWhitelistRemovalPending(address _collection) internal view returns (bool) {
+        if (pendingWhitelistRemove != _collection) return false;
+        uint256 readyAt = _executeAfter[WHITELIST_REMOVE];
+        if (readyAt == 0) return false;
+        if (block.timestamp > readyAt + _proposalValidity()) return false;
+        return true;
     }
 
     function proposeRemoveCollection(address _collection) external onlyOwner {

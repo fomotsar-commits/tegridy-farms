@@ -404,6 +404,18 @@ contract TegridyLendingAdmin is OwnableNoRenounce, TimelockAdmin {
     // ─── Accepted collateral whitelist ────────────────────────────────
     function proposeAcceptedCollateral(address _collateral, bool _add) external onlyOwner {
         if (_collateral == address(0)) revert ZeroAddress();
+        // AUDIT FIX 2026-05-13 — M-LEND-4 — reject EOAs and EIP-7702 delegated
+        // addresses (canonical `0xef0100‖addr` pointer, code.length == 23) when
+        // proposing an ADD. A captured admin could otherwise propose a 7702-
+        // delegated address whose delegate is attacker-controlled — attacker
+        // returns crafted `getPosition` / `ownerOf` / `transferFrom` results
+        // post-execute, draining lender principal. Sibling-canonical pattern
+        // already present in TegridyNFTLending.proposeWhitelistCollection.
+        // No check on remove — admin must be able to delist a 7702 mistake.
+        if (_add) {
+            uint256 codeLen = _collateral.code.length;
+            require(codeLen > 0 && codeLen != 23, "NOT_CONTRACT");
+        }
         pendingAcceptedCollateral = _collateral;
         pendingAcceptedCollateralAdd = _add;
         _propose(ACCEPTED_COLLATERAL_CHANGE, CAP_CHANGE_TIMELOCK);
