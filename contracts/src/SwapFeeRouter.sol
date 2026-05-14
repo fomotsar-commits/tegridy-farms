@@ -451,6 +451,10 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     /// @notice AUDIT SFR-M-04 (MEDIUM, 2026-04-28): no admin-replacement proposal pending,
     ///         OR the proposal is still inside its 7-day timelock window.
     error AdminReplacementUnavailable();
+    /// @notice AUDIT FIX 2026-05-13 — H-LIB-4 — admin address is not a contract,
+    ///         or is an EIP-7702 delegated EOA (code.length == 23). Sibling-canonical
+    ///         with TegridyStaking/TegridyLending/VoteIncentives.
+    error NotAContract();
     /// @notice AUDIT FIX: DEEP-R-M04 — `applyPolAccumulator(address(0))` was attempted
     ///         while `polShareBps > 0`, which would silently re-route the POL slice to
     ///         treasury and break the timelocked fee-split invariant. Governance must
@@ -1057,6 +1061,16 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     function setSwapFeeRouterAdmin(address _admin) external onlyOwner {
         if (_admin == address(0)) revert ZeroAddress();
         if (swapFeeRouterAdmin != address(0)) revert Unauthorized();
+        // AUDIT FIX 2026-05-13 — H-LIB-4 — reject EOAs and EIP-7702 delegated
+        // EOAs (canonical `0xef0100‖addr` pointer, code.length == 23). Every
+        // other admin setter in this codebase enforces this; the SwapFeeRouter
+        // setter was the outlier. A typo or briefly-compromised owner key
+        // setting the admin to an EOA bricks every `applyXxx` setter because
+        // the EOA cannot construct external `apply*` calls. Sibling-canonical
+        // with TegridyStaking.setStakingAdmin, TegridyLending.setLendingAdmin,
+        // VoteIncentives.setVoteIncentivesAdmin.
+        uint256 codeLen = _admin.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
         swapFeeRouterAdmin = _admin;
         emit SwapFeeRouterAdminSet(_admin);
         emit SwapFeeRouterAdminReplaced(address(0), _admin);
@@ -1092,6 +1106,12 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (_newAdmin == address(0)) revert ZeroAddress();
         if (swapFeeRouterAdmin == address(0)) revert Unauthorized(); // use setSwapFeeRouterAdmin first
         if (adminReplacementReadyAt != 0) revert AdminReplacementUnavailable(); // existing proposal pending
+        // AUDIT FIX 2026-05-13 — H-LIB-4 — mirror setSwapFeeRouterAdmin's
+        // contract-only + EIP-7702 reject. Without this, a typo / phished
+        // proposal that points at an EOA gets installed at the 7-day mark
+        // and bricks every `applyXxx` path.
+        uint256 codeLen = _newAdmin.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
         pendingSwapFeeRouterAdmin = _newAdmin;
         adminReplacementReadyAt = block.timestamp + ADMIN_REPLACEMENT_TIMELOCK;
         emit SwapFeeRouterAdminReplacementProposed(_newAdmin, adminReplacementReadyAt);

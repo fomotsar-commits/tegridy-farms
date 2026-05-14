@@ -156,6 +156,78 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         emit VoteIncentivesAdminSet(_admin);
     }
 
+    // ─── AUDIT FIX 2026-05-13 — H-LIB-3 — admin replacement flow ─────────
+    /// Pre-fix VoteIncentives had ONLY `setVoteIncentivesAdmin` (one-shot,
+    /// non-replaceable). Sibling contracts TegridyStaking, TegridyLending,
+    /// SwapFeeRouter all expose a timelocked propose/execute/cancel
+    /// replacement so a buggy or compromised admin can be rotated out.
+    /// VoteIncentives was the outlier — without this, a deploy-time admin
+    /// bug bricks the entire admin surface (fee changes, treasury rotation,
+    /// token whitelisting, commit-reveal enablement) permanently, forcing a
+    /// full VoteIncentives redeploy and bribe migration.
+    ///
+    /// Pattern verbatim from `TegridyStaking.proposeAdminReplacement` (lines
+    /// 2040-2086) — same 48h timelock, 7-day validity window (H-14 / F-75-1),
+    /// EOA + EIP-7702 length-23 reject, inline storage so a broken admin
+    /// cannot block its own replacement.
+    uint256 public constant ADMIN_REPLACEMENT_TIMELOCK = 48 hours;
+    uint256 public constant ADMIN_REPLACEMENT_VALIDITY = 7 days;
+    address public pendingVoteIncentivesAdmin;
+    uint256 public adminReplacementReadyAt;
+
+    error AdminReplacementProposalPending();
+    error AdminReplacementNotReady();
+    error AdminReplacementExpired();
+    error AdminReplacementNotProposed();
+    error AdminNotInstalled();
+    error AdminMustBeContract();
+
+    event VoteIncentivesAdminReplacementProposed(address indexed proposed, uint256 readyAt);
+    event VoteIncentivesAdminReplaced(address indexed oldAdmin, address indexed newAdmin);
+    event VoteIncentivesAdminReplacementCancelled(address indexed proposed);
+
+    /// @notice Propose a new admin contract. Requires `voteIncentivesAdmin`
+    ///         to already be installed via `setVoteIncentivesAdmin` (first-
+    ///         time install path is unchanged). Subject to 48h timelock
+    ///         before `executeAdminReplacement` can fire; the proposal
+    ///         expires after `readyAt + 7 days` per H-14 / F-75-1.
+    function proposeAdminReplacement(address _newAdmin) external onlyOwner {
+        if (_newAdmin == address(0)) revert ZeroAddress();
+        if (voteIncentivesAdmin == address(0)) revert AdminNotInstalled();
+        if (adminReplacementReadyAt != 0) revert AdminReplacementProposalPending();
+        // Mirror setVoteIncentivesAdmin's contract-only + EIP-7702 reject.
+        uint256 codeLen = _newAdmin.code.length;
+        if (codeLen == 0 || codeLen == 23) revert AdminMustBeContract();
+        pendingVoteIncentivesAdmin = _newAdmin;
+        adminReplacementReadyAt = block.timestamp + ADMIN_REPLACEMENT_TIMELOCK;
+        emit VoteIncentivesAdminReplacementProposed(_newAdmin, adminReplacementReadyAt);
+    }
+
+    /// @notice Execute a previously proposed admin replacement after the
+    ///         48-hour delay AND within the 7-day validity window.
+    function executeAdminReplacement() external onlyOwner {
+        uint256 readyAt = adminReplacementReadyAt;
+        if (readyAt == 0) revert AdminReplacementNotProposed();
+        if (block.timestamp < readyAt) revert AdminReplacementNotReady();
+        if (block.timestamp > readyAt + ADMIN_REPLACEMENT_VALIDITY) revert AdminReplacementExpired();
+        address newAdmin = pendingVoteIncentivesAdmin;
+        if (newAdmin == address(0)) revert ZeroAddress();
+        address oldAdmin = voteIncentivesAdmin;
+        voteIncentivesAdmin = newAdmin;
+        pendingVoteIncentivesAdmin = address(0);
+        adminReplacementReadyAt = 0;
+        emit VoteIncentivesAdminReplaced(oldAdmin, newAdmin);
+    }
+
+    /// @notice Cancel a pending admin replacement proposal.
+    function cancelAdminReplacement() external onlyOwner {
+        if (adminReplacementReadyAt == 0) revert AdminReplacementNotProposed();
+        address proposed = pendingVoteIncentivesAdmin;
+        pendingVoteIncentivesAdmin = address(0);
+        adminReplacementReadyAt = 0;
+        emit VoteIncentivesAdminReplacementCancelled(proposed);
+    }
+
     // AUDIT FIX (pass-8): EIP170-03 — timelock keys moved to VoteIncentivesAdmin
     // alongside the propose/execute/cancel functions whose state they keyed.
 

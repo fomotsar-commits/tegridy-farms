@@ -227,38 +227,51 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
         // is forfeit, not banked for the next staker.
         lastUpdateTime = lastTimeRewardApplicable();
         if (account != address(0)) {
-            // AUDIT FIX FRESH-2026: C-1 / F-28-1 — anchor rewards FIRST under the
-            // current (pre-refresh) boost cache, THEN refresh the cache for future
-            // emissions. The previous order (cache refresh BEFORE earned) silently
-            // applied any new boost retroactively to the entire un-checkpointed
-            // delta `(rewardPerToken - userRewardPerTokenPaid)`, allowing an
-            // attacker to wait while their staking-side boost grew, then trigger
-            // any LP-farming function and capture the new boost on past emission.
-            // PoC: 30d wait at 1.0x with 4.5x ratchet → ~4.5× over-credit on the
-            // entire period (insolvent reward bucket). Reorder restores the
-            // canonical Synthetix StakingRewards anchor pattern: rewards are
-            // crystallised at the OLD boost, then the cache is updated so the new
-            // boost applies only to future emissions.
-            //
-            // The remaining staleness (between staking-side mutation and the next
-            // LP-farming interaction) is the same Curve-veCRV trade-off — the
-            // proper cure is a `kick(user)` callback wired from TegridyStaking
-            // into LP-farming, but the immediate retroactive credit must be fixed
-            // first and that is the change made here.
-            rewards[account] = earned(account);
+            // ─── AUDIT FIX 2026-05-13 — M-STAKE-1 (Curve veCRV min-clamp) ───
+            // Both anchor-first and refresh-first orderings fail one direction
+            // of boost drift:
+            //   - Anchor-first (prior fix C-1/F-28-1): defeats boost GROWTH
+            //     (user ratchets stake higher then claims) but ENABLES boost
+            //     DECAY over-credit — user with 4.5x JBAC boost on a 7d lock
+            //     waits 30d without interaction; entire 30d is credited at
+            //     4.5x cache even though boost decayed at day 7.
+            //   - Refresh-first (original): defeats DECAY but ENABLES GROWTH.
+            // The clean fix is the Curve veCRV pattern already used by
+            // VotePowerOracle in this project (see lib/VotePowerOracle.sol):
+            //   credit at `min(cache, live)` — pessimize toward the lower
+            //   bound. Past time is credited at the SMALLER of the two boost
+            //   values, so:
+            //     - Growth (cache=low, live=high) → uses cache (low) ✓
+            //     - Decay  (cache=high, live=low) → uses live  (low) ✓
+            // Future emissions accrue at the refreshed (live) cache. Lazy
+            // users self-penalize; honest LPs are protected from dilution.
+            // No cross-contract kick callback needed — this is the canonical
+            // billion-dollar pattern (veCRV / Convex booster).
+            uint256 raw = rawBalanceOf[account];
+            uint256 oldEff = effectiveBalanceOf[account];
+            uint256 newEff = raw > 0 ? _getEffectiveBalance(account, raw) : 0;
+            uint256 effForCredit = oldEff < newEff ? oldEff : newEff;
+
+            // Inline `earned()` with the min-clamped effective balance.
+            // Equivalent to the original earned() formula but reads
+            // `effForCredit` instead of `effectiveBalanceOf[account]`.
+            rewards[account] =
+                (effForCredit * (rewardPerTokenStored - userRewardPerTokenPaid[account])) / 1e18
+                + rewards[account];
             userRewardPerTokenPaid[account] = rewardPerTokenStored;
 
-            // AUDIT FIX FRESH-2026: C-1 / F-28-1 — refresh boost cache AFTER
-            // anchoring rewards/userPaid. Future emissions accrue at the new boost.
-            uint256 raw = rawBalanceOf[account];
-            if (raw > 0) {
-                uint256 oldEff = effectiveBalanceOf[account];
-                uint256 newEff = _getEffectiveBalance(account, raw);
-                if (oldEff != newEff) {
-                    totalEffectiveSupply = totalEffectiveSupply - oldEff + newEff;
-                    effectiveBalanceOf[account] = newEff;
-                    emit BoostUpdated(account, oldEff, newEff);
-                }
+            // Refresh cache to LIVE value for future emissions.
+            if (oldEff != newEff && raw > 0) {
+                totalEffectiveSupply = totalEffectiveSupply - oldEff + newEff;
+                effectiveBalanceOf[account] = newEff;
+                emit BoostUpdated(account, oldEff, newEff);
+            } else if (oldEff != newEff && raw == 0) {
+                // raw==0 should always coincide with oldEff==0 (cache updated
+                // on full withdraw), but defense-in-depth: keep the cache and
+                // totalEffectiveSupply in sync if they ever drift.
+                totalEffectiveSupply = totalEffectiveSupply - oldEff;
+                effectiveBalanceOf[account] = 0;
+                emit BoostUpdated(account, oldEff, 0);
             }
         }
         _;
