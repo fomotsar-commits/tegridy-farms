@@ -84,10 +84,13 @@ contract DeployAuditFixesScript is Script {
         console.log("5. CommunityGrants:", address(grants));
 
         // 6. RevenueDistributor (registeredAtEpoch, 1-epoch wait, restaking-aware)
+        // AUDIT FIX 2026-05-13 — H-REV-3 — restakingContract is now immutable;
+        // pass as constructor arg instead of post-deploy propose.
         RevenueDistributor revDist = new RevenueDistributor(
             address(staking), // votingEscrow = new staking contract
             TREASURY,
-            WETH
+            WETH,
+            address(restaking)
         );
         console.log("6. RevenueDistributor:", address(revDist));
 
@@ -134,9 +137,9 @@ contract DeployAuditFixesScript is Script {
         referral.completeSetup();
         console.log("9. ReferralSplitter approved caller set + setup completed (locked)");
 
-        // AUDIT FIX C3: Link restaking contract to RevenueDistributor (48h timelock)
-        revDist.proposeRestakingChange(address(restaking));
-        console.log("9. Proposed restaking link for RevenueDistributor (execute after 48h)");
+        // AUDIT FIX 2026-05-13 — H-REV-3 — restaking link is now wired at
+        // RevenueDistributor construction; no propose/execute needed.
+        console.log("9. RevenueDistributor.restakingContract immutable (constructor-wired)");
 
         // SIZE-REDUCTION SPRINT 2026-04-26: timelocked admin lives on TegridyStakingAdmin
         // NOTE: deploy/wire TegridyStakingAdmin separately and call admin.proposeRestakingContract(...)
@@ -177,8 +180,8 @@ contract DeployAuditFixesScript is Script {
         console.log("NEXT STEPS:");
         console.log("1. Accept ownership from multisig: acceptOwnership() on all 9 contracts");
         console.log("2. After 48h: execute staking.executeRestakingContract()");
-        console.log("3. After 48h: execute revDist.executeRestakingChange()");
-        console.log("4. Transfer feeToSetter on TegridyFactory: proposeFeeToSetter(MULTISIG), wait 48h, acceptFeeToSetter()");
+        // AUDIT FIX 2026-05-13 — H-REV-3 — step 3 removed (revDist is immutable).
+        console.log("3. Transfer feeToSetter on TegridyFactory: proposeFeeToSetter(MULTISIG), wait 48h, acceptFeeToSetter()");
         console.log("5. IMPORTANT: Update TegridyFactory feeTo to point to new RevenueDistributor");
         console.log("   factory.proposeFeeToChange(address(revDist)), wait 48h, executeFeeToChange()");
         console.log("6. Fund TegridyStaking with TOWELI rewards via fund()");

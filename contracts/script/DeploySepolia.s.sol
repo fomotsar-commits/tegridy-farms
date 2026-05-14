@@ -125,12 +125,11 @@ contract DeploySepoliaScript is Script {
     }
 
     function _deployRevenue(Deployed memory d, address deployer) internal returns (Deployed memory) {
-        RevenueDistributor revDist = new RevenueDistributor(d.staking, deployer, d.weth);
+        // AUDIT FIX 2026-05-13 — H-REV-3 — restakingContract immutable.
+        RevenueDistributor revDist = new RevenueDistributor(d.staking, deployer, d.weth, d.restaking);
         d.revenueDistributor = address(revDist);
         console.log(" 9. RevenueDistributor:", d.revenueDistributor);
-
-        revDist.proposeRestakingChange(d.restaking);
-        console.log("    -> RevenueDistributor.restaking proposed");
+        console.log("    -> RevenueDistributor.restaking wired immutable to:", d.restaking);
 
         ReferralSplitter splitter = new ReferralSplitter(REFERRAL_FEE_BPS, d.staking, deployer, d.weth);
         d.referralSplitter = address(splitter);
@@ -191,7 +190,7 @@ contract DeploySepoliaScript is Script {
         console.log("=== WIRING COMPLETE ===");
         console.log("NOTE: Timelocked operations need manual execution after delay:");
         console.log("  - staking.executeRestakingContract() after 48h");
-        console.log("  - revenueDistributor.executeRestakingChange() after 48h");
+        // AUDIT FIX 2026-05-13 — H-REV-3 — revDist.executeRestakingChange removed (immutable).
         console.log("  - factory.executeFeeToChange() after 48h");
     }
 
@@ -252,7 +251,7 @@ contract DeploySepoliaScript is Script {
         console.log("");
         console.log("AFTER 48H, EXECUTE:");
         console.log("  cast send <staking> 'executeRestakingContract()' --private-key $PRIVATE_KEY --rpc-url sepolia");
-        console.log("  cast send <revDist> 'executeRestakingChange()' --private-key $PRIVATE_KEY --rpc-url sepolia");
+        // AUDIT FIX 2026-05-13 — H-REV-3 — revDist.executeRestakingChange removed (immutable).
         console.log("  cast send <factory> 'executeFeeToChange()' --private-key $PRIVATE_KEY --rpc-url sepolia");
     }
 }

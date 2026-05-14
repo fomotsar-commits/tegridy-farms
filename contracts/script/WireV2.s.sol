@@ -15,7 +15,6 @@ interface IVoteIncentives {
 }
 
 interface IRevenueDistributor {
-    function proposeRestakingChange(address) external;
     function transferOwnership(address) external;
 }
 
@@ -61,9 +60,13 @@ contract WireV2Script is Script {
         IVoteIncentives(VOTE_INCENTIVES).proposeWhitelistChange(TOWELI, true);
         console.log("2. VoteIncentives TOWELI whitelist proposed");
 
-        // 3. RevenueDistributor: propose restaking link
-        IRevenueDistributor(REV_DIST).proposeRestakingChange(RESTAKING);
-        console.log("3. RevenueDistributor restaking proposed");
+        // AUDIT FIX 2026-05-13 — H-REV-3 — `proposeRestakingChange` removed.
+        // RevenueDistributor.restakingContract is now immutable. For NEW
+        // deploys the restaking address is wired in the constructor. For the
+        // LIVE (pre-fix) RevenueDistributor at REV_DIST, the propose/execute
+        // path was already exercised in the original deploy — re-running it
+        // here was a no-op anyway on the original-deploy code path.
+        console.log("3. RevenueDistributor.restakingContract is immutable (set at construction)");
 
         // 4. SIZE-REDUCTION SPRINT 2026-04-26: timelocked admin lives on TegridyStakingAdmin
         console.log("4. TegridyStaking restaking link must be proposed via TegridyStakingAdmin");

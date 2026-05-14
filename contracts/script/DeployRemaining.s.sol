@@ -57,8 +57,10 @@ contract DeployRemainingScript is Script {
         ReferralSplitter(payable(REFERRAL)).completeSetup();
         console.log("2. ReferralSplitter: approved caller set + locked");
 
-        RevenueDistributor(payable(REV_DIST)).proposeRestakingChange(RESTAKING);
-        console.log("3. RevenueDistributor: restaking link proposed (48h)");
+        // AUDIT FIX 2026-05-13 — H-REV-3 — `proposeRestakingChange` removed.
+        // RevenueDistributor.restakingContract is now immutable, wired in
+        // the constructor. This call site is now a no-op.
+        console.log("3. RevenueDistributor.restakingContract is immutable (no propose needed)");
 
         // SIZE-REDUCTION SPRINT 2026-04-26: timelocked admin lives on TegridyStakingAdmin
         console.log("4. TegridyStaking: restaking link must be proposed via TegridyStakingAdmin");

@@ -106,12 +106,12 @@ contract DeployFinalScript is Script {
 
     function _deployRevenue(Deployed memory d) internal returns (Deployed memory) {
         // 6. RevenueDistributor
-        RevenueDistributor revDist = new RevenueDistributor(d.staking, TREASURY, WETH);
+        // AUDIT FIX 2026-05-13 — H-REV-3 — restakingContract is now immutable;
+        // pass via constructor instead of post-deploy propose/execute timelock.
+        RevenueDistributor revDist = new RevenueDistributor(d.staking, TREASURY, WETH, d.restaking);
         d.revenueDistributor = address(revDist);
         console.log(" 6. RevenueDistributor:", d.revenueDistributor);
-
-        revDist.proposeRestakingChange(d.restaking);
-        console.log("    -> RevenueDistributor.restaking proposed (48h timelock)");
+        console.log("    -> RevenueDistributor.restakingContract immutable, wired to:", d.restaking);
 
         // 7. ReferralSplitter
         ReferralSplitter splitter = new ReferralSplitter(REFERRAL_FEE_BPS, d.staking, TREASURY, WETH);
@@ -215,10 +215,11 @@ contract DeployFinalScript is Script {
         console.log("  2. After 48h: factory.executeFeeToChange()");
         console.log("  3. After timelock: factory.acceptFeeToSetter()");
         console.log("  4. After 48h: staking.executeRestakingContract()");
-        console.log("  5. After 48h: revenueDistributor.executeRestakingChange()");
-        console.log("  6. Fund staking with TOWELI via fund()");
-        console.log("  7. Add initial liquidity to TOWELI/WETH pair");
-        console.log("  8. Fund restaking with WETH + set bonus rate");
-        console.log("  9. Deploy TegridyFeeHook via CREATE2");
+        // AUDIT FIX 2026-05-13 — H-REV-3 — step 5 (revenueDistributor.executeRestakingChange)
+        // removed: restakingContract is now immutable, wired at construction.
+        console.log("  5. Fund staking with TOWELI via fund()");
+        console.log("  6. Add initial liquidity to TOWELI/WETH pair");
+        console.log("  7. Fund restaking with WETH + set bonus rate");
+        console.log("  8. Deploy TegridyFeeHook via CREATE2");
     }
 }

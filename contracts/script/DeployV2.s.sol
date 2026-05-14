@@ -128,11 +128,13 @@ contract DeployV2Script is Script {
 
         // ═══════════════════════════════════════════════════════════════
         // 7. RevenueDistributor (immutable staking ref → new staking)
+        //    AUDIT FIX 2026-05-13 — H-REV-3 — restakingContract also immutable.
         // ═══════════════════════════════════════════════════════════════
         RevenueDistributor revDist = new RevenueDistributor(
             address(staking),
             TREASURY,
-            WETH
+            WETH,
+            address(restaking)
         );
         console.log("7. RevenueDistributor:", address(revDist));
 
@@ -171,9 +173,8 @@ contract DeployV2Script is Script {
         voteIncentivesAdmin.proposeWhitelistChange(TOWELI, true);
         console.log(">> VoteIncentivesAdmin: TOWELI whitelist proposed (24h timelock)");
 
-        // RevenueDistributor: propose restaking link (48h timelock)
-        revDist.proposeRestakingChange(address(restaking));
-        console.log(">> RevenueDistributor: restaking link proposed (48h timelock)");
+        // AUDIT FIX 2026-05-13 — H-REV-3 — restaking link wired at construction; no propose needed.
+        console.log(">> RevenueDistributor.restakingContract immutable (constructor-wired)");
 
         // SIZE-REDUCTION SPRINT 2026-04-26: timelocked admin lives on TegridyStakingAdmin
         console.log(">> TegridyStaking: restaking link must be proposed via TegridyStakingAdmin");
@@ -219,9 +220,9 @@ contract DeployV2Script is Script {
         console.log("1. Multisig: acceptOwnership() on all 9 contracts");
         console.log("2. After 24h: VoteIncentivesAdmin.executeWhitelistChange() (TOWELI)");
         console.log("3. After 48h: TegridyStaking.executeRestakingContract()");
-        console.log("4. After 48h: RevenueDistributor.executeRestakingChange()");
-        console.log("5. SwapFeeRouterAdmin: proposeRevenueDistributor(RevenueDistributor) -> 48h -> execute");
-        console.log("6. SwapFeeRouterAdmin: proposePremiumAccessChange(PremiumAccess) -> 48h -> execute");
+        // AUDIT FIX 2026-05-13 — H-REV-3 — step 4 removed (revDist.restakingContract immutable).
+        console.log("4. SwapFeeRouterAdmin: proposeRevenueDistributor(RevenueDistributor) -> 48h -> execute");
+        console.log("5. SwapFeeRouterAdmin: proposePremiumAccessChange(PremiumAccess) -> 48h -> execute");
         console.log("7. VoteIncentivesAdmin: proposeWhitelistChange(WETH, true) -> 24h -> execute");
         console.log("8. Fund TegridyStaking with TOWELI rewards via fund()");
         console.log("9. Update frontend/src/lib/constants.ts with new addresses");

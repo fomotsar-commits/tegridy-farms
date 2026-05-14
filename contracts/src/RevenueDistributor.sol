@@ -71,7 +71,14 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
 
     // ─── TimelockAdmin Keys ──────────────────────────────────────────
     bytes32 public constant TREASURY_CHANGE = keccak256("TREASURY_CHANGE");
-    bytes32 public constant RESTAKING_CHANGE = keccak256("RESTAKING_CHANGE");
+    // AUDIT FIX 2026-05-13 — H-REV-3 — `RESTAKING_CHANGE` removed.
+    // `restakingContract` is now immutable (set at construction). Mirrors
+    // CommunityGrants and MemeBountyBoard which already use immutable
+    // restaking pointers. Eliminates the captured-admin attack where a
+    // malicious restaking implementation installed via 48h timelock returns
+    // inflated `boostedAmountAt` for the attacker, draining entire epoch
+    // ranges via `claim()`. If TegridyRestaking ever needs replacing,
+    // redeploy RevenueDistributor.
     bytes32 public constant EMERGENCY_WITHDRAW_EXCESS = keccak256("EMERGENCY_WITHDRAW_EXCESS");
     bytes32 public constant TOKEN_SWEEP = keccak256("TOKEN_SWEEP");
     /// @notice AUDIT R014 H-5: Per-(user,epoch) admin recovery for users whose staking
@@ -92,12 +99,10 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
 
     IVotingEscrow public immutable votingEscrow;
     IWETH public immutable weth;
-    ITegridyRestaking public restakingContract;
+    // AUDIT FIX 2026-05-13 — H-REV-3 — `restakingContract` is now `immutable`
+    // (set at construction). See comment on TimelockAdmin key block above.
+    ITegridyRestaking public immutable restakingContract;
     address public treasury;
-
-    // Timelock for restaking contract changes
-    uint256 public constant RESTAKING_CHANGE_DELAY = 48 hours;
-    address public pendingRestaking;
 
     struct Epoch {
         uint256 totalETH;         // ETH distributed in this epoch
@@ -185,25 +190,26 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     uint256 public constant CLAIM_GRACE_PERIOD = 7 days;
 
     // AUDIT FIX: DEEP-DR-H-02 / M-R6 — cap each individual recovery's attested
-    // power at 25% of `epoch.totalLocked`. Bounds the blast radius of any single
-    // recovery (or owner-key compromise) to one-quarter of the source pool;
-    // legitimate corruption-recovery for a >25% holder must split into multiple
-    // proposals, each timelocked, each visible.
-    uint256 public constant MAX_RECOVERY_POWER_BPS = 2500;
-
-    // AUDIT FIX D-DR-L1: AGGREGATE per-epoch recovery cap. The per-proposal cap
-    // above (25%) was previously the only bound, so a captured owner could fan
-    // out 4 separate proposals each at 25% and reach 100% epoch drain — each
-    // timelock visible but each individually within bounds. The aggregate cap
-    // keeps the legitimate >25%-position recovery path open via 2 proposals
-    // while bounding the captured-key blast radius.
-    // AUDIT FIX (BATCH-J3 H21): tightened from 5000 (50%) to 2500 (25%) per
-    // 100-agent audit. Pre-fix, captured owner could shell out 5 proposals
-    // at 10% each across 5 EOAs → 50% epoch drain after 24h timelock.
-    // Tightened to 25% — legitimate >25%-power-recovery is rare and can
-    // be staged across multiple epochs (24h * N delay) instead. Halves
-    // the captured-key blast radius without breaking honest recovery.
-    uint256 public constant MAX_AGGREGATE_RECOVERY_POWER_BPS = 2500;
+    // power at a fraction of `epoch.totalLocked`. Bounds the blast radius of
+    // any single recovery (or owner-key compromise); legitimate corruption-
+    // recovery for a high-power holder must split into multiple proposals,
+    // each timelocked, each visible.
+    //
+    // AUDIT FIX 2026-05-13 — H-REV-4 + R-05 — tightened per-proposal cap from
+    // 2500 → 500 (5%) AND aggregate cap from 2500 → 1500 (15%). The pre-fix
+    // configuration had per-proposal == aggregate (both 25%), making the
+    // documented "legitimate >25%-position recovery via 2 proposals" path
+    // structurally impossible (the 2nd proposal would exceed the aggregate).
+    // New values:
+    //   - 5% per proposal × max 3 proposals = 15% aggregate.
+    //   - Captured-admin per-proposal blast radius: 5% (was 25%) → 5×
+    //     smaller per timelocked siphon.
+    //   - Captured-admin per-epoch maximum: 15% (was 25%) → 1.67× smaller.
+    //   - Legitimate recovery of a 15% holder remains feasible (3 batches);
+    //     >15%-position recovery requires multi-epoch staging (acceptable
+    //     given these are corruption-recovery rarities).
+    uint256 public constant MAX_RECOVERY_POWER_BPS = 500;
+    uint256 public constant MAX_AGGREGATE_RECOVERY_POWER_BPS = 1500;
     /// @notice AUDIT FIX D-DR-L1: per-epoch aggregate of in-flight + executed
     ///         recovery power. Bumped on propose (when slot was empty), adjusted
     ///         on overwrite, decremented on cancel, RETAINED on execute (executed
@@ -237,9 +243,12 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     event PendingWithdrawn(address indexed user, uint256 amount);
     event DustSwept(address indexed treasury, uint256 amount);
     event TokenSwept(address indexed token, address indexed to, uint256 amount);
-    event RestakingContractUpdated(address indexed newRestaking);
-    event RestakingChangeProposed(address indexed newRestaking, uint256 executeAfter);
-    event RestakingChangeCancelled(address indexed cancelledRestaking);
+    // AUDIT FIX 2026-05-13 — H-REV-3 — RestakingContractUpdated /
+    // RestakingChangeProposed / RestakingChangeCancelled events removed.
+    // `restakingContract` is now immutable; rotation events no longer apply.
+    // Initial wiring is observable via the constructor (the deployment tx
+    // itself is the canonical attestation of which restaking address was
+    // wired). Indexers should read `restakingContract` directly.
     event TreasuryChangeCancelled(address indexed cancelledTreasury);
     event PermissionlessDistribution(address indexed caller, uint256 epochId);
     event EmergencyWithdrawExcess(address indexed treasury, uint256 amount);
@@ -325,11 +334,25 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
 
     // ─── Constructor ──────────────────────────────────────────────────
 
-    constructor(address _votingEscrow, address _treasury, address _weth) OwnableNoRenounce(msg.sender) {
-        if (_votingEscrow == address(0) || _treasury == address(0) || _weth == address(0)) revert ZeroAddress();
+    constructor(
+        address _votingEscrow,
+        address _treasury,
+        address _weth,
+        address _restaking
+    ) OwnableNoRenounce(msg.sender) {
+        // AUDIT FIX 2026-05-13 — H-REV-3 — `_restaking` is now a constructor
+        // argument and the wired contract is immutable. Deployer MUST have
+        // already deployed TegridyRestaking before constructing this contract.
+        if (
+            _votingEscrow == address(0) ||
+            _treasury == address(0) ||
+            _weth == address(0) ||
+            _restaking == address(0)
+        ) revert ZeroAddress();
         votingEscrow = IVotingEscrow(_votingEscrow);
         weth = IWETH(_weth);
         treasury = _treasury;
+        restakingContract = ITegridyRestaking(_restaking);
 
         // ─── AUDIT FIX H-11 [F-55-1, F-80-02] (HIGH) ──────────────────────────
         // Pre-warm the `_totalETHReceivedRaw` storage slot so the first ingress
@@ -590,29 +613,10 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         emit TreasuryChangeCancelled(cancelled);
     }
 
-    /// @notice Propose a restaking contract change (48h timelock).
-    function proposeRestakingChange(address _restaking) external onlyOwner {
-        require(_restaking != address(0), "ZERO_ADDRESS");
-        pendingRestaking = _restaking;
-        _propose(RESTAKING_CHANGE, RESTAKING_CHANGE_DELAY);
-        emit RestakingChangeProposed(_restaking, _executeAfter[RESTAKING_CHANGE]);
-    }
-
-    /// @notice Execute a previously proposed restaking contract change after the timelock.
-    function executeRestakingChange() external onlyOwner {
-        _execute(RESTAKING_CHANGE);
-        restakingContract = ITegridyRestaking(pendingRestaking);
-        emit RestakingContractUpdated(pendingRestaking);
-        pendingRestaking = address(0);
-    }
-
-    /// @notice Cancel a pending restaking contract change.
-    function cancelRestakingChange() external onlyOwner {
-        _cancel(RESTAKING_CHANGE);
-        address cancelled = pendingRestaking;
-        pendingRestaking = address(0);
-        emit RestakingChangeCancelled(cancelled);
-    }
+    // AUDIT FIX 2026-05-13 — H-REV-3 — `proposeRestakingChange`,
+    // `executeRestakingChange`, `cancelRestakingChange` REMOVED.
+    // `restakingContract` is now immutable; rotation is no longer possible.
+    // Sibling-canonical with CommunityGrants and MemeBountyBoard.
 
     /// @dev Check if a user has an active restaked position.
     ///      When NFT is in restaking, locks(user) returns (0,0) but position still exists.
@@ -703,9 +707,20 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // again — bricking forward progress for any user with N consecutive
         // recovered epochs and no fresh claimable share. Mirror the same fix in
         // `claimUpTo()`.
+        //
+        // AUDIT FIX 2026-05-13 — M-REV-1 — pre-fix the cursor write at line
+        // 712 was followed by `revert NothingToClaim()` at line 714 — the
+        // revert UNDID the cursor write, so the documented "advance the
+        // cursor" semantics never took effect. Now: when the cursor actually
+        // advanced, commit the advance and return successfully (emit event);
+        // only revert if the cursor was already at the end (no progress
+        // possible). Ex-restakers and fully-recovered users can now make
+        // forward progress instead of being permanently DoS'd.
         if (totalOwed == 0) {
             if (actualEndEpoch > startEpoch) {
                 lastClaimedEpoch[msg.sender] = actualEndEpoch;
+                emit Claimed(msg.sender, 0, startEpoch, actualEndEpoch);
+                return;
             }
             revert NothingToClaim();
         }
@@ -771,13 +786,14 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
             msg.sender, startEpoch, endEpoch, inGracePeriod, lockEnd
         );
 
-        // AUDIT FIX: V2-DR-M-02 — sibling-search of the `claim()` cursor-advance fix.
-        // When the requested `maxEpochs` window is entirely composed of
-        // recovery-settled epochs, the cursor must still advance so the user can
-        // make forward progress on subsequent calls.
+        // AUDIT FIX: V2-DR-M-02 — sibling of the `claim()` cursor-advance fix.
+        // AUDIT FIX 2026-05-13 — M-REV-1 — see comment in `claim()` above.
+        // Pre-fix the cursor write was clobbered by the subsequent revert.
         if (totalOwed == 0) {
             if (actualEndEpoch > startEpoch) {
                 lastClaimedEpoch[msg.sender] = actualEndEpoch;
+                emit Claimed(msg.sender, 0, startEpoch, actualEndEpoch);
+                return;
             }
             revert NothingToClaim();
         }
