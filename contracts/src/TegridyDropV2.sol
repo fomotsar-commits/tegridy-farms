@@ -95,6 +95,13 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///         placeholder. Without the guard, a fat-fingered freeze before `setBaseURI`
     ///         would commit the drop to permanent empty `tokenURI()` returns pre-reveal.
     error BaseURIEmpty();
+    /// @notice AUDIT FIX 2026-05-13 — M-DROP-1 — `setContractURI` reverts once
+    ///         `contractURIFrozen == true`. Mirrors `BaseURIFrozen` semantics.
+    error ContractURIFrozen();
+    /// @notice AUDIT FIX 2026-05-13 — M-DROP-1 — `freezeContractURI()` rejects
+    ///         a freeze on an empty contractURI. Same fat-finger guard pattern
+    ///         as `BaseURIEmpty`.
+    error ContractURIEmpty();
     /// @notice AUDIT FIX: V2-DROP-01 / V2-DROP-03: caller's expected value did not match
     ///         the currently-pending value for a price / dutch-config execute call.
     ///         Mirrors `executeMerkleRoot(bytes32 expectedRoot)` value-binding pattern.
@@ -155,6 +162,9 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     /// @notice AUDIT FIX: DEEP-DROP-06: one-shot freeze on `_baseTokenURI`. After this
     ///         fires, every subsequent `setBaseURI` reverts with `BaseURIFrozen`.
     event BaseURIFrozenEvent();
+    /// @notice AUDIT FIX 2026-05-13 — M-DROP-1 — one-shot freeze on `_contractURI`.
+    ///         Mirrors `BaseURIFrozenEvent` for collection-level metadata.
+    event ContractURIFrozenEvent();
     /// @notice AUDIT FIX: V2-DROP-01: lifecycle events for the propose/execute flow on
     ///         `setMintPrice`. The 24h-timelocked rotation lets pending buyers observe a
     ///         queued price change and drop their unconfirmed mints if they disagree.
@@ -272,6 +282,17 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///         `setBaseURI` reverts permanently — the placeholder is committed and cannot
     ///         be soft-rugged by a swap to a different image post-mint.
     bool public baseURIFrozen;
+
+    /// @notice AUDIT FIX 2026-05-13 — M-DROP-1 — one-shot flag for `_contractURI`,
+    ///         mirroring `baseURIFrozen` semantics. Once set, `setContractURI`
+    ///         reverts permanently — the collection-level ERC-7572 metadata
+    ///         (banner, description, external_link, royalty fallback) is
+    ///         committed and cannot be soft-rugged after the sale. Pre-fix
+    ///         `setContractURI` had no freeze, no timelock, no phase gate, so
+    ///         a captured creator could flip post-sale banner / royalty
+    ///         fallback at any time — marketplaces re-index on
+    ///         `ContractURIUpdated`.
+    bool public contractURIFrozen;
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -842,10 +863,29 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
 
     /// @notice Update the collection-level metadata URI. Emits ERC-7572
     ///         ContractURIUpdated so OpenSea/marketplaces re-index without a manual step.
+    /// @dev    AUDIT FIX 2026-05-13 — M-DROP-1 — reverts once `contractURIFrozen`
+    ///         is set, mirroring the `setBaseURI` freeze gate. Pre-fix this setter
+    ///         had no freeze, no timelock, no phase gate — captured creator could
+    ///         flip post-sale banner/royalty-fallback at any time. Now creators
+    ///         can permanently commit collection metadata via `freezeContractURI()`.
     function setContractURI(string calldata uri) external onlyOwner {
+        if (contractURIFrozen) revert ContractURIFrozen();
         _contractURI = uri;
         emit ContractURIChanged(uri);
         emit ContractURIUpdated();
+    }
+
+    /// @notice AUDIT FIX 2026-05-13 — M-DROP-1 — one-shot commitment that freezes
+    ///         the collection-level `_contractURI` immutably. Mirrors
+    ///         `freezeBaseURI()` semantics including the non-empty guard
+    ///         (sibling-canonical: Sound Protocol `freezeMetadata` /
+    ///         Manifold `freezeBase`). After this fires, `setContractURI`
+    ///         reverts permanently — creators publish a final commitment
+    ///         to banner, description, external_link, and royalty fallback.
+    function freezeContractURI() external onlyOwner {
+        if (bytes(_contractURI).length == 0) revert ContractURIEmpty();
+        contractURIFrozen = true;
+        emit ContractURIFrozenEvent();
     }
 
     function reveal(string calldata revealURI) external onlyOwner {
@@ -1081,15 +1121,66 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     }
 
     // ─── Owner Management (2-step) ───────────────────────────────────
+    //
+    // AUDIT FIX 2026-05-13 — M4 — port `OwnableNoRenounce` semantics into
+    // the drop's custom 2-step owner flow (drops are clones; can't inherit
+    // OwnableNoRenounce directly without storage-layout rework). Adds:
+    //   - 14-day OWNERSHIP_TRANSFER_EXPIRY on `pendingOwner` slot so a
+    //     hostile or stale pendingOwner cannot sit indefinitely.
+    //   - cancelOwnershipTransfer() so current owner can withdraw a
+    //     mistaken proposal.
+    //   - OwnershipTransferStarted / Cancelled events for off-chain
+    //     observability.
+    //   - EIP-7702 length-23 reject so a 7702-delegated EOA cannot be
+    //     installed as drop owner.
+    // Pattern: TegridyStaking + every Ownable2Step contract in this repo.
+
+    /// @notice AUDIT FIX 2026-05-13 — M4 — expiry on a non-accepted ownership proposal.
+    uint256 public constant OWNERSHIP_TRANSFER_EXPIRY = 14 days;
+    /// @notice AUDIT FIX 2026-05-13 — M4 — timestamp when the pending owner was set;
+    ///         0 when no transfer is pending.
+    uint256 public pendingOwnerStartTime;
+
+    /// @notice AUDIT FIX 2026-05-13 — M4 — pending owner is not a contract / is a 7702 EOA.
+    error OwnerMustBeContractOrEOA();
+    /// @notice AUDIT FIX 2026-05-13 — M4 — the pending ownership transfer has expired.
+    error OwnershipTransferExpired();
+    /// @notice AUDIT FIX 2026-05-13 — M4 — no pending ownership transfer to cancel.
+    error NoPendingOwnershipTransfer();
+
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferCancelled(address indexed cancelledPendingOwner);
+
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
+        // AUDIT FIX 2026-05-13 — M4 — reject EIP-7702 delegated EOAs by code.length.
+        // Note: drop owner CAN be an EOA (creators are commonly individuals), so
+        // we only reject the specific 7702 delegation-pointer length of 23 bytes
+        // (`0xef0100‖addr`). True EOAs have code.length == 0 and are allowed.
+        if (newOwner.code.length == 23) revert OwnerMustBeContractOrEOA();
         pendingOwner = newOwner;
+        pendingOwnerStartTime = block.timestamp;
+        emit OwnershipTransferStarted(owner, newOwner);
+    }
+
+    /// @notice AUDIT FIX 2026-05-13 — M4 — withdraw a pending ownership proposal.
+    function cancelOwnershipTransfer() external onlyOwner {
+        if (pendingOwner == address(0)) revert NoPendingOwnershipTransfer();
+        address cancelled = pendingOwner;
+        pendingOwner = address(0);
+        pendingOwnerStartTime = 0;
+        emit OwnershipTransferCancelled(cancelled);
     }
 
     function acceptOwnership() external {
         if (msg.sender != pendingOwner) revert NotOwner();
+        // AUDIT FIX 2026-05-13 — M4 — reject expired proposals (14-day window).
+        if (block.timestamp > pendingOwnerStartTime + OWNERSHIP_TRANSFER_EXPIRY) {
+            revert OwnershipTransferExpired();
+        }
         owner = msg.sender;
         pendingOwner = address(0);
+        pendingOwnerStartTime = 0;
         // AUDIT MICROSCOPE_2026_04_30 M-D3: clear any in-flight timelocked merkle
         // root proposal at ownership-accept. The previous owner could otherwise
         // hand off ownership with a hostile root waiting in the queue, ready to
