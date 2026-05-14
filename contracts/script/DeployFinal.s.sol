@@ -77,9 +77,17 @@ contract DeployFinalScript is Script {
 
         // 2. TegridyFactory
         // AUDIT FIX F-30-9: 3rd arg is initial guardian (must be non-zero).
-        // Pass deployer EOA for bootstrap; rotate to multisig post-deploy via
-        // proposeGuardianChange / executeGuardianChange (48h timelock).
-        TegridyFactory factory = new TegridyFactory(deployer, TREASURY, deployer);
+        // AUDIT FIX 2026-05-13 — M-OPS-3 — initial guardian is now MULTISIG,
+        // not the deployer. Pre-fix the deployer EOA held the guardian role
+        // during the 48h between deploy and the timelocked rotation to
+        // multisig — if the deployer key leaked in that window, attacker
+        // could rotate guardian to themselves and grief LPs via
+        // emergencyDisablePair. Now the multisig holds guardian from
+        // genesis; the rotation step is no longer needed.
+        address multisigForGuardian = vm.envAddress("MULTISIG");
+        require(multisigForGuardian != address(0), "MULTISIG env var required for guardian wiring");
+        require(multisigForGuardian != deployer, "MULTISIG must not equal deployer");
+        TegridyFactory factory = new TegridyFactory(deployer, TREASURY, multisigForGuardian);
         d.factory = address(factory);
         console.log(" 2. TegridyFactory:", d.factory);
 

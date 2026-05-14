@@ -81,6 +81,15 @@ contract WireAuditFixesScript is Script {
 
         // 1. NEW-A2: set factory guardian for emergency pair-disable.
         require(guardian != address(0), "GUARDIAN_ZERO");
+        // AUDIT FIX 2026-05-13 — H-OPS-1 — refuse to set the deployer EOA as
+        // guardian. Without this guard, retiring the deployer key after wiring
+        // leaves the factory's emergency circuit-breaker held by a dead EOA
+        // permanently (no rotation path can resurrect it). GUARDIAN must be a
+        // separate custody — multisig OR a distinct ops EOA — so deployer-key
+        // retirement does not also retire the guardian role. Sibling-canonical
+        // with the `feeTo != deployer` + `feeToSetter != deployer` invariants
+        // every production deploy is supposed to enforce post-handoff.
+        require(guardian != deployer, "GUARDIAN_IS_DEPLOYER");
         ITegridyFactory(factory).setGuardian(guardian);
         console.log("[1/4] Factory guardian set -> %s", guardian);
 

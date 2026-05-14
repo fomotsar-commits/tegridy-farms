@@ -18,9 +18,9 @@
     "similar-names",
     "too-many-digits",
     "constable-states",
-    "external-function",
-    "incorrect-shift"
+    "external-function"
   ],
+  "_AUDIT_FIX_2026_05_13_SL_H1": "Re-enabled `incorrect-shift` detector. The audit flagged it as a real fund-loss bug class (accidental `x >> 256` always returns 0, etc.) — not a style detector. Suppressing genuine fund-loss findings was the wrong call. Any future false positive on this detector should be silenced inline with `// slither-disable-next-line incorrect-shift` plus a justifying comment, not at config level.",
 
   "fail_pedantic": false,
   "fail_high": true,

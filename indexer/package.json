@@ -23,5 +23,11 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "overrides": {
+    "_audit_2026_05_13_h_ops_2": "Pin Vite ≥5.4.20 + esbuild ≥0.25.0 to close CVE-2024-23331 (Vite ≤5.0.11 dev server path traversal via ?import + @fs), CVE-2024-31207 (Vite dev server.fs.deny bypass on Windows), CVE-2024-45811 (Vite import.meta.glob arbitrary file read), and GHSA-x574-m823-4x7w (esbuild 0.19.x dev server CORS misconfig). Ponder 0.8.30 transitively pins vite 5.0.7 + esbuild 0.19.12 — these overrides force the patched versions without bumping ponder itself.",
+    "vite": "^5.4.20",
+    "esbuild": "^0.25.0",
+    "vite-node": "^1.6.0"
   }
 }
