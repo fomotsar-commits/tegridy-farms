@@ -584,7 +584,8 @@ contract CommunityGrantsTest is Test {
     ///         owner. The legacy `cancelProposal(id)` reverts with
     ///         ProposalNotActive when the proposal is in Approved status,
     ///         forcing the owner through `proposeCancelApproved` →
-    ///         `executeCancelApproved` 24h later.
+    ///         `executeCancelApproved` after CANCEL_APPROVED_TIMELOCK (12h
+    ///         post M-REV-C1 race-elimination — was 24h pre-fix).
     function test_MG01_cancelApproved_revertsInstantOwnerPath() public {
         grants.createProposal(artist, 1 ether, "approved-then-cancel");
         _voteThreeFor(0);
@@ -600,10 +601,16 @@ contract CommunityGrantsTest is Test {
         grants.cancelProposal(0);
     }
 
-    /// @notice Happy path: propose cancel-approved, wait 24h, execute. Status
-    ///         flips to Cancelled, totalApprovedPending releases the locked
-    ///         ETH, the deposit refund pays out, and the proposal cannot be
-    ///         executed afterward.
+    /// @notice Happy path: propose cancel-approved, wait CANCEL_APPROVED_TIMELOCK,
+    ///         execute. Status flips to Cancelled, totalApprovedPending releases
+    ///         the locked ETH, the deposit refund pays out, and the proposal
+    ///         cannot be executed afterward.
+    /// @dev    AUDIT FIX 2026-05-14 — regression-scan follow-up — CANCEL_APPROVED_TIMELOCK
+    ///         dropped from 24h → 12h post M-REV-C1. The propose-time gate
+    ///         requires `block.timestamp + 12h < deadline + EXECUTION_DELAY(24h)`
+    ///         so this test now warps `7 days + 1 second` (1 second past
+    ///         deadline) to be inside the cancel propose-window, and warps
+    ///         only 12h for the executeCancelApproved leg.
     function test_MG01_cancelApproved_executeAfterDelay() public {
         grants.createProposal(artist, 1 ether, "queue-cancel");
         _voteThreeFor(0);
@@ -619,7 +626,10 @@ contract CommunityGrantsTest is Test {
         vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, key));
         grants.executeCancelApproved(0);
 
-        vm.warp(block.timestamp + 24 hours);
+        // AUDIT FIX 2026-05-14 — was `+ 24 hours`; tightened to match the new 12h
+        // CANCEL_APPROVED_TIMELOCK. Warping 24h would push us past the
+        // execute-time gate at `deadline + EXECUTION_DELAY`.
+        vm.warp(block.timestamp + 12 hours);
         grants.executeCancelApproved(0);
 
         (,,,,,,,CommunityGrants.ProposalStatus status,,) = grants.getProposal(0);

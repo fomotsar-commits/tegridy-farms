@@ -196,10 +196,15 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         a `code.length == 23` impostor at rotation time.
     function proposeLendingAdminReplacement(address _newAdmin) external onlyOwner {
         if (_newAdmin == address(0)) revert ZeroAddress();
+        if (lendingAdmin == address(0)) revert LendingAdminNotSet(); // use setLendingAdmin first
         // AUDIT FIX 2026-05-13 — L2 — reject same-as-current. See TegridyStaking
         // sibling fix for rationale (prevents captured-owner DoS of rotation path).
-        if (_newAdmin == lendingAdmin) revert LendingAdminNotSet();
-        if (lendingAdmin == address(0)) revert LendingAdminNotSet(); // use setLendingAdmin first
+        // AUDIT FIX 2026-05-14 — regression-scan follow-up — was reusing
+        // `LendingAdminNotSet` which is semantically wrong ("admin not set" vs
+        // "admin IS set and matches proposed"). Now uses
+        // `AdminReplacementProposalPending` which is the correct slot-occupied
+        // error class.
+        if (_newAdmin == lendingAdmin) revert AdminReplacementProposalPending();
         if (lendingAdminReplacementReadyAt != 0) revert AdminReplacementProposalPending();
         // AUDIT FIX (F-60-2): same EOA / 7702 filter as setLendingAdmin.
         uint256 codeLen = _newAdmin.code.length;

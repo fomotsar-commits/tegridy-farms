@@ -120,7 +120,30 @@ library VotePowerOracle {
                 // the try block, bricking every governance read.
                 unchecked {
                     uint256 sum = power + r;
-                    power = sum < power ? type(uint256).max : sum;
+                    // AUDIT FIX 2026-05-14 — regression scan follow-up — saturate
+                    // at type(uint128).max rather than type(uint256).max. The
+                    // prior ceiling (uint256.max) defeated the read-side DoS in
+                    // VotePowerOracle but moved the failure mode downstream:
+                    // consumers do `votesFor += power` in CHECKED arithmetic
+                    // (CommunityGrants.sol:468, MemeBountyBoard.sol:490-491,
+                    // VoteIncentives.sol:712-714). With power == uint256.max,
+                    // the SECOND vote overflows and bricks the proposal /
+                    // bounty / epoch entirely.
+                    //
+                    // uint128.max (~3.4e38) is far above any realistic TOWELI
+                    // supply (1B × 1e18 = 1e27) so legitimate values are
+                    // never clamped. Hostile saturation yields ~uint128.max
+                    // per vote, which lets ~uint128 votes accumulate before
+                    // overflow — practically impossible (~3.4e38 voters).
+                    // Sibling-canonical: Curve veCRV stores `bias` as int128;
+                    // Aave V3 `_accruedToTreasury` is uint128 — same ceiling.
+                    if (sum < power) {
+                        power = type(uint128).max;
+                    } else if (sum > type(uint128).max) {
+                        power = type(uint128).max;
+                    } else {
+                        power = sum;
+                    }
                 }
             } catch {
                 // Fail closed: if restaking misbehaves, the staking-side value
@@ -149,7 +172,30 @@ library VotePowerOracle {
             try IVoteSource(restaking).votingPowerAtTimestamp{gas: RESTAKING_CALL_GAS_BUDGET}(user, ts) returns (uint256 r) {
                 unchecked {
                     uint256 sum = power + r;
-                    power = sum < power ? type(uint256).max : sum;
+                    // AUDIT FIX 2026-05-14 — regression scan follow-up — saturate
+                    // at type(uint128).max rather than type(uint256).max. The
+                    // prior ceiling (uint256.max) defeated the read-side DoS in
+                    // VotePowerOracle but moved the failure mode downstream:
+                    // consumers do `votesFor += power` in CHECKED arithmetic
+                    // (CommunityGrants.sol:468, MemeBountyBoard.sol:490-491,
+                    // VoteIncentives.sol:712-714). With power == uint256.max,
+                    // the SECOND vote overflows and bricks the proposal /
+                    // bounty / epoch entirely.
+                    //
+                    // uint128.max (~3.4e38) is far above any realistic TOWELI
+                    // supply (1B × 1e18 = 1e27) so legitimate values are
+                    // never clamped. Hostile saturation yields ~uint128.max
+                    // per vote, which lets ~uint128 votes accumulate before
+                    // overflow — practically impossible (~3.4e38 voters).
+                    // Sibling-canonical: Curve veCRV stores `bias` as int128;
+                    // Aave V3 `_accruedToTreasury` is uint128 — same ceiling.
+                    if (sum < power) {
+                        power = type(uint128).max;
+                    } else if (sum > type(uint128).max) {
+                        power = type(uint128).max;
+                    } else {
+                        power = sum;
+                    }
                 }
             } catch {
                 // Fail closed: silent degradation.

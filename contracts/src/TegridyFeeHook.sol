@@ -583,11 +583,20 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         // mismatch that required multiple sync cycles to reconcile.
         //
         // Now: only the credited amount is converted. Donations remain in
-        // the hook's ERC20 balance and can be recovered through the
-        // existing `sweepETH` path AFTER off-chain reconciliation, OR are
-        // simply left as a permanent locked-token tax on the donor (which
-        // is fine — donations are voluntary). Sibling-canonical: Aerodrome
-        // / Velodrome FeesVotingReward only ever moves credited amounts.
+        // the hook's ERC20 balance and ARE PERMANENTLY LOCKED — there is
+        // no `sweepERC20` path, only `sweepETH` (which handles native ETH
+        // only, NOT ERC20s). This is acceptable because donations are
+        // voluntary; the donor accepts the loss as a self-imposed tax.
+        // Adding a sweepERC20 would re-introduce the captured-owner
+        // siphon surface this fix is designed to close. Sibling-canonical:
+        // Aerodrome / Velodrome FeesVotingReward only moves credited
+        // amounts AND has no general-purpose token rescue.
+        //
+        // AUDIT FIX 2026-05-14 — regression-scan follow-up — corrected the
+        // prior comment which incorrectly claimed donations were
+        // "recoverable through sweepETH". sweepETH does NOT recover ERC20
+        // donations. Comment now reflects actual permanently-locked
+        // semantics.
         uint256 amount = accruedFees[currency];
         if (amount == 0) revert NothingToConvert();
 

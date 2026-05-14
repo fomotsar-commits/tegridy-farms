@@ -176,7 +176,7 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     uint256 public constant FEE_RECEIVER_TIMELOCK = 48 hours;
 
     // ─── Cancel-Approved Timelock (AUDIT M-G01) ──────────────────────
-    /// @notice 24h window between proposing the cancellation of an APPROVED grant
+    /// @notice 12h window between proposing the cancellation of an APPROVED grant
     ///         proposal and executing it. Active and FailedExecution cancellations
     ///         remain instant (proposer/owner can still abort governance griefing
     ///         loops or one-off failures without delay) — only Approved proposals,
@@ -685,10 +685,11 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
     /// @notice Cancel a Pending/Active or FailedExecution proposal instantly.
     ///         AUDIT M-G01: Owner-initiated cancellation of an APPROVED proposal MUST
-    ///         instead go through `proposeCancelApproved` → 24h delay →
-    ///         `executeCancelApproved`. Approved proposals already passed quorum +
-    ///         community review and have ETH reserved via `totalApprovedPending`; an
-    ///         instant owner-side cancel was a unilateral governance-override surface.
+    ///         instead go through `proposeCancelApproved` → CANCEL_APPROVED_TIMELOCK
+    ///         (12h, post M-REV-C1) → `executeCancelApproved`. Approved proposals
+    ///         already passed quorum + community review and have ETH reserved via
+    ///         `totalApprovedPending`; an instant owner-side cancel was a unilateral
+    ///         governance-override surface.
     /// @dev    AUDIT FIX C-02 retained for non-Approved statuses: owner can still
     ///         instant-cancel Active proposals (Approved cancellation routed through
     ///         the timelock above). FailedExecution proposals are handled by
@@ -742,7 +743,8 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     }
 
     /// @notice AUDIT M-G01: Schedule cancellation of an Approved proposal. After
-    ///         CANCEL_APPROVED_TIMELOCK (24h), the owner — or anyone, since the
+    ///         CANCEL_APPROVED_TIMELOCK (12h post M-REV-C1, was 24h), the owner —
+    ///         or anyone, since the
     ///         executor is permissionless to reduce censorship risk on the queue —
     ///         can call `executeCancelApproved` to finalize the cancel.
     /// @param  _proposalId The Approved proposal to schedule for cancellation.
@@ -764,7 +766,8 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     }
 
     /// @notice AUDIT M-G01: Execute a previously-scheduled cancellation of an
-    ///         Approved proposal once the 24h delay has elapsed.
+    ///         Approved proposal once the CANCEL_APPROVED_TIMELOCK delay has
+    ///         elapsed (12h post M-REV-C1 — was 24h pre-2026-05-13 fix).
     /// @param  _proposalId The proposal whose cancellation is being finalized.
     // AUDIT FIX FRESH-2026 (minimal): M-15 / F-15-K-01 — match BATCH-E H12's `whenNotPaused`
     // on `lapseProposal`. Closes the captured-owner pause→cancel→sweep chain identified
@@ -838,7 +841,7 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///         30d EXECUTION_DEADLINE, (4) anyone calls `lapseProposal` decrementing
     ///         totalApprovedPending and reverting status to Rejected, (5) owner calls
     ///         `emergencyRecoverETH` to redirect the freed balance to attacker.
-    ///         This bypassed the M-G01 24h cancel-approved timelock that the prior
+    ///         This bypassed the M-G01 cancel-approved timelock (12h post M-REV-C1) that the prior
     ///         audit explicitly added to defend against fast-cancel-approved drains.
     ///         Pause-gating `lapseProposal` closes the loop: under pause, the proposal
     ///         remains Approved, `totalApprovedPending` continues protecting the

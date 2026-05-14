@@ -1479,29 +1479,34 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     ///         checkpoint snapshot the indexer captured before the corruption).
     ///         A 48h timelock applies before executeClaimRecovery() may pay out.
     ///
-    /// @dev    AUDIT FIX: V2-DR-L-04 — recovery is capped at 25% of
+    /// @dev    AUDIT FIX: V2-DR-L-04 — recovery is capped at 5% of
     ///         `epoch.totalLocked` per (user, epoch) pair via
-    ///         `MAX_RECOVERY_POWER_BPS = 2500`. The unified `claimedAtEpoch`
+    ///         `MAX_RECOVERY_POWER_BPS = 500` (post-2026-05-13 H-REV-4
+    ///         tightening from 2500 → 500). The unified `claimedAtEpoch`
     ///         flag is set on the FIRST `executeClaimRecovery`, so a holder
-    ///         whose historical power exceeded 25% of `epoch.totalLocked` for a
-    ///         single corrupted epoch CANNOT be made fully whole via this path
-    ///         — subsequent proposals for the same (user, epoch) revert
-    ///         `AlreadyClaimedNormally`. The residual share above the 25% cap is
-    ///         permanently un-recoverable for that user and eventually flows
-    ///         through `forfeitUnclaimedRewards` to the protocol treasury. This
-    ///         is an architectural tradeoff inherited from DEEP-DR-H-02 / M-R6
-    ///         (blast-radius bounding): an unbounded recovery is a one-shot rug
-    ///         vector under owner-key compromise, while a 25% cap converts even
-    ///         a successful exploit into a partial loss the protocol can
+    ///         whose historical power exceeded 5% of `epoch.totalLocked` for a
+    ///         single corrupted epoch CANNOT be made fully whole via a single
+    ///         proposal — but the aggregate cap of 15% (= MAX_AGGREGATE_RECOVERY_POWER_BPS
+    ///         = 1500) admits up to 3 separate proposals for the same (user,
+    ///         epoch) before exhausting the per-epoch budget. The residual
+    ///         share above the 15% aggregate cap is permanently un-recoverable
+    ///         for that user and eventually flows through `forfeitUnclaimedRewards`
+    ///         to the protocol treasury. This is an architectural tradeoff
+    ///         inherited from DEEP-DR-H-02 / M-R6 (blast-radius bounding):
+    ///         an unbounded recovery is a one-shot rug vector under owner-key
+    ///         compromise, while a 5% per-proposal / 15% aggregate cap converts
+    ///         even a successful exploit into a partial loss the protocol can
     ///         backfill from treasury via off-chain remediation. Ops must
-    ///         escalate >25% holder corruptions through governance, not the
+    ///         escalate >15% holder corruptions through governance, not the
     ///         recovery path.
     ///
     /// @param user  The address whose claim is being recovered.
     /// @param epoch The epoch index to recover (must be < epochs.length).
     /// @param power The user's attested voting power at epoch.timestamp. Must be
-    ///              <= epoch.totalLocked as a sanity bound, AND <= 25% of
-    ///              `epoch.totalLocked` per V2-DR-L-04 cap above.
+    ///              <= epoch.totalLocked as a sanity bound, AND <= 5% of
+    ///              `epoch.totalLocked` per V2-DR-L-04 cap above (single
+    ///              proposal); aggregate across multiple proposals for the
+    ///              same epoch cannot exceed 15%.
     function proposeClaimRecovery(address user, uint256 epoch, uint256 power) external onlyOwner {
         if (user == address(0)) revert ZeroAddress();
         if (epoch >= epochs.length) revert InvalidEpoch();
@@ -1522,16 +1527,18 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
 
         Epoch memory ep = epochs[epoch];
         if (power > ep.totalLocked) revert PowerExceedsTotalLocked();
-        // AUDIT FIX: DEEP-DR-H-02 / M-R6 — bound power to 25% of epoch.totalLocked
-        // at propose time. A legitimate single-holder recovery for a >25% position
-        // must use multiple proposals — each individually timelocked, each visible.
+        // AUDIT FIX: DEEP-DR-H-02 / M-R6 — bound power to 5% of epoch.totalLocked
+        // at propose time (was 25% pre-2026-05-13 H-REV-4 tightening). A
+        // legitimate single-holder recovery for a >5% position must use multiple
+        // proposals — each individually timelocked, each visible — up to the
+        // 15% aggregate cap below.
         uint256 recoveryCap = (ep.totalLocked * MAX_RECOVERY_POWER_BPS) / 10000;
         if (power > recoveryCap) revert RecoveryPowerExceedsCap();
 
-        // AUDIT FIX D-DR-L1: aggregate per-epoch cap. Compute the prospective
-        // aggregate power AFTER this propose lands; reject if it would exceed
-        // 50% of epoch.totalLocked. Mirrors the per-proposal cap structure but
-        // closes the multi-proposal bypass.
+        // AUDIT FIX D-DR-L1: aggregate per-epoch cap (15% post-2026-05-13).
+        // Compute the prospective aggregate power AFTER this propose lands;
+        // reject if it would exceed 15% of epoch.totalLocked. Mirrors the
+        // per-proposal cap structure but closes the multi-proposal bypass.
         uint256 oldPower = pendingRecoveries[user][epoch].power;
         uint256 prospectiveAggregate = aggregateRecoveryPower[epoch] + power - oldPower;
         uint256 aggregateCap = (ep.totalLocked * MAX_AGGREGATE_RECOVERY_POWER_BPS) / 10000;
@@ -1607,8 +1614,9 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // Re-bound power against epoch.totalLocked (defensive — totalLocked is immutable
         // post-distribution but we read fresh state to be safe).
         uint256 power = p.power > ep.totalLocked ? ep.totalLocked : p.power;
-        // AUDIT FIX: DEEP-DR-H-02 / M-R6 — re-apply the 25% cap defensively at
-        // execute time. If a future code path bypasses the propose-time check,
+        // AUDIT FIX: DEEP-DR-H-02 / M-R6 — re-apply the 5% per-proposal cap
+        // defensively at execute time (was 25% pre-2026-05-13 H-REV-4
+        // tightening). If a future code path bypasses the propose-time check,
         // this still enforces the cap. Pure clamp (no revert) — the proposal was
         // already validated; we just downsize to the cap if state shifted.
         uint256 recoveryCap = (ep.totalLocked * MAX_RECOVERY_POWER_BPS) / 10000;

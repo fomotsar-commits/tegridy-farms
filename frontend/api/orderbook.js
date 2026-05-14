@@ -584,7 +584,7 @@ export default async function handler(req, res) {
         .eq("order_hash", orderHash)
         .single();
 
-      if (lookupError) { console.error("Orderbook lookup error:", lookupError.message); return res.status(500).json({ error: "Internal error" }); }
+      if (lookupError) { console.error("Orderbook lookup error:", logSafe(lookupError)); return res.status(500).json({ error: "Internal error" }); }
       if (!existing) return res.status(404).json({ error: "Order not found" });
       if (existing.maker !== recoveredAddress) {
         return res.status(403).json({ error: "Signer is not the order maker" });
