@@ -176,6 +176,11 @@ library VotePowerOracle {
         address restaking
     ) internal view returns (uint256 power) {
         power = IVoteSource(staking).votingPowerAtTimestamp(user, ts);
+        // AUDIT FIX 2026-05-14 — 3rd-pass regression scan — symmetric clamp
+        // with `powerOfLiveUnsafe` above. Initial batch-16 attempted to apply
+        // this via `replace_all` but only matched the live-read site. Now
+        // both `powerOf` paths clamp the staking baseline identically.
+        if (power > type(uint128).max) power = type(uint128).max;
         if (restaking != address(0)) {
             // AUDIT FIX 2026-05-13 — H-LIB-1 — gas-capped + saturating add.
             // Same defense as `powerOfLiveUnsafe`.

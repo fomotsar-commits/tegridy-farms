@@ -54,7 +54,9 @@ contract Deep_DropLaunchpad_Test is Test {
         p.platformFeeBps = 500;
         p.weth = address(weth);
         p.placeholderURI = "ipfs://placeholder";
-        p.contractURI_ = "";
+        // AUDIT FIX 2026-05-14 — batch-16 enforces non-empty contractURI in
+        // TegridyDropV2.initialize so freezeContractURI is reachable. Was "".
+        p.contractURI_ = "ipfs://collection";
         p.merkleRoot = bytes32(0);
         p.initialPhase = TegridyDropV2.MintPhase.PUBLIC;
     }
