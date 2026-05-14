@@ -66,9 +66,22 @@ function buildAllowedOrigins() {
 //         explicit allowlists, NOT regex wildcards. Preview deploys must
 //         add their origin via the `ALLOWED_ORIGINS` env var (already
 //         supported by `buildAllowedOrigins`).
+// AUDIT FIX 2026-05-13 — M-API-1 — close open-proxy on non-prod/preview.
+// Pre-fix `NODE_ENV !== "production"` returned true for ANY origin, which
+// turned every Vercel preview deploy (and any local dev that happened to
+// reach this code) into an open aggregator proxy with valid swap-API
+// quota. Sibling-canonical defense from `supabase-proxy.js:172-174` and
+// `auth/me.js:35-41`: gate on `VERCEL_ENV in {production, preview}` AS
+// WELL AS `NODE_ENV === "production"`. Local dev (`vercel dev`, raw
+// `vite`) still allows any origin via the explicit `local`/test branch
+// below — closes the open-proxy without breaking local development.
 function isOriginAllowed(origin) {
   const allowed = buildAllowedOrigins();
-  if (process.env.NODE_ENV !== "production") return true;
+  const isProd =
+    process.env.NODE_ENV === "production" ||
+    process.env.VERCEL_ENV === "preview" ||
+    process.env.VERCEL_ENV === "production";
+  if (!isProd) return true; // local dev only
   return allowed.has(origin);
 }
 

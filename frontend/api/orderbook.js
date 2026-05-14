@@ -15,6 +15,12 @@ import { recoverMessageAddress, decodeAbiParameters, parseAbiParameters } from "
 import { checkRateLimit } from "./_lib/ratelimit.js";
 import { verifySeaportSignature, verifyNftOwnership, MAX_PRICE_WEI, priceWeiToEthNumber } from "./_lib/seaport-verify.js";
 import { computeSeaportOrderHash, isValidSeaportOrderHash } from "./_lib/seaportHash.js";
+// AUDIT FIX 2026-05-13 — LOW-S1 — every other API handler wraps error logs
+// in `logSafe` to redact embedded API keys / sensitive values. Orderbook
+// was the outlier — Supabase error messages occasionally include row data,
+// and the embedded Alchemy key in the fill-verification fetch (line 676)
+// could leak through a future error-path regression. Defense-in-depth.
+import { logSafe } from "./_lib/logSafe.js";
 
 // Whitelist allowed contract addresses (lowercase)
 const ALLOWED_CONTRACTS = new Set([
@@ -190,7 +196,7 @@ export default async function handler(req, res) {
     }
 
     const { data, error } = await query;
-    if (error) { console.error("Orderbook error:", error.message); return res.status(500).json({ error: "Internal error" }); }
+    if (error) { console.error("Orderbook error:", logSafe(error)); return res.status(500).json({ error: "Internal error" }); }
 
     res.setHeader("Cache-Control", "s-maxage=5, stale-while-revalidate=10");
     return res.json({ orders: data || [], count: (data || []).length });
@@ -530,7 +536,7 @@ export default async function handler(req, res) {
         seaport_order_hash: seaportOrderHash,
       });
 
-      if (error) { console.error("Orderbook error:", error.message); return res.status(500).json({ error: "Internal error" }); }
+      if (error) { console.error("Orderbook error:", logSafe(error)); return res.status(500).json({ error: "Internal error" }); }
       return res.status(201).json({ success: true, orderHash, orderType });
     }
 
@@ -593,7 +599,7 @@ export default async function handler(req, res) {
         .eq("order_hash", orderHash)
         .eq("status", "active"); // Prevent race condition
 
-      if (error) { console.error("Orderbook error:", error.message); return res.status(500).json({ error: "Internal error" }); }
+      if (error) { console.error("Orderbook error:", logSafe(error)); return res.status(500).json({ error: "Internal error" }); }
       return res.json({ success: true });
     }
 
@@ -785,7 +791,7 @@ export default async function handler(req, res) {
         .eq("status", "active")
         .select();
 
-      if (error) { console.error("Orderbook error:", error.message); return res.status(500).json({ error: "Internal error" }); }
+      if (error) { console.error("Orderbook error:", logSafe(error)); return res.status(500).json({ error: "Internal error" }); }
 
       if (!updated || updated.length === 0) {
         const { data: existing } = await supabase
