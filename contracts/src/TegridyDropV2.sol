@@ -423,11 +423,18 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
             emit BaseURIChanged(p.placeholderURI);
         }
 
-        if (bytes(p.contractURI_).length > 0) {
-            _contractURI = p.contractURI_;
-            emit ContractURIChanged(p.contractURI_);
-            emit ContractURIUpdated();
-        }
+        // AUDIT FIX 2026-05-14 — regression-scan follow-up — enforce non-empty
+        // contractURI at the DROP layer too, not just at the launchpad.
+        // Without this, a direct-deploy bypassing TegridyLaunchpadV2 (e.g., a
+        // third-party cloner of the drop implementation) could ship with empty
+        // `_contractURI`, rendering `freezeContractURI()` permanently
+        // unreachable (the freeze fat-finger guard reverts `ContractURIEmpty`
+        // on empty). Mirror the launchpad's check so the M-DROP-1 invariant
+        // holds at the layer where it actually lives.
+        if (bytes(p.contractURI_).length == 0) revert ContractURIEmpty();
+        _contractURI = p.contractURI_;
+        emit ContractURIChanged(p.contractURI_);
+        emit ContractURIUpdated();
 
         if (p.merkleRoot != bytes32(0)) {
             merkleRoot = p.merkleRoot;

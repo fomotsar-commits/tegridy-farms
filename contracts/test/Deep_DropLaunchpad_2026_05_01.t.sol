@@ -347,7 +347,11 @@ contract Deep_DropLaunchpad_Test is Test {
         TegridyLaunchpadV2.CollectionConfig memory cfg;
         cfg.name = "A"; cfg.symbol = "A"; cfg.maxSupply = 10; cfg.mintPrice = 0;
         cfg.maxPerWallet = 1; cfg.royaltyBps = 0;
-        cfg.placeholderURI = ""; cfg.contractURI = "";
+        // AUDIT FIX 2026-05-14 — batch-15 enforces non-empty cfg.contractURI
+        // at launchpad-layer (so freezeContractURI is reachable for every
+        // drop). placeholderURI may stay empty (it's gated by the drop's
+        // own setBaseURI fat-finger guard).
+        cfg.placeholderURI = ""; cfg.contractURI = "ipfs://test-collection";
         cfg.merkleRoot = bytes32(0);
         cfg.initialPhase = TegridyDropV2.MintPhase.CLOSED;
 

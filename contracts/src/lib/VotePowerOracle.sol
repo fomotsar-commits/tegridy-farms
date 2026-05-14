@@ -110,6 +110,16 @@ library VotePowerOracle {
         returns (uint256 power)
     {
         power = IVoteSource(staking).votingPowerOf(user);
+        // AUDIT FIX 2026-05-14 — regression-scan follow-up (theoretical) —
+        // clamp the staking-side baseline at type(uint128).max for symmetry
+        // with the restaking-side clamp below. Honest TegridyStaking can't
+        // exceed this (Trace208 checkpoints bounded by supply × boost ≈ 5e27
+        // << uint128.max ≈ 3.4e38), but if `restaking == address(0)` OR
+        // restaking reverts AND staking is ever upgraded/compromised, an
+        // unclamped uint128.max+ value would reach consumers and overflow
+        // their `votesFor += power` checked arithmetic. Symmetric clamp
+        // closes that theoretical path.
+        if (power > type(uint128).max) power = type(uint128).max;
         if (restaking != address(0)) {
             // try/catch to remain robust if restaking is mid-upgrade or
             // intentionally absent on a particular deployment chain.

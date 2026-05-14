@@ -24,10 +24,10 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "//audit_2026_05_13_h_ops_2": "Pin Vite >=5.4.20 + esbuild >=0.25.0 to close CVE-2024-23331 (Vite <=5.0.11 dev server path traversal via ?import + @fs), CVE-2024-31207 (Vite dev server.fs.deny bypass on Windows), CVE-2024-45811 (Vite import.meta.glob arbitrary file read), and GHSA-x574-m823-4x7w (esbuild 0.19.x dev server CORS misconfig). Ponder 0.8.30 transitively pins vite 5.0.7 + esbuild 0.19.12 — these overrides force the patched versions without bumping ponder itself.",
+  "//audit_2026_05_13_h_ops_2": "Pin Vite >=6.4.2 + esbuild >=0.25.0 to close CVE-2024-23331 (Vite <=5.0.11 dev server path traversal via ?import + @fs), CVE-2024-31207 (Vite dev server.fs.deny bypass on Windows), CVE-2024-45811 (Vite import.meta.glob arbitrary file read), GHSA-x574-m823-4x7w (esbuild 0.19.x dev server CORS misconfig), AND GHSA-4w7w-66w2-5vf9 (Vite <=6.4.1 Path Traversal in Optimized Deps .map Handling — discovered post-batch-12 regression scan 2026-05-14). Ponder 0.8.30 transitively pins vite 5.0.7 + esbuild 0.19.12 — these overrides force the patched versions without bumping ponder itself. Vite 6.x is a major-version bump from ponder's expected vite 5.x; if ponder breaks under vite 6, accept-risk and revert to vite ^5.4.21 (last patched 5.x) given that GHSA-4w7w only affects the DEV SERVER, and production indexer uses `ponder start` (no dev server).",
   "overrides": {
-    "vite": "^5.4.20",
+    "vite": "^6.4.2",
     "esbuild": "^0.25.0",
-    "vite-node": "^1.6.0"
+    "vite-node": "^3.0.0"
   }
 }
