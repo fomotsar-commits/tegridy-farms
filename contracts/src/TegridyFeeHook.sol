@@ -574,19 +574,25 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
             "SYNC_PENDING"
         );
 
-        // Drain on-hand balance (NOT accruedFees, which is the PoolManager-credit
-        // mirror). This swaps everything actually held in this contract for the
-        // currency, since pre-this-fix permissionless claimFees on non-WETH would
-        // have moved earlier accruals to revenueDistributor's stuck ERC20 balance —
-        // the hook only gets here if its own balance is non-zero.
-        uint256 amount = IERC20(currency).balanceOf(address(this));
+        // AUDIT FIX 2026-05-13 — M-AMM-1 — convert ONLY the tracked
+        // `accruedFees[currency]`, not the raw balance. Pre-fix this read
+        // `balanceOf(address(this))` which mixed legitimate fee accruals
+        // with arbitrary donations (any address can `IERC20.transfer` to
+        // this contract). Donations were silently swapped → ETH to
+        // revenueDistributor → `accruedFees` zeroed — a bookkeeping
+        // mismatch that required multiple sync cycles to reconcile.
+        //
+        // Now: only the credited amount is converted. Donations remain in
+        // the hook's ERC20 balance and can be recovered through the
+        // existing `sweepETH` path AFTER off-chain reconciliation, OR are
+        // simply left as a permanent locked-token tax on the donor (which
+        // is fine — donations are voluntary). Sibling-canonical: Aerodrome
+        // / Velodrome FeesVotingReward only ever moves credited amounts.
+        uint256 amount = accruedFees[currency];
         if (amount == 0) revert NothingToConvert();
 
-        // Decrement accruedFees by the amount we're about to swap (capped by the
-        // recorded value; balance can legitimately exceed accruedFees if PoolManager
-        // credited rounding-up). Anything in excess of accruedFees stays as 0.
-        uint256 accrued = accruedFees[currency];
-        accruedFees[currency] = amount > accrued ? 0 : accrued - amount;
+        // Zero out the credited amount — fully consumed by this conversion.
+        accruedFees[currency] = 0;
 
         // CEI ordering: swap → forward.
         IERC20(currency).forceApprove(router, amount);

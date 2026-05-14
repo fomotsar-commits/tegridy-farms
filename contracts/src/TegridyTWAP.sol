@@ -187,13 +187,34 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     mapping(address => uint256) public minReserveFloor;
     mapping(address => uint256) public minReserveFloor1;
     error ReservesBelowFloor();
+    /// @dev AUDIT FIX 2026-05-13 — M-AMM-2 — typed error for floor-too-high.
+    error MinReserveFloorTooHigh();
     event MinReserveFloorSet(address indexed pair, uint256 floor);
     /// @dev AUDIT FIX F-24-2 — distinct event for the side-1 setter so
     ///      off-chain monitoring sees per-side configuration changes.
     event MinReserveFloor1Set(address indexed pair, uint256 floor);
 
+    /// @notice AUDIT FIX 2026-05-13 — M-AMM-2 — upper cap on settable reserve
+    ///         floor. Pre-fix the setter accepted ANY uint256, including
+    ///         `type(uint256).max` which would cause every subsequent
+    ///         `update(pair)` to revert `ReservesBelowFloor`, eventually
+    ///         staleting the buffer past `MAX_STALENESS` and DoS'ing every
+    ///         downstream consumer (lending, POL accumulator). A captured-
+    ///         owner brick primitive.
+    ///
+    ///         The cap is set at `MAX_MIN_RESERVE_FLOOR = uint112.max` (the
+    ///         maximum possible reserve value per Uniswap V2's reserve packing).
+    ///         A floor at this value is functionally equivalent to "floor
+    ///         disabled" — no honest pair can have reserves > uint112.max.
+    ///         An owner attempting to brick the oracle via overflow now
+    ///         reverts loudly with `MinReserveFloorTooHigh` instead of
+    ///         silently bricking via a value the math will reject.
+    uint256 public constant MAX_MIN_RESERVE_FLOOR = type(uint112).max;
+
     function setMinReserveFloor(address pair, uint256 floor) external onlyOwner {
         if (!factory.isPair(pair)) revert UnknownPair();
+        // AUDIT FIX 2026-05-13 — M-AMM-2 — reject brick-via-overflow.
+        if (floor > MAX_MIN_RESERVE_FLOOR) revert MinReserveFloorTooHigh();
         minReserveFloor[pair] = floor;
         emit MinReserveFloorSet(pair, floor);
     }
@@ -204,6 +225,8 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     ///         cross-decimal pair. Setting back to 0 restores fallback.
     function setMinReserveFloor1(address pair, uint256 floor) external onlyOwner {
         if (!factory.isPair(pair)) revert UnknownPair();
+        // AUDIT FIX 2026-05-13 — M-AMM-2 — symmetric cap with side-0.
+        if (floor > MAX_MIN_RESERVE_FLOOR) revert MinReserveFloorTooHigh();
         minReserveFloor1[pair] = floor;
         emit MinReserveFloor1Set(pair, floor);
     }
