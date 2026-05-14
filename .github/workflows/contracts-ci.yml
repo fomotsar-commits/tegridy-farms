@@ -129,6 +129,10 @@ jobs:
           # block merge. Coverage step below is allowed to be best-effort.
           FOUNDRY_FUZZ_RUNS: 10000
 
+      # AUDIT FIX 2026-05-13 — CI-H1 — drop the inline `|| true`. Belt-and-
+      # suspenders with `continue-on-error: true` was redundant AND masked
+      # segfaults / OOMs in `forge coverage` that should at least be visible
+      # in the step's output (even if not blocking merge).
       - name: Coverage summary (best-effort)
-        run: forge coverage --report summary || true
+        run: forge coverage --report summary
         continue-on-error: true

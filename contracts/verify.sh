@@ -1,6 +1,10 @@
 #!/bin/bash
 # Verify all 9 deployed contracts on Etherscan
-set -e
+# AUDIT FIX 2026-05-13 — BASH-H1 — `set -euo pipefail` (was `set -e` only).
+# `-u` rejects unset vars (so a typo in $STAKING etc. fails loud instead of
+# producing empty constructor encoding that Etherscan accepts at a wrong
+# hash). `-o pipefail` catches mid-pipe failures.
+set -euo pipefail
 
 FORGE="$HOME/.foundry/bin/forge"
 ETHERSCAN_KEY="${ETHERSCAN_API_KEY:?Set ETHERSCAN_API_KEY env var}"

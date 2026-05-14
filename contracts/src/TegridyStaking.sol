@@ -2039,6 +2039,11 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         broken or compromised admin contract cannot block its own removal.
     function proposeAdminReplacement(address _newAdmin) external onlyOwner {
         if (_newAdmin == address(0)) revert ZeroAddress();
+        // AUDIT FIX 2026-05-13 — L2 — reject same-as-current. A captured
+        // owner could otherwise occupy the proposal slot with the current
+        // admin, locking out the rotation path for the 48h timelock + 7d
+        // validity window. Matches TegridyFactory.proposeGuardianChange.
+        if (_newAdmin == stakingAdmin) revert Unauthorized();
         if (stakingAdmin == address(0)) revert Unauthorized(); // use setStakingAdmin first
         if (adminReplacementReadyAt != 0) revert Unauthorized(); // existing proposal pending
         // AUDIT FIX FRESH-2026: F-43-B + F-60-2 — mirror setStakingAdmin's

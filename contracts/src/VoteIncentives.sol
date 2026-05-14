@@ -193,6 +193,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         expires after `readyAt + 7 days` per H-14 / F-75-1.
     function proposeAdminReplacement(address _newAdmin) external onlyOwner {
         if (_newAdmin == address(0)) revert ZeroAddress();
+        // AUDIT FIX 2026-05-13 — L2 — reject same-as-current.
+        if (_newAdmin == voteIncentivesAdmin) revert AdminNotInstalled();
         if (voteIncentivesAdmin == address(0)) revert AdminNotInstalled();
         if (adminReplacementReadyAt != 0) revert AdminReplacementProposalPending();
         // Mirror setVoteIncentivesAdmin's contract-only + EIP-7702 reject.

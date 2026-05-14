@@ -23,7 +23,13 @@ function isAllowedUrlScheme(url) {
   if (typeof url !== "string" || url.length === 0) return false;
   const trimmed = url.trim();
   if (trimmed.startsWith("ipfs://") || trimmed.startsWith("ar://")) return true;
-  if (trimmed.startsWith("https://") || trimmed.startsWith("http://")) return true;
+  // AUDIT FIX 2026-05-13 — LOW-API3 — reject `http://` (plaintext). The
+  // shared `_lib/url-allowlist.js` already rejects http; the inline opensea
+  // version was the outlier. A poisoned OpenSea response with an `http://`
+  // image_url would otherwise pass the gate and reach the frontend; CSP
+  // `img-src https:` still blocks the rendered image but the path-through
+  // is unnecessary. Tighten to https-only at the proxy layer.
+  if (trimmed.startsWith("https://")) return true;
   // Allow ONLY raster image data: URIs (png, jpeg, gif, webp). svg+xml rejected.
   if (trimmed.startsWith("data:image/")) {
     const mime = trimmed.slice(5, trimmed.indexOf(";") > 0 ? trimmed.indexOf(";") : trimmed.indexOf(","));

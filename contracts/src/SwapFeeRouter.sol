@@ -1104,6 +1104,9 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         compromised admin cannot block its own removal.
     function proposeAdminReplacement(address _newAdmin) external onlyOwner {
         if (_newAdmin == address(0)) revert ZeroAddress();
+        // AUDIT FIX 2026-05-13 — L2 — reject same-as-current. See
+        // TegridyStaking sibling fix for rationale.
+        if (_newAdmin == swapFeeRouterAdmin) revert Unauthorized();
         if (swapFeeRouterAdmin == address(0)) revert Unauthorized(); // use setSwapFeeRouterAdmin first
         if (adminReplacementReadyAt != 0) revert AdminReplacementUnavailable(); // existing proposal pending
         // AUDIT FIX 2026-05-13 — H-LIB-4 — mirror setSwapFeeRouterAdmin's
