@@ -182,7 +182,17 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///         loops or one-off failures without delay) — only Approved proposals,
     ///         which already passed quorum + community review and have ETH committed
     ///         via `totalApprovedPending`, require the additional review window.
-    uint256 public constant CANCEL_APPROVED_TIMELOCK = 24 hours;
+    ///
+    /// @dev    AUDIT FIX 2026-05-13 — M-REV-C1 — reduced from 24h to 12h. Pre-fix
+    ///         the cancel timelock equaled `EXECUTION_DELAY` (24h), creating a
+    ///         dead-heat race at `deadline + 24h` between `executeCancelApproved`
+    ///         (queued at finalize, executable at finalize+24h) and `executeProposal`
+    ///         (executable by owner at deadline+24h). Recipient and owner-side
+    ///         could collude or front-run via mempool. With 12h, the cancel-execute
+    ///         window `[deadline+12h, deadline+24h]` closes strictly BEFORE
+    ///         `executeProposal` opens at deadline+24h — guaranteed no race.
+    ///         12h still gives community 12h public notice of an emergency cancel.
+    uint256 public constant CANCEL_APPROVED_TIMELOCK = 12 hours;
 
     // ─── Events ───────────────────────────────────────────────────────
 
@@ -227,6 +237,11 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error AlreadyVoted();
     error NoVotingPower();
     error NotApproved();
+    /// @notice AUDIT FIX 2026-05-13 — M-REV-C1 — `proposeCancelApproved` was
+    ///         called too late (cancel-execute would land at or after
+    ///         `deadline + EXECUTION_DELAY`), OR `executeCancelApproved` ran
+    ///         after the proposal entered its owner-execute window.
+    error CancelWindowClosed();
     error InvalidProposal();
     error NotAuthorized();
     error NotFailedExecution();
@@ -736,6 +751,13 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         Proposal storage proposal = proposals[_proposalId];
         if (proposal.status != ProposalStatus.Approved) revert NotApproved();
         if (depositRefunded[_proposalId]) revert AlreadyRefunded();
+        // AUDIT FIX 2026-05-13 — M-REV-C1 — fail fast: if proposing now would
+        // make the cancel-execute land at or after the proposal's owner-execute
+        // window opens, refuse to propose. Cancel must STRICTLY complete
+        // before the proposal can be executed; no race possible.
+        if (block.timestamp + CANCEL_APPROVED_TIMELOCK >= proposal.deadline + EXECUTION_DELAY) {
+            revert CancelWindowClosed();
+        }
 
         _propose(_cancelApprovedKey(_proposalId), CANCEL_APPROVED_TIMELOCK);
         emit CancelApprovedProposed(_proposalId, _proposalReadyAt(_cancelApprovedKey(_proposalId)));
@@ -755,6 +777,13 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // executeProposal landed during the delay window) or been refunded already.
         if (proposal.status != ProposalStatus.Approved) revert NotApproved();
         if (depositRefunded[_proposalId]) revert AlreadyRefunded();
+        // AUDIT FIX 2026-05-13 — M-REV-C1 — defense-in-depth: refuse to cancel
+        // once the proposal is in its owner-execute window. The propose-time
+        // gate above should make this unreachable, but keep this as the
+        // structural invariant: cancel never overlaps with execute.
+        if (block.timestamp >= proposal.deadline + EXECUTION_DELAY) {
+            revert CancelWindowClosed();
+        }
 
         // Consume the timelock slot. _execute clears _executeAfter[key] before any
         // external effects so a re-entrant call would see "no pending" and revert.
