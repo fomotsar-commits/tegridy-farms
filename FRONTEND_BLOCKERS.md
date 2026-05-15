@@ -139,15 +139,31 @@ event); frontend re-wires both when ready.
 
 ---
 
-## B-4 — Telegram bot delivery surface (P2-8)
+## B-4 — Telegram bot deployment
 
-**Gates:** P2-8 of the 30-day push (Telegram notification bot).
+**Gates:** P2-8 of the 30-day push (Telegram notification bot) goes
+live.
 
-**What's needed:** a Telegram bot token plus a process / runtime to
-host the bot. The user's brief asks for `services/telegram-bot/` as a
-Node service; deployment target is TBD. Listed here so the bot doesn't
-quietly land without an environment that can actually run it.
+**What's needed:** the bot itself is scaffolded at
+`services/telegram-bot/` (P2-8 commit). For real users to start
+receiving notifications, operations needs to:
 
-**Workaround today:** none yet — P2-8 is unstarted.
+1. Create a Telegram bot via `@BotFather` and copy the token.
+2. Pick a host. Any Node 20+ runtime works — Railway / Render /
+   Fly.io / a Docker container in the same compose file as the
+   indexer. The bot is a single long-running process; resource use
+   is small (50–150 MB RAM).
+3. Set env vars per `services/telegram-bot/.env.example`:
+   `TELEGRAM_BOT_TOKEN`, `INDEXER_URL` (same one the frontend uses).
+4. Mount a persistent disk for `STATE_FILE` so user bindings + poll
+   cursors survive restarts.
+5. Run `npm install && npm start` (or build via `npm run build` and
+   run the compiled `dist/` from a non-tsx runtime).
 
-**Owner:** Ops + frontend (the bot itself).
+Hard dependency: B-1 (indexer host) — the bot is pointless without
+an indexer to query. Both share the same hosting story.
+
+**Workaround today:** none. The bot is structurally complete but
+won't run until token + host are set.
+
+**Owner:** Ops (token + host). Frontend has shipped the code.

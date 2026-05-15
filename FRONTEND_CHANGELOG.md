@@ -4,6 +4,49 @@ One paragraph per shipped item. Newest first.
 
 ---
 
+## P2-8 — Telegram notification bot scaffold (2026-05-14)
+
+New service at `services/telegram-bot/` — a single long-running Node
+process that polls the Ponder indexer for events touching bound
+wallets and DMs the Telegram chats that bound them. Architecture
+follows the brief verbatim: "dumb cron job that sends strings."
+
+Surfaces:
+
+- **Wallet binding** via `viem.verifyMessage` signature challenge —
+  `/bind` issues a one-shot challenge with a 16-byte nonce, user
+  signs in their wallet, `/bind 0x… 0x…` completes. No SIWE machinery
+  because the bot only sends notifications — there's no privileged
+  action to gate.
+- **Five watchers** in `src/watchers.ts`:
+  1. lending offers filled (notifies the lender),
+  2. loans ≤24h from default (notifies the borrower),
+  3. drops the user minted reaching sellout (cursor-tracked per
+     collection; sellout detection is a TODO once `maxSupply` is
+     indexed),
+  4. gauge votes counted via `gaugeVoteRevealed`,
+  5. restake claims above a per-user threshold (set via
+     `/threshold 0.1`).
+- **State** persists to a single JSON file (`.state.json`) — bindings,
+  pending challenges, per-user thresholds, per-watcher cursors.
+  Survives restarts; trivial to back up.
+
+Commands: `/start /bind /status /unbind /threshold /help`. Bot only
+replies in DMs; group chats ignored. Build / run / deploy notes in
+`services/telegram-bot/README.md`.
+
+Repo root gets `npm run telegram-bot:install / :dev / :start`
+shortcuts mirroring the indexer pattern.
+`FRONTEND_BLOCKERS.md` B-4 updated — bot is structurally complete;
+operations needs to pick a host and a Telegram token. Hard
+dependency on B-1 (indexer host) — the bot is pointless without an
+indexer to query.
+
+Deps inside the service (NOT in the frontend bundle):
+`node-telegram-bot-api`, `viem`, `tsx`, `typescript`.
+
+---
+
 ## P2-7 — ETH yield shown in dollars; APR sourced from chain (2026-05-14)
 
 ETH-denominated amounts now carry a USD subtitle driven by the

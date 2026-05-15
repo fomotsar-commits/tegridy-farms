@@ -10,7 +10,10 @@
     "indexer:install": "npm --prefix indexer install",
     "indexer:dev": "npm --prefix indexer run dev",
     "indexer:serve": "npm --prefix indexer run serve",
-    "indexer:codegen": "npm --prefix indexer run codegen"
+    "indexer:codegen": "npm --prefix indexer run codegen",
+    "telegram-bot:install": "npm --prefix services/telegram-bot install",
+    "telegram-bot:dev": "npm --prefix services/telegram-bot run dev",
+    "telegram-bot:start": "npm --prefix services/telegram-bot run start"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2"
