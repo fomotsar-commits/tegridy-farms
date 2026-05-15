@@ -548,6 +548,63 @@ export const factoryEmergencyDisable = onchainTable(
   }),
 );
 
+// ─── NFT Launchpad (P0-2 of frontend 30-day UX push) ─────────────────────────
+//
+// V2 factory is at the zero placeholder today; the handler is wired now so
+// that the moment `TEGRIDY_LAUNCHPAD_V2_ADDRESS` is updated and the factory
+// broadcasts, Ponder back-fills both tables from `CollectionCreated` and
+// per-clone Transfer(from=0x0) without further code changes.
+//
+// Schema follows two audit findings from API_INDEXER_AUDIT.md:
+//   • INDEXER-H2 — `event.log.id` as PK so re-indexed reorgs collapse
+//     duplicate rows via `.onConflictDoNothing()`.
+//   • INDEXER-H1 — never insert a row for an event with no real user.
+//     `dropMint.minter` reads from `tx.from` since ERC-721 Transfer's
+//     `to` is the recipient (which may not be the caller for gifts).
+
+export const dropCollection = onchainTable(
+  "drop_collection",
+  (t) => ({
+    // event.log.id — unique per emitted event even across reorgs.
+    id: t.text().primaryKey(),
+    // Sequential id from the factory; useful for ordering / pagination
+    // without needing a block-number join.
+    factoryId: t.bigint().notNull(),
+    collection: t.hex().notNull(),
+    creator: t.hex().notNull(),
+    name: t.text().notNull(),
+    symbol: t.text().notNull(),
+    blockNumber: t.bigint().notNull(),
+    timestamp: t.bigint().notNull(),
+    txHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    collectionIdx: index().on(table.collection),
+    creatorIdx: index().on(table.creator),
+    timestampIdx: index().on(table.timestamp),
+  }),
+);
+
+export const dropMint = onchainTable(
+  "drop_mint",
+  (t) => ({
+    id: t.text().primaryKey(),
+    collection: t.hex().notNull(),
+    tokenId: t.bigint().notNull(),
+    minter: t.hex().notNull(), // tx.from of the mint call (the wallet who paid)
+    recipient: t.hex().notNull(), // ERC-721 Transfer `to`
+    blockNumber: t.bigint().notNull(),
+    timestamp: t.bigint().notNull(),
+    txHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    collectionIdx: index().on(table.collection),
+    minterIdx: index().on(table.minter),
+    recipientIdx: index().on(table.recipient),
+    tokenKeyIdx: index().on(table.collection, table.tokenId),
+  }),
+);
+
 // ─── TWAP rebootstrap (post-Batch-J sweep) ───────────────────────────────────
 
 // AUDIT M-2 (Batch J, commit 5fad774): TegridyTWAP DeviationBypassed.

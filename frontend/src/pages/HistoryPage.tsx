@@ -14,6 +14,8 @@ import { shortenAddress, formatTimeAgo } from '../lib/formatting';
 import { Skeleton } from '../components/ui/Skeleton';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ArtImg } from '../components/ArtImg';
+import { useUserHistory } from '../hooks/useUserHistory';
+import { formatEther } from 'viem';
 
 // R040 H1: zod schema for any externally-controlled JSON crossing the wire.
 // Replaces the typeof-only guard which let a poisoned proxy response slip
@@ -380,6 +382,12 @@ export default function HistoryPage() {
           </div>
         </m.div>
 
+        {/* P0-2: indexer-augmented activity strip. Renders ONLY when the
+            indexer URL is configured AND returns rows for this user — when
+            unavailable, the Etherscan-backed table below remains the sole
+            timeline (silent fallback per the chosen UX). */}
+        <IndexerActivityStrip address={address} />
+
         <m.div className="rounded-xl overflow-hidden relative" style={{ border: '1px solid var(--color-purple-12)' }} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <div className="absolute inset-0">
             <ArtImg pageId="history" idx={2} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -542,4 +550,99 @@ export default function HistoryPage() {
       </div>
     </div>
   );
+}
+
+/**
+ * Indexer-augmented activity strip (P0-2).
+ *
+ * Renders nothing when:
+ *   • The indexer URL is unset (`isAvailable === false`)
+ *   • The user has no indexer-known activity
+ *   • Indexer query is still in flight (table below already has a loading
+ *     state; double-spinning the page is worse than a quiet 200ms wait)
+ *
+ * Silent-fallback choice approved during P0-2 plan review. When the
+ * indexer goes live, this strip surfaces richer activity types (claims,
+ * extends, restakes) that the Etherscan tx-list can't easily disambiguate.
+ */
+function IndexerActivityStrip({ address }: { address?: `0x${string}` }) {
+  const { activities, isAvailable, isLoading } = useUserHistory(address, { first: 12 });
+
+  if (!isAvailable || isLoading || activities.length === 0) return null;
+
+  return (
+    <div
+      className="mb-4 rounded-xl overflow-hidden relative"
+      style={{ border: '1px solid var(--color-purple-12)' }}
+    >
+      <div className="relative z-10" style={{ background: 'rgba(6,12,26,0.85)' }}>
+        <div
+          className="px-4 md:px-5 py-3 flex items-center justify-between"
+          style={{ borderBottom: '1px solid var(--color-purple-12)' }}
+        >
+          <h2 className="text-white text-[13px] font-semibold">
+            Detailed activity
+          </h2>
+          <span className="text-[10px] uppercase tracking-wider text-white/60">
+            Indexer · top {activities.length}
+          </span>
+        </div>
+        <ul className="divide-y divide-white/[0.04]">
+          {activities.slice(0, 12).map((a) => (
+            <li
+              key={a.id}
+              className="px-4 md:px-5 py-2.5 flex items-center gap-3 text-[12px]"
+            >
+              <span
+                className="px-2 py-0.5 rounded-md text-[10px] font-medium uppercase tracking-wide"
+                style={{
+                  background: 'rgba(76,175,80,0.18)',
+                  color: '#86efac',
+                  border: '1px solid rgba(76,175,80,0.4)',
+                }}
+              >
+                {a.kind}
+              </span>
+              {a.subtitle ? (
+                <span className="text-white/70 truncate flex-1">{a.subtitle}</span>
+              ) : (
+                <span className="flex-1" />
+              )}
+              {a.amount && a.amount > 0n && (
+                <span className="text-white font-mono">
+                  {trimAmount(a.amount)}
+                  {a.assetSymbol ? ` ${a.assetSymbol}` : ''}
+                </span>
+              )}
+              <span className="text-white/50 text-[11px] tabular-nums shrink-0 w-16 text-right">
+                {formatTimeAgo(a.timestamp)}
+              </span>
+              {a.txHash ? (
+                <a
+                  href={getTxUrl(1, a.txHash)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-purple-300 hover:text-purple-200 text-[11px] underline underline-offset-2 shrink-0"
+                  aria-label={`View tx ${shortenAddress(a.txHash)} on Etherscan`}
+                >
+                  Tx
+                </a>
+              ) : (
+                <span className="w-[18px] shrink-0" />
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function trimAmount(wei: bigint): string {
+  if (wei <= 0n) return '0';
+  const n = Number(formatEther(wei));
+  if (n < 0.0001) return n.toExponential(2);
+  if (n < 1) return n.toFixed(4);
+  if (n < 1000) return n.toFixed(2);
+  return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
 }

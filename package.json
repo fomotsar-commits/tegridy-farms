@@ -6,7 +6,11 @@
   "scripts": {
     "render-og-png": "node scripts/render-og-png.mjs",
     "extract-abis": "node scripts/extract-missing-abis.mjs",
-    "diff-addresses": "npx tsx scripts/diff-addresses.ts"
+    "diff-addresses": "npx tsx scripts/diff-addresses.ts",
+    "indexer:install": "npm --prefix indexer install",
+    "indexer:dev": "npm --prefix indexer run dev",
+    "indexer:serve": "npm --prefix indexer run serve",
+    "indexer:codegen": "npm --prefix indexer run codegen"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2"

@@ -873,6 +873,45 @@ const rpcTransport = RPC_URLS.length > 0
 // the reverse-proxy layer if running in a multi-tenant VPC. See
 // https://ponder.sh/docs/advanced/self-hosting for the full surface.
 
+// ─── NFT Launchpad V2 (P0-2 of frontend 30-day UX push) ──────────────────
+// `TegridyLaunchpadV2` factory + per-clone `TegridyDropV2` Transfer events.
+// V2 isn't deployed yet (TEGRIDY_LAUNCHPAD_V2_ADDRESS = 0x000…); operator
+// sets TEGRIDY_LAUNCHPAD_V2_ADDRESS in indexer env once the factory
+// broadcasts. Until then this subscription is a no-op.
+
+const TegridyLaunchpadV2Abi = [
+  {
+    type: "event",
+    name: "CollectionCreated",
+    inputs: [
+      { name: "id", type: "uint256", indexed: true },
+      { name: "collection", type: "address", indexed: true },
+      { name: "creator", type: "address", indexed: true },
+      { name: "name", type: "string", indexed: false },
+      { name: "symbol", type: "string", indexed: false },
+    ],
+  },
+] as const;
+
+// Per-clone ERC-721 Transfer. We only care about mints (`from = address(0)`)
+// and rely on the standard ERC-721 event signature; gifts/secondary sales
+// are out of scope for the launchpad gallery.
+const TegridyDropV2Abi = [
+  {
+    type: "event",
+    name: "Transfer",
+    inputs: [
+      { name: "from", type: "address", indexed: true },
+      { name: "to", type: "address", indexed: true },
+      { name: "tokenId", type: "uint256", indexed: true },
+    ],
+  },
+] as const;
+
+const TegridyLaunchpadV2CollectionCreatedEvent = parseAbiItem(
+  "event CollectionCreated(uint256 indexed id, address indexed collection, address indexed creator, string name, string symbol)",
+);
+
 // AUDIT R054: per-contract deploy blocks pulled from
 // `contracts/broadcast/*/1/run-latest.json`. Replaces the prior shared
 // `24500000` floor so historical sync skips ~316k blocks of empty
@@ -1055,6 +1094,35 @@ export default createConfig({
       address: (process.env.SWAP_FEE_ROUTER_ADMIN_ADDRESS as `0x${string}` | undefined)
         ?? "0x0000000000000000000000000000000000000000",
       startBlock: SWAP_FEE_ROUTER_START,
+    },
+    // P0-2 (30-day UX push): NFT Launchpad V2 factory + per-clone Transfer
+    // mints. The factory address is 0x000… until V2 broadcasts; operator
+    // sets TEGRIDY_LAUNCHPAD_V2_ADDRESS once that happens. Until then both
+    // entries are no-ops (Ponder treats zero-address contracts as never
+    // matching any event).
+    TegridyLaunchpadV2: {
+      abi: TegridyLaunchpadV2Abi,
+      network: "mainnet",
+      address: (process.env.TEGRIDY_LAUNCHPAD_V2_ADDRESS as `0x${string}` | undefined)
+        ?? "0x0000000000000000000000000000000000000000",
+      // Block floor: same conservative floor as TegridyFactory until ops
+      // verify the broadcast file. Tighten after the V2 deploy ships.
+      startBlock: TEGRIDY_FACTORY_START,
+    },
+    // Per-collection Transfer events. Ponder's `factory()` helper auto-
+    // discovers every clone the moment `CollectionCreated` lands; we then
+    // index Transfer(from=0x0) to populate `dropMint`. Standard secondary-
+    // sale Transfers also flow in but the handler filters to mints only.
+    TegridyDropV2: {
+      abi: TegridyDropV2Abi,
+      network: "mainnet",
+      address: factory({
+        address: (process.env.TEGRIDY_LAUNCHPAD_V2_ADDRESS as `0x${string}` | undefined)
+          ?? "0x0000000000000000000000000000000000000000",
+        event: TegridyLaunchpadV2CollectionCreatedEvent,
+        parameter: "collection",
+      }),
+      startBlock: TEGRIDY_FACTORY_START,
     },
   },
 });

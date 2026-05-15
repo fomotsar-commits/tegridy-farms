@@ -80,10 +80,20 @@ Prerequisites: Node 20+, pnpm, Foundry (`foundryup`), Docker (for local Supabase
 
 5. **Run the indexer**
 
+   From the repo root (preferred — no `cd` dance):
+
    ```bash
-   cd indexer
-   pnpm dev
+   npm run indexer:install   # one-time
+   npm run indexer:dev       # boots ponder dev on http://localhost:42069
    ```
+
+   Or, from the workspace directly:
+
+   ```bash
+   cd indexer && pnpm dev
+   ```
+
+   Ponder serves a GraphQL endpoint at `http://localhost:42069/graphql` and a health probe at `/health`. To wire the frontend up to it, set `INDEXER_URL=http://localhost:42069` in `frontend/.env` — the Vite dev proxy at `/api/indexer` will forward requests there. When `INDEXER_URL` is unset, the frontend silently falls back to RPC/Etherscan reads (see P0-2 of the 30-day UX push).
 
 6. **Run the frontend**
 

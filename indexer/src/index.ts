@@ -32,6 +32,8 @@ import {
   pauseState,
   pauseEvent,
   timelockProposal,
+  dropCollection,
+  dropMint,
 } from "ponder:schema";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -1395,4 +1397,51 @@ ponder.on("SwapFeeRouterAdmin:ProposalExecuted", async ({ event, context }) => {
 });
 ponder.on("SwapFeeRouterAdmin:ProposalCancelled", async ({ event, context }) => {
   await recordTimelockEvent(context, event, "SwapFeeRouterAdmin", "cancelled");
+});
+
+// ─── NFT Launchpad V2 (P0-2 of frontend 30-day UX push) ───────────────────────
+//
+// Handler conforms to:
+//   • INDEXER-H2 — `event.log.id` PK + `.onConflictDoNothing()` on every
+//     insert so reorg replays collapse cleanly.
+//   • INDEXER-H1 — no zero-address `user` rows; the `Transfer` event's `from`
+//     IS `address(0)` on mint, but the row's `minter` is derived from
+//     `tx.from` (the wallet that paid). `recipient` is the ERC-721 `to`.
+
+ponder.on("TegridyLaunchpadV2:CollectionCreated", async ({ event, context }) => {
+  const { id, collection, creator, name, symbol } = event.args;
+  await context.db
+    .insert(dropCollection)
+    .values({
+      id: event.log.id,
+      factoryId: id,
+      collection,
+      creator,
+      name,
+      symbol,
+      blockNumber: event.block.number,
+      timestamp: event.block.timestamp,
+      txHash: event.transaction.hash,
+    })
+    .onConflictDoNothing();
+});
+
+ponder.on("TegridyDropV2:Transfer", async ({ event, context }) => {
+  const { from, to, tokenId } = event.args;
+  // Only index mints — Transfer fires on every secondary trade too, and
+  // tracking those is out of scope for the launchpad gallery.
+  if (from !== "0x0000000000000000000000000000000000000000") return;
+  await context.db
+    .insert(dropMint)
+    .values({
+      id: event.log.id,
+      collection: event.log.address,
+      tokenId,
+      minter: event.transaction.from,
+      recipient: to,
+      blockNumber: event.block.number,
+      timestamp: event.block.timestamp,
+      txHash: event.transaction.hash,
+    })
+    .onConflictDoNothing();
 });

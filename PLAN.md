@@ -94,4 +94,111 @@ No `contracts/**` changes. No new dependencies.
 
 ---
 
-(P0-2 … P2-10 plans will be added here ahead of each item.)
+## P0-2 — Wire the Ponder indexer to the frontend
+
+**Goal:** the frontend stops reading from `/api/etherscan` and stops
+polling raw chain state for things the indexer can serve. User
+positions, history, and leaderboard data come from indexer queries.
+
+**Constraints picked up from the codebase:**
+- Indexer is fully built (`indexer/ponder.config.ts` + 32 schema
+  tables) but **not yet deployed anywhere**. No `INDEXER_URL` in
+  `.env.example`. Per the user note: "indexer in `indexer/` is
+  currently orphaned." So the client needs to fail open when the
+  indexer URL is unset — the app must keep working on day 0 with
+  existing RPC/Etherscan paths.
+- The indexer **does not** track Launchpad / Drop events today.
+  Extending the schema is in scope per the user's brief. The V2
+  factory is at the zero placeholder, so the new handler reads zero
+  rows until V2 broadcasts; that's fine and additive.
+- Frontend already proxies external services via `/api/*` Vercel
+  serverless functions + Vite dev proxies. The indexer fits the same
+  pattern.
+- `API_INDEXER_AUDIT.md` flags `INDEXER-H1` (zero-address phantom
+  rows) and `INDEXER-H2` (idempotency via `event.log.id` PK). New
+  handlers must conform.
+
+### The 3-bullet plan
+
+- **Build the indexer client + proxy as the new foundation.** New
+  `frontend/src/lib/indexer.ts` exports a tiny GraphQL `query()` (plain
+  `fetch`, no new dep) and React Query hooks (`useIndexerQuery`,
+  `useIndexerAvailability`). The URL resolves at runtime to either
+  `import.meta.env.VITE_INDEXER_URL` (public) or `/api/indexer`
+  (server-side proxy that holds the URL in `INDEXER_URL`). New
+  `frontend/api/indexer.js` is the Vercel function; `vite.config.ts`
+  gains a `/api/indexer` dev proxy. When neither is configured, hooks
+  return `{ data: null, isAvailable: false }` so call-sites cleanly
+  fall back to existing RPC/Etherscan reads. Document both env vars in
+  `frontend/.env.example`.
+
+- **Swap the three highest-value reads** from RPC/Etherscan to the
+  indexer (behind the availability flag — RPC/Etherscan stays as
+  fallback for as long as we want):
+  - **HistoryPage** — replace the `/api/etherscan?action=txlist` call
+    with a unified user-action query across `stakingAction`,
+    `revenueClaim`, `restakingClaim`, `loan`, `loanOffer`, `swap`,
+    `lpFarmAction`, `bribeClaim`, `voteIncentivesRefund`. Filter by
+    `user = address`, sort `timestamp desc`, paginate.
+  - **`useUserPosition`** — read staking + restaking position rows
+    from `stakingPosition` and `restakingPosition` instead of N RPC
+    multicalls per visitor.
+  - **`useLaunchpadList`** — once V2 launches, swap factory
+    enumeration for an indexer `dropCollection` query. The schema
+    extension lands now so the handler back-fills the moment V2's
+    `CollectionCreated` event lands.
+
+- **Extend the indexer schema + handlers** for Launchpad and conform to
+  the audit findings:
+  - Add `dropCollection` table (one row per V2 clone) + `dropMint`
+    table (one row per per-clone Transfer-from-zero) to
+    `ponder.schema.ts`. Use `event.log.id` as PK on both
+    (INDEXER-H2). Index on `creator`, `collection`, `minter`.
+  - Add `TegridyLaunchpadV2` to `ponder.config.ts` (currently zero
+    address; Ponder treats zero-address contracts as no-op subscribers
+    until the address changes). The factory pattern uses Ponder's
+    `factory()` helper to follow per-collection clones once
+    `CollectionCreated` is observed.
+  - Wire handlers in `indexer/src/index.ts` for
+    `CollectionCreated` + each clone's `Transfer(from=0x0)`.
+  - No zero-address user rows (INDEXER-H1) — use `tx.from` for the
+    creator/minter where the event payload doesn't carry the user.
+  - **Log the deployment requirement in `FRONTEND_BLOCKERS.md`** — the
+    indexer must be hosted somewhere reachable; without that URL,
+    every frontend swap stays on its RPC/Etherscan fallback. This
+    isn't a contract change; it's a real ops dep that gates P0-2 from
+    delivering real value at launch.
+
+### Out of scope for P0-2 (logged for later)
+
+- Real top-N leaderboards — that's P1-5 (will reuse this client).
+- WebSocket subscriptions on indexer changes — that's P0-3 (the
+  client lays the groundwork via React Query, which P0-3 swaps for
+  WS-backed `useSubscription`).
+- Indexer hosting — out of frontend scope; documented as a blocker.
+- Authentication on the proxy — the indexer is public read-only, so
+  no SIWE gate needed. CORS + per-IP rate limit reuses the existing
+  Upstash setup from other `/api/*` functions.
+
+### Files I expect to touch
+
+```
+NEW   frontend/src/lib/indexer.ts
+NEW   frontend/api/indexer.js
+EDIT  frontend/vite.config.ts            (dev proxy for /api/indexer)
+EDIT  frontend/.env.example              (VITE_INDEXER_URL + INDEXER_URL)
+EDIT  frontend/src/pages/HistoryPage.tsx (indexer-first, etherscan fallback)
+EDIT  frontend/src/hooks/useUserPosition.ts (indexer-first, RPC fallback)
+EDIT  indexer/ponder.schema.ts           (+ dropCollection, dropMint)
+EDIT  indexer/ponder.config.ts           (+ TegridyLaunchpadV2 entry)
+EDIT  indexer/src/index.ts               (+ launchpad handlers)
+NEW   FRONTEND_BLOCKERS.md               (indexer deploy + V2 launchpad notes)
+EDIT  FRONTEND_CHANGELOG.md              (P0-2 entry)
+```
+
+No `contracts/**` changes. No new dependencies in the frontend
+package.
+
+---
+
+(P0-3 … P2-10 plans will be added here ahead of each item.)

@@ -207,6 +207,45 @@ export default defineConfig(({ mode }) => {
           target: 'https://tegridyfarms.vercel.app',
           changeOrigin: true,
         },
+        // /api/indexer — P0-2 of the 30-day UX push.
+        // Forwards to the local Ponder GraphQL server when INDEXER_URL is
+        // set in .env (typically `http://localhost:42069` for `ponder dev`).
+        // If unset, requests fall through and the indexer.ts client treats
+        // them as 503 → silent RPC/Etherscan fallback. We deliberately don't
+        // forward to the deployed proxy here so dev doesn't accidentally
+        // load production indexer data.
+        '/api/indexer': (() => {
+          const target = (env.INDEXER_URL || '').trim();
+          if (!target) {
+            // INDEXER_URL is unset — point at an unreachable address and
+            // intercept the resulting connection error to return a clean
+            // 503. The indexer.ts client treats 503 as "unavailable" and
+            // call-sites silently fall back to RPC/Etherscan.
+            return {
+              target: 'http://127.0.0.1:1',
+              changeOrigin: true,
+              configure: (proxy) => {
+                proxy.on('error', (_err, _req, res) => {
+                  try {
+                    // res is a Node ServerResponse; narrow without unsafe casts.
+                    const r = res as { writeHead?: (code: number, headers?: Record<string, string>) => void; end?: (body?: string) => void; headersSent?: boolean };
+                    if (r.writeHead && r.end && !r.headersSent) {
+                      r.writeHead(503, { 'content-type': 'application/json' });
+                      r.end(JSON.stringify({ error: 'INDEXER_URL not set' }));
+                    }
+                  } catch {
+                    /* socket may already be torn down */
+                  }
+                });
+              },
+            };
+          }
+          return {
+            target,
+            changeOrigin: true,
+            rewrite: () => '/graphql',
+          };
+        })(),
         // ═══ Nakamigos marketplace dev proxies ═══
         // Mimics the Vercel serverless functions locally
         '/api/alchemy': {
