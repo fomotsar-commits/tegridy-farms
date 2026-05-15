@@ -29,6 +29,7 @@ import { FarmStatsRow } from '../components/farm/FarmStatsRow';
 import { LPFarmingSection } from '../components/farm/LPFarmingSection';
 import { StakingCard } from '../components/farm/StakingCard';
 import type { ConfirmState } from '../components/farm/StakingCard';
+import { tooltip } from '../lib/tooltips';
 import { BoostScheduleTable } from '../components/farm/BoostScheduleTable';
 import { UPCOMING_POOLS } from '../components/farm/poolConfig';
 import { LivePoolCard } from '../components/farm/LivePoolCard';
@@ -303,6 +304,7 @@ export default function FarmPage() {
                   <button
                     onClick={restaking.restake}
                     disabled={restaking.isPending || restaking.isConfirming}
+                    title={tooltip('restake.deposit')}
                     className="btn-primary px-6 py-2.5 min-h-[44px] text-[13px] flex-1"
                   >
                     {restaking.isPending ? 'Confirm in wallet...' : restaking.isConfirming ? 'Confirming...' : 'Restake Position'}
@@ -312,6 +314,7 @@ export default function FarmPage() {
                     <button
                       onClick={restaking.claimAll}
                       disabled={restaking.isPending || restaking.isConfirming || restaking.pendingTotal === 0n}
+                      title={tooltip('restake.claimAll')}
                       className="btn-primary px-6 py-2.5 min-h-[44px] text-[13px] flex-1"
                     >
                       {restaking.isPending ? 'Confirm...' : restaking.isConfirming ? 'Confirming...' : `Claim ${restaking.pendingTotalFormatted.toFixed(4)} TOWELI`}
@@ -319,6 +322,7 @@ export default function FarmPage() {
                     <button
                       onClick={restaking.unrestake}
                       disabled={restaking.isPending || restaking.isConfirming}
+                      title={tooltip('restake.withdraw')}
                       className="btn-outline px-4 py-2.5 min-h-[44px] text-[13px]"
                     >
                       Unrestake

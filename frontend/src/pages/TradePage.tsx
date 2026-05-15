@@ -12,6 +12,7 @@ import { LiquidityTab } from '../components/swap/LiquidityTab';
 import { TokenSelectModal } from '../components/swap/TokenSelectModal';
 import { ArtImg } from '../components/ArtImg';
 import { useTowelie } from '../hooks/useTowelie';
+import { tooltip } from '../lib/tooltips';
 
 // P1-4 (2026-05-14): the DCA / Limit Order tabs were pulled because they
 // persisted in browser localStorage and only triggered while the user had
@@ -434,6 +435,7 @@ export default function TradePage() {
                 {/* Action Button — sits directly on the art, matching the Liquidity tab's pattern. */}
                 {swap.needsApproval ? (
                   <button onClick={swap.approve} disabled={swap.isPending}
+                    title={tooltip('swap.approve')}
                     className="w-full btn-primary py-3 min-h-[48px] text-[15px] font-semibold rounded-xl"
                   >
                     {swap.isPending ? 'Approving...' : `Approve ${swap.fromToken?.symbol}`}
@@ -441,6 +443,7 @@ export default function TradePage() {
                 ) : (
                   <button onClick={swap.executeSwap}
                     disabled={swap.isPending || swap.isConfirming || swap.insufficientBalance || !swap.inputAmount || swap.outputAmount === 0n}
+                    title={tooltip('swap.execute')}
                     className="w-full btn-primary py-3 min-h-[48px] text-[15px] font-semibold rounded-xl disabled:opacity-40"
                   >
                     {swap.isPending ? 'Confirm in wallet...' : swap.isConfirming ? 'Confirming...' : swap.insufficientBalance ? 'Insufficient balance' : 'Swap'}

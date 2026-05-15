@@ -4,6 +4,29 @@ One paragraph per shipped item. Newest first.
 
 ---
 
+## P2-6 — Tooltips on every action button (foundation + top buttons) (2026-05-14)
+
+New centralized copy library
+[`frontend/src/lib/tooltips.ts`](frontend/src/lib/tooltips.ts) — typed
+`TooltipKey` union covers 40+ action surfaces (swap, stake, restake,
+revenue, launchpad mint/refund, NFT lending, NFT AMM, gauge vote,
+bribes, grants, bounties, premium). Each entry is one sentence
+following the brief's pattern: **what it does, what it costs, whether
+it's reversible**. Applied via native `title=` to the highest-leverage
+action buttons: TradePage swap/approve, StakingCard
+claim/withdraw/earlyWithdraw/autoMaxLock/stake, FarmPage
+restake/claimAll/unrestake, DashboardPage claim-rewards + claim-ETH,
+CollectionDetailV2 mint (allowlist/dutch/public branches) + refund.
+Native `title` chosen over a custom hover component because the
+existing `InfoTooltip` "?" pattern is for inline definitions next to
+labels — `title=` is the right primitive for "hover the button to see
+its tx contract." Remaining buttons (lending offers, NFT AMM, gauge
+vote, bounties, grants, bribes, premium) keep the existing UX and
+their tooltip keys are already in the lib — incremental wiring is a
+one-line-per-button diff. No contract changes. No new dependencies.
+
+---
+
 ## P1-5 — Real top-N leaderboards (2026-05-14)
 
 New cross-wallet rankings on LeaderboardPage sourced from the

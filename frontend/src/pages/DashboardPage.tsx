@@ -15,6 +15,7 @@ import { useNFTBoost } from '../hooks/useNFTBoost';
 // P1-4: useDCA / useLimitOrders no longer surfaced on the dashboard —
 // localStorage-backed alerts were pulled with the trade-page tabs.
 import { useMyLoans } from '../hooks/useMyLoans';
+import { tooltip } from '../lib/tooltips';
 import { pageArt, artStyle } from '../lib/artConfig';
 import { formatTokenAmount, formatCurrency } from '../lib/formatting';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -322,6 +323,7 @@ export default function DashboardPage() {
               <m.div className="mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 <button onClick={handleClaim}
                   disabled={farmActions.isPending || farmActions.isConfirming}
+                  title={tooltip('stake.claim')}
                   className="btn-primary px-6 py-2.5 text-[13px] disabled:opacity-70 disabled:cursor-not-allowed">
                   {farmActions.isPending || farmActions.isConfirming
                     ? 'Claiming...'
@@ -452,6 +454,7 @@ export default function DashboardPage() {
               <m.div className="mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 <button onClick={handleClaim}
                   disabled={farmActions.isPending || farmActions.isConfirming}
+                  title={tooltip('stake.claim')}
                   className="btn-primary px-6 py-2.5 text-[13px] disabled:opacity-70 disabled:cursor-not-allowed">
                   {farmActions.isPending || farmActions.isConfirming
                     ? 'Claiming...'
@@ -539,6 +542,7 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
           </div>
           <button onClick={() => writeContract({ chainId: CHAIN_ID, address: REVENUE_DISTRIBUTOR_ADDRESS, abi: REVENUE_DISTRIBUTOR_ABI, functionName: 'claim' })}
             disabled={isPending || isConfirming || isWrongNetwork}
+            title={tooltip('revenue.claim')}
             className="btn-primary px-5 py-2.5 text-[13px] disabled:opacity-70">
             {isPending || isConfirming ? 'Claiming...' : 'Claim ETH'}
           </button>

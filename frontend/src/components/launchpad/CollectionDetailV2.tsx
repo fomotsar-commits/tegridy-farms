@@ -4,6 +4,7 @@ import { useAccount } from 'wagmi';
 import { formatEther } from 'viem';
 import { ART } from '../../lib/artConfig';
 import { useNFTDropV2 } from '../../hooks/useNFTDropV2';
+import { tooltip } from '../../lib/tooltips';
 import { INPUT, LABEL, BTN_EMERALD } from './launchpadConstants';
 import { ArtCard, PhaseIndicator, useExplorerAddressUrl, CreatorRevenueDashboard, LiveMintFeed } from './launchpadShared';
 import { OwnerAdminPanelV2 } from './OwnerAdminPanelV2';
@@ -264,6 +265,7 @@ export function CollectionDetailV2({
                       <button
                         onClick={() => drop.refund()}
                         disabled={drop.isPending || drop.isConfirming}
+                        title={tooltip('drop.refund')}
                         className="px-4 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                         style={{
                           background: 'rgba(239, 68, 68, 0.2)',
@@ -413,6 +415,13 @@ export function CollectionDetailV2({
                   }`}
                   disabled={mintDisabled}
                   onClick={handleMint}
+                  title={
+                    drop.currentPhase === 1
+                      ? tooltip('drop.mintAllowlist')
+                      : drop.currentPhase === 3
+                      ? tooltip('drop.mintDutch')
+                      : tooltip('drop.mintPublic')
+                  }
                 >
                   {mintLabel}
                 </button>

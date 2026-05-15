@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { formatTokenAmount } from '../../lib/formatting';
 import { AnimatedCounter } from '../AnimatedCounter';
 import { PENALTY_COPY } from '../../lib/copy';
+import { tooltip } from '../../lib/tooltips';
 import type { useFarmActions } from '../../hooks/useFarmActions';
 import type { useUserPosition } from '../../hooks/useUserPosition';
 import type { useNFTBoost } from '../../hooks/useNFTBoost';
@@ -175,6 +176,7 @@ export function StakingCard({
             <div className="flex flex-col gap-2">
               <button onClick={() => { lastActionRef.current = 'claim'; actions.claim(pos.tokenId); }}
                 disabled={actions.isPending || actions.isConfirming || pos.isLoading || Number(pos.pendingFormatted) < 0.01}
+                title={tooltip('stake.claim')}
                 className="btn-primary w-full py-3 text-[14px] disabled:opacity-70 disabled:cursor-not-allowed">
                 {actions.isPending || actions.isConfirming ? 'Processing...' : 'Claim Rewards'}
               </button>
@@ -193,6 +195,7 @@ export function StakingCard({
                 {pos.canWithdraw && !confirms.withdraw && (
                   <button onClick={() => setConfirm('withdraw', true)}
                     disabled={actions.isPending || actions.isConfirming}
+                    title={tooltip('stake.withdraw')}
                     className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-70">
                     Withdraw
                   </button>
@@ -218,6 +221,7 @@ export function StakingCard({
                 {pos.isLocked && !confirms.earlyWithdraw && (
                   <button onClick={() => setConfirm('earlyWithdraw', true)}
                     disabled={actions.isPending || actions.isConfirming}
+                    title={tooltip('stake.earlyWithdraw')}
                     className="w-full py-2.5 text-[13px] rounded-lg disabled:opacity-70"
                     style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: 'rgba(239,68,68,0.8)' }}>
                     {PENALTY_COPY.earlyExitLabel} ({EARLY_WITHDRAWAL_PENALTY_PCT}%)
@@ -252,6 +256,7 @@ export function StakingCard({
                 })()}
                 <button onClick={() => actions.toggleAutoMaxLock(pos.tokenId)}
                   disabled={actions.isPending || actions.isConfirming}
+                  title={tooltip('stake.autoMaxLock')}
                   className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-70">
                   {pos.autoMaxLock ? 'Disable Auto-Lock' : 'Enable Auto-Max Lock'}
                 </button>
@@ -390,6 +395,7 @@ export function StakingCard({
 
             <button onClick={handleStake}
               disabled={actions.isPending || actions.isConfirming || amtNum <= 0}
+              title={stakeNeedsApproval ? tooltip('stake.approve') : tooltip('stake.create')}
               className="btn-primary w-full py-3.5 text-[14px] disabled:opacity-70 disabled:cursor-not-allowed">
               {actions.isPending || actions.isConfirming
                 ? 'Processing...'
