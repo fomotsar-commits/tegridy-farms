@@ -3,6 +3,7 @@ import { useReadContract } from 'wagmi';
 import { UNISWAP_V2_PAIR_ABI, CHAINLINK_FEED_ABI, TEGRIDY_TWAP_ABI } from '../lib/contracts';
 import { TOWELI_WETH_LP_ADDRESS, ETH_USD_FEED, TOWELI_ADDRESS, TEGRIDY_TWAP_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
 import { safeSetItem, safeGetItem, safeJsonParse } from '../lib/storage';
+import { useBlockRefresh } from './useBlockRefresh';
 
 // R075: every cache key carries its own schema version. A stale entry from
 // a different commit, a tampered `signedAt`, or a future-signed payload is
@@ -52,12 +53,17 @@ export function useToweliPrice() {
   const pairAddr = TOWELI_WETH_LP_ADDRESS;
   const hasPair = checkDeployed(pairAddr);
 
-  const { data: reserves } = useReadContract({
+  const { data: reserves, refetch: refetchReserves } = useReadContract({
     address: pairAddr,
     abi: UNISWAP_V2_PAIR_ABI,
     functionName: 'getReserves',
-    query: { enabled: hasPair, refetchInterval: 60_000, refetchOnWindowFocus: true },
+    // P0-3: per-block refresh via `useBlockRefresh` (below). Pair reserves
+    // change on every swap — this is the highest-value subscription in
+    // the price path because every swap UI rate quote downstream reads
+    // from these.
+    query: { enabled: hasPair, refetchOnWindowFocus: true },
   });
+  useBlockRefresh(refetchReserves, { enabled: hasPair });
 
   const { data: token0 } = useReadContract({
     address: pairAddr,
@@ -70,7 +76,10 @@ export function useToweliPrice() {
     address: ETH_USD_FEED,
     abi: CHAINLINK_FEED_ABI,
     functionName: 'latestRoundData',
-    query: { refetchInterval: 60_000 },
+    // P0-3: Chainlink feeds update on a heartbeat (1h) or deviation (0.5%)
+    // so per-block watching is wasteful — most blocks have zero updates.
+    // Stick with a slow poll cadence (90s) instead of `watch: true`.
+    query: { refetchInterval: 90_000 },
   });
 
   // TegridyTWAP.consult — third oracle leg for manipulation-resistant pricing.
@@ -84,6 +93,10 @@ export function useToweliPrice() {
     abi: TEGRIDY_TWAP_ABI,
     functionName: 'consult',
     args: hasTwap && hasPair ? [pairAddr, TOWELI_ADDRESS, 10n ** 18n, TWAP_PERIOD_SECONDS] : undefined,
+    // P0-3: TWAP smooths over a 30-min window, so per-block subscription
+    // is overkill — 60s polling stays as the right cadence. The TWAP
+    // contract itself only changes on swaps, but the consult() result
+    // shifts continuously over the period regardless. Polling stays.
     query: {
       enabled: hasTwap && hasPair,
       refetchInterval: 60_000,

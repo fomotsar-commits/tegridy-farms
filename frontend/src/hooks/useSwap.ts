@@ -10,6 +10,7 @@ import { trackSwap } from '../lib/analytics';
 import { getTxUrl } from '../lib/explorer';
 import { useSwapQuote, QUOTE_MAX_AGE_MS as _QUOTE_MAX_AGE_MS } from './useSwapQuote';
 import { useSwapAllowance } from './useSwapAllowance';
+import { useBlockRefresh } from './useBlockRefresh';
 
 // re-export so external consumers can read the constant.
 export const QUOTE_MAX_AGE_MS = _QUOTE_MAX_AGE_MS;
@@ -179,7 +180,15 @@ export function useSwap() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publicClient, chainId]);
 
-  const { data: ethBalance } = useBalance({ address, chainId: CHAIN_ID, query: { refetchInterval: 30_000 } });
+  // P0-3: wagmi v2's `useBalance` has no built-in `watch` flag, so the
+  // balance is wired to the block heartbeat via `useBlockRefresh` — the
+  // shared helper that calls `refetch()` on each `useWatchBlockNumber`
+  // firing. Instant refresh after a confirmed tx, no 30s poll.
+  const { data: ethBalance, refetch: refetchEthBalance } = useBalance({
+    address,
+    chainId: CHAIN_ID,
+  });
+  useBlockRefresh(refetchEthBalance, { enabled: !!address });
 
   // Derived values
   const swapType = fromToken && toToken ? getSwapType(fromToken, toToken) : null;
@@ -220,23 +229,32 @@ export function useSwap() {
     allowance.approve();
   }, [allowance, chainId]);
 
-  // Refetch allowance and balances after successful tx + toast + auto-reset
+  // Refetch allowance and balances after successful tx + toast + auto-reset.
+  // P0-3: `useBlockRefresh` puts these on the WS-driven per-block heartbeat
+  // so the "max" button and balance display update the instant the user's
+  // tx confirms — no 30s wait.
   const { data: fromTokenBalance, refetch: refetchFromBalance } = useReadContract({
     address: (fromToken && !fromToken.isNative ? fromToken.address : WETH_ADDRESS) as `0x${string}`,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: [address!],
     chainId: CHAIN_ID,
-    query: { enabled: !!address && !!fromToken && !fromToken.isNative, refetchInterval: 30_000 },
+    query: { enabled: !!address && !!fromToken && !fromToken.isNative },
+  });
+  useBlockRefresh(refetchFromBalance, {
+    enabled: !!address && !!fromToken && !fromToken.isNative,
   });
 
-  const { data: toTokenBalance } = useReadContract({
+  const { data: toTokenBalance, refetch: refetchToBalance } = useReadContract({
     address: (toToken && !toToken.isNative ? toToken.address : WETH_ADDRESS) as `0x${string}`,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: [address!],
     chainId: CHAIN_ID,
-    query: { enabled: !!address && !!toToken && !toToken.isNative, refetchInterval: 30_000 },
+    query: { enabled: !!address && !!toToken && !toToken.isNative },
+  });
+  useBlockRefresh(refetchToBalance, {
+    enabled: !!address && !!toToken && !toToken.isNative,
   });
 
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });

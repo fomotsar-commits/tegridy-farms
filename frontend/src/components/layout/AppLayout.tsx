@@ -11,6 +11,7 @@ import { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { useTheme } from '../../contexts/ThemeContext';
 
 import { CHAIN_ID } from '../../lib/constants';
+import { useIndexerBlockInvalidator } from '../../lib/indexer';
 import { AppLoader } from '../loader';
 import { PriceProvider } from '../../contexts/PriceContext';
 import { ConfettiProvider } from '../Confetti';
@@ -87,6 +88,11 @@ export function AppLayout() {
   useEffect(() => {
     if (isConnected && connector?.name) trackWalletConnect(connector.name);
   }, [isConnected, connector?.name]);
+
+  // P0-3: block-cadence invalidator for all indexer-derived React Query
+  // entries. Mounted exactly once here so every `useIndexerQuery` consumer
+  // refreshes in sync.
+  useIndexerBlockInvalidator();
 
   return (
     <AppLoader>

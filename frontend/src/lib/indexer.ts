@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient, type UseQueryOptions } from '@tanstack/react-query';
+import { useWatchBlockNumber } from 'wagmi';
 
 /**
  * Tegridy indexer client (P0-2).
@@ -206,4 +207,28 @@ export function useInvalidateIndexer() {
   const qc = useQueryClient();
   return (keyPrefix: readonly unknown[] = []) =>
     qc.invalidateQueries({ queryKey: ['indexer', ...keyPrefix] });
+}
+
+/**
+ * Block-cadence cache invalidator (P0-3).
+ *
+ * Ponder 0.8.x doesn't expose stable GraphQL subscriptions, so we use the
+ * chain's own block heartbeat as the refresh signal: every new block,
+ * invalidate every `['indexer', ...]` query. The 30s `staleTime` inside
+ * `useIndexerQuery` caps actual re-fetch frequency, so back-to-back blocks
+ * during a busy minute don't translate into a re-fetch storm.
+ *
+ * Mount this exactly once at the AppLayout level. The hook returns nothing;
+ * its only effect is the side-channel invalidation.
+ */
+export function useIndexerBlockInvalidator() {
+  const qc = useQueryClient();
+  useWatchBlockNumber({
+    emitOnBegin: false,
+    onBlockNumber: () => {
+      // Cheap on the cache layer — invalidateQueries marks stale, the
+      // staleTime check inside useQuery decides whether to actually refetch.
+      qc.invalidateQueries({ queryKey: ['indexer'] });
+    },
+  });
 }

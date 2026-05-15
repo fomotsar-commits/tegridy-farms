@@ -5,6 +5,7 @@ import { TEGRIDY_DROP_V2_ABI } from '../lib/contracts';
 import { CHAIN_ID } from '../lib/constants';
 import { formatWei } from '../lib/formatting';
 import type { ContractMetadata } from '../lib/nftMetadata';
+import { useBlockRefresh } from './useBlockRefresh';
 
 /// Resolve an `ar://` URI (or bare Arweave tx ID) into a gateway URL the
 /// browser can fetch. `https://arweave.net/...` URIs pass through untouched.
@@ -60,8 +61,12 @@ export function useNFTDropV2(dropAddress: string) {
       { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'creator', chainId: CHAIN_ID },
       { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'contractURI', chainId: CHAIN_ID },
     ],
-    query: { enabled: enabled && onMainnet, refetchInterval: 60_000, refetchOnWindowFocus: true },
+    // P0-3: per-block refresh via `useBlockRefresh` (below). Mint UI now
+    // reacts to phase/supply changes in ~12s instead of waiting for the
+    // prior 60s poll boundary.
+    query: { enabled: enabled && onMainnet, refetchOnWindowFocus: true },
   });
+  useBlockRefresh(refetch, { enabled: enabled && onMainnet });
 
   const currentPhase = data?.[0]?.status === 'success' ? Number(data[0].result as number) : 0;
   const currentPrice = data?.[1]?.status === 'success' ? (data[1].result as bigint) : 0n;

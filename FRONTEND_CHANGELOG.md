@@ -4,6 +4,36 @@ One paragraph per shipped item. Newest first.
 
 ---
 
+## P0-3 — WebSockets instead of polling, foundation + top 5 hooks (2026-05-14)
+
+WS transport added to wagmi (`viem.webSocket(VITE_WS_RPC_URL)`, default
+`wss://ethereum-rpc.publicnode.com`) as the first entry in the existing
+`fallback([...])` chain in [lib/wagmi.ts:13-36](frontend/src/lib/wagmi.ts:13).
+viem auto-selects WS for subscriptions and HTTP for one-shot reads, so
+existing read flows stay on HTTP — purely additive. New shared helper
+`useBlockRefresh(refetch, { enabled })` in
+[hooks/useBlockRefresh.ts](frontend/src/hooks/useBlockRefresh.ts) wraps
+`useWatchBlockNumber` and fires `refetch()` on each new block, replacing
+wagmi v1's dropped `watch: true` flag. Applied to the five highest-
+leverage chain reads: `useUserPosition` (was 30s × 2 multicalls),
+`useNFTDropV2` (60s × 12-call mint state), `useFarmStats` (60s × 2
+reads), `useToweliPrice.getReserves` (60s — every swap moves these),
+`useSwap` (ethBalance + fromToken/toToken balanceOf, all 30s polls
+gone). Indexer-derived hooks get matching treatment via
+`useIndexerBlockInvalidator` (new) in
+[lib/indexer.ts:189-208](frontend/src/lib/indexer.ts:189) — invalidates
+every `['indexer', ...]` React Query entry on each new block; mounted
+once at [AppLayout:96](frontend/src/components/layout/AppLayout.tsx:96).
+The 30s `staleTime` inside `useIndexerQuery` caps re-fetch frequency
+during busy minutes. Chainlink ETH/USD price stays at 90s polling
+(heartbeat update model — per-block subscription is wasteful), and the
+TWAP consult stays at 60s (smooths over 30-min window regardless).
+`VITE_WS_RPC_URL` documented in `.env.example`. No new dependencies.
+26 polling sites unchanged for now; pattern is established for an
+incremental sweep when needed.
+
+---
+
 ## P0-2 — Wire Ponder indexer to frontend (2026-05-14)
 
 New foundation: `frontend/src/lib/indexer.ts` exposes a tiny GraphQL

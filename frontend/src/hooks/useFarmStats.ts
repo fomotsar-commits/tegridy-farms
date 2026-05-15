@@ -3,6 +3,7 @@ import { TEGRIDY_STAKING_ABI } from '../lib/contracts';
 import { TEGRIDY_STAKING_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 import { formatCurrency, formatWei } from '../lib/formatting';
+import { useBlockRefresh } from './useBlockRefresh';
 
 export function useFarmStats() {
   const addr = TEGRIDY_STAKING_ADDRESS;
@@ -14,13 +15,17 @@ export function useFarmStats() {
   const effectivePrice = price.priceInUsd;
 
   // R043 H-062-02: chainId pin on every entry, gate on onMainnet.
-  const { data, isLoading } = useReadContracts({
+  const { data, refetch, isLoading } = useReadContracts({
     contracts: [
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalStaked', chainId: CHAIN_ID },
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalRewardsFunded', chainId: CHAIN_ID },
     ],
-    query: { enabled: isDeployed && onMainnet, refetchInterval: 60_000, refetchOnWindowFocus: true },
+    // P0-3: per-block refresh via `useBlockRefresh` (below). Two reads ×
+    // one block ≈ same RPC cost as the 60s poll, with instant TVL updates
+    // after each block.
+    query: { enabled: isDeployed && onMainnet, refetchOnWindowFocus: true },
   });
+  useBlockRefresh(refetch, { enabled: isDeployed && onMainnet });
 
   const totalStaked = (data?.[0]?.status === 'success' ? data[0].result as bigint : 0n);
   const totalFunded = (data?.[1]?.status === 'success' ? data[1].result as bigint : 0n);

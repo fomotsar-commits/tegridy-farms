@@ -2,6 +2,7 @@ import { useAccount, useReadContracts } from 'wagmi';
 import { formatEther } from 'viem';
 import { TEGRIDY_STAKING_ABI, ERC20_ABI } from '../lib/contracts';
 import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
+import { useBlockRefresh } from './useBlockRefresh';
 
 // Dummy address for disabled queries (wagmi needs valid args shape)
 const ZERO_ADDR = '0x0000000000000000000000000000000000000001' as const;
@@ -22,8 +23,12 @@ export function useUserPosition() {
       { address: stakingAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'paused' },
       { address: stakingAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'unsettledRewards', args: [userAddr] },
     ],
-    query: { enabled, refetchInterval: 30_000, refetchOnWindowFocus: true },
+    // P0-3: per-block refresh via `useBlockRefresh` (below). wagmi v2 dropped
+    // the top-level `watch: true` flag — equivalent behaviour comes from
+    // subscribing to `useWatchBlockNumber` and calling `refetch()` per block.
+    query: { enabled, refetchOnWindowFocus: true },
   });
+  useBlockRefresh(refetch, { enabled });
 
   const tokenId = (data?.[0]?.status === 'success' ? data[0].result as bigint : 0n);
   const walletBalance = (data?.[1]?.status === 'success' ? data[1].result as bigint : 0n);
@@ -38,8 +43,9 @@ export function useUserPosition() {
       { address: stakingAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition', args: [hasTokenId ? tokenId : 1n] },
       { address: stakingAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'earned', args: [hasTokenId ? tokenId : 1n] },
     ],
-    query: { enabled: enabled && hasTokenId, refetchInterval: 30_000, refetchOnWindowFocus: true },
+    query: { enabled: enabled && hasTokenId, refetchOnWindowFocus: true },
   });
+  useBlockRefresh(refetchPos, { enabled: enabled && hasTokenId });
 
   const position = (posData?.[0]?.status === 'success'
     ? posData[0].result as readonly [bigint, bigint, bigint, bigint, boolean, boolean]
