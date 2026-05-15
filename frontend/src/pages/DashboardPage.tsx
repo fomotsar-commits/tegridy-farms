@@ -492,6 +492,10 @@ export default function DashboardPage() {
 }
 
 function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrongNetwork: boolean }) {
+  // P2-7: ETH amounts get a USD subtitle via the shared PriceContext ETH/USD
+  // (Chainlink-backed). When the oracle is stale, the subtitle hides instead
+  // of showing a stale dollar amount.
+  const ethPrice = useTOWELIPrice();
   // R047 M1: pin chainId on the read so a wallet on the wrong chain can't
   // surface stale 0 ETH from a different network. Wrong-chain UI surfaces
   // the page-level "Wrong network detected" banner instead.
@@ -539,6 +543,14 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
               )}
             </div>
             <span className="stat-value text-[16px] text-success"><AnimatedCounter value={pending} decimals={6} suffix=" ETH" /></span>
+            {/* P2-7: USD equivalent for the pending ETH. Hidden when the
+                Chainlink oracle is stale to avoid showing a dollar amount
+                that contradicts the live feed. */}
+            {!ethPrice.oracleStale && ethPrice.ethUsd > 0 && (
+              <p className="text-white/65 text-[11px] mt-0.5">
+                {formatCurrency(pending * ethPrice.ethUsd, 2)} USD
+              </p>
+            )}
           </div>
           <button onClick={() => writeContract({ chainId: CHAIN_ID, address: REVENUE_DISTRIBUTOR_ADDRESS, abi: REVENUE_DISTRIBUTOR_ABI, functionName: 'claim' })}
             disabled={isPending || isConfirming || isWrongNetwork}

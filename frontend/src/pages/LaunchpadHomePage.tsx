@@ -6,6 +6,8 @@ import { useLaunchpadList } from '../hooks/useLaunchpadList';
 import { useFarmStats } from '../hooks/useFarmStats';
 import { useRevenueStats } from '../hooks/useRevenueStats';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { useTOWELIPrice } from '../contexts/PriceContext';
+import { formatCurrency } from '../lib/formatting';
 
 const SECTION_HEADER: React.CSSProperties = {
   textShadow: '0 1px 6px rgba(0,0,0,0.95)',
@@ -39,6 +41,12 @@ export default function LaunchpadHomePage() {
     useLaunchpadList();
   const stats = useFarmStats();
   const revenueStats = useRevenueStats();
+  // P2-7: ETH/USD via Chainlink (shared price context).
+  const price = useTOWELIPrice();
+  const distributedUsd =
+    !price.oracleStale && price.ethUsd > 0 && revenueStats.totalDistributed > 0
+      ? formatCurrency(revenueStats.totalDistributed * price.ethUsd, 0)
+      : null;
 
   const liveCount = categorized.live.length;
   const upcomingCount = categorized.upcoming.length;
@@ -125,9 +133,11 @@ export default function LaunchpadHomePage() {
               { l: 'TVL', v: stats.tvl },
               {
                 l: 'ETH Distributed',
+                // P2-7: USD subtitle appended via the Chainlink ETH/USD feed
+                // (shared price context). Hidden when oracle is stale.
                 v:
                   revenueStats.totalDistributed > 0
-                    ? `${revenueStats.totalDistributed.toFixed(4)} ETH`
+                    ? `${revenueStats.totalDistributed.toFixed(4)} ETH${distributedUsd ? ` · ${distributedUsd}` : ''}`
                     : '–',
               },
               { l: 'Live drops', v: isFactoryDeployed ? String(liveCount) : '–' },

@@ -21,11 +21,15 @@ import { useMemo, useState } from 'react';
 import { m } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { LOCK_DURATIONS } from '../../lib/copy';
+import { usePoolData } from '../../hooks/usePoolData';
 
-// Conservative reference baseline. Real yield varies with TVL and volume.
-// Source: recent RevenueDistributor streams + LP farming emissions.
-// Update this quarterly or wire to a live stat when the indexer is in place.
-const BASELINE_APR_PCT = 12; // 12% as a starting reference
+// P2-7: previously a hardcoded 12% APR. Now reads the chain-derived
+// emission rate from `usePoolData().apr` (computed live from
+// `rewardRate × seconds-per-year / totalBoostedStake`). When the
+// chain has no rate yet (day 0, pre-emissions), we surface a
+// labelled "Reference 12%" placeholder — the calculator still
+// works, the label tells users it's a placeholder rate.
+const FALLBACK_APR_PCT = 12;
 
 interface Tier {
   days: number;
@@ -63,16 +67,24 @@ export function YieldCalculator() {
   const amount = Math.max(0, parseFloat(amountStr) || 0);
   const tier = (TIERS[selectedIdx] ?? TIERS[0])!;
 
+  // P2-7: chain-derived base APR via `usePoolData().apr` (live from
+  // staking-contract reward rate ÷ boosted-stake). When chain has no
+  // rate yet, falls back to the labelled placeholder.
+  const pool = usePoolData();
+  const chainApr = parseFloat(pool.apr);
+  const usingChainData = pool.isDeployed && Number.isFinite(chainApr) && chainApr > 0 && pool.apr !== '>9999';
+  const baseAprPct = usingChainData ? chainApr : FALLBACK_APR_PCT;
+
   const result = useMemo(() => {
     const jbacBonus = hasJbac ? 0.5 : 0;
     const effectiveBoost = Math.min(tier.boost + jbacBonus, 4.5);
-    // Reference-only: linear scaling of baseline APR by boost multiplier.
+    // Reference-only: linear scaling of base APR by boost multiplier.
     // Real math is share-of-pool weighted; this is deliberately conservative.
-    const apr = BASELINE_APR_PCT * effectiveBoost;
+    const apr = baseAprPct * effectiveBoost;
     const annualUsd = amount * (apr / 100);
     const monthlyUsd = annualUsd / 12;
     return { effectiveBoost, apr, annualUsd, monthlyUsd };
-  }, [amount, tier, hasJbac]);
+  }, [amount, tier, hasJbac, baseAprPct]);
 
   return (
     <m.section
@@ -94,8 +106,11 @@ export function YieldCalculator() {
             Reference estimate. No wallet required. Real yield varies with TVL and swap volume.
           </p>
         </div>
-        <span className="text-[10px] uppercase tracking-wider text-white/40 px-2 py-0.5 rounded-full border border-white/10">
-          Baseline {BASELINE_APR_PCT}% APR
+        <span
+          className="text-[10px] uppercase tracking-wider text-white/40 px-2 py-0.5 rounded-full border border-white/10"
+          title={usingChainData ? 'Live on-chain emission rate' : 'No on-chain rate yet — using placeholder'}
+        >
+          {usingChainData ? `Live ${baseAprPct.toFixed(2)}% APR` : `Reference ${FALLBACK_APR_PCT}% APR`}
         </span>
       </header>
 
@@ -195,7 +210,9 @@ export function YieldCalculator() {
         {/* CTA */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <p className="text-white/50 text-[10px] max-w-[60%]">
-            Estimates assume baseline {BASELINE_APR_PCT}% APR scaled by boost. Real yield depends on live pool revenue.
+            {usingChainData
+              ? `Estimates use the current ${baseAprPct.toFixed(2)}% on-chain emission rate scaled by boost. Real ETH yield is on top of this and depends on live swap fees.`
+              : `Estimates assume placeholder ${FALLBACK_APR_PCT}% APR scaled by boost — live rate appears once emissions start.`}
           </p>
           <Link
             to="/farm"

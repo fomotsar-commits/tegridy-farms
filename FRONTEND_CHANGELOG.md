@@ -4,6 +4,35 @@ One paragraph per shipped item. Newest first.
 
 ---
 
+## P2-7 — ETH yield shown in dollars; APR sourced from chain (2026-05-14)
+
+ETH-denominated amounts now carry a USD subtitle driven by the
+Chainlink ETH/USD feed (already wired into `PriceContext.ethUsd` via
+`useToweliPrice`). Applied at:
+
+  • DashboardPage `ETHRevenueClaim` — pending ETH gains a
+    `{usd} USD` line under the ETH counter. Hidden when the oracle
+    is stale to avoid contradicting the live feed.
+  • LaunchpadHomePage hero stats — "ETH Distributed" stat appends
+    the USD figure inline ("0.0421 ETH · $135"), only when the
+    oracle is fresh.
+
+YieldCalculator's hardcoded `BASELINE_APR_PCT = 12` constant
+replaced with `usePoolData().apr` — the chain-derived emission rate
+computed from `rewardRate × 31,536,000 / totalBoostedStake`. When
+chain returns 0 (day 0 / pre-emissions), falls back to a clearly
+labelled "Reference 12% APR" placeholder. The chip in the calculator
+header switches between "Live 18.42% APR" and "Reference 12% APR"
+based on `usingChainData`; bottom-of-card disclaimer flips accordingly.
+
+Brief sub-clause "annualized projections use boosted share of recent
+RevenueDistributor inflow": partially addressed — the chain emission
+rate IS used. ETH-revenue-share projections (separate from emission
+APR) need indexer `revenueEpoch` aggregates; logged as a follow-up.
+No new dependencies.
+
+---
+
 ## P2-6 — Tooltips on every action button (foundation + top buttons) (2026-05-14)
 
 New centralized copy library
