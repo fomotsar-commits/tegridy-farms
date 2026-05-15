@@ -18,6 +18,7 @@ import { usePageTitle } from './hooks/usePageTitle';
 // `ClassicHomePage.tsx`); the new `LaunchpadHomePage` is what `/` serves.
 const LaunchpadHomePage = lazy(() => import('./pages/LaunchpadHomePage'));
 const ClassicHomePage = lazy(() => import('./pages/ClassicHomePage'));
+const StartPage = lazy(() => import('./pages/StartPage'));
 const FarmPage = lazy(() => import('./pages/FarmPage'));
 const TradePage = lazy(() => import('./pages/TradePage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -138,6 +139,7 @@ function AnimatedRoutes() {
       <Route element={<AppLayout />}>
         <Route index element={<Suspense fallback={<PageSkeleton />}><LaunchpadHomePage /></Suspense>} />
         <Route path="classic" element={<Suspense fallback={<PageSkeleton />}><ClassicHomePage /></Suspense>} />
+        <Route path="start" element={<Suspense fallback={<PageSkeleton />}><StartPage /></Suspense>} />
         <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><FarmPage /></Suspense>} />
         <Route path="swap" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
         <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />

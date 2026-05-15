@@ -119,6 +119,14 @@ export default function LaunchpadHomePage() {
                 Buy TOWELI
               </Link>
             </div>
+            {/* P2-9: discoverable entry point for the onboarding flow. */}
+            <Link
+              to="/start"
+              className="inline-block mt-4 text-[12px] underline underline-offset-4 transition-colors"
+              style={{ color: 'rgba(255,255,255,0.75)' }}
+            >
+              New here? Start with 0.01 ETH →
+            </Link>
           </m.div>
 
           {/* Stats strip — preserved from the classic home as the trust

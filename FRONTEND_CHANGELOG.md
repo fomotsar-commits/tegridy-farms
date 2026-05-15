@@ -4,6 +4,30 @@ One paragraph per shipped item. Newest first.
 
 ---
 
+## P2-9 — /start onboarding flow (2026-05-14)
+
+New page at `/start` —
+[StartPage.tsx](frontend/src/pages/StartPage.tsx) — that walks a
+first-time visitor from "no wallet" to "30-day lock" in three CTAs:
+
+  1. **Connect** — single RainbowKit button.
+  2. **Buy** — pre-pinned 0.01 ETH → TOWELI swap via the existing
+     `useSwap` (ETH/TOWELI default pair; no input typing required).
+  3. **Lock** — approve (skipped if existing allowance covers) + stake
+     the fresh TOWELI balance for 30 days via `useFarmActions.stake`.
+  4. **Done** — celebration card with locked amount, USD value via
+     `useTOWELIPrice`, unlock date, boost multiplier, and clear CTAs to
+     Dashboard + Farm.
+
+Stage machine derives from on-chain state (`useUserPosition`) so a
+refreshed page resumes wherever the user actually is — no
+localStorage steps to corrupt. No new contracts, no new dependencies;
+reuses every primitive already in the bundle. LaunchpadHomePage gains
+a small "New here? Start with 0.01 ETH →" link under the hero CTAs so
+the flow is discoverable.
+
+---
+
 ## P2-8 — Telegram notification bot scaffold (2026-05-14)
 
 New service at `services/telegram-bot/` — a single long-running Node
