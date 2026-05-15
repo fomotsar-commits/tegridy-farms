@@ -4,6 +4,31 @@ One paragraph per shipped item. Newest first.
 
 ---
 
+## P1-5 — Real top-N leaderboards (2026-05-14)
+
+New cross-wallet rankings on LeaderboardPage sourced from the
+indexer client built in P0-2. New
+[`useLeaderboards`](frontend/src/hooks/useLeaderboards.ts) hook fans
+out into a single GraphQL request for `stakingPositions`,
+`gaugeVotes` (filtered to the chain's current epoch via
+`GaugeController.currentEpoch()`), and `dropCollections` —
+aggregates client-side per user, sorts, slices to top 100 / top 20 /
+top 20. New
+[`LeaderboardTables`](frontend/src/components/leaderboards/LeaderboardTables.tsx)
+renders three tables (top stakers by boosted voting power, top voters
+this epoch by power applied, top creators by drops launched) with
+ENS resolution per row (`wagmi/useEnsName` with 24h staleTime) and
+a tinted highlight + "You" ribbon on the connected wallet's row.
+Component returns `null` when the indexer is unavailable so the
+existing personal-stats card on LeaderboardPage stays the page's
+sole content — silent fallback per the P0-2 policy. Two leaderboards
+from the brief deferred and logged as B-6 in `FRONTEND_BLOCKERS.md`:
+top LPs (needs a new `lpBalance` aggregate table) and top creators
+by ETH raised (needs a contract change to add `MintPaid` event with
+`msg.value`). No contract changes. No new dependencies.
+
+---
+
 ## P1-4 — Removed localStorage limit orders / DCA (2026-05-14)
 
 Default option (b) from the 30-day brief — pull the "Recurring Swap"

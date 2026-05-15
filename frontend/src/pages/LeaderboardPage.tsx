@@ -10,6 +10,7 @@ import { AnimatedCounter } from '../components/AnimatedCounter';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { PageSkeleton } from '../components/PageSkeleton';
 import { ArtImg } from '../components/ArtImg';
+import { LeaderboardTables } from '../components/leaderboards/LeaderboardTables';
 
 export default function LeaderboardPage() {
   // AUDIT LEADERBOARD-HONEST: prior title + meta said "Top stakers ranked
@@ -36,7 +37,12 @@ export default function LeaderboardPage() {
         <ArtImg pageId="leaderboard" idx={0} alt="" loading="lazy" fallbackPosition="center 15%" className="w-full h-full object-cover" />
       </div>
 
-      <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-32 pb-28 md:pb-12">
+      <div className="relative z-10 max-w-[1100px] mx-auto px-4 md:px-6 pt-32 pb-28 md:pb-12">
+        {/* P1-5: real top-N leaderboards. Renders nothing when the indexer
+            is unavailable, leaving the personal-stats card below as the
+            sole content (silent fallback per P0-2 policy). */}
+        <LeaderboardTables />
+
         <div className="rounded-xl p-4 mb-6" style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.2)' }}>
           <p className="text-yellow-400 text-[13px] font-semibold mb-1">On-Chain Verified Points</p>
           <p className="text-white/60 text-[12px]">Points and badges are derived from on-chain activity (swaps, staking, LP, referrals). The streak counter is computed locally from your visit cadence.</p>

@@ -358,4 +358,81 @@ No contract changes. No new dependencies.
 
 ---
 
-(P1-5 … P2-10 plans will be added here ahead of each item.)
+## P1-5 — Real top-N leaderboards
+
+**Goal:** the existing personal-stats LeaderboardPage gains cross-wallet
+rankings sourced from the indexer (P0-2 client). Anonymous addresses
+fine; ENS resolved per row; connected wallet's row highlighted.
+
+**Constraints picked up from the codebase:**
+- `LeaderboardPage.tsx:21-23` retitled itself "Your Tegridy Score" with
+  an explicit note: "multi-user ranking waits on the Ponder indexer
+  being publicly queryable" — exactly what P0-2 enabled.
+- Indexer tables available: `stakingPosition` (per-tokenId, not
+  per-user — multiple positions need aggregation), `gaugeVote`
+  (per-user-per-epoch with power), `dropCollection` (per-collection
+  with creator). No table for current LP balance per user (would need
+  `lpFarmAction` sum-of-deltas, expensive client-side). No ETH-raised
+  per drop (Transfer event doesn't carry msg.value).
+- The brief asks for four tables; two are clean fits today (stakers,
+  voters, creators-by-drop-count), one needs more indexer work (LPs),
+  one needs contract changes (creators by ETH raised — needs `MintPaid`
+  event or similar). Ship what's clean; document the gaps.
+
+### The 3-bullet plan
+
+- **Build `useLeaderboards` hook** that fans out into the indexer in a
+  single GraphQL request: `stakingPositions(orderBy: amount, limit:
+  200)`, `gaugeVotes(where: { epoch: $current }, orderBy: power,
+  limit: 200)`, `dropCollections(orderBy: factoryId desc, limit:
+  200)`. Aggregate by user client-side (stakers — sum amount × boost
+  / 10_000), voters (sum power), creators (count). Top-100 / top-20 /
+  top-20 sliced from the aggregates. `isAvailable` flag propagates
+  from `useIndexerQuery` so call-sites can hide cleanly when the
+  indexer URL is unset. Current epoch comes from the
+  `GaugeController.currentEpoch()` view (RPC; one read, cached).
+
+- **New `LeaderboardTables` component.** Three tables side-by-side on
+  desktop, stacked on mobile. Each row: rank, ENS (via `useEnsName`)
+  or shortened address, primary metric, secondary metric. Connected
+  user's row gets a tinted background + a ribbon ("You"). Each
+  section renders its own loading shimmer; missing tables (e.g. when
+  V2 isn't deployed → no creators data) collapse without taking
+  space. Off-state: when the indexer is unavailable OR the hook
+  returns zero rows, the whole component returns null — the existing
+  personal-stats card stays the page's sole content (matches the
+  P0-2 "silent fallback" policy).
+
+- **Mount it on LeaderboardPage** above the personal-stats card.
+  Update the page-title meta to remove the "waits on Ponder" note
+  (still honest because the section gracefully hides). LP and "ETH
+  raised" leaderboards: log as P1-5 follow-ups in
+  `FRONTEND_BLOCKERS.md` (LP needs sum-of-deltas indexer table;
+  creators ETH needs a new contract event). Anonymous addresses OK;
+  no SIWE gate on the data.
+
+### Out of scope for P1-5 (logged as follow-up)
+
+- Top LPs leaderboard (needs new indexer aggregate; could be added
+  by extending the schema with a materialised `lpBalance` table that
+  the handler maintains incrementally).
+- Top creators by ETH raised (needs contract change — `MintPaid`
+  event carrying `msg.value` — or off-chain reconstruction from
+  Etherscan).
+- Pagination beyond the top-N. Add when the indexer is heavily used.
+
+### Files I expect to touch
+
+```
+NEW   frontend/src/hooks/useLeaderboards.ts
+NEW   frontend/src/components/leaderboards/LeaderboardTables.tsx
+EDIT  frontend/src/pages/LeaderboardPage.tsx
+EDIT  FRONTEND_BLOCKERS.md                    (LP + ETH-raised gaps)
+EDIT  FRONTEND_CHANGELOG.md                   (P1-5 entry)
+```
+
+No contract changes. No new dependencies.
+
+---
+
+(P2-6 … P2-10 plans will be added here ahead of each item.)

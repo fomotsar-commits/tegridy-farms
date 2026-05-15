@@ -107,6 +107,38 @@ the tabs).
 
 ---
 
+## B-6 — Top LPs + Creators-by-ETH-raised leaderboards
+
+**Gates:** P1-5 "all four leaderboards" completeness.
+
+**What's needed:** two additions before the remaining two
+leaderboards from the user's brief can ship.
+
+- **Top LPs.** No per-user "current LP balance" table in the
+  indexer today. Could be derived client-side by summing
+  `lpFarmAction.amount` per user (sign-flip on `type=withdraw`), but
+  that requires fetching the full action history per user — expensive
+  and racy on reorgs. Right fix is a new `lpBalance` table maintained
+  incrementally by the handler.
+
+- **Top creators by ETH raised.** The indexer's `dropMint` table
+  records collection + tokenId + minter, but `TegridyDropV2.Transfer`
+  doesn't carry `msg.value`. Two paths:
+  1. Contract change — add a `MintPaid(collection, minter, value)`
+     event in `TegridyDropV2.mint`. Then index it.
+  2. Off-chain reconstruction — join `dropMint` rows against
+     `eth_getTransactionByHash` on each row to read `value`. Slow,
+     racy, and burns RPC quota.
+
+**Workaround today:** the three already-clean tables ship in P1-5;
+these two are absent until either the indexer schema or the contract
+exposes the missing facts.
+
+**Owner:** indexer (for LP balance table); contracts (for MintPaid
+event); frontend re-wires both when ready.
+
+---
+
 ## B-4 — Telegram bot delivery surface (P2-8)
 
 **Gates:** P2-8 of the 30-day push (Telegram notification bot).
