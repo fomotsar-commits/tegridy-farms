@@ -139,6 +139,10 @@ function AnimatedRoutes() {
       <Route element={<AppLayout />}>
         <Route index element={<Suspense fallback={<PageSkeleton />}><LaunchpadHomePage /></Suspense>} />
         <Route path="classic" element={<Suspense fallback={<PageSkeleton />}><ClassicHomePage /></Suspense>} />
+        {/* P2-10: `/advanced` is the URL the brief names for the DeFi-native
+            home — the existing /classic page already holds that content
+            (gauges, bribes, veTOWELI mechanics, etc.), so we alias here. */}
+        <Route path="advanced" element={<Navigate to="/classic" replace />} />
         <Route path="start" element={<Suspense fallback={<PageSkeleton />}><StartPage /></Suspense>} />
         <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><FarmPage /></Suspense>} />
         <Route path="swap" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />

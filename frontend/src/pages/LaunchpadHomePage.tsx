@@ -83,23 +83,26 @@ export default function LaunchpadHomePage() {
             <div className="badge badge-primary mb-5 text-[10px]">
               LIVE ON ETHEREUM
             </div>
-            {/* Hero copy lives in P2-10. For now the working subhead
-                explains the lifecycle in plain English so the page works
-                today even if a copy refresh lands later. */}
+            {/* P2-10: single-sentence value prop. The lifecycle in the
+                subhead is launch → liquidity → staking → graduation
+                in plain English. Above-the-fold copy deliberately
+                avoids "veToken", "gauge", "bribe", "DEX" — the advanced
+                vocabulary lives at /advanced (and on the Farm /
+                Community / NFT Finance pages users opt into). */}
             <h1
               className="heading-luxury text-3xl md:text-6xl text-white leading-[1.05] tracking-tight mb-4"
               style={SECTION_HEADER}
             >
-              The fairest way to launch
-              <br />
-              <span className="text-white">a meme coin.</span>
+              The fairest way to launch a meme coin{' '}
+              <span className="text-white">and grow it for real.</span>
             </h1>
             <p
               className="text-white text-base md:text-lg mb-6 max-w-xl leading-relaxed"
               style={SECTION_HEADER}
             >
-              Launch on day one. Earn ETH from every swap. Stake longer for a
-              bigger slice. Built for creators, paid out to holders.
+              Launch your coin in minutes. Add liquidity so people can trade
+              it. Lock your tokens to earn a slice of every trade. Graduate to
+              your own farm when the community is ready.
             </p>
             <div className="flex flex-wrap gap-3">
               <Link

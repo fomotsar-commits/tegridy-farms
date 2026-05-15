@@ -4,6 +4,28 @@ One paragraph per shipped item. Newest first.
 
 ---
 
+## P2-10 — Single-sentence value prop above the fold (2026-05-14)
+
+LaunchpadHomePage hero H1 + subhead rewritten to the brief's exact
+copy:
+
+  • **H1:** "The fairest way to launch a meme coin and grow it for
+    real." (`<span>` break preserves the visual stress on "grow it
+    for real" while still scanning as one sentence to screen readers.)
+  • **Subhead:** lifecycle in plain English — launch → liquidity →
+    staking → graduation — with zero DeFi-native terminology above
+    the fold ("Launch your coin in minutes. Add liquidity so people
+    can trade it. Lock your tokens to earn a slice of every trade.
+    Graduate to your own farm when the community is ready.").
+
+Above-the-fold copy now contains no instance of the words "gauge",
+"bribe", "veToken", "veTOWELI", "DEX", "TVL", "APR". The advanced
+vocabulary lives on `/classic` (renamed alias `/advanced` added in
+this commit), on per-feature pages (Farm, Community, NFT Finance),
+and inside the action-button tooltip lib from P2-6.
+
+---
+
 ## P2-9 — /start onboarding flow (2026-05-14)
 
 New page at `/start` —
