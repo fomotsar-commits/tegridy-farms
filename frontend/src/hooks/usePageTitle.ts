@@ -43,7 +43,9 @@ export interface PageTitleOptions {
  */
 export function usePageTitle(pageTitle: string, description?: string, options: PageTitleOptions = {}) {
   useEffect(() => {
-    const fullTitle = `${pageTitle} | ${BASE_TITLE}`;
+    // P2-10 follow-up: avoid "Tegridy Farms | Tegridy Farms" when the page
+    // intentionally passes the brand name as its own title (e.g. landing).
+    const fullTitle = pageTitle === BASE_TITLE ? BASE_TITLE : `${pageTitle} | ${BASE_TITLE}`;
     document.title = fullTitle;
     setMetaTag('property', 'og:title', fullTitle);
     setMetaTag('name', 'twitter:title', fullTitle);
