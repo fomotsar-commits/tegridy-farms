@@ -286,4 +286,76 @@ No `contracts/**` changes. No new dependencies.
 
 ---
 
-(P1-4 … P2-10 plans will be added here ahead of each item.)
+## P1-4 — Kill or fix localStorage limit orders / DCA
+
+**Goal:** the most dangerous UX in the app stops being exposed. Per the
+user's brief: default to option (b) — pull the UI — unless there's a
+clear path to (a) on-chain keepers in <5 days. There isn't, so (b).
+
+**Constraints picked up from the codebase:**
+- Two tabs: `dca` / `limit` in
+  [TradePage.tsx:31](frontend/src/pages/TradePage.tsx:31).
+  Both render localStorage-backed flows
+  ([useDCA.ts](frontend/src/hooks/useDCA.ts),
+  [useLimitOrders.ts](frontend/src/hooks/useLimitOrders.ts)) that only
+  trigger while the user has the tab open — exactly the
+  "dangerous UX" the brief flags.
+- Dashboard surfaces two "due alert" blocks for the same flows
+  ([DashboardPage.tsx:300-329](frontend/src/pages/DashboardPage.tsx:300)).
+- File-level rename to "Recurring Swap" / "Price Alert" already
+  happened in an earlier audit ("Audit H-2" per code comments) —
+  partial honesty pass, but the feature is still live. We finish the
+  job here.
+
+### The 3-bullet plan
+
+- **Pull the tabs from TradePage.** Remove `'dca'` / `'limit'` from
+  `VALID_TABS` and `TAB_LABELS`; tab buttons disappear. Existing
+  `?tab=dca` / `?tab=limit` URLs silently normalise to `?tab=swap` in
+  `resolveInitialTab` so stale links don't 404. The two `<m.div>`
+  blocks that wrapped `<DCATab />` / `<LimitOrderTab />` are removed.
+  Component files stay on disk (no deletion — they're the starting
+  point for the future keeper-backed rebuild).
+
+- **Pull the dashboard alerts + the `useDCA`/`useLimitOrders` reads.**
+  The two "DCA swap due" / "active price alert" blocks in
+  `DashboardPage.tsx:300-329` were the only consumers of those hooks
+  on the dashboard. Drop the imports + the alert markup. Leaves the
+  rest of the dashboard untouched.
+
+- **Document the pause + the keeper-choice decision.** New
+  `docs/adr/001-keeper-choice.md` ADR (status: PROPOSED) compares
+  Gelato vs Chainlink Automation vs self-hosted keeper-bot, with
+  trade-offs and an explicit "current state: option (b) — UI
+  removed". New `FRONTEND_BLOCKERS.md` entry **B-5** links to the
+  ADR and explains exactly what's needed to bring the features
+  back. No GitHub issue created (would require approval for a public
+  action); link target is the in-repo doc.
+
+### Out of scope for P1-4 (logged for later)
+
+- Actually picking a keeper. That's an ops + product decision; the
+  ADR documents the trade-offs.
+- Deleting the component files. The next push (whenever it happens)
+  will reuse most of the `DCATab` / `LimitOrderTab` UI shells.
+- A user-visible banner on the swap page. Approved direction was
+  "remove the UI"; an extra "feature paused" banner risks calling
+  more attention to it than the silent removal does. The dashboard
+  hooks no longer fire, so users with stale localStorage data lose
+  the noisy alerts without confusion.
+
+### Files I expect to touch
+
+```
+EDIT  frontend/src/pages/TradePage.tsx          (remove tabs + redirect)
+EDIT  frontend/src/pages/DashboardPage.tsx      (drop dca + limit alerts)
+NEW   docs/adr/001-keeper-choice.md             (PROPOSED ADR)
+EDIT  FRONTEND_BLOCKERS.md                      (B-5)
+EDIT  FRONTEND_CHANGELOG.md                     (P1-4 entry)
+```
+
+No contract changes. No new dependencies.
+
+---
+
+(P1-5 … P2-10 plans will be added here ahead of each item.)

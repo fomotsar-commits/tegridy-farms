@@ -8,27 +8,31 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { useSwap } from '../hooks/useSwap';
 import { formatTokenAmount } from '../lib/formatting';
-import { DCATab } from '../components/swap/DCATab';
-import { LimitOrderTab } from '../components/swap/LimitOrderTab';
 import { LiquidityTab } from '../components/swap/LiquidityTab';
 import { TokenSelectModal } from '../components/swap/TokenSelectModal';
 import { ArtImg } from '../components/ArtImg';
 import { useTowelie } from '../hooks/useTowelie';
 
-type Tab = 'swap' | 'liquidity' | 'dca' | 'limit';
+// P1-4 (2026-05-14): the DCA / Limit Order tabs were pulled because they
+// persisted in browser localStorage and only triggered while the user had
+// the tab open — the kind of "looks automated but isn't" UX the 30-day push
+// flagged as the most dangerous in the app. The tab files
+// (`DCATab.tsx`, `LimitOrderTab.tsx`) stay on disk for the eventual rebuild
+// behind an on-chain keeper. See `docs/adr/001-keeper-choice.md` for the
+// Gelato vs Chainlink Automation vs self-hosted comparison.
 
-// AUDIT FIX H-2 (2026-04-20 / battle-tested Option C): honest-UX labels. The DCA and
-// Limit Order features are not on-chain — they persist in browser localStorage and
-// run only while the tab is open. Renaming to "Recurring Swap" / "Price Alert" makes
-// the actual behaviour legible without falsely implying automated execution.
+type Tab = 'swap' | 'liquidity';
+
 const TAB_LABELS: Record<Tab, string> = {
   swap: 'Swap',
   liquidity: 'Liquidity',
-  dca: 'Recurring Swap',
-  limit: 'Price Alert',
 };
 
-const VALID_TABS: Tab[] = ['swap', 'liquidity', 'dca', 'limit'];
+const VALID_TABS: Tab[] = ['swap', 'liquidity'];
+
+// Legacy ?tab= values that no longer have a UI surface. Resolved as `swap`
+// so old links (and any bookmarks) keep working without 404s or empty pages.
+const PAUSED_TABS = new Set(['dca', 'limit']);
 
 function tabFromQuery(v: string | null): Tab | null {
   if (!v) return null;
@@ -38,8 +42,13 @@ function tabFromQuery(v: string | null): Tab | null {
 // Resolve the active tab. ?tab= is the canonical knob; the legacy
 // /liquidity path is treated as a synonym for ?tab=liquidity, overridden
 // by an explicit ?tab= when both are present.
+//
+// P1-4: PAUSED_TABS (dca, limit) silently normalise to 'swap' so any
+// existing bookmarks or shared links don't 404 or land on an empty page.
 function resolveInitialTab(pathname: string, searchParams: URLSearchParams): Tab {
-  const q = tabFromQuery(searchParams.get('tab'));
+  const rawTab = searchParams.get('tab');
+  if (rawTab && PAUSED_TABS.has(rawTab)) return 'swap';
+  const q = tabFromQuery(rawTab);
   if (q) return q;
   if (pathname.startsWith('/liquidity')) return 'liquidity';
   return 'swap';
@@ -55,9 +64,6 @@ export default function TradePage() {
   const titleByTab: Record<Tab, { title: string; desc: string }> = {
     swap:      { title: 'Swap',      desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.' },
     liquidity: { title: 'Liquidity', desc: 'Add or remove liquidity on Tegridy Farms native pools.' },
-    // AUDIT FIX H-2: honest descriptions — these are browser-tab-only tools, not on-chain.
-    dca:       { title: 'Recurring Swap', desc: 'Schedule reminders to buy TOWELI at regular intervals. Your wallet signs each swap \u2014 keep this tab open.' },
-    limit:     { title: 'Price Alert', desc: 'Set a price target and get a signing prompt when the market reaches it. Keep this tab open to see it fire.' },
   };
   usePageTitle(titleByTab[tab].title, titleByTab[tab].desc);
   const [showTokenSelect, setShowTokenSelect] = useState<'from' | 'to' | null>(null);
@@ -458,30 +464,8 @@ export default function TradePage() {
             <LiquidityTab />
           </m.div>
         )}
-
-        {/* DCA Tab */}
-        {tab === 'dca' && (
-          <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative glass-card rounded-2xl overflow-hidden" style={{ border: '1px solid var(--color-purple-12)' }}>
-            <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-              <ArtImg pageId="trade" idx={2} alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
-            </div>
-            <div className="relative">
-              <DCATab />
-            </div>
-          </m.div>
-        )}
-
-        {/* Limit Order Tab */}
-        {tab === 'limit' && (
-          <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative glass-card rounded-2xl overflow-hidden" style={{ border: '1px solid var(--color-purple-12)' }}>
-            <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-              <ArtImg pageId="trade" idx={3} alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
-            </div>
-            <div className="relative">
-              <LimitOrderTab />
-            </div>
-          </m.div>
-        )}
+        {/* P1-4: DCA + Limit Order tabs removed pending on-chain keeper.
+            See docs/adr/001-keeper-choice.md + FRONTEND_BLOCKERS.md B-5. */}
       </div>
 
       {/* Token Select Modal */}

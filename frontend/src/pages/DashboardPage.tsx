@@ -12,8 +12,8 @@ import { usePoolData } from '../hooks/usePoolData';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 import { useFarmActions } from '../hooks/useFarmActions';
 import { useNFTBoost } from '../hooks/useNFTBoost';
-import { useDCA } from '../hooks/useDCA';
-import { useLimitOrders } from '../hooks/useLimitOrders';
+// P1-4: useDCA / useLimitOrders no longer surfaced on the dashboard —
+// localStorage-backed alerts were pulled with the trade-page tabs.
 import { useMyLoans } from '../hooks/useMyLoans';
 import { pageArt, artStyle } from '../lib/artConfig';
 import { formatTokenAmount, formatCurrency } from '../lib/formatting';
@@ -68,8 +68,6 @@ export default function DashboardPage() {
   const price = useTOWELIPrice();
   const farmActions = useFarmActions();
   const nft = useNFTBoost();
-  const dca = useDCA();
-  const limitOrders = useLimitOrders();
   const myLoans = useMyLoans();
   const pos = useUserPosition();
   const pool = usePoolData();
@@ -297,36 +295,8 @@ export default function DashboardPage() {
               </div>
             </m.div>
 
-            {/* DCA Due Alerts */}
-            {dca.dueSchedules.length > 0 && (
-              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                <div className="absolute inset-0">
-                  <ArtImg pageId="dashboard" idx={9} alt="" loading="lazy" className="w-full h-full object-cover" />
-                </div>
-                <div className="relative z-10 p-4 flex items-center justify-between flex-wrap gap-2">
-                  <div>
-                    <p className="text-warning text-[13px] font-medium">{dca.dueSchedules.length} DCA swap{dca.dueSchedules.length > 1 ? 's' : ''} due</p>
-                    <p className="text-white text-[11px]">Go to Swap to execute</p>
-                  </div>
-                  <Link to="/swap" className="btn-secondary px-4 py-2 text-[12px]">Execute &#8594;</Link>
-                </div>
-              </m.div>
-            )}
-
-            {/* Active Limit Orders */}
-            {limitOrders.activeOrders.length > 0 && (
-              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                <div className="absolute inset-0">
-                  <ArtImg pageId="dashboard" idx={10} alt="" loading="lazy" className="w-full h-full object-cover" />
-                </div>
-                <div className="relative z-10 p-4">
-                  <p className="text-white text-[13px] font-medium mb-1">{limitOrders.activeOrders.length} active price alert{limitOrders.activeOrders.length > 1 ? 's' : ''}</p>
-                  <p className="text-white text-[11px]">Check Swap for details</p>
-                </div>
-              </m.div>
-            )}
+            {/* P1-4: DCA + Limit Order alerts removed — features paused
+                pending on-chain keeper (see ADR-001). */}
 
             {/* Price Alerts */}
             <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>

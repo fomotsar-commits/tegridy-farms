@@ -83,6 +83,30 @@ mint" badges with no countdown.
 
 ---
 
+## B-5 — Keeper choice for recurring swaps + limit orders
+
+**Gates:** P1-4 feature revival (DCA + Limit Order tabs).
+
+**What's needed:** a keeper (third-party or self-hosted) that watches
+chain state and pings the protocol when a user's "swap every N hours"
+or "swap when price < X" condition is met. Without one, every "fires
+later" UI we ship is dishonest because the schedule depends on the
+user's browser tab staying open.
+
+Trade-offs documented in
+[`docs/adr/001-keeper-choice.md`](docs/adr/001-keeper-choice.md):
+Gelato vs Chainlink Automation vs self-hosted bot vs leave-off.
+
+**Workaround today:** the tabs and dashboard alerts are removed (P1-4).
+Component files (`DCATab.tsx`, `LimitOrderTab.tsx`,
+`useDCA.ts`, `useLimitOrders.ts`) stay on disk so the UI rebuild on
+top of the chosen keeper is mechanical, not a from-scratch rewrite.
+
+**Owner:** Ops + product (pick the keeper); then frontend (re-wire
+the tabs).
+
+---
+
 ## B-4 — Telegram bot delivery surface (P2-8)
 
 **Gates:** P2-8 of the 30-day push (Telegram notification bot).

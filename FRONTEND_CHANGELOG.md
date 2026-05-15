@@ -4,6 +4,30 @@ One paragraph per shipped item. Newest first.
 
 ---
 
+## P1-4 — Removed localStorage limit orders / DCA (2026-05-14)
+
+Default option (b) from the 30-day brief — pull the "Recurring Swap"
+/ "Price Alert" tabs that triggered only while the user had the tab
+open. `'dca'` and `'limit'` removed from `VALID_TABS` /
+`TAB_LABELS` in [TradePage.tsx:18-34](frontend/src/pages/TradePage.tsx:18);
+two corresponding render blocks deleted; stale `?tab=dca` / `?tab=limit`
+URLs silently normalise to `?tab=swap` via a new `PAUSED_TABS` guard in
+`resolveInitialTab` so old bookmarks don't 404. Dashboard alerts ("N
+DCA swaps due", "N active price alerts") removed
+([DashboardPage.tsx:300-329](frontend/src/pages/DashboardPage.tsx:300));
+`useDCA` and `useLimitOrders` imports dropped from that page. Component
+files (`DCATab.tsx`, `LimitOrderTab.tsx`) and hook files (`useDCA.ts`,
+`useLimitOrders.ts`) stay on disk for the eventual rebuild — the
+keeper-backed version of these features will reuse most of the UI
+shells. New
+[`docs/adr/001-keeper-choice.md`](docs/adr/001-keeper-choice.md)
+(status: PROPOSED) compares Gelato vs Chainlink Automation vs
+self-hosted bot vs leave-off, with a clear recommendation hook for
+the operator who picks the path. `FRONTEND_BLOCKERS.md` gains entry
+**B-5** linking to the ADR. No contract changes. No new dependencies.
+
+---
+
 ## P0-3 — WebSockets instead of polling, foundation + top 5 hooks (2026-05-14)
 
 WS transport added to wagmi (`viem.webSocket(VITE_WS_RPC_URL)`, default
