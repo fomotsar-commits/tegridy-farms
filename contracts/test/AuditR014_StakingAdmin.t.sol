@@ -365,4 +365,64 @@ contract AuditR014_StakingAdminTest is Test {
         emit MaxUnsettledRewardsProposed(newCap, expectedReadyAt);
         admin.proposeMaxUnsettledRewards(newCap);
     }
+
+    // ──────── 2026-05-16 deep-dive: F-LEND-PROPOSE-CONTRACT-CHECK ───────────
+
+    /// @notice AUDIT FIX (2026-05-16 deep-dive): `proposeLendingContract` must
+    ///         reject EOAs and EIP-7702 delegated EOAs on the approve=true
+    ///         branch — mirroring the F-43-C / F-60-2 enforcement that already
+    ///         exists on `proposeRestakingContract`. Without this, an owner-typo
+    ///         (or compromised owner) granted an EOA `isLendingContract = true`,
+    ///         which would make the EOA a `_isTrackedHolder` on TegridyStaking —
+    ///         enabling (1) NFT cooldown / rate-limit bypass for any staking
+    ///         NFT transferred to/from it, and (2) per-tokenId reward drain via
+    ///         `claimUnsettledForTokenId(tokenId, recipient)`. Revoke (approve=
+    ///         false) for any pre-existing EOA listing remains permitted —
+    ///         it's the recovery path.
+    function test_dd2026_05_16_proposeLendingContract_rejectsEOA_onApprove() public {
+        address eoa = makeAddr("not-a-contract");
+        assertEq(eoa.code.length, 0, "precondition: pure EOA");
+        // approve=true must revert — EOA cannot be a lending contract.
+        vm.expectRevert(TegridyStakingAdmin.NotAContract.selector);
+        admin.proposeLendingContract(eoa, true);
+        // No pending state should be left behind.
+        assertEq(admin.pendingLendingContract(), address(0), "pending slot stays clean");
+        assertEq(admin.pendingLendingContractApproval(), false, "pending approval stays default");
+    }
+
+    /// @notice Paired-symmetry: the EIP-7702 delegation pointer (`0xef0100‖addr`,
+    ///         exactly 23 bytes) must also be rejected on approve=true.
+    function test_dd2026_05_16_proposeLendingContract_rejects7702_onApprove() public {
+        address delegated = makeAddr("7702-delegated");
+        // 23-byte delegation pointer: 0xef0100 + 20-byte address.
+        vm.etch(delegated, hex"ef0100aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        assertEq(delegated.code.length, 23, "precondition: 23-byte 7702 pointer");
+        vm.expectRevert(TegridyStakingAdmin.NotAContract.selector);
+        admin.proposeLendingContract(delegated, true);
+    }
+
+    /// @notice Revoke path (approve=false) must NOT be gated by the contract
+    ///         check — accidentally-listed EOAs must remain revocable.
+    ///         Documents the asymmetric guard: approve-only enforcement.
+    function test_dd2026_05_16_proposeLendingContract_allowsEOA_onRevoke() public {
+        address eoa = makeAddr("eoa-to-revoke");
+        assertEq(eoa.code.length, 0, "precondition: pure EOA");
+        // No revert expected — revoke path is the recovery hatch.
+        admin.proposeLendingContract(eoa, false);
+        assertEq(admin.pendingLendingContract(), eoa);
+        assertEq(admin.pendingLendingContractApproval(), false);
+    }
+
+    /// @notice Contract-shaped addresses (length > 0, ≠ 23) must succeed on
+    ///         approve=true — confirms the check is narrowly targeted at the
+    ///         EOA / 7702 attack surface and does not affect normal flows.
+    function test_dd2026_05_16_proposeLendingContract_acceptsContract_onApprove() public {
+        // The staking contract itself is a contract — use it as a stand-in
+        // (length is well above 23, well below any natural EOA shape).
+        address contractAddr = address(staking);
+        assertGt(contractAddr.code.length, 23, "precondition: real contract");
+        admin.proposeLendingContract(contractAddr, true);
+        assertEq(admin.pendingLendingContract(), contractAddr);
+        assertEq(admin.pendingLendingContractApproval(), true);
+    }
 }

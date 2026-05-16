@@ -241,6 +241,14 @@ contract Deep_Staking_2026_05_01_Test is Test {
         uint256 t0 = 1_000_000;
         vm.warp(t0);
 
+        // 2026-05-16 TEST REALIGN: proposeLendingContract now requires the
+        // approve=true address to have non-zero, non-23-byte code (rejects
+        // EOAs / EIP-7702 delegated EOAs) — symmetric with the F-43-C / F-60-2
+        // check on proposeRestakingContract. This test uses `bob` (an EOA) as
+        // a stand-in for a real lending contract; etch non-empty bytecode so
+        // the contract-only check passes while preserving the test's intent
+        // of exercising the balance-gate on revoke.
+        if (bob.code.length == 0) vm.etch(bob, hex"60006000fd");
         // Approve Bob as a lending contract first.
         admin.proposeLendingContract(bob, true);
         vm.warp(t0 + 48 hours + 1);
