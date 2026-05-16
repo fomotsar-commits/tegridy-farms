@@ -2268,6 +2268,17 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     function applyMinPrincipalChange(uint256 newValue) external onlyAdmin {
         if (newValue == 0) revert ZeroAmount();
         if (newValue > MAX_MIN_PRINCIPAL) revert InvalidCapValue();
+        // AUDIT FIX (2026-05-16 deep-dive): paired-bound symmetry. Refuse
+        // `newValue > maxPrincipal` so a captured admin cannot brick
+        // `createLoanOffer` by inverting the principal window (createLoanOffer
+        // would simultaneously fail `msg.value < minPrincipal` AND
+        // `msg.value > maxPrincipal` for every value). Mirrors the DEEP-LD-L4
+        // pattern already applied to `applyMaxAprBpsChange` (line 1927) for
+        // the APR pair, and the `applyMaxDurationChange`/`applyMinDurationChange`
+        // cross-checks for the duration pair (lines 1935 / 1943). Defense-
+        // in-depth on the lending side — the admin sister's `proposeMinPrincipal`
+        // also enforces this against the LIVE `maxPrincipal` at propose time.
+        if (newValue > maxPrincipal) revert InvalidCapValue();
         uint256 old = minPrincipal;
         minPrincipal = newValue;
         emit MinPrincipalChanged(old, newValue);

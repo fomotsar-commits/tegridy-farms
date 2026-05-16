@@ -383,6 +383,16 @@ contract TegridyLendingAdmin is OwnableNoRenounce, TimelockAdmin {
     function proposeMinPrincipal(uint256 _new) external onlyOwner {
         if (_new == 0) revert ZeroAmount();
         if (_new > lending.MAX_MIN_PRINCIPAL()) revert InvalidCapValue();
+        // AUDIT FIX (2026-05-16 deep-dive): paired-bound symmetry. Refuse
+        // `_new > maxPrincipal` so a captured admin cannot queue a min-
+        // principal proposal that, on execute, would brick `createLoanOffer`
+        // by inverting the principal window. Mirrors the DEEP-LD-L4 pattern
+        // already enforced for the APR pair in `proposeMaxAprBps` (line 234).
+        // The apply path on the lending side re-checks against LIVE
+        // `maxPrincipal` as defense in depth — handles the race where a
+        // parallel `proposeMaxPrincipal` reduces `maxPrincipal` between this
+        // propose-time check and the eventual execute.
+        if (_new > lending.maxPrincipal()) revert InvalidCapValue();
         pendingMinPrincipal = _new;
         _propose(MIN_PRINCIPAL_CHANGE, CAP_CHANGE_TIMELOCK);
         emit MinPrincipalProposed(_new, _executeAfter[MIN_PRINCIPAL_CHANGE]);
