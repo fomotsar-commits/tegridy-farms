@@ -244,6 +244,22 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     // ─── Lending contract whitelist ───────────────────────────────────
     function proposeLendingContract(address _lending, bool _approved) external onlyOwner {
         if (_lending == address(0)) revert ZeroAddress();
+        // AUDIT FIX (2026-05-16 deep-dive): paired-symmetry with the F-43-C / F-60-2
+        // contract-check on `proposeRestakingContract`. An EOA (or EIP-7702
+        // delegated EOA, code.length == 23) granted `isLendingContract = true`
+        // becomes a `_isTrackedHolder` on TegridyStaking — which lets the EOA
+        // (1) bypass NFT transfer cooldown/rate-limit when staking NFTs move
+        // to/from it, and (2) drain per-tokenId reward credits via
+        // `claimUnsettledForTokenId(tokenId, recipient)`. Owner-typo gated by
+        // the 48h timelock, but defense-in-depth check mirrors the restaking
+        // path — fail fast at propose-time only on the approve=true branch
+        // (revoking an EOA accidentally listed is fine; the balance gate on
+        // `applyLendingContract` is a no-op for EOAs since they cannot hold
+        // staking NFTs in this contract's ERC721 ledger).
+        if (_approved) {
+            uint256 codeLen = _lending.code.length;
+            if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        }
         pendingLendingContract = _lending;
         pendingLendingContractApproval = _approved;
         _propose(LENDING_CONTRACT_CHANGE, LENDING_CONTRACT_CHANGE_TIMELOCK);
