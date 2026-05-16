@@ -41,6 +41,112 @@ expiry pattern, Synthetix checkpoint-at-interaction, Uniswap V4 hook
 reference. For a richer Keep-a-Changelog view see
 [CHANGELOG.md](CHANGELOG.md).
 
+## 🔬 Pre-deploy deep-dive (2026-05-14 → 2026-05-16)
+
+Honest single-reviewer pass on the four highest-blast-radius contracts
+(`TegridyLending`, `TegridyLendingAdmin`, `TegridyNFTLending`,
+`TegridyStaking`, `TegridyStakingAdmin`) before the fresh-wallet
+relaunch — verified against current code, not transcript. Outcome:
+**2 real fixes landed, 2 prior agent flags confirmed FALSE POSITIVES.**
+
+### Real findings (fixed)
+
+- **F-MIN-MAX-PRINCIPAL** (LOW) — `TegridyLending.applyMinPrincipalChange` /
+  `TegridyLendingAdmin.proposeMinPrincipal` lacked paired-bound symmetry
+  vs. the existing APR pair (DEEP-LD-L4). A captured admin could set
+  `minPrincipal > maxPrincipal`, soft-bricking new-loan creation.
+  Mirror-port the L4 pattern: revert when `newValue > maxPrincipal` at
+  both propose-time and apply-time.
+  [TegridyLending.sol:2273](contracts/src/TegridyLending.sol#L2273),
+  [TegridyLendingAdmin.sol:391](contracts/src/TegridyLendingAdmin.sol#L391).
+  Adversarial test:
+  `test_minPrincipal_cannotExceedMaxPrincipal_paired` in
+  [contracts/test/AuditR014_Lending.t.sol](contracts/test/AuditR014_Lending.t.sol)
+  covers propose-time rejection, apply-time race, cancel+re-propose
+  recovery path, boundary equality, and the default `maxPrincipal =
+  1000 ether` non-impact case. Note: tests required swapping
+  `vm.warp(block.timestamp + 48 hours + 1)` → `skip(48 hours + 1)` to
+  work around a Solidity 0.8.26 + `via_ir` CSE bug where consecutive
+  `vm.warp` calls in one function cached `block.timestamp` to the same
+  pre-warp value.
+- **F-LEND-PROPOSE-CONTRACT-CHECK** (LOW) —
+  `TegridyStakingAdmin.proposeLendingContract` was missing the
+  EOA / EIP-7702 (`code.length == 0 || == 23`) reject that
+  `proposeRestakingContract` already enforces (F-43-C / F-60-2). An
+  owner-typo (or captured owner) grants an EOA `isLendingContract = true`,
+  which on the staking side promotes it to `_isTrackedHolder` —
+  enabling (1) NFT cooldown / rate-limit bypass for any staking NFT
+  transferred to or from the EOA, and (2) per-tokenId reward drain via
+  `claimUnsettledForTokenId(tokenId, recipient)` for credits booked into
+  the EOA's `unsettledRewards` bucket. Gated by 48h timelock, but
+  defense-in-depth fix mirrors the restaking-side check. Approve=true
+  branch only — revoke=false stays a free recovery path.
+  [TegridyStakingAdmin.sol:245-267](contracts/src/TegridyStakingAdmin.sol#L245).
+  Adversarial tests (4):
+  `test_dd2026_05_16_proposeLendingContract_rejectsEOA_onApprove`,
+  `_rejects7702_onApprove`, `_allowsEOA_onRevoke`,
+  `_acceptsContract_onApprove` — all in
+  [contracts/test/AuditR014_StakingAdmin.t.sol](contracts/test/AuditR014_StakingAdmin.t.sol).
+
+### False positives (verified clean, documented to prevent re-flagging)
+
+- **C-02 — TegridyNFTLending deadline boundary race** (FALSE POSITIVE).
+  A prior agent flagged a race between `acceptOffer` and `cancelOffer`
+  at the exact `block.timestamp == offer.deadline` boundary. Verified
+  by reading the live partition: `acceptOffer` uses
+  `if (block.timestamp > offer.deadline) revert OfferExpired();`
+  (strict `>`, accept allowed AT deadline) at line 814; `cancelOffer`
+  uses `if (block.timestamp <= offer.deadline)` (cancel allowed AFTER
+  deadline) at line 952. Clean partition — accept and cancel cannot
+  both succeed at the exact deadline instant. No fix needed.
+- **TegridyNFTLending sequencer-staleness asymmetry** (FALSE POSITIVE).
+  A prior agent flagged that `claimDefaultedCollateral` uses the
+  2-arg `getSequencerOutageBuffer` (24h default) while `repayLoan`
+  uses the 3-arg variant (4h). Verified that
+  `checkSequencerUp(..., 4 hours)` at line 1465 fires BEFORE the
+  buffer call, masking the asymmetry. No fix needed.
+
+### Surfaces audited (no findings)
+
+`TegridyLending` lifecycle (propose/accept/repay/default + ETH-counter
+invariants); `TegridyNFTLending` collection-whitelist + escrow paths;
+all 18+ admin-side propose/execute/cancel triplets across
+`TegridyLendingAdmin`; full `TegridyStaking` surface — stake /
+stakeWithBoost (JBAC vault deposit), withdraw / earlyWithdraw /
+emergencyExit (CCR-01 ordering), `getReward` autoMaxLock JBAC restorer
+(F3-PERMA-STRIP preserved), `kick` (KickWouldForfeit revert,
+DS2-01/02/03 anti-griefing), `_settleRewardsOnTransfer` (DS3-01/03
+shortfall observability), `_decayIfExpired` boundary (`>=` partition
+clean), `notifyRewardAmount` (Synthetix pre-funding crystallization),
+admin-replacement flow (48h timelock + 7d validity, EOA + 7702 reject),
+`applyLendingContract` / `applyRestakingContract` balance gates
+(DEEP-DS-10 / M-28); full `TegridyStakingAdmin` propose/execute/cancel
+surface — only the lending-contract propose was missing the contract
+check.
+
+### Deferred (UX / INFO, not security-critical)
+
+- **F-USER-TOKEN-ID-MULTI-TRANSFER** (INFO) — `_afterTokenTransfer`
+  zeros `userTokenId[from]` unconditionally even when `from` (typically
+  a contract / Safe / vault with >1 staking NFT) has remaining
+  positions. The DEEP-DS-13 re-pointing fix runs on `_clearPosition`
+  (burn path) but not on `_afterTokenTransfer` (transfer path).
+  Legacy integrators reading `userTokenId(holder)` get a transient
+  "no position" signal until the holder triggers a position-clearing
+  action. Mitigation: use `holdsToken(user, tokenId)`,
+  `userPositionCount(user)`, or `votingPowerOf(user)` for multi-NFT
+  holders — all documented in M-5 NatSpec. Fix would be a 1-line
+  port of the DS-13 pattern into the `from != address(0)` branch of
+  `_afterTokenTransfer`.
+- **F-INCREASE-DOWNGRADE-UX** (INFO) — `increaseAmount`'s F-02-K-04
+  clamp uses `min(cachedBoost, remainingBoost)`, which can silently
+  DOWNGRADE the cached boost on a top-up when remaining lock time
+  is short. By design (prevents whale dribbling additional stake at
+  MAX boost in the final days of a long lock) and acknowledged in
+  the code comment, but a frontend warning at top-up time would
+  improve UX — or users can `extendLock` first to refresh
+  `remainingBoost` before topping up.
+
 ## ✅ Monster Audit (2026-05-09 → 2026-05-10)
 
 7-cluster adversarial sweep on the post-scan6 codebase (Lending, DEX/AMM,
