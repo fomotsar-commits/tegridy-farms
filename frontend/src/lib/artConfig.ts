@@ -273,7 +273,13 @@ export function pageArt(pageId: string, idx: number): ArtPiece {
 
 // Interleave classic art with new pieces so card grids cycle through both
 // instead of clumping new images at the end.
+//
+// 2026-05-16: expanded from 54 → 125 entries so every asset in the
+// ART namespace is reachable from /gallery. The masonry layout +
+// `loading="lazy"` on each <img> keeps the page fast even with the
+// long list — only visible cards fetch their image.
 export const GALLERY_ORDER: ArtPiece[] = [
+  // ─── Classic + Naka (original interleaved pairs) ───────────────
   ART.swordOfLove, ART.naka01,
   ART.mfersHeaven, ART.naka02,
   ART.jungleBus, ART.naka03,
@@ -299,4 +305,23 @@ export const GALLERY_ORDER: ArtPiece[] = [
   ART.galleryCollage, ART.naka23,
   ART.naka24, ART.naka25, ART.naka26, ART.naka27,
   ART.naka28, ART.naka29, ART.naka30, ART.naka31,
+  // ─── Twitter splash pool (14 pieces) ───────────────────────────
+  ART.splash01, ART.splash02, ART.splash03, ART.splash04, ART.splash05,
+  ART.splash06, ART.splash07, ART.splash08, ART.splash09, ART.splash10,
+  ART.splash11, ART.splash12, ART.splash13, ART.splash14,
+  // ─── Splash extras + collection cover ──────────────────────────
+  ART.watercolor, ART.frogkingArt, ART.skeletonArt, ART.ninjaArt,
+  ART.sartoshi3d, ART.angelArt, ART.gnssart,
+  // ─── Behind-the-scenes / iPhone roll (50 pieces) ───────────────
+  ART.iph_0130, ART.iph_0131, ART.iph_0132, ART.iph_0133, ART.iph_0135,
+  ART.iph_0146, ART.iph_0147, ART.iph_0148, ART.iph_0149, ART.iph_0150,
+  ART.iph_0152, ART.iph_0153, ART.iph_0154, ART.iph_0155, ART.iph_0156,
+  ART.iph_0159, ART.iph_0160, ART.iph_0161, ART.iph_0162, ART.iph_0163,
+  ART.iph_0164, ART.iph_0165, ART.iph_0166, ART.iph_0167, ART.iph_0168,
+  ART.iph_0169, ART.iph_0170, ART.iph_0171, ART.iph_0172, ART.iph_0173,
+  ART.iph_0174, ART.iph_0175, ART.iph_0176, ART.iph_0177, ART.iph_0178,
+  ART.iph_0179, ART.iph_0180, ART.iph_0181,
+  ART.iph_1056, ART.iph_1057, ART.iph_1058, ART.iph_1059, ART.iph_1060,
+  ART.iph_1061, ART.iph_1062, ART.iph_1063, ART.iph_1064,
+  ART.iph_1066, ART.iph_1067, ART.iph_1068,
 ];
