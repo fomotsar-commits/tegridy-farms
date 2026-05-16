@@ -29,23 +29,27 @@ const CORE_LOOP_STEPS = [
   { label: 'Longer lock + NFT',       sub: 'bigger slice of the ETH' },
 ];
 
+// Refreshed 2026-05-16. Step 1 now points at /start for the
+// three-click 0.01 ETH onboarding (the swap UI is the longer path).
+// Step 3 reflects the broader fee surface (mints, loans, AMM trades),
+// not just DEX swaps.
 const HOW_IT_WORKS_STEPS = [
   {
     step: '1',
     title: 'Get Some Towelies',
-    desc: 'Swap ETH for TOWELI on the Tegridy DEX. Nine routes checked, best price picked \u2014 Randy does the math so you don\u2019t have to.',
-    to: '/swap',
+    desc: 'Brand new? `/start` walks you through it in three clicks with 0.01 ETH. Already trading? Use the Swap tab for full slippage controls.',
+    to: '/start',
   },
   {
     step: '2',
     title: 'Lock It Down',
-    desc: 'From The Taste Test (7d) to Till Death Do Us Farm (4y). Longer lock + NFT boost = up to 4.5x share.',
+    desc: 'From The Taste Test (7d) to Till Death Do Us Farm (4y). Longer lock + JBAC NFT boost = up to 4.5\u00d7 share of the pot.',
     to: '/farm',
   },
   {
     step: '3',
     title: 'Harvest the Tegridy',
-    desc: '100% of every swap fee pays out in ETH. Not tokens, not IOUs \u2014 ETH. Claim whenever the crop looks ripe.',
+    desc: 'Every swap, mint, loan, and NFT trade on the protocol pays ETH back to lockers. Not tokens, not IOUs \u2014 ETH. Claim whenever the crop looks ripe.',
     to: '/dashboard',
   },
 ];
@@ -89,7 +93,7 @@ export default function ClassicHomePage() {
             </h1>
 
             <p className="text-white text-base md:text-lg mb-6 max-w-md leading-relaxed">
-              Stake TOWELI. Every swap on the DEX feeds ETH back to stakers &mdash; 100% of it.
+              Stake TOWELI. Every swap, mint, loan, and NFT trade pays ETH back to lockers &mdash; 100% of it.
               Real farm. Real yield. Earned with tegridy.
             </p>
 
@@ -118,6 +122,15 @@ export default function ClassicHomePage() {
                 Buy TOWELI
               </Link>
             </div>
+
+            {/* New-user shortcut to the three-click onboarding. */}
+            <Link
+              to="/start"
+              className="inline-block mt-4 text-[12px] underline underline-offset-4 transition-colors hover:opacity-80"
+              style={{ color: 'rgba(255,255,255,0.78)' }}
+            >
+              New here? Start with 0.01 ETH →
+            </Link>
 
             {/* Rotating Towelie one-liner — the personality beat right next to
                 the CTAs that the front-end critique flagged as missing. */}
@@ -171,7 +184,19 @@ export default function ClassicHomePage() {
               { l: 'TVL', v: stats.tvl },
               { l: 'TOWELI Price', v: effectiveToweliPrice || '–', showSparkline: true },
               { l: 'Base APR', v: pool.isDeployed && pool.apr !== '0' ? `${pool.apr}%` : '–' },
-              { l: 'ETH Distributed', v: revenueStats.totalDistributed > 0 ? `${revenueStats.totalDistributed.toFixed(4)} ETH` : '–' },
+              {
+                l: 'ETH Distributed',
+                // USD subtitle appended via Chainlink ETH/USD feed when oracle is fresh.
+                // Mirrors the P2-7 pattern already wired in DashboardPage.ETHRevenueClaim.
+                v:
+                  revenueStats.totalDistributed > 0
+                    ? `${revenueStats.totalDistributed.toFixed(4)} ETH${
+                        !price.oracleStale && price.ethUsd > 0
+                          ? ` · ${formatCurrency(revenueStats.totalDistributed * price.ethUsd, 0)}`
+                          : ''
+                      }`
+                    : '–',
+              },
             ].map((s) => (
               <div key={s.l} className="flex items-center gap-3 px-4 py-2.5 rounded-lg"
                 style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid rgba(76,175,80,0.35)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
@@ -318,11 +343,15 @@ export default function ClassicHomePage() {
           </div>
         </div>
 
-        {/* Trust Badges */}
+        {/* Trust Badges — refreshed 2026-05-16. "82 Findings Resolved"
+            referenced the original audit pass; the cumulative count
+            across Spartan, 100-agent, 300-agent, and the Monster Audit
+            is well over 300, all closed per FIX_STATUS.md +
+            AUDITS_2026_100AGENT_RESOLUTION.md. */}
         <div className="pb-16">
           <div className="flex flex-wrap justify-center gap-3">
             {[
-              { label: '82 Findings Resolved', to: '/security' },
+              { label: 'Multi-Audit Cleared', to: '/security' },
               { label: 'Contracts Verified', to: '/security' },
               { label: 'Bug Bounty Active', to: '/security' },
               { label: 'Open Source', href: 'https://github.com/fomotsar-commits/tegridy-farms' },
@@ -344,37 +373,50 @@ export default function ClassicHomePage() {
           </div>
         </div>
 
-        {/* Ecosystem */}
+        {/* Ecosystem — refreshed 2026-05-16. Tradermigos added since
+            the Nakamigos marketplace is a first-class app surface
+            (top-nav-right action). Grid bumped 3 → 4 cards. */}
         <div className="pb-16">
           <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Ecosystem</h2>
-          <p className="text-white text-[12px] mb-5">The Jungle Bay universe</p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <p className="text-white text-[12px] mb-5">The Jungle Bay universe + the Tegridy-adjacent rooms we built around it.</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             <m.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0, type: 'spring', damping: 20, stiffness: 100 }}>
             <a href="https://opensea.io/collection/junglebay" target="_blank" rel="noopener noreferrer"
-              className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid var(--color-purple-75)' }}>
+              className="relative overflow-hidden rounded-xl glass-card-animated group block h-full" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
                 <ArtImg pageId="home" idx={12} alt="" className="w-full h-full object-cover" loading="lazy" />
               </div>
               <div className="relative z-10 p-5">
                 <p className="text-white text-[14px] font-semibold group-hover:text-white transition-colors mb-1">JBAC NFTs</p>
-                <p className="text-white text-[12px]">5,555 customizable apes. The genesis collection that started it all.</p>
+                <p className="text-white text-[12px]">5,555 customizable apes. The genesis collection. Holding one boosts your TOWELI lock by +0.5×.</p>
               </div>
             </a>
             </m.div>
-            <m.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
+            <m.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.1, type: 'spring', damping: 20, stiffness: 100 }}>
+            <Link to="/nakamigos" className="relative overflow-hidden rounded-xl glass-card-animated group block h-full" style={{ border: '1px solid var(--color-purple-75)' }}>
+              <div className="absolute inset-0">
+                <ArtImg pageId="home" idx={15} alt="" className="w-full h-full object-cover" loading="lazy" />
+              </div>
+              <div className="relative z-10 p-5">
+                <p className="text-white text-[14px] font-semibold group-hover:text-white transition-colors mb-1">Tradermigos</p>
+                <p className="text-white text-[12px]">In-app Nakamigos marketplace. Sweep listings, post offers, run deals — all without leaving the farm.</p>
+              </div>
+            </Link>
+            </m.div>
+            <m.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.2, type: 'spring', damping: 20, stiffness: 100 }}>
             <a href="https://app.uniswap.org/swap?chain=base" target="_blank" rel="noopener noreferrer"
-              className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid var(--color-purple-75)' }}>
+              className="relative overflow-hidden rounded-xl glass-card-animated group block h-full" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
                 <ArtImg pageId="home" idx={13} alt="" className="w-full h-full object-cover" loading="lazy" />
               </div>
               <div className="relative z-10 p-5">
                 <p className="text-white text-[14px] font-semibold group-hover:text-white transition-colors mb-1">$JBM on Base</p>
-                <p className="text-white text-[12px]">The accidental community token. Born from a bot glitch, adopted by the degens.</p>
+                <p className="text-white text-[12px]">The accidental community token. Born from a bot glitch, adopted by the degens. Lives on Base.</p>
               </div>
             </a>
             </m.div>
             <m.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.3, type: 'spring', damping: 20, stiffness: 100 }}>
-            <Link to="/lore" className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid var(--color-purple-75)' }}>
+            <Link to="/lore" className="relative overflow-hidden rounded-xl glass-card-animated group block h-full" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
                 <ArtImg pageId="home" idx={14} alt="" className="w-full h-full object-cover" loading="lazy" />
               </div>
