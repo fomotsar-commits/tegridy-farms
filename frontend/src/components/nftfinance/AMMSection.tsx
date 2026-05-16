@@ -27,6 +27,7 @@ import {
 import { formatTokenAmount, shortenAddress } from '../../lib/formatting';
 import { ART } from '../../lib/artConfig';
 import { InfoTooltip, HowItWorks, RiskBanner } from '../ui/InfoTooltip';
+import { WhyThisMatters } from '../ui/WhyThisMatters';
 import { isValidAddress as _isValidAddress } from '../../lib/tokenList';
 
 // ─── Constants ────────────────────────────────────────────────────
@@ -2647,6 +2648,7 @@ export function AMMSection() {
           NFT AMM contracts are being finalized and will be deployed soon. Explore the interface below. <Link to="/security" className="underline hover:text-amber-300 transition-colors">View security details</Link>
         </div>
       )}
+      <WhyThisMatters feature="nftAmm" />
       <AMMStatsBar poolCount={poolCount as bigint | undefined} />
 
       <HowItWorks

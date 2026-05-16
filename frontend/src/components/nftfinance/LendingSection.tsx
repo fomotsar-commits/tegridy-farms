@@ -16,6 +16,7 @@ import { pageArt, artStyle, type ArtPiece } from '../../lib/artConfig';
 import { useTOWELIPrice } from '../../contexts/PriceContext';
 import { useCountdown } from '../../hooks/useCountdown';
 import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '../ui/InfoTooltip';
+import { WhyThisMatters } from '../ui/WhyThisMatters';
 
 // ─── Design tokens ──────────────────────────────────────────────
 const CARD_BG = 'rgba(13, 21, 48, 0.6)';
@@ -1843,6 +1844,7 @@ export function LendingSection({ address: _propAddress }: { address?: string }) 
           </div>
         </ArtPanel>
       )}
+      <WhyThisMatters feature="lending" />
       <StatsBar allOffers={allOffers} allLoans={allLoans} />
 
       <HowItWorks

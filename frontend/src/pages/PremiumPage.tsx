@@ -9,6 +9,7 @@ import { PREMIUM_ACCESS_ADDRESS } from '../lib/constants';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { getTxUrl } from '../lib/explorer';
 import { ArtImg } from '../components/ArtImg';
+import { WhyThisMatters } from '../components/ui/WhyThisMatters';
 
 const PLANS = [
   { months: 1, label: '1 Month', discount: 0 },
@@ -95,6 +96,8 @@ export default function PremiumPage() {
             Unlock premium features and earn 3x points across the protocol.
           </p>
         </m.div>
+
+        <WhyThisMatters feature="premium" />
 
         {/* Fix #2: Wallet-disconnected prompt */}
         {!address && (

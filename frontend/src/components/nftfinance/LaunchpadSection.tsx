@@ -9,6 +9,7 @@ import { CreateWizard } from '../launchpad/wizard/CreateWizard';
 import { CollectionDetailV2 } from '../launchpad/CollectionDetailV2';
 import { FEATURE_BULLETS } from '../launchpad/launchpadConstants';
 import { ArtImg } from '../ArtImg';
+import { WhyThisMatters } from '../ui/WhyThisMatters';
 
 // V1 factory is deprecated as of 2026-04-19. Mainnet clones created via V1 remain
 // live and browseable on Etherscan, but the frontend no longer reads from it.
@@ -121,6 +122,7 @@ export function LaunchpadSection() {
 
   return (
     <div className="space-y-6">
+      <WhyThisMatters feature="launchpad" />
       {/* Features Overview */}
       <div className="rounded-2xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
         <ArtImg pageId="launchpad-section" idx={0} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />

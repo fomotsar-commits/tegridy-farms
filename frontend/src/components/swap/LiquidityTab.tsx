@@ -8,6 +8,7 @@ import { TokenSelectModal } from './TokenSelectModal';
 import { getTxUrl } from '../../lib/explorer';
 import { formatTokenAmount, formatNumber } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
+import { WhyThisMatters } from '../ui/WhyThisMatters';
 
 type LiquidityMode = 'add' | 'remove';
 
@@ -163,6 +164,9 @@ export function LiquidityTab() {
       </div>
 
       <div className="relative p-5">
+        {/* Why-this-matters card above the action surface (P2 2026-05-16) */}
+        <WhyThisMatters feature="liquidity" />
+
         {/* Mode toggle */}
         <div className="flex gap-1.5 mb-4 p-1 rounded-xl" style={{ background: 'rgba(0,0,0,0.40)', border: '1px solid rgba(255,255,255,0.15)' }}>
           <button onClick={() => setMode('add')} aria-pressed={mode === 'add'}

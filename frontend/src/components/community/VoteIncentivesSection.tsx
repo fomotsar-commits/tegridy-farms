@@ -15,6 +15,7 @@ import { useBribes, type WhitelistedToken } from '../../hooks/useBribes';
 import { useGaugeList, type GaugeInfo } from '../../hooks/useGaugeList';
 import { shortenAddress, formatTokenAmount } from '../../lib/formatting';
 import { InfoTooltip } from '../ui/InfoTooltip';
+import { WhyThisMatters } from '../ui/WhyThisMatters';
 import { GOVERNANCE_COPY } from '../../lib/copy';
 import { pageArt } from '../../lib/artConfig';
 import { ArtImg } from '../ArtImg';
@@ -1347,6 +1348,9 @@ export function VoteIncentivesSection() {
 
   return (
     <div className="space-y-4">
+      <WhyThisMatters feature="gaugeVote" />
+      <WhyThisMatters feature="bribes" />
+
       <PersonaCards />
 
       <PendingFeeBanner current={bribes.bribeFeeBps} pending={bribes.pendingFeeBps} executeAt={bribes.feeChangeTime} now={nowSec} />

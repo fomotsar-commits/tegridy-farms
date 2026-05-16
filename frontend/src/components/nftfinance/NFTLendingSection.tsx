@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { TEGRIDY_NFT_LENDING_ADDRESS, CHAIN_ID } from '../../lib/constants';
 import { TEGRIDY_NFT_LENDING_ABI, ERC721_ABI } from '../../lib/contracts';
 import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '../ui/InfoTooltip';
+import { WhyThisMatters } from '../ui/WhyThisMatters';
 import { ART, pageArt, artStyle } from '../../lib/artConfig';
 import { ArtImg } from '../ArtImg';
 import { useCountdown } from '../../hooks/useCountdown';
@@ -132,6 +133,8 @@ export function NFTLendingSection() {
           Borrow ETH against your NFTs or lend ETH and earn interest. P2P — no oracles, no liquidations.
         </p>
       </m.div>
+
+      <WhyThisMatters feature="nftLending" />
 
       {/* How It Works */}
       <HowItWorks

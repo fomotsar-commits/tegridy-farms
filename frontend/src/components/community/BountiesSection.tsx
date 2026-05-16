@@ -13,6 +13,7 @@ import { ArtImg } from '../ArtImg';
 // stored content via SafeText to harden against pre-fix payloads.
 import { sanitizeUserText, isAllowedSubmissionUri, SUBMISSION_URI_ERROR, DEFAULT_DESCRIPTION_LIMIT } from '../../lib/textSafety';
 import { SafeText } from '../ui/SafeText';
+import { WhyThisMatters } from '../ui/WhyThisMatters';
 
 const CARD_BORDER = 'var(--color-purple-12)';
 const STAT_ARTS = [pageArt('bounties', 0), pageArt('bounties', 1), pageArt('bounties', 2), pageArt('bounties', 3)];
@@ -121,6 +122,7 @@ export function BountiesSection() {
 
   return (
     <div className="space-y-4">
+      <WhyThisMatters feature="bounties" />
       {/* Stats Row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[

@@ -14,6 +14,7 @@ import { usePriceHistory } from '../hooks/usePriceHistory';
 import { formatCurrency } from '../lib/formatting';
 import { FlashValue } from '../components/FlashValue';
 import { ReferralWidget } from '../components/ReferralWidget';
+import { WhyThisMatters } from '../components/ui/WhyThisMatters';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { YieldCalculator } from '../components/ui/YieldCalculator';
 import { TOWELIE_QUOTES } from '../lib/copy';
@@ -464,6 +465,7 @@ export default function ClassicHomePage() {
         {/* Referral Widget for connected users */}
         {address && (
           <div className="pb-16">
+            <WhyThisMatters feature="referral" />
             <ReferralWidget
               address={address}
               referredCount={revenueStats.referredCount}

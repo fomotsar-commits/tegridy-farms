@@ -30,6 +30,7 @@ import { LPFarmingSection } from '../components/farm/LPFarmingSection';
 import { StakingCard } from '../components/farm/StakingCard';
 import type { ConfirmState } from '../components/farm/StakingCard';
 import { tooltip } from '../lib/tooltips';
+import { WhyThisMatters } from '../components/ui/WhyThisMatters';
 import { BoostScheduleTable } from '../components/farm/BoostScheduleTable';
 import { UPCOMING_POOLS } from '../components/farm/poolConfig';
 import { LivePoolCard } from '../components/farm/LivePoolCard';
@@ -262,6 +263,7 @@ export default function FarmPage() {
         {/* ── Restaking (Bonus Yield Layer) ── */}
         {isConnected && pos.hasPosition && (
           <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+            <WhyThisMatters feature="restake" />
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="heading-luxury text-white text-[22px] tracking-tight">Restaking</h2>
@@ -333,6 +335,9 @@ export default function FarmPage() {
             </div>
           </m.div>
         )}
+
+        {/* Why staking matters — above the action cards (2026-05-16). */}
+        <WhyThisMatters feature="stake" />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12">
           {/* Staking Card */}

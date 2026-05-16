@@ -6,6 +6,7 @@ import { parseEther } from 'viem';
 import type { useLPFarming } from '../../hooks/useLPFarming';
 import { ILCalculator } from './ILCalculator';
 import { ArtImg } from '../ArtImg';
+import { WhyThisMatters } from '../ui/WhyThisMatters';
 
 type LPFarmHook = ReturnType<typeof useLPFarming>;
 
@@ -85,6 +86,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
 
   return (
     <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+      <WhyThisMatters feature="lpFarm" />
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="heading-luxury text-white text-[22px] tracking-tight">LP Farming</h2>

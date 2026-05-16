@@ -13,6 +13,7 @@ import { TokenSelectModal } from '../components/swap/TokenSelectModal';
 import { ArtImg } from '../components/ArtImg';
 import { useTowelie } from '../hooks/useTowelie';
 import { tooltip } from '../lib/tooltips';
+import { WhyThisMatters } from '../components/ui/WhyThisMatters';
 
 // P1-4 (2026-05-14): the DCA / Limit Order tabs were pulled because they
 // persisted in browser localStorage and only triggered while the user had
@@ -156,6 +157,8 @@ export default function TradePage() {
               <ArtImg pageId="trade" idx={1} fallbackPosition="center 15%" alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
             </div>
             <div className="relative p-5 flex flex-col min-h-[640px]">
+            {/* Why-this-matters card above the swap form (2026-05-16) */}
+            <WhyThisMatters feature="swap" />
             {!isConnected ? (
               <div className="text-center py-8 my-auto">
                 <p className="text-white text-[13px] mb-4" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Connect your wallet to swap</p>

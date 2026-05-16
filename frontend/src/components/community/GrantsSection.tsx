@@ -10,6 +10,7 @@ import { ArtImg } from '../ArtImg';
 // R069: sanitize freeform descriptions on write + render via SafeText.
 import { sanitizeUserText, DEFAULT_DESCRIPTION_LIMIT } from '../../lib/textSafety';
 import { SafeText } from '../ui/SafeText';
+import { WhyThisMatters } from '../ui/WhyThisMatters';
 
 const CARD_BORDER = 'var(--color-purple-12)';
 
@@ -148,6 +149,7 @@ export function GrantsSection() {
 
   return (
     <div className="space-y-4">
+      <WhyThisMatters feature="grants" />
       {/* Stats Row */}
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
