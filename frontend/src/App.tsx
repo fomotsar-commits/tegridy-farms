@@ -13,10 +13,10 @@ import { safeSetItem } from './lib/storage';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { usePageTitle } from './hooks/usePageTitle';
 
-// P0-1: launchpad-first landing. The original marketing-style home is
-// preserved verbatim at `/classic` (file renamed `HomePage.tsx` →
-// `ClassicHomePage.tsx`); the new `LaunchpadHomePage` is what `/` serves.
-const LaunchpadHomePage = lazy(() => import('./pages/LaunchpadHomePage'));
+// 2026-05-16: reverted P0-1 — the classic home is the home again.
+// `LaunchpadHomePage.tsx` stays on disk (the file is still imported by
+// `/launchpad` consumers if anything else routes to it later) but no
+// longer mounted at any route.
 const ClassicHomePage = lazy(() => import('./pages/ClassicHomePage'));
 const StartPage = lazy(() => import('./pages/StartPage'));
 const FarmPage = lazy(() => import('./pages/FarmPage'));
@@ -137,12 +137,13 @@ function AnimatedRoutes() {
         }
       />
       <Route element={<AppLayout />}>
-        <Route index element={<Suspense fallback={<PageSkeleton />}><LaunchpadHomePage /></Suspense>} />
-        <Route path="classic" element={<Suspense fallback={<PageSkeleton />}><ClassicHomePage /></Suspense>} />
-        {/* P2-10: `/advanced` is the URL the brief names for the DeFi-native
-            home — the existing /classic page already holds that content
-            (gauges, bribes, veTOWELI mechanics, etc.), so we alias here. */}
-        <Route path="advanced" element={<Navigate to="/classic" replace />} />
+        <Route index element={<Suspense fallback={<PageSkeleton />}><ClassicHomePage /></Suspense>} />
+        {/* 2026-05-16: `/classic` and `/advanced` now alias `/` since the
+            classic home is the only home. Kept as redirects so any
+            external links / bookmarks from the brief P0-1 era keep
+            resolving. */}
+        <Route path="classic" element={<Navigate to="/" replace />} />
+        <Route path="advanced" element={<Navigate to="/" replace />} />
         <Route path="start" element={<Suspense fallback={<PageSkeleton />}><StartPage /></Suspense>} />
         <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><FarmPage /></Suspense>} />
         <Route path="swap" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
@@ -163,9 +164,9 @@ function AnimatedRoutes() {
         <Route path="admin" element={<Suspense fallback={<PageSkeleton />}><AdminPage /></Suspense>} />
         <Route path="nft-finance" element={<Suspense fallback={<PageSkeleton />}><LendingPage /></Suspense>} />
         <Route path="lending" element={<Navigate to="/nft-finance" replace />} />
-        {/* P0-1: /launchpad now aliases the launchpad-first home so people
-            typing the URL land on the gallery, not the create-wizard tab. */}
-        <Route path="launchpad" element={<Navigate to="/" replace />} />
+        {/* 2026-05-16: revert P0-1 alias — `/launchpad` goes back to the
+            create-wizard tab in NFT Finance (its pre-push behaviour). */}
+        <Route path="launchpad" element={<Navigate to="/nft-finance" replace />} />
         <Route path="nft-amm" element={<Navigate to="/nft-finance" replace />} />
         <Route path="governance" element={<Navigate to="/community" replace />} />
         <Route path="security" element={<Suspense fallback={<PageSkeleton />}><LearnPage /></Suspense>} />
