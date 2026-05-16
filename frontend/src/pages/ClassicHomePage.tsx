@@ -19,9 +19,12 @@ import { YieldCalculator } from '../components/ui/YieldCalculator';
 import { TOWELIE_QUOTES } from '../lib/copy';
 import { ArtImg } from '../components/ArtImg';
 
+// Core loop reframed 2026-05-16 to cover the full revenue surface (DEX
+// swaps + launchpad mints + NFT loans + AMM trades), not just DEX fees.
+// All paths terminate at the staker via the same RevenueDistributor.
 const CORE_LOOP_STEPS = [
-  { label: 'People trade TOWELI',     sub: 'on the Tegridy DEX' },
-  { label: 'Every swap skims a fee',  sub: '0.3% on each trade' },
+  { label: 'People use the protocol', sub: 'trade, mint, lend, restake' },
+  { label: 'Every action pays a fee', sub: 'swaps, mints, loans, trades' },
   { label: '100% flows to stakers',   sub: 'paid out in ETH' },
   { label: 'Longer lock + NFT',       sub: 'bigger slice of the ETH' },
 ];
@@ -251,13 +254,17 @@ export default function ClassicHomePage() {
         <div className="pb-16">
           <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Protocol Overview</h2>
-            <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Farm, swap, and track your positions.</p>
+            <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Trade, farm, launch — every fee flows back to stakers.</p>
           </m.div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Expanded 2026-05-16: 3 cards → 4 to surface NFT Finance
+              (launchpad + lending + AMM pools). All four routes ladder
+              back to the same staker-fee loop above. */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { to: '/swap', title: 'Swap', desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.', stat: 'Uniswap V2', label: 'Router', art: pageArt('home', 6) },
-              { to: '/farm', title: 'Farm', desc: 'Stake TOWELI or LP tokens across two active pools to earn yield.', stat: '2', label: 'Active Pools', art: pageArt('home', 7) },
+              { to: '/swap', title: 'Trade', desc: 'Swap ETH ↔ TOWELI on the native DEX. Nine-route aggregator finds the best price.', stat: 'Best route', label: 'Aggregator', art: pageArt('home', 6) },
+              { to: '/farm', title: 'Farm', desc: 'Stake TOWELI for ETH yield. Lock longer + hold a JBAC for up to 4.5× the share.', stat: '4.5×', label: 'Max boost', art: pageArt('home', 7) },
+              { to: '/nft-finance', title: 'NFT Finance', desc: 'Launch a collection, lend against NFTs, trade JBAC in the AMM. All on-chain.', stat: '3-in-1', label: 'Launchpad + Lending + AMM', art: pageArt('home', 12) },
               { to: '/dashboard', title: 'Dashboard', desc: 'Track your portfolio, positions, claimable rewards, and projections.', stat: 'Real-time', label: 'On-chain Data', art: pageArt('home', 8) },
             ].map((f, i) => (
               <m.div key={f.title} initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }}
