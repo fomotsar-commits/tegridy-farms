@@ -414,7 +414,7 @@ contract AuditR014LendingTest is Test {
         lendingAdmin.executeMinPrincipalChange();
 
         // Wait the full timelock and execute.
-        vm.warp(block.timestamp + 48 hours + 1);
+        skip(48 hours + 1);
         lendingAdmin.executeMinPrincipalChange();
         assertEq(lending.minPrincipal(), 0.5 ether);
         assertEq(lendingAdmin.pendingMinPrincipal(), 0);
@@ -423,6 +423,86 @@ contract AuditR014LendingTest is Test {
         lendingAdmin.proposeMinPrincipal(0.25 ether);
         lendingAdmin.cancelMinPrincipalChange();
         assertEq(lendingAdmin.pendingMinPrincipal(), 0);
+    }
+
+    /// @notice AUDIT FIX (2026-05-16 deep-dive): paired-bound symmetry for the
+    ///         min/max principal pair, mirroring DEEP-LD-L4 (APR pair) and the
+    ///         applyMin/MaxDurationChange cross-checks (duration pair).
+    /// @dev    Exercises three guarantees:
+    ///           1. Propose-time check rejects `_new > maxPrincipal` (LIVE).
+    ///           2. Apply-time check rejects when a parallel `proposeMaxPrincipal`
+    ///              reduces `maxPrincipal` between the min-principal propose and
+    ///              its eventual execute (the race the apply-side gate exists to
+    ///              catch).
+    ///           3. Default `maxPrincipal = 1000 ether` leaves legitimate
+    ///              proposals (≤ MAX_MIN_PRINCIPAL = 1 ether) unaffected.
+    function test_minPrincipal_cannotExceedMaxPrincipal_paired() public {
+        // (3) Sanity: legitimate proposal still works under defaults.
+        assertEq(lending.maxPrincipal(), 1000 ether);
+        lendingAdmin.proposeMinPrincipal(0.5 ether);
+        skip(48 hours + 1);
+        lendingAdmin.executeMinPrincipalChange();
+        assertEq(lending.minPrincipal(), 0.5 ether);
+
+        // Tighten `maxPrincipal` to the floor so we can exercise the cross-check.
+        lendingAdmin.proposeMaxPrincipal(0.01 ether); // MAX_PRINCIPAL_FLOOR
+        skip(48 hours + 1);
+        lendingAdmin.executeMaxPrincipal();
+        assertEq(lending.maxPrincipal(), 0.01 ether);
+
+        // (1) Propose-time gate: `_new > maxPrincipal` is rejected at propose time
+        //     so off-chain operators see immediate rejection rather than queueing
+        //     a 48h proposal that would only fail on execute.
+        vm.expectRevert(TegridyLending.InvalidCapValue.selector);
+        lendingAdmin.proposeMinPrincipal(0.5 ether); // > maxPrincipal (0.01)
+
+        // Boundary: equal-to-maxPrincipal is acceptable. Bring minPrincipal
+        // BELOW the new max to stay inside MAX_PRINCIPAL_FLOOR's window.
+        // (Default `minPrincipal` is still 0.5 ether from above; we need to
+        // first reduce it so the equal-case proposal can land.)
+        lendingAdmin.proposeMinPrincipal(0.01 ether);
+        skip(48 hours + 1);
+        lendingAdmin.executeMinPrincipalChange();
+        assertEq(lending.minPrincipal(), 0.01 ether);
+
+        // (2) Apply-time gate: simulate the race where a parallel
+        //     `proposeMaxPrincipal` reduces `maxPrincipal` between the min
+        //     proposal's propose and its execute. Walk through it explicitly:
+        //       a. Raise maxPrincipal back to 1 ether so we can propose a
+        //          0.5 ether min that's LEGITIMATE at propose time.
+        lendingAdmin.proposeMaxPrincipal(1 ether);
+        skip(48 hours + 1);
+        lendingAdmin.executeMaxPrincipal();
+        assertEq(lending.maxPrincipal(), 1 ether);
+        //       b. Propose min = 0.5 ether (passes propose-time check: 0.5 ≤ 1).
+        lendingAdmin.proposeMinPrincipal(0.5 ether);
+        //       c. In parallel, propose maxPrincipal = 0.1 ether and execute it
+        //          BEFORE the min proposal's timelock elapses.
+        lendingAdmin.proposeMaxPrincipal(0.1 ether);
+        skip(48 hours + 1);
+        lendingAdmin.executeMaxPrincipal();
+        assertEq(lending.maxPrincipal(), 0.1 ether);
+        //       d. Min proposal's timelock has ALSO elapsed (both 48h). Execute.
+        //          The apply-side cross-check on TegridyLending.applyMinPrincipalChange
+        //          catches `newValue (0.5) > maxPrincipal (0.1)` and reverts.
+        vm.expectRevert(TegridyLending.InvalidCapValue.selector);
+        lendingAdmin.executeMinPrincipalChange();
+        //       e. minPrincipal stays at the prior 0.01 ether — no apply happened.
+        assertEq(lending.minPrincipal(), 0.01 ether);
+        //       f. The whole tx reverted, so `_execute`'s state changes were
+        //          rolled back too: the pending proposal is STILL live and
+        //          executable once a future `proposeMaxPrincipal` raises the
+        //          ceiling, OR the operator can cancel it now and re-propose
+        //          a fresh min that respects the new maxPrincipal.
+        assertEq(lendingAdmin.pendingMinPrincipal(), 0.5 ether);
+        //       g. Recovery via cancel: operator can clean up the stale slot.
+        lendingAdmin.cancelMinPrincipalChange();
+        assertEq(lendingAdmin.pendingMinPrincipal(), 0);
+        //       h. Re-propose with a value satisfying the new ceiling.
+        lendingAdmin.proposeMinPrincipal(0.05 ether); // < maxPrincipal (0.1)
+        skip(48 hours + 1);
+        lendingAdmin.executeMinPrincipalChange();
+        assertEq(lending.minPrincipal(), 0.05 ether);
     }
 
     // ═══════════════════════════════════════════════════════════════════
