@@ -1890,7 +1890,14 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (_emergencyExitRequests[tokenId] != 0) revert EmergencyExitAlreadyRequested();
 
         _emergencyExitRequests[tokenId] = block.timestamp;
-        _touch(msg.sender); // AUDIT M-AUDIT-2026-3
+        // AUDIT FIX 2026-05-16 M16: only refresh `lastActivityAt` while NOT paused.
+        // Pre-fix, a malicious user could spam request+cancel cycles during pause to
+        // keep `lastActivityAt[user]` always < USER_INACTIVITY_GATE (90d) old,
+        // blocking owner-side stale-claim recovery via `claimUnsettledFor(user)`
+        // perpetually. `claimUnsettledFor` is `whenNotPaused` so the owner can't
+        // front-run during pause anyway — skipping `_touch` during pause closes the
+        // grief loop without breaking the pause-independent escape-hatch design.
+        if (!paused()) _touch(msg.sender); // AUDIT M-AUDIT-2026-3 (paused-conditional 2026-05-16)
         emit EmergencyExitRequested(msg.sender, tokenId, block.timestamp + EMERGENCY_EXIT_DELAY);
     }
 
@@ -1901,7 +1908,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
         if (_emergencyExitRequests[tokenId] == 0) revert EmergencyExitNotRequested();
         delete _emergencyExitRequests[tokenId];
-        _touch(msg.sender); // AUDIT M-AUDIT-2026-3
+        // AUDIT FIX 2026-05-16 M16: same paused-conditional skip as requestEmergencyExit.
+        // See that function's comment for rationale.
+        if (!paused()) _touch(msg.sender); // AUDIT M-AUDIT-2026-3 (paused-conditional 2026-05-16)
         emit EmergencyExitCancelled(msg.sender, tokenId);
     }
 

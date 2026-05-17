@@ -41,6 +41,9 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     error InsufficientPayment();
     error InvalidProof();
     error AlreadyRevealed();
+    /// @notice AUDIT FIX 2026-05-16 LOW: empty `revealURI` passed to `reveal()`.
+    ///         Mirrors `BaseURIEmpty` for `freezeBaseURI` (consistent guard surface).
+    error RevealURIEmpty();
     error WithdrawFailed();
     error ZeroQuantity();
     /// AUDIT FIX (BATCH-H M8): per-tx mint quantity cap.
@@ -850,6 +853,14 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
 
     function reveal(string calldata revealURI) external onlyOwner {
         if (revealed) revert AlreadyRevealed();
+        // AUDIT FIX 2026-05-16 LOW: reject empty reveal URI. Pre-fix, `reveal("")`
+        // would permanently set `_revealURI = ""` (revealed flag is monotonic);
+        // every subsequent `tokenURI(id)` then returned "" since the ternary at
+        // line 463-468 short-circuits to "" when bytes(_revealURI).length == 0.
+        // Marketplaces and previews showed broken/missing metadata with no recovery.
+        // Mirror the asymmetric `freezeBaseURI` guard (`BaseURIEmpty` at line ~841)
+        // so both immutable-URI paths reject empty input.
+        if (bytes(revealURI).length == 0) revert RevealURIEmpty();
         revealed = true;
         _revealURI = revealURI;
         emit Revealed(revealURI);

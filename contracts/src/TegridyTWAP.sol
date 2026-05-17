@@ -374,6 +374,15 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         // cumulative before the next observation lands.
         if (factory.disabledPairs(pair)) revert PairDisabled();
 
+        // AUDIT FIX 2026-05-16 M17: move `canUpdate` check BEFORE fee accounting and
+        // reserve reads. Pre-fix, losing-race keepers paid for storage writes
+        // (accumulatedFees increment, refund attempt) and reserve reads before the
+        // period check rejected them — wasted gas on every loss. Reverting early
+        // saves contending keepers gas without changing any success-path behavior.
+        // Tx revert still rolls back the value transfer, so callers lose nothing
+        // but unused gas (parity with any other early revert).
+        if (!canUpdate(pair)) revert PeriodNotElapsed();
+
         // AUDIT FIX F-95-K-4 (2026-05): when the owner has not explicitly
         // configured `updateFee`, enforce a `MIN_UPDATE_FEE` floor so the
         // permissionless `update()` cannot be cheap-grief-spammed at every
@@ -414,7 +423,8 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
             // until `setUpdateFee` flips `updateFeeConfigured`.)
             require(msg.value == 0, "FEE_NOT_SET");
         }
-        if (!canUpdate(pair)) revert PeriodNotElapsed();
+        // AUDIT FIX 2026-05-16 M17: canUpdate moved above (pre-fee). Original check
+        // location kept in comment for code-archeology reference.
 
         (uint112 reserve0, uint112 reserve1, uint32 pairBlockTs) = ITegridyPair(pair).getReserves();
         if (reserve0 == 0 || reserve1 == 0) revert NoReserves();
@@ -738,6 +748,23 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         if (amountIn == 0) revert InvalidAmount();
         if (period == 0) revert InvalidAmount();
         if (period > uint256(MAX_OBSERVATIONS) * MIN_PERIOD) revert PeriodTooLong();
+
+        // AUDIT FIX 2026-05-16 M15: re-verify pair reserves meet the floor at
+        // CONSULT time, not just at update() time. Pre-fix, a pair that was
+        // well-funded when observations were recorded could have been drained to
+        // below the floor between then and now — `update()` rejects new
+        // observations (ReservesBelowFloor) so the buffer freezes, and `consult()`
+        // would happily serve the stale-but-honest TWAP from a now-thin pool for
+        // up to MAX_STALENESS (2h). Within that window, downstream consumers
+        // (lending oracle, POL accumulator) over-valued positions on a pool that
+        // any small swap could move 90%+. Re-checking here closes the window
+        // structurally — the same floor applied at update() applies at consult().
+        {
+            (uint112 _r0, uint112 _r1,) = ITegridyPair(pair).getReserves();
+            uint256 _f0 = effectiveMinReserveFloor(pair);
+            uint256 _f1 = effectiveMinReserveFloor1(pair);
+            if (uint256(_r0) < _f0 || uint256(_r1) < _f1) revert ReservesBelowFloor();
+        }
 
         // AUDIT FIX D-AMM-M5: refuse to serve a price derived from a buffer whose
         // latest observation was admitted under the dormancy-bypass path. Even

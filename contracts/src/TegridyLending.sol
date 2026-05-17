@@ -2364,5 +2364,13 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // collection cannot OOG-grief this admin path via giant returndata.
         bool moved = SafeERC721Call.safeTransferFromBounded(_collection, address(this), _to, _tokenId);
         if (!moved) revert NotHeldByContract();
+        // AUDIT FIX 2026-05-16 LOW: paired safeOwnerOfBounded post-condition so a
+        // malicious collection that no-op'd transferFrom (returning success without
+        // moving the token) is detected. Mirrors the canonical pattern in
+        // `_safeOutboundTransferStaking` (line 1574-1586). Variable name `moved`
+        // above is actually the call-status `ok` from safeTransferFromBounded;
+        // the real "did it move?" check is here.
+        (bool postOk, address postOwner) = SafeERC721Call.safeOwnerOfBounded(_collection, _tokenId);
+        if (!postOk || postOwner != _to) revert NotHeldByContract();
     }
 }
