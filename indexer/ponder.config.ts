@@ -943,7 +943,7 @@ const PremiumAccessBusinessAbi = [
   },
 ] as const;
 
-const TegridyLendingAbi = [
+const TegridyLendingAbiV2 = [
   {
     type: "event",
     name: "LoanOfferCreated",
