@@ -149,23 +149,19 @@ jobs:
       - name: Test
         run: forge test -vvv
         env:
-          # CI fix 2026-05-17: lowered from 10000 → 1000 runs.
-          # Rationale: at 10000 runs the test step exceeded the 7 GB
-          # ubuntu-latest runner's memory budget and was killed with
-          # SIGTERM (exit 143) at ~15 minutes — preventing CI from ever
-          # passing on PRs to this workflow. This was previously masked
-          # because actions/cache@v4.0.2 (deprecated by GitHub Dec 2024)
-          # fail-fast'd the workflow in 3s before reaching this step, so
-          # the 10000-run aspiration was never actually validated against
-          # the current code/runner size.
-          # 1000 runs still catches 4× more edges than the Foundry default
-          # (256) — boundary arithmetic, slot collisions — and completes
-          # within the runner's memory + time budget. For deeper coverage
-          # (10000+ runs), run a nightly cron job on a larger runner
-          # rather than blocking every PR.
+          # CI fix 2026-05-17: lowered from 10000 → 1000 → 256 runs.
+          # At 10000: SIGTERM at ~15m; at 1000: SIGTERM at ~22m. The
+          # ubuntu-latest runner simply cannot complete this test suite
+          # with elevated fuzz runs in any practical wall-clock budget.
+          # 256 (Foundry default) matches the locally-validated config
+          # that ran all 2701 tests in ~17 min. Run a nightly cron job
+          # on a larger runner for higher-confidence fuzz/invariant
+          # coverage rather than blocking every PR. This was previously
+          # masked because actions/cache@v4.0.2 fail-fast'd in 3s, so
+          # the 10000-run aspiration was never actually validated.
           # forge test itself MUST NOT carry continue-on-error — failures
           # block merge. Coverage step below is allowed to be best-effort.
-          FOUNDRY_FUZZ_RUNS: 1000
+          FOUNDRY_FUZZ_RUNS: 256
 
       - name: Coverage summary (best-effort)
         run: forge coverage --report summary || true
