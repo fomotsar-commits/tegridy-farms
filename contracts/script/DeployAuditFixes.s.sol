@@ -12,6 +12,11 @@ import "../src/MemeBountyBoard.sol";
 import "../src/ReferralSplitter.sol";
 import "../src/PremiumAccess.sol";
 import "../src/POLAccumulator.sol";
+// Named import to avoid file-level interface collisions on ITegridyStaking
+// (also declared inside TegridyRestaking.sol). Pulling only the contract symbol
+// into scope. Lending lives in script/DeployLending.s.sol (separate script to
+// keep run()'s local-variable count under the Yul stack ceiling).
+import {TegridyStakingJbacVault} from "../src/TegridyStakingJbacVault.sol";
 
 contract DeployAuditFixesScript is Script {
     // ─── Existing addresses (unchanged) ───
@@ -26,7 +31,6 @@ contract DeployAuditFixesScript is Script {
     uint256 constant SWAP_FEE_BPS = 30;                      // 0.3%
     uint256 constant REFERRAL_FEE_BPS = 1000;                // 10%
     uint256 constant MONTHLY_FEE = 10_000 ether;             // 10,000 TOWELI
-
     function run() external {
         // AUDIT FIX H-11: Chain-ID guard to prevent accidental deployment on wrong chain
         require(block.chainid == 1, "MAINNET_ONLY: This script uses hardcoded mainnet addresses");
@@ -41,6 +45,16 @@ contract DeployAuditFixesScript is Script {
         // 1. TegridyStaking (flash-loan boost fix, emergency withdraw, timelock, snapshot voting)
         TegridyStaking staking = new TegridyStaking(TOWELI, JBAC_NFT, TREASURY, REWARD_PER_SECOND);
         console.log("1. TegridyStaking:", address(staking));
+
+        // 1b. TegridyStakingJbacVault + one-shot wire BEFORE transferOwnership.
+        // Factored into _deployAndWireJbacVault to keep run()'s local count
+        // under the Yul stack-too-deep ceiling. `setJbacVault` is owner-only
+        // and one-shot; if it isn't called here the multisig must do it post-
+        // handover and historical deploy scripts missed this step entirely.
+        // Return value discarded — helper console.log emits the address for
+        // off-chain capture, which avoids pinning another address into run()'s
+        // stack across the remaining 10 contract deploys + transferOwnership.
+        _deployAndWireJbacVault(staking);
 
         // 2. TegridyRestaking (emergency NFT withdraw, bonus rate timelock)
         TegridyRestaking restaking = new TegridyRestaking(
@@ -157,25 +171,32 @@ contract DeployAuditFixesScript is Script {
         premium.transferOwnership(MULTISIG);
         polAccumulator.transferOwnership(MULTISIG);
         console.log("12. Ownership transferred to multisig (pending acceptance):", MULTISIG);
+        console.log("    Multisig MUST accept on all 11 contracts within the");
+        console.log("    OwnableNoRenounce 14-day expiry window or the deployer EOA");
+        console.log("    permanently retains ownership. Run Verify.s.sol after acceptance.");
+        console.log("    For TegridyLending + TegridyLendingAdmin, run script/DeployLending.s.sol");
+        console.log("    in a separate broadcast (factored out to avoid Yul stack-too-deep).");
 
         vm.stopBroadcast();
 
         console.log("");
         console.log("=== DEPLOYMENT COMPLETE ===");
         console.log("");
-        console.log("TegridyStaking:      ", address(staking));
-        console.log("TegridyRestaking:    ", address(restaking));
-        console.log("ReferralSplitter:    ", address(referral));
-        console.log("SwapFeeRouter:       ", address(swapRouter));
-        console.log("SwapFeeRouterAdmin:  ", address(swapRouterAdmin));
-        console.log("CommunityGrants:     ", address(grants));
-        console.log("RevenueDistributor:  ", address(revDist));
-        console.log("MemeBountyBoard:     ", address(bountyBoard));
-        console.log("PremiumAccess:       ", address(premium));
-        console.log("POLAccumulator:      ", address(polAccumulator));
+        console.log("TegridyStaking:         ", address(staking));
+        console.log("TegridyStakingJbacVault: (see step 1b log above for address)");
+        console.log("TegridyRestaking:       ", address(restaking));
+        console.log("ReferralSplitter:       ", address(referral));
+        console.log("SwapFeeRouter:          ", address(swapRouter));
+        console.log("SwapFeeRouterAdmin:     ", address(swapRouterAdmin));
+        console.log("CommunityGrants:        ", address(grants));
+        console.log("RevenueDistributor:     ", address(revDist));
+        console.log("MemeBountyBoard:        ", address(bountyBoard));
+        console.log("PremiumAccess:          ", address(premium));
+        console.log("POLAccumulator:         ", address(polAccumulator));
+        console.log("TegridyLending + Admin: (deploy separately via script/DeployLending.s.sol)");
         console.log("");
         console.log("NEXT STEPS:");
-        console.log("1. Accept ownership from multisig: acceptOwnership() on all 9 contracts");
+        console.log("1. Accept ownership from multisig: acceptOwnership() on all 12 contracts");
         console.log("2. After 48h: execute staking.executeRestakingContract()");
         console.log("3. After 48h: execute revDist.executeRestakingChange()");
         console.log("4. Transfer feeToSetter on TegridyFactory: proposeFeeToSetter(MULTISIG), wait 48h, acceptFeeToSetter()");
@@ -188,5 +209,15 @@ contract DeployAuditFixesScript is Script {
         console.log("10. Verify all contracts on Etherscan");
         console.log("11. Deploy TegridyFeeHook separately (requires CREATE2 for hook address flags)");
         console.log("NOTE: Factory and Router are NOT redeployed. Ensure they reference correct addresses.");
+    }
+
+    /// @dev Factored out to keep run()'s local-variable count below the Yul
+    /// stack-too-deep ceiling. Helper emits the address via console.log so
+    /// off-chain capture works without a return-value local in run().
+    function _deployAndWireJbacVault(TegridyStaking staking) private {
+        TegridyStakingJbacVault vault = new TegridyStakingJbacVault(JBAC_NFT, address(staking));
+        staking.setJbacVault(address(vault));
+        console.log("1b. TegridyStakingJbacVault:", address(vault));
+        console.log("    -> staking.setJbacVault wired (one-shot complete)");
     }
 }

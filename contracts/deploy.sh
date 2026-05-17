@@ -170,8 +170,19 @@ case "$1" in
         echo "Deployed addresses are in the forge output above and in:"
         echo "  contracts/broadcast/DeployAuditFixes.s.sol/1/run-latest.json"
         echo ""
-        echo "NEXT STEP — verify on Etherscan (separate, retry-safe):"
-        echo "  bash deploy.sh verify"
+        echo "NEXT STEPS:"
+        echo "  1. Verify on Etherscan (separate, retry-safe):"
+        echo "       bash deploy.sh verify"
+        echo "  2. Deploy TegridyLending + TegridyLendingAdmin (factored out to"
+        echo "     keep DeployAuditFixes under the Yul stack-too-deep ceiling):"
+        echo "       export LP_TOKEN=<TOWELI/WETH pair from output above>"
+        echo "       export TWAP=<TegridyTWAP oracle address>"
+        echo "       bash deploy-lending.sh simulate"
+        echo "       bash deploy-lending.sh broadcast"
+        echo "       bash deploy-lending.sh verify"
+        echo "  3. Multisig acceptOwnership() on all 11 contracts + lending pair"
+        echo "     within 14 days (OwnableNoRenounce.OWNERSHIP_TRANSFER_EXPIRY)."
+        echo "  4. Run script/Verify.s.sol to confirm INV-1..INV-9 pass."
         ;;
 
     verify)

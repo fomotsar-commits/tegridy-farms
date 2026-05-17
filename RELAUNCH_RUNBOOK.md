@@ -33,7 +33,7 @@ Refuse to proceed unless every box is ticked.
 
 - [ ] **Multisig deployed** at known address. Recommended: Safe v1.4.1+.
 - [ ] **MULTISIG env var** points to that address.
-- [ ] **TREASURY env var** points to the protocol treasury (may equal MULTISIG).
+- [ ] **TREASURY env var** points to the protocol treasury. **Strongly recommended to SPLIT this from MULTISIG** — see section 1.5 below. The deploy scripts currently default `TREASURY=$MULTISIG` for backward-compat, but this fails-open under a single-multisig compromise. Operator should override `TREASURY` with a separate Safe address before broadcast.
 - [ ] **WETH env var** = `0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2` (mainnet).
 - [ ] **JBAC env var** = `0xd37264c71e9af940e49795F0d3a8336afAaFDdA9`.
 - [ ] **JBAY_GOLD env var** = `0x6Aa03F42c5366E2664c887eb2e90844CA00B92F3`.
@@ -44,6 +44,67 @@ Refuse to proceed unless every box is ticked.
 - [ ] **`forge test --no-match-test "Slow|Fork"`** passes 2588/2588.
 - [ ] **Sepolia dry-run** completed against the canonical script set.
 - [ ] **Frontend repo** is on a branch ready to receive the address update PR.
+
+---
+
+## 1.5. MULTISIG / TREASURY split (strongly recommended)
+
+**Status:** the current deploy scripts hardcode `MULTISIG ==
+TREASURY == 0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e`. Every script
+in `contracts/script/` and every shell in `contracts/deploy*.sh`
+defaults both to that same address. The split is an **operator
+decision** that does not require contract changes — only env-var
+hygiene at deploy time.
+
+**Why split:**
+
+- A single compromise of the MULTISIG signer set today loses BOTH
+  privileged ownership of every `OwnableNoRenounce` contract AND every
+  accumulated protocol fee balance. The blast radius is the entire
+  protocol.
+- All major DeFi protocols separate these roles: Compound's Timelock
+  vs Treasury; Aave's PoolAdmin vs CollectorContract; Curve's owner
+  vs admin_fee_receiver; Uniswap V3's feeToSetter vs fees recipient.
+  This is the standard pattern, not a paranoid extreme.
+- The split is operationally cheap: deploy a second Safe with a hot
+  signing policy for routine treasury operations, while the original
+  Safe stays cold and is only used for privileged role transitions
+  and emergency pauses.
+
+**Recommended target shape:**
+
+| Role | Address | Signer policy | Use cases |
+|---|---|---|---|
+| **MULTISIG** | (existing) | 4-of-7 cold, hardware-only | `transferOwnership` accept, timelock proposals, emergency pause, fee parameter changes |
+| **TREASURY** | NEW Safe | 2-of-3 hot, distinct signer set | Fee withdrawal sweeps, grant distributions, liquidity ops |
+
+The two signer sets MUST NOT overlap. If even one signer is on both,
+the compromise blast radius is unchanged.
+
+**Migration sequence:**
+
+1. Deploy a fresh Gnosis Safe at a distinct address with the
+   recommended TREASURY signer set. Confirm the signer set has NO
+   overlap with the existing MULTISIG signers.
+2. For NEW relaunches (Stage B onward in section 2): set
+   `export TREASURY=<new Safe>` BEFORE `bash deploy.sh broadcast`.
+   The constructor of every contract that accepts `_treasury` will
+   wire the new address, and no migration is needed post-deploy.
+3. For ALREADY-LIVE contracts (if the split happens after a relaunch
+   has been done): each contract exposes a timelocked treasury
+   rotation function (`proposeTreasuryChange` / `executeTreasuryChange`
+   on POL/RevenueDistributor/SwapFeeRouter/TegridyLending, etc.).
+   Operator must propose the new address for each, wait the timelock,
+   and execute from MULTISIG. The 48h delay gives the community
+   visibility into the rotation.
+4. Run `script/Verify.s.sol` (manually augmented with `_expectEq` on
+   each contract's `treasury()` getter) to confirm every contract
+   points at the new address.
+
+**Until the split lands, residual risk is HIGH on the multisig-key
+attack surface.** The protocol's contract code is solid; the
+single-multisig-address concentration is the largest unmitigated
+exploit lever as of this runbook revision.
 
 ---
 
@@ -122,9 +183,17 @@ that order). Each step is a propose + 24-48h timelock + execute.
 11. `GaugeController.proposeRestakingContract(RESTAKING)` → 48h → `executeRestakingContract()`
 12. `VoteIncentives.setGaugeController(GAUGE_CONTROLLER)` (one-shot)
 13. `VoteIncentives.setRestakingContract(RESTAKING)` (one-shot per the post-mandate accepted-design)
-14. `MemeBountyBoard.proposeRestakingContract(RESTAKING)` → 48h → `executeRestakingContract()` (Wave A F-21-7 timelocked rotation)
-15. `ReferralSplitter` likewise via its rotation pattern if needed
-16. `TegridyFeeHook.approvePool(<key>)` for each Uniswap V4 pool that should pay the dynamic fee
+14. `MemeBountyBoard.setRestakingContract(RESTAKING)` (**one-shot initial wire** — wave-3 found this was missing from every script). Rotation later uses `proposeRestakingContract` → 48h → `executeRestakingContract` (Wave A F-21-7 timelocked).
+15. `CommunityGrants.setRestakingContract(RESTAKING)` (**one-shot initial wire** — wave-3 finding).
+16. `ReferralSplitter.setRestakingContract(RESTAKING)` (**one-shot initial wire** — wave-3 finding).
+17. `TegridyStaking.setStakingAdmin(STAKING_ADMIN)` (**one-shot initial wire** — wave-3 finding; without it the timelocked admin sister cannot drive any propose/execute pipeline).
+18. On L2 only: `SwapFeeRouter.setSequencerFeed(<chainlink feed>)` (**one-shot** — mainnet leaves at address(0) and SequencerCheck no-ops).
+19. `TegridyFeeHook.approvePool(<key>)` for each Uniswap V4 pool that should pay the dynamic fee
+
+**After steps 12–19 complete, run `script/Verify.s.sol` to confirm
+every one-shot wire landed.** INV-7 / INV-8b / INV-10a..h / INV-11
+will fail-loud if any of the above setters were skipped. Do not
+announce the relaunch live with any failure.
 
 ---
 
@@ -176,6 +245,52 @@ forge verify-contract \
 finding F-97-2). Operator must verify by-hand for any contract not
 covered: POL, LaunchpadV2, NFTLending, FeeHook, TWAP, LPFarming,
 GaugeController, TokenURIReader.
+
+### Verify.s.sol (post-handover invariant runner)
+
+Run AFTER the multisig has accepted ownership on every contract. The
+script is read-only (no `--broadcast` required). Operator MUST update
+the address constants at the top of `script/Verify.s.sol` (`JBAC_VAULT`,
+`LENDING`, `LENDING_ADMIN`) with the addresses from the deploy logs
+before running. The script checks:
+
+- **INV-1..INV-6** — restaking wires, voting whitelist, referral setup,
+  9 contracts owned by MULTISIG, 4 contracts not paused. Pre-existing.
+- **INV-7** — `staking.jbacVault()` matches the deployed JBAC vault.
+  Closes the historical "setJbacVault never called, JBAC boost dead"
+  gap. The fix lives in DeployFinal.s.sol (full deploy) and
+  DeployAuditFixes.s.sol (audit-fix redeploy); both call
+  `staking.setJbacVault(vault)` BEFORE the deployer hands ownership to
+  the multisig.
+- **INV-8a/b/c/d** — TegridyLending deployed, `lendingAdmin` wired,
+  both contracts owned by MULTISIG, lending not paused. Closes the
+  "lending never instantiated by any deploy script" gap. For the
+  audit-fix redeploy path, lending lives in a standalone
+  `script/DeployLending.s.sol` (factored out of DeployAuditFixes
+  because the latter was at the Yul stack-too-deep ceiling). Operator
+  must run DeployLending.s.sol in a separate broadcast after the main
+  audit-fix run completes.
+- **INV-9a..j** — Pending-owner-transfer health: every contract is
+  EITHER fully owned by MULTISIG OR has a pending transfer to MULTISIG
+  whose 14-day `OwnableNoRenounce.OWNERSHIP_TRANSFER_EXPIRY` has not
+  elapsed. Catches the case where the multisig sat past 14 days and
+  the deployer EOA permanently retains ownership.
+- **INV-10a..h** — Every one-shot wire is set post-handover:
+  `staking.stakingAdmin`, `swapFeeRouter.swapFeeRouterAdmin`,
+  `voteIncentives.gaugeController`, `voteIncentives.voteIncentivesAdmin`,
+  `voteIncentives.restakingContract`,
+  `communityGrants.restakingContract`,
+  `memeBountyBoard.restakingContract`,
+  `referralSplitter.restakingContract` are all non-zero. Wave-3
+  surfaced 7 of these as historically skipped by every deploy / wire
+  script — without them the timelocked admin pipeline, gauge voting,
+  restaker bribe accounting, and grant proposal restaker eligibility
+  are all silently dark.
+- **INV-11a** — L2 only: `swapFeeRouter.sequencerFeed` is set. Mainnet
+  skips this check (the lib no-ops on chainid==1 + address(0)).
+
+If `Verify.s.sol` reports ANY failure, do NOT announce the relaunch
+live. Re-run after fixing the wire.
 
 ---
 
