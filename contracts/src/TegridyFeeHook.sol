@@ -54,6 +54,22 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     bytes32 public constant FEE_CHANGE = keccak256("FEE_CHANGE");
     bytes32 public constant DISTRIBUTOR_CHANGE = keccak256("DISTRIBUTOR_CHANGE");
     bytes32 public constant SYNC_CHANGE = keccak256("SYNC_CHANGE");
+    /// @notice AUDIT FIX 2026-05-16 M5: timelock keys for `convertERC20FeesToETH`
+    ///         router allowlist. Adding/removing a router takes 48h. Pre-fix, the
+    ///         router parameter on `convertERC20FeesToETH` was owner-supplied per-
+    ///         call with no allowlist — captured-owner could pass a MaliciousRouter
+    ///         that pulled the full `currency` balance for cost ≈ minETHOut floor
+    ///         (1e14 wei = $0.0001). Now the router MUST be on the allowlist (which
+    ///         can only be amended after a 48h timelocked propose → execute).
+    bytes32 public constant CONVERSION_ROUTER_ADD = keccak256("CONVERSION_ROUTER_ADD");
+    bytes32 public constant CONVERSION_ROUTER_REMOVE = keccak256("CONVERSION_ROUTER_REMOVE");
+    uint256 public constant CONVERSION_ROUTER_DELAY = 48 hours;
+    /// @notice AUDIT FIX 2026-05-16 M5: allowlist of approved Uniswap V2-compatible
+    ///         routers for the `convertERC20FeesToETH` path. Starts empty; owner
+    ///         must propose+execute (48h timelock) before any router is usable.
+    mapping(address => bool) public allowedConversionRouter;
+    address public pendingConversionRouterAdd;
+    address public pendingConversionRouterRemove;
 
     IPoolManager public immutable poolManager;
     /// @notice AUDIT FIX (pass-8): TF-INT-02. Canonical WETH9 for the deployment chain.
@@ -128,6 +144,16 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     /// @notice AUDIT FIX (pass-8): TF-INT-02. Conversion attempted on a currency with zero
     ///         on-hand balance.
     error NothingToConvert();
+    /// @notice AUDIT FIX 2026-05-16 M5: router passed to `convertERC20FeesToETH`
+    ///         is not on the timelocked allowlist. Owner must add the router via
+    ///         propose+execute (48h delay) before it can be used for conversion.
+    error RouterNotAllowed();
+    /// @notice AUDIT FIX 2026-05-16 M5: tried to add a router that is already on
+    ///         the allowlist (no-op short-circuit at propose-time).
+    error RouterAlreadyAllowed();
+    /// @notice AUDIT FIX 2026-05-16 M5: tried to remove a router that is not on
+    ///         the allowlist (no-op short-circuit at propose-time).
+    error RouterNotOnAllowlist();
 
     // SECURITY FIX: Track fees actually earned per token to prevent over-claiming
     mapping(address => uint256) public accruedFees;
@@ -554,6 +580,13 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         uint256 deadline
     ) external onlyOwner nonReentrant whenNotPaused {
         if (currency == address(0) || currency == WETH || router == address(0)) revert ZeroAddress();
+        // AUDIT FIX 2026-05-16 M5: enforce timelocked router allowlist. Pre-fix,
+        // a captured-owner could pass a MaliciousRouter (satisfying the path+WETH
+        // checks below) whose `swapExactTokensForETH` pulled the full `currency`
+        // balance via `transferFrom` and forwarded only the `minETHOut` floor
+        // (1e14 wei) of attacker-pre-funded ETH back. Now the router MUST be on
+        // the allowlist (modifiable only via 48h timelocked propose+execute).
+        if (!allowedConversionRouter[router]) revert RouterNotAllowed();
         if (deadline < block.timestamp || deadline > block.timestamp + 30 minutes) revert DeadlineOutOfRange();
         if (path.length < 2 || path[0] != currency || path[path.length - 1] != WETH) revert InvalidConversionPath();
         if (ITegridyFeeHookV2Router(router).WETH() != WETH) revert InvalidConversionPath();
@@ -790,6 +823,86 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         _cancel(DISTRIBUTOR_CHANGE);
         pendingDistributor = address(0);
         emit DistributorChangeCancelled(cancelled);
+    }
+
+    // ─── AUDIT FIX 2026-05-16 M5: Conversion-router allowlist (48h timelock) ───
+
+    /// @notice Emitted when a router-allowlist add is proposed (48h timelock).
+    event ConversionRouterAddProposed(address indexed router, uint256 executeAfter);
+    /// @notice Emitted when a previously-proposed router-allowlist add executes.
+    event ConversionRouterAdded(address indexed router);
+    /// @notice Emitted when a router-allowlist add is cancelled.
+    event ConversionRouterAddCancelled(address indexed cancelledRouter);
+    /// @notice Emitted when a router-allowlist remove is proposed (48h timelock).
+    event ConversionRouterRemoveProposed(address indexed router, uint256 executeAfter);
+    /// @notice Emitted when a previously-proposed router-allowlist remove executes.
+    event ConversionRouterRemoved(address indexed router);
+    /// @notice Emitted when a router-allowlist remove is cancelled.
+    event ConversionRouterRemoveCancelled(address indexed cancelledRouter);
+
+    /// @notice Propose adding a router to the conversion allowlist. 48h timelock.
+    /// @dev    The router MUST report `WETH() == hook.WETH` at execute time (re-
+    ///         checked there to defend against router upgrades that swap their WETH
+    ///         pointer between propose and execute).
+    function proposeAddConversionRouter(address router) external onlyOwner {
+        if (router == address(0)) revert ZeroAddress();
+        if (allowedConversionRouter[router]) revert RouterAlreadyAllowed();
+        // Sanity: contract-only (matches existing setRevenueDistributor / setLendingAdmin
+        // contract-shape gates elsewhere in the cluster). Reject EOAs and 7702 delegations.
+        uint256 codeLen = router.code.length;
+        if (codeLen == 0 || codeLen == 23) revert ZeroAddress();
+        // Verify router reports the same WETH as hook (re-checked at execute and at
+        // convertERC20FeesToETH; this is the propose-time fast-fail).
+        if (ITegridyFeeHookV2Router(router).WETH() != WETH) revert InvalidConversionPath();
+        pendingConversionRouterAdd = router;
+        _propose(CONVERSION_ROUTER_ADD, CONVERSION_ROUTER_DELAY);
+        emit ConversionRouterAddProposed(router, _executeAfter[CONVERSION_ROUTER_ADD]);
+    }
+
+    /// @notice Execute a previously proposed router-allowlist add after the 48h timelock.
+    /// @dev    Re-checks WETH at execute to defend against router state changes during
+    ///         the 48h window.
+    function executeAddConversionRouter() external onlyOwner {
+        _execute(CONVERSION_ROUTER_ADD);
+        address router = pendingConversionRouterAdd;
+        pendingConversionRouterAdd = address(0);
+        if (ITegridyFeeHookV2Router(router).WETH() != WETH) revert InvalidConversionPath();
+        allowedConversionRouter[router] = true;
+        emit ConversionRouterAdded(router);
+    }
+
+    /// @notice Cancel a pending router-allowlist add.
+    function cancelAddConversionRouter() external onlyOwner {
+        address cancelled = pendingConversionRouterAdd;
+        _cancel(CONVERSION_ROUTER_ADD);
+        pendingConversionRouterAdd = address(0);
+        emit ConversionRouterAddCancelled(cancelled);
+    }
+
+    /// @notice Propose removing a router from the conversion allowlist. 48h timelock.
+    function proposeRemoveConversionRouter(address router) external onlyOwner {
+        if (router == address(0)) revert ZeroAddress();
+        if (!allowedConversionRouter[router]) revert RouterNotOnAllowlist();
+        pendingConversionRouterRemove = router;
+        _propose(CONVERSION_ROUTER_REMOVE, CONVERSION_ROUTER_DELAY);
+        emit ConversionRouterRemoveProposed(router, _executeAfter[CONVERSION_ROUTER_REMOVE]);
+    }
+
+    /// @notice Execute a previously proposed router-allowlist remove after the 48h timelock.
+    function executeRemoveConversionRouter() external onlyOwner {
+        _execute(CONVERSION_ROUTER_REMOVE);
+        address router = pendingConversionRouterRemove;
+        pendingConversionRouterRemove = address(0);
+        allowedConversionRouter[router] = false;
+        emit ConversionRouterRemoved(router);
+    }
+
+    /// @notice Cancel a pending router-allowlist remove.
+    function cancelRemoveConversionRouter() external onlyOwner {
+        address cancelled = pendingConversionRouterRemove;
+        _cancel(CONVERSION_ROUTER_REMOVE);
+        pendingConversionRouterRemove = address(0);
+        emit ConversionRouterRemoveCancelled(cancelled);
     }
 
     /// @notice Legacy view helpers for test compatibility
