@@ -441,6 +441,16 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     error PendingLendingPositions(); // AUDIT FIX: DEEP-DS-10 — revoking lending while NFTs escrowed
     error NotAContract(); // AUDIT FIX: DEEP-DS-12 — first-time admin setter must be a contract
     error PendingRestakingPositions(); // AUDIT FIX FRESH-2026: M-28/F-35-1/F-65-1 — symmetric guard for restaking rotation
+    /// @notice AUDIT FIX 2026-05-16 H1: rotation guard — old restaking contract still has
+    ///         unsettledRewards residue. After rotation `_isTrackedHolder(oldRestaking)`
+    ///         flips false, bricking `claimUnsettledForTokenId(oldRestaking, ...)` and
+    ///         stranding per-tokenId reward attribution for every restaker with a
+    ///         residual claim. Must drain via the OLD restaking contract BEFORE rotation.
+    error PendingRestakingResidue();
+    /// @notice AUDIT FIX 2026-05-16 M12: symmetric residue guard for lending-contract
+    ///         revocation. Same shape as PendingRestakingResidue — `_isTrackedHolder`
+    ///         flips false on revoke and bricks per-tokenId pull.
+    error PendingLendingResidue();
     error CapTooHigh(); // AUDIT FIX FRESH-2026: F-35-3 — applyMaxUnsettledRewards sanity ceiling
 
     // ─── Constructor ──────────────────────────────────────────────────
@@ -2119,6 +2129,15 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (oldRestaking != address(0) && balanceOf(oldRestaking) > 0) {
             revert PendingRestakingPositions();
         }
+        // AUDIT FIX 2026-05-16 H1: also block rotation while the OLD restaking contract
+        // still holds unsettled-reward residue. After rotation `_isTrackedHolder` flips
+        // false for the old address, bricking `claimUnsettledForTokenId` for every restaker
+        // with a residual per-tokenId claim. Operator MUST drain the old bucket first
+        // (the old restaking contract's `claimResidualForTokenId` flow uses the staking
+        // contract's `claimUnsettledForTokenId(tokenId, recipient)`).
+        if (oldRestaking != address(0) && unsettledRewards[oldRestaking] > 0) {
+            revert PendingRestakingResidue();
+        }
         restakingContract = _restaking;
     }
 
@@ -2136,6 +2155,11 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     function applyLendingContract(address _lending, bool _approved) external onlyAdmin {
         if (_lending == address(0)) revert ZeroAddress();
         if (!_approved && balanceOf(_lending) > 0) revert PendingLendingPositions();
+        // AUDIT FIX 2026-05-16 M12: same residue-strand guard as applyRestakingContract.
+        // Revoking while unsettledRewards residue exists strands per-tokenId reward
+        // attribution permanently. Operator MUST drain via the lending contract's
+        // residual-claim flow before revoking the whitelist entry.
+        if (!_approved && unsettledRewards[_lending] > 0) revert PendingLendingResidue();
         isLendingContract[_lending] = _approved;
     }
 

@@ -1112,6 +1112,19 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         // AUDIT FIX: DEEP-LD-L3 — refuse acceptance if collateral was de-whitelisted.
         if (!acceptedCollateralContracts[collateralContract]) revert CollateralNotAccepted();
+        // AUDIT FIX 2026-05-16 M8: also refuse acceptance while a de-whitelist removal is
+        // in the 48h timelock. Sister NFTLending.acceptOffer (line ~678-683) has this
+        // exact gate (L-3 fix); TegridyLending.acceptOffer was missing the symmetric check.
+        // Closes the race where a borrower could consume an existing offer using
+        // collateral the admin is actively removing (e.g., flagged as compromised) during
+        // the 48h propose→execute window. createOffer side already has this check at
+        // _createLoanOffer line 955-958 via `lendingAdmin.acceptedCollateralRemovalPending`.
+        if (
+            lendingAdmin != address(0)
+            && ITegridyLendingAdminView(lendingAdmin).acceptedCollateralRemovalPending(collateralContract)
+        ) {
+            revert CollateralNotAccepted();
+        }
 
         // Validate collateral: check position value meets minimum
         ITegridyStaking staking = ITegridyStaking(collateralContract);

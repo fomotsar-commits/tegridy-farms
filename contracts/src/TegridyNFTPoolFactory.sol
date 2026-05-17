@@ -671,6 +671,35 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
         emit EmergencyPauseSet(paused, msg.sender);
     }
 
+    /// @notice AUDIT FIX 2026-05-16 M19: override `acceptOwnership` so that any
+    ///         pending PROTOCOL_FEE_CHANGE / PROTOCOL_FEE_RECIPIENT_CHANGE proposals
+    ///         seeded by the outgoing owner are CANCELLED automatically on handoff.
+    ///         Mirrors the canonical DEEP-LP-01 pattern from TegridyLaunchpadV2
+    ///         (acceptOwnership override at TegridyLaunchpadV2.sol:424-436). Without
+    ///         this override, an outgoing/compromised owner could `proposeProtocolFeeChange`
+    ///         (or recipient) immediately before `transferOwnership`, and the 48h timer
+    ///         would silently keep running under the new owner. A new-owner deploy/keeper
+    ///         script reading `pendingProtocolFeeBps()` could then execute the hostile
+    ///         change without realizing it.
+    /// @dev    Calls `super.acceptOwnership()` first so the pendingOwner→owner promotion
+    ///         happens before the cancellations; the typed cancellation events emit under
+    ///         the NEW owner's authority for clean audit trail.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[PROTOCOL_FEE_CHANGE] != 0) {
+            uint256 cancelled = pendingProtocolFeeBps;
+            _cancel(PROTOCOL_FEE_CHANGE);
+            pendingProtocolFeeBps = 0;
+            emit ProtocolFeeChangeCancelled(cancelled);
+        }
+        if (_executeAfter[PROTOCOL_FEE_RECIPIENT_CHANGE] != 0) {
+            address cancelled = pendingProtocolFeeRecipient;
+            _cancel(PROTOCOL_FEE_RECIPIENT_CHANGE);
+            pendingProtocolFeeRecipient = address(0);
+            emit ProtocolFeeRecipientChangeCancelled(cancelled);
+        }
+    }
+
     /// @notice Accept ETH (protocol fees sent by pools)
     receive() external payable {}
 }
