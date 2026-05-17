@@ -63,6 +63,8 @@ contract MockWETH_Deep {
 ///         - DR-M-01: DUST_RECLAIM_GRACE >= 2 * CLAIM_GRACE_PERIOD
 ///         - DR-M-02: pause sibling propagation (sweepDust gated)
 contract Deep_Revenue_2026_05_01_Test is Test {
+    using stdStorage for StdStorage;
+
     MockVE_Deep public ve;
     MockWETH_Deep public weth;
     RevenueDistributor public dist;
@@ -90,6 +92,17 @@ contract Deep_Revenue_2026_05_01_Test is Test {
         dist.distribute();
     }
 
+    /// @dev AUDIT FIX 2026-05-17 TEST: per-test helper to inflate
+    ///      `totalDistributed` past the new 1% MAX_LIFETIME_RECOVERY_BPS (M1)
+    ///      cap. Scoped per-test so forfeit-cap tests (which validate the
+    ///      forfeit-side 1% cap against the realistic small totalDistributed)
+    ///      don't see an inflated denominator.
+    function _inflateLifetimeCapForRecovery() internal {
+        if (dist.totalDistributed() < 1000 ether) {
+            stdstore.target(address(dist)).sig(dist.totalDistributed.selector).checked_write(uint256(1000 ether));
+        }
+    }
+
     // ─── DR-H-01 — executeClaimRecovery respects pause ───────────────────
 
     /// @notice After the 48h timelock elapses, a paused contract must REJECT
@@ -98,6 +111,7 @@ contract Deep_Revenue_2026_05_01_Test is Test {
     function test_executeClaimRecovery_revertsWhenPaused() public {
         _distribute(9 ether);
         // Owner proposes a recovery for carol.
+        _inflateLifetimeCapForRecovery(); // AUDIT FIX 2026-05-17 TEST: M1 cap
         dist.proposeClaimRecovery(carol, 0, 50_000 ether);
         vm.warp(block.timestamp + 48 hours + 1);
 
@@ -119,6 +133,7 @@ contract Deep_Revenue_2026_05_01_Test is Test {
     ///         is paused, mirroring claim() / claimUpTo() behavior under M-10.
     function test_executeClaimRecovery_revertsWhenStakingPaused() public {
         _distribute(9 ether);
+        _inflateLifetimeCapForRecovery(); // AUDIT FIX 2026-05-17 TEST: M1 cap
         dist.proposeClaimRecovery(carol, 0, 50_000 ether);
         vm.warp(block.timestamp + 48 hours + 1);
 
