@@ -485,6 +485,12 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     // Legacy error aliases (kept for test compatibility during V2 migration)
     error UseProposeFeeChange();
     error UseProposeTreasuryChange();
+    /// @notice AUDIT FIX 2026-05-16 M3/M4: token has a liquid Uniswap V2 pair against
+    ///         WETH; must be routed through `convertTokenFeesToETH` (TWAP-gated) so the
+    ///         staker/POL/treasury split applies. `withdrawTokenFees` and `sweepTokens`
+    ///         are restricted to non-Uniswap-pair tokens (genuine "exotic / non-swappable
+    ///         token" escape hatches).
+    error UseConvertTokenFeesToETH();
 
     constructor(address _router, address _treasury, uint256 _feeBps, address _referralSplitter)
         OwnableNoRenounce(msg.sender)
@@ -1410,22 +1416,34 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     // All fee outflow now routes through distributeFeesToStakers(), which applies the
     // timelocked staker/POL/treasury split atomically.
 
-    /// @notice Sweep any stuck ETH to treasury (non-fee dust)
-    /// SECURITY FIX H6: Use WETHFallbackLib for same reason
-    /// AUDIT C4: also reserve totalPendingDistribution so the deferred-distribution queue
-    ///          cannot be swept to treasury before recipients pull their slices.
+    /// @notice Sweep any stuck ETH (non-fee dust) into the staker distribution pipeline.
+    /// @dev    AUDIT FIX 2026-05-16 M2: destination FORCED to `revenueDistributor` (no
+    ///         caller parameter, no owner-chosen recipient). Mirrors TegridyFeeHook's
+    ///         V3-AMM-H1 fix — captured-owner cannot redirect donated/stuck ETH to
+    ///         treasury directly, bypassing the timelocked staker/POL/treasury split.
+    ///         Donated ETH now flows to stakers via revenueDistributor's own pipeline,
+    ///         which is already a 48h-timelock-protected surface. Treasury rotation
+    ///         (`treasury` slot) is also 48h-timelocked but the asymmetry — treasury
+    ///         was instantly redirectable here while the OTHER half (accumulatedETHFees)
+    ///         was timelocked-split — is exactly the captured-owner blast vector this
+    ///         closes. Honest ops: donated ETH ALWAYS belonged to stakers.
+    /// @dev    SECURITY FIX H6: WETHFallbackLib (30k stipend + WETH fallback).
+    /// @dev    AUDIT C4: reserve totalPendingDistribution for in-flight callerCredit.
     function sweepETH() external onlyOwner nonReentrant {
         uint256 balance = address(this).balance;
         if (balance == 0) revert ZeroAmount();
         uint256 reserved = accumulatedETHFees + totalPendingDistribution;
         uint256 sweepable = balance > reserved ? balance - reserved : 0;
         if (sweepable == 0) revert ZeroAmount();
-        WETHFallbackLib.safeTransferETHOrWrap(WETH, treasury, sweepable);
-        emit FeesWithdrawn(treasury, sweepable);
+        // AUDIT FIX 2026-05-16 M2: forced to revenueDistributor. Captured-owner
+        // bypass closed. revenueDistributor must be wired (constructor invariant)
+        // for SwapFeeRouter to function at all, so no zero-recipient risk.
+        WETHFallbackLib.safeTransferETHOrWrap(WETH, revenueDistributor, sweepable);
+        emit FeesWithdrawn(revenueDistributor, sweepable);
     }
 
-    /// @notice Withdraw accumulated token fees to treasury (pull-pattern)
-    ///         AUDIT FIX M-04: Zero out accounting before transfer to prevent phantom balance
+    /// @notice Withdraw accumulated token fees to treasury (pull-pattern, escape hatch only).
+    /// @dev    AUDIT FIX M-04: Zero out accounting before transfer to prevent phantom balance
     ///         with fee-on-transfer tokens. Previous approach left permanent non-zero dust
     ///         in accumulatedTokenFees when transfer fee caused actualTransferred < amount.
     /// @dev    AUDIT C1: this remains an owner-only path that sends 100% to treasury for
@@ -1433,8 +1451,20 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         that defeat both convertTokenFeesToETH variants, etc). For routine token
     ///         fees, the keeper should call convertTokenFeesToETH so the value flows through
     ///         the timelocked staker/POL/treasury split.
+    /// @dev    AUDIT FIX 2026-05-16 M4: ON-CHAIN ENFORCEMENT that this path is ONLY a
+    ///         genuine escape hatch — `uniFactory.getPair(token, WETH) == address(0)`
+    ///         required. Any token with a liquid Uniswap pair MUST go through
+    ///         `convertTokenFeesToETH` (with its TWAP-based slippage gate) so the staker
+    ///         split applies. Pre-fix, the path was honor-only; a captured owner could
+    ///         drain swappable token fees here at 100% to treasury, bypassing the
+    ///         50/30/20 staker/POL/treasury split that `distributeFeesToStakers` enforces
+    ///         on ETH-denominated fees. Now structurally impossible for any token
+    ///         with a Uniswap V2 pair against WETH.
     function withdrawTokenFees(address token) external onlyOwner nonReentrant {
         if (token == address(0)) revert ZeroAddress();
+        // AUDIT FIX 2026-05-16 M4: refuse if token has a Uniswap V2 pair against WETH.
+        // Operator must use convertTokenFeesToETH for swappable tokens.
+        if (uniFactory.getPair(token, WETH) != address(0)) revert UseConvertTokenFeesToETH();
         uint256 amount = accumulatedTokenFees[token];
         if (amount == 0) revert ZeroAmount();
         // AUDIT FIX M-04: Zero before transfer (CEI pattern). If token has transfer fee,
@@ -1714,9 +1744,18 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         emit TokenFeesConverted(token, swapAmount, ethReceived);
     }
 
-    /// @notice Sweep any stuck ERC20 tokens to treasury (non-fee dust)
+    /// @notice Sweep any stuck ERC20 tokens to treasury (non-fee dust, exotic tokens only).
+    /// @dev    AUDIT FIX 2026-05-16 M3: same restriction as `withdrawTokenFees` (M4) —
+    ///         only tokens WITHOUT a Uniswap V2 pair against WETH can be swept here. Any
+    ///         liquid token that lands here as "stuck dust" MUST be routed through
+    ///         `convertTokenFeesToETH` (which has TWAP-based slippage gates and folds the
+    ///         result into `accumulatedETHFees` for the timelocked staker/POL/treasury
+    ///         split). Pre-fix, captured-owner could sweep stuck swappable tokens to
+    ///         treasury at 100% — bypassing the split for accidental-deposit value.
     function sweepTokens(address token) external onlyOwner nonReentrant {
         if (token == address(0)) revert ZeroAddress();
+        // AUDIT FIX 2026-05-16 M3: refuse if token has a Uniswap V2 pair against WETH.
+        if (uniFactory.getPair(token, WETH) != address(0)) revert UseConvertTokenFeesToETH();
         uint256 balance = IERC20(token).balanceOf(address(this));
         uint256 reserved = accumulatedTokenFees[token];
         uint256 sweepable = balance > reserved ? balance - reserved : 0;

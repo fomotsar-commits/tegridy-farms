@@ -211,6 +211,28 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     ///         pattern at REV-H-02).
     mapping(uint256 => uint256) public aggregateRecoveryPower;
 
+    /// @notice AUDIT FIX 2026-05-16 M1: lifetime cap on `executeClaimRecovery` ETH
+    ///         outflow. Symmetric with the forfeit-side `MAX_LIFETIME_FORFEIT_BPS`
+    ///         (line 1065). Without this cap, a captured owner could serially
+    ///         exfiltrate up to MAX_AGGREGATE_RECOVERY_POWER_BPS (25%) of EVERY
+    ///         epoch's totalETH across N epochs — proposals parallelize across
+    ///         epochs so the 48h delay applies once, not N times. The lifetime cap
+    ///         bounds total recovery outflow to 1% of cumulative `totalDistributed`,
+    ///         matching the forfeit side. Honest recoveries are statistically rare
+    ///         (legitimate "I had checkpoint data corruption" claims should be
+    ///         single-digit per year); 1% headroom is sufficient. Captured-owner
+    ///         blast radius drops from ~25% × N → 1% lifetime.
+    uint256 public constant MAX_LIFETIME_RECOVERY_BPS = 100;
+    /// @notice AUDIT FIX 2026-05-16 M1: cumulative ETH paid via executeClaimRecovery.
+    ///         Capped by MAX_LIFETIME_RECOVERY_BPS of totalDistributed. Incremented
+    ///         at execute time; never decremented (audit-trail integrity).
+    uint256 public totalRecoveryClaimed;
+    /// @notice AUDIT FIX 2026-05-16 M1: propose/execute revert when adding a
+    ///         recovery share would breach `MAX_LIFETIME_RECOVERY_BPS` of
+    ///         `totalDistributed`. Mirrors `ForfeitExceedsLifetimeCap` selector
+    ///         pattern (line 1216) for symmetric off-chain monitoring.
+    error RecoveryExceedsLifetimeCap();
+
     // Treasury change timelock
     uint256 public constant TREASURY_CHANGE_DELAY = 48 hours;
     address public pendingTreasury;
@@ -1519,6 +1541,20 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         uint256 aggregateCap = (ep.totalLocked * MAX_AGGREGATE_RECOVERY_POWER_BPS) / 10000;
         if (prospectiveAggregate > aggregateCap) revert RecoveryPowerExceedsCap();
 
+        // AUDIT FIX 2026-05-16 M1: best-effort lifetime cap check at propose time.
+        // Computes the ETH share this proposal would pay out and rejects if it would
+        // breach `MAX_LIFETIME_RECOVERY_BPS = 1%` of totalDistributed. `totalDistributed`
+        // can only grow between propose and execute, so the propose-time check is the
+        // tighter bound — but execute-time also re-checks (defense-in-depth, same shape
+        // as the forfeit path at line 1213-1216).
+        if (ep.totalLocked > 0) {
+            uint256 projectedShare = (ep.totalETH * power) / ep.totalLocked;
+            uint256 lifetimeCap = (totalDistributed * MAX_LIFETIME_RECOVERY_BPS) / 10_000;
+            if (totalRecoveryClaimed + projectedShare > lifetimeCap) {
+                revert RecoveryExceedsLifetimeCap();
+            }
+        }
+
         // AUDIT REV-H-02: bump the per-epoch in-flight count ONLY when the slot was
         // empty. Re-proposing for the same (user, epoch) (e.g. amending the attested
         // power) overwrites without double-counting.
@@ -1603,6 +1639,19 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         if (share > remaining) share = remaining;
         if (share == 0) revert NothingToClaim();
 
+        // AUDIT FIX 2026-05-16 M1: enforce lifetime cap at execute time too.
+        // Mirrors the forfeit-execute pattern (line 1237-1239). Use a clamp here
+        // (not a revert) so a recovery that propose-checked legitimately but ran
+        // into a tighter cap after additional execute outflows still settles at
+        // the cap remainder rather than fully reverting (which would forfeit the
+        // 48h timelock work and require operator to cancel + re-propose). The
+        // propose-time check is the primary defense; this is defense-in-depth.
+        uint256 lifetimeCap = (totalDistributed * MAX_LIFETIME_RECOVERY_BPS) / 10_000;
+        if (totalRecoveryClaimed + share > lifetimeCap) {
+            share = lifetimeCap > totalRecoveryClaimed ? lifetimeCap - totalRecoveryClaimed : 0;
+            if (share == 0) revert RecoveryExceedsLifetimeCap();
+        }
+
         // Effects before external interaction (CEI).
         recoveryClaimed[user][epoch] = true;
         // AUDIT FIX: DEEP-DR-M-04 — also stamp the unified `claimedAtEpoch`
@@ -1615,6 +1664,9 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // AUDIT REV-H-02: decrement the per-epoch in-flight count.
         pendingRecoveryCount[epoch] -= 1;
         epochClaimed[epoch] += share;
+        // AUDIT FIX 2026-05-16 M1: increment lifetime recovery tracker (CEI before
+        // external call below). Never decremented for audit-trail integrity.
+        totalRecoveryClaimed += share;
 
         // AUDIT REV-M-02 (DOCUMENT only): 10k stipend tradeoff — see claim() above for
         // the full rationale. Recovery payouts to recipients whose receive() doesn't fit
