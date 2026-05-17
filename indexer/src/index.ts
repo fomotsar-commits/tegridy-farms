@@ -1329,23 +1329,16 @@ ponder.on("PremiumAccess_Business:ShortfallClaimed", async ({ event }) => {
   logEvent("PremiumAccess", "ShortfallClaimed", event.args, event.block.timestamp, event.transaction.hash);
 });
 
-// --- TegridyLending lifecycle (previously not indexed at all) -------------
-ponder.on("TegridyLending:LoanOfferCreated", async ({ event }) => {
-  logEvent("TegridyLending", "LoanOfferCreated", event.args, event.block.timestamp, event.transaction.hash);
-});
+// --- TegridyLending: only NEW events that the pre-existing TegridyLendingAbi
+// didn't cover. LoanOfferCreated/LoanAccepted/LoanRepaid/DefaultClaimed/Paused/
+// Unpaused already have handlers earlier in this file (lines 792-858); adding
+// them again would crash Ponder with "duplicate handler". The new events
+// (LoanOfferCancelled, EscrowRewardsPaid, CollateralStuck, StuckCollateralClaimed)
+// require their ABI entries to be merged into TegridyLendingAbi in ponder.config.ts.
 ponder.on("TegridyLending:LoanOfferCancelled", async ({ event }) => {
   // Wave-3 finding: this was unindexed; frontend could not distinguish
   // "still live" from "lender pulled the offer" without it.
   logEvent("TegridyLending", "LoanOfferCancelled", event.args, event.block.timestamp, event.transaction.hash);
-});
-ponder.on("TegridyLending:LoanAccepted", async ({ event }) => {
-  logEvent("TegridyLending", "LoanAccepted", event.args, event.block.timestamp, event.transaction.hash);
-});
-ponder.on("TegridyLending:LoanRepaid", async ({ event }) => {
-  logEvent("TegridyLending", "LoanRepaid", event.args, event.block.timestamp, event.transaction.hash);
-});
-ponder.on("TegridyLending:DefaultClaimed", async ({ event }) => {
-  logEvent("TegridyLending", "DefaultClaimed", event.args, event.block.timestamp, event.transaction.hash);
 });
 ponder.on("TegridyLending:EscrowRewardsPaid", async ({ event }) => {
   logEvent("TegridyLending", "EscrowRewardsPaid", event.args, event.block.timestamp, event.transaction.hash);
@@ -1357,12 +1350,6 @@ ponder.on("TegridyLending:CollateralStuck", async ({ event }) => {
 });
 ponder.on("TegridyLending:StuckCollateralClaimed", async ({ event }) => {
   logEvent("TegridyLending", "StuckCollateralClaimed", event.args, event.block.timestamp, event.transaction.hash);
-});
-ponder.on("TegridyLending:Paused", async ({ event, context }) => {
-  await recordPauseState(context, event, "TegridyLending", true);
-});
-ponder.on("TegridyLending:Unpaused", async ({ event, context }) => {
-  await recordPauseState(context, event, "TegridyLending", false);
 });
 
 // ─── TegridyFactory governance (post-Batch-J sweep) ──────────────────────────

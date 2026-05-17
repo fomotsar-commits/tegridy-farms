@@ -402,6 +402,47 @@ const TegridyLendingAbi = [
       { name: "minPositionETHValue", type: "uint256", indexed: false },
     ],
   },
+  // Wave-3 follow-on: previously-orphan business events merged into the
+  // canonical TegridyLendingAbi so the existing TegridyLending subscription
+  // surfaces them. Handlers live in src/index.ts as stub `logEvent` calls
+  // today; future PR can wire typed DB rows.
+  {
+    type: "event",
+    name: "LoanOfferCancelled",
+    inputs: [
+      { name: "offerId", type: "uint256", indexed: true },
+      { name: "lender", type: "address", indexed: true },
+    ],
+  },
+  {
+    type: "event",
+    name: "EscrowRewardsPaid",
+    inputs: [
+      { name: "loanId", type: "uint256", indexed: true },
+      { name: "recipient", type: "address", indexed: true },
+      { name: "owed", type: "uint256", indexed: false },
+      { name: "payout", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "CollateralStuck",
+    inputs: [
+      { name: "loanId", type: "uint256", indexed: true },
+      { name: "recipient", type: "address", indexed: true },
+      { name: "tokenId", type: "uint256", indexed: false },
+      { name: "staking", type: "address", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "StuckCollateralClaimed",
+    inputs: [
+      { name: "loanId", type: "uint256", indexed: true },
+      { name: "recipient", type: "address", indexed: true },
+      { name: "tokenId", type: "uint256", indexed: false },
+    ],
+  },
   {
     type: "event",
     name: "LoanAccepted",
@@ -943,102 +984,15 @@ const PremiumAccessBusinessAbi = [
   },
 ] as const;
 
-const TegridyLendingAbiV2 = [
-  {
-    type: "event",
-    name: "LoanOfferCreated",
-    inputs: [
-      { name: "offerId", type: "uint256", indexed: true },
-      { name: "lender", type: "address", indexed: true },
-      { name: "principal", type: "uint256", indexed: false },
-      { name: "aprBps", type: "uint256", indexed: false },
-      { name: "duration", type: "uint256", indexed: false },
-      { name: "collateralContract", type: "address", indexed: false },
-      { name: "minPositionValue", type: "uint256", indexed: false },
-      { name: "minPositionETHValue", type: "uint256", indexed: false },
-    ],
-  },
-  {
-    type: "event",
-    name: "LoanOfferCancelled",
-    inputs: [
-      { name: "offerId", type: "uint256", indexed: true },
-      { name: "lender", type: "address", indexed: true },
-    ],
-  },
-  {
-    type: "event",
-    name: "LoanAccepted",
-    inputs: [
-      { name: "loanId", type: "uint256", indexed: true },
-      { name: "offerId", type: "uint256", indexed: true },
-      { name: "borrower", type: "address", indexed: true },
-      { name: "lender", type: "address", indexed: false },
-      { name: "tokenId", type: "uint256", indexed: false },
-      { name: "principal", type: "uint256", indexed: false },
-      { name: "deadline", type: "uint256", indexed: false },
-    ],
-  },
-  {
-    type: "event",
-    name: "LoanRepaid",
-    inputs: [
-      { name: "loanId", type: "uint256", indexed: true },
-      { name: "borrower", type: "address", indexed: true },
-      { name: "principal", type: "uint256", indexed: false },
-      { name: "interest", type: "uint256", indexed: false },
-      { name: "protocolFee", type: "uint256", indexed: false },
-    ],
-  },
-  {
-    type: "event",
-    name: "DefaultClaimed",
-    inputs: [
-      { name: "loanId", type: "uint256", indexed: true },
-      { name: "lender", type: "address", indexed: true },
-      { name: "tokenId", type: "uint256", indexed: false },
-    ],
-  },
-  {
-    type: "event",
-    name: "EscrowRewardsPaid",
-    inputs: [
-      { name: "loanId", type: "uint256", indexed: true },
-      { name: "recipient", type: "address", indexed: true },
-      { name: "owed", type: "uint256", indexed: false },
-      { name: "payout", type: "uint256", indexed: false },
-    ],
-  },
-  {
-    type: "event",
-    name: "CollateralStuck",
-    inputs: [
-      { name: "loanId", type: "uint256", indexed: true },
-      { name: "recipient", type: "address", indexed: true },
-      { name: "tokenId", type: "uint256", indexed: false },
-      { name: "staking", type: "address", indexed: false },
-    ],
-  },
-  {
-    type: "event",
-    name: "StuckCollateralClaimed",
-    inputs: [
-      { name: "loanId", type: "uint256", indexed: true },
-      { name: "recipient", type: "address", indexed: true },
-      { name: "tokenId", type: "uint256", indexed: false },
-    ],
-  },
-  {
-    type: "event",
-    name: "Paused",
-    inputs: [{ name: "account", type: "address", indexed: false }],
-  },
-  {
-    type: "event",
-    name: "Unpaused",
-    inputs: [{ name: "account", type: "address", indexed: false }],
-  },
-] as const;
+// CodeQL-renamed `TegridyLendingAbiV2` block was DELETED post-merge: it was
+// a duplicate of the pre-existing `TegridyLendingAbi` (line ~390) plus four
+// new events. The four new events are now merged into the pre-existing
+// declaration above; the duplicate-ABI + duplicate-subscription that the
+// merge introduced have been removed to keep Ponder from crashing on
+// "duplicate handler" at startup. See indexer/src/index.ts where the
+// four new handlers (LoanOfferCancelled, EscrowRewardsPaid,
+// CollateralStuck, StuckCollateralClaimed) attach to the canonical
+// `TegridyLending` subscription.
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -1231,18 +1185,12 @@ export default createConfig({
       address: "0xaA16dF3dC66c7A6aD7db153711329955519422Ad",
       startBlock: PREMIUM_ACCESS_START,
     },
-    // Wave-3 IDX-1: TegridyLending was not registered at all. Address is
-    // env-driven because TegridyLending was missing from every deploy script
-    // prior to this fix wave; once script/DeployLending.s.sol runs, set
-    // TEGRIDY_LENDING_ADDRESS to the deployed address and the subscription
-    // becomes live.
-    TegridyLending: {
-      abi: TegridyLendingAbi,
-      network: "mainnet",
-      address: (process.env.TEGRIDY_LENDING_ADDRESS as `0x${string}` | undefined)
-        ?? "0x0000000000000000000000000000000000000000",
-      startBlock: TEGRIDY_NFT_LENDING_START,
-    },
+    // Wave-3 follow-on: the duplicate `TegridyLending` subscription that the
+    // PR-merge introduced has been deleted. The canonical subscription lives
+    // at line ~1104 above (real deployed address). The four new business
+    // events (LoanOfferCancelled / EscrowRewardsPaid / CollateralStuck /
+    // StuckCollateralClaimed) were merged into the canonical TegridyLendingAbi
+    // block so the existing subscription surfaces them.
     // AUDIT (post-Batch-J sweep): track TegridyFactory governance lifecycle.
     // Separate from the TegridyPair factory subscription above (which uses the
     // PairCreated event to enumerate child contracts). This entry tracks the
