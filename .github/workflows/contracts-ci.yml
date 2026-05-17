@@ -59,8 +59,14 @@ jobs:
        # pending) don't fail before the budget step gets a chance to apply
        # the temporary tracked-exceptions allowlist. Real compilation errors
        # still block CI here. Size enforcement happens in the next step.
+       # CI fix 2026-05-17: --skip test --skip script so this step compiles
+       # ONLY src/ artifacts. The Test step below auto-recompiles tests
+       # incrementally as needed — pre-fix, this step recompiled every test
+       # AND script too, doubling CI compile time and triggering 16-minute
+       # OOM kills on the 7GB hosted runner. Production-bytecode size budget
+       # (next step) only needs out/*.sol artifacts.
       - name: Build
-        run: forge build
+        run: forge build --skip test --skip script
 
       # AUDIT FIX: EIP170-01/02/03 — size-budget guard.
       # The 2026-04-26 size-reduction sprint that produced *Admin sister-contracts
