@@ -23,6 +23,38 @@ interface ITegridyStaking_Verify {
     function restakingContract() external view returns (address);
     function paused() external view returns (bool);
     function owner() external view returns (address);
+    function jbacVault() external view returns (address);
+    function stakingAdmin() external view returns (address);
+}
+
+interface ITegridyLending_Verify {
+    function lendingAdmin() external view returns (address);
+    function owner() external view returns (address);
+    function paused() external view returns (bool);
+}
+
+interface IOwnable2Step_Verify {
+    function pendingOwner() external view returns (address);
+    function ownershipTransferExpiresAt() external view returns (uint256);
+}
+
+// Generic interface for any contract that exposes a public `restakingContract`
+// one-shot wire (VoteIncentives, CommunityGrants, MemeBountyBoard,
+// ReferralSplitter). The setter is owner-only one-shot; this getter reads
+// the current value to confirm the wire ran.
+interface IHasRestakingContract_Verify {
+    function restakingContract() external view returns (address);
+}
+
+interface IVoteIncentives_OneShotWires {
+    function gaugeController() external view returns (address);
+    function voteIncentivesAdmin() external view returns (address);
+    function restakingContract() external view returns (address);
+}
+
+interface ISwapFeeRouter_Verify {
+    function swapFeeRouterAdmin() external view returns (address);
+    function sequencerFeed() external view returns (address);
 }
 
 interface IVoteIncentives_Verify {
@@ -70,6 +102,12 @@ contract VerifyScript is Script {
     address constant PREMIUM = 0xaA16dF3dC66c7A6aD7db153711329955519422Ad;
     address constant TOWELI = 0x420698CFdEDdEa6bc78D59bC17798113ad278F9D;
     address constant MULTISIG = 0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e;
+    // ---- New invariants: fill in after running the updated DeployFinal.s.sol ----
+    // Operator MUST replace these with the addresses from the latest deploy run
+    // BEFORE running Verify, otherwise INV-7/8/9 fall over with zero-address checks.
+    address constant JBAC_VAULT = address(0);     // TegridyStakingJbacVault deploy address
+    address constant LENDING = address(0);        // TegridyLending deploy address
+    address constant LENDING_ADMIN = address(0);  // TegridyLendingAdmin deploy address
 
     // Failure counter so the script reports ALL failures rather than reverting on the first.
     uint256 private failures;
@@ -130,6 +168,120 @@ contract VerifyScript is Script {
         _expectFalse("INV-6c revDist !paused", IPausable_Verify(REV_DIST).paused());
         _expectFalse("INV-6d grants !paused", IPausable_Verify(GRANTS).paused());
 
+        // ----- INV-7: staking.jbacVault is wired to the deployed JBAC vault ----
+        // CRITICAL: setJbacVault is owner-only and one-shot. If the deploy script
+        // did not run it before transferOwnership, the multisig must call it post-
+        // ownership-handover — and historical deploys silently skipped both.
+        // Without this wire, the JBAC boost is permanently unreachable.
+        if (JBAC_VAULT != address(0)) {
+            _expectEq(
+                "INV-7 staking.jbacVault == JBAC_VAULT",
+                ITegridyStaking_Verify(STAKING).jbacVault(),
+                JBAC_VAULT
+            );
+        } else {
+            _expectTrue(
+                "INV-7 staking.jbacVault != address(0)",
+                ITegridyStaking_Verify(STAKING).jbacVault() != address(0)
+            );
+        }
+
+        // ----- INV-8: TegridyLending deployed, admin wired, owned by MULTISIG --
+        // Lending was missing from every deploy script for months. Confirm it
+        // exists in this rollout and is wired correctly.
+        if (LENDING != address(0)) {
+            _expectEq(
+                "INV-8a lending.owner == MULTISIG",
+                ITegridyLending_Verify(LENDING).owner(),
+                MULTISIG
+            );
+            if (LENDING_ADMIN != address(0)) {
+                _expectEq(
+                    "INV-8b lending.lendingAdmin == LENDING_ADMIN",
+                    ITegridyLending_Verify(LENDING).lendingAdmin(),
+                    LENDING_ADMIN
+                );
+                _expectEq(
+                    "INV-8c lendingAdmin.owner == MULTISIG",
+                    IOwnable_Verify(LENDING_ADMIN).owner(),
+                    MULTISIG
+                );
+            }
+            _expectFalse("INV-8d lending !paused", ITegridyLending_Verify(LENDING).paused());
+        }
+
+        // ----- INV-10: every one-shot wire is set (post-acceptance scan) ------
+        // The codebase has 12 one-shot setters that revert if called twice.
+        // Wave-3 found that historical deploy scripts skip many of these
+        // without surfacing the gap to the operator. This invariant block
+        // reads each public state slot and fails loud if any wire is still
+        // zero. INV-7 (staking.jbacVault) and INV-8b (lending.lendingAdmin)
+        // are covered above; the rest are checked here.
+        _expectTrue(
+            "INV-10a staking.stakingAdmin != 0",
+            ITegridyStaking_Verify(STAKING).stakingAdmin() != address(0)
+        );
+        _expectTrue(
+            "INV-10b swapFeeRouter.swapFeeRouterAdmin != 0",
+            ISwapFeeRouter_Verify(SWAP_ROUTER).swapFeeRouterAdmin() != address(0)
+        );
+        _expectTrue(
+            "INV-10c voteIncentives.gaugeController != 0",
+            IVoteIncentives_OneShotWires(VOTE_INCENTIVES).gaugeController() != address(0)
+        );
+        _expectTrue(
+            "INV-10d voteIncentives.voteIncentivesAdmin != 0",
+            IVoteIncentives_OneShotWires(VOTE_INCENTIVES).voteIncentivesAdmin() != address(0)
+        );
+        _expectTrue(
+            "INV-10e voteIncentives.restakingContract != 0",
+            IVoteIncentives_OneShotWires(VOTE_INCENTIVES).restakingContract() != address(0)
+        );
+        _expectTrue(
+            "INV-10f communityGrants.restakingContract != 0",
+            IHasRestakingContract_Verify(GRANTS).restakingContract() != address(0)
+        );
+        _expectTrue(
+            "INV-10g memeBountyBoard.restakingContract != 0",
+            IHasRestakingContract_Verify(BOUNTY).restakingContract() != address(0)
+        );
+        _expectTrue(
+            "INV-10h referralSplitter.restakingContract != 0",
+            IHasRestakingContract_Verify(REFERRAL).restakingContract() != address(0)
+        );
+
+        // ----- INV-11: L2-only sequencer-feed one-shot wires ------------------
+        // On mainnet (chainid==1) lib/SequencerCheck no-ops with address(0),
+        // so a zero feed is acceptable. On any L2, a zero feed bricks the
+        // SequencerCheck call at runtime. INV-11 only fires on non-mainnet.
+        if (block.chainid != 1) {
+            _expectTrue(
+                "INV-11a swapFeeRouter.sequencerFeed != 0 on L2",
+                ISwapFeeRouter_Verify(SWAP_ROUTER).sequencerFeed() != address(0)
+            );
+        }
+
+        // ----- INV-9: no contract is sitting on an expired 2-step transfer -----
+        // OwnableNoRenounce.OWNERSHIP_TRANSFER_EXPIRY = 14 days. If the multisig
+        // hasn't accepted within that window, the deployer EOA permanently retains
+        // ownership and the deployer must initiate a fresh transfer. Surface this
+        // as a fail rather than letting the rollout silently retain deployer EOA.
+        _expectPendingTransferHealthy("INV-9a staking pending-transfer healthy", STAKING);
+        _expectPendingTransferHealthy("INV-9b voteInc pending-transfer healthy", VOTE_INCENTIVES);
+        _expectPendingTransferHealthy("INV-9c revDist pending-transfer healthy", REV_DIST);
+        _expectPendingTransferHealthy("INV-9d restaking pending-transfer healthy", RESTAKING);
+        _expectPendingTransferHealthy("INV-9e swapRouter pending-transfer healthy", SWAP_ROUTER);
+        _expectPendingTransferHealthy("INV-9f grants pending-transfer healthy", GRANTS);
+        _expectPendingTransferHealthy("INV-9g bounty pending-transfer healthy", BOUNTY);
+        _expectPendingTransferHealthy("INV-9h premium pending-transfer healthy", PREMIUM);
+        _expectPendingTransferHealthy("INV-9i referral pending-transfer healthy", REFERRAL);
+        if (LENDING != address(0)) {
+            _expectPendingTransferHealthy("INV-9j lending pending-transfer healthy", LENDING);
+        }
+        if (LENDING_ADMIN != address(0)) {
+            _expectPendingTransferHealthy("INV-9k lendingAdmin pending-transfer healthy", LENDING_ADMIN);
+        }
+
         // ----- Final tally ---------------------------------------------------
         console.log("");
         if (failures == 0) {
@@ -169,6 +321,53 @@ contract VerifyScript is Script {
             console.log(string.concat("  PASS: ", label));
         } else {
             console.log(string.concat("  FAIL: ", label));
+            failures += 1;
+        }
+    }
+
+    /// @dev Pending-owner-transfer health: either the transfer has completed
+    /// (owner == MULTISIG, expiry slot cleared) OR a transfer is still pending
+    /// to the multisig and the 14-day expiry has not elapsed. Catches the
+    /// case where the multisig sat on `acceptOwnership` past 14 days and the
+    /// deployer EOA is now permanently the owner.
+    function _expectPendingTransferHealthy(string memory label, address target) private {
+        address currentOwner = IOwnable_Verify(target).owner();
+        if (currentOwner == MULTISIG) {
+            console.log(string.concat("  PASS: ", label, " (already accepted)"));
+            return;
+        }
+        try IOwnable2Step_Verify(target).pendingOwner() returns (address pending) {
+            uint256 expiresAt;
+            try IOwnable2Step_Verify(target).ownershipTransferExpiresAt() returns (uint256 e) {
+                expiresAt = e;
+            } catch {
+                // Older OZ Ownable2Step without expiry slot — surface as fail
+                // because the operator should know whether expiry is enforced.
+                console.log(string.concat("  FAIL: ", label, " (no expiry slot - manual review)"));
+                failures += 1;
+                return;
+            }
+            if (pending != MULTISIG) {
+                console.log(string.concat("  FAIL: ", label));
+                console.log("    pendingOwner is not MULTISIG:", pending);
+                failures += 1;
+                return;
+            }
+            if (expiresAt == 0) {
+                console.log(string.concat("  FAIL: ", label, " (no pending transfer; deployer retains ownership)"));
+                failures += 1;
+                return;
+            }
+            if (block.timestamp >= expiresAt) {
+                console.log(string.concat("  FAIL: ", label, " (14-day expiry elapsed; deployer permanently owns)"));
+                console.log("    expiresAt:", expiresAt);
+                console.log("    now:      ", block.timestamp);
+                failures += 1;
+                return;
+            }
+            console.log(string.concat("  PASS: ", label, " (pending, within expiry)"));
+        } catch {
+            console.log(string.concat("  FAIL: ", label, " (no Ownable2Step interface)"));
             failures += 1;
         }
     }

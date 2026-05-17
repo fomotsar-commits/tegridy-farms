@@ -734,25 +734,20 @@ export default async function handler(req, res) {
                 continue;
               }
               if (decodedHash === storedSeaportHash) { hasMatchingLog = true; break; }
-            } else {
-              // Legacy fallback: presence-only — same Seaport-allowlisted
-              // contract emitted OrderFulfilled with topic[1] (indexed
-              // offerer) matching the row's recorded `maker`. This is
-              // weaker than the strict path (any fill by the same maker
-              // in the same tx satisfies it), but bounded by the row's
-              // 7-day TTL and only applies to pre-migration rows.
-              if (orderMaker) {
-                const topicOfferer = ("0x" + (log.topics?.[1] || "").slice(-40)).toLowerCase();
-                if (topicOfferer === orderMaker) { hasMatchingLog = true; break; }
-              } else {
-                // No stored hash AND no recorded maker — surface match
-                // failure rather than guessing.
-                hasMatchingLog = false;
-              }
             }
+            // No legacy fallback: rows without `seaport_order_hash` cannot be
+            // marked filled via this endpoint. The prior fallback compared the
+            // event's indexed offerer to the row's `maker`, which let any
+            // attacker who could observe ANY past Seaport sale by `maker`
+            // submit that tx hash and mark an unrelated active legacy listing
+            // as filled. Pre-migration rows expire on their own 7-day TTL.
           }
           if (!hasMatchingLog) {
-            return res.status(400).json({ error: "Transaction does not contain a matching Seaport OrderFulfilled event" });
+            return res.status(400).json({
+              error: storedSeaportHash
+                ? "Transaction does not contain a matching Seaport OrderFulfilled event"
+                : "Legacy listing without canonical order hash cannot be marked filled; please re-list",
+            });
           }
         } catch (rpcErr) {
           console.error("On-chain verification failed, rejecting fill:", rpcErr.message);

@@ -834,6 +834,212 @@ const PausableOnlyAbi = [
   },
 ] as const;
 
+// Wave-3 IDX-1: business-event ABIs for POLAccumulator, PremiumAccess, and
+// TegridyLending. The pre-existing `*_Pause` subscriptions cover pause-state
+// only; these new subscriptions capture the orphaned business events that
+// wave-3 verification surfaced as unindexed. Handlers live in src/index.ts
+// and currently emit console.log traces; future schema additions can wire
+// these into typed DB rows without changing the subscription shape.
+const POLAccumulatorBusinessAbi = [
+  {
+    type: "event",
+    name: "Accumulated",
+    inputs: [
+      { name: "ethUsed", type: "uint256", indexed: false },
+      { name: "toweliAdded", type: "uint256", indexed: false },
+      { name: "lpCreated", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "ETHReceived",
+    inputs: [
+      { name: "sender", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "SweepETHExecuted",
+    inputs: [
+      { name: "recipient", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "POLHarvestExecuted",
+    inputs: [
+      { name: "lpAmount", type: "uint256", indexed: false },
+      { name: "tokenOut", type: "uint256", indexed: false },
+      { name: "ethOut", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "SweepTokensExecuted",
+    inputs: [
+      { name: "token", type: "address", indexed: true },
+      { name: "recipient", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "TreasuryChanged",
+    inputs: [
+      { name: "oldTreasury", type: "address", indexed: true },
+      { name: "newTreasury", type: "address", indexed: true },
+    ],
+  },
+] as const;
+
+const PremiumAccessBusinessAbi = [
+  {
+    type: "event",
+    name: "Subscribed",
+    inputs: [
+      { name: "user", type: "address", indexed: true },
+      { name: "months", type: "uint256", indexed: false },
+      { name: "paid", type: "uint256", indexed: false },
+      { name: "expiresAt", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "SubscriptionCancelled",
+    inputs: [
+      { name: "user", type: "address", indexed: true },
+      { name: "refundAmount", type: "uint256", indexed: false },
+      { name: "remainingTime", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "NFTAccessGranted",
+    inputs: [{ name: "user", type: "address", indexed: true }],
+  },
+  {
+    type: "event",
+    name: "NFTAccessRevoked",
+    inputs: [{ name: "user", type: "address", indexed: true }],
+  },
+  {
+    type: "event",
+    name: "RefundShorted",
+    inputs: [
+      { name: "user", type: "address", indexed: true },
+      { name: "expected", type: "uint256", indexed: false },
+      { name: "actual", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "ShortfallClaimed",
+    inputs: [
+      { name: "user", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+] as const;
+
+const TegridyLendingAbi = [
+  {
+    type: "event",
+    name: "LoanOfferCreated",
+    inputs: [
+      { name: "offerId", type: "uint256", indexed: true },
+      { name: "lender", type: "address", indexed: true },
+      { name: "principal", type: "uint256", indexed: false },
+      { name: "aprBps", type: "uint256", indexed: false },
+      { name: "duration", type: "uint256", indexed: false },
+      { name: "collateralContract", type: "address", indexed: false },
+      { name: "minPositionValue", type: "uint256", indexed: false },
+      { name: "minPositionETHValue", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "LoanOfferCancelled",
+    inputs: [
+      { name: "offerId", type: "uint256", indexed: true },
+      { name: "lender", type: "address", indexed: true },
+    ],
+  },
+  {
+    type: "event",
+    name: "LoanAccepted",
+    inputs: [
+      { name: "loanId", type: "uint256", indexed: true },
+      { name: "offerId", type: "uint256", indexed: true },
+      { name: "borrower", type: "address", indexed: true },
+      { name: "lender", type: "address", indexed: false },
+      { name: "tokenId", type: "uint256", indexed: false },
+      { name: "principal", type: "uint256", indexed: false },
+      { name: "deadline", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "LoanRepaid",
+    inputs: [
+      { name: "loanId", type: "uint256", indexed: true },
+      { name: "borrower", type: "address", indexed: true },
+      { name: "principal", type: "uint256", indexed: false },
+      { name: "interest", type: "uint256", indexed: false },
+      { name: "protocolFee", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "DefaultClaimed",
+    inputs: [
+      { name: "loanId", type: "uint256", indexed: true },
+      { name: "lender", type: "address", indexed: true },
+      { name: "tokenId", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "EscrowRewardsPaid",
+    inputs: [
+      { name: "loanId", type: "uint256", indexed: true },
+      { name: "recipient", type: "address", indexed: true },
+      { name: "owed", type: "uint256", indexed: false },
+      { name: "payout", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "CollateralStuck",
+    inputs: [
+      { name: "loanId", type: "uint256", indexed: true },
+      { name: "recipient", type: "address", indexed: true },
+      { name: "tokenId", type: "uint256", indexed: false },
+      { name: "staking", type: "address", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "StuckCollateralClaimed",
+    inputs: [
+      { name: "loanId", type: "uint256", indexed: true },
+      { name: "recipient", type: "address", indexed: true },
+      { name: "tokenId", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "Paused",
+    inputs: [{ name: "account", type: "address", indexed: false }],
+  },
+  {
+    type: "event",
+    name: "Unpaused",
+    inputs: [{ name: "account", type: "address", indexed: false }],
+  },
+] as const;
+
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 // AUDIT INDEXER-M1: explicit RPC timeout + retry so a hung upstream doesn't
@@ -1008,6 +1214,33 @@ export default createConfig({
       abi: PausableOnlyAbi,
       network: "mainnet",
       address: "0x05409880aDFEa888F2c93568B8D88c7b4aAdB139",
+      startBlock: TEGRIDY_NFT_LENDING_START,
+    },
+    // Wave-3 IDX-1: business-event subscriptions for the contracts that
+    // previously had pause-only coverage. Handlers in src/index.ts emit
+    // console.log traces today; a future PR can wire them into typed DB rows.
+    POLAccumulator_Business: {
+      abi: POLAccumulatorBusinessAbi,
+      network: "mainnet",
+      address: "0x17215f0dfA5E97c33c025E0560eeddffaD87B7Ca",
+      startBlock: POL_ACCUMULATOR_START,
+    },
+    PremiumAccess_Business: {
+      abi: PremiumAccessBusinessAbi,
+      network: "mainnet",
+      address: "0xaA16dF3dC66c7A6aD7db153711329955519422Ad",
+      startBlock: PREMIUM_ACCESS_START,
+    },
+    // Wave-3 IDX-1: TegridyLending was not registered at all. Address is
+    // env-driven because TegridyLending was missing from every deploy script
+    // prior to this fix wave; once script/DeployLending.s.sol runs, set
+    // TEGRIDY_LENDING_ADDRESS to the deployed address and the subscription
+    // becomes live.
+    TegridyLending: {
+      abi: TegridyLendingAbi,
+      network: "mainnet",
+      address: (process.env.TEGRIDY_LENDING_ADDRESS as `0x${string}` | undefined)
+        ?? "0x0000000000000000000000000000000000000000",
       startBlock: TEGRIDY_NFT_LENDING_START,
     },
     // AUDIT (post-Batch-J sweep): track TegridyFactory governance lifecycle.

@@ -1273,6 +1273,98 @@ ponder.on("TegridyNFTLending_Pause:Unpaused", async ({ event, context }) => {
   await recordPauseState(context, event, "TegridyNFTLending", false);
 });
 
+// ─── Wave-3 IDX-1: business-event handlers for previously-orphaned contracts ─
+//
+// Ponder requires a handler for every registered event. These stubs emit a
+// `console.log` trace so operators can see the events flowing through the
+// indexer; a future PR should add typed DB tables (polAccumulatorActivity,
+// premiumAccessActivity, lendingLoanLifecycle, ...) and wire writes here.
+// Until then, orphan-event monitoring runs off the indexer logs.
+
+function logEvent(scope: string, name: string, args: unknown, blockTimestamp: bigint, txHash: string): void {
+  // eslint-disable-next-line no-console -- audit trace only; future PR moves to DB rows
+  console.log(`[idx] ${scope}:${name} ts=${blockTimestamp} tx=${txHash}`, args);
+}
+
+// --- POLAccumulator business events ---------------------------------------
+ponder.on("POLAccumulator_Business:Accumulated", async ({ event }) => {
+  logEvent("POLAccumulator", "Accumulated", event.args, event.block.timestamp, event.transaction.hash);
+});
+ponder.on("POLAccumulator_Business:ETHReceived", async ({ event }) => {
+  logEvent("POLAccumulator", "ETHReceived", event.args, event.block.timestamp, event.transaction.hash);
+});
+ponder.on("POLAccumulator_Business:SweepETHExecuted", async ({ event }) => {
+  logEvent("POLAccumulator", "SweepETHExecuted", event.args, event.block.timestamp, event.transaction.hash);
+});
+ponder.on("POLAccumulator_Business:POLHarvestExecuted", async ({ event }) => {
+  logEvent("POLAccumulator", "POLHarvestExecuted", event.args, event.block.timestamp, event.transaction.hash);
+});
+ponder.on("POLAccumulator_Business:SweepTokensExecuted", async ({ event }) => {
+  logEvent("POLAccumulator", "SweepTokensExecuted", event.args, event.block.timestamp, event.transaction.hash);
+});
+ponder.on("POLAccumulator_Business:TreasuryChanged", async ({ event }) => {
+  logEvent("POLAccumulator", "TreasuryChanged", event.args, event.block.timestamp, event.transaction.hash);
+});
+
+// --- PremiumAccess business events ----------------------------------------
+ponder.on("PremiumAccess_Business:Subscribed", async ({ event }) => {
+  logEvent("PremiumAccess", "Subscribed", event.args, event.block.timestamp, event.transaction.hash);
+});
+ponder.on("PremiumAccess_Business:SubscriptionCancelled", async ({ event }) => {
+  logEvent("PremiumAccess", "SubscriptionCancelled", event.args, event.block.timestamp, event.transaction.hash);
+});
+ponder.on("PremiumAccess_Business:NFTAccessGranted", async ({ event }) => {
+  logEvent("PremiumAccess", "NFTAccessGranted", event.args, event.block.timestamp, event.transaction.hash);
+});
+ponder.on("PremiumAccess_Business:NFTAccessRevoked", async ({ event }) => {
+  logEvent("PremiumAccess", "NFTAccessRevoked", event.args, event.block.timestamp, event.transaction.hash);
+});
+ponder.on("PremiumAccess_Business:RefundShorted", async ({ event }) => {
+  // Operationally important — RefundShorted means the contract's TOWELI
+  // balance was insufficient to fully refund a cancelled subscription.
+  // Off-chain monitor should alert on this.
+  logEvent("PremiumAccess", "RefundShorted", event.args, event.block.timestamp, event.transaction.hash);
+});
+ponder.on("PremiumAccess_Business:ShortfallClaimed", async ({ event }) => {
+  logEvent("PremiumAccess", "ShortfallClaimed", event.args, event.block.timestamp, event.transaction.hash);
+});
+
+// --- TegridyLending lifecycle (previously not indexed at all) -------------
+ponder.on("TegridyLending:LoanOfferCreated", async ({ event }) => {
+  logEvent("TegridyLending", "LoanOfferCreated", event.args, event.block.timestamp, event.transaction.hash);
+});
+ponder.on("TegridyLending:LoanOfferCancelled", async ({ event }) => {
+  // Wave-3 finding: this was unindexed; frontend could not distinguish
+  // "still live" from "lender pulled the offer" without it.
+  logEvent("TegridyLending", "LoanOfferCancelled", event.args, event.block.timestamp, event.transaction.hash);
+});
+ponder.on("TegridyLending:LoanAccepted", async ({ event }) => {
+  logEvent("TegridyLending", "LoanAccepted", event.args, event.block.timestamp, event.transaction.hash);
+});
+ponder.on("TegridyLending:LoanRepaid", async ({ event }) => {
+  logEvent("TegridyLending", "LoanRepaid", event.args, event.block.timestamp, event.transaction.hash);
+});
+ponder.on("TegridyLending:DefaultClaimed", async ({ event }) => {
+  logEvent("TegridyLending", "DefaultClaimed", event.args, event.block.timestamp, event.transaction.hash);
+});
+ponder.on("TegridyLending:EscrowRewardsPaid", async ({ event }) => {
+  logEvent("TegridyLending", "EscrowRewardsPaid", event.args, event.block.timestamp, event.transaction.hash);
+});
+ponder.on("TegridyLending:CollateralStuck", async ({ event }) => {
+  // Operationally important — collateral could not be returned because the
+  // whitelisted ERC-721 silently no-op'd transferFrom. Alert + delist target.
+  logEvent("TegridyLending", "CollateralStuck", event.args, event.block.timestamp, event.transaction.hash);
+});
+ponder.on("TegridyLending:StuckCollateralClaimed", async ({ event }) => {
+  logEvent("TegridyLending", "StuckCollateralClaimed", event.args, event.block.timestamp, event.transaction.hash);
+});
+ponder.on("TegridyLending:Paused", async ({ event, context }) => {
+  await recordPauseState(context, event, "TegridyLending", true);
+});
+ponder.on("TegridyLending:Unpaused", async ({ event, context }) => {
+  await recordPauseState(context, event, "TegridyLending", false);
+});
+
 // ─── TegridyFactory governance (post-Batch-J sweep) ──────────────────────────
 
 ponder.on("TegridyFactory_Governance:GuardianSet", async ({ event, context }) => {

@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "forge-std/Script.sol";
 import "../src/TegridyStaking.sol";
+import {TegridyStakingJbacVault} from "../src/TegridyStakingJbacVault.sol";
 import "../src/TegridyFactory.sol";
 import "../src/TegridyRouter.sol";
 import "../src/TegridyRestaking.sol";
@@ -14,6 +15,8 @@ import "../src/PremiumAccess.sol";
 import "../src/ReferralSplitter.sol";
 import "../src/CommunityGrants.sol";
 import "../src/MemeBountyBoard.sol";
+import {TegridyLending} from "../src/TegridyLending.sol";
+import {TegridyLendingAdmin} from "../src/TegridyLendingAdmin.sol";
 
 /// @title DeployFinalScript - Full protocol deployment and wiring
 /// @dev TegridyFeeHook (Uniswap V4) is NOT deployed here - it requires CREATE2 salt mining.
@@ -28,9 +31,11 @@ contract DeployFinalScript is Script {
     uint256 constant SWAP_FEE_BPS = 50;        // 0.5% protocol fee on swaps
     uint256 constant REFERRAL_FEE_BPS = 2000;  // 20% of protocol fee to referrers
     uint256 constant PREMIUM_MONTHLY_FEE = 0.01 ether;
+    uint256 constant LENDING_FEE_BPS = 500;    // 5% protocol fee on interest
 
     struct Deployed {
         address staking;
+        address jbacVault;
         address factory;
         address router;
         address pair;
@@ -43,6 +48,8 @@ contract DeployFinalScript is Script {
         address premiumAccess;
         address communityGrants;
         address memeBountyBoard;
+        address lending;
+        address lendingAdmin;
     }
 
     function run() external {
@@ -62,6 +69,7 @@ contract DeployFinalScript is Script {
         d = _deployCore(d, deployer);
         d = _deployRevenue(d);
         d = _deployCommunity(d);
+        d = _deployLending(d);
         _wireAndTransfer(d, multisig);
 
         vm.stopBroadcast();
@@ -74,6 +82,17 @@ contract DeployFinalScript is Script {
         TegridyStaking staking = new TegridyStaking(TOWELI, JBAC_NFT, TREASURY, REWARD_PER_SECOND);
         d.staking = address(staking);
         console.log(" 1. TegridyStaking:", d.staking);
+
+        // 1b. TegridyStakingJbacVault + one-shot wire BEFORE transferOwnership.
+        // `setJbacVault` is owner-only and one-shot; if it isn't called while the
+        // deployer still owns staking, the multisig has to call it after accepting
+        // ownership. Historical deploys forgot this step entirely, leaving the
+        // JBAC boost permanently unreachable on the live deployment.
+        TegridyStakingJbacVault vault = new TegridyStakingJbacVault(JBAC_NFT, d.staking);
+        d.jbacVault = address(vault);
+        staking.setJbacVault(d.jbacVault);
+        console.log(" 1b. TegridyStakingJbacVault:", d.jbacVault);
+        console.log("    -> staking.setJbacVault wired (one-shot complete)");
 
         // 2. TegridyFactory
         // AUDIT FIX F-30-9: 3rd arg is initial guardian (must be non-zero).
@@ -170,6 +189,40 @@ contract DeployFinalScript is Script {
         return d;
     }
 
+    function _deployLending(Deployed memory d) internal returns (Deployed memory) {
+        // 13. TegridyLending — P2P NFT lending with TOWELI staking positions as collateral.
+        //     Constructor takes (treasury, protocolFeeBps, weth, pair, twap, sequencerFeed).
+        //     Same TWAP + SEQUENCER_FEED env-var contract as POLAccumulator.
+        address TWAP = vm.envAddress("TWAP");
+        require(TWAP != address(0), "TWAP env var required");
+        address SEQUENCER_FEED = vm.envOr("SEQUENCER_FEED", address(0));
+        require(
+            block.chainid == 1 || SEQUENCER_FEED != address(0),
+            "DEPLOY: L2 needs SEQUENCER_FEED env"
+        );
+        TegridyLending lending = new TegridyLending(
+            TREASURY,
+            LENDING_FEE_BPS,
+            WETH,
+            d.pair,
+            TWAP,
+            SEQUENCER_FEED
+        );
+        d.lending = address(lending);
+        console.log("13. TegridyLending:", d.lending);
+
+        // 13b. TegridyLendingAdmin (sister contract holding timelocked propose/execute/cancel)
+        //      `setLendingAdmin` is owner-only and one-shot; same trap as `setJbacVault`
+        //      if skipped before transferOwnership.
+        TegridyLendingAdmin lendingAdmin = new TegridyLendingAdmin(d.lending);
+        d.lendingAdmin = address(lendingAdmin);
+        lending.setLendingAdmin(d.lendingAdmin);
+        console.log("13b. TegridyLendingAdmin:", d.lendingAdmin);
+        console.log("    -> lending.setLendingAdmin wired (one-shot complete)");
+
+        return d;
+    }
+
     function _wireAndTransfer(Deployed memory d, address multisig) internal {
         // Propose feeTo -> RevenueDistributor (48h timelock)
         TegridyFactory(d.factory).proposeFeeToChange(d.revenueDistributor);
@@ -186,39 +239,48 @@ contract DeployFinalScript is Script {
         ReferralSplitter(payable(d.referralSplitter)).transferOwnership(multisig);
         CommunityGrants(payable(d.communityGrants)).transferOwnership(multisig);
         MemeBountyBoard(payable(d.memeBountyBoard)).transferOwnership(multisig);
-        console.log("13. Ownership transfer initiated for 9 contracts to:", multisig);
+        TegridyLending(payable(d.lending)).transferOwnership(multisig);
+        TegridyLendingAdmin(d.lendingAdmin).transferOwnership(multisig);
+        console.log("14. Ownership transfer initiated for 11 contracts to:", multisig);
 
         // Propose feeToSetter transfer
         TegridyFactory(d.factory).proposeFeeToSetter(multisig);
-        console.log("14. Factory feeToSetter transfer proposed to:", multisig);
+        console.log("15. Factory feeToSetter transfer proposed to:", multisig);
     }
 
     function _logSummary(Deployed memory d) internal pure {
         console.log("");
         console.log("=== DEPLOYMENT COMPLETE ===");
-        console.log("TegridyStaking:     ", d.staking);
-        console.log("TegridyFactory:     ", d.factory);
-        console.log("TegridyRouter:      ", d.router);
-        console.log("TOWELI/WETH Pair:   ", d.pair);
-        console.log("TegridyRestaking:   ", d.restaking);
-        console.log("RevenueDistributor: ", d.revenueDistributor);
-        console.log("ReferralSplitter:   ", d.referralSplitter);
-        console.log("SwapFeeRouter:      ", d.swapFeeRouter);
-        console.log("SwapFeeRouterAdmin: ", d.swapFeeRouterAdmin);
-        console.log("POLAccumulator:     ", d.polAccumulator);
-        console.log("PremiumAccess:      ", d.premiumAccess);
-        console.log("CommunityGrants:    ", d.communityGrants);
-        console.log("MemeBountyBoard:    ", d.memeBountyBoard);
+        console.log("TegridyStaking:         ", d.staking);
+        console.log("TegridyStakingJbacVault:", d.jbacVault);
+        console.log("TegridyFactory:         ", d.factory);
+        console.log("TegridyRouter:          ", d.router);
+        console.log("TOWELI/WETH Pair:       ", d.pair);
+        console.log("TegridyRestaking:       ", d.restaking);
+        console.log("RevenueDistributor:     ", d.revenueDistributor);
+        console.log("ReferralSplitter:       ", d.referralSplitter);
+        console.log("SwapFeeRouter:          ", d.swapFeeRouter);
+        console.log("SwapFeeRouterAdmin:     ", d.swapFeeRouterAdmin);
+        console.log("POLAccumulator:         ", d.polAccumulator);
+        console.log("PremiumAccess:          ", d.premiumAccess);
+        console.log("CommunityGrants:        ", d.communityGrants);
+        console.log("MemeBountyBoard:        ", d.memeBountyBoard);
+        console.log("TegridyLending:         ", d.lending);
+        console.log("TegridyLendingAdmin:    ", d.lendingAdmin);
         console.log("");
         console.log("NEXT STEPS:");
-        console.log("  1. Multisig: acceptOwnership() on all 9 contracts");
-        console.log("  2. After 48h: factory.executeFeeToChange()");
-        console.log("  3. After timelock: factory.acceptFeeToSetter()");
-        console.log("  4. After 48h: staking.executeRestakingContract()");
-        console.log("  5. After 48h: revenueDistributor.executeRestakingChange()");
-        console.log("  6. Fund staking with TOWELI via fund()");
-        console.log("  7. Add initial liquidity to TOWELI/WETH pair");
-        console.log("  8. Fund restaking with WETH + set bonus rate");
-        console.log("  9. Deploy TegridyFeeHook via CREATE2");
+        console.log("  1. Multisig: acceptOwnership() on all 11 contracts");
+        console.log("     (staking, restaking, revDist, swapFeeRouter, swapFeeRouterAdmin,");
+        console.log("      pol, premium, referral, grants, bounty, lending, lendingAdmin)");
+        console.log("     MUST complete within OwnableNoRenounce 14-day expiry window.");
+        console.log("  2. Run Verify.s.sol BEFORE announcing live to assert all wires healthy.");
+        console.log("  3. After 48h: factory.executeFeeToChange()");
+        console.log("  4. After timelock: factory.acceptFeeToSetter()");
+        console.log("  5. After 48h: staking.executeRestakingContract()");
+        console.log("  6. After 48h: revenueDistributor.executeRestakingChange()");
+        console.log("  7. Fund staking with TOWELI via fund()");
+        console.log("  8. Add initial liquidity to TOWELI/WETH pair");
+        console.log("  9. Fund restaking with WETH + set bonus rate");
+        console.log(" 10. Deploy TegridyFeeHook via CREATE2");
     }
 }
