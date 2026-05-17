@@ -2165,7 +2165,22 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         RestakeInfo storage info = restakers[restaker];
 
         // AUDIT FIX M-08: Balance-delta tracking around revalidateBoost.
+        // SLITHER NOTE 2026-05-17: the `staking.revalidateBoost(tokenId)` external
+        // call MUST precede the bonus-settle below because the settle needs the
+        // NEW boostedAmount that only becomes readable after staking-side decay.
+        // Slither flags `info.bonusDebt`/`info.boostedAmount`/`totalRestaked`
+        // state-writes-after-external-call as reentrancy-no-eth. False positive:
+        //   (a) `nonReentrant` on this contract blocks re-entry from outside,
+        //   (b) `staking.revalidateBoost` is itself nonReentrant on the staking
+        //       side and only triggers `rewardToken.safeTransfer` to THIS
+        //       contract (standard ERC20, no callback) which lands in the
+        //       `unforwardedBaseRewards` mapping (unrelated to bonusDebt),
+        //   (c) cross-function reentrancy via `pendingBonus`/`pendingBase` is
+        //       view-only and cannot enable theft.
+        // Same structural pattern as `claimAll` lines 880-941; the ordering
+        // difference is forced by revalidate's "need post-decay boost" semantic.
         uint256 balBefore = rewardToken.balanceOf(address(this));
+        // slither-disable-next-line reentrancy-no-eth,reentrancy-benign,reentrancy-events
         staking.revalidateBoost(tokenId);
         uint256 received = rewardToken.balanceOf(address(this)) - balBefore;
         if (received > 0) {
@@ -2177,7 +2192,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // OLD boost at PRE-accrue accBonusPerShare. Anchor bonusDebt BEFORE the
         // external bonus transfer (CEI).
         uint256 oldBoosted = info.boostedAmount;
-        uint256 preBonus;
+        // SLITHER NOTE 2026-05-17: explicit `= 0` silences uninitialized-local
+        // warning. Solidity defaults uint256 to 0 anyway; this is cosmetic.
+        uint256 preBonus = 0;
         if (oldBoosted > 0) {
             int256 preAccum = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
             int256 preDiff = preAccum - info.bonusDebt;
@@ -2190,6 +2207,11 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         }
 
         // Step 2 — shrink totalRestaked using the new boost from staking.
+        // SLITHER NOTE 2026-05-17: the 10 unused tuple-element destructures are
+        // intentional — only `boostedAmount` is needed here. Acknowledged false
+        // positive ("unused-return"); the staking-side tuple shape is fixed by
+        // the position struct and there's no cheaper read.
+        // slither-disable-next-line unused-return
         (, uint256 newBoostedAmount,,,,,,, , ,) = staking.positions(tokenId);
         info.boostedAmount = newBoostedAmount;
         _writeBoostCheckpoint(restaker, newBoostedAmount);
@@ -2224,7 +2246,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         uint256 tokenId = info.tokenId;
 
         // AUDIT FIX M-08: Balance-delta tracking around revalidateBoost.
+        // SLITHER NOTE 2026-05-17: same false-positive rationale as the sister
+        // `revalidateBoostForRestaked` above — see that function's note.
         uint256 balBefore = rewardToken.balanceOf(address(this));
+        // slither-disable-next-line reentrancy-no-eth,reentrancy-benign,reentrancy-events
         staking.revalidateBoost(tokenId);
         uint256 received = rewardToken.balanceOf(address(this)) - balBefore;
         if (received > 0) {
@@ -2235,7 +2260,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // AUDIT FIX 2026-05-16 M11: R014 RETRY pattern (see sister
         // revalidateBoostForRestaked for full step-by-step rationale).
         uint256 oldBoosted = info.boostedAmount;
-        uint256 preBonus;
+        // SLITHER NOTE 2026-05-17: explicit `= 0` for clarity (Solidity default).
+        uint256 preBonus = 0;
         if (oldBoosted > 0) {
             int256 preAccum = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
             int256 preDiff = preAccum - info.bonusDebt;
@@ -2247,6 +2273,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             totalBonusDistributed += preBonus;
         }
 
+        // SLITHER NOTE 2026-05-17: intentional unused-tuple destructure.
+        // slither-disable-next-line unused-return
         (, uint256 newBoostedAmount,,,,,,, , ,) = staking.positions(tokenId);
         info.boostedAmount = newBoostedAmount;
         _writeBoostCheckpoint(_user, newBoostedAmount);

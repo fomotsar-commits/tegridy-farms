@@ -2433,6 +2433,13 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (amount == 0) return;
         uint256 totalB = totalBoostedStake;
         // Solo staker (or zero stake): nothing to distribute to.
+        // SLITHER NOTE 2026-05-17: `totalB == 0` is an integer equality on a
+        // numeric counter (NOT a block.timestamp comparison; Slither's
+        // `dangerous-strict-equalities` + `timestamp` heuristics are
+        // pattern-match false positives here). `<=` is the correct boundary —
+        // if contributorBoost equals or exceeds totalBoostedStake, denom would
+        // be 0/negative and the credit makes no sense.
+        // slither-disable-next-line incorrect-equality,timestamp
         if (totalB == 0 || totalB <= contributorBoost) return;
         uint256 denom = totalB - contributorBoost;
         rewardPerTokenStored += (amount * ACC_PRECISION) / denom;
