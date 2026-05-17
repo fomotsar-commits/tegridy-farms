@@ -61,15 +61,14 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     ///         that pulled the full `currency` balance for cost ≈ minETHOut floor
     ///         (1e14 wei = $0.0001). Now the router MUST be on the allowlist (which
     ///         can only be amended after a 48h timelocked propose → execute).
+    /// @dev    Constants only — no storage slots consumed. The mutable mapping +
+    ///         address slots live at the END of the contract (see "M5 storage" block
+    ///         below) so this fix does not shift existing storage layout. This
+    ///         preserves slot stability for tests that vm.store hardcoded slot
+    ///         numbers (e.g. TegridyFeeHook.t.sol::accruedFees at slot 9).
     bytes32 public constant CONVERSION_ROUTER_ADD = keccak256("CONVERSION_ROUTER_ADD");
     bytes32 public constant CONVERSION_ROUTER_REMOVE = keccak256("CONVERSION_ROUTER_REMOVE");
     uint256 public constant CONVERSION_ROUTER_DELAY = 48 hours;
-    /// @notice AUDIT FIX 2026-05-16 M5: allowlist of approved Uniswap V2-compatible
-    ///         routers for the `convertERC20FeesToETH` path. Starts empty; owner
-    ///         must propose+execute (48h timelock) before any router is usable.
-    mapping(address => bool) public allowedConversionRouter;
-    address public pendingConversionRouterAdd;
-    address public pendingConversionRouterRemove;
 
     IPoolManager public immutable poolManager;
     /// @notice AUDIT FIX (pass-8): TF-INT-02. Canonical WETH9 for the deployment chain.
@@ -957,4 +956,17 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
 
     // Accept ETH
     receive() external payable {}
+
+    // ─── AUDIT FIX 2026-05-16 M5: storage (appended for slot stability) ──
+    /// @notice Mutable state for the router-allowlist feature. Declared LAST so
+    ///         all preexisting storage slots (0-13) keep their numbers — tests
+    ///         that vm.store with hardcoded slot numbers (notably
+    ///         TegridyFeeHook.t.sol::accruedFees at slot 9) continue to work.
+    /// @dev    Storage layout (post-fix): allowedConversionRouter at slot 14,
+    ///         pendingConversionRouterAdd at slot 15, pendingConversionRouterRemove
+    ///         at slot 16. The associated constants live near the top of the
+    ///         contract for readability (constants do not consume slots).
+    mapping(address => bool) public allowedConversionRouter;
+    address public pendingConversionRouterAdd;
+    address public pendingConversionRouterRemove;
 }

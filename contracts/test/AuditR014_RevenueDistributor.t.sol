@@ -67,6 +67,8 @@ contract MockWETH_R014 {
 /// @notice Covers H-5 (claim recovery for corrupted positions) and M-8 (auto dust
 ///         reconcile after grace period) as per the audit ticket.
 contract AuditR014_RevenueDistributorTest is Test {
+    using stdStorage for StdStorage;
+
     MockVE_R014 public ve;
     MockWETH_R014 public weth;
     RevenueDistributor public dist;
@@ -93,6 +95,16 @@ contract AuditR014_RevenueDistributorTest is Test {
         (bool ok,) = address(dist).call{value: amt}("");
         assertTrue(ok);
         dist.distribute();
+        // AUDIT FIX 2026-05-17 TEST: inflate `totalDistributed` to give the new
+        // MAX_LIFETIME_RECOVERY_BPS (1% of totalDistributed) cap enough headroom
+        // for tests that propose realistic per-epoch (~20-25%) recoveries.
+        // Production protocol accumulates totalDistributed across many epochs over
+        // time; tests skip that simulation for speed. Per fix M1 the cap is
+        // structurally enforced — tests verify per-epoch / per-proposal cap
+        // semantics in isolation.
+        if (dist.totalDistributed() < 1000 ether) {
+            stdstore.target(address(dist)).sig(dist.totalDistributed.selector).checked_write(uint256(1000 ether));
+        }
     }
 
     // ─── H-5 — Claim Recovery ─────────────────────────────────────────
