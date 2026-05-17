@@ -883,7 +883,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
             // AUDIT C5: charge fee on enable (boost is being increased to max). No fee on
             // disable (boost is being relinquished). Pulls TOWELI from caller; user must
             // approve. Default extendFeeBps == 0 means no transfer attempted.
-            _chargeExtendFee(tokenId, p.amount);
+            // AUDIT FIX 2026-05-16 M10: pass `p.boostedAmount` so the caller's own
+            // boost is excluded from the recycle denominator (no self-rebate).
+            _chargeExtendFee(tokenId, p.amount, p.boostedAmount);
             // SECURITY FIX: Claim pending rewards BEFORE changing boost to avoid loss
             _getReward(tokenId, p);
             p.lockEnd = uint64(block.timestamp + MAX_LOCK_DURATION);
@@ -925,10 +927,10 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (p.lockEnd > 0 && block.timestamp >= p.lockEnd) revert LockExpired();
 
         // AUDIT C5: charge extend fee before any state changes. No-op when extendFeeBps == 0.
-        // AUDIT NOTE: DEEP-DS-09 — DEFERRED: whale-rebate is bounded; full fix requires
-        // denominator-exclusion math in _splitExtendFee (split recycle excluding contributor).
-        // Modest impact at current concentration; tracked for future hardening.
-        _chargeExtendFee(tokenId, p.amount);
+        // AUDIT FIX 2026-05-16 M10: DEEP-DS-09 closed — `_creditRewardPoolExcluding`
+        // divides by `totalBoostedStake - contributorBoost` so the caller's own
+        // boost cannot share in the recycle. Whale-rebate eliminated.
+        _chargeExtendFee(tokenId, p.amount, p.boostedAmount);
 
         // SECURITY FIX: Claim pending rewards BEFORE changing boost to avoid loss
         _getReward(tokenId, p);
@@ -2304,7 +2306,19 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      stakers — exactly the `AUDIT C6` penalty-recycle pattern. When
     ///      `extendFeeRecycleBps == 0` (default), the entire fee still goes to
     ///      treasury and behaviour is identical to the C5 baseline.
-    function _chargeExtendFee(uint256 tokenId, uint256 positionAmount) internal {
+    /// @dev AUDIT FIX 2026-05-16 M10: denominator-exclusion math (closes DEEP-DS-09
+    ///      DEFERRED). Pre-fix, `_creditRewardPool` divided by `totalBoostedStake`
+    ///      which still INCLUDED the caller's `contributorBoost` — the caller then
+    ///      immediately claimed a share of their own fee via `_getReward` (whale
+    ///      with 50% share rebated 50% of their fee). Now we route through
+    ///      `_creditRewardPoolExcluding` which divides by `totalBoostedStake -
+    ///      contributorBoost`, so the entire recycled slice flows to OTHER stakers
+    ///      only. The caller's own boost doesn't share in their fee's recycle.
+    /// @param tokenId       Position token ID, for event emission.
+    /// @param positionAmount Position's principal in TOWELI, for fee computation.
+    /// @param contributorBoost Caller's boostedAmount (their slice of totalBoostedStake);
+    ///                      excluded from the recycle denominator.
+    function _chargeExtendFee(uint256 tokenId, uint256 positionAmount, uint256 contributorBoost) internal {
         uint256 bps = extendFeeBps;
         if (bps == 0) return;
         uint256 fee = (positionAmount * bps) / BPS;
@@ -2316,7 +2330,10 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (recycled > 0) {
             // Pull the recycled slice into THIS contract so it sits in the reward pool.
             rewardToken.safeTransferFrom(msg.sender, address(this), recycled);
-            _creditRewardPool(recycled);
+            // AUDIT FIX 2026-05-16 M10: exclude the caller's boost from the
+            // recycle denominator so the caller does not rebate any portion of
+            // their own fee.
+            _creditRewardPoolExcluding(recycled, contributorBoost);
         }
         emit ExtendFeeCollected(tokenId, msg.sender, fee);
         emit ExtendFeeSplit(tokenId, msg.sender, toTreasury, recycled);
@@ -2384,6 +2401,32 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     function _creditRewardPool(uint256 amount) internal {
         if (amount == 0 || totalBoostedStake == 0) return;
         rewardPerTokenStored += (amount * ACC_PRECISION) / totalBoostedStake;
+        totalRewardsFunded += amount;
+    }
+
+    /// @dev AUDIT FIX 2026-05-16 M10: denominator-exclusion variant. Used by
+    ///      `_chargeExtendFee` so the contributor's own boostedAmount does NOT
+    ///      share in their fee's recycle. Pre-fix, a whale with N% of
+    ///      `totalBoostedStake` rebated N% of their extend fee via the immediate
+    ///      `_getReward` call that follows `_chargeExtendFee` in `extendLock` /
+    ///      `toggleAutoMaxLock`. Denominator-exclusion sends the entire recycled
+    ///      slice to OTHER stakers, closing the whale-rebate (DEEP-DS-09).
+    /// @dev Solo-staker edge case: `totalBoostedStake == contributorBoost` means
+    ///      no OTHER stakers exist. Fall back to treasury via the caller's
+    ///      `_splitExtendFee` path → since the caller can't pre-detect this
+    ///      branch without re-reading state, we instead return without crediting.
+    ///      Caller (`_chargeExtendFee`) pulls the recycled tokens INTO this
+    ///      contract regardless; they sit in the reward pool unattributed until
+    ///      a future staker enters and the next `notifyRewardAmount` /
+    ///      `applyRewardRate` cycle absorbs them via `balanceOf(this)` delta.
+    ///      This is the same behavior as `_creditRewardPool` on `totalBoostedStake == 0`.
+    function _creditRewardPoolExcluding(uint256 amount, uint256 contributorBoost) internal {
+        if (amount == 0) return;
+        uint256 totalB = totalBoostedStake;
+        // Solo staker (or zero stake): nothing to distribute to.
+        if (totalB == 0 || totalB <= contributorBoost) return;
+        uint256 denom = totalB - contributorBoost;
+        rewardPerTokenStored += (amount * ACC_PRECISION) / denom;
         totalRewardsFunded += amount;
     }
 

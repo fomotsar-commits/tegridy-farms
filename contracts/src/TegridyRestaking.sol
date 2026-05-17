@@ -31,6 +31,15 @@ interface ITegridyStaking {
     function unsettledRewardsByTokenId(uint256 tokenId) external view returns (uint256);
     function earned(uint256 tokenId) external view returns (uint256);
     function revalidateBoost(uint256 tokenId) external; // M-26
+    /// @dev AUDIT FIX 2026-05-16 H2: permissionless kick triggers
+    ///      `_decayIfExpired` on the underlying position. Restaking-side stale
+    ///      paths call this via try-catch BEFORE reading `staking.positions`
+    ///      so lazy decay fires and the stale-detect flag triggers correctly
+    ///      on the restaker's OWN actions (closes the dilution case where the
+    ///      restaker's lock expired but staking-side `boostedAmount` cache
+    ///      was still inflated). Reverts `NoOpKick` on non-expired or already-
+    ///      decayed positions — try-catch absorbs.
+    function kick(uint256 tokenId) external;
     /// @dev AUDIT FIX: DEEP-DR-11 — defense-in-depth ownership check to mirror
     ///      the per-owner enumerable set added in M13. A future TegridyStaking
     ///      upgrade that wraps ownership through a proxy or share-token would
@@ -773,6 +782,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         uint256 oldAmount = info.positionAmount;
         uint256 oldBoosted = info.boostedAmount;
 
+        // AUDIT FIX 2026-05-16 H2: force lazy decay before the stale read.
+        // See claimAll for full rationale.
+        try staking.kick(info.tokenId) {} catch {}
+
         // Re-read current position from staking contract
         (uint256 newAmount, uint256 newBoostedAmount,,,,,,, , ,) = staking.positions(info.tokenId);
 
@@ -871,8 +884,15 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // SECURITY FIX H-03: Auto-refresh cached position data before bonus calculation.
         // Prevents earning bonus rewards on phantom capital after underlying position changes.
         // AUDIT FIX M-07: Also refresh when boostedAmount changes (e.g., JBAC revalidation,
-        // lock extension) even if positionAmount is unchanged. Previously boost-only changes
-        // were invisible to auto-refresh, allowing stale bonus accrual.
+        // lock extension) even if positionAmount is unchanged.
+        // AUDIT FIX 2026-05-16 H2: force lazy decay before the stale read. Pre-fix,
+        // a restaker whose lock had expired (but `staking.kick` had not yet fired)
+        // saw `currentBoosted == info.boostedAmount` and the stale flag missed —
+        // the non-stale path then ran `_accrueBonusChecked` at the INFLATED
+        // `totalRestaked` denominator, capturing dilution they were no longer
+        // entitled to. `try staking.kick` is no-op-reverts (NoOpKick) on non-
+        // expired / already-decayed positions; try/catch absorbs.
+        try staking.kick(info.tokenId) {} catch {}
         {
             (uint256 currentAmount, uint256 currentBoosted,,,,,,, , ,) = staking.positions(info.tokenId);
             bool stale = (currentAmount != info.positionAmount || currentBoosted != info.boostedAmount);
@@ -1080,6 +1100,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
         // S2-03: Auto-refresh cached position data before bonus calculation (same as claimAll)
         // AUDIT FIX M-07: Also compare boostedAmount to catch boost-only changes
+        // AUDIT FIX 2026-05-16 H2: force lazy decay before the stale read. See
+        // claimAll for full rationale.
+        try staking.kick(info.tokenId) {} catch {}
         {
             (uint256 currentAmount, uint256 currentBoosted,,,,,,, , ,) = staking.positions(info.tokenId);
             bool stale = (currentAmount != info.positionAmount || currentBoosted != info.boostedAmount);
@@ -2121,107 +2144,121 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
     /// @notice M-26 + AUDIT NEW-S2: Revalidate the JBAC boost for a restaked position.
     /// @dev AUDIT NEW-S2 (HIGH): TegridyStaking.revalidateBoost is restricted to
-    ///      owner/restakingContract to prevent permissionless boost-strip griefing
-    ///      of legacy positions (a user whose JBAC is temporarily in a different
-    ///      wallet). The prior permissionless wrapper in this contract punched
-    ///      straight through that gate — an attacker could watch the JBAC market
-    ///      and call this during any transfer-window to permanently strip a
-    ///      victim's legacy JBAC boost. Now restricted to the restaker themselves
-    ///      or the owner. Refreshes the cached boostedAmount after revalidation.
+    ///      owner/restakingContract to prevent permissionless boost-strip griefing.
+    ///      Now restricted to the restaker themselves or the owner.
+    /// @dev AUDIT FIX 2026-05-16 M11: dropped the `updateBonus` modifier; the
+    ///      modifier accrued at the INFLATED `totalRestaked` (still including
+    ///      `oldBoosted`) BEFORE `staking.revalidateBoost` downgraded the boost.
+    ///      The elapsed-period emission was credited against an inflated denominator
+    ///      so the downgrading restaker captured their share of bonus they were
+    ///      no longer entitled to (JBAC-lost dilution). Now uses the canonical
+    ///      R014 RETRY pattern from `claimAll` (lines 880-941): settle pending
+    ///      bonus on OLD boost at PRE-accrue → shrink `totalRestaked` →
+    ///      `_accrueBonusChecked` against corrected denominator → re-anchor
+    ///      `bonusDebt` on NEW boost POST-accrue.
     /// @param tokenId The tsTOWELI NFT token ID to revalidate
-    function revalidateBoostForRestaked(uint256 tokenId) external nonReentrant updateBonus {
+    function revalidateBoostForRestaked(uint256 tokenId) external nonReentrant {
         address restaker = tokenIdToRestaker[tokenId];
         if (restaker == address(0)) revert NotRestakedToken();
-        // AUDIT NEW-S2: match Staking's auth model — only the position owner or
-        // the restaking-contract owner can revalidate. Previously permissionless.
         if (msg.sender != restaker && msg.sender != owner()) revert Unauthorized();
 
         RestakeInfo storage info = restakers[restaker];
 
-        // AUDIT FIX M-08: Use balance delta instead of staking.earned() snapshot.
-        // Previously, earned() was credited as unforwardedBaseRewards regardless of whether
-        // revalidateBoost actually triggered _getReward(). If boost was unchanged, no rewards
-        // were transferred but the full earned() amount was phantom-credited.
+        // AUDIT FIX M-08: Balance-delta tracking around revalidateBoost.
         uint256 balBefore = rewardToken.balanceOf(address(this));
-
-        // Call revalidateBoost on the staking contract
         staking.revalidateBoost(tokenId);
-
-        // AUDIT FIX M-08: Only credit actually received tokens (balance delta)
         uint256 received = rewardToken.balanceOf(address(this)) - balBefore;
         if (received > 0) {
             unforwardedBaseRewards[restaker] += received;
             totalUnforwardedBase += received;
         }
 
-        // Settle pending bonus before changing boostedAmount
+        // AUDIT FIX 2026-05-16 M11: R014 RETRY pattern. Step 1 — settle bonus on
+        // OLD boost at PRE-accrue accBonusPerShare. Anchor bonusDebt BEFORE the
+        // external bonus transfer (CEI).
         uint256 oldBoosted = info.boostedAmount;
+        uint256 preBonus;
         if (oldBoosted > 0) {
-            int256 accumulated = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
-            int256 diff = accumulated - info.bonusDebt;
-            uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
-            if (bonusPending > 0) {
-                bonusRewardToken.safeTransfer(restaker, bonusPending);
-                totalBonusDistributed += bonusPending;
-            }
+            int256 preAccum = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
+            int256 preDiff = preAccum - info.bonusDebt;
+            preBonus = preDiff > 0 ? uint256(preDiff) : 0;
+            info.bonusDebt = preAccum;
+        }
+        if (preBonus > 0) {
+            bonusRewardToken.safeTransfer(restaker, preBonus);
+            totalBonusDistributed += preBonus;
         }
 
-        // Refresh cached boostedAmount from staking contract
+        // Step 2 — shrink totalRestaked using the new boost from staking.
         (, uint256 newBoostedAmount,,,,,,, , ,) = staking.positions(tokenId);
         info.boostedAmount = newBoostedAmount;
-        _writeBoostCheckpoint(restaker, newBoostedAmount); // AUDIT H-8
+        _writeBoostCheckpoint(restaker, newBoostedAmount);
         totalRestaked = totalRestaked - oldBoosted + newBoostedAmount;
-        info.bonusDebt = _safeInt256((newBoostedAmount * accBonusPerShare) / ACC_PRECISION);
+
+        // Step 3 — accrue against the corrected (smaller) denominator. Honest
+        // restakers earn their fair share of the elapsed-since-last-accrue period.
+        _accrueBonusChecked();
+
+        // Step 4 — re-anchor bonusDebt at POST-accrue accBonusPerShare so the
+        // caller cannot share in future emission on a boost they no longer hold.
+        if (newBoostedAmount > 0) {
+            info.bonusDebt = _safeInt256((newBoostedAmount * accBonusPerShare) / ACC_PRECISION);
+        } else {
+            info.bonusDebt = 0;
+        }
 
         emit BoostRevalidated(restaker, tokenId, oldBoosted, newBoostedAmount);
     }
 
     /// @notice #23/M-26 + AUDIT NEW-S2: Revalidate the JBAC boost for a restaked
     ///         position by user address.
-    /// @dev Looks up the user's restaked tokenId and calls revalidateBoost via the
-    ///      staking contract. AUDIT NEW-S2 (HIGH): restricted to the user themselves
-    ///      or the owner — see revalidateBoostForRestaked above for the full
-    ///      grief rationale.
+    /// @dev AUDIT FIX 2026-05-16 M11: same `updateBonus` modifier drop + R014 RETRY
+    ///      pattern as the sister `revalidateBoostForRestaked` above. See that
+    ///      function's NatSpec for full rationale.
     /// @param _user The restaker address whose boost should be revalidated
-    function revalidateBoostForRestaker(address _user) external nonReentrant updateBonus {
+    function revalidateBoostForRestaker(address _user) external nonReentrant {
         RestakeInfo storage info = restakers[_user];
         if (info.tokenId == 0) revert NotRestaked();
-        // AUDIT NEW-S2: only the restaker or owner may trigger revalidation.
         if (msg.sender != _user && msg.sender != owner()) revert Unauthorized();
 
         uint256 tokenId = info.tokenId;
 
-        // AUDIT FIX M-08: Use balance delta instead of staking.earned() snapshot
+        // AUDIT FIX M-08: Balance-delta tracking around revalidateBoost.
         uint256 balBefore = rewardToken.balanceOf(address(this));
-
-        // Call revalidateBoost on the staking contract
         staking.revalidateBoost(tokenId);
-
-        // AUDIT FIX M-08: Only credit actually received tokens (balance delta)
         uint256 received = rewardToken.balanceOf(address(this)) - balBefore;
         if (received > 0) {
             unforwardedBaseRewards[_user] += received;
             totalUnforwardedBase += received;
         }
 
-        // Settle pending bonus before changing boostedAmount
+        // AUDIT FIX 2026-05-16 M11: R014 RETRY pattern (see sister
+        // revalidateBoostForRestaked for full step-by-step rationale).
         uint256 oldBoosted = info.boostedAmount;
+        uint256 preBonus;
         if (oldBoosted > 0) {
-            int256 accumulated = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
-            int256 diff = accumulated - info.bonusDebt;
-            uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
-            if (bonusPending > 0) {
-                bonusRewardToken.safeTransfer(_user, bonusPending);
-                totalBonusDistributed += bonusPending;
-            }
+            int256 preAccum = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
+            int256 preDiff = preAccum - info.bonusDebt;
+            preBonus = preDiff > 0 ? uint256(preDiff) : 0;
+            info.bonusDebt = preAccum;
+        }
+        if (preBonus > 0) {
+            bonusRewardToken.safeTransfer(_user, preBonus);
+            totalBonusDistributed += preBonus;
         }
 
-        // Refresh cached boostedAmount from staking contract
         (, uint256 newBoostedAmount,,,,,,, , ,) = staking.positions(tokenId);
         info.boostedAmount = newBoostedAmount;
-        _writeBoostCheckpoint(_user, newBoostedAmount); // AUDIT H-8
+        _writeBoostCheckpoint(_user, newBoostedAmount);
         totalRestaked = totalRestaked - oldBoosted + newBoostedAmount;
-        info.bonusDebt = _safeInt256((newBoostedAmount * accBonusPerShare) / ACC_PRECISION);
+
+        _accrueBonusChecked();
+
+        if (newBoostedAmount > 0) {
+            info.bonusDebt = _safeInt256((newBoostedAmount * accBonusPerShare) / ACC_PRECISION);
+        } else {
+            info.bonusDebt = 0;
+        }
 
         emit BoostRevalidated(_user, tokenId, oldBoosted, newBoostedAmount);
     }
