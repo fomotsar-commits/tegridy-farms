@@ -161,7 +161,15 @@ jobs:
         # Invariants run on a nightly cron (separate workflow) on a
         # larger runner for full coverage — they are NOT a substitute
         # for paid-firm audit and should not be the only gate.
-        run: forge test -vvv --no-match-test "(Invariant|invariant|Fuzz|fuzz|testFuzz)"
+        # CI fix 2026-05-17: dropped -vvv → default verbosity. The -vvv flag
+        # dumps full call traces for every test, generating tens of MB of log
+        # output across the 2627-test sweep. GitHub Actions enforces a per-
+        # step log size limit (~50 MB) and a runner watchdog that kills the
+        # step when buffered stdout backs up. We hit SIGTERM (exit 143) at
+        # ~15-17m consistently in 5 prior attempts with -vvv; default
+        # verbosity emits one line per failure (sufficient for triage) and
+        # should bring the runtime well under budget.
+        run: forge test --no-match-test "(Invariant|invariant|Fuzz|fuzz|testFuzz)"
         env:
           # FOUNDRY_FUZZ_RUNS: 256 (Foundry default) matches the locally-
           # validated config. Earlier 10000 aspiration was never actually
