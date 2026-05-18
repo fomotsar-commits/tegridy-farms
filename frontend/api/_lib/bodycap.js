@@ -55,7 +55,7 @@ export async function readBoundedText(response, maxBytes = DEFAULT_MAX_BYTES) {
   let received = 0;
   let out = "";
   try {
-    // eslint-disable-next-line no-constant-condition
+     
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
