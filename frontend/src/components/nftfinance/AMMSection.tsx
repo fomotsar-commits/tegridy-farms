@@ -1453,6 +1453,17 @@ function PoolCard({
     }
   }, [poolTxSuccess, refetchPoolInfo, refetchPoolHeldIds]);
 
+  // AUDIT FIX 2026-05-18 (frontend lint, rules-of-hooks): hoisted these
+  // three hooks above the `if (!poolInfo) return …` early return. Pre-fix
+  // they sat at line ~1529-1532 and tripped the same conditional-hook
+  // violation the GaugeVoting wrapper split closed.
+  const [adminExpanded, setAdminExpanded] = useState(false);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const refetchAll = useCallback(() => {
+    refetchPoolInfo();
+    refetchPoolHeldIds();
+  }, [refetchPoolInfo, refetchPoolHeldIds]);
+
   if (!poolInfo) {
     return (
       <div className="rounded-2xl border border-[rgba(16,185,129,0.06)] bg-[rgba(13,21,48,0.6)] backdrop-blur-[20px] p-4 animate-pulse">
@@ -1526,13 +1537,9 @@ function PoolCard({
     }
   };
 
-  const [adminExpanded, setAdminExpanded] = useState(false);
-  const [historyExpanded, setHistoryExpanded] = useState(false);
-
-  const refetchAll = useCallback(() => {
-    refetchPoolInfo();
-    refetchPoolHeldIds();
-  }, [refetchPoolInfo, refetchPoolHeldIds]);
+  // AUDIT FIX 2026-05-18 (frontend lint, rules-of-hooks): the three hooks
+  // that previously lived here were hoisted above the `if (!poolInfo)`
+  // early return so they run unconditionally on every render.
 
   return (
     <m.div

@@ -99,17 +99,15 @@ function useCountdown(targetTimestamp: number) {
   return `${d}d ${h}h ${m}m ${s}s`;
 }
 
+// AUDIT FIX 2026-05-18 (frontend lint): split the deploy-guard into a wrapper
+// component so the active body's hooks are called unconditionally. Pre-fix
+// the `isDeployed(GAUGE_CONTROLLER_ADDRESS)` early return preceded ~25
+// `useReadContract` calls, violating the rules-of-hooks invariant
+// (eslint-plugin-react-hooks v6 surfaced this as 24 errors). The wrapper
+// pattern matches the canonical React-Compiler-aligned approach: an outer
+// component that may early-return BEFORE any hooks, and an inner component
+// that holds all the hook calls in deterministic order.
 export function GaugeVoting() {
-  const { address, isConnected } = useAccount();
-  const chainId = useChainId();
-  const [weights, setWeights] = useState<Record<string, number>>({});
-  // mode: 'commit' = two-step commit-reveal (default; H-2 mitigation),
-  //       'legacy' = one-step vote() kept only for emergencies.
-  const [mode, setMode] = useState<'commit' | 'legacy'>('commit');
-  const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
-
-  // ─── Not Deployed Guard ──────────────────────────────────────
   if (!isDeployed(GAUGE_CONTROLLER_ADDRESS)) {
     return (
       <m.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
@@ -121,6 +119,18 @@ export function GaugeVoting() {
       </m.div>
     );
   }
+  return <GaugeVotingActive />;
+}
+
+function GaugeVotingActive() {
+  const { address, isConnected } = useAccount();
+  const chainId = useChainId();
+  const [weights, setWeights] = useState<Record<string, number>>({});
+  // mode: 'commit' = two-step commit-reveal (default; H-2 mitigation),
+  //       'legacy' = one-step vote() kept only for emergencies.
+  const [mode, setMode] = useState<'commit' | 'legacy'>('commit');
+  const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
   // ─── Contract Reads ──────────────────────────────────────────
   const gcAddr = GAUGE_CONTROLLER_ADDRESS as Address;
@@ -184,6 +194,12 @@ export function GaugeVoting() {
   const rw = revealWindowData as readonly [bigint, boolean, bigint, bigint] | undefined;
   const revealOpen = rw?.[1] ?? false;
   const revealOpensAt = rw ? Number(rw[2]) : 0;
+  // AUDIT FIX 2026-05-18 (frontend lint, rules-of-hooks): hoist the
+  // useCountdown call out of the conditional JSX expression on line ~411.
+  // Pre-fix it was called inside `{revealOpen ? <…> : <…{useCountdown(…)}…>}`,
+  // which conditioned the hook call on `revealOpen` — same hook-order
+  // violation as the GaugeVoting/GaugeVotingActive wrapper split fix.
+  const revealCountdown = useCountdown(revealOpensAt);
   const hasOnchainCommitment = onchainCommitment && (onchainCommitment as Hex) !== '0x0000000000000000000000000000000000000000000000000000000000000000';
 
   // localStorage for the commitment reveal secret
@@ -398,7 +414,7 @@ export function GaugeVoting() {
               {revealOpen ? (
                 <p>The reveal window is open. Click <span className="font-mono">Reveal Vote</span> below to finalise your vote before the epoch ends.</p>
               ) : (
-                <p>Reveal opens in <span className="font-mono">{useCountdown(revealOpensAt)}</span>. Keep this browser's <span className="font-mono">localStorage</span> intact, or export the salt before then.</p>
+                <p>Reveal opens in <span className="font-mono">{revealCountdown}</span>. Keep this browser's <span className="font-mono">localStorage</span> intact, or export the salt before then.</p>
               )}
               {!localCommitment && (
                 <p className="mt-2 text-red-300">⚠ On-chain commitment found but no local salt to reveal it. You may have committed from a different browser or cleared local data. Without the salt this vote cannot be revealed.</p>

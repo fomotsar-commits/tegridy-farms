@@ -38,7 +38,7 @@ interface ErrorEntry {
   url: string;
 }
 
-let batch: ErrorEntry[] = [];
+const batch: ErrorEntry[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 const recentKeys = new Map<string, number>();
 

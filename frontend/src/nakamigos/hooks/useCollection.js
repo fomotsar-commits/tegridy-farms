@@ -85,7 +85,10 @@ export default function useCollection() {
     };
     // Use primitive deps so the effect re-runs exactly when collection identity
     // or WS status changes — avoids coupling to object reference stability.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // The legacy `react-hooks/exhaustive-deps` inline-disable is dropped — the
+    // rule isn't registered in this .js file's scope (eslint plugin scope is
+    // gated on the {ts,tsx} files block in eslint.config.js), and the inline
+    // directive itself surfaced as a `rule definition not found` error.
   }, [isWebSocketConnected, collection.slug, collection.contract, collection.openseaSlug]);
 
   // Merge live WebSocket activities with polled activities
