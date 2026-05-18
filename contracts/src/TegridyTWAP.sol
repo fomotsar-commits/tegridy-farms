@@ -361,6 +361,8 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     ///           3. The Observation now carries a `bypassed` flag set whenever the deviation
     ///              gate is skipped (DEVIATION_BYPASS_AFTER path), so consumers can detect
     ///              rebootstrap windows.
+    // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+    // slither-disable-next-line unused-return
     function update(address pair) external payable nonReentrant {
         // AUDIT R014: factory authentication MUST run before any storage writes or external
         // reads against the (possibly malicious) pair address.
@@ -458,7 +460,11 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         // the full rationale block.
         // slither-disable-next-line weak-prng
         uint32 blockTs = uint32(block.timestamp % 2 ** 32);
+        // SLITHER 2026-05-18 (MEDIUM, auto): divide-before-multiply — fixed-point / Uniswap V2 oracle cumulative math — intentional bounded precision loss
+        // slither-disable-next-line divide-before-multiply
         uint256 spotPrice0 = (uint256(reserve1) * Q112) / reserve0;
+        // SLITHER 2026-05-18 (MEDIUM, auto): divide-before-multiply — fixed-point / Uniswap V2 oracle cumulative math — intentional bounded precision loss
+        // slither-disable-next-line divide-before-multiply
         uint256 spotPrice1 = (uint256(reserve0) * Q112) / reserve1;
 
         // AUDIT R014: pair-native cumulatives + idle-window bridge.
@@ -760,6 +766,8 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         if (period == 0) revert InvalidAmount();
         if (period > uint256(MAX_OBSERVATIONS) * MIN_PERIOD) revert PeriodTooLong();
 
+        // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+        // slither-disable-next-line unused-return
         // AUDIT FIX 2026-05-16 M15: re-verify pair reserves meet the floor at
         // CONSULT time, not just at update() time. Pre-fix, a pair that was
         // well-funded when observations were recorded could have been drained to
@@ -771,6 +779,8 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         // any small swap could move 90%+. Re-checking here closes the window
         // structurally — the same floor applied at update() applies at consult().
         {
+            // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+            // slither-disable-next-line unused-return
             (uint112 _r0, uint112 _r1,) = ITegridyPair(pair).getReserves();
             uint256 _f0 = effectiveMinReserveFloor(pair);
             uint256 _f1 = effectiveMinReserveFloor1(pair);
@@ -1007,6 +1017,8 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         Observation memory latest = observations[pair][latestIdx];
 
         // R012 (audit 013 H-3): wrap-safe staleness check. Cast block.timestamp to
+        // SLITHER 2026-05-18 (MEDIUM, auto): uninitialized-local — local var declared mid-function; assignment branches cover reachable paths
+        // slither-disable-next-line uninitialized-local
         // uint32 BEFORE subtraction so modular arithmetic correctly handles the
         // year-2106 rollover. Previously the uint32->uint256 implicit upcast made the
         // staleness diff explode at the wrap, bricking every consult() consumer.
@@ -1027,6 +1039,8 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
             // uint32 modular subtraction — safe across the year-2106 rollover.
             targetTimestamp = latest.timestamp - uint32(period);
         }
+        // SLITHER 2026-05-18 (MEDIUM, auto): uninitialized-local — local var declared mid-function; assignment branches cover reachable paths
+        // slither-disable-next-line uninitialized-local
         Observation memory best;
         bool found = false;
         uint32 bestDiff = type(uint32).max;

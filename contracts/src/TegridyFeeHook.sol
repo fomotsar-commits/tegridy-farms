@@ -571,6 +571,8 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     /// @param  path      Swap path. Must start at `currency` and end at WETH.
     /// @param  minETHOut Caller-supplied lower bound on ETH received. Must be > 0.
     /// @param  deadline  Standard Uniswap deadline; must be in [now, now + 30 minutes].
+    // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+    // slither-disable-next-line unused-return
     function convertERC20FeesToETH(
         address currency,
         address router,
@@ -612,6 +614,8 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         // have moved earlier accruals to revenueDistributor's stuck ERC20 balance —
         // the hook only gets here if its own balance is non-zero.
         uint256 amount = IERC20(currency).balanceOf(address(this));
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (amount == 0) revert NothingToConvert();
 
         // Decrement accruedFees by the amount we're about to swap (capped by the

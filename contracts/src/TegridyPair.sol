@@ -156,6 +156,8 @@ contract TegridyPair is ERC20, ReentrancyGuard {
         bool feeOn = _mintFee(_reserve0, _reserve1);
         uint256 _totalSupply = totalSupply();
 
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (_totalSupply == 0) {
             require(amount0 >= 1000 && amount1 >= 1000, "MIN_INITIAL_TOKENS");
             // AUDIT FIX C-01: Use raw amounts (no normalization), exactly like Uniswap V2.
@@ -170,6 +172,8 @@ contract TegridyPair is ERC20, ReentrancyGuard {
             // reserves to 0 while totalSupply > 0. Pre-fix the divisions below would
             // panic with division-by-zero. Reverting with a typed error makes the
             // off-chain monitoring path obvious and burn() remains available for exits.
+            // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+            // slither-disable-next-line incorrect-equality
             if (_reserve0 == 0 || _reserve1 == 0) revert ReservesZeroPostRebase();
             uint256 liq0 = (amount0 * _totalSupply) / _reserve0;
             uint256 liq1 = (amount1 * _totalSupply) / _reserve1;
@@ -448,6 +452,8 @@ contract TegridyPair is ERC20, ReentrancyGuard {
         // via harvest. The `bootstrap` flag below distinguishes them: only (a)
         // bypasses the revert, and `kLast` is then written below to seed the
         // baseline. (b) still reverts as before.
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         bool bootstrap = (feeOn && kLast == 0);
         // FRESH-EYES M-2: bootstrap is the moment kLast is FIRST written (or re-written
         // after a fee-cleanup cycle). Public callers can flash-loan-manipulate reserves
@@ -516,7 +522,11 @@ contract TegridyPair is ERC20, ReentrancyGuard {
                 // reserves are uint112). Multiplying by uint32 timeElapsed stays well
                 // under uint256 for any realistic interval, but we keep the addition
                 // `unchecked` to allow the canonical V2 wrapping accumulator semantics.
+                // SLITHER 2026-05-18 (MEDIUM, auto): divide-before-multiply — fixed-point / Uniswap V2 oracle cumulative math — intentional bounded precision loss
+                // slither-disable-next-line divide-before-multiply
                 price0CumulativeLast += (uint256(_reserve1) * Q112 / _reserve0) * timeElapsed;
+                // SLITHER 2026-05-18 (MEDIUM, auto): divide-before-multiply — fixed-point / Uniswap V2 oracle cumulative math — intentional bounded precision loss
+                // slither-disable-next-line divide-before-multiply
                 price1CumulativeLast += (uint256(_reserve0) * Q112 / _reserve1) * timeElapsed;
             }
         }

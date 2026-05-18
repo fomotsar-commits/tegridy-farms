@@ -605,6 +605,8 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             // winners' ETH can be swept to feeReceiver after PAYOUT_EXPIRY (1 year),
             // mirroring the existing M-09 refund-expiry pattern. Only updates on
             // first credit (preserves earliest-credit anchor on subsequent appends).
+            // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+            // slither-disable-next-line incorrect-equality
             if (pendingPayoutTime[winner] == 0) pendingPayoutTime[winner] = block.timestamp;
             emit PayoutCredited(_bountyId, winner, reward);
         }

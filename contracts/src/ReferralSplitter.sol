@@ -311,6 +311,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         // entries (the user + the candidate referrer + each upstream link),
         // so the memory expansion cost is fully bounded.
         address[] memory visited = new address[](CIRCULAR_DEPTH + 2);
+        // SLITHER 2026-05-18 (MEDIUM, auto): uninitialized-local — local var declared mid-function; assignment branches cover reachable paths
+        // slither-disable-next-line uninitialized-local
         uint256 visitedLen;
         visited[visitedLen++] = _user;
         visited[visitedLen++] = _referrer;
@@ -376,6 +378,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         // as unqualified (route to treasury) rather than blocking all fee recording.
         bool referrerQualified = false;
         if (referrer != address(0)) {
+            // SLITHER 2026-05-18 (MEDIUM, auto): uninitialized-local — local var declared mid-function; assignment branches cover reachable paths
+            // slither-disable-next-line uninitialized-local
             uint256 totalPower;
             try stakingContract.votingPowerOf(referrer) returns (uint256 power) {
                 totalPower = power;
@@ -417,6 +421,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         totalReferralsPaid += referrerShare;
 
         // Initialize lastClaimTime on first fee credit so forfeiture clock starts
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (lastClaimTime[referrer] == 0) {
             lastClaimTime[referrer] = block.timestamp;
         }
@@ -637,6 +643,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         // AUDIT FIX: DEEP-DR-M-07 — gate on setupComplete (L-R02 NatSpec contract).
         require(setupComplete, "SETUP_NOT_COMPLETE");
         // A4-C-01: Wrap in try/catch — if staking reverts, treat as below threshold
+        // SLITHER 2026-05-18 (MEDIUM, auto): uninitialized-local — local var declared mid-function; assignment branches cover reachable paths
+        // slither-disable-next-line uninitialized-local
         uint256 power;
         try stakingContract.votingPowerOf(_referrer) returns (uint256 p) {
             power = p;
@@ -668,6 +676,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     /// @param _referrer The referrer whose rewards should be forfeited
     /// @dev A3-M-01 FIX: Uses pull-pattern (accumulate to treasury ETH) instead of pushing
     ///      ETH directly to treasury, preventing permanent DoS if treasury reverts.
+    // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+    // slither-disable-next-line incorrect-equality
     function forfeitUnclaimedRewards(address _referrer) external onlyOwner nonReentrant {
         // AUDIT FIX: DEEP-DR-M-07 — gate on setupComplete (L-R02 NatSpec contract).
         require(setupComplete, "SETUP_NOT_COMPLETE");
@@ -675,6 +685,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         if (amount == 0) revert NothingToClaim();
         // Must be below min stake for at least grace period AND inactive for 90 days
         // A4-C-01: Wrap in try/catch — if staking reverts, treat as below threshold (allow forfeiture)
+        // SLITHER 2026-05-18 (MEDIUM, auto): uninitialized-local — local var declared mid-function; assignment branches cover reachable paths
+        // slither-disable-next-line uninitialized-local
         uint256 referrerPower;
         try stakingContract.votingPowerOf(_referrer) returns (uint256 p) {
             referrerPower = p;
@@ -773,6 +785,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         // S2-H-01: Include totalCallerCredit in reserved to prevent sweeping caller funds
         uint256 reserved = totalPendingETH + accumulatedTreasuryETH + totalCallerCredit;
         uint256 sweepable = balance > reserved ? balance - reserved : 0;
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (sweepable == 0) revert NothingToClaim();
 
         // AUDIT FIX L-11: Use WETHFallbackLib directly — avoids redundant raw .call before WETH fallback

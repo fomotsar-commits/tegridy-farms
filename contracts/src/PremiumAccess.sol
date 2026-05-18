@@ -61,13 +61,13 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     ///      The slot was written on subscribe and cleared on cancel and never read.
     ///      Removed. The slot is preserved as `_deprecated_paidFeeRate_slot` to keep
     ///      storage layout stable for any deployed instance — DO NOT reuse this slot.
-    /// SLITHER NOTE 2026-05-18 (HIGH): `uninitialized-state` false positive.
-    /// This slot is INTENTIONALLY never explicitly initialized — it is the
-    /// reserved storage slot for the deprecated `paidFeeRate` mapping. The
-    /// `getDeprecatedPaidFeeRate` getter only reads it for off-chain
-    /// migration tooling; nothing writes to it post-deprecation. Documented
-    /// in `_deprecated_paidFeeRate_slot` NatSpec above.
-    /// slither-disable-next-line uninitialized-state
+    // SLITHER NOTE 2026-05-18 (HIGH): `uninitialized-state` false positive.
+    // This slot is INTENTIONALLY never explicitly initialized — it is the
+    // reserved storage slot for the deprecated `paidFeeRate` mapping. The
+    // `getDeprecatedPaidFeeRate` getter only reads it for off-chain
+    // migration tooling; nothing writes to it post-deprecation. Documented
+    // in `_deprecated_paidFeeRate_slot` NatSpec above.
+    // slither-disable-next-line uninitialized-state
     mapping(address => uint256) private _deprecated_paidFeeRate_slot;
     mapping(address => uint256) public userEscrow; // CRITICAL FIX: actual TOWELI escrowed per user
     mapping(address => bool) public isActiveSubscriber; // AUDIT FIX L-04: track active status for accurate counter
@@ -223,6 +223,8 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     ///         `hasPremiumSecure(user)` for any flash-loan-sensitive on-chain
     ///         gating — that variant is subscription-only and is multi-block by
     ///         construction. The grace window's economic risk is bounded to
+    // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+    // slither-disable-next-line incorrect-equality
     ///         non-valuable UI gating where the 10-minute window is a feature
     ///         (don't yank a user's premium UX during an in-flight marketplace
     ///         transaction).
@@ -230,6 +232,8 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     function deactivateNFTPremium(address user) external {
         uint256 activationBlock = nftActivationBlock[user];
         // AUDIT FIX M-36: Use timestamp comparison (10 minutes grace period instead of 10 blocks)
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (activationBlock != 0 && jbacNFT.balanceOf(user) == 0 && block.timestamp > activationBlock + 10 minutes) {
             nftActivationBlock[user] = 0;
             emit NFTAccessRevoked(user);
@@ -514,6 +518,8 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     ///         contract balance has been restored (e.g. via revenue accrual).
     ///         The claim is capped by current balance; if balance is still
     ///         insufficient the unpaid remainder stays recorded for a future call.
+    // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+    // slither-disable-next-line incorrect-equality
     function claimShortfall() external nonReentrant {
         uint256 owed = shortfallOwed[msg.sender];
         if (owed == 0) revert NothingToClaim();

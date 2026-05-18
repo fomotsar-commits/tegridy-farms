@@ -462,6 +462,8 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         uint256 reserved = (totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0) + totalPendingWithdrawals;
         uint256 balance = address(this).balance;
         uint256 newETH = balance > reserved ? balance - reserved : 0;
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (newETH == 0) revert NoETHToDistribute();
         require(newETH >= MIN_DISTRIBUTE_AMOUNT, "AMOUNT_TOO_SMALL");
 
@@ -486,6 +488,8 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // live `totalBoostedStake()` so we degrade gracefully instead of bricking
         // distribution. The try/catch surface keeps RevenueDistributor robust against an
         // upgraded staking contract that drops the helper.
+        // SLITHER 2026-05-18 (MEDIUM, auto): uninitialized-local — local var declared mid-function; assignment branches cover reachable paths
+        // slither-disable-next-line uninitialized-local
         uint256 locked;
         try votingEscrow.totalBoostedStakeAtTimestamp(snapshotTime) returns (uint256 hist) {
             locked = hist;
@@ -504,6 +508,8 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // a broken live read surfaces as a typed `StakingTotalBoostedStakeFailed`
         // error instead of an opaque cascade — keeper and ops dashboards can detect
         // and trigger the staking-contract recovery path immediately.
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (locked == 0) {
             try votingEscrow.totalBoostedStake() returns (uint256 live) {
                 locked = live;
@@ -544,6 +550,8 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         uint256 unclaimed = (totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0) + totalPendingWithdrawals;
         uint256 balance = address(this).balance;
         uint256 withdrawable = balance > unclaimed ? balance - unclaimed : 0;
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (withdrawable == 0) revert NoETHToWithdraw();
 
         WETHFallbackLib.safeTransferETHOrWrap(address(weth), treasury, withdrawable);
@@ -572,6 +580,8 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         uint256 reserved = unclaimed + totalPendingWithdrawals;
         uint256 balance = address(this).balance;
         uint256 excess = balance > reserved ? balance - reserved : 0;
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (excess == 0) revert NoETHToWithdraw();
 
         // AUDIT FIX M-38 [F-55-2, F-80-06] (MEDIUM): route through WETHFallbackLib
@@ -638,6 +648,8 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
 
     /// @dev Check if a user has an active restaked position.
     ///      When NFT is in restaking, locks(user) returns (0,0) but position still exists.
+    // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+    // slither-disable-next-line unused-return
     function _isRestaked(address _user) internal view returns (bool) {
         if (address(restakingContract) == address(0)) return false;
         try restakingContract.restakers(_user) returns (
@@ -934,6 +946,8 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     ///      The `lockEnd` return value is preserved for the grace-period path (single-NFT
     ///      users about to expire). For aggregate-active users we return type(uint64).max
     ///      so the grace check is effectively a no-op (always > block.timestamp).
+    // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+    // slither-disable-next-line unused-return
     function _getUserLockState(address user) internal view returns (uint256 currentLocked, uint256 lockEnd) {
         // AUDIT C3 / H11: prefer aggregate voting power. Returns the SUM across all the
         // user's positions, so a multi-NFT contract holder with at least one active lock
@@ -997,6 +1011,8 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         uint256 reserved = unclaimed + totalPendingWithdrawals;
         uint256 balance = address(this).balance;
         uint256 dust = balance > reserved ? balance - reserved : 0;
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (dust == 0) revert NoDustToSweep();
 
         // AUDIT FIX M-38 [F-55-2, F-80-06] (MEDIUM): route through WETHFallbackLib
@@ -1211,6 +1227,8 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
             if (ep.timestamp >= extendedCutoff) {
                 epochUnclaimed = epochUnclaimed / 2;
             }
+            // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+            // slither-disable-next-line incorrect-equality
             if (epochUnclaimed == 0) continue;
             uint256 take = epochUnclaimed > remaining ? remaining : epochUnclaimed;
             // SECURITY: bump `epochClaimed[i]` so a still-locked late claimer

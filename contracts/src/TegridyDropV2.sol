@@ -269,12 +269,12 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///         the rescue-path NatSpec for why the rescue path is now only meaningful for
     ///         raw ETH donations to a pre-mint cancelled drop). DO NOT add a new write
     ///         path here — all reasoning relies on this slot being zero.
-    /// SLITHER NOTE 2026-05-18 (HIGH): `uninitialized-state` false positive.
-    /// This slot is INTENTIONALLY never written on new clones (V2-DROP-02 removed
-    /// the `mint()` increment path). Kept for storage-layout compatibility with
-    /// already-deployed clones; reads always return 0 on new ones, which is the
-    /// invariant the rescue path relies on. See NatSpec above for full rationale.
-    /// slither-disable-next-line uninitialized-state
+    // SLITHER NOTE 2026-05-18 (HIGH): `uninitialized-state` false positive.
+    // This slot is INTENTIONALLY never written on new clones (V2-DROP-02 removed
+    // the `mint()` increment path). Kept for storage-layout compatibility with
+    // already-deployed clones; reads always return 0 on new ones, which is the
+    // invariant the rescue path relies on. See NatSpec above for full rationale.
+    // slither-disable-next-line uninitialized-state
     uint256 public unclaimedRefundPool;
 
     /// @notice AUDIT FIX: DEEP-DROP-06: one-shot flag set by `freezeBaseURI()`. Once set,
@@ -604,12 +604,16 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///         unknowingly weaken. The lib already exposes the canonical non-reverting
     ///         primitive (`tryCheckSequencerUp`); this aligns with the SequencerCheck.sol
     ///         "single source of truth" guidance.
+    // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+    // slither-disable-next-line unused-return
     /// @return The current price, OR `type(uint256).max` as a sentinel during a
     ///         dutch-auction sequencer outage. Consumers should treat the sentinel
     ///         as "minting paused — do not display a buy button."
     function currentPrice() public view returns (uint256) {
         if (mintPhase == MintPhase.DUTCH_AUCTION) {
             // AUDIT FIX: V2-DROP-05: canonical non-reverting sequencer probe.
+            // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+            // slither-disable-next-line unused-return
             (bool ok, ) = SequencerCheck.tryCheckSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
             if (!ok) return type(uint256).max;
             return _dutchAuctionPriceWithoutSequencerCheck();
@@ -979,12 +983,16 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         // selfdestruct / coinbase set on which receive() doesn't fire) is left
         // in the contract — pre-fix it was drained alongside sale revenue and
         // the platformFeeBps applied on top, letting a donor front-run the
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         // owner's withdraw to inflate the platform's take. The leftover
         // donation can be recovered via the existing rescueAfterCancellation
         // path (in the cancellation arm) or via the OZ Ownable owner's manual
         // tools — both prefer this stuck-ETH-no-rug posture.
         uint256 bal = address(this).balance;
         uint256 distributable = totalProceeds < bal ? totalProceeds : bal;
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (distributable == 0) revert WithdrawFailed();
 
         // AUDIT H9: lock out cancelSale() going forward.

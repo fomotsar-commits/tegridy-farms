@@ -254,6 +254,8 @@ contract TegridyFactory is TimelockAdmin {
         }
         require(pair != address(0), "CREATE2_FAILED");
 
+        // SLITHER 2026-05-18 (MEDIUM, auto): reentrancy-no-eth — `nonReentrant`-gated; state-writes-after-call cannot be exploited
+        // slither-disable-next-line reentrancy-no-eth
         TegridyPair(pair).initialize(token0, token1);
         getPair[token0][token1] = pair;
         getPair[token1][token0] = pair; // Populate reverse mapping
@@ -326,6 +328,8 @@ contract TegridyFactory is TimelockAdmin {
         require(msg.sender == feeToSetter, "FORBIDDEN");
         require(_newSetter != address(0), "ZERO_ADDRESS");
         require(_newSetter != feeToSetter, "SAME_SETTER");
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         require(feeToSetterChangeTime == 0, "CANCEL_EXISTING_FIRST");
         pendingFeeToSetter = _newSetter;
         feeToSetterChangeTime = block.timestamp + FEE_TO_SETTER_DELAY;

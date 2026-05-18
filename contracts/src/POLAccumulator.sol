@@ -930,9 +930,15 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // AUDIT FIX D-POL-M1: use toweliUnit consistent with the consult quote.
         uint256 fairToweli = Math.sqrt((K * toweliUnit) / twapEthPer1eToweli);
         if (fairToweli == 0) revert OracleStale();
+        // SLITHER 2026-05-18 (MEDIUM, auto): divide-before-multiply — fixed-point / Uniswap V2 oracle cumulative math — intentional bounded precision loss
+        // slither-disable-next-line divide-before-multiply
         uint256 fairEth = K / fairToweli;
 
+        // SLITHER 2026-05-18 (MEDIUM, auto): divide-before-multiply — fixed-point / Uniswap V2 oracle cumulative math — intentional bounded precision loss
+        // slither-disable-next-line divide-before-multiply
         uint256 shareToken = (lpAmount * fairToweli) / totalSupply;
+        // SLITHER 2026-05-18 (MEDIUM, auto): divide-before-multiply — fixed-point / Uniswap V2 oracle cumulative math — intentional bounded precision loss
+        // slither-disable-next-line divide-before-multiply
         uint256 shareETH = (lpAmount * fairEth) / totalSupply;
         // Apply safety margin.
         floorToken = (shareToken * (BPS - TWAP_SAFETY_BPS)) / BPS;

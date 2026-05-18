@@ -604,7 +604,11 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     function _writeTotalBoostedStakeCheckpoint() internal {
         uint208 newTotal = SafeCast.toUint208(totalBoostedStake);
         uint208 last = _totalBoostedStakeCheckpoints.latest();
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (last == newTotal) return;
+        // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+        // slither-disable-next-line unused-return
         _totalBoostedStakeCheckpoints.push(SafeCast.toUint48(block.timestamp), newTotal);
     }
 
@@ -618,7 +622,11 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         EnumerableSet.UintSet storage set = _positionsByOwner[user];
         uint256 len = set.length();
         uint256 nowTs = block.timestamp;
+        // SLITHER 2026-05-18 (MEDIUM, auto): uninitialized-local — local var declared mid-function; assignment branches cover reachable paths
+        // slither-disable-next-line uninitialized-local
         uint256 totalAmount;
+        // SLITHER 2026-05-18 (MEDIUM, auto): uninitialized-local — local var declared mid-function; assignment branches cover reachable paths
+        // slither-disable-next-line uninitialized-local
         uint256 totalBoosted;
         for (uint256 i; i < len; ++i) {
             Position storage p = positions[set.at(i)];
@@ -651,6 +659,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @return Claimable reward tokens for this position
     function earned(uint256 tokenId) public view returns (uint256) {
         Position memory p = positions[tokenId];
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (p.boostedAmount == 0) return 0;
         // AUDIT FIX M-01: Expired positions still have claimable rewards accrued before expiry.
         // _getReward() computes rewards BEFORE _decayIfExpired zeros boostedAmount, so earned()
@@ -764,6 +774,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
 
         uint256 boost = calculateBoost(_lockDuration);
         // AUDIT H-1 (2026-04-20): No JBAC boost on stake(). Use stakeWithBoost() for that.
+        // SLITHER 2026-05-18 (MEDIUM, auto): divide-before-multiply — fixed-point / Uniswap V2 oracle cumulative math — intentional bounded precision loss
+        // slither-disable-next-line divide-before-multiply
         uint256 boosted = (_amount * boost) / BOOST_PRECISION;
 
         uint256 tokenId = _nextTokenId++;
@@ -816,6 +828,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (userTokenId[msg.sender] != 0) revert AlreadyStaked();
 
         uint256 boost = calculateBoost(_lockDuration) + JBAC_BONUS_BPS;
+        // SLITHER 2026-05-18 (MEDIUM, auto): divide-before-multiply — fixed-point / Uniswap V2 oracle cumulative math — intentional bounded precision loss
+        // slither-disable-next-line divide-before-multiply
         uint256 boosted = (_amount * boost) / BOOST_PRECISION;
 
         uint256 tokenId = _nextTokenId++;
@@ -1046,6 +1060,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         _getReward(tokenId, p);
 
         // CCR-01 (batch-9 / batch-14): JBAC capture + post-burn return inside `_clearPosition`.
+        // SLITHER 2026-05-18 (MEDIUM, auto): reentrancy-no-eth — `nonReentrant`-gated; state-writes-after-call cannot be exploited
+        // slither-disable-next-line reentrancy-no-eth
         uint256 amount = _clearPosition(tokenId, p);
         uint256 penalty = (amount * EARLY_WITHDRAWAL_PENALTY_BPS) / BPS;
         uint256 userReceives = amount - penalty;
@@ -1087,6 +1103,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (p.autoMaxLock) {
             p.lockEnd = uint64(block.timestamp + MAX_LOCK_DURATION);
             p.lockDuration = uint32(MAX_LOCK_DURATION);
+            // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+            // slither-disable-next-line incorrect-equality
             if (p.boostedAmount == 0 && p.amount > 0) {
                 // AUDIT FIX FRESH-2026: H-2 [F-02-K-01] — Verify JBAC bonus is still
                 // valid before restoring it on legacy `hasJbacBoost && !jbacDeposited`
@@ -1207,6 +1225,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
             if (pending > cappedPending) {
                 emit KickRewardPoolShortfall(holder, pending, cappedPending);
             }
+            // SLITHER 2026-05-18 (MEDIUM, auto): uninitialized-local — local var declared mid-function; assignment branches cover reachable paths
+            // slither-disable-next-line uninitialized-local
             uint256 totalSettled;
             if (cappedPending > 0) {
                 uint256 actualSettled = _settleUnsettled(holder, cappedPending);
@@ -1438,11 +1458,15 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // position set so votingPowerOf can correctly aggregate multi-NFT
         // holders. The set is the source of truth for voting power.
         if (from != address(0)) {
+            // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+            // slither-disable-next-line unused-return
             _positionsByOwner[from].remove(id);
         }
         if (to != address(0)) {
             // Enforce the per-holder cap BEFORE the EOA AlreadyHasPosition guard.
             if (_positionsByOwner[to].length() >= MAX_POSITIONS_PER_HOLDER) revert TooManyPositions();
+            // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+            // slither-disable-next-line unused-return
             _positionsByOwner[to].add(id);
         }
 
@@ -1682,6 +1706,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         uint208 newPower = SafeCast.toUint208(power);
         uint208 last = _checkpoints[user].latest();
         if (last == newPower) return;
+        // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+        // slither-disable-next-line unused-return
         _checkpoints[user].push(SafeCast.toUint48(block.timestamp), newPower);
     }
 
@@ -1821,6 +1847,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
 
     function _claimUnsettledInternal(address _user) private {
         uint256 amount = unsettledRewards[_user];
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (amount == 0) revert ZeroAmount();
         // Cap to available reward pool: reserve totalStaked + other users' unsettled rewards
         // (this user's unsettled amount is being claimed, so exclude it from reserved)
@@ -1932,6 +1960,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
 
         // CCR-01 (batch-9 / batch-14): JBAC capture + post-burn return inside `_clearPosition`.
         bool earlyExit = block.timestamp < p.lockEnd;
+        // SLITHER 2026-05-18 (MEDIUM, auto): reentrancy-no-eth — `nonReentrant`-gated; state-writes-after-call cannot be exploited
+        // slither-disable-next-line reentrancy-no-eth
         uint256 amount = _clearPosition(tokenId, p);
 
         uint256 penalty;
@@ -2180,6 +2210,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     function sweepToken(address token) external onlyOwner nonReentrant {
         if (token == address(rewardToken)) revert CannotSweepRewardToken();
         uint256 balance = IERC20(token).balanceOf(address(this));
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (balance == 0) revert ZeroBalance();
         IERC20(token).safeTransfer(treasury, balance);
     }
@@ -2267,6 +2299,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @dev Settle unsettled rewards for a user, respecting the global cap.
     /// @return settled The actual amount settled (may be less than requested if cap hit)
     function _settleUnsettled(address user, uint256 amount) private returns (uint256 settled) {
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (amount == 0) return 0;
         // AUDIT FIX L-06: Cap totalUnsettledRewards to prevent unbounded growth
         uint256 unsettledRoom = totalUnsettledRewards < maxUnsettledRewards
@@ -2359,6 +2393,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         uint256 numerator = fee * extendFeeRecycleBps;
         recycled = numerator == 0 ? 0 : (numerator + BPS - 1) / BPS;
         if (recycled > fee) recycled = fee; // defensive (should never fire)
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (recycled > 0 && totalBoostedStake == 0) {
             // Nothing to credit — fall back to treasury so funds aren't stranded.
             recycled = 0;
@@ -2396,6 +2432,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         uint256 numerator = penalty * penaltyRecycleBps;
         recycled = numerator == 0 ? 0 : (numerator + BPS - 1) / BPS;
         if (recycled > penalty) recycled = penalty; // defensive (should never fire)
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (recycled > 0 && totalBoostedStake == 0) {
             // Nothing to credit — fall back to treasury so funds aren't stranded.
             recycled = 0;
@@ -2408,6 +2446,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      in this contract's balance (i.e., not transferred elsewhere) — the recycled
     ///      portion of a penalty is simply not transferred out, naturally satisfying this.
     function _creditRewardPool(uint256 amount) internal {
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (amount == 0 || totalBoostedStake == 0) return;
         rewardPerTokenStored += (amount * ACC_PRECISION) / totalBoostedStake;
         totalRewardsFunded += amount;

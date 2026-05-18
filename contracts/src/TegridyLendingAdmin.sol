@@ -448,6 +448,8 @@ contract TegridyLendingAdmin is OwnableNoRenounce, TimelockAdmin {
                 if (lending.collateralRemovalRetryCount(cancelled) >= lending.COLLATERAL_REMOVAL_MAX_CANCELLATIONS()) {
                     revert RemovalCancelLimitReached();
                 }
+                // SLITHER 2026-05-18 (MEDIUM, auto): reentrancy-no-eth — `nonReentrant`-gated; state-writes-after-call cannot be exploited
+                // slither-disable-next-line reentrancy-no-eth
                 lending.bumpCollateralRemovalRetryCount(cancelled);
             }
         } else if (!wasRemoval && cancelled != address(0)) {

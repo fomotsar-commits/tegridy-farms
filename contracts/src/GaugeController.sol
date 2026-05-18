@@ -335,6 +335,8 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         tegridyStaking = ITegridyStakingGauge(_tegridyStaking);
         emissionBudget = _emissionBudget;
         // Align genesis to the start of the current week (Monday 00:00 UTC convention)
+        // SLITHER 2026-05-18 (MEDIUM, auto): divide-before-multiply — fixed-point / Uniswap V2 oracle cumulative math — intentional bounded precision loss
+        // slither-disable-next-line divide-before-multiply
         genesisEpoch = (block.timestamp / EPOCH_DURATION) * EPOCH_DURATION;
     }
 
@@ -395,6 +397,8 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // validity is still checked against live state so expired-lock votes are
         // rejected regardless.
         // H-01 FIX: Updated destructuring to match corrected ABI order
+        // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+        // slither-disable-next-line unused-return
         (uint256 amount,,, uint256 lockEnd,,,,,,,) = tegridyStaking.positions(tokenId);
         if (amount == 0 || block.timestamp >= lockEnd) revert LockExpired();
         // AUDIT FIX: DEEP-GOV-01 — min(historical, current) clamp. A 1-wei sentinel
@@ -416,6 +420,8 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         );
         uint256 currentPower = VotePowerOracle.powerOf(msg.sender, address(tegridyStaking), restakingContract);
         uint256 votingPower = historicalPower < currentPower ? historicalPower : currentPower;
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (votingPower == 0) revert ZeroVotingPower();
 
         // Validate weights sum to BPS and all gauges are whitelisted
@@ -423,6 +429,8 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // A zero-weight entry adds nothing to the gauge's tally but still consumes a
         // slot in `_tokenVotes` and an iteration step in any downstream consumer that
         // walks the array — callers should pass only meaningful gauge selections.
+        // SLITHER 2026-05-18 (MEDIUM, auto): uninitialized-local — local var declared mid-function; assignment branches cover reachable paths
+        // slither-disable-next-line uninitialized-local
         uint256 totalWeight;
         for (uint256 i; i < gauges.length; ++i) {
             if (!isGauge[gauges[i]]) revert InvalidGauge(gauges[i]);
@@ -555,6 +563,8 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
         // Validate the NFT still represents an active lock (cheap pre-check;
         // real voting power is computed at reveal time against epoch-start snapshot).
+        // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+        // slither-disable-next-line unused-return
         (uint256 amount,,, uint256 lockEnd,,,,,,,) = tegridyStaking.positions(tokenId);
         if (amount == 0 || block.timestamp >= lockEnd) revert LockExpired();
 
@@ -681,6 +691,8 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // forfeit the vote, since voting power is scored against the committer.
         if (tegridyStaking.ownerOf(tokenId) != msg.sender) revert NotTokenOwner();
 
+        // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+        // slither-disable-next-line unused-return
         (uint256 amount,,, uint256 lockEnd,,,,,,,) = tegridyStaking.positions(tokenId);
         if (amount == 0 || block.timestamp >= lockEnd) revert LockExpired();
         // AUDIT FIX: DEEP-GOV-01 — min(historical, current) clamp on reveal too.
@@ -702,8 +714,12 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         );
         uint256 currentVP = VotePowerOracle.powerOf(msg.sender, address(tegridyStaking), restakingContract);
         uint256 votingPower = historicalPower < currentVP ? historicalPower : currentVP;
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (votingPower == 0) revert ZeroVotingPower();
 
+        // SLITHER 2026-05-18 (MEDIUM, auto): uninitialized-local — local var declared mid-function; assignment branches cover reachable paths
+        // slither-disable-next-line uninitialized-local
         uint256 totalWeight;
         for (uint256 i; i < gauges.length; ++i) {
             if (!isGauge[gauges[i]]) revert InvalidGauge(gauges[i]);

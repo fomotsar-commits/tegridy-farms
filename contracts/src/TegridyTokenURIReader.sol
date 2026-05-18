@@ -38,6 +38,8 @@ contract TegridyTokenURIReader {
         staking = ITegridyStaking(_staking);
     }
 
+    // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+    // slither-disable-next-line unused-return
     function tokenURI(uint256 tokenId) external view returns (string memory) {
         // AUDIT FIX: DEEP-URI-02: enforce EIP-721 — `tokenURI(_tokenId)` MUST
         // throw for non-existent NFTs. Without this, the reader synthesises

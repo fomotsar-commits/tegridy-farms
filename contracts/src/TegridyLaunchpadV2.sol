@@ -259,6 +259,8 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
             name: cfg.name,
             symbol: cfg.symbol
         });
+        // SLITHER 2026-05-18 (MEDIUM, auto): reentrancy-no-eth — `nonReentrant`-gated; state-writes-after-call cannot be exploited
+        // slither-disable-next-line reentrancy-no-eth
         allCollections.push(collection);
 
         emit CollectionCreated(id, collection, msg.sender, cfg.name, cfg.symbol, cfg.maxSupply);

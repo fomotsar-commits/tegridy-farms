@@ -254,6 +254,8 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
         );
 
         // Index the pool
+        // SLITHER 2026-05-18 (MEDIUM, auto): reentrancy-no-eth — `nonReentrant`-gated; state-writes-after-call cannot be exploited
+        // slither-disable-next-line reentrancy-no-eth
         _allPools.push(pool);
         _poolsByCollection[nftCollection].push(pool);
         // R064 (MEDIUM): mark for O(1) membership lookups in claimPoolFeesBatch.
@@ -387,6 +389,8 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     ///      `bestCost = type(uint256).max` and `bestPool = address(0)` when
     ///      no quote lands. Callers that aggregate across pages should treat
     ///      `bestPool == address(0)` as the empty signal.
+    // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+    // slither-disable-next-line unused-return
     function _bestBuyIn(
         address collection,
         uint256 startIdx,
@@ -422,6 +426,8 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     }
 
     /// @dev Shared internal: scan window `[startIdx, startIdx+count)` for highest-paying sell.
+    // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+    // slither-disable-next-line unused-return
     function _bestSellIn(
         address collection,
         uint256 startIdx,
@@ -629,6 +635,8 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
         if (block.timestamp >= dayStart + 1 days) {
             dayStart = block.timestamp;
             withdrawnToday = 0;
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         } else if (dayStart == 0) {
             dayStart = block.timestamp;
         }

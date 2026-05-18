@@ -514,6 +514,8 @@ contract TegridyRouter is ReentrancyGuard {
         }
     }
 
+    // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+    // slither-disable-next-line unused-return
     /// @dev Uses factory lookup instead of CREATE2 address prediction.
     ///      This avoids coupling to the pair's init code hash, which would break
     ///      if TegridyPair bytecode changes. The factory lookup is a single STATICCALL
@@ -526,6 +528,8 @@ contract TegridyRouter is ReentrancyGuard {
 
     function _getReserves(address pair, address tokenA, address tokenB) internal view returns (uint112 reserveA, uint112 reserveB) {
         (address token0,) = _sortTokens(tokenA, tokenB);
+        // SLITHER 2026-05-18 (MEDIUM, auto): unused-return — tuple destructure intentionally binds only needed fields
+        // slither-disable-next-line unused-return
         (uint112 reserve0, uint112 reserve1,) = TegridyPair(pair).getReserves();
         (reserveA, reserveB) = tokenA == token0 ? (reserve0, reserve1) : (reserve1, reserve0);
     }

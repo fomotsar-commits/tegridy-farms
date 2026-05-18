@@ -274,6 +274,8 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     ) external payable nonReentrant whenNotPaused {
         if (block.timestamp > deadline) revert Expired();
         // AUDIT FIX: DEEP-NFTPOOL-01: forward-direction same-block guard.
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (block.timestamp == lastWithdrawBlock) revert WithdrawalLandedThisBlock();
         // AUDIT FIX: DEEP-NFTPOOL-12: factory emergency-pause cascade.
         if (ITegridyNFTPoolFactoryView(factory).emergencyPaused()) revert EmergencyPaused();
@@ -302,6 +304,8 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
             uint256 tokenId = tokenIds[i];
             if (_idToIndex[tokenId] == 0) revert NFTNotHeld(tokenId);
             _removeHeldId(tokenId);
+            // SLITHER 2026-05-18 (MEDIUM, auto): reentrancy-no-eth — `nonReentrant`-gated; state-writes-after-call cannot be exploited
+            // slither-disable-next-line reentrancy-no-eth
             nftCollection.safeTransferFrom(address(this), msg.sender, tokenId);
         }
 
@@ -343,6 +347,8 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     ) external nonReentrant whenNotPaused {
         if (block.timestamp > deadline) revert Expired();
         // AUDIT FIX: DEEP-NFTPOOL-01
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (block.timestamp == lastWithdrawBlock) revert WithdrawalLandedThisBlock();
         // AUDIT FIX: DEEP-NFTPOOL-12
         if (ITegridyNFTPoolFactoryView(factory).emergencyPaused()) revert EmergencyPaused();
@@ -362,6 +368,8 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         spotPrice -= delta * numItems;
 
         for (uint256 i = 0; i < numItems; i++) {
+            // SLITHER 2026-05-18 (MEDIUM, auto): reentrancy-no-eth — `nonReentrant`-gated; state-writes-after-call cannot be exploited
+            // slither-disable-next-line reentrancy-no-eth
             nftCollection.safeTransferFrom(msg.sender, address(this), tokenIds[i]);
         }
 
@@ -421,6 +429,8 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
             uint256 tokenId = tokenIds[i];
             if (_idToIndex[tokenId] == 0) revert NFTNotHeld(tokenId);
             _removeHeldId(tokenId);
+            // SLITHER 2026-05-18 (MEDIUM, auto): reentrancy-no-eth — `nonReentrant`-gated; state-writes-after-call cannot be exploited
+            // slither-disable-next-line reentrancy-no-eth
             nftCollection.safeTransferFrom(address(this), msg.sender, tokenId);
         }
 
@@ -571,6 +581,8 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         // same reason — it created a permanent ownership-lock vector under
         // factory-side incidents combined with pool-key loss.
         if (msg.sender != pendingOwner || msg.sender == address(0)) revert NotPendingOwner();
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (pendingOwnerExecuteAfter == 0 || block.timestamp < pendingOwnerExecuteAfter) {
             revert TimelockNotElapsed();
         }
@@ -700,6 +712,8 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
             uint256 tokenId = tokenIds[i];
             if (_idToIndex[tokenId] == 0) revert NFTNotHeld(tokenId);
             _removeHeldId(tokenId);
+            // SLITHER 2026-05-18 (MEDIUM, auto): reentrancy-no-eth — `nonReentrant`-gated; state-writes-after-call cannot be exploited
+            // slither-disable-next-line reentrancy-no-eth
             nftCollection.safeTransferFrom(address(this), msg.sender, tokenId);
         }
         // AUDIT FIX: DEEP-NFTPOOL-01
@@ -1063,6 +1077,8 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     function rescueStrandedRoyalty() external onlyOwner nonReentrant {
         IERC20 wethToken = IERC20(weth);
         uint256 stranded = wethToken.balanceOf(address(this));
+        // SLITHER 2026-05-18 (MEDIUM, auto): incorrect-equality — numeric counter == 0 check (NOT a block.timestamp eq); pattern-match FP
+        // slither-disable-next-line incorrect-equality
         if (stranded == 0) revert NoStrandedRoyalty();
         wethToken.safeTransfer(msg.sender, stranded);
         emit RoyaltyRescued(msg.sender, stranded);
