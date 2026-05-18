@@ -105,7 +105,7 @@ export function usePriceHistory(_currentPrice?: number): PriceHistoryResult {
             return;
           }
           throw new Error('Invalid OHLCV data');
-        } catch (e) {
+        } catch (_e) {
           retryCount.current++;
           if (retryCount.current <= MAX_RETRIES) {
             const delay = BASE_DELAY * Math.pow(2, retryCount.current - 1);

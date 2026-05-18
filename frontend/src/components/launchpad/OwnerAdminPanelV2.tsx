@@ -116,7 +116,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
   }, [dutchStartPrice, dutchEndPrice, dutchStartTime, dutchDuration]);
 
   const chainId = useChainId();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const exec = useCallback((fn: string, args?: unknown[], opts?: { onSuccess?: () => void }) => {
     // AUDIT FIX M-8: refuse on wrong chain so admin actions aren't sent to a
     // phantom address on Sepolia/Base/Arbitrum.

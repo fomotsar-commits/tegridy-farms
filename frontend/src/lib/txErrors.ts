@@ -90,7 +90,7 @@ export function extractErrorMessage(err: unknown, fallback = 'Transaction failed
 export function surfaceTxError(err: unknown, toast: ToastLike, opts: SurfaceOpts = {}): void {
   const tag = opts.component ? `[${opts.component}]` : '[tx]';
   // Always log — silent mode suppresses only the toast, not the log.
-  // eslint-disable-next-line no-console
+   
   console.error(tag, err);
 
   if (opts.silent) return;

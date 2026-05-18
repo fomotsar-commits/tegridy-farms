@@ -22,7 +22,8 @@ describe('safeSetItem', () => {
   });
 
   it('returns false when localStorage.setItem always throws', () => {
-    const original = localStorage.setItem.bind(localStorage);
+    // `vi.restoreAllMocks()` at the end restores the original — no need to
+    // capture it explicitly.
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new DOMException('quota exceeded', 'QuotaExceededError');
     });
