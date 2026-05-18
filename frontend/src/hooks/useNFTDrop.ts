@@ -58,7 +58,12 @@ export function useNFTDrop(dropAddress: string) {
   // tx hash is already in flight AND no terminal receipt has settled.
   const inFlight = !!hash && !isSuccess && !isTxError;
 
-  function mint(quantity: number, proof: `0x${string}`[] = []) {
+  // FE-HIGH-01: mint() takes 3 args to match the Solidity dispatcher:
+  //   mint(uint256 quantity, uint256 allowedAmount, bytes32[] proof)
+  // For PUBLIC/DUTCH phases the contract ignores allowedAmount and proof; default both
+  // to 0 / []. ALLOWLIST callers must pass the leaf-encoded per-wallet cap that was
+  // hashed into the merkle root, otherwise verifyProof reverts.
+  function mint(quantity: number, allowedAmount: number | bigint = 0n, proof: `0x${string}`[] = []) {
     // AUDIT FIX M-8: refuse on wrong chain so the user doesn't burn ETH
     // minting against a phantom address on Sepolia/Base/Arbitrum.
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
@@ -72,7 +77,7 @@ export function useNFTDrop(dropAddress: string) {
       address: contractAddr,
       abi: TEGRIDY_DROP_V2_ABI,
       functionName: 'mint',
-      args: [BigInt(quantity), proof],
+      args: [BigInt(quantity), BigInt(allowedAmount), proof],
       value: totalCost,
     });
   }

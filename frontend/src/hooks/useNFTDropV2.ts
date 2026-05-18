@@ -168,7 +168,8 @@ export function useNFTDropV2(dropAddress: string) {
   // AUDIT FIX FE-HIGH-01: `allowedAmount` is the per-wallet cap encoded into the
   // ALLOWLIST merkle leaf (see TegridyDropV2.mint). Pass 0 for PUBLIC / DUTCH where
   // the proof is unused. Default-zero keeps existing PUBLIC-only callers compatible.
-  function mint(quantity: number, proof: `0x${string}`[] = [], allowedAmount: bigint = 0n) {
+  // Param order mirrors the Solidity ABI: (quantity, allowedAmount, proof).
+  function mint(quantity: number, allowedAmount: number | bigint = 0n, proof: `0x${string}`[] = []) {
     // AUDIT FIX M-8: refuse on wrong chain so the user doesn't burn ETH
     // minting against a phantom address on Sepolia/Base/Arbitrum.
     if (!onMainnet) { toast.error('Please switch to Ethereum Mainnet'); return; }
@@ -183,7 +184,7 @@ export function useNFTDropV2(dropAddress: string) {
       abi: TEGRIDY_DROP_V2_ABI,
       functionName: 'mint',
       // FE-HIGH-01: 3-arg signature matches Solidity. allowedAmount is the merkle leaf cap.
-      args: [BigInt(quantity), allowedAmount, proof],
+      args: [BigInt(quantity), BigInt(allowedAmount), proof],
       value: totalCost,
     });
   }

@@ -68,7 +68,11 @@ export function CollectionDetailV2({
     const proof = proofInput.trim()
       ? proofInput.split(',').map((s) => s.trim() as `0x${string}`)
       : [];
-    drop.mint(mintQty, proof);
+    // FE-HIGH-01: 3-arg mint(quantity, allowedAmount, proof). For PUBLIC/DUTCH the
+    // contract ignores allowedAmount; for ALLOWLIST this UI doesn't yet collect a cap,
+    // so pass 0 — ALLOWLIST mints with a cap > 0 require pasting the leaf data alongside
+    // the proof (future work; for now they revert noisily as expected).
+    drop.mint(mintQty, 0n, proof);
   }, [drop, mintQty, proofInput, deployed]);
 
   const displayName = drop.collectionMetadata?.name ?? 'Collection Details';
