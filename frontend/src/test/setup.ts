@@ -37,6 +37,28 @@ vi.mock('@/contexts/ThemeContext', () => ({
   useTheme: () => ({ theme: 'dark' as const, toggleTheme: () => {}, isDark: true }),
 }));
 
+// AUDIT FIX 2026-05-18 (frontend test mocks): mock the GDPR consent gate
+// globally to always report "granted" in tests.
+//
+// Pre-fix, `errorReporting.reportError` and `analytics.track` both
+// early-return when `hasConsent()` is false (R046 H-1 — telemetry deny-
+// by-default). The 25 errorReporting + analytics test failures all
+// assert that the function MUTATED state (localStorage, console,
+// sessionStorage) — but with consent=pending in the test env, the
+// early return blocks every mutation and the assertions fail with
+// "expected 1, got 0".
+//
+// The consent gate itself is not exercised by any existing test
+// (no test references `setConsent` / `getConsent` / `hasConsent`), so
+// hard-coding "granted" globally is the safe default. Tests that want
+// to verify the gate itself would override via the standard
+// `vi.mock('@/lib/consent', ...)` per-file pattern.
+vi.mock('@/lib/consent', () => ({
+  getConsent: () => 'granted' as const,
+  setConsent: () => {},
+  hasConsent: () => true,
+}));
+
 beforeEach(() => {
   // Reset between tests so leftover stubs from one spec can't bleed
   // into the next. Matches the per-test reset pattern individual

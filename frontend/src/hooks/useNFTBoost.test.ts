@@ -14,6 +14,19 @@ describe('useNFTBoost', () => {
   beforeEach(() => {
     wagmiMock.reset();
     wagmiMock.setAccount({ address: USER, isConnected: true });
+    // AUDIT FIX 2026-05-18 (frontend test): R034 H3 / R043 H-062-01 made
+    // `holdsJBAC` / `holdsGoldCard` tri-state (`boolean | null`). `null`
+    // is the "unknown" state surfaced when the underlying `balanceOf`
+    // read fails or is still loading. Pre-fix the tests asserted
+    // `holdsJBAC === false` even when no read stubs were configured,
+    // which the new tri-state contract reports as `null`. The "zero
+    // balance" path (`false`) requires an explicit successful read
+    // returning `0n`; tests that exercise that contract now seed both
+    // reads to a successful zero by default, and the specific test
+    // that asserts read-failure semantics overrides with `status:
+    // 'failure'` per case.
+    wagmiMock.setReadResult({ functionName: 'balanceOf', address: JBAC, result: 0n });
+    wagmiMock.setReadResult({ functionName: 'balanceOf', address: GOLD, result: 0n });
   });
 
   it('defaults to no boost when user holds neither collection', () => {
@@ -91,8 +104,12 @@ describe('useNFTBoost', () => {
       status: 'failure',
     });
     const { result } = renderHook(() => useNFTBoost());
-    expect(result.current.holdsJBAC).toBe(false);
-    expect(result.current.holdsGoldCard).toBe(false);
+    // AUDIT FIX 2026-05-18 (frontend test): R034 H3 / R043 H-062-01
+    // tri-state — failed reads surface as `null` ("unknown"), not
+    // `false` ("confirmed zero"). The boost still falls back to
+    // baseline because `holdsJBAC === true` is the only credit path.
+    expect(result.current.holdsJBAC).toBeNull();
+    expect(result.current.holdsGoldCard).toBeNull();
     expect(result.current.boostMultiplier).toBe(1);
   });
 });

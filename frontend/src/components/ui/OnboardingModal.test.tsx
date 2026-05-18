@@ -88,7 +88,11 @@ describe('OnboardingModal', () => {
 
   it('Close button (x) sets localStorage and closes modal', () => {
     renderWithRouter();
-    const closeBtn = screen.getByLabelText('Close');
+    // AUDIT FIX 2026-05-18 (frontend test): Modal's close-button aria-label
+    // was tightened to "Close dialog" (Modal.tsx:167) to disambiguate from
+    // generic Close affordances on the page. The test still searched for
+    // the legacy "Close" label.
+    const closeBtn = screen.getByLabelText('Close dialog');
     fireEvent.click(closeBtn);
     expect(localStorage.getItem('tegridy-onboarding-seen')).toBe('1');
     expect(screen.queryByText('Welcome to Tegridy Farms')).not.toBeInTheDocument();
@@ -113,10 +117,17 @@ describe('OnboardingModal', () => {
     expect(backBtn.className).not.toContain('invisible');
   });
 
-  it('clicking backdrop overlay closes modal', () => {
+  it('clicking backdrop overlay does NOT close modal (dismissOnBackdrop=false)', () => {
+    // AUDIT FIX 2026-05-18 (frontend test): the modal sets
+    // `dismissOnBackdrop={false}` (OnboardingModal.tsx:59) so users must
+    // explicitly use the Close button or Next-through-to-finish. Backdrop-
+    // click closes are intentionally disabled per the TOS-style flow
+    // comment at OnboardingModal.tsx:6-8. The old test asserted the
+    // opposite of production behaviour.
     const { container } = renderWithRouter();
     const backdrop = container.querySelector('.fixed.inset-0') as HTMLElement;
     fireEvent.click(backdrop);
-    expect(localStorage.getItem('tegridy-onboarding-seen')).toBe('1');
+    expect(localStorage.getItem('tegridy-onboarding-seen')).toBeNull();
+    expect(screen.getByText('Welcome to Tegridy Farms')).toBeInTheDocument();
   });
 });

@@ -62,13 +62,21 @@ describe('SeasonalEventBanner', () => {
     vi.setSystemTime(new Date('2026-06-02T12:00:00Z'));
     render(<SeasonalEventBanner />);
     fireEvent.click(screen.getByLabelText('Dismiss event banner'));
-    expect(localStorage.getItem('tegridy-event-dismissed-harvest-season-q2-2026')).toBe('1');
+    // AUDIT FIX 2026-05-18 (frontend test): R037 fix scoped the dismiss key
+    // per-address (`tegridy-event-dismissed-${address ?? 'guest'}-${eventId}`)
+    // so a user dismissing on one wallet doesn't carry to another. The test
+    // wasn't updated when the key shape changed; with no wallet connected
+    // (mocked `useAccount` returns `address: undefined`), the canonical key
+    // is the `guest`-scoped variant.
+    expect(localStorage.getItem('tegridy-event-dismissed-guest-harvest-season-q2-2026')).toBe('1');
   });
 
   it('does not render when previously dismissed (localStorage flag set)', () => {
     vi.setSystemTime(new Date('2026-06-02T12:00:00Z'));
-    localStorage.setItem('tegridy-event-dismissed-harvest-season-q2-2026', '1');
-    const { container } = render(<SeasonalEventBanner />);
+    // AUDIT FIX 2026-05-18 (frontend test): see R037 note above — address-
+    // scoped key shape.
+    localStorage.setItem('tegridy-event-dismissed-guest-harvest-season-q2-2026', '1');
+    render(<SeasonalEventBanner />);
     expect(screen.queryByText('Harvest Season')).not.toBeInTheDocument();
   });
 
