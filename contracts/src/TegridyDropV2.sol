@@ -1118,6 +1118,16 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
 
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
+        // AUDIT FIX FRESH-2026 M7: flush pending hostile proposals at
+        // transferOwnership-time, not just at acceptOwnership-time. Pre-fix,
+        // an outgoing owner could queue a hostile root/price/dutch proposal
+        // (24h delay), call `transferOwnership(victim)`, then — while still
+        // the active owner during the 14-day acceptance window — wait 24h
+        // and execute the hostile proposal themselves. The accept-time
+        // flush at MICROSCOPE_2026_04_30 M-D3 closed the new-owner-inherits
+        // surface but missed the old-owner-still-executes surface. Mirror
+        // the flush eagerly so the outgoing owner has no executable queue.
+        _flushPendingAdminProposals();
         pendingOwner = newOwner;
         // AUDIT FIX 2026-05-17 LOW: stamp a 14-day expiry on the pending slot
         // so a malicious / misconfigured pendingOwner cannot freeze the
@@ -1139,28 +1149,33 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         owner = msg.sender;
         pendingOwner = address(0);
         ownershipTransferExpiresAt = 0; // AUDIT FIX 2026-05-17 LOW: clear expiry.
-        // AUDIT MICROSCOPE_2026_04_30 M-D3: clear any in-flight timelocked merkle
-        // root proposal at ownership-accept. The previous owner could otherwise
-        // hand off ownership with a hostile root waiting in the queue, ready to
-        // execute as soon as the 24h delay elapses — incoming owner inherits the
-        // booby-trap. Pattern: OZ Governor cancels pending proposals on guardian
-        // change; MakerDAO DSPause flushes plots when chief multisig changes.
+        // AUDIT MICROSCOPE_2026_04_30 M-D3: clear any in-flight timelocked
+        // proposals at ownership-accept. See _flushPendingAdminProposals.
+        // Belt-and-suspenders with the transferOwnership-time flush
+        // (FRESH-2026 M7): covers the case where ownership is initialized
+        // via constructor / clone init AND proposals were queued by an
+        // attacker pre-handoff against an address that later accepts.
+        _flushPendingAdminProposals();
+    }
+
+    /// @dev AUDIT FIX FRESH-2026 M7: shared cancellation routine for the
+    ///      three admin timelock surfaces (merkle root, mint price, dutch
+    ///      config). Called eagerly at `transferOwnership` and again at
+    ///      `acceptOwnership` to guarantee no queued proposal survives an
+    ///      ownership change in either direction.
+    function _flushPendingAdminProposals() internal {
         if (_executeAfter[MERKLE_ROOT_CHANGE] != 0) {
             _cancel(MERKLE_ROOT_CHANGE);
             bytes32 cancelled = pendingMerkleRoot;
             pendingMerkleRoot = bytes32(0);
             emit MerkleRootCancelled(cancelled);
         }
-        // AUDIT FIX: V2-DROP-01: same booby-trap pattern for the new mint-price
-        // timelock — cancel any pending proposal at handoff so the incoming owner
-        // doesn't inherit a queued price change.
         if (_executeAfter[MINT_PRICE_CHANGE] != 0) {
             uint256 cancelledPrice = pendingMintPrice;
             _cancel(MINT_PRICE_CHANGE);
             pendingMintPrice = 0;
             emit MintPriceCancelled(cancelledPrice);
         }
-        // AUDIT FIX: V2-DROP-03: same for the dutch-config timelock.
         if (_executeAfter[DUTCH_CONFIG_CHANGE] != 0) {
             PendingDutchConfig memory cancelledDutch = pendingDutchConfig;
             _cancel(DUTCH_CONFIG_CHANGE);
