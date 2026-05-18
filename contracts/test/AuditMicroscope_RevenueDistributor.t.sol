@@ -216,4 +216,110 @@ contract AuditMicroscope_RevenueDistributorTest is Test {
         // This is the bound — never more, regardless of attested power.
         assertEq(paid, 3 ether, "recovery payout matches 25% cap");
     }
+
+    // ─── AUDIT FIX 2026-05-16 M1 — Lifetime recovery cap (1% of totalDistributed) ───
+
+    /// @dev Distributes without the post-call totalDistributed-inflation that
+    ///      `_distribute` performs (which exists so other tests don't hit the
+    ///      M1 cap inadvertently). These tests INTENTIONALLY want the M1 cap
+    ///      to be binding, so they take the raw distribution path.
+    function _distributeRaw(uint256 amt) internal {
+        vm.deal(address(this), address(this).balance + amt);
+        (bool ok,) = address(dist).call{value: amt}("");
+        assertTrue(ok);
+        dist.distribute();
+    }
+
+    /// @notice M1 propose-time: refuses a proposal whose projected ETH share
+    ///         would breach `MAX_LIFETIME_RECOVERY_BPS` (1% of `totalDistributed`).
+    ///         Pre-fix, captured-owner could serially exfiltrate up to
+    ///         `MAX_AGGREGATE_RECOVERY_POWER_BPS` (25%) of EVERY epoch — proposals
+    ///         parallelize across epochs so the 48h delay applies once not N times.
+    function test_M1_lifetimeCap_propose_revertsWhenProjectedShareBreachesCap() public {
+        // Distribute a known small amount so the 1% cap is binding (no inflation).
+        // totalDistributed = 100 ether → lifetime cap = 1 ether.
+        _distributeRaw(100 ether);
+
+        // Aggregate cap is 25% of totalLocked (300_000 ether) = 75_000 ether.
+        // Propose with power = 75_000 ether → projectedShare = 100 * 75_000 / 300_000 = 25 ether,
+        // which is 25x the 1 ether lifetime cap. Aggregate cap is satisfied; M1 cap fails.
+        vm.expectRevert(RevenueDistributor.RecoveryExceedsLifetimeCap.selector);
+        dist.proposeClaimRecovery(carol, 0, 75_000 ether);
+    }
+
+    /// @notice M1 propose-time: passes when projected share fits comfortably under cap.
+    ///         Verifies the cap is not a no-op (sister to the failing test above).
+    function test_M1_lifetimeCap_propose_passesWhenWithinCap() public {
+        // Distribute 100 ether → totalDistributed = 100 → lifetime cap = 1 ether.
+        _distributeRaw(100 ether);
+
+        // power = 3_000 ether → projectedShare = 100 * 3_000 / 300_000 = 1 ether (exact cap).
+        // Should succeed (equal-to-cap is allowed; only strictly-greater reverts).
+        dist.proposeClaimRecovery(carol, 0, 3_000 ether);
+    }
+
+    /// @notice M1 execute-time clamp: when two recoveries each fit individually
+    ///         at propose-time but together exceed the cap, the SECOND execute
+    ///         clamps `share` to the cap remainder instead of reverting (so the
+    ///         48h timelock work isn't wasted entirely).
+    function test_M1_lifetimeCap_execute_clampsToCapRemainder() public {
+        // totalDistributed = 100 ether → cap = 1 ether.
+        _distributeRaw(100 ether);
+
+        // Two recoveries at power=2_000 each: projectedShare = 100 * 2_000 / 300_000
+        // ≈ 0.667 ether each. Each fits individually (0 + 0.667 ≤ 1); together
+        // they'd take 1.333 ether (>1 cap). Tests the clamp branch on the 2nd.
+        dist.proposeClaimRecovery(carol, 0, 2_000 ether);
+        dist.proposeClaimRecovery(bob, 0, 2_000 ether);
+        vm.warp(block.timestamp + 48 hours + 1);
+
+        // Corrupt both so executeClaimRecovery is the only path that pays them.
+        ve.corrupt(carol);
+        ve.corrupt(bob);
+
+        // Execute 1st: consumes ~0.667 ether of the 1 ether cap.
+        uint256 carolBefore = carol.balance;
+        dist.executeClaimRecovery(carol, 0);
+        uint256 carolPaid = carol.balance - carolBefore;
+        // share = 100 * 2_000 / 300_000 in wei terms; mod-rounding favors stakers.
+        assertApproxEqAbs(carolPaid, 0.666666666666666666 ether, 1, "1st pays full projectedShare");
+        assertEq(dist.totalRecoveryClaimed(), carolPaid, "tracker mirrors 1st payout");
+
+        // Execute 2nd: would-be share is another 0.667 ether but cap remainder is
+        // only 1 - 0.667 = 0.333. Clamp expected: share = lifetimeCap - totalRecoveryClaimed.
+        uint256 bobBefore = bob.balance;
+        dist.executeClaimRecovery(bob, 0);
+        uint256 bobPaid = bob.balance - bobBefore;
+        uint256 expectedClamp = uint256(1 ether) - carolPaid;
+        assertEq(bobPaid, expectedClamp, "2nd clamped to cap remainder");
+        assertEq(dist.totalRecoveryClaimed(), 1 ether, "tracker exactly at lifetime cap");
+    }
+
+    /// @notice M1 propose-time: rejects a second proposal when the cap is
+    ///         already exhausted by a prior execute. Different from
+    ///         `test_M1_lifetimeCap_propose_revertsWhenProjectedShareBreachesCap`
+    ///         in that `totalRecoveryClaimed` is non-zero at the propose check,
+    ///         exercising the `totalRecoveryClaimed + projectedShare > cap` term.
+    function test_M1_lifetimeCap_propose_revertsWhenCapAlreadyExhausted() public {
+        // totalDistributed = 100 ether → cap = 1 ether.
+        _distributeRaw(100 ether);
+
+        // First recovery: power=3_000 → projectedShare = 100 * 3_000 / 300_000
+        // = 1 ether (exactly at cap). Propose, warp, execute → cap fully consumed.
+        dist.proposeClaimRecovery(carol, 0, 3_000 ether);
+        vm.warp(block.timestamp + 48 hours + 1);
+        ve.corrupt(carol);
+        dist.executeClaimRecovery(carol, 0);
+        assertEq(dist.totalRecoveryClaimed(), 1 ether, "cap fully consumed by 1st");
+
+        // Restore carol so the 2nd propose has positive totalLocked sanity.
+        ve.setLock(carol, 100_000 ether, block.timestamp + 365 days);
+
+        // Now propose another recovery for a different user (bob). Even a tiny
+        // power triggers `totalRecoveryClaimed + projectedShare > cap` since
+        // totalRecoveryClaimed is already AT the cap. Any positive projectedShare
+        // breaches. Use power = 1 ether → projectedShare = 100/300_000 ether ≈ tiny but >0.
+        vm.expectRevert(RevenueDistributor.RecoveryExceedsLifetimeCap.selector);
+        dist.proposeClaimRecovery(bob, 0, 1 ether);
+    }
 }
