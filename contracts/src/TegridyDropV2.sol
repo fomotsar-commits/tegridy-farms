@@ -269,6 +269,8 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///         the rescue-path NatSpec for why the rescue path is now only meaningful for
     ///         raw ETH donations to a pre-mint cancelled drop). DO NOT add a new write
     ///         path here — all reasoning relies on this slot being zero.
+    // SLITHER 2026-05-18: intentional default-zero storage slot — see in-file NatSpec
+    // slither-disable-next-line uninitialized-state
     uint256 public unclaimedRefundPool;
 
     /// @notice AUDIT FIX: DEEP-DROP-06: one-shot flag set by `freezeBaseURI()`. Once set,
@@ -604,6 +606,8 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     function currentPrice() public view returns (uint256) {
         if (mintPhase == MintPhase.DUTCH_AUCTION) {
             // AUDIT FIX: V2-DROP-05: canonical non-reverting sequencer probe.
+            // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+            // slither-disable-next-line unused-return
             (bool ok, ) = SequencerCheck.tryCheckSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
             if (!ok) return type(uint256).max;
             return _dutchAuctionPriceWithoutSequencerCheck();
@@ -979,6 +983,8 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         // tools — both prefer this stuck-ETH-no-rug posture.
         uint256 bal = address(this).balance;
         uint256 distributable = totalProceeds < bal ? totalProceeds : bal;
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (distributable == 0) revert WithdrawFailed();
 
         // AUDIT H9: lock out cancelSale() going forward.

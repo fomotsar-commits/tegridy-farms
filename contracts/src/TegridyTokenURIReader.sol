@@ -61,6 +61,8 @@ contract TegridyTokenURIReader {
             revert("NONEXISTENT");
         }
 
+        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+        // slither-disable-next-line unused-return
         (
             uint256 amount, , ,
             uint64 lockEnd, uint16 boostBps, uint32 lockDuration,

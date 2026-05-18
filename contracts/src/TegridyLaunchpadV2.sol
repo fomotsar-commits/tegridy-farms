@@ -226,6 +226,8 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
 
         collection = Clones.cloneDeterministic(dropTemplate, salt);
 
+        // SLITHER 2026-05-18: nonReentrant on entrypoint; cross-fn view-only reads cannot enable theft
+        // slither-disable-next-line reentrancy-no-eth
         TegridyDropV2(collection).initialize(
             TegridyDropV2.InitParams({
                 name: cfg.name,

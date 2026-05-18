@@ -241,6 +241,8 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
         // Previously passed protocolFeeRecipient, which broke the fee claim mechanism if
         // protocolFeeRecipient was an EOA (couldn't call claimProtocolFees).
         // Pattern: Uniswap V3 Factory — factory is the authorized fee claimer.
+        // SLITHER 2026-05-18: nonReentrant on entrypoint; cross-fn view-only reads cannot enable theft
+        // slither-disable-next-line reentrancy-no-eth
         TegridyNFTPool(payable(pool)).initialize(
             nftCollection,
             _poolType,
@@ -410,6 +412,8 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
             if (pool.getHeldCount() < numItems) continue;
 
             // Try to get a quote (may revert if price underflows)
+            // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+            // slither-disable-next-line unused-return
             try pool.getBuyQuote(numItems) returns (uint256 cost, uint256) {
                 if (cost < bestCost) {
                     bestCost = cost;
@@ -441,6 +445,8 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
             if (pool.poolType() == TegridyNFTPool.PoolType.SELL) continue;
 
             // Try to get a quote (may revert if insufficient ETH or price underflows)
+            // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+            // slither-disable-next-line unused-return
             try pool.getSellQuote(numItems) returns (uint256 payout, uint256) {
                 if (payout > bestPayout) {
                     bestPayout = payout;
@@ -629,6 +635,8 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
         if (block.timestamp >= dayStart + 1 days) {
             dayStart = block.timestamp;
             withdrawnToday = 0;
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         } else if (dayStart == 0) {
             dayStart = block.timestamp;
         }

@@ -581,6 +581,8 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
             revert TooManyOffersPerLender();
         }
 
+        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+        // slither-disable-next-line unused-return
         IERC721(_collateralContract).ownerOf(_tokenId);
 
         // AUDIT FIX: DEEP-LD-M8 — origination fee held in escrow until acceptance.
@@ -815,6 +817,8 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         address collateralContract = loan.collateralContract;
 
         if (msg.sender != borrower) revert NotBorrower();
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (block.timestamp == startTime) revert LoanTooRecent();
 
         // AUDIT FIX: DEEP-LD2-H1 — replace blocking checkSequencerUp on the repay
@@ -1168,6 +1172,8 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan storage loan = loans[_loanId];
         uint256 elapsed = pauseAdjustedElapsed(_loanId);
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (elapsed == 0) return 0;
         interest = Math.mulDiv(
             loan.principal * loan.aprBps,

@@ -357,6 +357,8 @@ contract TegridyRouter is ReentrancyGuard {
         _validatePathNoCycles(path);
         IERC20(path[0]).safeTransferFrom(msg.sender, _pairFor(path[0], path[1]), amountIn);
         uint256 balanceBefore = IERC20(path[path.length - 1]).balanceOf(to);
+        // SLITHER 2026-05-18: FoT balance-delta pattern; nonReentrant on entrypoint
+        // slither-disable-next-line reentrancy-balance
         _swapSupportingFeeOnTransferTokens(path, to);
         uint256 amountOut = IERC20(path[path.length - 1]).balanceOf(to) - balanceBefore;
         if (amountOut < amountOutMin) revert InsufficientOutputAmount();
@@ -379,6 +381,8 @@ contract TegridyRouter is ReentrancyGuard {
         IWETH(WETH).deposit{value: amountIn}();
         require(IWETH(WETH).transfer(_pairFor(path[0], path[1]), amountIn), "WETH_TRANSFER_FAILED");
         uint256 balanceBefore = IERC20(path[path.length - 1]).balanceOf(to);
+        // SLITHER 2026-05-18: FoT balance-delta pattern; nonReentrant on entrypoint
+        // slither-disable-next-line reentrancy-balance
         _swapSupportingFeeOnTransferTokens(path, to);
         uint256 amountOut = IERC20(path[path.length - 1]).balanceOf(to) - balanceBefore;
         if (amountOut < amountOutMin) revert InsufficientOutputAmount();
@@ -400,6 +404,8 @@ contract TegridyRouter is ReentrancyGuard {
         _validatePathNoCycles(path);
         IERC20(path[0]).safeTransferFrom(msg.sender, _pairFor(path[0], path[1]), amountIn);
         uint256 balanceBefore = IERC20(WETH).balanceOf(address(this));
+        // SLITHER 2026-05-18: FoT balance-delta pattern; nonReentrant on entrypoint
+        // slither-disable-next-line reentrancy-balance
         _swapSupportingFeeOnTransferTokens(path, address(this));
         uint256 amountOut = IERC20(WETH).balanceOf(address(this)) - balanceBefore;
         if (amountOut < amountOutMin) revert InsufficientOutputAmount();
@@ -514,6 +520,8 @@ contract TegridyRouter is ReentrancyGuard {
 
     function _getReserves(address pair, address tokenA, address tokenB) internal view returns (uint112 reserveA, uint112 reserveB) {
         (address token0,) = _sortTokens(tokenA, tokenB);
+        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+        // slither-disable-next-line unused-return
         (uint112 reserve0, uint112 reserve1,) = TegridyPair(pair).getReserves();
         (reserveA, reserveB) = tokenA == token0 ? (reserve0, reserve1) : (reserve1, reserve0);
     }

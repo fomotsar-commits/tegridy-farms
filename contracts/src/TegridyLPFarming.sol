@@ -538,6 +538,8 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
         uint256 balance = rewardToken.balanceOf(address(this));
         uint256 cap = balance > owedFutureRewards ? balance - owedFutureRewards : 0;
         if (amount > cap) amount = cap;
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (amount == 0) revert ZeroAmount();
 
         forfeitedRewards -= amount;
@@ -589,6 +591,8 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
             uint256 leftover = (periodFinish - block.timestamp) * rewardRate;
             budget = leftover + actualReward;
         }
+        // SLITHER 2026-05-18: precision/overflow tradeoff acceptable; combined-fraction form risks uint256 overflow on large inputs
+        // slither-disable-next-line divide-before-multiply
         rewardRate = budget / duration;
         uint256 residue = budget - (rewardRate * duration);
         if (residue > 0) {

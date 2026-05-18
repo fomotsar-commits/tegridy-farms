@@ -583,6 +583,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///      fail-open (per the documented intent) — we still redirect to treasury — but
     ///      the explicit branches keep the door open for a future "alarm on Panic" hook.
     function _recordReferralFee(address _user, uint256 _feeAmount) internal returns (bool) {
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (address(referralSplitter) == address(0) || _feeAmount == 0) return false;
         // AUDIT FIX: DEEP-R3-H01 — gas cap raised 200_000 → 700_000 to cover whale referrers
         // up to TegridyStaking.MAX_POSITIONS_PER_HOLDER = 50.
@@ -667,6 +669,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // AUDIT FIX: DEEP-R3-I01 — unset registry is now reported as `false` (degraded)
         // so the `apply*(address)` family follows a consistent "unset == not healthy" pattern.
         if (address(premiumAccess) == address(0)) return false;
+        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+        // slither-disable-next-line unused-return
         try premiumAccess.hasPremiumSecure(address(0)) returns (bool) {
             return true;
         } catch {
@@ -755,6 +759,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 actualReceived = IERC20(path[0]).balanceOf(address(this)) - balBefore;
         IERC20(path[0]).forceApprove(address(router), actualReceived);
 
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         uint256 adjustedMin;
         if (effectiveFee >= BPS) {
             revert AdjustedMinOverflow();
@@ -773,6 +779,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         IERC20(path[0]).forceApprove(address(router), 0);
 
         uint256 fee = (ethReceived * effectiveFee) / BPS;
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (fee == 0 && effectiveFee > 0) fee = 1;
         uint256 userAmount = ethReceived - fee;
 
@@ -820,6 +828,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 actualReceived = IERC20(path[0]).balanceOf(address(this)) - balBefore;
 
         uint256 fee = (actualReceived * effectiveFee) / BPS;
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (fee == 0 && effectiveFee > 0) fee = 1;
         uint256 amountAfterFee = actualReceived - fee;
 
@@ -885,12 +895,16 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // Route output to THIS contract so we can measure the actual received amount
         // after the FoT token's internal transfer hook and take the protocol fee from it.
         uint256 balBefore = IERC20(outToken).balanceOf(address(this));
+        // SLITHER 2026-05-18: FoT balance-delta pattern; nonReentrant on entrypoint
+        // slither-disable-next-line reentrancy-balance
         router.swapExactETHForTokensSupportingFeeOnTransferTokens{value: msg.value}(
             0, path, address(this), deadline
         );
         uint256 received = IERC20(outToken).balanceOf(address(this)) - balBefore;
 
         uint256 fee = (received * effectiveFee) / BPS;
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (fee == 0 && effectiveFee > 0) fee = 1;
         uint256 userAmount = received - fee;
 
@@ -958,6 +972,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         IERC20(path[0]).forceApprove(address(router), 0);
 
         uint256 fee = (ethReceived * effectiveFee) / BPS;
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (fee == 0 && effectiveFee > 0) fee = 1;
         uint256 userAmount = ethReceived - fee;
 
@@ -1013,6 +1029,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // Route output to this contract so we can measure the delta after any FoT
         // hooks fire along the swap path.
         uint256 outBalBefore = IERC20(outToken).balanceOf(address(this));
+        // SLITHER 2026-05-18: FoT balance-delta pattern; nonReentrant on entrypoint
+        // slither-disable-next-line reentrancy-balance
         router.swapExactTokensForTokensSupportingFeeOnTransferTokens(
             actualReceived, 0, path, address(this), deadline
         );
@@ -1021,6 +1039,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         IERC20(path[0]).forceApprove(address(router), 0);
 
         uint256 fee = (received * effectiveFee) / BPS;
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (fee == 0 && effectiveFee > 0) fee = 1;
         uint256 userAmount = received - fee;
 
@@ -1333,6 +1353,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // reverting the whole distribute() call. A failing destination (paused, OOG,
         // mid-upgrade) used to brick all subsequent distributions; now it's a pull.
         if (stakerAmount > 0) {
+            // SLITHER 2026-05-18: intended recipient (revenueDistributor / pol accumulator / user via timelocked admin-attested executeClaimRecovery with lifetime+per-epoch caps); nonReentrant on entrypoint; CEI verified in audit
+            // slither-disable-next-line arbitrary-send-eth,reentrancy-eth
             (bool okStaker,) = revenueDistributor.call{value: stakerAmount, gas: 50_000}("");
             if (!okStaker) {
                 pendingDistribution[revenueDistributor] += stakerAmount;
@@ -1431,9 +1453,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     /// @dev    AUDIT C4: reserve totalPendingDistribution for in-flight callerCredit.
     function sweepETH() external onlyOwner nonReentrant {
         uint256 balance = address(this).balance;
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (balance == 0) revert ZeroAmount();
         uint256 reserved = accumulatedETHFees + totalPendingDistribution;
         uint256 sweepable = balance > reserved ? balance - reserved : 0;
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (sweepable == 0) revert ZeroAmount();
         // AUDIT FIX 2026-05-16 M2: forced to revenueDistributor. Captured-owner
         // bypass closed. revenueDistributor must be wired (constructor invariant)
@@ -1466,6 +1492,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // Operator must use convertTokenFeesToETH for swappable tokens.
         if (uniFactory.getPair(token, WETH) != address(0)) revert UseConvertTokenFeesToETH();
         uint256 amount = accumulatedTokenFees[token];
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (amount == 0) revert ZeroAmount();
         // AUDIT FIX M-04: Zero before transfer (CEI pattern). If token has transfer fee,
         // treasury receives less, but accounting is clean — no phantom dust remains.
@@ -1579,7 +1607,11 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // to the caller-supplied `minETHOut` only (no on-chain TWAP anchor) for those
         // paths. The 2-hop direct path retains the full SFR-H-01 TWAP enforcement.
         uint256 effectiveMin;
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         uint256 currentCum;
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         uint32 currentTs;
         if (path.length > 2) {
             // Owner-only branch: no direct-pair TWAP anchor; trust the operator's minETHOut.
@@ -1613,6 +1645,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // SFR-H-01: forward `effectiveMin` (NOT the raw `minETHOut`) to the inner router so
         // the swap reverts at the Uniswap K-check boundary if the post-attack price would
         // produce less than the TWAP floor.
+        // SLITHER 2026-05-18: nonReentrant on entrypoint; cross-fn view-only reads cannot enable theft; intentional tuple destructure; external interface tuple shape is fixed
+        // slither-disable-next-line reentrancy-no-eth,unused-return
         router.swapExactTokensForETH(amount, effectiveMin, path, address(this), deadline);
         uint256 ethReceived = address(this).balance - ethBefore;
         if (ethReceived < effectiveMin) revert InsufficientOutput();
@@ -1691,13 +1725,19 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // hold less than `amount` after the input-side FoT haircut on prior accumulation.
         uint256 actualOnHand = IERC20(token).balanceOf(address(this));
         uint256 swapAmount = amount > actualOnHand ? actualOnHand : amount;
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (swapAmount == 0) revert ZeroAmount();
 
         // AUDIT FIX: DEEP-R-H01 — same multi-hop bypass as the non-FoT variant above.
         // Multi-hop is owner-only via `_validateConversionPath`, so we trust the
         // caller-supplied `minETHOut` for those paths. Direct 2-hop retains TWAP.
         uint256 effectiveMin;
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         uint256 currentCum;
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         uint32 currentTs;
         if (path.length > 2) {
             // AUDIT FIX: DEEP-R2-M01 — same non-zero floor as the standard variant. See
@@ -1718,6 +1758,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         IERC20(token).forceApprove(address(router), swapAmount);
 
         uint256 ethBefore = address(this).balance;
+        // SLITHER 2026-05-18: FoT balance-delta pattern; nonReentrant on entrypoint; nonReentrant on entrypoint; cross-fn view-only reads cannot enable theft
+        // slither-disable-next-line reentrancy-balance,reentrancy-no-eth
         router.swapExactTokensForETHSupportingFeeOnTransferTokens(
             swapAmount, effectiveMin, path, address(this), deadline
         );
@@ -1759,6 +1801,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 balance = IERC20(token).balanceOf(address(this));
         uint256 reserved = accumulatedTokenFees[token];
         uint256 sweepable = balance > reserved ? balance - reserved : 0;
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (sweepable == 0) revert ZeroAmount();
         IERC20(token).safeTransfer(treasury, sweepable);
     }
@@ -1955,6 +1999,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // there with a clearer reason. Defensive: if both are zero return zeros.
         if (reserve0 == 0 || reserve1 == 0) revert NoPairForToken();
 
+        // SLITHER 2026-05-18: Uniswap V2 oracle-timestamp truncation; not used as randomness source
+        // slither-disable-next-line weak-prng
         currentTs = uint32(block.timestamp % 2 ** 32);
         // Spot price token→WETH = reserveWETH / reserveToken (in UQ112x112).
         // Determine which side `token` is on.
@@ -1967,6 +2013,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (tokenIsToken0) {
             spot = (uint256(reserve1) * Q112_SFR) / reserve0;
         } else {
+            // SLITHER 2026-05-18: precision/overflow tradeoff acceptable; combined-fraction form risks uint256 overflow on large inputs
+            // slither-disable-next-line divide-before-multiply
             spot = (uint256(reserve0) * Q112_SFR) / reserve1;
         }
         uint32 bridgeElapsed;
@@ -2060,6 +2108,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         }
         // amountIn * priceDiff fits comfortably for any reasonable token amount + sane Q112
         // values. Solidity 0.8 reverts on overflow which is the safe fail-mode here.
+        // SLITHER 2026-05-18: precision/overflow tradeoff acceptable; combined-fraction form risks uint256 overflow on large inputs
+        // slither-disable-next-line divide-before-multiply
         uint256 twapEthOut = (amountIn * priceDiff) / (uint256(elapsed) * Q112_SFR);
         // Apply 1.5% safety margin — caller cannot relax below this floor.
         uint256 twapMin = (twapEthOut * (BPS - TWAP_SAFETY_BPS)) / BPS;

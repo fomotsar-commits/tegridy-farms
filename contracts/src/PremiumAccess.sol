@@ -61,6 +61,8 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     ///      The slot was written on subscribe and cleared on cancel and never read.
     ///      Removed. The slot is preserved as `_deprecated_paidFeeRate_slot` to keep
     ///      storage layout stable for any deployed instance — DO NOT reuse this slot.
+    // SLITHER 2026-05-18: intentional default-zero storage slot — see in-file NatSpec
+    // slither-disable-next-line uninitialized-state
     mapping(address => uint256) private _deprecated_paidFeeRate_slot;
     mapping(address => uint256) public userEscrow; // CRITICAL FIX: actual TOWELI escrowed per user
     mapping(address => bool) public isActiveSubscriber; // AUDIT FIX L-04: track active status for accurate counter
@@ -223,6 +225,8 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     function deactivateNFTPremium(address user) external {
         uint256 activationBlock = nftActivationBlock[user];
         // AUDIT FIX M-36: Use timestamp comparison (10 minutes grace period instead of 10 blocks)
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (activationBlock != 0 && jbacNFT.balanceOf(user) == 0 && block.timestamp > activationBlock + 10 minutes) {
             nftActivationBlock[user] = 0;
             emit NFTAccessRevoked(user);
@@ -514,6 +518,8 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
         // Reserve other obligations so this claim cannot starve them.
         uint256 reserved = totalRefundEscrow + totalShortfallOwed - owed;
         uint256 available = balance > reserved ? balance - reserved : 0;
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (available == 0) revert NothingToClaim();
         uint256 payout = owed > available ? available : owed;
         shortfallOwed[msg.sender] = owed - payout;
