@@ -13,8 +13,8 @@ export class AudioEngine {
     if (this.ctx) return;
     // Guard: only create AudioContext after a trusted user gesture.
     // Modern browsers require this — calling outside a gesture will suspend the context.
-    if (typeof navigator !== 'undefined' && (navigator as any).userActivation &&
-        !(navigator as any).userActivation.hasBeenActive) {
+    const ua = (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation;
+    if (typeof navigator !== 'undefined' && ua && !ua.hasBeenActive) {
       return; // No user gesture yet — skip init
     }
     this.ctx = new AudioContext();

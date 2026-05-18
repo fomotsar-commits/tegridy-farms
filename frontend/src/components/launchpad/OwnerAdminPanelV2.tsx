@@ -116,14 +116,18 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
   }, [dutchStartPrice, dutchEndPrice, dutchStartTime, dutchDuration]);
 
   const chainId = useChainId();
-   
+
   const exec = useCallback((fn: string, args?: unknown[], opts?: { onSuccess?: () => void }) => {
     // AUDIT FIX M-8: refuse on wrong chain so admin actions aren't sent to a
     // phantom address on Sepolia/Base/Arbitrum.
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!deployed) return;
+    // wagmi's writeContract argument is a discriminated union over functionName;
+    // we pass a runtime-chosen `fn`, so the typed shape can't be derived. Cast
+    // to a structural Parameters[0] to satisfy the type without `any`.
+    type WriteArg = Parameters<typeof writeContract>[0];
     writeContract(
-      { chainId: CHAIN_ID, address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: fn, args: args as never[] } as any,
+      { chainId: CHAIN_ID, address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: fn, args: args as never[] } as unknown as WriteArg,
       {
         onSuccess: () => { toast.success(`${fn} succeeded`); opts?.onSuccess?.(); },
         onError: (e) => toast.error(e.message.slice(0, 80)),

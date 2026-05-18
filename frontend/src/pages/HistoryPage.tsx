@@ -193,7 +193,7 @@ export default function HistoryPage() {
             return;
           }
         }
-      } catch {}
+      } catch { /* ignore */ }
     }
 
     setLoading(true);
@@ -244,7 +244,7 @@ export default function HistoryPage() {
           setTxs(relevant);
           try {
             localStorage.setItem(cacheKey, JSON.stringify({ data: relevant, ts: Date.now() }));
-          } catch {}
+          } catch { /* ignore */ }
         } else if (data.status === '0' && data.message === 'No transactions found') {
           setTxs([]);
         } else {
@@ -270,6 +270,11 @@ export default function HistoryPage() {
   useEffect(() => {
     if (!address) return;
     const controller = new AbortController();
+    // fetchHistory dispatches setLoading/setError/setTxs as part of the data
+    // fetch lifecycle. This is the canonical "data-fetching in effect" use
+    // case the React Compiler rule flags but doesn't have a cleaner pattern
+    // for without bringing in react-query.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchHistory(address, controller.signal);
     return () => controller.abort();
   }, [address, fetchHistory]);
@@ -277,7 +282,7 @@ export default function HistoryPage() {
   const handleRetry = useCallback(() => {
     if (!address) return;
     const cacheKey = `tegridy_tx_history_${address}`;
-    try { localStorage.removeItem(cacheKey); } catch {}
+    try { localStorage.removeItem(cacheKey); } catch { /* ignore */ }
     const controller = new AbortController();
     fetchHistory(address, controller.signal, true);
   }, [address, fetchHistory]);
@@ -287,8 +292,15 @@ export default function HistoryPage() {
     ...categorizeTx(tx),
   })), [txs]);
 
-  // Reset to page 0 whenever the underlying tx set changes (connect different wallet, refetch).
-  useEffect(() => { setPage(0); }, [txs.length]);
+  // Reset to page 0 whenever the underlying tx set changes (connect different
+  // wallet, refetch). Uses React's "adjusting state during render" pattern so
+  // pagination resets in the same commit instead of a follow-up effect.
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  const [prevTxsLen, setPrevTxsLen] = useState(txs.length);
+  if (txs.length !== prevTxsLen) {
+    setPrevTxsLen(txs.length);
+    setPage(0);
+  }
 
   const totalPages = Math.max(1, Math.ceil(categorized.length / PAGE_SIZE));
   const pageStart = page * PAGE_SIZE;
@@ -297,7 +309,14 @@ export default function HistoryPage() {
   // AUDIT HISTORY-UX: group the current page's rows by local calendar day
   // so the user sees a "Today / Yesterday / Apr 14" section header between
   // stretches of activity. Stable in render order; no sorting changes.
-  const nowMs = useMemo(() => Date.now(), [pagedCategorized]);
+  // Capture `now` at mount and tick once per minute so the "Today/Yesterday"
+  // labels stay accurate across the day boundary without an impure Date.now()
+  // read during render.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
   const groupedPage = useMemo(() => {
     const groups: Array<{ label: string; txs: typeof pagedCategorized }> = [];
     let current: { label: string; txs: typeof pagedCategorized } | null = null;

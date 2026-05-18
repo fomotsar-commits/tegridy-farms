@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useRef } from 'react';
+import { useMemo, useEffect, useRef, useState } from 'react';
 import { m } from 'framer-motion';
 import { useAccount, useBalance, useChainId, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
@@ -645,7 +645,14 @@ function OutstandingLoans({ loans }: { loans: import('../hooks/useMyLoans').MyLo
 }
 
 function LoanRow({ loan }: { loan: import('../hooks/useMyLoans').MyLoan }) {
-  const remaining = Number(loan.deadline) - Math.floor(Date.now() / 1000);
+  // Tick once per minute so the countdown stays accurate without an impure
+  // Date.now() read during render.
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  const remaining = Number(loan.deadline) - nowSec;
   const days = Math.max(0, Math.floor(remaining / 86400));
   const hours = Math.max(0, Math.floor((remaining % 86400) / 3600));
   const countdown = loan.status === 'overdue'

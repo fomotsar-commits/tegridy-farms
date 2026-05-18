@@ -76,6 +76,44 @@ interface Loan {
 
 type LoanStatus = 'active' | 'repaid' | 'overdue' | 'defaulted';
 
+// ─── SortHeader (module-level so React Compiler treats it as a stable
+// component instead of one created during BorrowTab's render) ───────
+function SortHeader({
+  label,
+  sk,
+  sortKey,
+  sortDir,
+  onSort,
+}: {
+  label: string;
+  sk: SortKey;
+  sortKey: SortKey;
+  sortDir: SortDir;
+  onSort: (key: SortKey) => void;
+}) {
+  return (
+    <th
+      className="py-2 pr-4 font-medium cursor-pointer select-none hover:text-white transition-colors"
+      onClick={() => onSort(sk)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortKey === sk && (
+          <svg
+            className={`w-3 h-3 transition-transform ${sortDir === 'asc' ? '' : 'rotate-180'}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+          </svg>
+        )}
+      </span>
+    </th>
+  );
+}
+
 // ─── Helpers ────────────────────────────────────────────────────
 function bpsToPercent(bps: bigint | number): string {
   const n = typeof bps === 'bigint' ? Number(bps) : bps;
@@ -1300,28 +1338,6 @@ function BorrowTab({ deployed, allOffers, offersLoading }: { deployed: boolean; 
     }
   };
 
-  const SortHeader = ({ label, sk }: { label: string; sk: SortKey }) => (
-    <th
-      className="py-2 pr-4 font-medium cursor-pointer select-none hover:text-white transition-colors"
-      onClick={() => handleSort(sk)}
-    >
-      <span className="inline-flex items-center gap-1">
-        {label}
-        {sortKey === sk && (
-          <svg
-            className={`w-3 h-3 transition-transform ${sortDir === 'asc' ? '' : 'rotate-180'}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-          </svg>
-        )}
-      </span>
-    </th>
-  );
-
   return (
     <div className="pt-4 space-y-4">
       {/* Filter bar */}
@@ -1360,11 +1376,11 @@ function BorrowTab({ deployed, allOffers, offersLoading }: { deployed: boolean; 
             <table className="w-full text-left text-[11px] uppercase tracking-wider label-pill text-white">
               <thead>
                 <tr className="hidden sm:table-row">
-                  <SortHeader label="Offer #" sk="id" />
-                  <SortHeader label="Principal" sk="principal" />
-                  <SortHeader label="APR" sk="apr" />
-                  <SortHeader label="Duration" sk="duration" />
-                  <SortHeader label="Min Collateral" sk="minCollateral" />
+                  <SortHeader label="Offer #" sk="id" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortHeader label="Principal" sk="principal" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortHeader label="APR" sk="apr" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortHeader label="Duration" sk="duration" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortHeader label="Min Collateral" sk="minCollateral" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <th className="py-2 pr-4 font-medium">Lender</th>
                   <th className="py-2 font-medium w-8" />
                 </tr>

@@ -74,7 +74,7 @@ function claimTabLock(orderId: string): boolean {
 }
 
 function releaseTabLock(orderId: string) {
-  try { localStorage.removeItem(`tegridy_limit_lock_${orderId}`); } catch {}
+  try { localStorage.removeItem(`tegridy_limit_lock_${orderId}`); } catch { /* ignore */ }
 }
 
 // AUDIT FIX D-FE-L1: chain-scope storage — see useDCA.getStorageKey for full
@@ -137,7 +137,7 @@ function saveOrders(address: string, orders: LimitOrder[]) {
   try {
     const payload: StoragePayload = { version: STORAGE_VERSION, orders };
     localStorage.setItem(getStorageKey(address), JSON.stringify(payload));
-  } catch {}
+  } catch { /* ignore */ }
 }
 
 function buildPath(fromToken: LimitOrder['fromToken'], toToken: LimitOrder['toToken']): `0x${string}`[] {
@@ -151,7 +151,7 @@ function buildPath(fromToken: LimitOrder['fromToken'], toToken: LimitOrder['toTo
 
 function sendNotification(title: string, body: string) {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-  try { new Notification(title, { body, icon: '/favicon.ico' }); } catch {}
+  try { new Notification(title, { body, icon: '/favicon.ico' }); } catch { /* ignore */ }
 }
 
 function requestNotificationPermission() {

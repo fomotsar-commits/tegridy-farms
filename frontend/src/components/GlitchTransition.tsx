@@ -62,10 +62,15 @@ function MobileGlitchTransition({ config }: { config: GlitchConfig }) {
     return false;
   });
   const skippedRef = useRef(false);
-  const seedRef = useRef(Math.floor(Math.random() * 99999));
-  const subliminalWord = useRef(
-    SUBLIMINAL_PHRASES[Math.floor(Math.random() * SUBLIMINAL_PHRASES.length)] ?? 'TEGRIDY'
+  // Stable random seed + subliminal-phrase pick. useState's lazy initializer
+  // runs once at mount (not during every render), keeping React Compiler happy
+  // about Math.random() being called outside the render path.
+  const [seed] = useState(() => Math.floor(Math.random() * 99999));
+  const [subliminal] = useState(
+    () => SUBLIMINAL_PHRASES[Math.floor(Math.random() * SUBLIMINAL_PHRASES.length)] ?? 'TEGRIDY',
   );
+  const seedRef = useRef(seed);
+  const subliminalWord = useRef(subliminal);
 
   // Preload 3 random art images
   useEffect(() => {
@@ -498,7 +503,9 @@ function AnimatedSubliminal({ data }: { data: SubliminalData }) {
 function NoiseCanvas({ config, phase }: { config: GlitchConfig; phase: 'active' | 'afterimage' }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number>(0);
-  const startRef = useRef(performance.now());
+  // performance.now() must not be read during render; the effect below resets
+  // this to the real timestamp before any consumer uses it.
+  const startRef = useRef(0);
 
   useEffect(() => {
     const canvas = canvasRef.current;

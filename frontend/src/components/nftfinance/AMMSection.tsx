@@ -222,9 +222,9 @@ function BondingCurveChart({
     return arr;
   }, [minPrice, range, tickCount]);
 
-  const gridLines = useMemo(() => {
-    return ticks.map((t) => scaleY(t));
-  }, [ticks]);
+  // React Compiler memoizes this automatically; the manual useMemo couldn't
+  // preserve memoization (inferred deps include scaleY from the closure).
+  const gridLines = ticks.map((t) => scaleY(t));
 
   const markerPrice = currentPriceMarker ?? spotPrice;
 
@@ -1426,6 +1426,8 @@ function PoolCard({
   const [withdrawNftIds, setWithdrawNftIds] = useState('');
   const [withdrawEth, setWithdrawEth] = useState('');
   const [activeAction, setActiveAction] = useState<'deposit' | 'withdraw'>('deposit');
+  const [adminExpanded, setAdminExpanded] = useState(false);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
 
   const { data: poolInfo, refetch: refetchPoolInfo } = useReadContract({
     address: poolAddress,
@@ -1452,6 +1454,11 @@ function PoolCard({
       refetchPoolHeldIds();
     }
   }, [poolTxSuccess, refetchPoolInfo, refetchPoolHeldIds]);
+
+  const refetchAll = useCallback(() => {
+    refetchPoolInfo();
+    refetchPoolHeldIds();
+  }, [refetchPoolInfo, refetchPoolHeldIds]);
 
   if (!poolInfo) {
     return (
@@ -1525,14 +1532,6 @@ function PoolCard({
       toast.error('Invalid input');
     }
   };
-
-  const [adminExpanded, setAdminExpanded] = useState(false);
-  const [historyExpanded, setHistoryExpanded] = useState(false);
-
-  const refetchAll = useCallback(() => {
-    refetchPoolInfo();
-    refetchPoolHeldIds();
-  }, [refetchPoolInfo, refetchPoolHeldIds]);
 
   return (
     <m.div

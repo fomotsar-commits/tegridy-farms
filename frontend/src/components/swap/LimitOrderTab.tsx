@@ -156,16 +156,17 @@ export function LimitOrderTab() {
 }
 
 function OrderRow({ order, onCancel }: { order: LimitOrder; onCancel?: () => void }) {
-  const [, setTick] = useState(0);
+  // Capture Date.now() in a state cell that ticks every minute, so the remaining
+  // time stays fresh without an impure read during render.
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
-  // Update remaining time every minute so it doesn't go stale
   useEffect(() => {
     if (order.status !== 'active' && order.status !== 'executing') return;
-    const timer = setInterval(() => setTick(t => t + 1), 60_000);
+    const timer = setInterval(() => setNowMs(Date.now()), 60_000);
     return () => clearInterval(timer);
   }, [order.status]);
 
-  const timeLeft = order.expiresAt - Date.now();
+  const timeLeft = order.expiresAt - nowMs;
   const hoursLeft = Math.max(0, Math.floor(timeLeft / 3600000));
   const daysLeft = Math.floor(hoursLeft / 24);
   const expiryStr = order.status === 'expired' ? 'Expired' :

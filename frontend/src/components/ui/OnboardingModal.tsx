@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 // R039: refactor onto the shared Modal primitive. Modal already handles focus
@@ -37,13 +37,14 @@ const variants = {
 };
 
 export function OnboardingModal() {
-  const [open, setOpen] = useState(false);
+  // Lazy initializer reads localStorage exactly once on mount, replacing the
+  // effect-then-setState pattern that the React Compiler treats as a
+  // cascading render.
+  const [open, setOpen] = useState(() => {
+    try { return localStorage.getItem(STORAGE_KEY) !== '1'; } catch { return true; }
+  });
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState(1);
-
-  useEffect(() => {
-    if (localStorage.getItem(STORAGE_KEY) !== '1') setOpen(true);
-  }, []);
 
   const close = () => {
     localStorage.setItem(STORAGE_KEY, '1');

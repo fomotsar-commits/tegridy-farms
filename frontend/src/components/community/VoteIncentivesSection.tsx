@@ -1040,7 +1040,13 @@ export function VoteIncentivesSection() {
   const voteReads = useMemo(
     () =>
       gauges.flatMap((g) => {
-        const base: Array<any> = [
+        type VoteReadCfg = {
+          address: Address;
+          abi: typeof VOTE_INCENTIVES_ABI;
+          functionName: 'totalGaugeVotes' | 'gaugeVotes';
+          args: readonly (bigint | Address)[];
+        };
+        const base: VoteReadCfg[] = [
           { address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'totalGaugeVotes' as const, args: [BigInt(prevEpoch), g.pair] as const },
         ];
         if (address) {

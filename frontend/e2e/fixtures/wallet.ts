@@ -52,7 +52,10 @@ export interface WalletMock {
 type Fixtures = { walletMock: WalletMock };
 
 export const test = base.extend<Fixtures>({
-  walletMock: async ({ page }, use) => {
+  // Playwright fixture callback takes a "use" function as its second arg. We
+  // rename it (anything not starting with `use*` or uppercase) so the React
+  // hooks lint rule doesn't mistake the call for a React hook.
+  walletMock: async ({ page }, provide) => {
     // Suppress full-viewport overlays that block clicks in test runs:
     //   - AppLoader splash canvas (zIndex 9999)
     //   - OnboardingModal welcome dialog (zIndex 100)
@@ -94,7 +97,7 @@ export const test = base.extend<Fixtures>({
           (window as unknown as { __walletMock: { getCalls: () => Array<{ method: string; params: unknown }> } }).__walletMock.getCalls()
         ),
     };
-    await use(mock);
+    await provide(mock);
   },
 });
 

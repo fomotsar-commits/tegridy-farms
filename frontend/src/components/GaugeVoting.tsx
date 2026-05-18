@@ -86,7 +86,7 @@ const CARD_BORDER = 'var(--color-purple-12)';
 const BPS = 10000;
 
 function useCountdown(targetTimestamp: number) {
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
@@ -109,26 +109,19 @@ export function GaugeVoting() {
   const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
-  // ─── Not Deployed Guard ──────────────────────────────────────
-  if (!isDeployed(GAUGE_CONTROLLER_ADDRESS)) {
-    return (
-      <m.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
-        className="rounded-2xl p-6 text-center relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
-        <div className="absolute inset-0">
-          <ArtImg pageId="gauge-voting" idx={3} alt="" loading="lazy" className="w-full h-full object-cover" />
-        </div>
-        <p className="text-white/80 text-sm relative z-10" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Gauge controller not deployed yet</p>
-      </m.div>
-    );
-  }
+  // Stable boolean from a runtime constant — hooks below run unconditionally
+  // and use `query: { enabled: !notDeployed }` so the network requests don't
+  // fire when the controller address is unset. (Per rules-of-hooks the early
+  // return must come after every hook.)
+  const notDeployed = !isDeployed(GAUGE_CONTROLLER_ADDRESS);
 
   // ─── Contract Reads ──────────────────────────────────────────
   const gcAddr = GAUGE_CONTROLLER_ADDRESS as Address;
-  const { data: epochData } = useReadContract({ address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'currentEpoch' });
-  const { data: budgetData } = useReadContract({ address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'emissionBudget' });
-  const { data: gaugesData } = useReadContract({ address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'getGauges' });
-  const { data: epochDuration } = useReadContract({ address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'EPOCH_DURATION' });
-  const { data: genesisEpoch } = useReadContract({ address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'genesisEpoch' });
+  const { data: epochData } = useReadContract({ address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'currentEpoch', query: { enabled: !notDeployed } });
+  const { data: budgetData } = useReadContract({ address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'emissionBudget', query: { enabled: !notDeployed } });
+  const { data: gaugesData } = useReadContract({ address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'getGauges', query: { enabled: !notDeployed } });
+  const { data: epochDuration } = useReadContract({ address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'EPOCH_DURATION', query: { enabled: !notDeployed } });
+  const { data: genesisEpoch } = useReadContract({ address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'genesisEpoch', query: { enabled: !notDeployed } });
 
   const currentEpoch = epochData !== undefined ? Number(epochData) : undefined;
   const budget = budgetData !== undefined ? BigInt(budgetData) : undefined;
@@ -146,35 +139,36 @@ export function GaugeVoting() {
     { address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'getGaugeEmission' as const, args: [g] },
   ]), [gauges, gcAddr]);
 
-  const { data: gaugeResults } = useReadContracts({ contracts: gaugeContracts });
+  const { data: gaugeResults } = useReadContracts({ contracts: gaugeContracts, query: { enabled: !notDeployed } });
 
   // ─── User staking position ──────────────────────────────────
   const { data: tokenIdData } = useReadContract({
     address: TEGRIDY_STAKING_ADDRESS as Address, abi: TEGRIDY_STAKING_ABI, functionName: 'userTokenId', args: address ? [address] : undefined,
-    query: { enabled: !!address },
+    query: { enabled: !notDeployed && !!address },
   });
   const tokenId = tokenIdData !== undefined ? BigInt(tokenIdData as bigint) : undefined;
 
   const { data: positionData } = useReadContract({
     address: TEGRIDY_STAKING_ADDRESS as Address, abi: TEGRIDY_STAKING_ABI, functionName: 'positions', args: tokenId !== undefined ? [tokenId] : undefined,
-    query: { enabled: tokenId !== undefined && tokenId > 0n },
+    query: { enabled: !notDeployed && tokenId !== undefined && tokenId > 0n },
   });
 
   const { data: lastVotedData } = useReadContract({
     address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'lastVotedEpoch', args: tokenId !== undefined ? [tokenId] : undefined,
-    query: { enabled: tokenId !== undefined && tokenId > 0n },
+    query: { enabled: !notDeployed && tokenId !== undefined && tokenId > 0n },
   });
 
   // Reveal window state (commit-reveal gate)
   const { data: revealWindowData, refetch: refetchRevealWindow } = useReadContract({
     address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'isRevealWindowOpen',
+    query: { enabled: !notDeployed },
   });
 
   // Commitment on-chain (present if user has committed for this epoch)
   const { data: onchainCommitment } = useReadContract({
     address: gcAddr, abi: GAUGE_CONTROLLER_ABI, functionName: 'commitmentOf',
     args: tokenId !== undefined && currentEpoch !== undefined ? [tokenId, BigInt(currentEpoch)] : undefined,
-    query: { enabled: tokenId !== undefined && tokenId > 0n && currentEpoch !== undefined },
+    query: { enabled: !notDeployed && tokenId !== undefined && tokenId > 0n && currentEpoch !== undefined },
   });
 
   const position = positionData as readonly [bigint, bigint, bigint, bigint, number, number, boolean, boolean, bigint] | undefined;
@@ -296,7 +290,22 @@ export function GaugeVoting() {
     }
   }, [isSuccess, hasVotedThisEpoch, commitmentKey, refetchRevealWindow]);
 
-  // ─── Not Connected ──────────────────────────────────────────
+  // Countdown to reveal window opening — hoisted out of conditional JSX so the
+  // hook order stays stable. The string is only displayed when rendered below.
+  const revealOpensCountdown = useCountdown(revealOpensAt);
+
+  // ─── Early-return UIs (every hook above runs unconditionally) ────
+  if (notDeployed) {
+    return (
+      <m.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
+        className="rounded-2xl p-6 text-center relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
+        <div className="absolute inset-0">
+          <ArtImg pageId="gauge-voting" idx={3} alt="" loading="lazy" className="w-full h-full object-cover" />
+        </div>
+        <p className="text-white/80 text-sm relative z-10" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Gauge controller not deployed yet</p>
+      </m.div>
+    );
+  }
   if (!isConnected) {
     return (
       <m.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
@@ -398,7 +407,7 @@ export function GaugeVoting() {
               {revealOpen ? (
                 <p>The reveal window is open. Click <span className="font-mono">Reveal Vote</span> below to finalise your vote before the epoch ends.</p>
               ) : (
-                <p>Reveal opens in <span className="font-mono">{useCountdown(revealOpensAt)}</span>. Keep this browser's <span className="font-mono">localStorage</span> intact, or export the salt before then.</p>
+                <p>Reveal opens in <span className="font-mono">{revealOpensCountdown}</span>. Keep this browser's <span className="font-mono">localStorage</span> intact, or export the salt before then.</p>
               )}
               {!localCommitment && (
                 <p className="mt-2 text-red-300">⚠ On-chain commitment found but no local salt to reveal it. You may have committed from a different browser or cleared local data. Without the salt this vote cannot be revealed.</p>
