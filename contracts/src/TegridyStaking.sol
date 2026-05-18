@@ -897,9 +897,12 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
             // AUDIT C5: charge fee on enable (boost is being increased to max). No fee on
             // disable (boost is being relinquished). Pulls TOWELI from caller; user must
             // approve. Default extendFeeBps == 0 means no transfer attempted.
-            // AUDIT FIX 2026-05-16 M10: pass `p.boostedAmount` so the caller's own
-            // boost is excluded from the recycle denominator (no self-rebate).
-            _chargeExtendFee(tokenId, p.amount, p.boostedAmount);
+            // AUDIT FIX 2026-05-17 M10-REVISED: pass `p` so the helper can pre-advance
+            // the caller's rewardDebt, cancelling their share of the recycled fee
+            // before the immediately-following `_getReward` claim runs. The original
+            // 2026-05-16 fix used a denominator-exclusion bump that over-credited
+            // the global accumulator — see `_chargeExtendFee` NatSpec.
+            _chargeExtendFee(tokenId, p.amount, p);
             // SECURITY FIX: Claim pending rewards BEFORE changing boost to avoid loss
             _getReward(tokenId, p);
             p.lockEnd = uint64(block.timestamp + MAX_LOCK_DURATION);
@@ -941,10 +944,12 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (p.lockEnd > 0 && block.timestamp >= p.lockEnd) revert LockExpired();
 
         // AUDIT C5: charge extend fee before any state changes. No-op when extendFeeBps == 0.
-        // AUDIT FIX 2026-05-16 M10: DEEP-DS-09 closed — `_creditRewardPoolExcluding`
-        // divides by `totalBoostedStake - contributorBoost` so the caller's own
-        // boost cannot share in the recycle. Whale-rebate eliminated.
-        _chargeExtendFee(tokenId, p.amount, p.boostedAmount);
+        // AUDIT FIX 2026-05-17 M10-REVISED: DEEP-DS-09 closed via debt-advance
+        // pattern. `_chargeExtendFee` bumps `rewardPerTokenStored` normally then
+        // pre-advances `p.rewardDebt` so the immediately-following `_getReward`
+        // cancels out the caller's own share of the bump — no over-credit (the
+        // 2026-05-16 fix using denominator-exclusion bumped > `recycled` total).
+        _chargeExtendFee(tokenId, p.amount, p);
 
         // SECURITY FIX: Claim pending rewards BEFORE changing boost to avoid loss
         _getReward(tokenId, p);
@@ -2349,19 +2354,44 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      stakers — exactly the `AUDIT C6` penalty-recycle pattern. When
     ///      `extendFeeRecycleBps == 0` (default), the entire fee still goes to
     ///      treasury and behaviour is identical to the C5 baseline.
-    /// @dev AUDIT FIX 2026-05-16 M10: denominator-exclusion math (closes DEEP-DS-09
-    ///      DEFERRED). Pre-fix, `_creditRewardPool` divided by `totalBoostedStake`
-    ///      which still INCLUDED the caller's `contributorBoost` — the caller then
-    ///      immediately claimed a share of their own fee via `_getReward` (whale
-    ///      with 50% share rebated 50% of their fee). Now we route through
-    ///      `_creditRewardPoolExcluding` which divides by `totalBoostedStake -
-    ///      contributorBoost`, so the entire recycled slice flows to OTHER stakers
-    ///      only. The caller's own boost doesn't share in their fee's recycle.
+    /// @dev AUDIT FIX 2026-05-16 M10 (REVISED 2026-05-17): debt-advance pattern
+    ///      (closes DEEP-DS-09 DEFERRED). Pre-fix used `_creditRewardPoolExcluding`
+    ///      which bumped `rewardPerTokenStored` by `recycled * ACC / (totalB -
+    ///      contributorBoost)` — but `rewardPerTokenStored` is GLOBAL, so every
+    ///      staker's pending grew, including the caller's. The over-credit equalled
+    ///      `totalB * recycled / (totalB - contributorBoost) > recycled`, paying
+    ///      out MORE than was deposited and silently draining the pool when both
+    ///      `extendFeeBps > 0` AND `extendFeeRecycleBps > 0` (both default 0, so
+    ///      latent in mainnet config until the operator enabled either).
+    ///
+    ///      New approach mirrors Yearn/Convex debt-advance ("checkpoint-only" cancel):
+    ///      (1) Bump `rewardPerTokenStored` normally via `_creditRewardPool(recycled)`
+    ///          → divides by full `totalBoostedStake`, so total pending growth =
+    ///          exactly `recycled` (no over-credit, conservation preserved).
+    ///      (2) Pre-advance the caller's `p.rewardDebt` by their proportional share
+    ///          `boostedAmount * recycled / totalBoostedStake`. The subsequent
+    ///          `_getReward` call (which always follows in `extendLock` /
+    ///          `toggleAutoMaxLock`) computes `diff = accumulated - rewardDebt` and
+    ///          the bump cancels exactly, paying the caller only their PRE-fee
+    ///          pending. Others get their full proportional share of `recycled`.
+    ///      (3) `_applyNewBoost` (called after `_getReward`) recomputes
+    ///          `p.rewardDebt` from scratch using the new boost, so the advance is
+    ///          naturally consumed and won't leak forward.
+    ///
+    ///      Slight conservatism: the caller's "would-have-been" share of the bump
+    ///      stays in the pool inventory (counted in `totalRewardsFunded` but not
+    ///      claimable by anyone via this single tx). It is absorbed naturally by
+    ///      the next `notifyRewardAmount` cycle (delta-measure pattern picks up
+    ///      contract balance) or by subsequent recycles bumping the global
+    ///      accumulator. This is conservative-safe: under-credit is acceptable,
+    ///      over-credit (the original bug) was the bank-run vector.
     /// @param tokenId       Position token ID, for event emission.
     /// @param positionAmount Position's principal in TOWELI, for fee computation.
-    /// @param contributorBoost Caller's boostedAmount (their slice of totalBoostedStake);
-    ///                      excluded from the recycle denominator.
-    function _chargeExtendFee(uint256 tokenId, uint256 positionAmount, uint256 contributorBoost) internal {
+    /// @param p             Caller's position storage ref; used to read the pre-fee
+    ///                      `boostedAmount` and pre-advance `rewardDebt` so the
+    ///                      caller cannot claim any portion of their own fee in
+    ///                      the immediately-following `_getReward`.
+    function _chargeExtendFee(uint256 tokenId, uint256 positionAmount, Position storage p) internal {
         uint256 bps = extendFeeBps;
         if (bps == 0) return;
         uint256 fee = (positionAmount * bps) / BPS;
@@ -2373,10 +2403,19 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (recycled > 0) {
             // Pull the recycled slice into THIS contract so it sits in the reward pool.
             rewardToken.safeTransferFrom(msg.sender, address(this), recycled);
-            // AUDIT FIX 2026-05-16 M10: exclude the caller's boost from the
-            // recycle denominator so the caller does not rebate any portion of
-            // their own fee.
-            _creditRewardPoolExcluding(recycled, contributorBoost);
+            // AUDIT FIX 2026-05-17 M10-REVISED: debt-advance pattern (see NatSpec).
+            // Snapshot caller's boost + system total BEFORE the bump so the
+            // advance uses the same denominator the bump will use.
+            uint256 totalB = totalBoostedStake;
+            uint256 callerBoost = p.boostedAmount;
+            _creditRewardPool(recycled); // bumps rewardPerTokenStored by recycled*ACC/totalB
+            if (totalB > 0 && callerBoost > 0) {
+                // Cancel the caller's share of the bump. The product
+                // (callerBoost * recycled) is bounded by (totalB * recycled) which
+                // is bounded by the same uint256 product checked inside
+                // _creditRewardPool — no separate overflow risk.
+                p.rewardDebt += _safeInt256((callerBoost * recycled) / totalB);
+            }
         }
         emit ExtendFeeCollected(tokenId, msg.sender, fee);
         emit ExtendFeeSplit(tokenId, msg.sender, toTreasury, recycled);
@@ -2450,39 +2489,6 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // slither-disable-next-line incorrect-equality
         if (amount == 0 || totalBoostedStake == 0) return;
         rewardPerTokenStored += (amount * ACC_PRECISION) / totalBoostedStake;
-        totalRewardsFunded += amount;
-    }
-
-    /// @dev AUDIT FIX 2026-05-16 M10: denominator-exclusion variant. Used by
-    ///      `_chargeExtendFee` so the contributor's own boostedAmount does NOT
-    ///      share in their fee's recycle. Pre-fix, a whale with N% of
-    ///      `totalBoostedStake` rebated N% of their extend fee via the immediate
-    ///      `_getReward` call that follows `_chargeExtendFee` in `extendLock` /
-    ///      `toggleAutoMaxLock`. Denominator-exclusion sends the entire recycled
-    ///      slice to OTHER stakers, closing the whale-rebate (DEEP-DS-09).
-    /// @dev Solo-staker edge case: `totalBoostedStake == contributorBoost` means
-    ///      no OTHER stakers exist. Fall back to treasury via the caller's
-    ///      `_splitExtendFee` path → since the caller can't pre-detect this
-    ///      branch without re-reading state, we instead return without crediting.
-    ///      Caller (`_chargeExtendFee`) pulls the recycled tokens INTO this
-    ///      contract regardless; they sit in the reward pool unattributed until
-    ///      a future staker enters and the next `notifyRewardAmount` /
-    ///      `applyRewardRate` cycle absorbs them via `balanceOf(this)` delta.
-    ///      This is the same behavior as `_creditRewardPool` on `totalBoostedStake == 0`.
-    function _creditRewardPoolExcluding(uint256 amount, uint256 contributorBoost) internal {
-        if (amount == 0) return;
-        uint256 totalB = totalBoostedStake;
-        // Solo staker (or zero stake): nothing to distribute to.
-        // SLITHER NOTE 2026-05-17: `totalB == 0` is an integer equality on a
-        // numeric counter (NOT a block.timestamp comparison; Slither's
-        // `dangerous-strict-equalities` + `timestamp` heuristics are
-        // pattern-match false positives here). `<=` is the correct boundary —
-        // if contributorBoost equals or exceeds totalBoostedStake, denom would
-        // be 0/negative and the credit makes no sense.
-        // slither-disable-next-line incorrect-equality,timestamp
-        if (totalB == 0 || totalB <= contributorBoost) return;
-        uint256 denom = totalB - contributorBoost;
-        rewardPerTokenStored += (amount * ACC_PRECISION) / denom;
         totalRewardsFunded += amount;
     }
 
