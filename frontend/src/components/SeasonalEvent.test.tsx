@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { SeasonalEventBanner } from './SeasonalEvent';
 
 // Mock framer-motion if used indirectly
@@ -68,7 +68,7 @@ describe('SeasonalEventBanner', () => {
   it('does not render when previously dismissed (localStorage flag set)', () => {
     vi.setSystemTime(new Date('2026-06-02T12:00:00Z'));
     localStorage.setItem('tegridy-event-dismissed-harvest-season-q2-2026', '1');
-    const { container } = render(<SeasonalEventBanner />);
+    render(<SeasonalEventBanner />);
     expect(screen.queryByText('Harvest Season')).not.toBeInTheDocument();
   });
 

@@ -94,8 +94,10 @@ test.describe('Accessibility', () => {
   test('lending tab panels have correct roles', async ({ page }) => {
     await page.goto('/lending');
     // Should have wallet connect prompt or tab panel
-    const panel = page.locator('[role="tabpanel"]');
-    // Panel may or may not be visible depending on wallet state
+    // _panel: panel may or may not be visible depending on wallet state.
+    // Kept for documentation; not asserted because the wallet-connect prompt
+    // can replace the tabpanel in unauthenticated runs.
+    const _panel = page.locator('[role="tabpanel"]');
     const tablist = page.locator('[role="tablist"]');
     await expect(tablist).toBeVisible();
   });
