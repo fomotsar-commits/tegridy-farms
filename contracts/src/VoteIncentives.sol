@@ -315,6 +315,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     mapping(uint256 => bool) public epochBribesFinalized;
 
     // epochBribeTokens[epoch][pair] = list of bribe token addresses
+    // slither-disable-next-line uninitialized-state
     mapping(uint256 => mapping(address => address[])) public epochBribeTokens;
 
     // claimed[user][epoch][pair][token] = true if already claimed

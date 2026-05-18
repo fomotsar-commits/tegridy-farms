@@ -269,6 +269,7 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///         the rescue-path NatSpec for why the rescue path is now only meaningful for
     ///         raw ETH donations to a pre-mint cancelled drop). DO NOT add a new write
     ///         path here — all reasoning relies on this slot being zero.
+    // slither-disable-next-line uninitialized-state
     uint256 public unclaimedRefundPool;
 
     /// @notice AUDIT FIX: DEEP-DROP-06: one-shot flag set by `freezeBaseURI()`. Once set,
