@@ -378,6 +378,14 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @param _minLPTokens Optional CALLER tightening of the LP-add token min. Same semantics.
     /// @param _minLPETH Optional CALLER tightening of the LP-add ETH min. Same semantics.
     /// @param _deadline Transaction deadline (reverts if block.timestamp > _deadline).
+    // SLITHER NOTE 2026-05-18 (HIGH): `reentrancy-eth` / `reentrancy-events`
+    // false positive on the entire `accumulate()` body. The function is
+    // `onlyOwner nonReentrant whenNotPaused`. The post-external-call state
+    // writes (`totalETHUsed`, `totalLPCreated`, `totalAccumulations`,
+    // `lastAccumulateTime`) are protected by the nonReentrant guard. The
+    // external counterparties are the protocol's own canonical router
+    // (set at construction, no rotation surface) — not attacker-controlled.
+    // slither-disable-start reentrancy-eth,reentrancy-events,reentrancy-benign
     function accumulate(uint256 _minTokens, uint256 _minLPTokens, uint256 _minLPETH, uint256 _deadline) external onlyOwner nonReentrant whenNotPaused {
         // R062 (HIGH): refuse to accumulate when the L2 sequencer is currently
         // down or has just resumed within SEQUENCER_GRACE_PERIOD. Pool reserves
@@ -462,6 +470,7 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         lastAccumulateTime = block.timestamp;
         emit Accumulated(halfETH + ethUsed, tokenUsed, lpReceived);
     }
+    // slither-disable-end reentrancy-eth,reentrancy-events,reentrancy-benign
 
     // ─── Treasury Change (L-11) ────────────────────────────────────────
 

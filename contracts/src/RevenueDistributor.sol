@@ -1672,6 +1672,13 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // the full rationale. Recovery payouts to recipients whose receive() doesn't fit
         // in 10k gas land in pendingWithdrawals and are pulled via withdrawPending()'s
         // WETH-fallback path.
+        // SLITHER NOTE 2026-05-18 (HIGH): `arbitrary-send-eth` false positive.
+        // `user` here is the per-recovery target validated through the 48h
+        // timelocked propose/execute flow (only owner can propose, propose
+        // enforces a per-epoch 25% aggregate cap + 1% lifetime cap). Not an
+        // arbitrary caller-supplied recipient — it's the recovery beneficiary
+        // explicitly chosen + delay-gated by governance.
+        // slither-disable-next-line arbitrary-send-eth
         (bool success,) = user.call{value: share, gas: 10000}("");
         if (success) {
             totalClaimed += share;

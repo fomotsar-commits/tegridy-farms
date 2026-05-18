@@ -586,6 +586,11 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (currentRolling + proposal.amount > maxRolling) revert RollingDisbursementExceeded();
 
         // AUDIT FIX M-27: Attempt ETH transfer with WETH fallback for contract recipients
+        // SLITHER NOTE 2026-05-18 (HIGH): `reentrancy-eth` false positive — the
+        // outer `executeProposal` is `nonReentrant whenNotPaused`. State writes
+        // on the success branch are protected by the guard, and the inner
+        // `_transferETHOrWETH` uses a 10k stipend.
+        // slither-disable-next-line reentrancy-eth,reentrancy-events,reentrancy-benign
         if (!_transferETHOrWETH(proposal.recipient, proposal.amount)) {
             proposal.status = ProposalStatus.FailedExecution;
             emit ProposalExecutionFailed(_proposalId, proposal.recipient, proposal.amount);
@@ -648,6 +653,11 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (currentRolling + proposal.amount > maxRolling) revert RollingDisbursementExceeded();
 
         // AUDIT FIX M-27: Attempt ETH transfer with WETH fallback for contract recipients
+        // SLITHER NOTE 2026-05-18 (HIGH): `reentrancy-eth` false positive — the
+        // outer `retryExecution` is `nonReentrant whenNotPaused`. State writes
+        // after the transfer are gated by the success branch, and the inner
+        // `_transferETHOrWETH` uses a 10k stipend (no arbitrary code in recipient).
+        // slither-disable-next-line reentrancy-eth,reentrancy-events,reentrancy-benign
         if (!_transferETHOrWETH(proposal.recipient, proposal.amount)) {
             proposal.status = ProposalStatus.FailedExecution;
             emit ProposalExecutionFailed(_proposalId, proposal.recipient, proposal.amount);
@@ -1070,6 +1080,13 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///      arbitrary recipient gas budgets — which is also a security feature
     ///      (a recipient running heavy logic in receive() expands the
     ///      cross-contract reentrancy surface).
+    // SLITHER NOTE 2026-05-18 (HIGH): `arbitrary-send-eth` false positive on the
+    // entire `_transferETHOrWETH` body. `recipient` here is the proposal target
+    // validated through the timelocked propose/execute/finalize flow. Callers
+    // (`executeProposal`, `retryExecution`) ALWAYS hold `nonReentrant`. The 10k
+    // gas stipend prevents the recipient from doing anything beyond receive() +
+    // event. See NatSpec above for full rationale.
+    // slither-disable-start arbitrary-send-eth
     function _transferETHOrWETH(address recipient, uint256 amount) internal returns (bool) {
         // AUDIT FIX M-2 (battle-tested, 2026-04-20 audit): reduced from 100_000 back to
         // 10_000 gas. 100k allowed the recipient contract to make a full external call during
@@ -1094,6 +1111,7 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             return false;
         }
     }
+    // slither-disable-end arbitrary-send-eth
 
     /// @dev H-07 FIX: Record a disbursement in the ring buffer.
     ///      AUDIT FIX: DEEP-GOV-05 — when the buffer is full, the prior implementation

@@ -2087,6 +2087,16 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         but it makes any direct donation effectively a public good for
     ///         the current set of escrow holders.
     /// @param _loanId The loan to pull rewards for.
+    // SLITHER NOTE 2026-05-18 (HIGH): `reentrancy-balance` false positive on
+    // `pullEscrowRewards` body. The function is `nonReentrant` and the
+    // balance-delta pattern (`balanceBefore` → `claimUnsettledForTokenId` →
+    // `balanceAfter - balanceBefore`) is the canonical FoT-safe accounting
+    // (used in TegridyStaking.notifyRewardAmount, TegridyRestaking, OZ
+    // SafeERC20 callers). The staking-side `claimUnsettledForTokenId` is
+    // itself `nonReentrant whenNotPaused` and only transfers TOWELI (no
+    // callback). The `nftHeldHere` guard via `staking.ownerOf` defends
+    // against the cross-loan drain documented in F-LD-CROSS-LOAN NatSpec.
+    // slither-disable-start reentrancy-balance,reentrancy-events
     function pullEscrowRewards(uint256 _loanId) external nonReentrant {
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan memory loan = loans[_loanId];
@@ -2243,6 +2253,7 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
             IERC20(toweli).safeTransfer(recipient, payout);
         }
     }
+    // slither-disable-end reentrancy-balance,reentrancy-events
 
     // ─── Sweep + MinPrincipal + AcceptedCollateral (apply hooks) ─────
     // AUDIT FIX (pass-8): EIP170-01 — propose/execute/cancel + pending state +

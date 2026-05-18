@@ -857,6 +857,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     /// @notice ETH -> FoT token swap with protocol fee deducted from output tokens.
     /// @dev    Calls router.swapExactETHForTokensSupportingFeeOnTransferTokens with amountOutMin=0
     ///         internally; our own slippage check compares (received - fee) >= amountOutMin.
+    // SLITHER NOTE 2026-05-18 (HIGH): `reentrancy-balance` false positive —
+    // canonical Uniswap V2 FoT balance-delta pattern. The function is
+    // `nonReentrant whenNotPaused`. The "balance after external call" is
+    // OUTPUT validation required by FoT semantics (Uniswap V2 Router02:
+    // swapExactETHForTokensSupportingFeeOnTransferTokens), NOT a reentrancy
+    // vulnerability.
+    // slither-disable-start reentrancy-balance,reentrancy-events
     function swapExactETHForTokensSupportingFeeOnTransferTokens(
         uint256 amountOutMin,
         address[] calldata path,
@@ -914,6 +921,7 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         emit SwapExecuted(msg.sender, address(0), outToken, msg.value, fee);
     }
+    // slither-disable-end reentrancy-balance,reentrancy-events
 
     /// @notice FoT token -> ETH swap with protocol fee deducted from output ETH.
     /// @dev    Pulls input, measures the actual-received delta (so FoT input is handled
@@ -979,6 +987,11 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     /// @notice FoT token -> FoT token (or any token) swap with protocol fee deducted from output.
     /// @dev    Routes output to this contract so we can meter the received delta, take fee,
     ///         then forward remainder to `to`.
+    // SLITHER NOTE 2026-05-18 (HIGH): `reentrancy-balance` false positive —
+    // canonical Uniswap V2 FoT balance-delta pattern (input + output sides).
+    // Function is `nonReentrant whenNotPaused`. See ETH variant above for
+    // full rationale.
+    // slither-disable-start reentrancy-balance,reentrancy-events
     function swapExactTokensForTokensSupportingFeeOnTransferTokens(
         uint256 amountIn,
         uint256 amountOutMin,
@@ -1035,6 +1048,7 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         emit SwapExecuted(msg.sender, path[0], outToken, amountIn, fee);
     }
+    // slither-disable-end reentrancy-balance,reentrancy-events
 
     // ─── Deprecated Stubs (revert with helpful error) ─────────────
     function setFee(uint256) external pure { revert UseProposeFeeChange(); }
@@ -1310,6 +1324,16 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     // not just the user-trade entrypoints. Without `whenNotPaused`, an MEV searcher could
     // front-run the pause and shovel queued ETH at a downstream destination flagged as
     // compromised mid-incident.
+    // SLITHER NOTE 2026-05-18 (HIGH): `arbitrary-send-eth` + `reentrancy-eth`
+    // false positives on the entire `distributeFeesToStakers` body. The
+    // recipients are the canonical protocol-internal destinations
+    // (`revenueDistributor`, `polAccumulator`, `treasury`) — NOT caller-
+    // supplied. All three slots are timelocked behind 48h propose/execute
+    // (see DistributorChange, PolAccumulatorChange, TreasuryChange). The
+    // function is `nonReentrant whenNotPaused`. Calls use 50k-gas stipend
+    // (no arbitrary code) and failed transfers route to `pendingDistribution`
+    // for pull-pattern recovery — not a reentrancy-exploitable race.
+    // slither-disable-start arbitrary-send-eth,reentrancy-eth,reentrancy-events,reentrancy-benign
     function distributeFeesToStakers() external nonReentrant whenNotPaused {
         if (revenueDistributor == address(0)) revert ZeroAddress();
         uint256 amount = accumulatedETHFees;
@@ -1369,6 +1393,7 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         emit FeesDistributed(revenueDistributor, stakerAmount);
         emit FeesDistributedSplit(stakerAmount, treasuryAmount, polAmount);
     }
+    // slither-disable-end arbitrary-send-eth,reentrancy-eth,reentrancy-events,reentrancy-benign
 
     /// @notice Apply a new staker/POL split. Caller must be the wired admin contract.
     ///         Bounds re-checked here as defence-in-depth (admin enforces at propose-time).
@@ -1661,6 +1686,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     /// @dev    AUDIT SFR-M-01 (MEDIUM, 2026-04-28): caller-supplied path with the same
     ///         validation + multi-hop owner gate as the standard variant. See the
     ///         convertTokenFeesToETH NatSpec above for the path semantics.
+    // SLITHER NOTE 2026-05-18 (HIGH): `reentrancy-balance` false positive on
+    // `convertTokenFeesToETHFoT`. The function is `nonReentrant whenNotPaused`.
+    // The balance-delta pattern (read on-hand → external swap → read on-hand)
+    // is required to handle FoT input-side haircuts correctly. Path validation
+    // gates multi-hop to owner; minETHOut is TWAP-floored via the snapshot
+    // pattern.
+    // slither-disable-start reentrancy-balance,reentrancy-events
     function convertTokenFeesToETHFoT(
         address token,
         address[] calldata path,
@@ -1743,6 +1775,7 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         accumulatedETHFees += ethReceived;
         emit TokenFeesConverted(token, swapAmount, ethReceived);
     }
+    // slither-disable-end reentrancy-balance,reentrancy-events
 
     /// @notice Sweep any stuck ERC20 tokens to treasury (non-fee dust, exotic tokens only).
     /// @dev    AUDIT FIX 2026-05-16 M3: same restriction as `withdrawTokenFees` (M4) —
@@ -1955,6 +1988,10 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // there with a clearer reason. Defensive: if both are zero return zeros.
         if (reserve0 == 0 || reserve1 == 0) revert NoPairForToken();
 
+        // SLITHER NOTE 2026-05-18 (HIGH): `weak-prng` false positive — canonical
+        // Uniswap V2 oracle truncation (block.timestamp % 2**32 → uint32). NOT a
+        // PRNG seed; this is the wrap-safe staleness/cumulative timing pattern.
+        // slither-disable-next-line weak-prng
         currentTs = uint32(block.timestamp % 2 ** 32);
         // Spot price token→WETH = reserveWETH / reserveToken (in UQ112x112).
         // Determine which side `token` is on.

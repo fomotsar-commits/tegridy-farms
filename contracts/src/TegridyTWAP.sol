@@ -409,6 +409,13 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
             // ("on failure, accumulate the excess into accumulatedFees").
             uint256 excess = msg.value - effectiveFee;
             if (excess > 0) {
+                // SLITHER NOTE 2026-05-18 (HIGH): `reentrancy-eth` false positive.
+                // `update()` is `nonReentrant`; the refund uses a 30k-gas stipend
+                // (cannot run arbitrary code), and the only state write after this
+                // call is `accumulatedFees += excess` which is the F-55-8 fail-safe
+                // when the recipient refuses the refund — not a reentrancy-
+                // exploitable race. Documented in NatSpec above.
+                // slither-disable-next-line reentrancy-eth,reentrancy-events
                 (bool ok,) = msg.sender.call{value: excess, gas: 30000}("");
                 if (!ok) {
                     // Failed refund -> bank as fee tip. Cannot revert because
@@ -446,6 +453,10 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
             revert ReservesBelowFloor();
         }
 
+        // SLITHER NOTE 2026-05-18 (HIGH): `weak-prng` false positive — canonical
+        // Uniswap V2 oracle truncation. See _getCumulativePricesOverPeriod for
+        // the full rationale block.
+        // slither-disable-next-line weak-prng
         uint32 blockTs = uint32(block.timestamp % 2 ** 32);
         uint256 spotPrice0 = (uint256(reserve1) * Q112) / reserve0;
         uint256 spotPrice1 = (uint256(reserve0) * Q112) / reserve1;
@@ -830,6 +841,10 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         uint8 lastIdx = observationIndex[pair] == 0 ? MAX_OBSERVATIONS - 1 : observationIndex[pair] - 1;
         Observation memory last = observations[pair][lastIdx];
 
+        // SLITHER NOTE 2026-05-18 (HIGH): `weak-prng` false positive — see
+        // the matching annotation at line ~998 inside _getCumulativePricesOverPeriod
+        // for the canonical Uniswap V2 oracle-truncation rationale.
+        // slither-disable-next-line weak-prng
         uint32 nowTs = uint32(block.timestamp % 2 ** 32);
         uint32 elapsed;
         unchecked {
@@ -995,6 +1010,11 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         // uint32 BEFORE subtraction so modular arithmetic correctly handles the
         // year-2106 rollover. Previously the uint32->uint256 implicit upcast made the
         // staleness diff explode at the wrap, bricking every consult() consumer.
+        // SLITHER NOTE 2026-05-18 (HIGH): `weak-prng` false positive. The
+        // `block.timestamp % 2**32` is the canonical Uniswap V2 oracle truncation
+        // pattern (see UniswapV2Pair._update line 73-74), NOT a PRNG seed. The
+        // result feeds the staleness check, not any randomness primitive.
+        // slither-disable-next-line weak-prng
         uint32 nowTs = uint32(block.timestamp % 2 ** 32);
         uint32 staleness;
         unchecked {

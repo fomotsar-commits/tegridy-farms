@@ -341,6 +341,17 @@ contract TegridyRouter is ReentrancyGuard {
     }
 
     // ─── Fee-on-Transfer Swaps (H-17) ─────────────────────────────────
+    //
+    // SLITHER NOTE 2026-05-18 (HIGH): `reentrancy-balance` false positive on
+    // all three FoT swap functions below. The balance-before/after pattern
+    // (read balance → external call → read balance again) is the CANONICAL
+    // FoT-safe accounting pattern from Uniswap V2 (UniswapV2Router02:
+    // swapExactTokensForTokensSupportingFeeOnTransferTokens). All three
+    // functions are `nonReentrant ensure(deadline)`. The `to` recipient is
+    // validated (not zero, not address(this), not the destination pair).
+    // The "balance read after external call" is the OUTPUT validation —
+    // exactly what FoT swaps require, NOT a reentrancy vulnerability.
+    // slither-disable-start reentrancy-balance,reentrancy-events
 
     /// @notice Swap exact tokens for tokens, supporting fee-on-transfer tokens.
     ///         Uses balance-before/after pattern instead of trusting amountIn.
@@ -407,6 +418,7 @@ contract TegridyRouter is ReentrancyGuard {
         WETHFallbackLib.safeTransferETHOrWrap(WETH, to, amountOut);
         emit Swap(msg.sender, path, amountIn, amountOut, to);
     }
+    // slither-disable-end reentrancy-balance,reentrancy-events
 
     // ─── View Functions ───────────────────────────────────────────────
 

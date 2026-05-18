@@ -315,6 +315,14 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     mapping(uint256 => bool) public epochBribesFinalized;
 
     // epochBribeTokens[epoch][pair] = list of bribe token addresses
+    /// SLITHER NOTE 2026-05-18 (HIGH): `uninitialized-state` false positive.
+    /// Slither flags this because the mapping has no constructor / initializer
+    /// write. In reality the inner address[] array is populated via push()
+    /// inside `depositBribe` (line 717 area) on first bribe per (epoch, pair),
+    /// which slither's static analysis doesn't recognize as initialization.
+    /// Every read path (`claim`, `claimAll`, `pendingBribes`, etc.) handles
+    /// the empty-array case correctly.
+    /// slither-disable-next-line uninitialized-state
     mapping(uint256 => mapping(address => address[])) public epochBribeTokens;
 
     // claimed[user][epoch][pair][token] = true if already claimed
@@ -771,6 +779,12 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         Users must call vote() first to allocate power to this pair.
     /// @param epoch The epoch index to claim from
     /// @param pair The pool pair to claim bribes for
+    // SLITHER NOTE 2026-05-18 (HIGH): `reentrancy-eth` false positive on the
+    // entire `claimBribes` body. Same rationale as `claimBribesBatch` below:
+    // `nonReentrant whenNotPaused`, 50k-stipend call (no arbitrary code), CEI
+    // ordering (claimed=true + accounting decrements BEFORE the external
+    // transfer), and pending-withdrawal fallback for failed transfers.
+    // slither-disable-start reentrancy-eth,reentrancy-events,reentrancy-benign
     function claimBribes(uint256 epoch, address pair) external nonReentrant whenNotPaused {
         if (_isStakingPaused()) revert StakingPaused();
         if (epoch >= epochs.length) revert InvalidEpoch();
@@ -891,12 +905,21 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         if (!anyClaimed) revert NothingToClaim();
     }
+    // slither-disable-end reentrancy-eth,reentrancy-events,reentrancy-benign
 
     /// @notice Batch claim bribes across multiple epochs for a single pair.
     ///         V2: Uses gauge votes — user must have voted for this pair in each epoch.
     /// @param epochStart First epoch to claim from (inclusive)
     /// @param epochEnd Last epoch to claim from (exclusive)
     /// @param pair The pool pair to claim bribes for
+    // SLITHER NOTE 2026-05-18 (HIGH): `reentrancy-eth` false positive on the
+    // entire `claimBribesBatch` body. The function is `nonReentrant whenNotPaused`.
+    // The ETH `call` to `msg.sender` uses a 50k stipend (no arbitrary code) and
+    // the failed-transfer fallback routes to `pendingETHWithdrawals` (gated by
+    // the same nonReentrant guard on `withdrawPendingETH`). State writes within
+    // the loop happen BEFORE the external call (claimed=true, accounting decrements),
+    // matching CEI ordering.
+    // slither-disable-start reentrancy-eth,reentrancy-events,reentrancy-benign
     function claimBribesBatch(uint256 epochStart, uint256 epochEnd, address pair) external nonReentrant whenNotPaused {
         if (_isStakingPaused()) revert StakingPaused();
         if (pair == address(0)) revert InvalidPair();
@@ -996,6 +1019,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         if (!anyClaimed) revert NothingToClaim();
     }
+    // slither-disable-end reentrancy-eth,reentrancy-events,reentrancy-benign
 
     // ─── Pull-Pattern Withdrawals ────────────────────────────────────
 

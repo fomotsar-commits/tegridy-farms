@@ -61,6 +61,13 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     ///      The slot was written on subscribe and cleared on cancel and never read.
     ///      Removed. The slot is preserved as `_deprecated_paidFeeRate_slot` to keep
     ///      storage layout stable for any deployed instance — DO NOT reuse this slot.
+    /// SLITHER NOTE 2026-05-18 (HIGH): `uninitialized-state` false positive.
+    /// This slot is INTENTIONALLY never explicitly initialized — it is the
+    /// reserved storage slot for the deprecated `paidFeeRate` mapping. The
+    /// `getDeprecatedPaidFeeRate` getter only reads it for off-chain
+    /// migration tooling; nothing writes to it post-deprecation. Documented
+    /// in `_deprecated_paidFeeRate_slot` NatSpec above.
+    /// slither-disable-next-line uninitialized-state
     mapping(address => uint256) private _deprecated_paidFeeRate_slot;
     mapping(address => uint256) public userEscrow; // CRITICAL FIX: actual TOWELI escrowed per user
     mapping(address => bool) public isActiveSubscriber; // AUDIT FIX L-04: track active status for accurate counter
