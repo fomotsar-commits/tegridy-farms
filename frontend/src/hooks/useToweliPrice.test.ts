@@ -13,7 +13,7 @@ vi.mock('sonner', () => ({
 vi.mock('../lib/storage', () => ({ safeSetItem: vi.fn() }));
 
 import { useToweliPrice } from './useToweliPrice';
-import { TOWELI_ADDRESS, TOWELI_WETH_LP_ADDRESS, ETH_USD_FEED } from '../lib/constants';
+import { TOWELI_ADDRESS, ETH_USD_FEED } from '../lib/constants';
 
 // ───────────────────────── Helpers ─────────────────────────
 

@@ -19,5 +19,20 @@ export default defineConfig([
       ecmaVersion: 2023,
       globals: globals.browser,
     },
+    rules: {
+      // Underscore-prefix convention for intentionally-unused identifiers.
+      // Aligns with TypeScript's `noUnusedLocals` skip-on-underscore behavior
+      // and the Playwright/Vitest convention of `({ page: _page })` to opt
+      // out of destructured-arg coverage without renaming the destructured
+      // key. Without this override, the recommended preset bans ALL unused
+      // — including intentionally-discarded args in test fixtures, hook
+      // unused destructure positions, and rest-spread placeholders.
+      '@typescript-eslint/no-unused-vars': ['error', {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+        caughtErrorsIgnorePattern: '^_',
+        destructuredArrayIgnorePattern: '^_',
+      }],
+    },
   },
 ])
