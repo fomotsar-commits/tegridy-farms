@@ -89,31 +89,12 @@ jobs:
       # fork. GitHub already withholds secrets on fork PRs, but this is
       # defense-in-depth: a parallel build path runs without the secret on
       # fork PRs so the build still verifies non-wallet flows cleanly.
-      #
-      # CI fix 2026-05-18: `continue-on-error: true` added because Build
-      # uncovered a pre-existing real bug: `src/hooks/useNFTDrop.ts:75`
-      # calls `mint(quantity, proof)` but the ABI's `mint` signature is
-      # `(quantity, allowedAmount, proof)` (the merkle proof's per-user
-      # cap arg was added on the contract side but never wired into the
-      # frontend call site). `tsc -b && vite build` correctly catches it
-      # via type-narrowing failure ("Type '`0x${string}`[]' is not
-      # assignable to type 'bigint'."). Same root cause as the Unit
-      # Tests debt above: Lint failed first and short-circuited the job,
-      # so this regression was never surfaced.
-      #
-      # Fixing requires off-chain merkle-proof context (the proof needs
-      # to be regenerated to carry the `allowedAmount` for each user) —
-      # outside the lint-cleanup PR's scope. Tracked as a real
-      # product-bug follow-up. Keep the step running so the signal is
-      # visible in CI logs; flip back to fail-hard once the mint call
-      # site is corrected.
       - name: Build (with WalletConnect, trusted context)
         if: |
           github.event_name == 'push' ||
           (github.event_name == 'pull_request' &&
            github.event.pull_request.head.repo.full_name == github.repository)
         run: npm run build
-        continue-on-error: true
         env:
           VITE_WALLETCONNECT_PROJECT_ID: ${{ secrets.VITE_WALLETCONNECT_PROJECT_ID }}
 
@@ -122,7 +103,6 @@ jobs:
           github.event_name == 'pull_request' &&
           github.event.pull_request.head.repo.full_name != github.repository
         run: npm run build
-        continue-on-error: true
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
