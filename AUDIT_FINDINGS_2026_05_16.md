@@ -6,6 +6,12 @@
 > (Velodrome-parity self-bribery economics). Paid-firm engagement (Spearbit /
 > OpenZeppelin / ChainSecurity) still required before TVL approaches $10M per
 > the bulletproof mandate.
+>
+> **2026-05-17 POST-MERGE CORRECTION:** Defensive scan of merged PR #28 found a
+> follow-on over-credit bug in the M10 denominator-exclusion patch. Revised
+> using Yearn/Convex debt-advance pattern; +2 regression tests. See M10 entry
+> for full details. Bug was LATENT (required operator to enable two default-0
+> parameters) but is now closed at the source.
 
 
 
@@ -427,6 +433,7 @@ Cluster 5 (Gov/Treasury/Token) complete and findings verified below. Clusters 1-
 - **File:** contracts/src/TegridyStaking.sol:2283-2299 (_chargeExtendFee → _creditRewardPool), 900-937 (extendLock orders)
 - **Description:** `_chargeExtendFee` recycles fee back to `rewardPerTokenStored` BEFORE the caller's `_getReward(tokenId, p)` clears. Caller's own `p.boostedAmount` is in `totalBoostedStake` denominator at credit time → whale with 50% share rebates 50% of their own fee. Documented as DEEP-DS-09 DEFERRED. Anti-dilution intent is partially defeated.
 - **Recommended fix:** Compute the credit-denominator with caller's boostedAmount EXCLUDED (`totalBoostedStake - p.boostedAmount`).
+- **2026-05-17 POST-MERGE CORRECTION:** The denominator-exclusion fix shipped in commit `2221719` (PR #28) had a follow-on over-credit bug. Because `rewardPerTokenStored` is GLOBAL, bumping by `recycled * ACC / (totalB - contributorBoost)` applied the bump to every staker — total pending growth = `totalB * recycled / (totalB - contributorBoost)` which exceeds `recycled` (a 50% whale produced a 2x over-credit, silently draining the reward pool). LATENT in mainnet config (requires both `extendFeeBps > 0` AND `extendFeeRecycleBps > 0`, both default 0), but a real over-pay vector if operator enabled either. **REVISED FIX (debt-advance):** `_creditRewardPool(recycled)` bumps `rewardPerTokenStored` normally (no over-credit, conservation preserved), then `p.rewardDebt += (boostedAmount * recycled) / totalBoostedStake` pre-cancels the caller's share of the bump. The subsequent `_getReward` claim consumes the advance — caller gets zero rebate, others get their proportional share. Pattern verified against Yearn/Convex "checkpoint-only" cancel. Regression tests: `test_M10_revised_extendFee_doesNotOverCreditPool` and `test_M10_revised_whaleCannotRebateOwnFee` in `R029_TegridyStaking_ExtendFeeRecycle.t.sol`.
 
 ### [SEV: MEDIUM] TegridyRestaking — revalidateBoostFor* uses updateBonus modifier that accrues BEFORE downgrade
 - **File:** contracts/src/TegridyRestaking.sol:2132-2227
