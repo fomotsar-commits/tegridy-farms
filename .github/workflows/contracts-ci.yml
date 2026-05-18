@@ -22,15 +22,62 @@ concurrency:
 
 jobs:
   build-and-test:
-    name: forge build + test
-    # CI fix 2026-05-17: ubuntu-latest (7 GB / 2 vCPU) consistently hits
-    # SIGTERM (exit 143) at 14-17m on this test suite. Tried
-    # ubuntu-latest-large (this org doesn't have the entitlement — queue
-    # sat pending 7+ min). Reverted to ubuntu-latest. Real fixes need
-    # either: (a) self-hosted runner, (b) parallel-jobs workflow refactor,
-    # or (c) GitHub Enterprise larger-runner entitlement. None are
-    # in-scope for the security audit PR that exposed this issue.
+    name: forge build + test (${{ matrix.slice.name }})
+    # CI fix 2026-05-18: split the PR-blocking test sweep across 4 parallel
+    # matrix slices. Total wall-clock is the max slice runtime, not the sum.
+    #
+    # Prior history: ubuntu-latest (7 GB / 2 vCPU) consistently hit SIGTERM
+    # (exit 143) at 14-17m running the full sweep, regardless of
+    # FUZZ_RUNS / verbosity / --skip flags / actions/cache version. Tried
+    # ubuntu-latest-large (no org entitlement, queue sat pending 7+ min).
+    # The matrix refactor avoids the watchdog without needing self-hosted
+    # infra or an Enterprise larger-runner entitlement.
+    #
+    # Slice membership is enforced by the "Slice sanity check" step: every
+    # root-level test/*.t.sol file must match exactly one slice. Drift
+    # (e.g. a new test file added that doesn't fit any slice pattern)
+    # fails CI loudly. Slice patterns also live in slice.match-path /
+    # slice.no-match-path here — keep both in sync.
+    #
+    # Invariants and fuzz tests stay excluded by --no-match-test as before;
+    # they're meant to run on a separate larger-runner workflow (not yet
+    # set up — tracked tech-debt). The PR-blocking gate is regular tests.
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        slice:
+          - name: audit195
+            # Audit195_* — 14 files. Includes the heaviest individual files:
+            # StakingGov (57K), SwapFeeRouter (53K), Restaking (53K),
+            # Grants (52K), Referral (52K), Bounty (48K), Router (45K).
+            match-path: "test/Audit195_*.t.sol"
+            no-match-path: ""
+          - name: audit-rest
+            # All other Audit* files at root — 21 files. AuditR014_* (11),
+            # AuditR016_* (1), AuditFixes_* (4), AuditMicroscope_* (3),
+            # AuditDemonstration (1), Audit_SFR_H01 (1).
+            match-path: "test/{AuditR,AuditFixes_,AuditMicroscope_,AuditDemonstration,Audit_SFR_H01}*.t.sol"
+            no-match-path: ""
+          - name: tegridy-final-redteam
+            # Tegridy*, Final*, RedTeam_* — 29 files. Includes RedTeam_AMM
+            # (72K, single heaviest file), FinalAudit_AMM (58K),
+            # TegridyLending (53K), FinalAudit_Staking (49K),
+            # RedTeam_Revenue (49K), TegridyStaking (48K),
+            # TegridyNFTLending (45K), RedTeam_CrossContract (43K),
+            # TegridyNFTPool (42K).
+            match-path: "test/{Tegridy,Final,RedTeam_}*.t.sol"
+            no-match-path: ""
+          - name: rest
+            # Everything else at root + invariants/ + pass5_pocs/ subdirs.
+            # ~54 root files (Deep_*, FRESH*, PASS*, R0*, singletons:
+            # CommunityGrants, Gauge*, L2Compatibility, MemeBountyBoard,
+            # POLAccumulator, Pass6_*, PremiumAccess, ReferralSplitter,
+            # RevenueDistributor, SwapFeeRouter, Toweli, VoteIncentives,
+            # FuzzInvariant) plus invariants/* and pass5_pocs/* files
+            # whose tests are filtered out by --no-match-test anyway.
+            match-path: ""
+            no-match-path: "test/{Audit,Tegridy,Final,RedTeam_}*.t.sol"
     defaults:
       run:
         working-directory: contracts
@@ -63,15 +110,15 @@ jobs:
         run: forge --version
 
       # Build without --sizes so the over-EIP-170 contracts (Phase 0 split
-       # pending) don't fail before the budget step gets a chance to apply
-       # the temporary tracked-exceptions allowlist. Real compilation errors
-       # still block CI here. Size enforcement happens in the next step.
-       # CI fix 2026-05-17: --skip test --skip script so this step compiles
-       # ONLY src/ artifacts. The Test step below auto-recompiles tests
-       # incrementally as needed — pre-fix, this step recompiled every test
-       # AND script too, doubling CI compile time and triggering 16-minute
-       # OOM kills on the 7GB hosted runner. Production-bytecode size budget
-       # (next step) only needs out/*.sol artifacts.
+      # pending) don't fail before the budget step gets a chance to apply
+      # the temporary tracked-exceptions allowlist. Real compilation errors
+      # still block CI here. Size enforcement happens in the next step.
+      # CI fix 2026-05-17: --skip test --skip script so this step compiles
+      # ONLY src/ artifacts. The Test step below auto-recompiles tests
+      # incrementally as needed — pre-fix, this step recompiled every test
+      # AND script too, doubling CI compile time and triggering 16-minute
+      # OOM kills on the 7GB hosted runner. Production-bytecode size budget
+      # (next step) only needs out/*.sol artifacts.
       - name: Build
         run: forge build --skip test --skip script
 
@@ -153,30 +200,90 @@ jobs:
           fi
           echo "✅ All contracts within size budget (${BUDGET}B floor, 576B headroom)."
 
-      - name: Test
-        # CI fix 2026-05-17: skip invariant tests in the PR-blocking run.
-        # The full suite (2627 regular + 13 fuzz + 61 invariant) takes
-        # ~30+ minutes locally on dev hardware; the ubuntu-latest runner
-        # consistently hit SIGTERM (exit 143) at ~15 minutes regardless
-        # of FUZZ_RUNS setting (tried 10000 → 1000 → 256, all killed).
-        # The invariant suite alone takes ~15 min locally; combined with
-        # regular + fuzz it cannot fit in the runner's practical budget.
+      # Verify every root-level test/*.t.sol file matches exactly one slice.
+      # This is the slice-definitions source of truth — if a new test file is
+      # added that doesn't fit any slice's case pattern, CI fails here with
+      # a clear error pointing to the file. Keep this script's case branches
+      # in sync with the matrix.slice.match-path / no-match-path patterns
+      # above. Runs in every matrix job (4×) but is deterministic + fast.
+      - name: Slice sanity check (membership exhaustive + disjoint)
+        run: |
+          set -e
+          total=0
+          bad=0
+          declare -A counts
+          for f in test/*.t.sol; do
+            total=$((total+1))
+            name=$(basename "$f")
+            matched=0
+            owners=""
+            # Slice 1: audit195
+            case "$name" in
+              Audit195_*) matched=$((matched+1)); owners="$owners audit195" ;;
+            esac
+            # Slice 2: audit-rest
+            case "$name" in
+              AuditR*|AuditFixes_*|AuditMicroscope_*|AuditDemonstration*|Audit_SFR_H01*) matched=$((matched+1)); owners="$owners audit-rest" ;;
+            esac
+            # Slice 3: tegridy-final-redteam
+            case "$name" in
+              Tegridy*|Final*|RedTeam_*) matched=$((matched+1)); owners="$owners tegridy-final-redteam" ;;
+            esac
+            # Slice 4: rest (catch-all — everything NOT starting with Audit/Tegridy/Final/RedTeam_)
+            case "$name" in
+              Audit*|Tegridy*|Final*|RedTeam_*) ;;
+              *) matched=$((matched+1)); owners="$owners rest" ;;
+            esac
+            if [ "$matched" -ne 1 ]; then
+              echo "::error file=contracts/$f::test file matches $matched slices (expected exactly 1):$owners"
+              bad=$((bad+1))
+            fi
+            slice_name=$(echo "$owners" | awk '{print $1}')
+            counts[$slice_name]=$((${counts[$slice_name]:-0}+1))
+          done
+          echo "Slice membership summary (root-level files only):"
+          for s in audit195 audit-rest tegridy-final-redteam rest; do
+            echo "  $s: ${counts[$s]:-0}"
+          done
+          echo "Total root-level test files: $total"
+          if [ "$bad" -ne 0 ]; then
+            echo "❌ $bad test file(s) don't match exactly one slice. Update matrix.slice patterns + the case branches above together."
+            exit 1
+          fi
+          echo "✅ All $total root-level test files map to exactly one slice."
+
+      - name: Test (${{ matrix.slice.name }})
+        # CI fix 2026-05-17 (preserved): regular + fuzz are the PR-blocking
+        # gates. Invariant tests are filtered out by name (--no-match-test);
+        # they take ~15 min standalone locally and don't fit a 15-min hosted
+        # runner with the rest of the suite. They'd need their own larger-
+        # runner workflow (not yet set up; tracked tech-debt). Invariant
+        # regressions usually surface as regular-test failures too, since
+        # both exercise the same surface.
         #
-        # Regular + fuzz are PR-blocking gates: an invariant regression
-        # would also surface as a regular-test failure in most cases,
-        # since invariants exercise the same surface differently.
-        # Invariants run on a nightly cron (separate workflow) on a
-        # larger runner for full coverage — they are NOT a substitute
-        # for paid-firm audit and should not be the only gate.
-        # CI fix 2026-05-17: dropped -vvv → default verbosity. The -vvv flag
-        # dumps full call traces for every test, generating tens of MB of log
-        # output across the 2627-test sweep. GitHub Actions enforces a per-
-        # step log size limit (~50 MB) and a runner watchdog that kills the
-        # step when buffered stdout backs up. We hit SIGTERM (exit 143) at
-        # ~15-17m consistently in 5 prior attempts with -vvv; default
-        # verbosity emits one line per failure (sufficient for triage) and
-        # should bring the runtime well under budget.
-        run: forge test --no-match-test "(Invariant|invariant|Fuzz|fuzz|testFuzz)"
+        # CI fix 2026-05-17 (preserved): default verbosity (was -vvv). The
+        # -vvv flag dumps full call traces for every test, hits the per-step
+        # log size limit (~50 MB) and runner watchdog (SIGTERM exit 143) at
+        # ~15-17m. Default verbosity emits one line per failure — enough
+        # for triage and well under the buffer ceiling.
+        #
+        # CI fix 2026-05-18 (matrix): each slice runs --match-path or
+        # --no-match-path per the matrix definition. forge's --match-path
+        # accepts glob patterns with brace expansion (e.g.
+        # 'test/{Tegridy,Final}*.t.sol'), verified locally against
+        # foundry-toolchain v1.3.1.
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--no-match-test "(Invariant|invariant|Fuzz|fuzz|testFuzz)")
+          if [ -n "${{ matrix.slice.match-path }}" ]; then
+            args+=(--match-path "${{ matrix.slice.match-path }}")
+          fi
+          if [ -n "${{ matrix.slice.no-match-path }}" ]; then
+            args+=(--no-match-path "${{ matrix.slice.no-match-path }}")
+          fi
+          echo "Running: forge test ${args[*]}"
+          forge test "${args[@]}"
         env:
           # FOUNDRY_FUZZ_RUNS: 256 (Foundry default) matches the locally-
           # validated config. Earlier 10000 aspiration was never actually
@@ -191,7 +298,7 @@ jobs:
         # on the ubuntu-latest runner and blocks the job from completing
         # even with continue-on-error: true (the step itself doesn't exit
         # until coverage finishes regardless of pass/fail status). Disabled
-        # for PR-blocking CI; runs on the nightly cron with full coverage.
+        # for PR-blocking CI; would need its own larger-runner workflow.
         if: ${{ false }}
         run: forge coverage --report summary || true
         continue-on-error: true
