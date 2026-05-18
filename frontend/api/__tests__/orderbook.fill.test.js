@@ -446,7 +446,15 @@ describe("orderbook fill — F10 legacy fallback path (NULL seaport_order_hash)"
     handler = (await import("../orderbook.js")).default;
   });
 
-  it("accepts a fill when seaport_order_hash is NULL but offerer matches topic[1] from a Seaport log", async () => {
+  it("rejects a fill when seaport_order_hash is NULL even if offerer matches topic[1] (legacy fallback removed)", async () => {
+    // AUDIT FIX 2026-05-18 (frontend test): the F10 legacy fallback was
+    // intentionally REMOVED at `orderbook.js:738-743`. The prior fallback
+    // compared the event's indexed offerer to the row's `maker`, which
+    // let any attacker who could observe ANY past Seaport sale by
+    // `maker` submit that tx hash and mark an unrelated active legacy
+    // listing as filled. The production hardening rejects fills on
+    // rows without a canonical `seaport_order_hash`; users must re-list.
+    // Pre-migration rows expire on their own 7-day TTL.
     mocks.supabaseState.storedRow = { seaport_order_hash: null, maker: OFFERER, status: "active" };
 
     mocks.fetchMock.mockResolvedValueOnce({
@@ -462,10 +470,10 @@ describe("orderbook fill — F10 legacy fallback path (NULL seaport_order_hash)"
 
     const { req, res, statusSpy, jsonSpy } = makeReqRes(buildFillBody());
     await handler(req, res);
-    // Handler returns 200 implicitly via res.json without calling res.status.
-    expect(jsonSpy).toHaveBeenCalledWith({ success: true });
-    expect(statusSpy).not.toHaveBeenCalledWith(400);
-    expect(statusSpy).not.toHaveBeenCalledWith(503);
+    expect(statusSpy).toHaveBeenCalledWith(400);
+    expect(jsonSpy).toHaveBeenCalledWith({
+      error: "Legacy listing without canonical order hash cannot be marked filled; please re-list",
+    });
   });
 
   it("rejects legacy fill when topic[1] offerer does not match recorded maker", async () => {

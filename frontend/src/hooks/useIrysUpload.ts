@@ -91,6 +91,27 @@ export function useIrysUpload(): UseIrysUploadApi {
   }, []);
 
   const quote = useCallback(async (totalBytes: number) => {
+    // AUDIT FIX 2026-05-18 (frontend R044 H2): mirror the cap-check that
+    // `uploadFolder` / `uploadJson` / `uploadFile` enforce, BEFORE we
+    // initialise the Irys SDK. Without this, a user who passes a number
+    // over the cap pays the SDK init cost (wallet RPC round-trip) before
+    // discovering the upload will be rejected later. The caller path
+    // `Step4_FundUpload.tsx` already wraps `irys.quote()` in a try/catch
+    // and surfaces `(e as Error).message` to the user — so a synchronous
+    // typed reject here yields a clean pre-flight error.
+    //
+    // Also reject negative / NaN — Irys's `getPrice` accepts unsigned
+    // ints; passing -1 or NaN at best returns 0 (silent), at worst hits
+    // an unhelpful SDK error. Pre-validating keeps the failure mode
+    // typed.
+    if (!Number.isFinite(totalBytes) || totalBytes < 0) {
+      throw new PayloadTooLargeError(totalBytes, MAX_UPLOAD_BYTES_TOTAL,
+        `Quote rejected: bytes must be a non-negative finite number`);
+    }
+    if (totalBytes > MAX_UPLOAD_BYTES_TOTAL) {
+      throw new PayloadTooLargeError(totalBytes, MAX_UPLOAD_BYTES_TOTAL,
+        `Quote exceeds total ${MAX_UPLOAD_BYTES_TOTAL} bytes`);
+    }
     setStatus('quoting');
     const u = await getUploader();
     // Irys returns a BigNumber-like — coerce via string to keep bigint semantics.

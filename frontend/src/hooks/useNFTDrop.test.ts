@@ -40,7 +40,11 @@ describe('useNFTDrop', () => {
     // PUBLIC phase (=2)
     wagmiMock.setReadResult({ functionName: 'mintPhase', result: 2n });
     wagmiMock.setReadResult({ functionName: 'currentPrice', result: 10n ** 17n }); // 0.1 ETH
-    wagmiMock.setReadResult({ functionName: 'totalMinted', result: 42n });
+    // AUDIT FIX 2026-05-18 (frontend test): the hook reads the contract's
+    // `totalSupply` (ERC-721 standard) and exposes it as `totalMinted` in
+    // the hook's public surface (useNFTDrop.ts:22/33). Stubbing
+    // `totalMinted` here hit no matcher and returned undefined → 0.
+    wagmiMock.setReadResult({ functionName: 'totalSupply', result: 42n });
     wagmiMock.setReadResult({ functionName: 'maxSupply', result: 1000n });
     wagmiMock.setReadResult({ functionName: 'owner', result: USER_ADDR });
     wagmiMock.setReadResult({ functionName: 'maxPerWallet', result: 5n });
@@ -164,14 +168,22 @@ describe('useNFTDrop', () => {
   });
 
   it('isSoldOut reflects totalMinted >= maxSupply', () => {
-    wagmiMock.setReadResult({ functionName: 'totalMinted', result: 1000n });
+    // AUDIT FIX 2026-05-18 (frontend test): the hook reads the contract's
+    // `totalSupply` (ERC-721 standard) and exposes it as `totalMinted` in
+    // the hook's public surface (useNFTDrop.ts:22/33). Stubbing
+    // `totalMinted` here hit no matcher and returned undefined → 0.
+    wagmiMock.setReadResult({ functionName: 'totalSupply', result: 1000n });
     wagmiMock.setReadResult({ functionName: 'maxSupply', result: 1000n });
     let { result } = renderHook(() => useNFTDrop(DROP_ADDR));
     expect(result.current.isSoldOut).toBe(true);
 
     wagmiMock.reset();
     wagmiMock.setAccount({ address: USER_ADDR, isConnected: true });
-    wagmiMock.setReadResult({ functionName: 'totalMinted', result: 999n });
+    // AUDIT FIX 2026-05-18 (frontend test): the hook reads the contract's
+    // `totalSupply` (ERC-721 standard) and exposes it as `totalMinted` in
+    // the hook's public surface (useNFTDrop.ts:22/33). Stubbing
+    // `totalMinted` here hit no matcher and returned undefined → 0.
+    wagmiMock.setReadResult({ functionName: 'totalSupply', result: 999n });
     wagmiMock.setReadResult({ functionName: 'maxSupply', result: 1000n });
     ({ result } = renderHook(() => useNFTDrop(DROP_ADDR)));
     expect(result.current.isSoldOut).toBe(false);

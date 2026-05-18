@@ -113,8 +113,13 @@ describe('aggregator: uniform slippage propagation (R045 M1)', () => {
 
     await getMetaAggregatorQuotes('ETH', 'WETH', '1', '0xdead', 1, /* slippage */ 0.5);
 
+    // AUDIT FIX 2026-05-18 (frontend test): the aggregator was hardened to
+    // proxy SwapAPI through `/api/swapapi/*` Vercel routes (server-side
+    // key injection — `aggregator.ts:91`) so the browser never opens a
+    // connection to api.swapapi.dev directly. The old test searched for
+    // the direct-to-domain URL; match the proxy path now.
     const swapApiCall = fetchSpy.mock.calls.find(([url]) =>
-      typeof url === 'string' && url.includes('swapapi.dev'),
+      typeof url === 'string' && url.includes('/api/swapapi/'),
     );
     expect(swapApiCall).toBeDefined();
     const url = String(swapApiCall![0]);

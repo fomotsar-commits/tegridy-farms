@@ -56,6 +56,15 @@ interface WriteStatus {
   isSuccess: boolean;
   isTxError: boolean;
   hash?: Address;
+  // AUDIT FIX 2026-05-18 (frontend test mocks): `useTrackedTransactionReceipt`
+  // (R044 H3 reorg defense) reads `receiptStatus` / `blockNumber` /
+  // `errorName` from the wagmi `useWaitForTransactionReceipt` return.
+  // Surfacing them on the mock state lets the same factory drive both the
+  // existing isLoading/isSuccess/isError tests and the R044 tracked-receipt
+  // tests without each spec wiring its own extended mock.
+  receiptStatus?: 'success' | 'reverted';
+  blockNumber?: bigint;
+  errorName?: string;
 }
 
 interface WagmiMockState {
@@ -176,6 +185,13 @@ vi.mock('wagmi', () => {
     isLoading: state.writeStatus.isConfirming,
     isSuccess: state.writeStatus.isSuccess,
     isError: state.writeStatus.isTxError,
+    // AUDIT FIX 2026-05-18 (frontend test mocks): R044 H3 tracked-receipt
+    // hook reads these defensively via a typed cast (see
+    // useTransactionReceipt.ts:113-127). Forward whatever the test
+    // configured so the discriminated-state-machine assertions resolve.
+    receiptStatus: state.writeStatus.receiptStatus,
+    blockNumber: state.writeStatus.blockNumber,
+    errorName: state.writeStatus.errorName,
   });
 
   // R075: no-op so hooks using useWatchContractEvent still mount in tests.
