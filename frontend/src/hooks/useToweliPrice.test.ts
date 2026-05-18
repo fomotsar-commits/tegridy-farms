@@ -10,7 +10,20 @@ vi.mock('sonner', () => ({
 
 // storage.safeSetItem is called inside useEffect for the baseline/cache write;
 // stub to no-op so tests don't pollute real localStorage semantics.
-vi.mock('../lib/storage', () => ({ safeSetItem: vi.fn() }));
+// AUDIT FIX 2026-05-18 (test mocks): `useToweliPrice` later added
+// `safeGetItem` (versioned-cache read) and uses `safeJsonParse` (versioned-
+// cache parse) — both imports the original mock didn't surface. Use
+// `importOriginal` to keep every export and only override the write path
+// to no-op, plus force the read to return `null` so every test starts
+// from a clean "no-cache" state.
+vi.mock('../lib/storage', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/storage')>();
+  return {
+    ...actual,
+    safeSetItem: vi.fn(),
+    safeGetItem: vi.fn(() => null),
+  };
+});
 
 import { useToweliPrice } from './useToweliPrice';
 import { TOWELI_ADDRESS, TOWELI_WETH_LP_ADDRESS, ETH_USD_FEED } from '../lib/constants';
