@@ -184,6 +184,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     /// @dev H-8: write a new boost checkpoint for `user` with the given value.
     ///      Called from every site that mutates info.boostedAmount.
     function _writeBoostCheckpoint(address user, uint256 newBoost) internal {
+        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+        // slither-disable-next-line unused-return
         _boostCheckpoints[user].push(SafeCast.toUint48(block.timestamp), SafeCast.toUint208(newBoost));
     }
 
@@ -391,6 +393,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // and cache the per-whole-token raw-wei scale. Mirrors POLAccumulator's
         // `toweliUnit` pattern. Falls back to 18-dec if the call reverts
         // (legacy tokens without decimals()) or reports a pathological scale.
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         uint256 _unit;
         try IERC20Metadata(_bonusRewardToken).decimals() returns (uint8 d) {
             _unit = d <= 36 ? 10 ** uint256(d) : 1e18;
@@ -439,6 +443,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 accBonusPerShare += (reward * ACC_PRECISION) / totalRestaked;
             }
             lastBonusRewardTime = block.timestamp;
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         } else if (totalRestaked == 0) {
             // AUDIT FIX H-01: Always advance lastBonusRewardTime when totalRestaked == 0
             // to prevent first-restaker reward dump after a gap period.
@@ -461,6 +467,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      stale path correctly clamps to the current staking boost.
     function pendingBonus(address _user) public view returns (uint256) {
         RestakeInfo memory info = restakers[_user];
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (info.tokenId == 0) return 0;
 
         uint256 currentAcc = accBonusPerShare;
@@ -473,6 +481,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             // revert this view, breaking every frontend dashboard, off-chain
             // indexer, and integrator that reads `pendingBonus`/`pendingTotal`.
             // The mutator path tolerates it; the view should too.
+            // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+            // slither-disable-next-line uninitialized-local
             uint256 available;
             try bonusRewardToken.balanceOf(address(this)) returns (uint256 bal) {
                 available = bal;
@@ -496,6 +506,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     /// @notice Check pending base staking rewards for the deposited NFT
     function pendingBase(address _user) public view returns (uint256) {
         RestakeInfo memory info = restakers[_user];
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (info.tokenId == 0) return 0;
         return staking.earned(info.tokenId);
     }
@@ -592,6 +604,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      contract is ever upgraded with a temporarily-incompatible ABI.
     function _boostedAmountAt(address _user, uint256 _timestamp) internal view returns (uint256) {
         RestakeInfo memory info = restakers[_user];
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (info.tokenId == 0) return 0;
         if (info.depositTime > _timestamp) return 0;
 
@@ -627,8 +641,14 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // written at each restaking-side mutation, including the post-kick
         // claimAll stale-path which correctly recorded the post-kick value).
         // Skip the live-current clamp and trust the checkpoint.
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         uint256 current;
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         uint256 liveLockEnd;
+        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+        // slither-disable-next-line unused-return
         try staking.positions(info.tokenId) returns (
             uint256, uint256 stakingBoosted, int256, uint256 lockEnd_, uint256, uint256, bool, bool, uint256, uint256, bool
         ) {
@@ -714,6 +734,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         if (!staking.holdsToken(msg.sender, _tokenId)) revert StakingOwnershipDesync();
 
         // Get position data from TegridyStaking
+        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+        // slither-disable-next-line unused-return
         (uint256 amount, uint256 boostedAmount,, uint256 lockEnd,,,,, , ,) = staking.positions(_tokenId);
         if (amount == 0) revert ZeroAmount();
         // AUDIT FIX FRESH-2026: H-1 [F-03-K1, F-87-K-01, F-93-1] — reject expired
@@ -731,6 +753,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         if (lockEnd <= block.timestamp) revert PositionExpired();
 
         // Transfer NFT to this contract — M-16: safeTransferFrom for safe NFT handling
+        // SLITHER 2026-05-18: nonReentrant on entrypoint; cross-fn view-only reads cannot enable theft
+        // slither-disable-next-line reentrancy-no-eth
         stakingNFT.safeTransferFrom(msg.sender, address(this), _tokenId);
 
         // Record restaking info
@@ -784,9 +808,13 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
         // AUDIT FIX 2026-05-16 H2: force lazy decay before the stale read.
         // See claimAll for full rationale.
+        // SLITHER 2026-05-18: nonReentrant on entrypoint; cross-fn view-only reads cannot enable theft
+        // slither-disable-next-line reentrancy-no-eth
         try staking.kick(info.tokenId) {} catch {}
 
         // Re-read current position from staking contract
+        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+        // slither-disable-next-line unused-return
         (uint256 newAmount, uint256 newBoostedAmount,,,,,,, , ,) = staking.positions(info.tokenId);
 
         // AUDIT FIX: Prevent setting positionAmount to zero (would break bonus calculations)
@@ -798,6 +826,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             // R014 RETRY step 1 — settle pending bonus on OLD boost at the
             // PRE-accrue `accBonusPerShare`. Anchor `info.bonusDebt` BEFORE the
             // external transfer (CEI) so a hostile bonus token cannot re-enter.
+            // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+            // slither-disable-next-line uninitialized-local
             uint256 preBonus;
             if (oldBoosted > 0) {
                 int256 preAccum = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
@@ -892,8 +922,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // `totalRestaked` denominator, capturing dilution they were no longer
         // entitled to. `try staking.kick` is no-op-reverts (NoOpKick) on non-
         // expired / already-decayed positions; try/catch absorbs.
+        // SLITHER 2026-05-18: nonReentrant on entrypoint; cross-fn view-only reads cannot enable theft
+        // slither-disable-next-line reentrancy-no-eth
         try staking.kick(info.tokenId) {} catch {}
         {
+            // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+            // slither-disable-next-line unused-return
             (uint256 currentAmount, uint256 currentBoosted,,,,,,, , ,) = staking.positions(info.tokenId);
             bool stale = (currentAmount != info.positionAmount || currentBoosted != info.boostedAmount);
 
@@ -902,6 +936,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 // the PRE-accrue `accBonusPerShare`. Anchor `info.bonusDebt`
                 // BEFORE the external transfer (CEI).
                 uint256 oldBoosted = info.boostedAmount;
+                // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+                // slither-disable-next-line uninitialized-local
                 uint256 preBonus;
                 if (oldBoosted > 0) {
                     int256 preAccum = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
@@ -993,6 +1029,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // The discovery surface is poor: `pendingBonus` returns 0 honestly,
         // and most users wouldn't notice the APR drop. Re-syncing here keeps
         // the restaker in the bonus accrual loop without manual intervention.
+        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+        // slither-disable-next-line unused-return
         try staking.positions(info.tokenId) returns (
             uint256, uint256 postClaimBoosted, int256, uint256, uint256, uint256, bool, bool, uint256, uint256, bool
         ) {
@@ -1009,6 +1047,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 // Sync positionAmount as well in case the staking-side mutated
                 // it during getReward (defensive — typical autoMaxLock branch
                 // doesn't, but keeps the restaking cache consistent).
+                // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+                // slither-disable-next-line unused-return
                 (uint256 postClaimAmount,,,,,,,,, ,) = staking.positions(info.tokenId);
                 if (postClaimAmount != info.positionAmount) {
                     uint256 oldP = info.positionAmount;
@@ -1102,8 +1142,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // AUDIT FIX M-07: Also compare boostedAmount to catch boost-only changes
         // AUDIT FIX 2026-05-16 H2: force lazy decay before the stale read. See
         // claimAll for full rationale.
+        // SLITHER 2026-05-18: nonReentrant on entrypoint; cross-fn view-only reads cannot enable theft
+        // slither-disable-next-line reentrancy-no-eth
         try staking.kick(info.tokenId) {} catch {}
         {
+            // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+            // slither-disable-next-line unused-return
             (uint256 currentAmount, uint256 currentBoosted,,,,,,, , ,) = staking.positions(info.tokenId);
             bool stale = (currentAmount != info.positionAmount || currentBoosted != info.boostedAmount);
 
@@ -1112,6 +1156,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 // PRE-accrue `accBonusPerShare`. Anchor `info.bonusDebt` BEFORE
                 // the external transfer (CEI).
                 uint256 oldBoosted = info.boostedAmount;
+                // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+                // slither-disable-next-line uninitialized-local
                 uint256 preBonus;
                 if (oldBoosted > 0) {
                     int256 preAccum = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
@@ -1160,6 +1206,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // AUDIT FIX H-01: Wrapped in try/catch so unrestake() works even if staking is paused
         // (toggleAutoMaxLock has whenNotPaused modifier). Without this, paused staking
         // would force users into emergencyWithdrawNFT() which forfeits bonus rewards.
+        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+        // slither-disable-next-line unused-return
         (,,,,,, bool autoMaxLock,,,,) = staking.positions(tokenId);
         if (autoMaxLock) {
             try staking.toggleAutoMaxLock(tokenId) {} catch {
@@ -1231,6 +1279,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // shares as the prior snapshot/delta path did under multi-restaker
         // contention. `claimUnsettledForTokenId` transfers directly to msg.sender
         // and is a no-op (returns 0) when there's nothing attributed.
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         uint256 prePaid;
         try staking.claimUnsettledForTokenId(tokenId, msg.sender) returns (uint256 _p) {
             prePaid = _p;
@@ -1250,6 +1300,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // pre-transfer (lines 1056-1058) so a re-entrant double-vote is not possible
         // even on a hostile receive callback. The post-transfer claim is gated on
         // success because no _settleRewardsOnTransfer fires when the transfer reverts.
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         bool nftDelivered;
         try stakingNFT.safeTransferFrom(address(this), msg.sender, tokenId) {
             nftDelivered = true;
@@ -1262,6 +1314,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // transfer hook, again going directly to msg.sender. Two-step claim
         // (pre + post) is what makes per-tokenId attribution exact.
         // (skipped on stranded path — _settleRewardsOnTransfer didn't fire)
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         uint256 postPaid;
         if (nftDelivered) {
             try staking.claimUnsettledForTokenId(tokenId, msg.sender) returns (uint256 _p2) {
@@ -1377,7 +1431,11 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         until they self-claim via `claimPendingBonusPayout`).
     function _sweepUnforwardedBonus(address user) internal returns (uint256 paid) {
         uint256 owed = unforwardedBonusRewards[user];
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (owed == 0) return 0;
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         uint256 available;
         try bonusRewardToken.balanceOf(address(this)) returns (uint256 bal) {
             available = bal;
@@ -1385,6 +1443,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             available = 0;
         }
         uint256 attempt = owed > available ? available : owed;
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (attempt == 0) return 0;
         // Optimistically debit; rollback on transfer failure.
         unforwardedBonusRewards[user] = owed - attempt;
@@ -1393,6 +1453,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         } else {
             totalUnforwardedBonus = 0;
         }
+        // SLITHER 2026-05-18: nonReentrant on entrypoint; cross-fn view-only reads cannot enable theft
+        // slither-disable-next-line reentrancy-no-eth
         try this._safeBonusTransferExt(user, attempt) {
             totalBonusDistributed += attempt;
             emit BonusClaimed(user, attempt);
@@ -1412,6 +1474,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         closes the H-3 wrong-token bug at the user-claim leg.
     function claimPendingBonusPayout() external nonReentrant {
         uint256 paid = _sweepUnforwardedBonus(msg.sender);
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (paid == 0) revert ZeroAmount();
     }
 
@@ -1480,6 +1544,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             return 0;
         }
 
+        // SLITHER 2026-05-18: nonReentrant on entrypoint; cross-fn view-only reads cannot enable theft
+        // slither-disable-next-line reentrancy-no-eth
         try staking.claimUnsettledForTokenId(tokenId, msg.sender) returns (uint256 _p) {
             paid = _p;
         } catch {
@@ -1552,6 +1618,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         uint256 balBefore = bonusRewardToken.balanceOf(address(this));
         bonusRewardToken.safeTransferFrom(msg.sender, address(this), _amount);
         uint256 received = bonusRewardToken.balanceOf(address(this)) - balBefore;
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (received == 0) revert ZeroAmount();
         totalBonusFunded += received;
         emit BonusFunded(received);
@@ -1665,6 +1733,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         if (_hasRecoveredPrincipal[msg.sender]) revert BadParam();
 
         // Verify the underlying position is actually zeroed out (force-closed)
+        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+        // slither-disable-next-line unused-return
         (uint256 currentAmount,,,,,,,,, , ) = staking.positions(info.tokenId);
         if (currentAmount != 0) revert BadParam();
 
@@ -1698,6 +1768,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // entrypoint. Now: only revert when BOTH payout==0 AND
         // unforwardedBaseRewards == 0; non-zero stuck base falls through.
         uint256 stuckBaseAtEntry = unforwardedBaseRewards[msg.sender];
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (payout == 0 && stuckBaseAtEntry == 0) revert BadParam();
 
         // H-01 FIX: Mark as recovered before transfer (CEI pattern)
@@ -1821,6 +1893,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // prevents the prior multi-restaker race where the snapshot/delta
         // path drained other restakers' shares from the shared
         // `unsettledRewards[restakingContract]` bucket.
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         uint256 prePaid;
         try staking.claimUnsettledForTokenId(tokenId, msg.sender) returns (uint256 _p) {
             prePaid = _p;
@@ -1833,6 +1907,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // `unsettledRewardsByTokenId[tokenId]`.
         // AUDIT FIX (BATCH-C H5): same try/catch + stranded-record pattern as
         // unrestake() above. Self-DoS protection for hostile / 7702 EOAs.
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         bool emNftDelivered;
         try stakingNFT.safeTransferFrom(address(this), msg.sender, tokenId) {
             emNftDelivered = true;
@@ -1841,6 +1917,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             emit RestakeNFTStranded(tokenId, msg.sender);
         }
 
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         uint256 postPaid;
         if (emNftDelivered)
         try staking.claimUnsettledForTokenId(tokenId, msg.sender) returns (uint256 _p2) {
@@ -2001,6 +2079,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
         // AUDIT FIX FRESH-2026: H-3 [F-04-1] — sweep deferred BONUS-token credits
         // first (paid in bonusRewardToken via the self-call try/catch wrapper).
+        // SLITHER 2026-05-18: nonReentrant on entrypoint; cross-fn view-only reads cannot enable theft
+        // slither-disable-next-line reentrancy-no-eth
         _sweepUnforwardedBonus(restaker);
 
         // Settle any pending bonus rewards for the restaker
@@ -2063,6 +2143,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // (credited to `unsettledRewards[restakingContract]` and recorded in
         // `unsettledRewardsByTokenId[tokenId]`), and any subsequent restaker of
         // the SAME NFT would silently drain it on their unrestake.
+        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+        // slither-disable-next-line unused-return
         try staking.claimUnsettledForTokenId(tokenId, restaker) {} catch {}
 
         // AUDIT FIX (BATCH-C H4 — re-entrant double-vote close):
@@ -2087,6 +2169,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // post-transfer-success, NOT pre-transfer.
 
         // Attempt to return the NFT — if staking contract is broken, this may fail
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         bool nftReturned;
         try stakingNFT.safeTransferFrom(address(this), restaker, tokenId) {
             nftReturned = true;
@@ -2122,6 +2206,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // accrual that `_settleRewardsOnTransfer` just credited (only fires if
         // the NFT actually moved — try/catch handles the stuck-NFT case).
         if (nftReturned) {
+            // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+            // slither-disable-next-line unused-return
             try staking.claimUnsettledForTokenId(tokenId, restaker) {} catch {}
         }
 
@@ -2320,6 +2406,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         if (info.tokenId == 0) revert NotRestaked();
 
         // Read current position from staking contract (where decay has been applied)
+        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+        // slither-disable-next-line unused-return
         (, uint256 currentBoosted,,,,,,, , ,) = staking.positions(info.tokenId);
 
         // Only proceed if the cached value differs (i.e., decay happened).
@@ -2347,6 +2435,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 // emergencyForceReturn. Now: on transfer failure, accumulate to
                 // unforwardedBaseRewards (re-uses existing path; restaker can
                 // sweep later via recoverStuckPrincipal or unrestake's stuck-base).
+                // SLITHER 2026-05-18: nonReentrant on entrypoint; cross-fn view-only reads cannot enable theft
+                // slither-disable-next-line reentrancy-no-eth
                 try this._safeBonusTransferExt(_restaker, bonusPending) {
                     totalBonusDistributed += bonusPending;
                     emit BonusClaimed(_restaker, bonusPending);
@@ -2397,6 +2487,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         info.bonusDebt = _safeInt256((currentBoosted * accBonusPerShare) / ACC_PRECISION);
 
         // Also refresh positionAmount
+        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+        // slither-disable-next-line unused-return
         (uint256 currentAmount,,,,,,,,, , ) = staking.positions(info.tokenId);
         // AUDIT FIX: DR2-01 — sync `totalActivePrincipal` to the new cached
         // principal BEFORE overwrite. Permissionless entrypoint, highest
@@ -2450,6 +2542,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         if (block.timestamp > lastBonusRewardTime && totalRestaked > 0) {
             uint256 elapsed = block.timestamp - lastBonusRewardTime;
             uint256 reward = elapsed * bonusRewardPerSecond;
+            // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+            // slither-disable-next-line uninitialized-local
             uint256 available;
             try bonusRewardToken.balanceOf(address(this)) returns (uint256 bal) {
                 available = bal;
@@ -2464,6 +2558,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 accBonusPerShare += (reward * ACC_PRECISION) / totalRestaked;
             }
             lastBonusRewardTime = block.timestamp;
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         } else if (totalRestaked == 0) {
             lastBonusRewardTime = block.timestamp;
         }

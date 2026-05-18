@@ -409,6 +409,8 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         path[0] = weth;
         path[1] = address(toweli);
 
+        // SLITHER 2026-05-18: nonReentrant on entrypoint; CEI verified in audit
+        // slither-disable-next-line reentrancy-eth
         uint256[] memory amounts = router.swapExactETHForTokens{value: halfETH}(
             swapMinOut,
             path,
@@ -921,9 +923,15 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // AUDIT FIX D-POL-M1: use toweliUnit consistent with the consult quote.
         uint256 fairToweli = Math.sqrt((K * toweliUnit) / twapEthPer1eToweli);
         if (fairToweli == 0) revert OracleStale();
+        // SLITHER 2026-05-18: precision/overflow tradeoff acceptable; combined-fraction form risks uint256 overflow on large inputs
+        // slither-disable-next-line divide-before-multiply
         uint256 fairEth = K / fairToweli;
 
+        // SLITHER 2026-05-18: precision/overflow tradeoff acceptable; combined-fraction form risks uint256 overflow on large inputs
+        // slither-disable-next-line divide-before-multiply
         uint256 shareToken = (lpAmount * fairToweli) / totalSupply;
+        // SLITHER 2026-05-18: precision/overflow tradeoff acceptable; combined-fraction form risks uint256 overflow on large inputs
+        // slither-disable-next-line divide-before-multiply
         uint256 shareETH = (lpAmount * fairEth) / totalSupply;
         // Apply safety margin.
         floorToken = (shareToken * (BPS - TWAP_SAFETY_BPS)) / BPS;

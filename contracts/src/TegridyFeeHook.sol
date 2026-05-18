@@ -612,6 +612,8 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         // have moved earlier accruals to revenueDistributor's stuck ERC20 balance —
         // the hook only gets here if its own balance is non-zero.
         uint256 amount = IERC20(currency).balanceOf(address(this));
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (amount == 0) revert NothingToConvert();
 
         // Decrement accruedFees by the amount we're about to swap (capped by the
@@ -623,6 +625,8 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
         // CEI ordering: swap → forward.
         IERC20(currency).forceApprove(router, amount);
         uint256 ethBefore = address(this).balance;
+        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+        // slither-disable-next-line unused-return
         ITegridyFeeHookV2Router(router).swapExactTokensForETH(
             amount,
             minETHOut,

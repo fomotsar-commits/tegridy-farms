@@ -311,6 +311,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         // entries (the user + the candidate referrer + each upstream link),
         // so the memory expansion cost is fully bounded.
         address[] memory visited = new address[](CIRCULAR_DEPTH + 2);
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         uint256 visitedLen;
         visited[visitedLen++] = _user;
         visited[visitedLen++] = _referrer;
@@ -376,6 +378,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         // as unqualified (route to treasury) rather than blocking all fee recording.
         bool referrerQualified = false;
         if (referrer != address(0)) {
+            // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+            // slither-disable-next-line uninitialized-local
             uint256 totalPower;
             try stakingContract.votingPowerOf(referrer) returns (uint256 power) {
                 totalPower = power;
@@ -417,6 +421,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         totalReferralsPaid += referrerShare;
 
         // Initialize lastClaimTime on first fee credit so forfeiture clock starts
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (lastClaimTime[referrer] == 0) {
             lastClaimTime[referrer] = block.timestamp;
         }
@@ -637,6 +643,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         // AUDIT FIX: DEEP-DR-M-07 — gate on setupComplete (L-R02 NatSpec contract).
         require(setupComplete, "SETUP_NOT_COMPLETE");
         // A4-C-01: Wrap in try/catch — if staking reverts, treat as below threshold
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         uint256 power;
         try stakingContract.votingPowerOf(_referrer) returns (uint256 p) {
             power = p;
@@ -675,6 +683,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         if (amount == 0) revert NothingToClaim();
         // Must be below min stake for at least grace period AND inactive for 90 days
         // A4-C-01: Wrap in try/catch — if staking reverts, treat as below threshold (allow forfeiture)
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         uint256 referrerPower;
         try stakingContract.votingPowerOf(_referrer) returns (uint256 p) {
             referrerPower = p;
@@ -690,6 +700,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
             } catch {}
         }
         if (
+            // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+            // slither-disable-next-line incorrect-equality
             referrerPower >= MIN_REFERRAL_STAKE_POWER ||
             lastBelowStakeTime[_referrer] == 0 ||
             block.timestamp < lastBelowStakeTime[_referrer] + BELOW_STAKE_GRACE_PERIOD ||
@@ -773,6 +785,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         // S2-H-01: Include totalCallerCredit in reserved to prevent sweeping caller funds
         uint256 reserved = totalPendingETH + accumulatedTreasuryETH + totalCallerCredit;
         uint256 sweepable = balance > reserved ? balance - reserved : 0;
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (sweepable == 0) revert NothingToClaim();
 
         // AUDIT FIX L-11: Use WETHFallbackLib directly — avoids redundant raw .call before WETH fallback

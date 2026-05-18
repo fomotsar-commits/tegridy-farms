@@ -1128,6 +1128,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         // Validate collateral: check position value meets minimum
         ITegridyStaking staking = ITegridyStaking(collateralContract);
+        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+        // slither-disable-next-line unused-return
         (uint256 positionAmount,, uint256 lockEnd,,,) = staking.getPosition(_tokenId);
         if (positionAmount < minPositionValue) revert InsufficientCollateralValue();
 
@@ -1249,6 +1251,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 offerId = loan.offerId;
 
         if (msg.sender != borrower) revert NotBorrower();
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (block.timestamp == startTime) revert LoanTooRecent();
 
         // AUDIT FIX: DEEP-LD-M7 — gate on deadline+grace BEFORE state mutation
@@ -1773,6 +1777,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan storage loan = loans[_loanId];
         uint256 elapsed = pauseAdjustedElapsed(_loanId);
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (elapsed == 0) return 0;
         interest = Math.mulDiv(
             loan.principal * loan.aprBps,
@@ -2157,6 +2163,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         //         [_loanId]` — already loan-specific.
         if (!nftHeldHere) {
             uint256 lendingBefore = IERC20(toweli).balanceOf(address(this));
+            // SLITHER 2026-05-18: FoT balance-delta pattern; nonReentrant on entrypoint; nonReentrant on entrypoint; cross-fn view-only reads cannot enable theft; intentional tuple destructure; external interface tuple shape is fixed
+            // slither-disable-next-line reentrancy-balance,reentrancy-no-eth,unused-return
             try staking.claimUnsettledForTokenId(loan.tokenId, address(this)) returns (uint256) {
                 uint256 received = IERC20(toweli).balanceOf(address(this)) - lendingBefore;
                 uint256 toRecipient = received > owed ? owed : received;
@@ -2197,10 +2205,14 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
             owed = escrowRewardsOwed[_loanId];
         }
 
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (owed == 0) {
             // No legacy attribution — direct path is the only payout. Revert
             // ONLY if neither leg paid anything, so a no-op call still gives a
             // typed error rather than a silent zero-cost succeed.
+            // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+            // slither-disable-next-line incorrect-equality
             if (directPaid == 0) revert NoEscrowRewards();
             emit EscrowRewardsPaid(_loanId, recipient, 0, directPaid);
             return;
@@ -2213,6 +2225,8 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 available = IERC20(toweli).balanceOf(address(this));
         uint256 total = totalEscrowRewardsOwed;
         uint256 payout;
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
         if (available == 0 || total == 0) {
             payout = 0;
         } else if (available >= total) {

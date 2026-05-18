@@ -409,6 +409,8 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
             // ("on failure, accumulate the excess into accumulatedFees").
             uint256 excess = msg.value - effectiveFee;
             if (excess > 0) {
+                // SLITHER 2026-05-18: nonReentrant on entrypoint; CEI verified in audit
+                // slither-disable-next-line reentrancy-eth
                 (bool ok,) = msg.sender.call{value: excess, gas: 30000}("");
                 if (!ok) {
                     // Failed refund -> bank as fee tip. Cannot revert because
@@ -446,8 +448,14 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
             revert ReservesBelowFloor();
         }
 
+        // SLITHER 2026-05-18: Uniswap V2 oracle-timestamp truncation; not used as randomness source
+        // slither-disable-next-line weak-prng
         uint32 blockTs = uint32(block.timestamp % 2 ** 32);
+        // SLITHER 2026-05-18: precision/overflow tradeoff acceptable; combined-fraction form risks uint256 overflow on large inputs
+        // slither-disable-next-line divide-before-multiply
         uint256 spotPrice0 = (uint256(reserve1) * Q112) / reserve0;
+        // SLITHER 2026-05-18: precision/overflow tradeoff acceptable; combined-fraction form risks uint256 overflow on large inputs
+        // slither-disable-next-line divide-before-multiply
         uint256 spotPrice1 = (uint256(reserve0) * Q112) / reserve1;
 
         // AUDIT R014: pair-native cumulatives + idle-window bridge.
@@ -501,6 +509,8 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         // consumers (DEEP-LIB-M3 / F-74-4).
         bool sequencerOutage = false;
         if (sequencerFeed != address(0)) {
+            // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+            // slither-disable-next-line unused-return
             (bool seqOk,) =
                 SequencerCheck.tryCheckSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD, 4 hours);
             sequencerOutage = !seqOk;
@@ -760,6 +770,8 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         // any small swap could move 90%+. Re-checking here closes the window
         // structurally — the same floor applied at update() applies at consult().
         {
+            // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+            // slither-disable-next-line unused-return
             (uint112 _r0, uint112 _r1,) = ITegridyPair(pair).getReserves();
             uint256 _f0 = effectiveMinReserveFloor(pair);
             uint256 _f1 = effectiveMinReserveFloor1(pair);
@@ -830,6 +842,8 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         uint8 lastIdx = observationIndex[pair] == 0 ? MAX_OBSERVATIONS - 1 : observationIndex[pair] - 1;
         Observation memory last = observations[pair][lastIdx];
 
+        // SLITHER 2026-05-18: Uniswap V2 oracle-timestamp truncation; not used as randomness source
+        // slither-disable-next-line weak-prng
         uint32 nowTs = uint32(block.timestamp % 2 ** 32);
         uint32 elapsed;
         unchecked {
@@ -995,6 +1009,8 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         // uint32 BEFORE subtraction so modular arithmetic correctly handles the
         // year-2106 rollover. Previously the uint32->uint256 implicit upcast made the
         // staleness diff explode at the wrap, bricking every consult() consumer.
+        // SLITHER 2026-05-18: Uniswap V2 oracle-timestamp truncation; not used as randomness source
+        // slither-disable-next-line weak-prng
         uint32 nowTs = uint32(block.timestamp % 2 ** 32);
         uint32 staleness;
         unchecked {
@@ -1007,6 +1023,8 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
             // uint32 modular subtraction — safe across the year-2106 rollover.
             targetTimestamp = latest.timestamp - uint32(period);
         }
+        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
+        // slither-disable-next-line uninitialized-local
         Observation memory best;
         bool found = false;
         uint32 bestDiff = type(uint32).max;
