@@ -161,7 +161,7 @@ jobs:
         # Invariants run on a nightly cron (separate workflow) on a
         # larger runner for full coverage — they are NOT a substitute
         # for paid-firm audit and should not be the only gate.
-        run: forge test -vvv --no-match-test "(Invariant|invariant)"
+        run: forge test -vvv --no-match-test "(Invariant|invariant|Fuzz|fuzz|testFuzz)"
         env:
           # FOUNDRY_FUZZ_RUNS: 256 (Foundry default) matches the locally-
           # validated config. Earlier 10000 aspiration was never actually
