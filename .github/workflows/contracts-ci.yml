@@ -180,5 +180,11 @@ jobs:
           FOUNDRY_FUZZ_RUNS: 256
 
       - name: Coverage summary (best-effort)
+        # CI fix 2026-05-17: forge coverage on this codebase takes 15-30 min
+        # on the ubuntu-latest runner and blocks the job from completing
+        # even with continue-on-error: true (the step itself doesn't exit
+        # until coverage finishes regardless of pass/fail status). Disabled
+        # for PR-blocking CI; runs on the nightly cron with full coverage.
+        if: ${{ false }}
         run: forge coverage --report summary || true
         continue-on-error: true
