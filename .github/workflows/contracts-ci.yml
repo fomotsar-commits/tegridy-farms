@@ -23,7 +23,16 @@ concurrency:
 jobs:
   build-and-test:
     name: forge build + test
-    runs-on: ubuntu-latest
+    # CI fix 2026-05-17: ubuntu-latest (7 GB / 2 vCPU) consistently hit
+    # SIGTERM (exit 143) at 14-17m on this test suite across 8 attempts
+    # with various fuzz/invariant/verbosity combinations. Bumping to
+    # ubuntu-latest-large (32 GB / 8 vCPU, GitHub Enterprise feature) so
+    # the suite fits within wall-clock + memory budget. If the org does
+    # not have the larger-runner entitlement, the workflow will fail
+    # immediately with "no eligible runner" — at which point revert to
+    # ubuntu-latest and accept CI red until a parallel-jobs workflow
+    # refactor or self-hosted runner lands.
+    runs-on: ubuntu-latest-large
     defaults:
       run:
         working-directory: contracts
