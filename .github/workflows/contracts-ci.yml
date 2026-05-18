@@ -22,15 +22,34 @@ concurrency:
 
 jobs:
   build-and-test:
-    name: forge build + test
-    # CI fix 2026-05-17: ubuntu-latest (7 GB / 2 vCPU) consistently hits
-    # SIGTERM (exit 143) at 14-17m on this test suite. Tried
-    # ubuntu-latest-large (this org doesn't have the entitlement — queue
-    # sat pending 7+ min). Reverted to ubuntu-latest. Real fixes need
-    # either: (a) self-hosted runner, (b) parallel-jobs workflow refactor,
-    # or (c) GitHub Enterprise larger-runner entitlement. None are
-    # in-scope for the security audit PR that exposed this issue.
+    name: forge build + test (${{ matrix.shard.name }})
+    # CI fix 2026-05-18: matrix-shard the test suite into 4 parallel jobs
+    # so each runner handles ~25-30% of tests and stays under the 7 GB /
+    # 2 vCPU ubuntu-latest memory budget. Prior attempts (-vvv → default
+    # verbosity, fuzz 10000 → 256, ubuntu-latest-large entitlement,
+    # --skip test/--skip script on build) all delayed the SIGTERM but
+    # could not move the wall-clock through the 2627-test sweep before
+    # the runner watchdog killed the step at 14-17m.
+    #
+    # Sharding distribution (test/*.t.sol file counts):
+    #   A      35  (Audit195_*, AuditFixes_*, AuditMicroscope_*,  AuditDemonstration*)
+    #   C-V    27  (Codebase miscellanea: C/D/F/G/L/M/S/V prefixes — small files)
+    #   P-R    37  (Phase*, Post*, Pre*, R014*, R016*, etc.)
+    #   T      20  (Tegridy* — the core contract direct-name tests)
+    #   Total 119
+    # The four shards run in parallel; `fail-fast: false` keeps successful
+    # shards reporting even if one fails. Build + size budget run inside
+    # each shard (cache hit makes the build leg ~1 min after the first
+    # run primes the cache).
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - { name: "A",        path: "^test/A.*\\.t\\.sol$" }
+          - { name: "C-V misc", path: "^test/[CDFGLMSV].*\\.t\\.sol$" }
+          - { name: "P-R",      path: "^test/[PR].*\\.t\\.sol$" }
+          - { name: "T",        path: "^test/T.*\\.t\\.sol$" }
     defaults:
       run:
         working-directory: contracts
@@ -176,7 +195,13 @@ jobs:
         # ~15-17m consistently in 5 prior attempts with -vvv; default
         # verbosity emits one line per failure (sufficient for triage) and
         # should bring the runtime well under budget.
-        run: forge test --no-match-test "(Invariant|invariant|Fuzz|fuzz|testFuzz)"
+        #
+        # CI fix 2026-05-18: per-shard `--match-path` regex limits each
+        # parallel job to ~25-30% of the file count. forge's incremental
+        # compile keeps build-leg artifacts shared via the cache; the
+        # test leg only compiles the matched test files for THIS shard,
+        # cutting memory pressure proportionally.
+        run: forge test --no-match-test "(Invariant|invariant|Fuzz|fuzz|testFuzz)" --match-path "${{ matrix.shard.path }}"
         env:
           # FOUNDRY_FUZZ_RUNS: 256 (Foundry default) matches the locally-
           # validated config. Earlier 10000 aspiration was never actually
