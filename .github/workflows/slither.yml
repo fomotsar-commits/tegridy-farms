@@ -59,3 +59,17 @@ jobs:
         uses: github/codeql-action/upload-sarif@c1f0c97bcb634b400fc376ab260a5f187961f8e0 # v3.26.10
         with:
           sarif_file: ${{ steps.slither.outputs.sarif }}
+
+      # DEBUG (temporary): upload slither's raw JSON report so we can diff
+      # against local runs when the Medium+ count diverges. Drop this step
+      # once CI is reliably green on `fail-on: medium`.
+      - name: Upload Slither raw report (debug)
+        if: always()
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: slither-report
+          path: |
+            slither-report.json
+            slither-report.sarif
+            slither.sarif
+          if-no-files-found: warn
