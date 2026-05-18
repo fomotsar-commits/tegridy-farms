@@ -28,17 +28,20 @@ import { test, expect } from './fixtures/wallet';
 
 test.describe('Gauge voting UI (commit-reveal)', () => {
   test('community page loads with mock wallet connected', async ({ page, walletMock }) => {
-    await walletMock.connect();
+    // Navigate FIRST — `__walletMock` is installed via addInitScript and only
+    // exists after the page document has loaded. Calling `connect()` against
+    // about:blank throws "Cannot read properties of undefined (reading 'connect')".
     await page.goto('/community');
+    await walletMock.connect();
     await expect(page.locator('h1')).toContainText(/community/i);
   });
 
   test('gauge-voting panel mounts without crashing under mock reads', async ({ page, walletMock }) => {
-    await walletMock.connect();
     // Canned contract reads: mock returns 0x0 for any eth_call we don't
     // explicitly override, so the page's useReadContract hooks resolve to
     // empty/zero state. We assert no fatal error bubbled up.
     await page.goto('/community');
+    await walletMock.connect();
     // Look for the top-level role="tablist" to prove CommunityPage rendered.
     const tablist = page.locator('[role="tablist"]').first();
     await expect(tablist).toBeVisible();
@@ -50,11 +53,11 @@ test.describe('Gauge voting UI (commit-reveal)', () => {
 
 test.describe('Launchpad cancelled-sale refund surface', () => {
   test('collection page with unknown slug gracefully falls back', async ({ page, walletMock }) => {
-    await walletMock.connect();
     // We don't have a deterministic cancelled drop to point at in a mock
     // environment, so this test just confirms the launchpad index renders
     // and the lending tab containing the launchpad section is reachable.
     await page.goto('/lending');
+    await walletMock.connect();
     await expect(page.locator('h1')).toContainText(/NFT Finance/i);
   });
 });

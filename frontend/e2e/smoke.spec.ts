@@ -19,7 +19,10 @@ test.describe('Smoke Tests', () => {
 
   test('farm page loads', async ({ page }) => {
     await page.goto('/farm');
-    await expect(page.locator('h1')).toContainText(/farm|stake/i);
+    // FarmPage doesn't use an h1 — the heading is rendered via heading-luxury
+    // styling on an h2 inside ConnectPrompt / StakePanel. Title (set via
+    // usePageTitle) is the authoritative source for "did this route mount".
+    await expect(page).toHaveTitle(/Farm/i);
   });
 
   test('swap page loads', async ({ page }) => {
@@ -30,7 +33,10 @@ test.describe('Smoke Tests', () => {
   test('community page loads with tabs', async ({ page }) => {
     await page.goto('/community');
     await expect(page.locator('h1')).toContainText(/community/i);
-    const tablist = page.locator('[role="tablist"]');
+    // The page renders multiple role="tablist" elements (page-level Community
+    // tabs + the gauge-voting subtabs). Scope to the first one — that's the
+    // top-level navigation we care about for this smoke.
+    const tablist = page.locator('[role="tablist"]').first();
     await expect(tablist).toBeVisible();
     const tabs = tablist.locator('[role="tab"]');
     await expect(tabs).toHaveCount(4);
@@ -39,7 +45,8 @@ test.describe('Smoke Tests', () => {
   test('lending page loads with tabs', async ({ page }) => {
     await page.goto('/lending');
     await expect(page.locator('h1')).toContainText(/NFT Finance/i);
-    const tablist = page.locator('[role="tablist"]');
+    // Same multi-tablist pattern as community — scope to first.
+    const tablist = page.locator('[role="tablist"]').first();
     await expect(tablist).toBeVisible();
   });
 
@@ -55,9 +62,11 @@ test.describe('Smoke Tests', () => {
 
   test('faq page loads and has search', async ({ page }) => {
     await page.goto('/faq');
-    // FAQ page h1 is the full "Frequently Asked Questions". Accept either the
-    // abbreviation (future redesign) or the full title (current).
-    await expect(page.locator('h1')).toContainText(/FAQ|Frequently Asked Questions/i);
+    // FAQ page h1 follows the in-character "Questions about the farm"
+    // phrasing — the route still serves at /faq and the document title is
+    // "FAQ", but the visible heading leans into the personality system.
+    // Accept either historic phrasing OR the current copy.
+    await expect(page.locator('h1')).toContainText(/FAQ|Frequently Asked Questions|Questions about the farm/i);
   });
 
   test('404 page shows for unknown routes', async ({ page }) => {
