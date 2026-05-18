@@ -814,6 +814,17 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (_lockDuration < MIN_LOCK_DURATION) revert LockTooShort();
         if (_lockDuration > MAX_LOCK_DURATION) revert LockTooLong();
         if (userTokenId[msg.sender] != 0) revert AlreadyStaked();
+        // AUDIT FIX FRESH-2026 M3: reject `_jbacTokenId == 0` at input. Both
+        // `_clearPosition` (line ~2262 `if (jbacIdToReturn != 0)`) and the
+        // vault's `returnJbac` (line 91 `if (jbacTokenId == 0) return`) use 0
+        // as a "no JBAC" sentinel. If the JBAC collection happens to mint
+        // tokenId 0 (BAYC/MAYC/CryptoPunks-derivative pattern), depositing
+        // it via this function lands the NFT in the vault but BOTH return
+        // paths short-circuit on the sentinel — permanent strand. Vault's
+        // `claimStrandedJbac` line 114 already notes this with the same
+        // defensive `jId == 0` revert. Mirror the input-side guard here so
+        // the strand can never form in the first place.
+        if (_jbacTokenId == 0) revert ZeroAmount();
 
         uint256 boost = calculateBoost(_lockDuration) + JBAC_BONUS_BPS;
         uint256 boosted = (_amount * boost) / BOOST_PRECISION;

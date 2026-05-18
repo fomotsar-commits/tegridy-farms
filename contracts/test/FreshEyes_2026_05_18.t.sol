@@ -10,6 +10,9 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../src/TegridyNFTPool.sol";
 import "../src/TegridyNFTPoolFactory.sol";
 import {TegridyDropV2} from "../src/TegridyDropV2.sol";
+import {TegridyStaking} from "../src/TegridyStaking.sol";
+import {TegridyStakingAdmin} from "../src/TegridyStakingAdmin.sol";
+import {TegridyStakingJbacVault} from "../src/TegridyStakingJbacVault.sol";
 
 /// @title FreshEyes_2026_05_18 — regression PoCs for H2 + M7
 /// @notice H2 — stacked-defense regression for the
@@ -62,6 +65,14 @@ contract MockNFT_FE is ERC721 {
         _mint(to, id);
         return id;
     }
+    /// @dev Test-only path to mint a SPECIFIC tokenId (incl. 0 for the M3 PoC).
+    function mintAt(address to, uint256 id) external {
+        _mint(to, id);
+    }
+}
+
+contract MockToweli is ERC20 {
+    constructor() ERC20("Towelie", "TOWELI") { _mint(msg.sender, 1_000_000_000 ether); }
 }
 
 /// @dev Bare-bones ERC721 surface — single SSTORE on transfer, no balance
@@ -294,5 +305,45 @@ contract FreshEyes_2026_05_18_Test is Test {
         // 6. Cross-check: the actual merkleRoot is still the initial zero
         //    value — no hostile rotation landed.
         assertEq(drop.merkleRoot(), bytes32(0), "merkleRoot untouched");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // M3 — `stakeWithBoost` rejects `jbacTokenId == 0`
+    // ═══════════════════════════════════════════════════════════════
+
+    function test_freshEyes_M3_stakeWithBoost_rejectsZeroJbacTokenId() public {
+        // Spin up TegridyStaking with a JBAC collection that DOES have
+        // tokenId 0 (BAYC/MAYC-style collections — by far the more common
+        // ID-0 pattern in 2024+ collections).
+        MockToweli toweli = new MockToweli();
+        MockNFT_FE jbacCollection = new MockNFT_FE();
+        TegridyStaking staking = new TegridyStaking(
+            address(toweli), address(jbacCollection), address(this), 1 ether
+        );
+        TegridyStakingAdmin sAdmin = new TegridyStakingAdmin(address(staking));
+        staking.setStakingAdmin(address(sAdmin));
+        TegridyStakingJbacVault vault =
+            new TegridyStakingJbacVault(address(jbacCollection), address(staking));
+        staking.setJbacVault(address(vault));
+
+        toweli.approve(address(staking), type(uint256).max);
+        staking.notifyRewardAmount(1_000_000 ether);
+
+        // The collection has tokenId 0 (mintAt path).
+        jbacCollection.mintAt(address(this), 0);
+        jbacCollection.setApprovalForAll(address(staking), true);
+
+        // Post-patch: `stakeWithBoost(..., _jbacTokenId = 0)` MUST revert
+        // with `ZeroAmount`. Pre-patch this admits the deposit, lands the
+        // JBAC #0 in the vault, and both return paths (`_clearPosition` and
+        // vault `returnJbac`) sentinel-short-circuit on the 0 id — JBAC
+        // permanently stranded with no claim path (`claimStrandedJbac`
+        // line 114 also reverts on `jId == 0`).
+        vm.expectRevert(TegridyStaking.ZeroAmount.selector);
+        staking.stakeWithBoost(1_000 ether, 30 days, 0);
+
+        // Cross-check: JBAC #0 still in the caller's wallet (no transfer).
+        assertEq(jbacCollection.ownerOf(0), address(this), "JBAC #0 not pulled");
+        assertEq(jbacCollection.balanceOf(address(vault)), 0, "vault clean");
     }
 }

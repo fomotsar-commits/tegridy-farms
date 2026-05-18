@@ -1809,7 +1809,21 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
         uint256 tokenId = info.tokenId;
         // AUDIT H-1: release this user's principal reservation.
-        totalActivePrincipal -= info.positionAmount;
+        // AUDIT FIX FRESH-2026 M4: mirror the `<=`-guarded pattern used at
+        // every other exit site (lines 1714, 2054, plus the DR2-01 syncs
+        // at 825/934/1017/2418). Raw subtraction was the only outlier — if
+        // any drift path advanced or zeroed `info.positionAmount` ahead of
+        // this call (e.g., decayExpiredRestaker syncing at lines 2414-2427,
+        // or a partial-stale exit that already decremented), this site
+        // would Panic(0x11) and DoS the user's emergency-exit escape hatch.
+        // Forces them onto `unrestake` (depends on `staking.kick`) or
+        // `recoverStuckPrincipal` (only when positionAmount == 0). All three
+        // reverting is a permanent NFT stuck. Guard makes the escape robust.
+        if (info.positionAmount <= totalActivePrincipal) {
+            totalActivePrincipal -= info.positionAmount;
+        } else {
+            totalActivePrincipal = 0;
+        }
         totalRestaked -= info.boostedAmount;
         delete tokenIdToRestaker[tokenId];
         delete restakers[msg.sender];
