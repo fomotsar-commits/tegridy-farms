@@ -46,7 +46,7 @@ export function TowelieProvider({ children }: { children: ReactNode }) {
       // Dedup against existing queue items with same key.
       if (opts.key && prev.some((m) => m.key === opts.key)) return prev;
       // Drop flavor messages if queue full; trim oldest non-urgent for info; urgent always wins.
-      let next = [...prev];
+      const next = [...prev];
       if (next.length >= MAX_QUEUE) {
         if (priority === 'flavor') return prev;
         const dropIdx = next.findIndex((m) => m.priority !== 'urgent');
