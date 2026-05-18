@@ -41,6 +41,9 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     error InsufficientPayment();
     error InvalidProof();
     error AlreadyRevealed();
+    /// @notice AUDIT FIX 2026-05-16 LOW: empty `revealURI` passed to `reveal()`.
+    ///         Mirrors `BaseURIEmpty` for `freezeBaseURI` (consistent guard surface).
+    error RevealURIEmpty();
     error WithdrawFailed();
     error ZeroQuantity();
     /// AUDIT FIX (BATCH-H M8): per-tx mint quantity cap.
@@ -850,6 +853,14 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
 
     function reveal(string calldata revealURI) external onlyOwner {
         if (revealed) revert AlreadyRevealed();
+        // AUDIT FIX 2026-05-16 LOW: reject empty reveal URI. Pre-fix, `reveal("")`
+        // would permanently set `_revealURI = ""` (revealed flag is monotonic);
+        // every subsequent `tokenURI(id)` then returned "" since the ternary at
+        // line 463-468 short-circuits to "" when bytes(_revealURI).length == 0.
+        // Marketplaces and previews showed broken/missing metadata with no recovery.
+        // Mirror the asymmetric `freezeBaseURI` guard (`BaseURIEmpty` at line ~841)
+        // so both immutable-URI paths reject empty input.
+        if (bytes(revealURI).length == 0) revert RevealURIEmpty();
         revealed = true;
         _revealURI = revealURI;
         emit Revealed(revealURI);
@@ -1081,15 +1092,53 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     }
 
     // ─── Owner Management (2-step) ───────────────────────────────────
+    /// @notice AUDIT FIX 2026-05-17 LOW: pending-transfer expiry window. Mirrors
+    ///         OwnableNoRenounce.OWNERSHIP_TRANSFER_EXPIRY = 14 days (Compound
+    ///         Timelock GRACE_PERIOD). DropV2 cannot inherit OwnableNoRenounce
+    ///         directly because it is deployed via Clones.cloneDeterministic
+    ///         (constructor-only init is incompatible with the EIP-1167 minimal-
+    ///         proxy clone pattern). The expiry + cancel surface is added inline.
+    uint256 public constant OWNERSHIP_TRANSFER_EXPIRY = 14 days;
+    /// @notice AUDIT FIX 2026-05-17 LOW: wall-clock at which the current pending
+    ///         ownership transfer expires. Zero when no pending transfer exists.
+    uint256 public ownershipTransferExpiresAt;
+
+    /// @notice AUDIT FIX 2026-05-17 LOW: typed errors replacing the string
+    ///         "RENOUNCE_DISABLED" + the audit-finding gaps (expiry/cancel).
+    ///         Aligns DropV2 with the cluster-wide typed-error convention used
+    ///         by OwnableNoRenounce (RenounceDisabled / OwnershipTransferExpired /
+    ///         NoPendingOwnershipTransfer).
+    error RenounceDisabled();
+    error OwnershipTransferExpired();
+    error NoPendingOwnershipTransfer();
+
+    /// @notice AUDIT FIX 2026-05-17 LOW: emitted when the owner cancels a
+    ///         pending ownership transfer before acceptance.
+    event OwnershipTransferCancelled(address indexed previousPendingOwner, string reason);
+
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
         pendingOwner = newOwner;
+        // AUDIT FIX 2026-05-17 LOW: stamp a 14-day expiry on the pending slot
+        // so a malicious / misconfigured pendingOwner cannot freeze the
+        // rotation surface indefinitely. After expiry the owner can either
+        // call `cancelOwnershipTransfer` or `transferOwnership` to a fresh
+        // recipient with a new 14-day window.
+        ownershipTransferExpiresAt = block.timestamp + OWNERSHIP_TRANSFER_EXPIRY;
     }
 
     function acceptOwnership() external {
+        // AUDIT FIX 2026-05-17 LOW: expiry check FIRST so the typed
+        // OwnershipTransferExpired is more diagnostic than NotOwner for an
+        // expired-but-still-set pending slot.
+        uint256 expiry = ownershipTransferExpiresAt;
+        if (expiry != 0 && block.timestamp > expiry) {
+            revert OwnershipTransferExpired();
+        }
         if (msg.sender != pendingOwner) revert NotOwner();
         owner = msg.sender;
         pendingOwner = address(0);
+        ownershipTransferExpiresAt = 0; // AUDIT FIX 2026-05-17 LOW: clear expiry.
         // AUDIT MICROSCOPE_2026_04_30 M-D3: clear any in-flight timelocked merkle
         // root proposal at ownership-accept. The previous owner could otherwise
         // hand off ownership with a hostile root waiting in the queue, ready to
@@ -1125,7 +1174,26 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         }
     }
 
+    /// @notice AUDIT FIX 2026-05-17 LOW: current owner can cancel a pending
+    ///         ownership transfer before the pendingOwner accepts. Mirrors
+    ///         OwnableNoRenounce.cancelOwnershipTransfer. Closes the bricked-
+    ///         rotation primitive where a malicious / misconfigured pendingOwner
+    ///         could freeze the rotation surface (the bespoke 2-step had no
+    ///         native cancel path — relied on the owner re-calling
+    ///         `transferOwnership` to a different recipient, which doesn't
+    ///         instantly clear the prior pendingOwner's race window).
+    function cancelOwnershipTransfer(string calldata reason) external onlyOwner {
+        address prev = pendingOwner;
+        if (prev == address(0)) revert NoPendingOwnershipTransfer();
+        pendingOwner = address(0);
+        ownershipTransferExpiresAt = 0;
+        emit OwnershipTransferCancelled(prev, reason);
+    }
+
     function renounceOwnership() external view onlyOwner {
-        revert("RENOUNCE_DISABLED");
+        // AUDIT FIX 2026-05-17 LOW: typed error replaces the legacy string
+        // revert. Aligns with OwnableNoRenounce.RenounceDisabled so off-chain
+        // alerting can subscribe by 4-byte selector across the entire cluster.
+        revert RenounceDisabled();
     }
 }

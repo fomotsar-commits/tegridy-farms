@@ -458,6 +458,18 @@ contract TF_INT_02_ConvertTest is Test {
         bytes memory args = abi.encode(IPoolManager(address(poolManager)), address(distributor), uint256(30), owner, address(weth));
         deployCodeTo("TegridyFeeHook.sol:TegridyFeeHook", args, hookAddr);
         hook = TegridyFeeHook(payable(hookAddr));
+
+        // AUDIT FIX 2026-05-17 TEST: M5 requires the conversion router be on the
+        // timelocked allowlist before `convertERC20FeesToETH` accepts it. Pre-fix,
+        // the router param was owner-supplied per-call with no allowlist —
+        // captured-owner could pass a hostile router to drain accrued ERC20 fees.
+        // Tests wire the mock router via propose+execute (48h) so the happy paths
+        // proceed; tests that intentionally exercise the path-validation /
+        // deadline-bound / WETH-mismatch / zero-balance reverts still hit those
+        // checks because they fire BEFORE the conversion swap.
+        hook.proposeAddConversionRouter(address(router));
+        vm.warp(block.timestamp + 48 hours + 1);
+        hook.executeAddConversionRouter();
     }
 
     /// @notice Happy path: hook holds ERC20, owner converts to ETH, ETH lands at distributor.
@@ -540,17 +552,34 @@ contract TF_INT_02_ConvertTest is Test {
     }
 
     /// @notice Router whose WETH() doesn't match the immutable WETH reverts.
+    /// @dev    AUDIT FIX 2026-05-16 M5: the WETH-mismatch defense now fires at
+    ///         `proposeAddConversionRouter` (BEFORE the router can be allowlisted)
+    ///         in addition to the runtime check at `convertERC20FeesToETH`. The
+    ///         test asserts both layers. Pre-fix, the only check was at the
+    ///         per-call site, which was sufficient defense but the propose-time
+    ///         re-check is stronger because it prevents a captured-owner from
+    ///         even getting a hostile router onto the allowlist.
     function test_convertERC20FeesToETH_routerWETHMismatchReverts() public {
         token.mint(address(hook), 1 ether);
         // Router that reports a different WETH.
         TF_INT_02_MockWETH otherWETH = new TF_INT_02_MockWETH();
         TF_INT_02_MockV2Router otherRouter = new TF_INT_02_MockV2Router(address(otherWETH));
 
+        // Propose-time defense (stronger): refuses to even queue the hostile
+        // router because its WETH() does not equal the hook's immutable WETH.
+        vm.expectRevert(TegridyFeeHook.InvalidConversionPath.selector);
+        hook.proposeAddConversionRouter(address(otherRouter));
+
+        // Runtime defense (preexisting): even if a router somehow got allowlisted
+        // (e.g. swapped its WETH pointer after passing propose-time), the runtime
+        // check at convertERC20FeesToETH catches the mismatch. We can't actually
+        // allowlist otherRouter here (propose blocked it above), so this branch
+        // asserts the RouterNotAllowed path that the allowlist enforces.
         address[] memory path = new address[](2);
         path[0] = address(token);
         path[1] = address(weth); // path-end matches the hook's WETH
 
-        vm.expectRevert(TegridyFeeHook.InvalidConversionPath.selector);
+        vm.expectRevert(TegridyFeeHook.RouterNotAllowed.selector);
         hook.convertERC20FeesToETH(
             address(token),
             address(otherRouter), // but router's WETH() != hook.WETH

@@ -996,7 +996,16 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         returns (uint256 royaltyPaid)
     {
         if (totalSale == 0) return 0;
-        try IERC2981(address(nftCollection)).royaltyInfo(firstTokenId, totalSale)
+        // AUDIT FIX 2026-05-16 LOW: gas cap on the external royaltyInfo call.
+        // Pre-fix, `try IERC2981(...).royaltyInfo(...)` forwarded `gasleft()*63/64`.
+        // A hostile collection's royaltyInfo that burns all forwarded gas (infinite
+        // loop, `assert(false)` after slow path) reverted every swap OOG because
+        // the catch only has 1/64 of original gas — insufficient to finish the
+        // post-call NFT transfers + spotPrice update + _sendETH + event emit.
+        // 50k matches SafeERC721Call.DEFAULT_OWNER_OF_GAS_BUDGET (sufficient for
+        // upgradeable collections with deep proxy chains; insufficient for
+        // adversaries running arbitrary code).
+        try IERC2981(address(nftCollection)).royaltyInfo{gas: 50_000}(firstTokenId, totalSale)
             returns (address receiver, uint256 amount)
         {
             if (receiver == address(0) || amount == 0) return 0;

@@ -17,25 +17,35 @@ contract MockERC20 is ERC20 {
     }
 }
 
+/// @dev Mock Uniswap V2 Factory that returns address(0) for every pair query.
+///      AUDIT FIX 2026-05-16 M3/M4: SwapFeeRouter.sweepTokens + withdrawTokenFees
+///      now call `uniFactory.getPair(token, WETH)` to refuse swappable tokens
+///      (rejection redirects them through `convertTokenFeesToETH`). The previous
+///      `FACTORY_STUB = 0xFAC7` non-contract address reverts the getPair call.
+///      Tests now wire a real-but-empty factory so getPair returns address(0)
+///      (= "no pair", honest escape-hatch path is unblocked).
+contract MockUniFactory {
+    function getPair(address, address) external pure returns (address) {
+        return address(0);
+    }
+}
+
 /// @dev Mock Uniswap V2 Router that simulates swaps at 1:1 rate
 contract MockUniRouter {
     address public immutable WETH_ADDR;
-    /// @dev AUDIT SFR-H-01: SwapFeeRouter constructor now reads `router.factory()`
-    ///      to cache the factory for the per-token TWAP-floor minETHOut. Tests in
-    ///      this file don't exercise the conversion path, so a static stub address
-    ///      is enough — non-zero so the constructor doesn't revert.
-    address public constant FACTORY_STUB = address(0xFAC7);
+    address public immutable FACTORY;
 
-    constructor(address _weth) {
+    constructor(address _weth, address _factory) {
         WETH_ADDR = _weth;
+        FACTORY = _factory;
     }
 
     function WETH() external view returns (address) {
         return WETH_ADDR;
     }
 
-    function factory() external pure returns (address) {
-        return FACTORY_STUB;
+    function factory() external view returns (address) {
+        return FACTORY;
     }
 
     function swapExactETHForTokens(
@@ -130,10 +140,21 @@ contract MockUniRouter {
     receive() external payable {}
 }
 
+/// @dev Minimal receive-only contract that stands in for the production
+///      RevenueDistributor. AUDIT FIX 2026-05-16 M2: SwapFeeRouter.sweepETH
+///      forces destination to `revenueDistributor`. Tests must wire a non-zero
+///      receiver-capable address; `treasury` was a `makeAddr` slot (no
+///      `receive`) so WETHFallbackLib reverted ZeroRecipient pre-wiring.
+contract MockRevenueDistributorSink {
+    receive() external payable {}
+}
+
 contract SwapFeeRouterTest is Test {
     SwapFeeRouter public router;
     SwapFeeRouterAdmin public admin;
     MockUniRouter public uniRouter;
+    MockUniFactory public uniFactory;
+    MockRevenueDistributorSink public revenueDistributor;
     MockERC20 public tokenA;
     MockERC20 public tokenB;
     MockERC20 public weth;
@@ -145,13 +166,24 @@ contract SwapFeeRouterTest is Test {
         weth = new MockERC20("WETH", "WETH");
         tokenA = new MockERC20("TokenA", "TKA");
         tokenB = new MockERC20("TokenB", "TKB");
-        uniRouter = new MockUniRouter(address(weth));
+        uniFactory = new MockUniFactory();
+        uniRouter = new MockUniRouter(address(weth), address(uniFactory));
+        revenueDistributor = new MockRevenueDistributorSink();
 
         vm.deal(address(uniRouter), 1000 ether);
 
         router = new SwapFeeRouter(address(uniRouter), treasury, 30, address(0)); // 0.3% fee
         admin = new SwapFeeRouterAdmin(address(router));
         router.setSwapFeeRouterAdmin(address(admin));
+
+        // AUDIT FIX 2026-05-16 M2: wire revenueDistributor via the admin
+        // propose+execute timelock pattern so sweepETH (which now FORCES the
+        // destination to revenueDistributor) has a valid sink. Pre-fix the
+        // tests never wired this slot; sweep tests relied on the legacy
+        // treasury-as-destination behavior that M2 closed.
+        admin.proposeRevenueDistributor(address(revenueDistributor));
+        vm.warp(block.timestamp + 48 hours + 1);
+        admin.executeRevenueDistributor();
 
         tokenA.transfer(alice, 100_000 ether);
         tokenB.transfer(alice, 100_000 ether);
@@ -241,9 +273,13 @@ contract SwapFeeRouterTest is Test {
         // Send some ETH to the router
         vm.deal(address(router), 5 ether);
 
-        uint256 treasuryBefore = treasury.balance;
+        // AUDIT FIX 2026-05-16 M2: sweepETH now forces destination to
+        // revenueDistributor (was: treasury). This closes the captured-owner
+        // siphon where donated ETH was redirected to treasury, bypassing the
+        // staker/POL/treasury split. The test now asserts revenueDistributor.
+        uint256 sinkBefore = address(revenueDistributor).balance;
         router.sweepETH();
-        assertEq(treasury.balance - treasuryBefore, 5 ether);
+        assertEq(address(revenueDistributor).balance - sinkBefore, 5 ether);
     }
 
     function test_revert_sweepETH_nonOwner() public {
@@ -554,7 +590,10 @@ contract FeeOnTransferToken is ERC20 {
 /// @dev Tests for fee-on-transfer token behavior in withdrawTokenFees
 contract SwapFeeRouterFOTTest is Test {
     SwapFeeRouter public feeRouter;
+    SwapFeeRouterAdmin public feeAdmin;
     MockUniRouter public uniRouter;
+    MockUniFactory public uniFactory;
+    MockRevenueDistributorSink public revenueDistributor;
     FeeOnTransferToken public fotToken;
     MockERC20 public weth;
     MockERC20 public tokenB;
@@ -565,11 +604,18 @@ contract SwapFeeRouterFOTTest is Test {
         weth = new MockERC20("WETH", "WETH");
         tokenB = new MockERC20("TokenB", "TKB");
         fotToken = new FeeOnTransferToken();
-        uniRouter = new MockUniRouter(address(weth));
+        uniFactory = new MockUniFactory();
+        uniRouter = new MockUniRouter(address(weth), address(uniFactory));
+        revenueDistributor = new MockRevenueDistributorSink();
 
         vm.deal(address(uniRouter), 1000 ether);
 
         feeRouter = new SwapFeeRouter(address(uniRouter), treasury, 30, address(0));
+        feeAdmin = new SwapFeeRouterAdmin(address(feeRouter));
+        feeRouter.setSwapFeeRouterAdmin(address(feeAdmin));
+        feeAdmin.proposeRevenueDistributor(address(revenueDistributor));
+        vm.warp(block.timestamp + 48 hours + 1);
+        feeAdmin.executeRevenueDistributor();
 
         fotToken.transfer(alice, 100_000 ether);
         tokenB.transfer(alice, 100_000 ether);

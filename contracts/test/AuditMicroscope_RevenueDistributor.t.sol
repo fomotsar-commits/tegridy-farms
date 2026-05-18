@@ -62,6 +62,8 @@ contract MockWETH_Microscope {
 ///         both the normal claim and the recovery paths consult; M-R6 closure caps
 ///         each recovery at MAX_RECOVERY_POWER_BPS (25%) of `epoch.totalLocked`.
 contract AuditMicroscope_RevenueDistributorTest is Test {
+    using stdStorage for StdStorage;
+
     MockVE_Microscope public ve;
     MockWETH_Microscope public weth;
     RevenueDistributor public dist;
@@ -88,6 +90,12 @@ contract AuditMicroscope_RevenueDistributorTest is Test {
         (bool ok,) = address(dist).call{value: amt}("");
         assertTrue(ok);
         dist.distribute();
+        // AUDIT FIX 2026-05-17 TEST: inflate `totalDistributed` for the new
+        // MAX_LIFETIME_RECOVERY_BPS (1%) cap. Same rationale as
+        // AuditR014_RevenueDistributor.t.sol::_distribute.
+        if (dist.totalDistributed() < 1000 ether) {
+            stdstore.target(address(dist)).sig(dist.totalDistributed.selector).checked_write(uint256(1000 ether));
+        }
     }
 
     // ─── C5 — Normal-claim → recovery direction ────────────────────────

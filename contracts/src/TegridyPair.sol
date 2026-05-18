@@ -317,8 +317,19 @@ contract TegridyPair is ERC20, ReentrancyGuard {
         // arbitrage bots slow-drain the pair. Factory's _rejectERC777 is a best-effort
         // creation-time gate only; post-creation token upgrades can flip a token to FoT
         // mode. This per-swap balance check catches that case and reverts cleanly.
-        require(IERC20(token0).balanceOf(address(this)) == postBalance0, "FOT_OUTPUT_0");
-        require(IERC20(token1).balanceOf(address(this)) == postBalance1, "FOT_OUTPUT_1");
+        // AUDIT FIX 2026-05-16 M13: loosen from strict equality `==` to `>=`. The
+        // require catches the dangerous case — pair balance LESS than expected
+        // (sender-side fee-on-transfer that silently consumed our reserves). It
+        // no longer rejects the benign case — pair balance GREATER than expected
+        // (concurrent-tx donation, selfdestruct force-feed, or atomic-routing
+        // aggregator that legitimately top-ups the pair in the same tx). Pre-fix,
+        // the strict equality blocked any composability flow that landed extra
+        // tokens at the pair, without adding any FoT-detection value (sender-FoT
+        // still underflows balance and trips the `>=`). K-invariant is
+        // independently checked above using the post-balance, so donated dust
+        // doesn't loosen swap accounting beyond the gift itself.
+        require(IERC20(token0).balanceOf(address(this)) >= postBalance0, "FOT_OUTPUT_0");
+        require(IERC20(token1).balanceOf(address(this)) >= postBalance1, "FOT_OUTPUT_1");
 
         emit Swap(msg.sender, amount0In, amount1In, amount0Out, amount1Out, to);
     }

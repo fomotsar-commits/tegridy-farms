@@ -155,6 +155,16 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         ///      MIN_OFFER_VALIDITY and MAX_OFFER_VALIDITY at create-time, and
         ///      acceptOffer reverts OfferExpired once block.timestamp > expiry.
         uint64 expiry;
+        /// @dev AUDIT FIX 2026-05-16 M6: protocolFeeBps captured at offer creation
+        ///      so a post-creation governance fee change cannot retro-tax the lender.
+        ///      Mirrors TegridyLending's `int16 protocolFeeBpsAtCreate` (BATCH-D H9 /
+        ///      M-8 / F-07-01). int16 sentinel pattern: negative => "unset" => fall
+        ///      back to live `protocolFeeBps`; non-negative (0..1000) is the captured
+        ///      snapshot used verbatim. Freshly-minted offers always write
+        ///      `int16(uint16(bps))` which is non-negative. uint16 0..1000 fits in
+        ///      int16 (-32768..32767). PRE-DEPLOY layout change is safe (contract
+        ///      not yet deployed — see Loan struct gas-pack comment above).
+        int16 protocolFeeBpsAtCreate;
     }
     uint256 public constant MIN_OFFER_VALIDITY = 1 hours;
     uint256 public constant MAX_OFFER_VALIDITY = 90 days;
@@ -546,11 +556,24 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         if (_duration > MAX_DURATION) revert DurationTooLong();
         if (_collateralContract == address(0)) revert ZeroAddress();
         if (!whitelistedCollections[_collateralContract]) revert CollectionNotWhitelisted();
-        if (
-            pendingWhitelistRemove == _collateralContract
-            && _executeAfter[WHITELIST_REMOVE] != 0
-        ) {
-            revert CollectionPendingRemoval();
+        // AUDIT FIX 2026-05-16 M7: auto-expiry short-circuit. Mirrors
+        // TegridyLendingAdmin.acceptedCollateralRemovalPending (M-27/F-33-3 fix).
+        // Pre-fix, an uncancelled WHITELIST_REMOVE proposal whose 24h delay + 7d
+        // validity window had elapsed continued to block createOffer/acceptOffer
+        // because only `_executeAfter[WHITELIST_REMOVE] != 0` was checked. The
+        // proposal CANNOT be executed past expiry (TimelockAdmin reverts
+        // ProposalExpired), so treating it as already-cancelled is safe and
+        // bounds the captured-owner DoS to the documented validity window
+        // (24h delay + 7d validity = 8 days) instead of forever-until-cancel.
+        {
+            uint256 _ra = _executeAfter[WHITELIST_REMOVE];
+            if (
+                pendingWhitelistRemove == _collateralContract
+                && _ra != 0
+                && block.timestamp <= _ra + _proposalValidity()
+            ) {
+                revert CollectionPendingRemoval();
+            }
         }
         // AUDIT FIX FRESH-2026: F-95-K-2 — global + per-lender offer caps.
         if (offers.length >= MAX_TOTAL_OFFERS) revert TooManyOffers();
@@ -576,7 +599,13 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
             originationFee: originationFee,
             // AUDIT FIX: DEEP-LD2-M3 — snapshot the live treasury at offer creation.
             treasuryAtCreate: treasury,
-            expiry: _expiry // BATCH-I M10
+            expiry: _expiry, // BATCH-I M10
+            // AUDIT FIX 2026-05-16 M6: snapshot live protocolFeeBps. uint16 of bps
+            // fits the non-negative range [0..MAX_PROTOCOL_FEE_BPS=1000] inside int16.
+            // Zero is a valid captured snapshot — distinct from "unset" which never
+            // occurs on freshly minted offers. The repay-side sentinel-fallback only
+            // applies to legacy storage state where the field reads as < 0.
+            protocolFeeBpsAtCreate: int16(uint16(protocolFeeBps))
         }));
         // AUDIT FIX FRESH-2026: F-95-K-2 — increment per-lender open count.
         openOffersOfLender[msg.sender] += 1;
@@ -848,7 +877,13 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
             activeLoansOfCollection[collateralContract] -= 1;
         }
 
-        uint256 fee = (interest * protocolFeeBps) / BPS;
+        // AUDIT FIX 2026-05-16 M6: consume the captured-snapshot fee bps instead of
+        // the live `protocolFeeBps`. Negative sentinel falls back to live (legacy-
+        // storage compat — unreachable on freshly-minted offers but kept for safety).
+        // Mirrors TegridyLending.repayLoan:1315-1319 verbatim.
+        int16 snapBps = offers[loan.offerId].protocolFeeBpsAtCreate;
+        uint256 effectiveFeeBps = snapBps < 0 ? protocolFeeBps : uint256(uint16(snapBps));
+        uint256 fee = (interest * effectiveFeeBps) / BPS;
         uint256 lenderAmount = principal + interest - fee;
 
         // AUDIT FIX L-2: wrap the NFT return in try/catch. A hostile or buggy
@@ -1668,6 +1703,22 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
                 !l.repaid &&
                 !l.defaultClaimed
             ) revert NFTIsActiveCollateral();
+        }
+        // AUDIT FIX 2026-05-16 M9: also re-check stuck-collateral mapping. Pre-fix,
+        // propose ran TWO loops (active-collateral + stuck-mapping at line 1628-1634)
+        // but execute only re-ran the active-collateral loop. During the 24h timelock
+        // window, a loan against the same (collection, tokenId) could settle with a
+        // transfer-failure that creates a `stuckCollateralRecipient[loanId]` entry —
+        // the admin sweep would then race to record `strandedNFTRecipient[hash]` and
+        // an admin-controlled claim path could front-run the legitimate stuck-recipient.
+        // Mirroring the propose-side loop closes the propose/execute asymmetry.
+        for (uint256 i = 0; i < lenLoans; i++) {
+            if (stuckCollateralRecipient[i] != address(0)) {
+                Loan storage l = loans[i];
+                if (l.collateralContract == collection && l.tokenId == tokenId) {
+                    revert NFTIsActiveCollateral();
+                }
+            }
         }
 
         _execute(SWEEP_UNSOLICITED_NFT);

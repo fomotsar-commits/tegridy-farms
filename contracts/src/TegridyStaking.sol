@@ -441,6 +441,16 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     error PendingLendingPositions(); // AUDIT FIX: DEEP-DS-10 — revoking lending while NFTs escrowed
     error NotAContract(); // AUDIT FIX: DEEP-DS-12 — first-time admin setter must be a contract
     error PendingRestakingPositions(); // AUDIT FIX FRESH-2026: M-28/F-35-1/F-65-1 — symmetric guard for restaking rotation
+    /// @notice AUDIT FIX 2026-05-16 H1: rotation guard — old restaking contract still has
+    ///         unsettledRewards residue. After rotation `_isTrackedHolder(oldRestaking)`
+    ///         flips false, bricking `claimUnsettledForTokenId(oldRestaking, ...)` and
+    ///         stranding per-tokenId reward attribution for every restaker with a
+    ///         residual claim. Must drain via the OLD restaking contract BEFORE rotation.
+    error PendingRestakingResidue();
+    /// @notice AUDIT FIX 2026-05-16 M12: symmetric residue guard for lending-contract
+    ///         revocation. Same shape as PendingRestakingResidue — `_isTrackedHolder`
+    ///         flips false on revoke and bricks per-tokenId pull.
+    error PendingLendingResidue();
     error CapTooHigh(); // AUDIT FIX FRESH-2026: F-35-3 — applyMaxUnsettledRewards sanity ceiling
 
     // ─── Constructor ──────────────────────────────────────────────────
@@ -873,7 +883,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
             // AUDIT C5: charge fee on enable (boost is being increased to max). No fee on
             // disable (boost is being relinquished). Pulls TOWELI from caller; user must
             // approve. Default extendFeeBps == 0 means no transfer attempted.
-            _chargeExtendFee(tokenId, p.amount);
+            // AUDIT FIX 2026-05-16 M10: pass `p.boostedAmount` so the caller's own
+            // boost is excluded from the recycle denominator (no self-rebate).
+            _chargeExtendFee(tokenId, p.amount, p.boostedAmount);
             // SECURITY FIX: Claim pending rewards BEFORE changing boost to avoid loss
             _getReward(tokenId, p);
             p.lockEnd = uint64(block.timestamp + MAX_LOCK_DURATION);
@@ -915,10 +927,10 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (p.lockEnd > 0 && block.timestamp >= p.lockEnd) revert LockExpired();
 
         // AUDIT C5: charge extend fee before any state changes. No-op when extendFeeBps == 0.
-        // AUDIT NOTE: DEEP-DS-09 — DEFERRED: whale-rebate is bounded; full fix requires
-        // denominator-exclusion math in _splitExtendFee (split recycle excluding contributor).
-        // Modest impact at current concentration; tracked for future hardening.
-        _chargeExtendFee(tokenId, p.amount);
+        // AUDIT FIX 2026-05-16 M10: DEEP-DS-09 closed — `_creditRewardPoolExcluding`
+        // divides by `totalBoostedStake - contributorBoost` so the caller's own
+        // boost cannot share in the recycle. Whale-rebate eliminated.
+        _chargeExtendFee(tokenId, p.amount, p.boostedAmount);
 
         // SECURITY FIX: Claim pending rewards BEFORE changing boost to avoid loss
         _getReward(tokenId, p);
@@ -1878,7 +1890,14 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (_emergencyExitRequests[tokenId] != 0) revert EmergencyExitAlreadyRequested();
 
         _emergencyExitRequests[tokenId] = block.timestamp;
-        _touch(msg.sender); // AUDIT M-AUDIT-2026-3
+        // AUDIT FIX 2026-05-16 M16: only refresh `lastActivityAt` while NOT paused.
+        // Pre-fix, a malicious user could spam request+cancel cycles during pause to
+        // keep `lastActivityAt[user]` always < USER_INACTIVITY_GATE (90d) old,
+        // blocking owner-side stale-claim recovery via `claimUnsettledFor(user)`
+        // perpetually. `claimUnsettledFor` is `whenNotPaused` so the owner can't
+        // front-run during pause anyway — skipping `_touch` during pause closes the
+        // grief loop without breaking the pause-independent escape-hatch design.
+        if (!paused()) _touch(msg.sender); // AUDIT M-AUDIT-2026-3 (paused-conditional 2026-05-16)
         emit EmergencyExitRequested(msg.sender, tokenId, block.timestamp + EMERGENCY_EXIT_DELAY);
     }
 
@@ -1889,7 +1908,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
         if (_emergencyExitRequests[tokenId] == 0) revert EmergencyExitNotRequested();
         delete _emergencyExitRequests[tokenId];
-        _touch(msg.sender); // AUDIT M-AUDIT-2026-3
+        // AUDIT FIX 2026-05-16 M16: same paused-conditional skip as requestEmergencyExit.
+        // See that function's comment for rationale.
+        if (!paused()) _touch(msg.sender); // AUDIT M-AUDIT-2026-3 (paused-conditional 2026-05-16)
         emit EmergencyExitCancelled(msg.sender, tokenId);
     }
 
@@ -2119,6 +2140,15 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (oldRestaking != address(0) && balanceOf(oldRestaking) > 0) {
             revert PendingRestakingPositions();
         }
+        // AUDIT FIX 2026-05-16 H1: also block rotation while the OLD restaking contract
+        // still holds unsettled-reward residue. After rotation `_isTrackedHolder` flips
+        // false for the old address, bricking `claimUnsettledForTokenId` for every restaker
+        // with a residual per-tokenId claim. Operator MUST drain the old bucket first
+        // (the old restaking contract's `claimResidualForTokenId` flow uses the staking
+        // contract's `claimUnsettledForTokenId(tokenId, recipient)`).
+        if (oldRestaking != address(0) && unsettledRewards[oldRestaking] > 0) {
+            revert PendingRestakingResidue();
+        }
         restakingContract = _restaking;
     }
 
@@ -2136,6 +2166,11 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     function applyLendingContract(address _lending, bool _approved) external onlyAdmin {
         if (_lending == address(0)) revert ZeroAddress();
         if (!_approved && balanceOf(_lending) > 0) revert PendingLendingPositions();
+        // AUDIT FIX 2026-05-16 M12: same residue-strand guard as applyRestakingContract.
+        // Revoking while unsettledRewards residue exists strands per-tokenId reward
+        // attribution permanently. Operator MUST drain via the lending contract's
+        // residual-claim flow before revoking the whitelist entry.
+        if (!_approved && unsettledRewards[_lending] > 0) revert PendingLendingResidue();
         isLendingContract[_lending] = _approved;
     }
 
@@ -2280,7 +2315,19 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      stakers — exactly the `AUDIT C6` penalty-recycle pattern. When
     ///      `extendFeeRecycleBps == 0` (default), the entire fee still goes to
     ///      treasury and behaviour is identical to the C5 baseline.
-    function _chargeExtendFee(uint256 tokenId, uint256 positionAmount) internal {
+    /// @dev AUDIT FIX 2026-05-16 M10: denominator-exclusion math (closes DEEP-DS-09
+    ///      DEFERRED). Pre-fix, `_creditRewardPool` divided by `totalBoostedStake`
+    ///      which still INCLUDED the caller's `contributorBoost` — the caller then
+    ///      immediately claimed a share of their own fee via `_getReward` (whale
+    ///      with 50% share rebated 50% of their fee). Now we route through
+    ///      `_creditRewardPoolExcluding` which divides by `totalBoostedStake -
+    ///      contributorBoost`, so the entire recycled slice flows to OTHER stakers
+    ///      only. The caller's own boost doesn't share in their fee's recycle.
+    /// @param tokenId       Position token ID, for event emission.
+    /// @param positionAmount Position's principal in TOWELI, for fee computation.
+    /// @param contributorBoost Caller's boostedAmount (their slice of totalBoostedStake);
+    ///                      excluded from the recycle denominator.
+    function _chargeExtendFee(uint256 tokenId, uint256 positionAmount, uint256 contributorBoost) internal {
         uint256 bps = extendFeeBps;
         if (bps == 0) return;
         uint256 fee = (positionAmount * bps) / BPS;
@@ -2292,7 +2339,10 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (recycled > 0) {
             // Pull the recycled slice into THIS contract so it sits in the reward pool.
             rewardToken.safeTransferFrom(msg.sender, address(this), recycled);
-            _creditRewardPool(recycled);
+            // AUDIT FIX 2026-05-16 M10: exclude the caller's boost from the
+            // recycle denominator so the caller does not rebate any portion of
+            // their own fee.
+            _creditRewardPoolExcluding(recycled, contributorBoost);
         }
         emit ExtendFeeCollected(tokenId, msg.sender, fee);
         emit ExtendFeeSplit(tokenId, msg.sender, toTreasury, recycled);
@@ -2360,6 +2410,39 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     function _creditRewardPool(uint256 amount) internal {
         if (amount == 0 || totalBoostedStake == 0) return;
         rewardPerTokenStored += (amount * ACC_PRECISION) / totalBoostedStake;
+        totalRewardsFunded += amount;
+    }
+
+    /// @dev AUDIT FIX 2026-05-16 M10: denominator-exclusion variant. Used by
+    ///      `_chargeExtendFee` so the contributor's own boostedAmount does NOT
+    ///      share in their fee's recycle. Pre-fix, a whale with N% of
+    ///      `totalBoostedStake` rebated N% of their extend fee via the immediate
+    ///      `_getReward` call that follows `_chargeExtendFee` in `extendLock` /
+    ///      `toggleAutoMaxLock`. Denominator-exclusion sends the entire recycled
+    ///      slice to OTHER stakers, closing the whale-rebate (DEEP-DS-09).
+    /// @dev Solo-staker edge case: `totalBoostedStake == contributorBoost` means
+    ///      no OTHER stakers exist. Fall back to treasury via the caller's
+    ///      `_splitExtendFee` path → since the caller can't pre-detect this
+    ///      branch without re-reading state, we instead return without crediting.
+    ///      Caller (`_chargeExtendFee`) pulls the recycled tokens INTO this
+    ///      contract regardless; they sit in the reward pool unattributed until
+    ///      a future staker enters and the next `notifyRewardAmount` /
+    ///      `applyRewardRate` cycle absorbs them via `balanceOf(this)` delta.
+    ///      This is the same behavior as `_creditRewardPool` on `totalBoostedStake == 0`.
+    function _creditRewardPoolExcluding(uint256 amount, uint256 contributorBoost) internal {
+        if (amount == 0) return;
+        uint256 totalB = totalBoostedStake;
+        // Solo staker (or zero stake): nothing to distribute to.
+        // SLITHER NOTE 2026-05-17: `totalB == 0` is an integer equality on a
+        // numeric counter (NOT a block.timestamp comparison; Slither's
+        // `dangerous-strict-equalities` + `timestamp` heuristics are
+        // pattern-match false positives here). `<=` is the correct boundary —
+        // if contributorBoost equals or exceeds totalBoostedStake, denom would
+        // be 0/negative and the credit makes no sense.
+        // slither-disable-next-line incorrect-equality,timestamp
+        if (totalB == 0 || totalB <= contributorBoost) return;
+        uint256 denom = totalB - contributorBoost;
+        rewardPerTokenStored += (amount * ACC_PRECISION) / denom;
         totalRewardsFunded += amount;
     }
 

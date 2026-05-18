@@ -450,7 +450,11 @@ contract TegridyDropV2Test is Test {
     function test_renounceOwnership_disabled() public {
         _init(_defaults());
         vm.prank(creator);
-        vm.expectRevert(bytes("RENOUNCE_DISABLED"));
+        // AUDIT FIX 2026-05-17 LOW: TegridyDropV2 now uses a typed error
+        // `RenounceDisabled()` instead of the legacy string revert
+        // `"RENOUNCE_DISABLED"`. Aligns with the cluster-wide
+        // OwnableNoRenounce.RenounceDisabled selector.
+        vm.expectRevert(TegridyDropV2.RenounceDisabled.selector);
         drop.renounceOwnership();
     }
 

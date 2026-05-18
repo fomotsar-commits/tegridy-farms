@@ -35,16 +35,26 @@ contract FOTToken195 is ERC20 {
     }
 }
 
+/// @dev AUDIT FIX 2026-05-16 M3/M4: SwapFeeRouter.sweepTokens + withdrawTokenFees
+///      now call `uniFactory.getPair(token, WETH)` to refuse swappable tokens.
+///      MockUniFactory195 returns address(0) for every pair so the tokens used by
+///      these tests qualify as "no liquid pair" (eligible for the escape-hatch).
+contract MockUniFactory195 {
+    function getPair(address, address) external pure returns (address) {
+        return address(0);
+    }
+}
+
 /// @dev Mock Uniswap V2 Router – 1:1 swap simulation
 contract MockUniRouter195 {
     address public immutable WETH_ADDR;
-    /// @dev AUDIT SFR-H-01: SwapFeeRouter constructor reads `router.factory()`. Stub
-    ///      is non-zero so the constructor doesn't revert; conversion path tests live
-    ///      in Audit_SFR_H01 — these audit195 tests exercise unrelated surfaces.
-    address public constant FACTORY_STUB = address(0xFAC7);
-    constructor(address _weth) { WETH_ADDR = _weth; }
+    address public immutable FACTORY;
+    constructor(address _weth, address _factory) {
+        WETH_ADDR = _weth;
+        FACTORY = _factory;
+    }
     function WETH() external view returns (address) { return WETH_ADDR; }
-    function factory() external pure returns (address) { return FACTORY_STUB; }
+    function factory() external view returns (address) { return FACTORY; }
 
     function swapExactETHForTokens(
         uint256 amountOutMin, address[] calldata path, address to, uint256
@@ -77,6 +87,12 @@ contract MockUniRouter195 {
         MockERC20A195(path[path.length - 1]).mint(to, amountIn);
     }
 
+    receive() external payable {}
+}
+
+/// @dev AUDIT FIX 2026-05-16 M2: sweepETH now forces destination to
+///      revenueDistributor; tests need a receiver-capable sink.
+contract MockRevenueDistributorSink195 {
     receive() external payable {}
 }
 
@@ -117,6 +133,8 @@ contract Audit195SwapFeeRouter is Test {
     SwapFeeRouter public sfr;
     SwapFeeRouterAdmin public sfrAdmin;
     MockUniRouter195 public uniRouter;
+    MockUniFactory195 public uniFactory;
+    MockRevenueDistributorSink195 public revenueDistributor;
     MockERC20A195 public weth;
     MockERC20A195 public tokenA;
     MockERC20A195 public tokenB;
@@ -131,12 +149,20 @@ contract Audit195SwapFeeRouter is Test {
         weth = new MockERC20A195("WETH", "WETH");
         tokenA = new MockERC20A195("TokenA", "TKA");
         tokenB = new MockERC20A195("TokenB", "TKB");
-        uniRouter = new MockUniRouter195(address(weth));
+        uniFactory = new MockUniFactory195();
+        uniRouter = new MockUniRouter195(address(weth), address(uniFactory));
+        revenueDistributor = new MockRevenueDistributorSink195();
         vm.deal(address(uniRouter), 10_000 ether);
 
         sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0));
         sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
         sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
+
+        // AUDIT FIX 2026-05-16 M2: wire revenueDistributor so sweepETH works
+        // (M2 forces destination to revenueDistributor, was: treasury).
+        sfrAdmin.proposeRevenueDistributor(address(revenueDistributor));
+        vm.warp(block.timestamp + 48 hours + 1);
+        sfrAdmin.executeRevenueDistributor();
 
         tokenA.transfer(alice, 100_000 ether);
         tokenB.transfer(alice, 100_000 ether);
@@ -426,10 +452,12 @@ contract Audit195SwapFeeRouter is Test {
         // Send extra ETH directly (dust)
         vm.deal(address(sfr), accFees + 1 ether);
 
-        uint256 treasBefore = treasury.balance;
+        // AUDIT FIX 2026-05-16 M2: sweepETH destination forced to revenueDistributor
+        // (was: treasury). Donated ETH now flows to stakers via revenueDistributor's
+        // own pipeline instead of giving captured-owner an instant-redirect path.
+        uint256 sinkBefore = address(revenueDistributor).balance;
         sfr.sweepETH();
-        // Should only sweep the 1 ether above accumulated fees
-        assertEq(treasury.balance - treasBefore, 1 ether, "only sweep non-fee ETH");
+        assertEq(address(revenueDistributor).balance - sinkBefore, 1 ether, "only sweep non-fee ETH");
         // Accumulated fees untouched
         assertEq(sfr.accumulatedETHFees(), accFees, "accumulated fees preserved");
     }
