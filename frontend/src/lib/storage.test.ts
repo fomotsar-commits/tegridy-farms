@@ -22,7 +22,6 @@ describe('safeSetItem', () => {
   });
 
   it('returns false when localStorage.setItem always throws', () => {
-    const original = localStorage.setItem.bind(localStorage);
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new DOMException('quota exceeded', 'QuotaExceededError');
     });
