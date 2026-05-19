@@ -31,6 +31,11 @@ export function CollectionDetailV2({
   const explorerUrl = useExplorerAddressUrl(dropAddress);
   const [mintQty, setMintQty] = useState(1);
   const [proofInput, setProofInput] = useState('');
+  // FE-HIGH-01: per-wallet cap encoded into the ALLOWLIST merkle leaf. The
+  // contract verifies `leaf = keccak256(msg.sender, allowedAmount)` against the
+  // root, so this MUST match the value the project used when generating the
+  // user's proof off-chain — otherwise the call reverts with InvalidProof.
+  const [allowedAmountInput, setAllowedAmountInput] = useState('');
   const shortAddr = `${dropAddress.slice(0, 6)}...${dropAddress.slice(-4)}`;
 
   const totalCost = useMemo(
@@ -59,7 +64,7 @@ export function CollectionDetailV2({
     drop.isConfirming ||
     drop.isSoldOut ||
     drop.currentPhase === 0 ||
-    (drop.currentPhase === 1 && !proofInput.trim());
+    (drop.currentPhase === 1 && (!proofInput.trim() || !allowedAmountInput.trim()));
 
   const progressPct = drop.maxSupply > 0 ? Math.min(100, (drop.totalSupply / drop.maxSupply) * 100) : 0;
 
@@ -68,8 +73,11 @@ export function CollectionDetailV2({
     const proof = proofInput.trim()
       ? proofInput.split(',').map((s) => s.trim() as `0x${string}`)
       : [];
-    drop.mint(mintQty, proof);
-  }, [drop, mintQty, proofInput, deployed]);
+    // Strip any stray non-digits before BigInt() — keeps a paste like "10 " safe.
+    const sanitized = allowedAmountInput.replace(/[^0-9]/g, '');
+    const allowedAmount = sanitized ? BigInt(sanitized) : 0n;
+    drop.mint(mintQty, proof, allowedAmount);
+  }, [drop, mintQty, proofInput, allowedAmountInput, deployed]);
 
   const displayName = drop.collectionMetadata?.name ?? 'Collection Details';
   const displayDescription = drop.collectionMetadata?.description;
@@ -359,22 +367,45 @@ export function CollectionDetailV2({
           {/* Mint Interface */}
           <ArtCard art={ART.danceNight} opacity={1} overlay="none">
             <div className="space-y-4">
-              {/* Allowlist proof input */}
+              {/* Allowlist inputs — both required when phase=ALLOWLIST */}
               <AnimatePresence>
                 {drop.currentPhase === 1 && (
-                  <m.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
-                    <label className={LABEL} htmlFor="mint-v2-merkleProof">Merkle Proof</label>
-                    <input
-                      id="mint-v2-merkleProof"
-                      type="text"
-                      value={proofInput}
-                      onChange={(e) => setProofInput(e.target.value)}
-                      placeholder="0xabc...,0xdef..."
-                      className={`${INPUT} font-mono text-xs`}
-                    />
-                    <span className="text-[10px] text-white mt-1 block">
-                      Comma-separated hex strings. Get your proof from the project.
-                    </span>
+                  <m.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="space-y-3"
+                  >
+                    <div>
+                      <label className={LABEL} htmlFor="mint-v2-merkleProof">Merkle Proof</label>
+                      <input
+                        id="mint-v2-merkleProof"
+                        type="text"
+                        value={proofInput}
+                        onChange={(e) => setProofInput(e.target.value)}
+                        placeholder="0xabc...,0xdef..."
+                        className={`${INPUT} font-mono text-xs`}
+                      />
+                      <span className="text-[10px] text-white mt-1 block">
+                        Comma-separated hex strings. Get your proof from the project.
+                      </span>
+                    </div>
+                    <div>
+                      <label className={LABEL} htmlFor="mint-v2-allowedAmount">Your Allowed Amount</label>
+                      <input
+                        id="mint-v2-allowedAmount"
+                        type="text"
+                        inputMode="numeric"
+                        value={allowedAmountInput}
+                        onChange={(e) => setAllowedAmountInput(e.target.value)}
+                        placeholder="10"
+                        className={`${INPUT} font-mono text-xs`}
+                      />
+                      <span className="text-[10px] text-white mt-1 block">
+                        Per-wallet cap encoded into your merkle leaf. Must match the value
+                        the project used when generating your proof.
+                      </span>
+                    </div>
                   </m.div>
                 )}
               </AnimatePresence>
