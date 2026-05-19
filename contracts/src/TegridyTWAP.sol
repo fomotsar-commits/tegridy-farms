@@ -534,6 +534,19 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
             // `_getCumulativePricesOverPeriod`). The next non-bypass observation
             // (which DOES enforce deviation against `lastSpot`) restores trust
             // once two clean observations are present.
+            // AUDIT FIX FRESH-2026: TWAP-FIRST-OBS-OWNER-GATE [HIGH] — restrict
+            //         the count==0 bootstrap to `owner` only, mirroring the
+            //         existing D-AMM-H1 dormancy-bypass gate at line 640.
+            //         Pre-fix, `bypassed=true + best.bypassed` revert pair
+            //         made the OBSERVED price unconsultable, BUT `lastSpot{0,1}`
+            //         was set unconditionally at lines 669-670 from the
+            //         attacker's manipulated reserves. Subsequent obs #4 then
+            //         tripped the deviation gate against the poisoned
+            //         baseline, bricking the buffer for ~24h until adminResetPair.
+            //         Owner-only bootstrap forces an honest baseline at the
+            //         single inflection point where there is no prior
+            //         `lastSpot` to gate against.
+            if (msg.sender != owner) revert BypassObservationOwnerOnly();
             bypassed = true;
             lastBypassUsed[pair] = block.timestamp;
             emit DeviationBypassed(pair, 0, spotPrice0, spotPrice1);
@@ -584,6 +597,22 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
                 // `OracleStale` revert was bypassed in favour of the inner
                 // `OracleRebootstrapping` revert. Off-chain monitoring that
                 // keys off typed errors missed the rebootstrap signal.
+                // AUDIT FIX FRESH-2026: TWAP-FIRST-OBS-OWNER-GATE [HIGH] —
+                //         restrict the self-bootstrap grace (count <= 2)
+                //         to `owner` only, mirroring the count==0 gate
+                //         and the D-AMM-H1 dormancy-bypass gate. Pre-fix,
+                //         each of obs #2/#3 admitted bypassed=true while
+                //         simultaneously OVERWRITING `lastSpot{0,1}` from
+                //         the attacker's manipulated reserves at lines
+                //         669-670. By the time obs #4 (deviation-gated)
+                //         landed, `lastSpot` had been pinned at the
+                //         manipulated value — the honest #4 then tripped
+                //         the deviation gate. Closing the 3-obs window to
+                //         owner-only writes ensures the baseline is honest
+                //         all the way through the bootstrap-to-enforcement
+                //         transition. Once count > 2 the path is
+                //         permissionless again.
+                if (msg.sender != owner) revert BypassObservationOwnerOnly();
                 bypassed = true;
                 lastBypassUsed[pair] = block.timestamp;
                 emit DeviationBypassed(pair, elapsed, spotPrice0, spotPrice1);
