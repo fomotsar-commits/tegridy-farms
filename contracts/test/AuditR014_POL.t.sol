@@ -224,11 +224,13 @@ contract AuditR014_POLTest is Test {
         // needs a different posture overrides via seq.setStatus(...).
         seq = new MockSequencerFeed(0, block.timestamp - 7 days);
 
-        // Default TWAP observation: fresh (now), consult returns 1 wei (so the
-        // floor is essentially zero — tests that exercise the accumulate path only
-        // need the gate to fire/not fire, not real swap economics).
+        // Default TWAP observation: fresh (now), consult returns ~1e18 (so the
+        // spot-vs-TWAP deviation gate added in POL-ACCUMULATE-SPOT-TWAP-DEVIATION
+        // matches MockLPPair's symmetric reserves r0=r1=100e18, spot ratio 1e18).
+        // The swap floor remains effectively passable (MockRouter swapRate=1000
+        // mints 500e18 TOWELI per ETH halved, >> 1e18 floor).
         twap.setLatestTimestamp(uint32(block.timestamp));
-        twap.setConsultReturn(1);
+        twap.setConsultReturn(1 ether);
 
         pol = new POLAccumulator(
             address(toweli), address(router), address(lp),

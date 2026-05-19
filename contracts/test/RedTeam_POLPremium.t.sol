@@ -45,8 +45,26 @@ contract MockJBACRT is ERC721 {
     }
 }
 
+/// @dev AUDIT FIX FRESH-2026: POL-ACCUMULATE-SPOT-TWAP-DEVIATION [HIGH] —
+///      added getReserves/token0 surface.
 contract MockLPRT is ERC20 {
-    constructor() ERC20("LP", "LP") { _mint(msg.sender, 1_000_000 ether); }
+    address public token0;
+    uint112 public r0 = 1 ether;
+    uint112 public r1 = 1 ether;
+    uint32 public ts;
+    constructor() ERC20("LP", "LP") {
+        _mint(msg.sender, 1_000_000 ether);
+        ts = uint32(block.timestamp);
+    }
+    function setToken0(address _t0) external { token0 = _t0; }
+    function setReserves(uint112 _r0, uint112 _r1) external {
+        r0 = _r0;
+        r1 = _r1;
+        ts = uint32(block.timestamp);
+    }
+    function getReserves() external view returns (uint112, uint112, uint32) {
+        return (r0, r1, ts);
+    }
 }
 
 contract MockFactoryRT {
@@ -94,7 +112,9 @@ contract MockRouterRT {
 contract MockTWAPRT {
     uint32 public latestTs;
     function setLatestTimestamp(uint32 _ts) external { latestTs = _ts; }
-    function consult(address, address, uint256, uint256) external pure returns (uint256) { return 1; }
+    /// @dev AUDIT FIX FRESH-2026: POL-ACCUMULATE-SPOT-TWAP-DEVIATION [HIGH] —
+    ///      match MockLPRT's symmetric reserves so the deviation gate passes.
+    function consult(address, address, uint256, uint256) external pure returns (uint256) { return 1 ether; }
     function getLatestObservation(address) external view returns (ITegridyTWAP.Observation memory) {
         return ITegridyTWAP.Observation({
             timestamp: latestTs,
@@ -174,6 +194,8 @@ contract RedTeamPOLPremium is Test {
         factory = new MockFactoryRT();
         router = new MockRouterRT(makeAddr("WETH"), address(factory), address(toweli));
         factory.setPair(address(lp));
+        // AUDIT FIX FRESH-2026: POL-ACCUMULATE-SPOT-TWAP-DEVIATION [HIGH] — wire token0.
+        lp.setToken0(address(toweli));
         twap = new MockTWAPRT();
         twap.setLatestTimestamp(uint32(block.timestamp));
 

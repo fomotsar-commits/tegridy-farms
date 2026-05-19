@@ -638,4 +638,34 @@ contract PremiumAccess is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelock
     function getDeprecatedPaidFeeRate(address user) external view returns (uint256) {
         return _deprecated_paidFeeRate_slot[user];
     }
+
+    /// @notice AUDIT FIX FRESH-2026: PA-ACCEPT-OWNERSHIP-BOOBY-TRAP [HIGH] —
+    ///         clear any in-flight `FEE_CHANGE` / `TREASURY_CHANGE` proposals
+    ///         at ownership-accept. Pre-fix, the prior owner could pre-queue
+    ///         hostile fee/treasury changes (`monthlyFeeToweli = 1000x`,
+    ///         `treasury = attackerAddr`) just before transferring ownership;
+    ///         the incoming owner inherited an executable queue that landed
+    ///         the moment the timelock elapsed. PremiumAccess was the
+    ///         asymmetric outlier — `TegridyLaunchpadV2.acceptOwnership`
+    ///         (lines 426-438) and `TegridyDropV2.acceptOwnership` (lines
+    ///         1148-1180) both already flushed pending proposals on accept.
+    /// @dev    Calls `super.acceptOwnership()` first so the Ownable2Step
+    ///         pendingOwner→owner promotion happens before we wipe any pending
+    ///         proposals — the typed events then emit cleanly under the new
+    ///         owner's authority. Mirrors LaunchpadV2 verbatim.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[FEE_CHANGE] != 0) {
+            uint256 cancelledFee = pendingMonthlyFee;
+            _cancel(FEE_CHANGE);
+            pendingMonthlyFee = 0;
+            emit FeeChangeCancelled(cancelledFee);
+        }
+        if (_executeAfter[TREASURY_CHANGE] != 0) {
+            address cancelledTreasury = pendingTreasury;
+            _cancel(TREASURY_CHANGE);
+            pendingTreasury = address(0);
+            emit TreasuryChangeCancelled(cancelledTreasury);
+        }
+    }
 }
