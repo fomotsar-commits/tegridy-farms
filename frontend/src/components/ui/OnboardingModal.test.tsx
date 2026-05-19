@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { screen, fireEvent } from '@testing-library/react';
 import type { HTMLAttributes, ReactNode } from 'react';
+import { renderWithProviders } from '../../test-utils/render';
 import { OnboardingModal } from './OnboardingModal';
 
 // Mock framer-motion to avoid animation issues in tests.
@@ -22,9 +22,10 @@ vi.mock('framer-motion', () => {
   };
 });
 
-// Wrap in router since OnboardingModal uses Link
+// Shared providers (Router + Theme) — Modal calls useTheme transitively
+// and OnboardingModal uses Link, both need their context here.
 function renderWithRouter() {
-  return render(<MemoryRouter><OnboardingModal /></MemoryRouter>);
+  return renderWithProviders(<OnboardingModal />);
 }
 
 describe('OnboardingModal', () => {
@@ -87,10 +88,13 @@ describe('OnboardingModal', () => {
     expect(screen.queryByText('Stay Safe')).not.toBeInTheDocument();
   });
 
-  it('Close button (x) sets localStorage and closes modal', () => {
+  it('Escape key closes modal and sets localStorage', () => {
+    // R039: Modal primitive handles Escape internally; the only "close" surfaces
+    // the user sees are Start Farming, the Farm/Trade nav links, and Escape.
+    // There is intentionally no X-close button — the onboarding is treated as
+    // a TOS-style explicit-acknowledgment flow.
     renderWithRouter();
-    const closeBtn = screen.getByLabelText('Close');
-    fireEvent.click(closeBtn);
+    fireEvent.keyDown(document, { key: 'Escape' });
     expect(localStorage.getItem('tegridy-onboarding-seen')).toBe('1');
     expect(screen.queryByText('Welcome to Tegridy Farms')).not.toBeInTheDocument();
   });
@@ -114,10 +118,15 @@ describe('OnboardingModal', () => {
     expect(backBtn.className).not.toContain('invisible');
   });
 
-  it('clicking backdrop overlay closes modal', () => {
+  it('clicking backdrop overlay does NOT close modal (dismissOnBackdrop=false)', () => {
+    // R039: onboarding is treated as TOS-style explicit-acknowledgment, so a
+    // stray background click must not dismiss it. The Modal primitive's
+    // `dismissOnBackdrop` is set to false here; only Start Farming / Skip /
+    // Buy TOWELI / Escape close the modal.
     const { container } = renderWithRouter();
     const backdrop = container.querySelector('.fixed.inset-0') as HTMLElement;
     fireEvent.click(backdrop);
-    expect(localStorage.getItem('tegridy-onboarding-seen')).toBe('1');
+    expect(localStorage.getItem('tegridy-onboarding-seen')).toBeNull();
+    expect(screen.getByText('Welcome to Tegridy Farms')).toBeInTheDocument();
   });
 });
