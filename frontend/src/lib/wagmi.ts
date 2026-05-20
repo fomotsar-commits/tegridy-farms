@@ -1,7 +1,6 @@
 import { getDefaultConfig } from '@rainbow-me/rainbowkit';
-import { connectorsForWallets } from '@rainbow-me/rainbowkit';
-import { injectedWallet, metaMaskWallet, coinbaseWallet } from '@rainbow-me/rainbowkit/wallets';
 import { createConfig, http, fallback } from 'wagmi';
+import { injected, coinbaseWallet } from 'wagmi/connectors';
 import { mainnet } from 'wagmi/chains';
 
 const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined;
@@ -35,18 +34,17 @@ function buildConfig() {
     );
   }
 
-  const connectors = connectorsForWallets(
-    [
-      {
-        groupName: 'Popular',
-        wallets: [injectedWallet, metaMaskWallet, coinbaseWallet],
-      },
-    ],
-    { appName: 'Tegridy Farms', projectId: '' },
-  );
-
+  // FE-E2E-01: when no WC projectId is set (CI, preview builds, fresh clones)
+  // we still need the app to mount. RainbowKit's wallet wrappers (metaMaskWallet,
+  // coinbaseWallet) all reach into @walletconnect/sign-client at construction and
+  // throw "No projectId found", crashing the React root. Drop down to bare wagmi
+  // connectors — `injected` covers MetaMask + Rabby + Frame + any EIP-1193
+  // provider, and `coinbaseWallet` uses its own SDK without WalletConnect.
   return createConfig({
-    connectors,
+    connectors: [
+      injected({ shimDisconnect: true }),
+      coinbaseWallet({ appName: 'Tegridy Farms' }),
+    ],
     chains: [mainnet],
     transports,
   });

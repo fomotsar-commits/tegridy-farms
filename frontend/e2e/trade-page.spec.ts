@@ -23,26 +23,32 @@ import { test, expect } from './fixtures/wallet';
 test.describe('TradePage', () => {
   test('renders with disconnected-wallet gate', async ({ page, walletMock: _w }) => {
     await page.goto('/swap');
-    await expect(page.locator('h1')).toContainText(/trade/i);
+    // TradePage's h1 follows the active tab (Swap / Liquidity / Recurring Swap /
+    // Price Alert) rather than the route name "Trade" — the title-by-tab map at
+    // TradePage.tsx:55 is the source of truth. Match the union.
+    await expect(page.locator('h1')).toContainText(/Swap|Liquidity|Recurring Swap|Price Alert|Trade/i);
     // Swap tab is the default; disconnected state must show the gate copy.
     await expect(page.getByText('Connect your wallet to swap', { exact: true })).toBeVisible();
   });
 
-  test('tab toggle switches between Swap, DCA, and Limit', async ({ page, walletMock: _w }) => {
+  test('tab toggle switches between Swap, Recurring Swap, and Price Alert', async ({ page, walletMock: _w }) => {
     await page.goto('/swap');
 
-    // Grab the tab group by its distinct 3-button layout + button labels.
-    const swapTab = page.getByRole('button', { name: 'Swap', exact: true });
-    const dcaTab = page.getByRole('button', { name: 'DCA', exact: true });
-    const limitTab = page.getByRole('button', { name: 'Limit', exact: true });
+    // Tab labels match TradePage.tsx:55 `titleByTab` — "DCA" / "Limit" were
+    // historical shorthand and have been renamed to the honest UX-first
+    // phrasing. Liquidity is also a tab but isn't toggled in this smoke.
+    // Tabs render as role="tab" (not role="button") inside a [role="tablist"].
+    const swapTab = page.getByRole('tab', { name: 'Swap', exact: true });
+    const dcaTab = page.getByRole('tab', { name: 'Recurring Swap', exact: true });
+    const limitTab = page.getByRole('tab', { name: 'Price Alert', exact: true });
 
     await expect(swapTab).toBeVisible();
     await expect(dcaTab).toBeVisible();
     await expect(limitTab).toBeVisible();
 
-    // Switch to DCA — the Swap-tab-only copy "Connect your wallet to swap"
-    // should no longer be in the DOM. Use an exact match to avoid colliding
-    // with DCA's own "Connect Wallet" CTA (different wording).
+    // Switch to Recurring Swap — the Swap-tab-only copy "Connect your wallet
+    // to swap" should no longer be in the DOM. Use an exact match to avoid
+    // colliding with the Recurring Swap tab's own "Connect Wallet" CTA.
     await dcaTab.click();
     await expect(page.getByText('Connect your wallet to swap', { exact: true })).toHaveCount(0);
 
@@ -71,7 +77,11 @@ test.describe('TradePage', () => {
     // Even though wagmi doesn't complete a full connect handshake from the
     // lightweight mock, the page should not crash. Tab group + h1 must still
     // be visible after the mock's accountsChanged event fires.
-    await expect(page.locator('h1')).toContainText(/trade/i);
-    await expect(page.getByRole('button', { name: 'Swap', exact: true })).toBeVisible();
+    // TradePage's h1 follows the active tab (Swap / Liquidity / Recurring Swap /
+    // Price Alert) rather than the route name "Trade" — the title-by-tab map at
+    // TradePage.tsx:55 is the source of truth. Match the union.
+    await expect(page.locator('h1')).toContainText(/Swap|Liquidity|Recurring Swap|Price Alert|Trade/i);
+    // Tab strip exposes role="tab", not role="button".
+    await expect(page.getByRole('tab', { name: 'Swap', exact: true })).toBeVisible();
   });
 });

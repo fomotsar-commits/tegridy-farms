@@ -10,6 +10,11 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:4173',
     trace: 'on-first-retry',
+    // AppLoader auto-skips when the browser advertises `prefers-reduced-motion:
+    // reduce` — without this, every test sits behind a fullscreen canvas intro
+    // for the entire duration. See frontend/src/components/loader/AppLoader.tsx
+    // (`shouldSkipAtMount`).
+    reducedMotion: 'reduce',
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
