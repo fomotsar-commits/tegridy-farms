@@ -311,6 +311,13 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     event UpdateFeeChanged(uint256 oldFee, uint256 newFee);
     event FeeRecipientChanged(address indexed oldRecipient, address indexed newRecipient);
     event FeesWithdrawn(address indexed to, uint256 amount);
+    /// @notice AUDIT FIX FRESH-2026: TWAP-REFUND-BANK-EVENT [MEDIUM] —
+    ///         emitted when an overpayment refund fails (broken receive(),
+    ///         OOG within 30k stipend) and the excess is banked into
+    ///         `accumulatedFees`. Pre-fix the silent absorption was
+    ///         invisible to off-chain monitoring; legitimate keepers
+    ///         couldn't distinguish "tip" from "broken-recipient" mode.
+    event RefundBanked(address indexed caller, uint256 amount);
     /// @notice AUDIT FIX D-AMM-H3: pair-reset lifecycle events.
     event PairResetProposed(address indexed pair, uint256 executeAfter);
     event PairResetExecuted(address indexed pair);
@@ -415,7 +422,11 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
                 if (!ok) {
                     // Failed refund -> bank as fee tip. Cannot revert because
                     // doing so re-opens the F-55-8 brick vector.
+                    // AUDIT FIX FRESH-2026: TWAP-REFUND-BANK-EVENT [MEDIUM] —
+                    //         emit observability event so off-chain monitors
+                    //         distinguish "tip" from "broken-recipient" mode.
                     accumulatedFees += excess;
+                    emit RefundBanked(msg.sender, excess);
                 }
             }
         } else {
