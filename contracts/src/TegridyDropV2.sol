@@ -327,7 +327,18 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     ///         phase for SEQUENCER_GRACE_PERIOD seconds so a buyer who waited
     ///         out an outage cannot benefit from a decayed post-outage price
     ///         on a mint they could not have submitted during the outage.
-    uint256 public constant SEQUENCER_GRACE_PERIOD = 1 hours;
+    /// @dev    AUDIT FIX FRESH-2026: DROP-SEQ-GRACE-OUTAGE-LENGTH [MEDIUM] —
+    ///         bumped 1h → 4h. The 1h window was shorter than realistic L2
+    ///         sequencer outages (Arbitrum 2024 outage was ~80 min, Base
+    ///         outages have stretched to multiple hours). Snipers benefited
+    ///         from an "outage discount" on dutch auctions because the
+    ///         decay clock keeps ticking while honest buyers cannot submit
+    ///         mints. 4h matches the post-resume freshness gate other
+    ///         price-sensitive paths use (POL `TWAP_MAX_STALENESS`,
+    ///         SwapFeeRouter L2 conversion path) and exceeds typical L2
+    ///         outage durations. Pattern of record: Chainlink V3 feed staleness
+    ///         conventions for L2-resident price consumers.
+    uint256 public constant SEQUENCER_GRACE_PERIOD = 4 hours;
 
     /// @notice AUDIT M8: cap platform fee at 10% to match LaunchpadV2.MAX_PROTOCOL_FEE_BPS.
     ///         The prior 100% cap allowed direct-clone deployments to siphon all creator share.
